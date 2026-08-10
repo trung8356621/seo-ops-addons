@@ -10,6 +10,7 @@ use Omnichannel\Addons\AiPrompt\Models\PromptResult;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\Models\SeoPromptPart;
 use Omnichannel\Addons\AiPrompt\Services\Ai\GeminiGenerateContentClient;
+use Omnichannel\Addons\Media\Services\MediaGenerationService;
 use Omnichannel\Addons\Media\Support\ImageToolType;
 use Omnichannel\Addons\AiPrompt\Support\PromptPostProcessing;
 use Omnichannel\Addons\Content\Support\Utf8Sanitizer;

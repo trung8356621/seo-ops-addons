@@ -18,6 +18,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Testing\Fakes\BusFake;
 use Throwable;
+use Omnichannel\Addons\Content\Services\ArticleEditorBundleApplyService;
+use Omnichannel\Addons\Content\Services\ArticleEditorPersistService;
+use Omnichannel\Addons\SearchFoundation\Services\SeoDatabaseConnectionService;
 
 final class ArticleWpSyncQueueService
 {

@@ -4,8 +4,10 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Models;
 
+use Omnichannel\Addons\Content\Support\ArticleLanguageCode;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapType;
 use Omnichannel\Addons\SearchFoundation\Models\Concerns\BelongsToOnDefaultConnection;
+use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
 use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 use App\Models\Site;
 use App\Models\User;
@@ -52,6 +54,17 @@ class SeoArticle extends Model
         'indexed_at' => 'datetime',
         'previous_indexed_at' => 'datetime',
     ];
+
+    /**
+     * Persist canonical language codes only — never UI labels.
+     * Runs on forceFill / setAttribute even when saveQuietly skips model events.
+     */
+    public function setLanguageAttribute(mixed $value): void
+    {
+        $this->attributes['language'] = ArticleLanguageCode::normalizeForStorage(
+            $value === null ? null : (string) $value,
+        );
+    }
 
     /**
      * saveQuietly skips model events — still route extension attributes.
@@ -282,11 +295,6 @@ class SeoArticle extends Model
         return $this->hasOne(\Omnichannel\Addons\ContentProjects\Models\SeoContentArchiveItem::class, 'article_id');
     }
 
-    public function links(): HasMany
-    {
-        return $this->hasMany(SeoLink::class, 'source_article_id');
-    }
-
     public function linkMaps(): HasMany
     {
         return $this->hasMany(SeoLinkMap::class, 'source_article_id');
@@ -416,20 +424,6 @@ class SeoArticle extends Model
             );
         }
 
-        if ($this->relationLoaded('links')) {
-            return $this->linksToExtractedArray($this->links);
-        }
-
-        if (
-            $this->legacySeoLinksTableExists()
-            && $this->legacyKeywordLinkTableExists()
-            && SeoLink::query()->where('source_article_id', $this->id)->exists()
-        ) {
-            return $this->linksToExtractedArray(
-                $this->links()->with('keywords')->orderBy('id')->get(),
-            );
-        }
-
         return $this->resolveExtractedLinksFromLegacyMeta();
     }
 
@@ -483,45 +477,6 @@ class SeoArticle extends Model
             }
 
             $internal[] = $row;
-        }
-
-        return ['internal' => $internal, 'external' => $external];
-    }
-
-    private function legacyKeywordLinkTableExists(): bool
-    {
-        return Schema::connection($this->getConnectionName())->hasTable('keyword_link');
-    }
-
-    private function legacySeoLinksTableExists(): bool
-    {
-        return Schema::connection($this->getConnectionName())->hasTable('seo_links');
-    }
-
-    /**
-     * @param  \Illuminate\Database\Eloquent\Collection<int, SeoLink>|\Illuminate\Support\Collection<int, SeoLink>  $links
-     * @return array{
-     *   internal: array<int, array{href:string,text:string,is_nofollow:bool}>,
-     *   external: array<int, array{href:string,text:string,is_nofollow:bool}>
-     * }
-     */
-    private function linksToExtractedArray($links): array
-    {
-        $internal = [];
-        $external = [];
-
-        foreach ($links as $link) {
-            $row = [
-                'href' => (string) $link->url,
-                'text' => (string) $link->anchorText(),
-                'is_nofollow' => (bool) $link->is_nofollow,
-            ];
-
-            if ($link->type === 'external') {
-                $external[] = $row;
-            } else {
-                $internal[] = $row;
-            }
         }
 
         return ['internal' => $internal, 'external' => $external];

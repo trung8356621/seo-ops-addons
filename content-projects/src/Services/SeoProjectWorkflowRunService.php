@@ -25,6 +25,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Omnichannel\Addons\AiPrompt\Services\PromptResultLinkService;
 
 final class SeoProjectWorkflowRunService
 {

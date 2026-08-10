@@ -191,16 +191,11 @@ final class ArticlesOptimal extends SeoPanelPage
 
         $options = [];
         foreach ($languages as $lang) {
-            $label = match ($lang) {
-                'vi' => 'Tiếng Việt',
-                'en' => 'English',
-                'ja' => '日本語',
-                'ko' => '한국어',
-                'zh' => '中文',
-                'fr' => 'Français',
-                default => mb_strtoupper((string) $lang),
-            };
-            $options[(string) $lang] = $label;
+            $code = \Omnichannel\Addons\Content\Support\ArticleLanguageCode::normalize((string) $lang);
+            if ($code === '') {
+                continue;
+            }
+            $options[$code] = \Omnichannel\Addons\Content\Support\ArticleLanguageCode::label($code);
         }
 
         return $options;
@@ -774,7 +769,7 @@ final class ArticlesOptimal extends SeoPanelPage
 
         ArticleResource::applySeoAuditCandidateScope($query);
 
-        $query->where('site_id', $siteId);
+        $query->where('articles.site_id', $siteId);
 
         if ($this->filterLanguage !== null && $this->filterLanguage !== '') {
             $query->where('language', $this->filterLanguage);

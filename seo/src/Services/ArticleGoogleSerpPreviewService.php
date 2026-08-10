@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\Seo\Services;
 
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
+use Omnichannel\Addons\WordPress\Services\VirtualCommentService;
 use App\Support\RankMathSchemaParser;
 
 final class ArticleGoogleSerpPreviewService

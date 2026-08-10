@@ -60,4 +60,44 @@ final class TeamMessageControllerTest extends TestCase
             'owner_id' => $owner->id,
         ]);
     }
+
+    public function test_poll_returns_json_message_delta(): void
+    {
+        if (! Schema::hasTable('team_messages')) {
+            $this->markTestSkipped('team_messages table is not available.');
+        }
+
+        $owner = User::query()->create([
+            'name' => 'Owner Poll',
+            'email' => 'owner-team-poll@test.test',
+            'password' => bcrypt('secret'),
+            'role' => User::ROLE_OWNER,
+            'status' => User::STATUS_NORMAL,
+            'seo_role' => User::SEO_ROLE_MANAGER,
+        ]);
+
+        $first = TeamMessage::query()->create([
+            'owner_id' => $owner->id,
+            'user_id' => $owner->id,
+            'message' => 'History',
+        ]);
+
+        $second = TeamMessage::query()->create([
+            'owner_id' => $owner->id,
+            'user_id' => $owner->id,
+            'message' => 'Delta',
+        ]);
+
+        $history = $this->actingAs($owner)->getJson('/api/seo/team/messages?poll=1&after_id=0');
+        $history->assertOk();
+        $history->assertJsonPath('history_end', true);
+        $history->assertJsonPath('messages.0.id', $first->id);
+        $history->assertJsonPath('messages.1.id', $second->id);
+
+        $delta = $this->actingAs($owner)->getJson('/api/seo/team/messages?poll=1&after_id='.$first->id);
+        $delta->assertOk();
+        $delta->assertJsonPath('history_end', false);
+        $delta->assertJsonCount(1, 'messages');
+        $delta->assertJsonPath('messages.0.id', $second->id);
+    }
 }

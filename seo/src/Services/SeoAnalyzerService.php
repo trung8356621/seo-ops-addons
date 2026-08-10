@@ -5,19 +5,14 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Seo\Services;
 
 
-use Omnichannel\Addons\SearchFoundation\Services\KeywordPersistenceService;
 use Omnichannel\Addons\AiPrompt\Services\WorkflowParserService;
+use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
 use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapType;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Content\Models\SeoArticle;
-use Omnichannel\Addons\SearchFoundation\Models\SeoLink;
 use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
-use Omnichannel\Addons\Seo\Support\CtaKeywordBlacklistFilter;
-use Omnichannel\Addons\SearchFoundation\Support\InternalAnchorKeywordFilter;
-use Omnichannel\Addons\SearchFoundation\Support\KeywordOrphanCleanup;
 use Omnichannel\Addons\SearchFoundation\Support\KeywordPhraseMatcher;
-use Omnichannel\Addons\SearchFoundation\Support\KeywordSyncIsolation;
 use Omnichannel\Addons\Seo\Support\SeoLinkMapLinkTypeClassifier;
 use Omnichannel\Addons\Seo\Support\SeoScoringRulesRegistry;
 use DOMDocument;
@@ -29,8 +24,6 @@ use Illuminate\Support\Str;
 class SeoAnalyzerService
 {
     public function __construct(
-        private readonly CtaKeywordBlacklistFilter $ctaKeywordBlacklistFilter,
-        private readonly KeywordPersistenceService $keywordPersistence,
         private readonly WorkflowParserService $workflowParser,
         private readonly SeoScoringEngine $scoringEngine,
         private readonly SeoPromptSettingsService $promptSettings,
@@ -611,6 +604,9 @@ class SeoAnalyzerService
     }
 
     /**
+     * Legacy seo_links / keyword_link write path retired.
+     * Link SoT = seo_link_maps via ArticleLinkContextMapService / ArticleKeywordLinkReconcileService.
+     *
      * @param  array{internal: array<int, mixed>, external: array<int, mixed>}  $extractedLinks
      * @param  array<int, string>  $excludeAnchorPhrases
      */
@@ -619,111 +615,7 @@ class SeoAnalyzerService
         array $extractedLinks,
         array $excludeAnchorPhrases = [],
     ): void {
-        if (! KeywordSyncIsolation::allowsContentKeywordPersistence()) {
-            return;
-        }
-
-        $connection = (new Keyword)->getConnectionName();
-        if (! Schema::connection($connection)->hasTable('keyword_link')) {
-            return;
-        }
-
-        $previousKeywordIds = SeoLink::query()
-            ->where('source_article_id', $article->id)
-            ->with('keywords')
-            ->get()
-            ->flatMap(static fn (SeoLink $link): array => $link->keywords->pluck('id')->all())
-            ->unique()
-            ->values()
-            ->all();
-
-        $this->keywordPersistence->detachArticleOutboundLinks((int) $article->id);
-
-        $article->loadMissing('site');
-        $siteId = (int) ($article->site_id ?? 0);
-        $focusKeyword = $this->resolveFocusKeyword($article);
-        $articlePermalink = $focusKeyword !== null && trim($focusKeyword) !== ''
-            ? trim(app(WordPressArticleContentService::class)->resolvePermalink($article))
-            : '';
-
-        foreach ($extractedLinks['internal'] as $link) {
-            $href = (string) ($link['href'] ?? '');
-            $anchorText = Keyword::preparePhraseForStorage(
-                Str::limit(strip_tags((string) ($link['text'] ?? '')), 255, ''),
-            );
-            $anchorText = $this->normalizeAnchorAgainstFocusKeyword($anchorText, $focusKeyword);
-            if ($anchorText === '' || $href === '') {
-                continue;
-            }
-
-            if (
-                $focusKeyword !== null
-                && mb_strtolower($anchorText) === mb_strtolower($focusKeyword)
-                && $articlePermalink !== ''
-                && $this->urlsMatchForCompare($href, $articlePermalink)
-            ) {
-                continue;
-            }
-
-            if ($this->shouldExcludeAnchorPhrase($anchorText, $excludeAnchorPhrases)) {
-                $this->keywordPersistence->resolveOrCreateLink(
-                    siteId: $siteId,
-                    url: $href,
-                    type: SeoLink::TYPE_INTERNAL,
-                    sourceArticleId: (int) $article->id,
-                    isNofollow: (bool) ($link['is_nofollow'] ?? false),
-                );
-
-                continue;
-            }
-
-            if (
-                InternalAnchorKeywordFilter::isUsableAnchorPhrase($anchorText, $href)
-                && ! $this->ctaKeywordBlacklistFilter->isBlocked($anchorText)
-            ) {
-                $keyword = $this->keywordPersistence->upsert(
-                    $anchorText,
-                    Keyword::TYPE_NORMAL,
-                    $siteId,
-                    $href,
-                    sourceArticleId: (int) $article->id,
-                    isNofollow: (bool) ($link['is_nofollow'] ?? false),
-                );
-
-                if (
-                    $keyword !== null
-                    && $focusKeyword !== null
-                    && mb_strtolower($anchorText) === mb_strtolower($focusKeyword)
-                ) {
-                    $this->keywordPersistence->mergeSuffixTruncatedKeywords($keyword, $siteId);
-                }
-            } else {
-                $this->keywordPersistence->resolveOrCreateLink(
-                    siteId: $siteId,
-                    url: $href,
-                    type: SeoLink::TYPE_INTERNAL,
-                    sourceArticleId: (int) $article->id,
-                    isNofollow: (bool) ($link['is_nofollow'] ?? false),
-                );
-            }
-        }
-
-        foreach ($extractedLinks['external'] as $link) {
-            $href = trim((string) ($link['href'] ?? ''));
-            if ($href === '') {
-                continue;
-            }
-
-            $this->keywordPersistence->resolveOrCreateLink(
-                siteId: $siteId,
-                url: $href,
-                type: SeoLink::TYPE_EXTERNAL,
-                sourceArticleId: (int) $article->id,
-                isNofollow: (bool) ($link['is_nofollow'] ?? false),
-            );
-        }
-
-        KeywordOrphanCleanup::deleteUnusedByIds($previousKeywordIds);
+        unset($article, $extractedLinks, $excludeAnchorPhrases);
     }
 
     private function resolveArticleDomain(SeoArticle $article, ?string $domainOverride = null): string

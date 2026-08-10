@@ -9,7 +9,6 @@ use Omnichannel\Addons\SearchFoundation\Services\KeywordPersistenceService;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Content\Models\SeoArticle;
-use Omnichannel\Addons\SearchFoundation\Models\SeoLink;
 use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
 use Omnichannel\Addons\Seo\Support\CtaKeywordBlacklistFilter;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordFocusAttach;
@@ -201,23 +200,9 @@ final class KeywordDomainResyncService
             ->where('parent_id', $keyword->id)
             ->update(['parent_id' => null]);
 
-        $linkIds = [];
-        $schema = \Illuminate\Support\Facades\Schema::connection((new Keyword)->getConnectionName());
-        if ($schema->hasTable('keyword_link') && $schema->hasTable('seo_links')) {
-            $linkIds = $keyword->links()->pluck('seo_links.id')->all();
-            $keyword->links()->detach();
-        }
-
         SeoLinkMap::query()->where('keyword_id', $keyword->id)->delete();
         $this->metaRepository->deleteAllForKeyword((int) $keyword->id);
         $keyword->delete();
-
-        if ($linkIds !== [] && $schema->hasTable('seo_links')) {
-            SeoLink::query()
-                ->whereIn('id', $linkIds)
-                ->whereDoesntHave('keywords')
-                ->delete();
-        }
     }
 
     private function isLinkedOnSite(Keyword $keyword, int $siteId): bool

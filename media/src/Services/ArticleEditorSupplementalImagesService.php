@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Media\Services;
 
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Media\Services\ArticleMediaLocalService;
 
 /**
  * Ảnh ngoài block editor (ảnh đại diện + album sản phẩm) cho tab Hình ảnh.

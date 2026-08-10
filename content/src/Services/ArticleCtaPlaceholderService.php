@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\Content\Services;
 
 use Omnichannel\Addons\Seo\Support\CtaLinkFormatter;
 use App\Models\Site;
+use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
 
 /**
  * Placeholder [phone], [website], … trong nội dung bài — AI dùng thay vì tự đặt tên random.

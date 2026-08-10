@@ -12,6 +12,8 @@ use Omnichannel\Addons\Seo\Support\SeoLinkMapLinkTypeClassifier;
 use Omnichannel\Addons\Seo\Support\SeoSuggestionUrlNormalizer;
 use App\Models\Site;
 use Illuminate\Support\Collection;
+use Omnichannel\Addons\WordPress\Services\SitePolylangService;
+use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 
 final class KeywordLinkTargetResolver
 {

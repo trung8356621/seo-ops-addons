@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Services;
 
 use Omnichannel\Addons\Seo\Contracts\SeoProjectWorkflowStepCatalogContract;
+use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
 use Omnichannel\Addons\ContentProjects\Enums\WorkflowExecutionRole;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;

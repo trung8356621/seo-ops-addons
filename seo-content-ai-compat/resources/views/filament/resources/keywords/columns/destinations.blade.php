@@ -1,10 +1,15 @@
 @php
     /** @var \Omnichannel\Addons\SearchFoundation\Models\Keyword $record */
     $record = $getRecord();
-    $linkCount = (int) ($record->site_links_count ?? $record->links?->count() ?? 0);
-    $domainCount = $record->relationLoaded('links')
-        ? $record->links->pluck('site_id')->filter(static fn (mixed $id): bool => (int) $id > 0)->unique()->count()
-        : 0;
+    $linkCount = (int) ($record->site_links_count ?? 0);
+    $domainCount = 0;
+    if ($record->relationLoaded('linkMaps')) {
+        $domainCount = $record->linkMaps
+            ->map(static fn ($map): int => (int) ($map->sourceArticle?->site_id ?? 0))
+            ->filter(static fn (int $id): bool => $id > 0)
+            ->unique()
+            ->count();
+    }
 @endphp
 
 @if ($linkCount <= 0)

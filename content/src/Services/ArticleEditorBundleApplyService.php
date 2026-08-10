@@ -9,6 +9,8 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\Content\Support\ArticleEditorSaveContext;
 use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordFocusAttach;
+use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
+use Omnichannel\Addons\Media\Services\ArticleMediaLocalService;
 
 final class ArticleEditorBundleApplyService
 {

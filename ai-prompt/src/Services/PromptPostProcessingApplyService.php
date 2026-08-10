@@ -6,13 +6,19 @@ namespace Omnichannel\Addons\AiPrompt\Services;
 
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Media\Models\SeoMedia;
+use Omnichannel\Addons\Media\Services\ArticleEditorMediaAiService;
+use Omnichannel\Addons\Media\Services\SeoImageOptimizationService;
+use Omnichannel\Addons\Media\Services\SeoMediaResizeService;
+use Omnichannel\Addons\Media\Services\SeoMediaStorageService;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\Support\PromptPostProcessing;
 use Omnichannel\Addons\Seo\Support\QuickSplitCanvasValidator;
+use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Intervention\Image\Format;
 use Intervention\Image\Laravel\Facades\Image;
+use Omnichannel\Addons\Media\Services\ArticleMediaLocalService;
 
 final class PromptPostProcessingApplyService
 {

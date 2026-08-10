@@ -8,6 +8,7 @@ use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Support\KeywordPhraseMatcher;
 use App\Models\Site;
+use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
 
 final class DomainLinkListEditorService
 {

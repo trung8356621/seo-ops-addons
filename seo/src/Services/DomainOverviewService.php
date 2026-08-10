@@ -14,6 +14,7 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
+use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
 
 final class DomainOverviewService
 {
@@ -41,8 +42,8 @@ final class DomainOverviewService
             'has_read_token' => $read !== '',
             'has_migration_token' => $migration !== '',
             'platform' => $platform,
-            'seo_plugin' => trim((string) ($site->getMeta(WordPressSiteInfoService::META_PLUGIN) ?? '')),
-            'seo_plugin_fetched_at' => trim((string) ($site->getMeta(WordPressSiteInfoService::META_PLUGIN_FETCHED_AT) ?? '')),
+            'seo_plugin' => trim((string) ($site->getMeta('seo_plugin') ?? '')),
+            'seo_plugin_fetched_at' => trim((string) ($site->getMeta('seo_wp_plugin_info_fetched_at') ?? '')),
         ];
     }
 
@@ -84,12 +85,12 @@ final class DomainOverviewService
 
         $row = (clone $base)
             ->whereNotNull('seo_score')
-            ->selectRaw('
+            ->select(DB::raw('
                 SUM(CASE WHEN seo_score < 50 THEN 1 ELSE 0 END) as poor,
                 SUM(CASE WHEN seo_score >= 50 AND seo_score < 70 THEN 1 ELSE 0 END) as fair,
                 SUM(CASE WHEN seo_score >= 70 AND seo_score < 90 THEN 1 ELSE 0 END) as good,
                 SUM(CASE WHEN seo_score >= 90 THEN 1 ELSE 0 END) as excellent
-            ')
+            '))
             ->first();
 
         $segments = [

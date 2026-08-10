@@ -16,6 +16,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
+use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 
 /**
  * Bình luận/review ảo lưu trên WordPress (post meta _omi_seo_virtual_comments).

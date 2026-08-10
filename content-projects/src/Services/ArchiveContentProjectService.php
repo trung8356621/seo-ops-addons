@@ -13,6 +13,7 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProjectArchiveItem;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\Content\Services\ArticleEditor\ArticleEditorSessionService;
+use Omnichannel\Addons\Content\Services\ArticleLastSavedTimestampService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\ContentProjectAiWorkspaceDestroyer;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\ContentProjectWorkspaceCleanupContext;
 use Omnichannel\Addons\WordPress\Support\WordPressPermalinkBuilder;
@@ -23,6 +24,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use RuntimeException;
+use Omnichannel\Addons\Media\Services\ArticlePostImagesService;
 
 /**
  * Archive = Destroy AI Workspace (giữ business article + planning metadata).

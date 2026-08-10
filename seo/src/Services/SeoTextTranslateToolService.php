@@ -7,6 +7,9 @@ namespace Omnichannel\Addons\Seo\Services;
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use App\Models\Site;
+use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
+use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
+use Omnichannel\Addons\WordPress\Services\SitePolylangService;
 
 /**
  * Dịch đoạn văn độc lập bằng prompt Workflows (translate_article_prompt_id).

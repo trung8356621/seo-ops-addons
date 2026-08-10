@@ -9,6 +9,7 @@ use Omnichannel\Addons\Seo\Filament\Pages\Auth\SeoEditProfile;
 use Omnichannel\Addons\Content\Http\Controllers\ArticleEditorLazyPayloadController;
 use Omnichannel\Addons\Content\Http\Controllers\ArticleEditorSyncController;
 use Omnichannel\Addons\Content\Http\Controllers\ArticleEditorSessionController;
+use Omnichannel\Addons\Content\Http\Middleware\LogEditorSessionAcquireMiddleware;
 use Omnichannel\Addons\Content\Http\Controllers\ArticleEditorOperationController;
 use Omnichannel\Addons\Commerce\Http\Controllers\ArticleProductReviewReconcileController;
 use Omnichannel\Addons\Commerce\Http\Controllers\ArticleProductReviewStatusController;
@@ -288,6 +289,20 @@ class SeoPanelProvider extends PanelProvider
             SubstituteBindings::class,
         ];
 
+        $seoEditorSessionAcquireMiddleware = [
+            EncryptCookies::class,
+            AddQueuedCookiesToResponse::class,
+            StartSession::class,
+            LogEditorSessionAcquireMiddleware::class,
+            AuthenticateSession::class,
+            ShareErrorsFromSession::class,
+            VerifyCsrfToken::class,
+            IlluminateAuthenticate::class,
+            CheckMainRole::class,
+            SetDynamicSeoDatabase::class,
+            SubstituteBindings::class,
+        ];
+
         Route::middleware($seoWebApiMiddleware)
             ->prefix('api/seo/media')
             ->group(function (): void {
@@ -352,6 +367,14 @@ class SeoPanelProvider extends PanelProvider
                     ->name('seo.domain-cta.quick-templates.update');
             });
 
+        Route::middleware($seoEditorSessionAcquireMiddleware)
+            ->prefix('api/seo/articles')
+            ->group(function (): void {
+                Route::post('/{article}/editor-sessions', [ArticleEditorSessionController::class, 'store'])
+                    ->whereNumber('article')
+                    ->name('seo.articles.editor-sessions.store');
+            });
+
         Route::middleware($seoWebApiMiddleware)
             ->prefix('api/seo/articles')
             ->group(function (): void {
@@ -385,9 +408,6 @@ class SeoPanelProvider extends PanelProvider
                 Route::post('/{article}/save', [ArticleEditorSyncController::class, 'save'])
                     ->whereNumber('article')
                     ->name('seo.articles.editor.save');
-                Route::post('/{article}/editor-sessions', [ArticleEditorSessionController::class, 'store'])
-                    ->whereNumber('article')
-                    ->name('seo.articles.editor-sessions.store');
                 Route::post('/{article}/editor-sessions/takeover', [ArticleEditorSessionController::class, 'takeover'])
                     ->whereNumber('article')
                     ->name('seo.articles.editor-sessions.takeover');

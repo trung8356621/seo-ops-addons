@@ -11,6 +11,9 @@ const state = {
 /** @type {Set<() => void>} */
 const listeners = new Set();
 
+/** Cached snapshot for useSyncExternalStore — must be referentially stable between emits. */
+let snapshot = { ...state };
+
 /**
  * @param {() => void} listener
  * @returns {() => void}
@@ -23,13 +26,14 @@ export function subscribe(listener) {
 }
 
 function emit() {
+    snapshot = { ...state };
     listeners.forEach((listener) => {
         listener();
     });
 }
 
 export function getSeoState() {
-    return { ...state };
+    return snapshot;
 }
 
 export const seoActions = {

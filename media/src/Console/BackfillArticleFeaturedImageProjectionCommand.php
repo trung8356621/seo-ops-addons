@@ -34,10 +34,11 @@ final class BackfillArticleFeaturedImageProjectionCommand extends Command
             $query->where('site_id', $siteId);
         }
         if ($this->option('only-unknown')) {
-            $query->where(function ($q): void {
-                $q->whereNull('featured_image_status')
-                    ->orWhere('featured_image_status', ArticleFeaturedImageStatus::UNKNOWN);
-            });
+            $query->whereDoesntHave('featuredMediaState')
+                ->orWhereHas('featuredMediaState', function ($q): void {
+                    $q->whereNull('status')
+                        ->orWhere('status', ArticleFeaturedImageStatus::UNKNOWN);
+                });
         }
 
         $limit = max(1, (int) $this->option('limit'));

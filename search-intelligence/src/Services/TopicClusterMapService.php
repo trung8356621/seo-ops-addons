@@ -10,6 +10,7 @@ use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
+use Omnichannel\Addons\SearchFoundation\Services\KeywordMetaRepository;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Models\Site;
 
@@ -434,12 +435,14 @@ final class TopicClusterMapService
             return (int) round((float) $metrics['difficulty']);
         }
 
-        $pivot = $keyword->resolvePivotForSite(SeoAccessControl::globalSiteId());
-        if ($pivot !== null && $pivot->difficulty !== null) {
-            return (int) $pivot->difficulty;
+        $siteId = (int) (SeoAccessControl::globalSiteId() ?? 0);
+        if ($siteId <= 0) {
+            return null;
         }
 
-        return null;
+        $difficulty = app(KeywordMetaRepository::class)->getSiteDifficulty((int) $keyword->id, $siteId);
+
+        return $difficulty !== null ? (int) round($difficulty) : null;
     }
 
     private function normalizeDomainLabel(string $domain): string

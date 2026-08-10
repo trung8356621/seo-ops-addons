@@ -8,6 +8,8 @@ namespace Omnichannel\Addons\WordPress\Services;
 use Omnichannel\Addons\AiPrompt\Services\WorkflowParserService;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Seo\Support\FaqRowNormalizer;
+use Omnichannel\Addons\Media\Services\ArticlePostImagesService;
+use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 
 /**
  * Khôi phục nội dung bài (kèm khối FAQ gốc) từ WordPress khi panel FAQ bị xóa sạch.

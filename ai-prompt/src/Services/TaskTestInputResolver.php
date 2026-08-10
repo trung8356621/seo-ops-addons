@@ -6,16 +6,20 @@ namespace Omnichannel\Addons\AiPrompt\Services;
 
 
 use Omnichannel\Addons\Seo\Services\SeoAnalyzerService;
+use Omnichannel\Addons\Seo\Services\SeoMainDomainService;
 use Omnichannel\Addons\Content\Enums\ArticleWritingSourceType;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Services\ArticleWritingAssembler;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectExistingArticleReconciler;
 use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemIdentity;
 use Omnichannel\Addons\ContentProjects\Support\ProjectTaskOriginVariables;
 use Omnichannel\Addons\ContentProjects\Support\TaskTestContext;
+use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 use App\Models\Site;
 use Illuminate\Database\Eloquent\Builder;
+use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
 
 final class TaskTestInputResolver
 {

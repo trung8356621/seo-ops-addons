@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchFoundation\Models;
 
+use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
 use Omnichannel\Addons\SearchIntelligence\Enums\KeywordReviewStatus;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapStatus;
@@ -16,7 +17,6 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
-use Illuminate\Support\Facades\Schema;
 
 class Keyword extends Model
 {
@@ -157,16 +157,11 @@ class Keyword extends Model
     public function getVolumeAttribute(): ?int
     {
         $siteId = $this->resolveSiteId();
-        if ($siteId !== null && $siteId > 0) {
-            $volume = app(KeywordMetaRepository::class)->getSiteSearchVolume((int) $this->id, $siteId);
-            if ($volume !== null) {
-                return $volume;
-            }
+        if ($siteId === null || $siteId <= 0) {
+            return null;
         }
 
-        $value = $this->resolvePivotForSite()?->search_volume;
-
-        return $value !== null ? (int) $value : null;
+        return app(KeywordMetaRepository::class)->getSiteSearchVolume((int) $this->id, $siteId);
     }
 
     public function getSearchVolumeAttribute(): ?int
@@ -187,16 +182,15 @@ class Keyword extends Model
     public function getMetricsAttribute(): ?array
     {
         $siteId = $this->resolveSiteId();
-        if ($siteId !== null && $siteId > 0) {
-            $keep = app(KeywordMetaRepository::class)->keepOnRescrapeForSite($this, $siteId);
-            if ($keep) {
-                return [self::METRIC_RESCRAPE_KEEP => true];
-            }
+        if ($siteId === null || $siteId <= 0) {
+            return null;
         }
 
-        $metrics = $this->resolvePivotForSite()?->metrics;
+        if (! app(KeywordMetaRepository::class)->keepOnRescrapeForSite($this, $siteId)) {
+            return null;
+        }
 
-        return is_array($metrics) ? $metrics : null;
+        return [self::METRIC_RESCRAPE_KEEP => true];
     }
 
     public function parent(): BelongsTo
@@ -207,14 +201,6 @@ class Keyword extends Model
     public function children(): HasMany
     {
         return $this->hasMany(self::class, 'parent_id');
-    }
-
-    public function links(): BelongsToMany
-    {
-        return $this->belongsToMany(SeoLink::class, 'keyword_link', 'keyword_id', 'link_id')
-            ->using(KeywordLink::class)
-            ->withPivot(['search_volume', 'difficulty', 'metrics'])
-            ->withTimestamps();
     }
 
     public function linkMaps(): HasMany
@@ -348,11 +334,6 @@ class Keyword extends Model
         return app(KeywordMetaRepository::class)->getMainArticleId((int) $this->id);
     }
 
-    public function linksForSite(int $siteId): BelongsToMany
-    {
-        return $this->links()->where('seo_links.site_id', $siteId);
-    }
-
     public function mainArticles(): BelongsToMany
     {
         return $this->belongsToMany(
@@ -466,11 +447,6 @@ class Keyword extends Model
         return $query->where('review_status', KeywordReviewStatus::Active->value);
     }
 
-    public function inboundLinks(): BelongsToMany
-    {
-        return $this->links();
-    }
-
     /**
      * @deprecated Pivot keyword_tag removed; use getTagIdsList().
      */
@@ -539,119 +515,13 @@ class Keyword extends Model
             }
         }
 
-        if (! $this->legacyKeywordLinkTableExists()) {
-            return null;
-        }
-
-        if ($this->relationLoaded('links') && $this->links->isNotEmpty()) {
-            return (int) $this->links->first()->site_id;
-        }
-
-        $siteId = $this->links()->orderBy('seo_links.id')->value('site_id');
-
-        return is_numeric($siteId) ? (int) $siteId : null;
-    }
-
-    public function resolvePivotForSite(?int $siteId = null): ?KeywordLink
-    {
-        if (! $this->legacyKeywordLinkTableExists()) {
-            return null;
-        }
-
-        $siteId ??= $this->resolveSiteId();
-        if ($siteId === null || $siteId <= 0) {
-            return null;
-        }
-
-        $link = $this->resolvePrimaryLink($siteId);
-        if ($link === null) {
-            return null;
-        }
-
-        if ($link->relationLoaded('pivot') && $link->pivot instanceof KeywordLink) {
-            return $link->pivot;
-        }
-
-        $loaded = $this->links()
-            ->where('seo_links.id', $link->id)
-            ->first();
-
-        return $loaded?->pivot instanceof KeywordLink ? $loaded->pivot : null;
-    }
-
-    public function resolvePrimaryLink(?int $siteId = null): ?SeoLink
-    {
-        if (! $this->legacyKeywordLinkTableExists()) {
-            return null;
-        }
-
-        $siteId ??= $this->resolveSiteId();
-
-        if ($this->relationLoaded('links')) {
-            $links = $this->links;
-            if ($siteId !== null && $siteId > 0) {
-                $scoped = $links->filter(static fn (SeoLink $link): bool => (int) $link->site_id === $siteId);
-
-                if ($scoped->isNotEmpty()) {
-                    return $this->pickPrimaryLinkFromCollection($scoped);
-                }
-            }
-
-            return $this->pickPrimaryLinkFromCollection($links);
-        }
-
-        $query = $this->links()->orderBy('seo_links.id');
-        if ($siteId !== null && $siteId > 0) {
-            $destination = (clone $query)
-                ->where('seo_links.site_id', $siteId)
-                ->whereNull('seo_links.source_article_id')
-                ->first();
-
-            if ($destination instanceof SeoLink) {
-                return $destination;
-            }
-
-            $scoped = (clone $query)->where('seo_links.site_id', $siteId)->first();
-            if ($scoped instanceof SeoLink) {
-                return $scoped;
-            }
-        }
-
-        return $query->first();
-    }
-
-    /**
-     * @param  \Illuminate\Support\Collection<int, SeoLink>  $links
-     */
-    private function pickPrimaryLinkFromCollection(\Illuminate\Support\Collection $links): ?SeoLink
-    {
-        if ($links->isEmpty()) {
-            return null;
-        }
-
-        $destination = $links
-            ->filter(static fn (SeoLink $link): bool => $link->source_article_id === null)
-            ->sortBy('id')
-            ->first();
-
-        if ($destination instanceof SeoLink) {
-            return $destination;
-        }
-
-        return $links->sortBy('id')->first();
+        return null;
     }
 
     public function targetUrlForSite(int $siteId): ?string
     {
         if ($siteId <= 0) {
             return null;
-        }
-
-        if ($this->legacyKeywordLinkTableExists()) {
-            $url = trim((string) ($this->resolvePrimaryLink($siteId)?->url ?? ''));
-            if ($url !== '') {
-                return $url;
-            }
         }
 
         $siteMetaUrl = trim((string) (app(KeywordMetaRepository::class)->getSiteTargetUrl((int) $this->id, $siteId) ?? ''));
@@ -693,18 +563,6 @@ class Keyword extends Model
         $url = trim(app(WordPressArticleContentService::class)->resolvePermalink($target));
 
         return $url !== '' ? $url : null;
-    }
-
-    private function legacyKeywordLinkTableExists(): bool
-    {
-        return $this->legacyKeywordLinkTablesExist();
-    }
-
-    private function legacyKeywordLinkTablesExist(): bool
-    {
-        $schema = Schema::connection($this->getConnectionName());
-
-        return $schema->hasTable('keyword_link') && $schema->hasTable('seo_links');
     }
 
     public function hasSiteContext(int $siteId): bool

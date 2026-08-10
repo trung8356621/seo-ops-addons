@@ -63,7 +63,7 @@ class ListSeoProjects extends ListRecords
                 ->icon('heroicon-o-beaker')
                 ->color('warning')
                 ->visible(fn (): bool => \Omnichannel\Addons\Media\Support\ProductGallery\ProductGalleryCanaryAccess::allowsUi())
-                ->url(fn (): string => \Omnichannel\Addons\ContentProjects\Filament\Pages\ProductGalleryCanaryPage::getUrl()),
+                ->url(fn (): string => \Omnichannel\Addons\Commerce\Filament\Pages\ProductGalleryCanaryPage::getUrl()),
             Actions\Action::make('open_site_archive')
                 ->label(__('seo-content-ai::filament.projects.open_site_archive'))
                 ->icon('heroicon-o-archive-box')

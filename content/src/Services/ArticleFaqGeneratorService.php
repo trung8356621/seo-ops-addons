@@ -7,6 +7,10 @@ namespace Omnichannel\Addons\Content\Services;
 
 use Omnichannel\Addons\AiPrompt\Services\WorkflowParserService;
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
+use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
+use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
+use Omnichannel\Addons\AiPrompt\Services\ArticleFaqPromptVariablesService;
+use Omnichannel\Addons\AiPrompt\Services\PromptResultLinkService;
 use Omnichannel\Addons\AiPrompt\Models\PromptResult;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;

@@ -17,6 +17,12 @@ use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use RuntimeException;
+use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
+use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
+use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
+use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
+use Omnichannel\Addons\AiPrompt\Services\ArticleFaqPromptVariablesService;
+use Omnichannel\Addons\AiPrompt\Services\PromptResultLinkService;
 
 /**
  * Sinh lại text heading Outline bằng prompt cấu hình tại SEO → Tùy chỉnh → Quy trình.

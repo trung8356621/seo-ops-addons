@@ -28,6 +28,8 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Throwable;
+use Omnichannel\Addons\Media\Services\ArticleMediaLocalService;
+use Omnichannel\Addons\Media\Services\ArticlePostImagesService;
 
 final class WordPressArticleSyncService
 {

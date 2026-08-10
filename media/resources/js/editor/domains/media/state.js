@@ -19,6 +19,14 @@ const state = {
 /** @type {Set<() => void>} */
 const listeners = new Set();
 
+/** Cached snapshot for useSyncExternalStore — must be referentially stable between emits. */
+let snapshot = {
+    featuredHealthSnapshot: state.featuredHealthSnapshot,
+    gallery: state.gallery,
+    postImages: state.postImages,
+    supplementalImages: state.supplementalImages,
+};
+
 /**
  * @param {() => void} listener
  * @returns {() => void}
@@ -30,14 +38,24 @@ export function subscribe(listener) {
     };
 }
 
+function refreshSnapshot() {
+    snapshot = {
+        featuredHealthSnapshot: state.featuredHealthSnapshot,
+        gallery: state.gallery,
+        postImages: state.postImages,
+        supplementalImages: state.supplementalImages,
+    };
+}
+
 function emit() {
+    refreshSnapshot();
     listeners.forEach((listener) => {
         listener();
     });
 }
 
 export function getMediaDomainState() {
-    return { ...state };
+    return snapshot;
 }
 
 /**
@@ -118,6 +136,27 @@ export const mediaActions = {
         state.supplementalImages = resolveNext(state.supplementalImages, valueOrUpdater);
         diagMutationEnd('media', {});
         emit();
+    },
+
+    /**
+     * One-shot mount hydrate — writes without emit so callers can run during render
+     * before useMediaEditor() subscribes (avoids sync listener re-entry / TDZ).
+     * @param {{ featuredHealthSnapshot?: object|null, gallery?: unknown[], postImages?: unknown[], supplementalImages?: unknown[] }} next
+     */
+    hydrate(next = {}) {
+        if (Object.prototype.hasOwnProperty.call(next, 'featuredHealthSnapshot')) {
+            state.featuredHealthSnapshot = next.featuredHealthSnapshot ?? null;
+        }
+        if (Object.prototype.hasOwnProperty.call(next, 'gallery')) {
+            state.gallery = Array.isArray(next.gallery) ? next.gallery : [];
+        }
+        if (Object.prototype.hasOwnProperty.call(next, 'postImages')) {
+            state.postImages = Array.isArray(next.postImages) ? next.postImages : [];
+        }
+        if (Object.prototype.hasOwnProperty.call(next, 'supplementalImages')) {
+            state.supplementalImages = Array.isArray(next.supplementalImages) ? next.supplementalImages : [];
+        }
+        refreshSnapshot();
     },
 
     markDirty() {

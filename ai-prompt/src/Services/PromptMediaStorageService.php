@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AiPrompt\Services;
 
 use Omnichannel\Addons\Media\Models\SeoMedia;
+use Omnichannel\Addons\Media\Services\SeoMediaPathAllocator;
+use Omnichannel\Addons\Media\Services\SeoMediaStorageService;
 use Omnichannel\Addons\AiPrompt\Support\PromptMediaPersistContext;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;

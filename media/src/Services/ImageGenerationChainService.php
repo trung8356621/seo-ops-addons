@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Media\Services;
 
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
+use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 
 /**

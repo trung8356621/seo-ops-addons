@@ -14,6 +14,7 @@ use Omnichannel\Addons\Media\Support\ImageCapability;
 use Omnichannel\Addons\Media\Support\ImageCapabilityResolver;
 use Omnichannel\Addons\Media\Support\ImageToolType;
 use Omnichannel\Addons\Seo\Support\RenderingPreference;
+use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
 use App\Models\ApiConnection;
 use Illuminate\Support\Facades\Http;
 use Throwable;

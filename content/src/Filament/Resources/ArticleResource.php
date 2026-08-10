@@ -17,6 +17,7 @@ use Omnichannel\Addons\Media\Models\SeoMedia;
 use Omnichannel\Addons\Media\Models\SeoMediaProcessingHistory;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource;
 use Omnichannel\Addons\Media\Services\ArticleFeaturedImageProjection;
 use Omnichannel\Addons\Media\Services\ArticleMediaLocalService;
 use Omnichannel\Addons\Content\Services\ArticleReviewService;
@@ -1044,11 +1045,11 @@ class ArticleResource extends SeoPanelResource
         static::applyExcludeSkipSeoAuditScope($query);
 
         if (SeoAccessControl::shouldScopeToAccountOwner() && ! SeoAccessControl::isContentManager()) {
-            SeoAccessControl::applyAccessibleSiteScope($query);
+            SeoAccessControl::applyAccessibleSiteScope($query, 'articles.site_id');
         }
 
         if (SeoAccessControl::shouldApplyGlobalSiteScope()) {
-            $query->where('site_id', (int) SeoAccessControl::globalSiteId());
+            $query->where('articles.site_id', (int) SeoAccessControl::globalSiteId());
         }
 
         if (SeoAccessControl::isContentManager()) {
@@ -1218,7 +1219,7 @@ class ArticleResource extends SeoPanelResource
         if ($siteId > 0) {
             $query->where('articles.site_id', $siteId);
         } elseif (SeoAccessControl::shouldScopeToAccountOwner()) {
-            SeoAccessControl::applyAccessibleSiteScope($query);
+            SeoAccessControl::applyAccessibleSiteScope($query, 'articles.site_id');
         }
 
         return $query
@@ -1405,11 +1406,11 @@ class ArticleResource extends SeoPanelResource
         bool $includeContentManagerOwnershipScope = true,
     ): Builder {
         if (SeoAccessControl::shouldScopeToAccountOwner() && ! SeoAccessControl::isContentManager()) {
-            SeoAccessControl::applyAccessibleSiteScope($query);
+            SeoAccessControl::applyAccessibleSiteScope($query, 'articles.site_id');
         }
 
         if ($includeGlobalSiteScope && SeoAccessControl::shouldApplyGlobalSiteScope()) {
-            $query->where('site_id', (int) SeoAccessControl::globalSiteId());
+            $query->where('articles.site_id', (int) SeoAccessControl::globalSiteId());
         }
 
         if ($includeContentManagerOwnershipScope && SeoAccessControl::isContentManager()) {
@@ -1449,8 +1450,8 @@ class ArticleResource extends SeoPanelResource
 
         return $query->where(function (Builder $ownership) use ($userId): void {
             $ownership
-                ->where('user_id', $userId)
-                ->orWhereIn('id', SeoProjectTask::query()
+                ->where('articles.user_id', $userId)
+                ->orWhereIn('articles.id', SeoProjectTask::query()
                     ->whereNotNull('article_id')
                     ->whereIn('project_id', SeoProject::query()
                         ->where('user_id', $userId)

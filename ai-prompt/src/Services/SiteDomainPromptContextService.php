@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AiPrompt\Services;
 
 use App\Models\Site;
+use Omnichannel\Addons\Seo\Services\SeoDomainCtaGlobalSettingsService;
 
 final class SiteDomainPromptContextService
 {

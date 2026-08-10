@@ -51,6 +51,19 @@ return new class extends Migration
             return;
         }
 
+        // Legacy articles.featured_* projection columns — skipped after Task 5 drop.
+        $legacyCols = [
+            'featured_media_id',
+            'featured_thumb_url',
+            'featured_image_status',
+            'featured_image_source',
+        ];
+        foreach ($legacyCols as $col) {
+            if (! $schema->hasColumn('articles', $col)) {
+                return;
+            }
+        }
+
         DB::connection($this->connection)->statement(
             "INSERT INTO article_media_states
                 (article_id, media_id, role, position, source, status, display_url, created_at, updated_at)

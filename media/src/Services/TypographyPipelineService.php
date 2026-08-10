@@ -6,11 +6,13 @@ namespace Omnichannel\Addons\Media\Services;
 
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
+use Omnichannel\Addons\AiPrompt\Services\PromptMediaStorageService;
 use Omnichannel\Addons\Media\Support\ImageModelInputLengthPolicy;
 use Omnichannel\Addons\Media\Support\ImageRoutingExecutionPolicy;
 use Omnichannel\Addons\Media\Support\ImageRoutingStrategy;
 use Omnichannel\Addons\Media\Support\ImageToolType;
 use Omnichannel\Addons\Seo\Support\RenderingPreference;
+use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
 use Omnichannel\Addons\Content\Support\TypographyComplexity;
 use App\Models\ApiConnection;
 

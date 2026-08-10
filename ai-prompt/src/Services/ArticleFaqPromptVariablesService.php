@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AiPrompt\Services;
 
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
 use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
 use Illuminate\Support\Str;
 

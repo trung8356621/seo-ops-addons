@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\ContentProjects\Services;
 
 use Omnichannel\Addons\Content\Services\ArticleOutlineResolver;
 use Omnichannel\Addons\Agent\Automation\Data\ActionContext;
+use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
 use Omnichannel\Addons\Agent\Automation\Data\ActionResult;
 use Omnichannel\Addons\Agent\Automation\Migration\AutomationMigrationWriteException;
 use Omnichannel\Addons\Agent\Automation\Migration\ProjectArticleCreateCallerBridge;

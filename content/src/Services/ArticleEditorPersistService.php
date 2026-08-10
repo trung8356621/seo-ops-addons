@@ -12,6 +12,9 @@ use Omnichannel\Addons\Content\Services\ArticleEditor\Document\ArticleEditorDocu
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectArticleMembership;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectPublishingQueueService;
 use Omnichannel\Addons\Content\Support\ArticleEditorSaveContext;
+use Omnichannel\Addons\Media\Services\ArticlePostImagesService;
+use Omnichannel\Addons\SearchFoundation\Services\ArticleKeywordLinkReconcileService;
+use Omnichannel\Addons\WordPress\Services\ArticleWordPressSyncFlagService;
 use Carbon\Carbon;
 
 final class ArticleEditorPersistService

@@ -8,6 +8,22 @@ export function csrfToken() {
 }
 
 /**
+ * Encrypted XSRF cookie — stays in sync when Livewire/session rotates the CSRF token.
+ */
+export function xsrfTokenFromCookie() {
+    const match = document.cookie.match(/(?:^|; )XSRF-TOKEN=([^;]*)/);
+    if (!match) {
+        return '';
+    }
+
+    try {
+        return decodeURIComponent(match[1]);
+    } catch {
+        return match[1] || '';
+    }
+}
+
+/**
  * @return {{ siteId: number|null, connectionHash: string }}
  */
 export function readSeoArticleApiContext() {
@@ -89,6 +105,7 @@ export function seoArticleApiHeaders(extraHeaders = {}) {
 export async function seoArticleApiFetch(url, options = {}) {
     const method = String(options.method ?? 'GET').toUpperCase();
     const token = csrfToken();
+    const xsrf = xsrfTokenFromCookie();
     const needsCsrf = !['GET', 'HEAD', 'OPTIONS'].includes(method);
     const incomingHeaders = options.headers ?? {};
     const hasContentType = Object.keys(incomingHeaders).some(
@@ -109,6 +126,8 @@ export async function seoArticleApiFetch(url, options = {}) {
                 ...(isJsonStringBody && !hasContentType ? { 'Content-Type': 'application/json' } : {}),
                 ...seoArticleApiHeaders(),
                 ...(needsCsrf && token !== '' ? { 'X-CSRF-TOKEN': token } : {}),
+                // Cookie XSRF stays valid when Livewire rotates the meta CSRF token.
+                ...(needsCsrf && xsrf !== '' ? { 'X-XSRF-TOKEN': xsrf } : {}),
                 ...incomingHeaders,
             },
         });

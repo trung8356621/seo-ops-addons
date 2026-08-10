@@ -6,12 +6,17 @@ namespace Omnichannel\Addons\Content\Services;
 
 
 use Omnichannel\Addons\SearchFoundation\Services\KeywordPersistenceService;
+use Omnichannel\Addons\SearchFoundation\Services\KeywordMetaRepository;
+use Omnichannel\Addons\SearchFoundation\Services\ArticleKeywordLinkReconcileService;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\ContentProjects\Services\KeywordProjectAssignmentService;
 use Omnichannel\Addons\SearchFoundation\Models\SeoPendingInternalLink;
+use Omnichannel\Addons\Seo\Services\SeoIssueProjectTaskAssignmentService;
 use Omnichannel\Addons\WordPress\Support\WordPressPermalinkBuilder;
+use Omnichannel\Addons\WordPress\Services\ArticleWordPressSyncFlagService;
+use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 use App\Models\Site;
-use Illuminate\Support\Facades\DB;
 
 final class ArticlePendingInternalLinkService
 {

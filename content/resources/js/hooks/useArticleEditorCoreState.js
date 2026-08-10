@@ -209,10 +209,12 @@ export default function useArticleEditorCoreState({ activeHeavyModule, activeHea
         const initialGalleryValue = normalizeProductAlbumList(
             initialProductGallery.length > 0 ? initialProductGallery : loadProductAlbum(articleId),
         );
-        mediaActions.setPostImages(initialPostImagesValue);
-        mediaActions.setSupplementalImages(initialSupplementalValue);
-        mediaActions.setGallery(initialGalleryValue);
-        mediaActions.setFeaturedHealthSnapshot(loadFeaturedImage(articleId));
+        mediaActions.hydrate({
+            postImages: initialPostImagesValue,
+            supplementalImages: initialSupplementalValue,
+            gallery: initialGalleryValue,
+            featuredHealthSnapshot: loadFeaturedImage(articleId),
+        });
     }
     const {
         featuredHealthSnapshot,

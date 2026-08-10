@@ -13,6 +13,7 @@ use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Throwable;
+use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 
 final class WordPressMediaLibraryService
 {

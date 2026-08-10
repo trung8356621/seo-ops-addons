@@ -11,6 +11,7 @@ use Omnichannel\Addons\Media\Support\ImageToolType;
 use Omnichannel\Addons\AiPrompt\Support\PromptLoaiSanPhamVariable;
 use Omnichannel\Addons\Content\Support\Utf8Sanitizer;
 use App\Models\ApiConnection;
+use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
 
 /**
  * Trung chuyển thực thi AI theo công cụ Prompt — tách Imagen/Gemini Image khỏi Claude Text.

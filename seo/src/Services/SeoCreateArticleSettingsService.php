@@ -8,6 +8,7 @@ use Omnichannel\Addons\Seo\Support\GoogleAiModelRegistry;
 use Omnichannel\Addons\Seo\Support\GeminiModelVersionPolicy;
 use Omnichannel\Addons\Seo\Support\RenderingPreference;
 use Omnichannel\Addons\Content\Support\TypographyValidationLevel;
+use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
 use App\Models\WpOption;
 
 final class SeoCreateArticleSettingsService implements \Omnichannel\Addons\Content\Contracts\SeoCreateArticleSettingsReader

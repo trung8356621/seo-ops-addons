@@ -16,6 +16,9 @@ use App\Models\Site;
 use DOMElement;
 use DOMXPath;
 use Illuminate\Support\Str;
+use Omnichannel\Addons\SearchFoundation\Services\KeywordLinkTargetResolver;
+use Omnichannel\Addons\SearchFoundation\Services\KeywordQualityFlagService;
+use Omnichannel\Addons\Seo\Services\LinkMapStatusAuditService;
 
 /**
  * Trích xuất link trong HTML bài viết kèm ngữ cảnh, lưu vào seo_link_maps.

@@ -15,6 +15,7 @@ use Omnichannel\Addons\Agent\Automation\Enums\ActionSideEffect;
 use Omnichannel\Addons\Agent\Automation\Support\ActionSupport;
 use Omnichannel\Addons\Agent\Automation\Support\ArticleCreateOriginResolver;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Support\ArticleLanguageCode;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordFocusAttach;
 use Illuminate\Support\Facades\DB;
@@ -79,7 +80,7 @@ final class CreateArticleAction implements BusinessAction
         }
 
         $postType = SeoProjectTask::normalizePostType((string) ($input['post_type'] ?? 'article'));
-        $language = trim((string) ($input['language'] ?? 'vi')) ?: 'vi';
+        $language = ArticleLanguageCode::normalizeForStorage((string) ($input['language'] ?? 'vi'));
         $originType = isset($input['origin_type']) ? trim((string) $input['origin_type']) : '';
         $originId = isset($input['origin_id']) ? (int) $input['origin_id'] : 0;
 

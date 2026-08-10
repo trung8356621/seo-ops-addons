@@ -15,7 +15,7 @@ return new class extends Migration
         Schema::connection($this->connection)->create('prompt_results', function (Blueprint $table) {
             $table->id();
             $table->foreignId('prompt_id')->constrained('prompts')->cascadeOnDelete();
-            $table->foreignId('entity_id')->nullable()->constrained('entities')->nullOnDelete();
+            // entity_id / entities table retired — do not recreate FK on fresh install.
             $table->unsignedBigInteger('user_id')->index();
             $table->unsignedBigInteger('site_id')->index();
             $table->string('status', 32)->default('pending');

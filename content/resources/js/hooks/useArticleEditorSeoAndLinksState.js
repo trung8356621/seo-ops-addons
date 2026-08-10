@@ -51,6 +51,8 @@ export default function useArticleEditorSeoAndLinksState({ activeHeavyModuleRef,
     const [seoScoreSource, setSeoScoreSource] = useState('saved');
     const seoPreviewAbortRef = useRef(null);
     const [mediaHealthTick, setMediaHealthTick] = useState(0);
+    // Declared before effects that close over it — avoids TDZ after minify (`const` used before init).
+    const siteDomainRef = useRef(String(initialSeo?.site_domain ?? '').trim());
 
     useEffect(() => {
         seoApi.adopt(initialSeo?.analysis ?? null, initialSeo?.focus_keyword ?? '');
@@ -91,7 +93,7 @@ export default function useArticleEditorSeoAndLinksState({ activeHeavyModuleRef,
             }
             if (summary.siteDomain) {
                 siteDomainRef.current = summary.siteDomain;
-                // Domain arrived after first scan � republish classification for Links panel.
+                // Domain arrived after first scan — republish classification for Links panel.
                 window.dispatchEvent(new CustomEvent(LINKS_RESCAN_REQUEST_EVENT));
             }
         };
@@ -212,7 +214,6 @@ export default function useArticleEditorSeoAndLinksState({ activeHeavyModuleRef,
             initialSeo?.suggested_external_links ?? [],
         ),
     );
-    const siteDomainRef = useRef(String(initialSeo?.site_domain ?? '').trim());
 
     return { analysis, articleType, domainLinkCatalogRef, extractedLinks, focusKeyword, hasHydratedSeoFromServerRef, lastSeoAnalysisRef, mediaHealthTick, savedSeoScore, scoringMessages, seoDomain, seoMetaRef, seoPreviewAbortRef, seoScoreSource, seoScoringRules, setArticleType, setExtractedLinks, setMediaHealthTick, setSavedSeoScore, setSeoScoreSource, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomain, siteDomainRef, suggestedExternalLinks, suggestedInternalLinks, suggestionExternalCatalogRef, suggestionKeywordCatalogRef, wikiTrustDomains };
 }

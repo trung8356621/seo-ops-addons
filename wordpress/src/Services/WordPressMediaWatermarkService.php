@@ -10,6 +10,7 @@ use Omnichannel\Addons\Media\Models\SeoWatermarkSetting;
 use Omnichannel\Addons\WordPress\Services\WordPressWriteReadinessGuard;
 use App\Models\Site;
 use Illuminate\Support\Facades\Http;
+use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Throwable;

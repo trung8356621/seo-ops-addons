@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\Content\Support;
 
 
 use Omnichannel\Addons\Seo\Support\SeoScoringRulesRegistry;
+use Omnichannel\Addons\Seo\Support\SeoRuleViolationsResolver;
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Content\Models\SeoArticle;

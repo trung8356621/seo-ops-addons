@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\Media\Services;
 
 use Omnichannel\Addons\Media\Models\SeoMedia;
 use Omnichannel\Addons\Media\Models\SeoWatermarkSetting;
+use Omnichannel\Addons\WordPress\Services\WordPressMediaWatermarkService;
 use App\Models\Site;
 
 final class SeoMediaLibraryImageActionService

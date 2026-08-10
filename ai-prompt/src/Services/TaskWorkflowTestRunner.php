@@ -10,6 +10,9 @@ use Omnichannel\Addons\ContentProjects\Enums\WorkflowExecutionRole;
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Media\Models\SeoMedia;
+use Omnichannel\Addons\Media\Services\ArticleEditorMediaAiService;
+use Omnichannel\Addons\Media\Services\ArticleMediaLocalService;
+use Omnichannel\Addons\Media\Services\SeoMediaStorageService;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\Models\SeoTask;
@@ -18,6 +21,10 @@ use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookBinding;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookExplicitBindingExecutor;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookUiFailureMapper;
 use Omnichannel\Addons\ContentProjects\Services\Workflow\ArtifactReusePolicy;
+use Omnichannel\Addons\ContentProjects\Services\ArticleGenerationInputResolver;
+use Omnichannel\Addons\Content\Services\ArticleWritingAssembler;
+use Omnichannel\Addons\Content\Services\ArticleWritingLegacyRewriteAdapter;
+use Omnichannel\Addons\Content\Services\SeoFaqPersistenceService;
 use Omnichannel\Addons\Content\Support\ArticleGenerationSourceResult;
 use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordFocusAttach;
@@ -26,11 +33,16 @@ use Omnichannel\Addons\AiPrompt\Support\PromptPostProcessing;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\Seo\Support\SeoRuleViolationsResolver;
 use Omnichannel\Addons\Seo\Support\SeoScoringRulesRegistry;
+use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
+use Omnichannel\Addons\Seo\Services\WorkflowKeywordResearchService;
+use Omnichannel\Addons\WordPress\Services\WordPressCommentReviewService;
 use Omnichannel\Addons\ContentProjects\Support\TaskTestContext;
 use Omnichannel\Addons\ContentProjects\Support\Workflow\WorkflowTypedArtifact;
 use Omnichannel\Addons\ContentProjects\Support\WorkflowExecutionState;
 use App\Models\Site;
 use Illuminate\Support\Str;
+use Omnichannel\Addons\Content\Services\ArticleMarkdownToHtmlService;
+use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
 
 final class TaskWorkflowTestRunner
 {

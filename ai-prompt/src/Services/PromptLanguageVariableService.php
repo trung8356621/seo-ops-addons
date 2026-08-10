@@ -7,6 +7,8 @@ namespace Omnichannel\Addons\AiPrompt\Services;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Models\Site;
+use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
+use Omnichannel\Addons\WordPress\Services\SitePolylangService;
 
 /**
  * Biến global {{language}} — tên ngôn ngữ tiếng Anh (Vietnamese, English, …).

@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\Media\Services;
 
 
 use Omnichannel\Addons\Seo\Services\SeoAnalyzerService;
+use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
 use Omnichannel\Addons\AiPrompt\Filament\Resources\PromptResource;
 use Omnichannel\Addons\Media\Jobs\GenerateMediaJob;
 use Omnichannel\Addons\Content\Models\SeoArticle;
@@ -13,6 +14,8 @@ use Omnichannel\Addons\Media\Models\SeoMedia;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
+use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
+use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
 use Omnichannel\Addons\Commerce\Services\ProductGallery\ImageProviderCapabilityResolver;
 use Omnichannel\Addons\Commerce\Services\ProductGallery\ProductGalleryParentChildDispatchService;
 use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
@@ -25,6 +28,8 @@ use Omnichannel\Addons\AiPrompt\Support\PromptPostProcessing;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
+use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
+use Omnichannel\Addons\Media\Services\ArticleMediaLocalService;
 
 final class ArticleEditorMediaAiService
 {

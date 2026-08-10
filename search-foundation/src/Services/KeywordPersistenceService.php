@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchFoundation\Services;
 
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
-use Omnichannel\Addons\SearchFoundation\Models\KeywordLink;
-use Omnichannel\Addons\SearchFoundation\Models\SeoLink;
 use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
 use Omnichannel\Addons\SearchFoundation\Support\KeywordOrphanCleanup;
 
+/**
+ * Keyword + site-meta persistence.
+ * Link SoT = seo_link_maps (ArticleLinkContextMapService). Legacy seo_links / keyword_link dropped.
+ */
 final class KeywordPersistenceService
 {
     public function __construct(
@@ -32,6 +34,9 @@ final class KeywordPersistenceService
         ?int $targetArticleId = null,
         bool $isNofollow = false,
     ): ?Keyword {
+        // Legacy seo_links attach args retained for call-site compatibility; unused after cutover.
+        unset($sourceArticleId, $targetArticleId, $isNofollow);
+
         $phrase = Keyword::preparePhraseForStorage($phrase);
         if ($phrase === '') {
             return null;
@@ -77,21 +82,6 @@ final class KeywordPersistenceService
             difficulty: $difficulty,
         );
 
-        if ($targetUrl !== null && trim($targetUrl) !== '' && $this->legacyKeywordLinkTableExists()) {
-            $this->attachKeywordToLink(
-                keyword: $keyword,
-                siteId: $siteId,
-                targetUrl: $targetUrl,
-                linkType: SeoLink::TYPE_INTERNAL,
-                sourceArticleId: $sourceArticleId,
-                targetArticleId: $targetArticleId,
-                isNofollow: $isNofollow,
-                metrics: $metrics,
-                searchVolume: $searchVolume,
-                difficulty: $difficulty,
-            );
-        }
-
         return $keyword->fresh(['metas']);
     }
 
@@ -105,8 +95,10 @@ final class KeywordPersistenceService
         ?array $metrics = null,
         ?int $searchVolume = null,
         ?float $difficulty = null,
-        string $linkType = SeoLink::TYPE_INTERNAL,
+        string $linkType = 'internal',
     ): void {
+        unset($linkType);
+
         if ($siteId <= 0) {
             throw new \InvalidArgumentException('Keyword link site_id is required.');
         }
@@ -121,152 +113,6 @@ final class KeywordPersistenceService
             searchVolume: $searchVolume,
             difficulty: $difficulty,
         );
-
-        $normalizedUrl = $this->normalizeTargetUrl($targetUrl);
-        if ($normalizedUrl !== null && $this->legacyKeywordLinkTableExists()) {
-            if (! in_array($linkType, [SeoLink::TYPE_INTERNAL, SeoLink::TYPE_EXTERNAL], true)) {
-                $linkType = SeoLink::TYPE_INTERNAL;
-            }
-
-            $this->attachKeywordToLink(
-                keyword: $keyword,
-                siteId: $siteId,
-                targetUrl: $normalizedUrl,
-                linkType: $linkType,
-                metrics: $metrics,
-                searchVolume: $searchVolume,
-                difficulty: $difficulty,
-            );
-        }
-    }
-
-    public function attachSiteLink(
-        Keyword $keyword,
-        int $siteId,
-        string $targetUrl,
-        string $linkType = SeoLink::TYPE_INTERNAL,
-    ): SeoLink {
-        if (! in_array($linkType, [SeoLink::TYPE_INTERNAL, SeoLink::TYPE_EXTERNAL], true)) {
-            $linkType = SeoLink::TYPE_INTERNAL;
-        }
-
-        return $this->attachKeywordToLink(
-            keyword: $keyword,
-            siteId: $siteId,
-            targetUrl: $targetUrl,
-            linkType: $linkType,
-        );
-    }
-
-    /**
-     * @param  array<string, mixed>|null  $metrics
-     */
-    public function attachKeywordToLink(
-        Keyword $keyword,
-        int $siteId,
-        string $targetUrl,
-        string $linkType = SeoLink::TYPE_INTERNAL,
-        ?int $sourceArticleId = null,
-        ?int $targetArticleId = null,
-        bool $isNofollow = false,
-        ?array $metrics = null,
-        ?int $searchVolume = null,
-        ?float $difficulty = null,
-    ): SeoLink {
-        $targetUrl = $this->normalizeTargetUrl($targetUrl) ?? '';
-        if ($targetUrl === '') {
-            throw new \InvalidArgumentException('Keyword link target URL is required.');
-        }
-
-        $link = $this->resolveOrCreateLink(
-            siteId: $siteId,
-            url: $targetUrl,
-            type: $linkType,
-            sourceArticleId: $sourceArticleId,
-            targetArticleId: $targetArticleId,
-            isNofollow: $isNofollow,
-        );
-
-        $existingPivot = $keyword->links()
-            ->where('seo_links.id', $link->id)
-            ->first()
-            ?->pivot;
-
-        $mergedMetrics = $metrics;
-        if ($metrics !== null) {
-            $existingMetrics = $existingPivot instanceof KeywordLink && is_array($existingPivot->metrics)
-                ? $existingPivot->metrics
-                : [];
-            $mergedMetrics = array_merge($existingMetrics, $metrics);
-        }
-
-        $pivotPayload = array_filter([
-            'search_volume' => $searchVolume,
-            'difficulty' => $difficulty !== null ? (int) round($difficulty) : null,
-            'metrics' => $mergedMetrics,
-        ], static fn (mixed $value): bool => $value !== null);
-
-        $keyword->links()->syncWithoutDetaching([
-            $link->id => $pivotPayload,
-        ]);
-
-        return $link->fresh(['keywords']);
-    }
-
-    public function resolveOrCreateLink(
-        int $siteId,
-        string $url,
-        string $type,
-        ?int $sourceArticleId = null,
-        ?int $targetArticleId = null,
-        bool $isNofollow = false,
-    ): SeoLink {
-        $query = SeoLink::query()
-            ->where('site_id', $siteId)
-            ->where('url', $url)
-            ->where('type', $type);
-
-        if ($sourceArticleId !== null) {
-            $query->where('source_article_id', $sourceArticleId);
-        } else {
-            $query->whereNull('source_article_id');
-        }
-
-        $link = $query->first();
-        if ($link instanceof SeoLink) {
-            $link->update([
-                'is_nofollow' => $isNofollow,
-                'article_id' => $targetArticleId ?? $link->article_id,
-            ]);
-
-            return $link->fresh();
-        }
-
-        return SeoLink::query()->create([
-            'site_id' => $siteId,
-            'url' => $url,
-            'type' => $type,
-            'source_article_id' => $sourceArticleId,
-            'article_id' => $targetArticleId,
-            'is_nofollow' => $isNofollow,
-        ]);
-    }
-
-    public function detachArticleOutboundLinks(int $articleId): void
-    {
-        if ($articleId <= 0) {
-            return;
-        }
-
-        SeoLink::query()
-            ->where('source_article_id', $articleId)
-            ->each(function (SeoLink $link): void {
-                if (\Illuminate\Support\Facades\Schema::connection($link->getConnectionName())->hasTable('keyword_link')) {
-                    $link->keywords()->detach();
-                }
-
-                $link->delete();
-            });
     }
 
     public function detachKeywordFromSite(Keyword $keyword, int $siteId): void
@@ -284,33 +130,6 @@ final class KeywordPersistenceService
             ->delete();
 
         $this->metaRepository->detachSite((int) $keyword->id, $siteId);
-
-        if (! $this->legacyKeywordLinkTableExists()) {
-            return;
-        }
-
-        $linkIds = $keyword->links()
-            ->where('seo_links.site_id', $siteId)
-            ->pluck('seo_links.id')
-            ->all();
-
-        if ($linkIds === []) {
-            return;
-        }
-
-        $keyword->links()->detach($linkIds);
-
-        SeoLink::query()
-            ->whereIn('id', $linkIds)
-            ->whereDoesntHave('keywords')
-            ->delete();
-    }
-
-    private function legacyKeywordLinkTableExists(): bool
-    {
-        $schema = \Illuminate\Support\Facades\Schema::connection((new Keyword)->getConnectionName());
-
-        return $schema->hasTable('keyword_link') && $schema->hasTable('seo_links');
     }
 
     /**
@@ -383,9 +202,6 @@ final class KeywordPersistenceService
     private function absorbKeywordInto(Keyword $from, Keyword $to, int $siteId): void
     {
         $from->loadMissing(['metas']);
-        if ($this->legacyKeywordLinkTableExists()) {
-            $from->loadMissing(['links']);
-        }
 
         $this->metaRepository->upsertSiteBundle(
             keyword: $to,
@@ -403,41 +219,6 @@ final class KeywordPersistenceService
                     : null),
         );
 
-        if ($this->legacyKeywordLinkTableExists()) {
-            foreach ($from->links()->where('seo_links.site_id', $siteId)->get() as $link) {
-                if (! $link instanceof SeoLink) {
-                    continue;
-                }
-
-                $existingUrls = $to->links()
-                    ->where('seo_links.site_id', $siteId)
-                    ->pluck('seo_links.url');
-
-                $isDuplicate = $existingUrls->contains(
-                    fn (mixed $existingUrl): bool => $this->urlsEquivalent((string) $existingUrl, (string) $link->url),
-                );
-
-                if ($isDuplicate) {
-                    continue;
-                }
-
-                $pivot = $link->pivot instanceof KeywordLink ? $link->pivot : null;
-
-                $this->attachKeywordToLink(
-                    keyword: $to,
-                    siteId: $siteId,
-                    targetUrl: (string) $link->url,
-                    linkType: (string) $link->type,
-                    sourceArticleId: $link->source_article_id !== null ? (int) $link->source_article_id : null,
-                    targetArticleId: $link->article_id !== null ? (int) $link->article_id : null,
-                    isNofollow: (bool) $link->is_nofollow,
-                    metrics: is_array($pivot?->metrics) ? $pivot->metrics : null,
-                    searchVolume: $pivot?->search_volume !== null ? (int) $pivot->search_volume : null,
-                    difficulty: $pivot?->difficulty !== null ? (float) $pivot->difficulty : null,
-                );
-            }
-        }
-
         $fromMainArticleId = $this->metaRepository->getMainArticleId((int) $from->id);
         if ($fromMainArticleId !== null && $this->metaRepository->getMainArticleId((int) $to->id) === null) {
             $this->metaRepository->setMainArticleId((int) $to->id, $fromMainArticleId);
@@ -447,47 +228,16 @@ final class KeywordPersistenceService
 
         $this->detachKeywordFromSite($from, $siteId);
 
-        $legacyLinksExist = $this->legacyKeywordLinkTableExists() && $from->links()->exists();
-
         if (
             ! $from->linkMaps()->exists()
             && ! $from->metas()->exists()
-            && ! $legacyLinksExist
             && ! $from->children()->exists()
         ) {
-            if ($this->legacyKeywordLinkTableExists()) {
-                $linkIds = $from->links()->pluck('seo_links.id')->all();
-                $from->links()->detach();
-
-                if ($linkIds !== []) {
-                    SeoLink::query()
-                        ->whereIn('id', $linkIds)
-                        ->whereDoesntHave('keywords')
-                        ->delete();
-                }
-            }
-
             $from->delete();
 
             return;
         }
 
         KeywordOrphanCleanup::deleteUnusedByIds([(int) $from->id]);
-    }
-
-    private function urlsEquivalent(string $first, string $second): bool
-    {
-        $firstNorm = rtrim(strtolower(trim($first)), '/');
-        $secondNorm = rtrim(strtolower(trim($second)), '/');
-
-        if ($firstNorm === '' || $secondNorm === '') {
-            return false;
-        }
-
-        if ($firstNorm === $secondNorm) {
-            return true;
-        }
-
-        return str_ends_with($firstNorm, $secondNorm) || str_ends_with($secondNorm, $firstNorm);
     }
 }

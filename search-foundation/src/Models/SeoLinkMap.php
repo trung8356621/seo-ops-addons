@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchFoundation\Models;
 
+use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapStatus;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapType;
 use Illuminate\Database\Eloquent\Model;

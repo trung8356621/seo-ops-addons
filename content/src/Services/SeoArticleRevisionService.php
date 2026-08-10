@@ -10,6 +10,7 @@ use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Models\SeoArticleRevision;
 use Omnichannel\Addons\Content\Services\ArticleEditor\ArticleEditorSessionService;
 use Illuminate\Support\Collection;
+use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 
 final class SeoArticleRevisionService
 {

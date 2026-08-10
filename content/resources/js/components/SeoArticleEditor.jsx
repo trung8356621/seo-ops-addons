@@ -404,6 +404,8 @@ export default function SeoArticleEditor({
         site_id: Number(siteIdRef.current ?? 0) || 0,
     }), []);
     const perfDebugEnabled = Boolean(perfDebug || editorSettings?.perf_debug);
+    // Stable bridge — domain-save effect runs before getExportHtml declaration (avoid TDZ).
+    const getExportHtmlRef = useRef(() => '');
 
     useEffect(() => {
         window.__SEO_ARTICLE_MEDIA_PICKER_ENDPOINT__ = mediaPickerUrl;
@@ -412,62 +414,6 @@ export default function SeoArticleEditor({
             delete window.__SEO_ARTICLE_MEDIA_PICKER_ENDPOINT__;
         };
     }, [mediaPickerUrl]);
-
-    useEffect(() => {
-        registerDomainSaveOwners({
-            getArticleId: () => Number(articleId) || 0,
-            getContentBundle: () => {
-                // Prefer heavy collect when it returns a sync object (Promise ? fall through).
-                const collect = window.__seoCollectEditorHeavyBundle;
-                if (typeof collect === 'function') {
-                    try {
-                        const maybe = collect({
-                            renameImagesBeforeWpSync: false,
-                            validateLocalImageSlugsBeforeWpSync: false,
-                        });
-                        if (
-                            maybe
-                            && typeof maybe === 'object'
-                            && typeof maybe.then !== 'function'
-                        ) {
-                            return maybe;
-                        }
-                    } catch {
-                        // fall through to sync export path
-                    }
-                }
-
-                const exportHtmlFn = typeof getExportHtml === 'function'
-                    ? getExportHtml
-                    : (typeof window.__seoExportEditorHtml === 'function'
-                        ? window.__seoExportEditorHtml
-                        : null);
-                const html = exportHtmlFn ? String(exportHtmlFn() ?? '') : '';
-                const blocks = blocksRef?.current;
-                const editors = blockEditorsRef?.current;
-                const editorDocument = Array.isArray(blocks)
-                    ? buildEditorDocumentEnvelope(blocks, editors)
-                    : null;
-                const faqs = typeof window.__seoCollectArticleFaqs === 'function'
-                    ? window.__seoCollectArticleFaqs()
-                    : null;
-
-                return {
-                    html,
-                    client_rendered_html: html,
-                    editor_document: editorDocument,
-                    articleMeta: null,
-                    faqs,
-                };
-            },
-        });
-        return () => {
-            unregisterDomainSaveOwners();
-            if (typeof window !== 'undefined') {
-                delete window.__seoEditorDomainBridge;
-            }
-        };
-    }, [articleId]);
 
     useEffect(() => {
         if (!perfDebugEnabled || typeof performance === 'undefined' || typeof performance.mark !== 'function') {
@@ -481,14 +427,17 @@ export default function SeoArticleEditor({
                 'seo-article-editor-react-ready',
             );
         } catch {
-            // Marks c� th? thi?u n?u component remount qua livewire:navigated � b? qua.
+            // Marks có thể thiếu nếu component remount qua livewire:navigated — bỏ qua.
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     // CONTENT domain SoT (Task 7): blocks live in the shared content store, not
-    // local useState � mirrors legacy `setBlocks` call sites (value or updater fn).
+    // local useState — mirrors legacy `setBlocks` call sites (value or updater fn).
     const blocks = useContentSelector((contentState) => contentState.blocks);
+    // Declared immediately — CoreState / callbacks / domain-save close over this (avoid TDZ).
+    const blocksRef = useRef(blocks);
+    blocksRef.current = blocks;
     const setBlocks = useCallback((updater) => {
         contentActions.replaceBlocks(
             typeof updater === 'function' ? updater(getContentState().blocks) : updater,
@@ -512,6 +461,67 @@ export default function SeoArticleEditor({
             typeof next === 'function' ? next(getContentState().globalEditor) : next,
         );
     }, []);
+    const tempMergeRef = useRef(tempMerge);
+    tempMergeRef.current = tempMerge;
+    const blockFlushRef = useRef(null);
+    const activeBlockIdRef = useRef(null);
+    const blockEditorsRef = useRef(new Map());
+    const globalEditorRef = useRef(null);
+
+    useEffect(() => {
+        registerDomainSaveOwners({
+            getArticleId: () => Number(articleId) || 0,
+            getContentBundle: () => {
+                // Prefer heavy collect when it returns a sync object (Promise → fall through).
+                const collect = window.__seoCollectEditorHeavyBundle;
+                if (typeof collect === 'function') {
+                    try {
+                        const maybe = collect({
+                            renameImagesBeforeWpSync: false,
+                            validateLocalImageSlugsBeforeWpSync: false,
+                        });
+                        if (
+                            maybe
+                            && typeof maybe === 'object'
+                            && typeof maybe.then !== 'function'
+                        ) {
+                            return maybe;
+                        }
+                    } catch {
+                        // fall through to sync export path
+                    }
+                }
+
+                const exportHtmlFn = getExportHtmlRef.current;
+                const html = typeof exportHtmlFn === 'function'
+                    ? String(exportHtmlFn() ?? '')
+                    : '';
+                const exportBlocks = blocksRef.current;
+                const editors = blockEditorsRef.current;
+                const editorDocument = Array.isArray(exportBlocks)
+                    ? buildEditorDocumentEnvelope(exportBlocks, editors)
+                    : null;
+                const faqs = typeof window.__seoCollectArticleFaqs === 'function'
+                    ? window.__seoCollectArticleFaqs()
+                    : null;
+
+                return {
+                    html,
+                    client_rendered_html: html,
+                    editor_document: editorDocument,
+                    articleMeta: null,
+                    faqs,
+                };
+            },
+        });
+        return () => {
+            unregisterDomainSaveOwners();
+            if (typeof window !== 'undefined') {
+                delete window.__seoEditorDomainBridge;
+            }
+        };
+    }, [articleId]);
+
     const outlineRailRef = useRef(null);
     const [assistantPortalRoots, setAssistantPortalRoots] = useState({
         seo: null,
@@ -856,9 +866,6 @@ export default function SeoArticleEditor({
         );
     }, [suggestedInternalLinks, suggestedExternalLinks, enrichLinksWithOccurrences]);
 
-    const blocksRef = useRef(blocks);
-    blocksRef.current = blocks;
-
     const blockById = useMemo(() => {
         const map = new Map();
         for (const block of blocks) {
@@ -953,10 +960,6 @@ export default function SeoArticleEditor({
     // Images chip count = unique inventory assets (not content-only, not issue count).
     const imageTabCount = unifiedImageRows.length;
 
-    const tempMergeRef = useRef(tempMerge);
-    tempMergeRef.current = tempMerge;
-    const blockFlushRef = useRef(null);
-    const activeBlockIdRef = useRef(null);
     const structureMutationRef = useRef(null);
     const scheduleAutosaveRef = useRef(() => {});
     const requestAnalyzeRef = useRef(() => {});
@@ -964,8 +967,6 @@ export default function SeoArticleEditor({
     const linkScrollTokenRef = useRef(0);
     const intraSelectionRef = useRef({ text: '', html: '' });
     const focusedOutlineHeadingRef = useRef(null);
-    const globalEditorRef = useRef(null);
-    const blockEditorsRef = useRef(new Map());
     const pendingAiMediaRef = useRef(new Map());
     /** Media ID user d� x�a kh?i editor � kh�ng t? ch�n l?i t? poll/event AI. */
     const dismissedEditorImageMediaIdsRef = useRef(new Set());
@@ -984,6 +985,7 @@ export default function SeoArticleEditor({
     }, [globalEditor]);
 
     const getExportHtml = useCallback(() => exportBlocksToHtml(blocksRef.current), []);
+    getExportHtmlRef.current = getExportHtml;
 
     useEffect(() => {
         window.__seoExportEditorHtml = () => getExportHtml();
@@ -1142,12 +1144,13 @@ export default function SeoArticleEditor({
         mediaHealthTick,
     ]);
 
-    // Phase 6C.3 � Featured/Gallery health from media snapshot (no Alpine tick / LS).
+    // Phase 6C.3 — Featured/Gallery health from media snapshot (no Alpine tick / LS).
     useEffect(() => {
         const syncFromSnapshot = () => {
-            mediaActions.setFeaturedHealthSnapshot(featuredFromSnapshot(articleId));
-            mediaActions.setGallery(parseGalleryItems(galleryFromSnapshot(articleId)));
-            mediaActions.markDirty();
+            const nextFeatured = featuredFromSnapshot(articleId);
+            const nextGallery = parseGalleryItems(galleryFromSnapshot(articleId));
+            mediaActions.setFeaturedHealthSnapshot(nextFeatured);
+            mediaActions.setGallery(nextGallery);
             setMediaHealthTick((tick) => tick + 1);
         };
         syncFromSnapshot();

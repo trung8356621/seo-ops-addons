@@ -6,6 +6,8 @@ namespace Omnichannel\Addons\Content\Services;
 
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Media\Models\SeoMedia;
+use Omnichannel\Addons\Media\Services\ArticleEditorMediaAiService;
+use Omnichannel\Addons\WordPress\Services\ArticleWordPressSyncFlagService;
 use Illuminate\Support\Carbon;
 
 final class ArticleEditorReadinessService

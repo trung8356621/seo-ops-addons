@@ -7,7 +7,10 @@ namespace Omnichannel\Addons\Content\Services;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchIntelligence\Support\RankMathSeoValueNormalizer;
 use Omnichannel\Addons\WordPress\Support\WordPressPermalinkBuilder;
+use Omnichannel\Addons\WordPress\Services\ArticleWordPressSyncFlagService;
+use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 use Illuminate\Support\Str;
+use Omnichannel\Addons\Seo\Services\ArticleGoogleSerpPreviewService;
 
 /**
  * Lưu nhanh trường SEO từ modal Google preview — không Livewire, không sync WP slug, chấm điểm qua queue.

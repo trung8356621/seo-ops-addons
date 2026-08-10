@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\Seo\Services;
 
 use Omnichannel\Addons\Seo\Support\CtaQuickTemplates;
 use App\Models\WpOption;
+use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
 
 final class SeoDomainCtaGlobalSettingsService
 {

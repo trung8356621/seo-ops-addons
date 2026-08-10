@@ -19,6 +19,8 @@ use Omnichannel\Addons\SearchIntelligence\Support\KeywordFocusAttach;
 use Omnichannel\Addons\Content\Support\MarkdownOutlineParser;
 use Omnichannel\Addons\SearchFoundation\Support\MarkdownSemanticKeywordsParser;
 use Illuminate\Support\Str;
+use Omnichannel\Addons\Content\Services\ArticleMarkdownToHtmlService;
+use Omnichannel\Addons\Media\Services\ArticlePostImagesService;
 
 final class PromptTestPublishService
 {

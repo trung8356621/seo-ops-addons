@@ -13,7 +13,6 @@ use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pag
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Models\KeywordReviewHistory;
 use Omnichannel\Addons\Content\Models\SeoArticle;
-use Omnichannel\Addons\SearchFoundation\Models\SeoLink;
 use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
@@ -43,6 +42,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Js;
+use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 
 class KeywordResource extends SeoPanelResource
 {
@@ -1801,75 +1801,6 @@ class KeywordResource extends SeoPanelResource
         return rtrim(mb_substr($label, 0, max(1, $maxLength - 1))).'…';
     }
 
-    /**
-     * @return array{destination_url: string, source_url: string|null, source_label: string|null}
-     */
-    public static function resolveInternalLinkPresentation(SeoLink $link, int $siteId, string $domain): array
-    {
-        $destinationUrl = static::buildAbsoluteLinkUrl((string) $link->url, $siteId, $domain);
-        $sourceUrl = null;
-        $sourceLabel = static::resolveInternalLinkSourceLabel($link);
-
-        $sourceArticle = $link->relationLoaded('sourceArticle')
-            ? $link->sourceArticle
-            : $link->sourceArticle()->first();
-
-        if ($sourceArticle instanceof SeoArticle) {
-            $resolvedSourceUrl = app(KeywordLinkTargetResolver::class)->resolveArticlePublicUrl($sourceArticle);
-            $sourceUrl = is_string($resolvedSourceUrl) && trim($resolvedSourceUrl) !== ''
-                ? trim($resolvedSourceUrl)
-                : null;
-        }
-
-        return [
-            'destination_url' => $destinationUrl,
-            'source_url' => $sourceUrl,
-            'source_label' => $sourceLabel,
-        ];
-    }
-
-    public static function resolveLinkRole(Keyword $keyword, SeoLink $link): string
-    {
-        if ($link->type === SeoLink::TYPE_EXTERNAL) {
-            return static::LINK_ROLE_MAIN;
-        }
-
-        if (static::linkIsFocusDestination($keyword, $link)) {
-            return static::LINK_ROLE_MAIN;
-        }
-
-        if ($link->type === SeoLink::TYPE_INTERNAL && $link->source_article_id === null) {
-            return static::LINK_ROLE_MAIN;
-        }
-
-        if ($link->type === SeoLink::TYPE_INTERNAL && $link->source_article_id !== null) {
-            return static::LINK_ROLE_INTERNAL_ANCHOR;
-        }
-
-        return static::LINK_ROLE_INTERNAL_ANCHOR;
-    }
-
-    public static function resolveInternalLinkSourceLabel(SeoLink $link): ?string
-    {
-        $sourceArticle = $link->relationLoaded('sourceArticle')
-            ? $link->sourceArticle
-            : $link->sourceArticle()->first(['id', 'title', 'slug']);
-
-        if ($sourceArticle instanceof SeoArticle) {
-            $title = trim((string) ($sourceArticle->title ?? ''));
-            if ($title !== '') {
-                return $title;
-            }
-
-            $slug = trim((string) ($sourceArticle->slug ?? ''));
-            if ($slug !== '') {
-                return $slug;
-            }
-        }
-
-        return null;
-    }
-
     public static function buildAbsoluteLinkUrl(string $url, int $siteId, ?string $domain = null): string
     {
         if (preg_match('#^https?://#i', $url) === 1) {
@@ -1888,30 +1819,6 @@ class KeywordResource extends SeoPanelResource
         $domain = rtrim($domain, '/');
 
         return str_starts_with($url, '/') ? $domain.$url : $domain.'/'.$url;
-    }
-
-    public static function linkIsFocusDestination(Keyword $keyword, SeoLink $link): bool
-    {
-        $siteId = (int) $link->site_id;
-        if ($siteId <= 0) {
-            return false;
-        }
-
-        $mainArticles = $keyword->relationLoaded('mainArticles')
-            ? $keyword->mainArticles
-            : $keyword->mainArticles()->get(['articles.id', 'articles.site_id']);
-
-        $hasMainOnSite = $mainArticles->contains(
-            static fn (SeoArticle $article): bool => (int) ($article->site_id ?? 0) === $siteId,
-        );
-
-        if (! $hasMainOnSite) {
-            return false;
-        }
-
-        $primary = $keyword->resolvePrimaryLink($siteId);
-
-        return $primary instanceof SeoLink && (int) $primary->id === (int) $link->id;
     }
 
     /**

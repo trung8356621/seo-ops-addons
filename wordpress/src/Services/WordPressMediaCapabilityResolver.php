@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\WordPress\Services;
 
 use App\Models\Site;
+use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 
 /**
  * Site-level WordPress media library browse capability (not article wp_post_id).

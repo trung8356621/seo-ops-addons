@@ -21,6 +21,10 @@ return new class extends Migration
             return;
         }
 
+        if (! $schema->hasColumn('articles', 'content_archived_at')) {
+            return;
+        }
+
         $rows = DB::connection($this->connection)
             ->table('articles')
             ->whereNotNull('content_archived_at')

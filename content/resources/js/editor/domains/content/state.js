@@ -35,6 +35,9 @@ const state = {
 /** @type {Set<() => void>} */
 const listeners = new Set();
 
+/** Cached snapshot for useSyncExternalStore — must be referentially stable between emits. */
+let snapshot = { ...state };
+
 /**
  * Reactive subscription (mirrors seo/state.js) — lets hosts read content
  * state via useSyncExternalStore instead of local useState mirrors.
@@ -49,13 +52,14 @@ export function subscribe(listener) {
 }
 
 function emit() {
+    snapshot = { ...state };
     listeners.forEach((listener) => {
         listener();
     });
 }
 
 export function getContentState() {
-    return { ...state };
+    return snapshot;
 }
 
 export const contentActions = {

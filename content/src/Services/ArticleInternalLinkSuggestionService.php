@@ -17,6 +17,7 @@ use Omnichannel\Addons\Seo\Support\LinkSuggestionValidator;
 use Omnichannel\Addons\Seo\Support\SeoLinkMapLinkTypeClassifier;
 use Omnichannel\Addons\Seo\Support\SeoSuggestionUrlNormalizer;
 use App\Support\RuntimeLogger;
+use Omnichannel\Addons\SearchFoundation\Services\KeywordLinkTargetResolver;
 
 final class ArticleInternalLinkSuggestionService
 {

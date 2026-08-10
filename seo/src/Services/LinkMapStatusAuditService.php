@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\Seo\Services;
 
 use Omnichannel\Addons\Seo\Jobs\AuditLinkStatusJob;
 use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
+use Omnichannel\Addons\SearchFoundation\Services\KeywordLinkTargetResolver;
 
 final class LinkMapStatusAuditService
 {

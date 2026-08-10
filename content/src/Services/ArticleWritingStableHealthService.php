@@ -6,11 +6,13 @@ namespace Omnichannel\Addons\Content\Services;
 
 use Omnichannel\Addons\Seo\Contracts\ResolvesSettingsPromptHook;
 use Omnichannel\Addons\Content\Contracts\SeoCreateArticleSettingsReader;
+use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
 use Omnichannel\Addons\ContentProjects\Enums\WorkflowCapability;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\Models\SeoTask;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookEditorCatalog;
 use Omnichannel\Addons\ContentProjects\Services\WorkflowRoles\WorkflowAssignmentValidator;
+use Omnichannel\Addons\ContentProjects\Services\ArticleGenerationInputResolver;
 
 /**
  * Phase 1.0 Stable Gate — PASS / WARN / FAIL cho Article Writing contract.

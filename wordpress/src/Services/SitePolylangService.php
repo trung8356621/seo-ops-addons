@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\WordPress\Services;
 
+use Omnichannel\Addons\Content\Support\ArticleLanguageCode;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Models\Site;
 
@@ -14,10 +15,7 @@ final class SitePolylangService
      */
     public function defaultLanguageOptions(): array
     {
-        return [
-            'vi' => 'Tiếng Việt',
-            'en' => 'English',
-        ];
+        return ArticleLanguageCode::defaultLabels();
     }
 
     public function isPolylangEnabledForSite(?Site $site): bool
@@ -57,13 +55,15 @@ final class SitePolylangService
                 continue;
             }
 
-            $slug = trim((string) ($language['slug'] ?? ''));
+            $slug = ArticleLanguageCode::normalize((string) ($language['slug'] ?? ''));
             if ($slug === '') {
                 continue;
             }
 
             $name = trim((string) ($language['name'] ?? $slug));
-            $options[$slug] = $name !== '' ? $name : $slug;
+            // Prefer Content default label for known codes; keep Polylang name only as fallback.
+            $options[$slug] = ArticleLanguageCode::defaultLabels()[$slug]
+                ?? ($name !== '' ? $name : $slug);
         }
 
         return $options !== [] ? $options : $this->defaultLanguageOptions();
@@ -71,8 +71,8 @@ final class SitePolylangService
 
     public function languageLabel(string $slug, ?Site $site = null): string
     {
-        $slug = trim($slug);
-        if ($slug === '') {
+        $code = ArticleLanguageCode::normalize($slug);
+        if ($code === '') {
             return '—';
         }
 
@@ -80,7 +80,7 @@ final class SitePolylangService
             ? $this->languageOptionsForSite($site)
             : $this->defaultLanguageOptions();
 
-        return $options[$slug] ?? strtoupper($slug);
+        return $options[$code] ?? ArticleLanguageCode::label($code);
     }
 
     public function defaultLanguageSlugForSite(?Site $site): string
@@ -95,31 +95,31 @@ final class SitePolylangService
             return 'vi';
         }
 
-        $default = trim((string) ($polylang['default'] ?? ''));
+        $default = ArticleLanguageCode::normalize((string) ($polylang['default'] ?? ''));
 
         return $default !== '' ? $default : 'vi';
     }
 
     public function isDefaultLanguage(string $slug, ?Site $site = null): bool
     {
-        $slug = trim($slug);
-        if ($slug === '') {
+        $code = ArticleLanguageCode::normalize($slug);
+        if ($code === '') {
             return false;
         }
 
-        return $slug === $this->defaultLanguageSlugForSite($site);
+        return $code === $this->defaultLanguageSlugForSite($site);
     }
 
     public function languageEnglishName(string $slug): string
     {
-        $slug = strtolower(trim($slug));
+        $slug = ArticleLanguageCode::normalize($slug);
         if ($slug === '') {
             return 'Unknown';
         }
 
         return match ($slug) {
-            'vi', 'vn' => 'Vietnamese',
-            'en', 'en-us' => 'English',
+            'vi' => 'Vietnamese',
+            'en' => 'English',
             'en-gb' => 'English (United Kingdom)',
             'fr' => 'French',
             'de' => 'German',
@@ -146,9 +146,9 @@ final class SitePolylangService
 
     public function languageFlagEmoji(string $slug): string
     {
-        return match (strtolower(trim($slug))) {
+        return match (ArticleLanguageCode::normalize($slug)) {
             'en', 'en-us', 'en-gb' => '🇺🇸',
-            'vi', 'vn' => '🇻🇳',
+            'vi' => '🇻🇳',
             'fr' => '🇫🇷',
             'de' => '🇩🇪',
             'ja', 'jp' => '🇯🇵',

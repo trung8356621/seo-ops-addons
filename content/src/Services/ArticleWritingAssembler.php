@@ -14,6 +14,8 @@ use Omnichannel\Addons\Content\Services\ArticleWriting\OutlineArticleWritingSour
 use Omnichannel\Addons\Content\Support\ArticleGenerationSourceResult;
 use Omnichannel\Addons\Content\Support\ArticleWritingInput;
 use Omnichannel\Addons\ContentProjects\Support\TaskTestContext;
+use Omnichannel\Addons\ContentProjects\Services\ArticleGenerationInputResolver;
+use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 
 /**
  * Assembler: chọn source provider → ArticleWritingInput → format {{input}}.

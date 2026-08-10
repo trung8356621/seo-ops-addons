@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Seo\Services;
 
 use Omnichannel\Addons\Seo\Support\CtaContactUsability;
+use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
 use Omnichannel\Addons\Seo\Support\CtaLinkFormatter;
 use Omnichannel\Addons\Seo\Support\CtaQuickTemplates;
 use App\Models\Site;

@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\AiPrompt\Services;
 
 
 use Omnichannel\Addons\Seo\Services\SeoOverviewSettingsService;
+use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
 use Omnichannel\Addons\Seo\Services\SeoScoringCalculator;
 use Omnichannel\Addons\Seo\Support\FaqHeadingMatcher;
 use Omnichannel\Addons\Seo\Support\SeoScoringRulesRegistry;

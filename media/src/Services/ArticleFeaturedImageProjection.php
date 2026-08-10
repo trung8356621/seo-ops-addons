@@ -133,7 +133,8 @@ final class ArticleFeaturedImageProjection
         }
 
         try {
-            $ok = Schema::connection('omi_seo_ai')->hasColumn('articles', 'featured_image_status');
+            // SoT is article_media_states (articles.featured_* columns were dropped).
+            $ok = Schema::connection('omi_seo_ai')->hasTable('article_media_states');
         } catch (\Throwable) {
             $ok = false;
         }

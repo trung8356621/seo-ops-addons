@@ -11,6 +11,7 @@ use App\Models\Site;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
+use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 
 final class WordPressArticleMediaService
 {

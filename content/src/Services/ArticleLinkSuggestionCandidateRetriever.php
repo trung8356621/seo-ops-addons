@@ -14,6 +14,7 @@ use Omnichannel\Addons\Seo\Support\LinkSuggestionScoreScale;
 use Omnichannel\Addons\Seo\Support\LinkSuggestionValidator;
 use Omnichannel\Addons\Seo\Support\SeoSuggestionUrlNormalizer;
 use Illuminate\Support\Str;
+use Omnichannel\Addons\SearchFoundation\Services\KeywordLinkTargetResolver;
 
 /**
  * Thu thập + chấm điểm article candidates cho internal link suggestions.

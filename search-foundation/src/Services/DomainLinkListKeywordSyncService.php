@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\SearchFoundation\Services;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Seo\Support\CtaKeywordBlacklistFilter;
 use App\Models\Site;
+use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
 
 /**
  * Đồng bộ Link list (Technical SEO) → bảng keywords + target_url để gợi ý/chèn link nội bộ,

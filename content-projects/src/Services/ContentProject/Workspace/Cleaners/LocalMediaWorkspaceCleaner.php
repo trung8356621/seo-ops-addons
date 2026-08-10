@@ -4,16 +4,15 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaners;
 
-use Omnichannel\Addons\Media\Models\SeoGeneratedImage;
 use Omnichannel\Addons\Media\Models\SeoMedia;
 use Omnichannel\Addons\Media\Models\SeoMediaProcessingHistory;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\ContentProjectWorkspaceCleanupContext;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Contracts\ContentProjectWorkspaceCleaner;
-use Illuminate\Support\Facades\Schema;
 
 /**
  * Dọn toàn bộ local media Laravel của article trong archived Content Project.
  * WordPress attachment/post đã là nguồn giữ nội dung sau publish/sync.
+ * SoT media: seo_media (+ processing histories). Legacy seo_generated_images đã drop.
  */
 final class LocalMediaWorkspaceCleaner implements ContentProjectWorkspaceCleaner
 {
@@ -48,13 +47,6 @@ final class LocalMediaWorkspaceCleaner implements ContentProjectWorkspaceCleaner
 
             $deletedMedia = SeoMedia::query()->whereIn('id', $mediaIds)->delete();
             $context->bumpStat('local_media_deleted', (int) $deletedMedia);
-        }
-
-        if (Schema::connection('omi_seo_ai')->hasTable('seo_generated_images')) {
-            $deletedLegacy = SeoGeneratedImage::query()
-                ->whereIn('article_id', $articleIds)
-                ->delete();
-            $context->bumpStat('generated_images_deleted', (int) $deletedLegacy);
         }
     }
 }

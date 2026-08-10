@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\WordPress\Services;
 
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Support\ArticleLanguageCode;
 use App\Models\Site;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -25,9 +26,9 @@ final class ArticlePolylangSyncService
             return;
         }
 
-        $currentLang = trim((string) ($multilingual['current_lang'] ?? ''));
+        $currentLang = ArticleLanguageCode::normalize((string) ($multilingual['current_lang'] ?? ''));
         if ($currentLang !== '') {
-            $article->forceFill(['language' => mb_substr($currentLang, 0, 16)])->saveQuietly();
+            $article->forceFill(['language' => $currentLang])->saveQuietly();
         }
 
         $translations = $this->normalizeTranslationMap($multilingual['translations'] ?? []);
@@ -264,7 +265,7 @@ final class ArticlePolylangSyncService
 
         $normalized = [];
         foreach ($raw as $lang => $entityId) {
-            $lang = trim((string) $lang);
+            $lang = ArticleLanguageCode::normalize((string) $lang);
             $entityId = (int) $entityId;
             if ($lang === '' || $entityId <= 0) {
                 continue;

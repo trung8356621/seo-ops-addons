@@ -65,6 +65,12 @@ final class TeamMessageController extends Controller
 
         $afterId = max(0, (int) $request->query('after_id', $request->query('last_id', 0)));
 
+        // php artisan serve (cli-server) is single-threaded: a long-lived SSE loop
+        // blocks Livewire / page navigations. Prefer short JSON poll there.
+        if ($request->boolean('poll') || PHP_SAPI === 'cli-server') {
+            return $this->pollJson($ownerId, $afterId);
+        }
+
         return new StreamedResponse(function () use ($ownerId, $afterId): void {
             @ini_set('zlib.output_compression', '0');
             @ini_set('output_buffering', 'off');
@@ -134,6 +140,39 @@ final class TeamMessageController extends Controller
             'Cache-Control' => 'no-cache',
             'Connection' => 'keep-alive',
             'X-Accel-Buffering' => 'no',
+        ]);
+    }
+
+    private function pollJson(int $ownerId, int $afterId): JsonResponse
+    {
+        $sendHistory = $afterId === 0;
+
+        $query = TeamMessage::query()
+            ->where('owner_id', $ownerId)
+            ->with(['user:id,name,email']);
+
+        if ($sendHistory) {
+            $rows = $query
+                ->orderByDesc('id')
+                ->limit(50)
+                ->get()
+                ->reverse()
+                ->values();
+        } else {
+            $rows = $query
+                ->where('id', '>', $afterId)
+                ->orderBy('id')
+                ->limit(100)
+                ->get();
+        }
+
+        return response()->json([
+            'messages' => $rows->map(fn (TeamMessage $message): array => $this->serializeMessage($message))->values()->all(),
+            'owner_id' => $ownerId,
+            'current_user_id' => (int) auth()->id(),
+            'config' => $this->attachmentService->clientConfig(),
+            'can_use_ai' => ! SeoAccessControl::isContentManager(),
+            'history_end' => $sendHistory,
         ]);
     }
 

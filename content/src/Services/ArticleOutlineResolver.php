@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\Content\Services;
 
 use Omnichannel\Addons\AiPrompt\Services\WorkflowParserService;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\ContentProjects\Services\ArticleGenerationInputResolver;
 
 /**
  * Canonical outline meta (tab Dàn ý) = article_meta.seo_article_outline.

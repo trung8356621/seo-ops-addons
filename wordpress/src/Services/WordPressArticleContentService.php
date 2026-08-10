@@ -14,6 +14,7 @@ use Carbon\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
+use Omnichannel\Addons\Media\Services\ArticlePostImagesService;
 
 class WordPressArticleContentService
 {

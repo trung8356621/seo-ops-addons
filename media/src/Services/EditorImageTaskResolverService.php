@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\Media\Services;
 
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\Models\SeoTask;
+use Omnichannel\Addons\AiPrompt\Services\TaskWorkflowTestRunner;
 
 final class EditorImageTaskResolverService
 {

@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\Seo\Services;
 
 
 use Omnichannel\Addons\SearchFoundation\Services\KeywordPersistenceService;
+use Omnichannel\Addons\SearchFoundation\Services\TagPersistenceService;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Models\Tag;

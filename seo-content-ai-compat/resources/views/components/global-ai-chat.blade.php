@@ -13,6 +13,8 @@
     $isContentManager = SeoAccessControl::isContentManager();
     // Star tab is Agent Workspace launcher — not in-popup AI runtime.
     $canUseAiChat = ! $isContentManager;
+    // php artisan serve cannot host long-lived SSE without blocking Livewire.
+    $teamSseEnabled = PHP_SAPI !== 'cli-server';
     $agentDeepLink = AgentWorkspaceDeepLink::forCurrentRequest();
     $teamChatConfig = app(TeamChatAttachmentService::class)->clientConfig();
     $mediaImportUrl = route('seo.media.import-url');
@@ -67,6 +69,9 @@
         chatUrl: @js($chatUrl),
         teamMessagesUrl: @js($teamMessagesUrl),
         teamStoreUrl: @js($teamStoreUrl),
+        teamSseEnabled: @js($teamSseEnabled),
+        teamPollTimer: null,
+        teamPollAfterId: null,
         workspaceOwnerId: null,
         imageEditorOpen: false,
         imageEditorTarget: null,
@@ -93,7 +98,7 @@
 
             this.refreshTeamUnreadOnInit().then(() => {
                 if (this.lastTeamMessageId > 0) {
-                    this.startTeamSse(this.lastTeamMessageId);
+                    this.startTeamRealtime(this.lastTeamMessageId);
                 }
             });
             this.requestBrowserNotificationPermission();
@@ -124,7 +129,7 @@
         },
 
         destroy() {
-            this.stopTeamSse();
+            this.stopTeamRealtime();
             if (this._onGlobalAiChatImageSelected) {
                 window.removeEventListener('seo-global-ai-chat-image-selected', this._onGlobalAiChatImageSelected);
             }
@@ -191,6 +196,20 @@
             this.loadTeamMessages();
         },
 
+        startTeamRealtime(afterId = null) {
+            if (! this.teamSseEnabled) {
+                this.startTeamPoll(afterId);
+                return;
+            }
+
+            this.startTeamSse(afterId);
+        },
+
+        stopTeamRealtime() {
+            this.stopTeamSse();
+            this.stopTeamPoll();
+        },
+
         startTeamSse(afterId = null) {
             const resolvedAfterId = afterId !== null
                 ? Math.max(0, Number(afterId) || 0)
@@ -203,7 +222,86 @@
             this.connectTeamSse(resolvedAfterId);
         },
 
+        startTeamPoll(afterId = null) {
+            const resolvedAfterId = afterId !== null
+                ? Math.max(0, Number(afterId) || 0)
+                : Math.max(0, this.lastTeamMessageId);
+
+            this.stopTeamSse();
+            this.teamPollAfterId = resolvedAfterId;
+            this.pollTeamMessages(true);
+
+            if (this.teamPollTimer) {
+                return;
+            }
+
+            this.teamPollTimer = window.setInterval(() => {
+                this.pollTeamMessages(false);
+            }, 4000);
+        },
+
+        stopTeamPoll() {
+            if (this.teamPollTimer) {
+                window.clearInterval(this.teamPollTimer);
+                this.teamPollTimer = null;
+            }
+            this.teamPollAfterId = null;
+        },
+
+        async pollTeamMessages(isInitial = false) {
+            const afterId = Math.max(0, Number(this.teamPollAfterId ?? this.lastTeamMessageId) || 0);
+
+            try {
+                const params = new URLSearchParams({
+                    poll: '1',
+                    after_id: String(afterId),
+                });
+                const response = await fetch(`${this.teamMessagesUrl}?${params.toString()}`, {
+                    headers: { Accept: 'application/json' },
+                    credentials: 'same-origin',
+                });
+                const data = await response.json();
+                if (! response.ok) {
+                    return;
+                }
+
+                if (data.config) {
+                    this.teamChatConfig = data.config;
+                }
+                if (typeof data.can_use_ai === 'boolean') {
+                    this.canUseAiChat = data.can_use_ai;
+                }
+                if (Number(data.owner_id) > 0) {
+                    this.workspaceOwnerId = Number(data.owner_id);
+                }
+
+                const rows = Array.isArray(data.messages) ? data.messages : [];
+                if (isInitial && afterId === 0) {
+                    this.teamMessages = [];
+                }
+                if (rows.length > 0) {
+                    this.mergeTeamMessages(rows);
+                    const maxId = rows.reduce((max, item) => Math.max(max, Number(item?.id) || 0), afterId);
+                    this.teamPollAfterId = maxId;
+                    this.lastTeamMessageId = Math.max(this.lastTeamMessageId, maxId);
+                    this.persistTeamCursor();
+                }
+
+                if (data.history_end || isInitial) {
+                    this.teamLoading = false;
+                    this.markTeamAsRead();
+                    this.scrollTeamToBottom();
+                }
+            } catch (error) {
+                console.error(error);
+                if (isInitial) {
+                    this.teamLoading = false;
+                }
+            }
+        },
+
         connectTeamSse(afterId) {
+            this.stopTeamPoll();
             this.stopTeamSse();
             this.teamSseAfterId = afterId;
 
@@ -406,6 +504,11 @@
         loadTeamMessages() {
             this.teamLoading = true;
             this.teamMessages = [];
+            this.stopTeamRealtime();
+            if (! this.teamSseEnabled) {
+                this.startTeamPoll(0);
+                return;
+            }
             this.connectTeamSse(0);
         },
 

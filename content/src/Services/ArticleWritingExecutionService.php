@@ -22,6 +22,8 @@ use Omnichannel\Addons\Content\Support\ArticleWritingExecutionResult;
 use Omnichannel\Addons\Content\Support\ArticleWritingInput;
 use Omnichannel\Addons\ContentProjects\Support\TaskTestContext;
 use Omnichannel\Addons\ContentProjects\Support\WorkflowExecutionSnapshot;
+use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
+use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
 
 /**
  * Entry duy nhất cho article.content.generate (outline / existing_article / brief).

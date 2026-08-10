@@ -8,7 +8,8 @@
     "provider": "App\\Addons\\SeoContentAi\\SeoContentAiServiceProvider",
     "panel_provider": "App\\Addons\\SeoContentAi\\Providers\\SeoPanelProvider",
     "providers": [
-        "App\\Providers\\Filament\\SeoToolsPanelProvider"
+        "App\\Providers\\Filament\\SeoToolsPanelProvider",
+        "Omnichannel\\Addons\\Seo\\SeoServiceProvider"
     ],
     "register_early": true,
     "legacy": true,

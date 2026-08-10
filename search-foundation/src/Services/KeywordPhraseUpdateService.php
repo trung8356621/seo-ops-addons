@@ -8,6 +8,7 @@ use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
 use Illuminate\Support\Facades\DB;
+use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 
 final class KeywordPhraseUpdateService
 {

@@ -13,6 +13,12 @@ use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
 use App\Models\Site;
+use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
+use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
+use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
+use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
+use Omnichannel\Addons\AiPrompt\Services\PromptResultLinkService;
+use Omnichannel\Addons\WordPress\Services\SitePolylangService;
 
 /**
  * Dịch nhanh bài viết ngôn ngữ mặc định sang bản dịch liên kết bằng prompt cấu hình tại Workflows.

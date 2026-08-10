@@ -6,10 +6,12 @@ namespace Omnichannel\Addons\ContentProjects\Services;
 
 
 use Omnichannel\Addons\AiPrompt\Services\WorkflowParserService;
+use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookCallerBridge;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookExecutionInput;
+use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
 use Carbon\Carbon;
 
 final class SeoProjectKeywordAiGeneratorService

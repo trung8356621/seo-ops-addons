@@ -9,6 +9,7 @@ use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\WordPress\Support\WordPressPermalinkBuilder;
 use App\Models\Site;
 use Illuminate\Database\Eloquent\Builder;
+use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 
 final class ArticleInternalLinkSearchService
 {

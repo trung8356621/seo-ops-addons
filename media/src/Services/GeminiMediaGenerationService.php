@@ -6,12 +6,14 @@ namespace Omnichannel\Addons\Media\Services;
 
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\AiPrompt\Models\SeoAiModel;
+use Omnichannel\Addons\AiPrompt\Services\PromptMediaStorageService;
 use Omnichannel\Addons\Seo\Support\GeminiModelVersionPolicy;
 use Omnichannel\Addons\Seo\Support\GoogleAiModelRegistry;
 use Omnichannel\Addons\Media\Support\ImageRoutingStrategy;
 use Omnichannel\Addons\Media\Support\ImageToolType;
 use Omnichannel\Addons\Media\Support\ImagenProviderErrorClassifier;
 use Omnichannel\Addons\Seo\Support\RenderingPreference;
+use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
 use Omnichannel\Addons\Content\Support\TypographyComplexity;
 use Omnichannel\Addons\Content\Support\Utf8Sanitizer;
 use App\Models\ApiConnection;
