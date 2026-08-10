@@ -1,0 +1,22 @@
+[
+  { "family": "Roboto", "url_param": "Roboto" },
+  { "family": "Open Sans", "url_param": "Open+Sans" },
+  { "family": "Montserrat", "url_param": "Montserrat" },
+  { "family": "Inter", "url_param": "Inter" },
+  { "family": "Playfair Display", "url_param": "Playfair+Display" },
+  { "family": "Lora", "url_param": "Lora" },
+  { "family": "Oswald", "url_param": "Oswald" },
+  { "family": "Work Sans", "url_param": "Work+Sans" },
+  { "family": "Inconsolata", "url_param": "Inconsolata" },
+  { "family": "IBM Plex Sans", "url_param": "IBM+Plex+Sans" },
+  { "family": "Nunito", "url_param": "Nunito" },
+  { "family": "Merriweather", "url_param": "Merriweather" },
+  { "family": "PT Sans", "url_param": "PT+Sans" },
+  { "family": "Noto Sans", "url_param": "Noto+Sans" },
+  { "family": "Quicksand", "url_param": "Quicksand" },
+  { "family": "Raleway", "url_param": "Raleway" },
+  { "family": "Poppins", "url_param": "Poppins" },
+  { "family": "Barlow", "url_param": "Barlow" },
+  { "family": "Mulish", "url_param": "Mulish" },
+  { "family": "Cabin", "url_param": "Cabin" }
+]

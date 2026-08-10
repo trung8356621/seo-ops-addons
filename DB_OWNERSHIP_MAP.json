@@ -1,0 +1,32 @@
+{
+  "version": 2,
+  "connections": {
+    "mysql": "Client Core — users, sites, services, wallets, automation_*, seo_database_connections",
+    "omi_seo_ai": "Peer addon business tables"
+  },
+  "owners": {
+    "core": ["users", "sites", "site_services", "site_meta", "services", "automation_*", "seo_database_connections", "wallets", "orders"],
+    "search-foundation": ["keywords", "keyword_meta", "keyword_tags", "seo_link_maps", "seo_site_link_*"],
+    "seo": ["seo_extension_states", "seo audit indexes"],
+    "search-intelligence": ["seo_keyword_workspaces", "seo_keywords(+keyword_id)", "keyword_rank_*", "seo_gsc_* facts", "seo_serp_*"],
+    "ai-prompt": ["prompts", "prompt_results", "hook bindings"],
+    "content": ["articles", "article_meta", "article_editor_sessions", "seo_article_revisions", "seo_faqs"],
+    "content-projects": ["seo_projects", "seo_project_tasks", "seo_project_runs*", "seo_content_project_*"],
+    "publishing": ["publish handoff/lease columns on seo_project_tasks", "publish_attempts"],
+    "media": ["seo_media", "seo_media_meta", "watermark", "image_optimization", "seo_wp_media_*"],
+    "wordpress": ["wordpress_side_effect_attempts", "seo_article_wp_sync_jobs", "seo_article_remote_snapshots"],
+    "site-sync": ["seo_site_sync_*", "seo_site_capabilities"],
+    "agent": ["seo_agent_*"],
+    "commerce": ["article_product_reviews", "seo_product_gallery_*"],
+    "social": [],
+    "legacy-obsolete": ["entities*", "article_keyword", "automation_v2/v3 no-ops", "drop_* intermediates"]
+  },
+  "canonical_keyword": {
+    "table": "keywords",
+    "owner": "search-foundation",
+    "joiners": {
+      "search-intelligence.seo_keywords.keyword_id": "nullable FK-logical to keywords.id",
+      "keyword_rank_snapshots.keyword_id": "keywords.id"
+    }
+  }
+}

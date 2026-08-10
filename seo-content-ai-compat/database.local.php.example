@@ -1,0 +1,19 @@
+<?php
+
+declare(strict_types=1);
+
+/**
+ * SEO Content AI: credential lấy từ Admin → SEO Database Connections (bảng core).
+ * File này KHÔNG dùng cho SEO addon trên production.
+ *
+ * Chỉ giữ làm mẫu cho addon khác hoặc dev local tách DB bằng addon.json.
+ *
+ * @return array<string, string|int>
+ */
+return [
+    // 'host' => '127.0.0.1',
+    // 'port' => 3306,
+    // 'name' => 'omi_seo_ai',
+    // 'username' => 'root',
+    // 'password' => '',
+];

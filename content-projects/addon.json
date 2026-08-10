@@ -1,0 +1,20 @@
+{
+    "name":  "Content Projects",
+    "slug":  "content-projects",
+    "version":  "0.1.0",
+    "description":  "Peer addon — Content Projects. Equal-level; no parent/child ownership.",
+    "provider":  "Omnichannel\\Addons\\ContentProjects\\ContentProjectsServiceProvider",
+    "register_early":  false,
+    "legacy":  false,
+    "provides":  [
+                     "content.projects"
+                 ],
+    "requires":  [
+                     "content.document"
+                 ],
+    "optional":  [
+                     "ai.prompt",
+                     "publishing.queue",
+                     "seo.audit"
+                 ]
+}

@@ -1,0 +1,59 @@
+{
+  "spec_version": "0.1",
+  "key": "article.meta_description_suggestion",
+  "version": "0.1.0",
+  "name": "Suggest meta description",
+  "description": "Experimental meta description — pinned 0.1.0",
+  "enabled": true,
+  "status": "experimental",
+  "settings_visible": true,
+  "category": "article_editor",
+  "classification": "EXPERIMENTAL",
+  "model": {
+    "provider": "prompt_connection",
+    "name": "configured",
+    "capability": "text",
+    "structured_output": false,
+    "settings": {}
+  },
+  "locale": { "mode": "site", "fallback": "en" },
+  "input_schema": {
+    "title": { "type": "string", "required": true, "max_length": 300 },
+    "old_description": { "type": "string", "required": false, "nullable": true, "max_length": 1000 }
+  },
+  "settings": {
+    "min_length": { "type": "integer", "default": 120, "min": 50, "max": 200 },
+    "max_length": { "type": "integer", "default": 160, "min": 80, "max": 320 }
+  },
+  "output_schema": {
+    "type": "text",
+    "normalize": ["trim", "strip_markdown_fence", "strip_wrapping_quotes", "first_non_empty_line"],
+    "validation": { "not_empty": true, "min_length": 50, "max_length": 320 }
+  },
+  "template": {
+    "system": "Suggest one SEO meta description.",
+    "user": "Title: {{title}}\nOld: {{old_description}}\nBetween {{min_length}} and {{max_length}} chars."
+  },
+  "presentation": {
+    "description": "Suggest an SEO meta description from the article title and current description.",
+    "default_instructions": [
+      "Return exactly one meta description paragraph as plain text.",
+      "Summarize the content accurately based on the title context.",
+      "Include the topic naturally — do not keyword-stuff.",
+      "Do not invent facts that are not present in the input.",
+      "Target length between the configured minimum and maximum characters."
+    ],
+    "output_format": [
+      "One complete meta description — no prefix, list, or explanation."
+    ],
+    "variables": [
+      { "key": "title", "required": true },
+      { "key": "old_description", "required": false }
+    ]
+  },
+  "retry": { "max": 0 },
+  "logging": { "store_full_prompt": false, "redact_sensitive": true },
+  "metadata": { "promote_checklist": ["parity_samples", "length_policy", "no_domain_write"] },
+  "side_effects": [],
+  "strict_template_variables": false
+}

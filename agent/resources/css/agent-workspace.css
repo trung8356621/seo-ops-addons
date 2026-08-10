@@ -1,0 +1,646 @@
+/* Agent Workspace — scoped layout. Do not affect other admin pages. */
+
+.fi-main:has(.seo-agent-workspace),
+.fi-main-ctn:has(.seo-agent-workspace) {
+    overflow: hidden;
+}
+
+.fi-page:has(.seo-agent-workspace) {
+    height: 100%;
+    min-height: 0;
+}
+
+.fi-page:has(.seo-agent-workspace) > section {
+    display: flex;
+    height: 100%;
+    min-height: 0;
+    flex-direction: column;
+    gap: 0.5rem;
+    overflow: hidden;
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+}
+
+.seo-agent-workspace {
+    --chat-teal: #0d9488;
+    --seo-agent-header-offset: 7.5rem;
+    display: flex;
+    height: calc(100dvh - var(--seo-agent-header-offset));
+    max-height: calc(100dvh - var(--seo-agent-header-offset));
+    min-height: 0;
+    flex-direction: column;
+    gap: 0.75rem;
+    overflow: hidden;
+}
+
+.seo-agent-workspace [x-cloak] {
+    display: none !important;
+}
+
+.seo-agent-workspace__toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    flex: none;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.seo-agent-workspace__ghost-btn {
+    border: 1px solid rgb(229 231 235);
+    border-radius: 0.75rem;
+    background: #fff;
+    padding: 0.4rem 0.75rem;
+    font-size: 0.8125rem;
+    cursor: pointer;
+}
+
+.seo-agent-workspace__ghost-btn.is-active {
+    border-color: rgb(20 184 166);
+    background: rgb(240 253 250);
+    color: rgb(15 118 110);
+    font-weight: 600;
+}
+
+.dark .seo-agent-workspace__ghost-btn {
+    border-color: rgb(55 65 81);
+    background: rgb(17 24 39);
+    color: #fff;
+}
+
+.dark .seo-agent-workspace__ghost-btn.is-active {
+    border-color: rgb(45 212 191);
+    background: rgb(19 78 74);
+    color: rgb(204 251 241);
+}
+
+.seo-agent-workspace__grid {
+    display: grid;
+    flex: 1;
+    min-height: 0;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+    overflow: hidden;
+}
+
+.seo-agent-workspace-chat {
+    --chat-panel-width: 100%;
+    --chat-panel-height: auto;
+    position: relative;
+    display: flex;
+    width: 100%;
+    max-width: none;
+    height: 100%;
+    min-height: 0;
+    flex-direction: column;
+    overflow: hidden;
+    border: 1px solid rgb(229 231 235);
+    border-radius: 1rem;
+    background: #fff;
+    box-shadow: 0 10px 30px rgb(15 23 42 / 6%);
+}
+
+.dark .seo-agent-workspace-chat {
+    border-color: rgb(55 65 81);
+    background: rgb(17 24 39);
+}
+
+.seo-agent-workspace-chat .seo-global-chat__header {
+    position: static;
+    flex: none;
+    border-bottom: 1px solid rgb(229 231 235);
+}
+
+.dark .seo-agent-workspace-chat .seo-global-chat__header {
+    border-bottom-color: rgb(55 65 81);
+}
+
+.seo-agent-workspace-chat__messages {
+    flex: 1;
+    min-height: 0;
+    max-height: none;
+    overflow-x: hidden;
+    overflow-y: auto;
+    padding: 0.65rem 0.75rem;
+}
+
+.seo-agent-workspace-chat__composer-wrap {
+    position: relative;
+    flex: none;
+    z-index: 5;
+    border-top: 1px solid rgb(229 231 235);
+    background: inherit;
+    padding: 0.4rem 0.55rem 0.5rem;
+}
+
+.dark .seo-agent-workspace-chat__composer-wrap {
+    border-top-color: rgb(55 65 81);
+}
+
+.seo-agent-workspace-chat .seo-agent-chat__composer {
+    margin: 0;
+    padding: 0;
+}
+
+.seo-agent-workspace-chat .seo-agent-chat__composer-row {
+    display: flex;
+    align-items: flex-end;
+    gap: 0.4rem;
+}
+
+.seo-agent-workspace-chat .seo-global-chat__input,
+.seo-agent-workspace__composer-input {
+    min-height: 2.4rem;
+    max-height: 10rem;
+    width: 100%;
+    resize: none;
+    overflow-y: auto;
+    border: 1px solid rgb(209 213 219);
+    border-radius: 0.65rem;
+    background: #fff;
+    padding: 0.55rem 0.7rem;
+    font-size: 0.8125rem;
+    line-height: 1.35;
+}
+
+.seo-agent-workspace-chat .seo-global-chat__input:focus,
+.seo-agent-workspace__composer-input:focus {
+    outline: 2px solid #14b8a6;
+    outline-offset: 1px;
+}
+
+.dark .seo-agent-workspace-chat .seo-global-chat__input,
+.dark .seo-agent-workspace__composer-input {
+    border-color: rgb(55 65 81);
+    background: rgb(3 7 18);
+    color: #fff;
+}
+
+.seo-agent-workspace__pending {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-top: 0.75rem;
+}
+
+.seo-agent-workspace__template-grid {
+    display: grid;
+    gap: 0.65rem;
+    margin-top: 1rem;
+    width: 100%;
+    max-width: 36rem;
+}
+
+@media (min-width: 640px) {
+    .seo-agent-workspace__template-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+.seo-agent-workspace__template-card {
+    border: 1px solid rgb(229 231 235);
+    border-radius: 0.9rem;
+    background: #fff;
+    padding: 0.75rem;
+    text-align: left;
+    cursor: pointer;
+    transition: border-color 120ms ease, background 120ms ease;
+}
+
+.seo-agent-workspace__template-card:hover,
+.seo-agent-workspace__template-card:focus-visible {
+    border-color: #14b8a6;
+    background: rgb(240 253 250 / 60%);
+    outline: none;
+}
+
+.dark .seo-agent-workspace__template-card {
+    border-color: rgb(55 65 81);
+    background: rgb(3 7 18);
+}
+
+.seo-agent-workspace__template-title {
+    font-size: 0.8125rem;
+    font-weight: 600;
+}
+
+.seo-agent-workspace__template-desc {
+    margin-top: 0.25rem;
+    font-size: 0.75rem;
+    color: rgb(107 114 128);
+}
+
+.seo-agent-workspace__palette {
+    position: absolute;
+    right: 0.5rem;
+    bottom: calc(100% + 0.2rem);
+    left: 0.5rem;
+    z-index: 30;
+    max-height: 14rem;
+    overflow-y: auto;
+    border: 1px solid rgb(229 231 235);
+    border-radius: 0.5rem;
+    background: #fff;
+    box-shadow: 0 8px 20px rgb(15 23 42 / 12%);
+    pointer-events: auto;
+}
+
+.dark .seo-agent-workspace__palette {
+    border-color: rgb(55 65 81);
+    background: rgb(17 24 39);
+}
+
+.seo-agent-workspace__palette-group {
+    padding: 0.35rem 0.65rem 0.15rem;
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: rgb(156 163 175);
+}
+
+.seo-agent-workspace__palette-head {
+    border-bottom: 1px solid rgb(243 244 246);
+    padding: 0.3rem 0.55rem;
+    font-size: 0.65rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: rgb(107 114 128);
+}
+
+.seo-agent-workspace__palette-item {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    border: 0;
+    background: transparent;
+    padding: 0.28rem 0.55rem;
+    text-align: left;
+    cursor: pointer;
+}
+
+.seo-agent-workspace__palette-item:hover,
+.seo-agent-workspace__palette-item.is-active {
+    background: rgb(240 253 250);
+}
+
+.dark .seo-agent-workspace__palette-item:hover,
+.dark .seo-agent-workspace__palette-item.is-active {
+    background: rgb(19 78 74);
+}
+
+.seo-agent-workspace__palette-main {
+    min-width: 0;
+    flex: 1;
+}
+
+.seo-agent-workspace__palette-cmd {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.75rem;
+    line-height: 1.2;
+    color: #0d9488;
+}
+
+.seo-agent-workspace__palette-name {
+    font-size: 0.875rem;
+    font-weight: 600;
+}
+
+.seo-agent-workspace__palette-desc {
+    margin-top: 0.05rem;
+    overflow: hidden;
+    font-size: 0.68rem;
+    line-height: 1.25;
+    color: rgb(107 114 128);
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
+.seo-agent-workspace__palette-empty {
+    padding: 0.55rem;
+    font-size: 0.75rem;
+    color: rgb(107 114 128);
+}
+
+.seo-agent-workspace__palette-cat {
+    display: none;
+}
+
+.seo-agent-workspace__palette-example {
+    display: none;
+}
+
+.seo-agent-workspace__cli-help {
+    margin: 0 0 0.35rem;
+    border-radius: 0.45rem;
+    border: 1px solid rgb(229 231 235);
+    background: rgb(249 250 251);
+    padding: 0.35rem 0.55rem;
+    line-height: 1.3;
+}
+
+.dark .seo-agent-workspace__cli-help {
+    border-color: rgb(55 65 81);
+    background: rgb(17 24 39);
+}
+
+.seo-agent-workspace__cli-help-cmd {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.seo-agent-workspace__cli-help-desc {
+    margin-top: 0.1rem;
+    display: -webkit-box;
+    overflow: hidden;
+    font-size: 0.7rem;
+    color: rgb(75 85 99);
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+}
+
+.seo-agent-workspace__cli-help-example {
+    margin-top: 0.15rem;
+    font-size: 0.65rem;
+    color: rgb(107 114 128);
+}
+
+.seo-agent-workspace__cli-help-example code {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    color: rgb(55 65 81);
+}
+
+.dark .seo-agent-workspace__cli-help-example code {
+    color: rgb(209 213 219);
+}
+
+.seo-agent-workspace__cli-help-keys {
+    margin-top: 0.15rem;
+    font-size: 0.62rem;
+    color: rgb(156 163 175);
+}
+
+.seo-agent-workspace__cli-global-keys {
+    margin: 0.25rem 0 0.15rem;
+    font-size: 0.68rem;
+    color: rgb(156 163 175);
+    line-height: 1.2;
+}
+
+.dark .seo-agent-workspace__cli-global-keys {
+    color: rgb(107 114 128);
+}
+
+.seo-agent-workspace__arg-suggest {
+    position: absolute;
+    bottom: 100%;
+    left: 0.5rem;
+    right: 0.5rem;
+    z-index: 20;
+    margin-bottom: 0.15rem;
+    max-height: 9rem;
+    overflow-y: auto;
+    border-radius: 0.45rem;
+    border: 1px solid rgb(229 231 235);
+    background: white;
+    box-shadow: 0 6px 16px rgb(0 0 0 / 0.08);
+}
+
+.dark .seo-agent-workspace__arg-suggest {
+    border-color: rgb(55 65 81);
+    background: rgb(17 24 39);
+}
+
+.seo-agent-workspace__arg-suggest-loading {
+    padding: 0.4rem 0.55rem;
+    font-size: 0.7rem;
+    color: rgb(107 114 128);
+}
+
+.seo-agent-workspace__arg-suggest-item {
+    display: block;
+    width: 100%;
+    padding: 0.32rem 0.55rem;
+    text-align: left;
+    font-size: 0.72rem;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.seo-agent-workspace__arg-suggest-item:hover {
+    background: rgb(243 244 246);
+}
+
+.dark .seo-agent-workspace__arg-suggest-item:hover {
+    background: rgb(31 41 55);
+}
+
+@media (max-width: 640px) {
+    .seo-agent-workspace__palette {
+        max-height: 11rem;
+        left: 0.35rem;
+        right: 0.35rem;
+    }
+}
+
+.seo-agent-workspace__palette-badges {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 0.25rem;
+}
+
+.seo-agent-workspace__badge {
+    border-radius: 999px;
+    background: rgb(243 244 246);
+    padding: 0.1rem 0.45rem;
+    font-size: 0.625rem;
+    color: rgb(55 65 81);
+}
+
+.seo-agent-workspace__badge.is-warn {
+    background: rgb(254 243 199);
+    color: rgb(146 64 14);
+}
+
+.seo-agent-workspace__badge.is-ok {
+    background: rgb(209 250 229);
+    color: rgb(6 95 70);
+}
+
+.seo-agent-workspace__quick-cmd {
+    display: flex;
+    width: 100%;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.1rem;
+    border: 1px solid transparent;
+    border-radius: 0.75rem;
+    background: transparent;
+    padding: 0.5rem 0.6rem;
+    text-align: left;
+    cursor: pointer;
+    transition: background 120ms ease, border-color 120ms ease;
+}
+
+.seo-agent-workspace__quick-cmd:hover,
+.seo-agent-workspace__quick-cmd:focus-visible {
+    border-color: rgb(204 251 241);
+    background: rgb(240 253 250 / 70%);
+    outline: none;
+}
+
+.seo-agent-workspace__quick-cmd.is-disabled {
+    opacity: 0.7;
+}
+
+.seo-agent-workspace__quick-cmd-slash {
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.6875rem;
+    color: #0d9488;
+}
+
+.seo-agent-workspace__quick-cmd-name {
+    font-size: 0.8125rem;
+    font-weight: 500;
+}
+
+.seo-agent-workspace__quick-cmd-reason {
+    font-size: 0.6875rem;
+    color: rgb(180 83 9);
+}
+
+.seo-agent-workspace__skill-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 60;
+    border: 0;
+    background: rgb(15 23 42 / 45%);
+    cursor: pointer;
+}
+
+.seo-agent-workspace__skill-drawer {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 70;
+    width: min(28rem, 100vw);
+    overflow-y: auto;
+    background: #fff;
+    padding: 1rem;
+    box-shadow: -12px 0 40px rgb(15 23 42 / 18%);
+}
+
+.dark .seo-agent-workspace__skill-drawer {
+    background: rgb(17 24 39);
+}
+
+.seo-agent-workspace__skill-browser {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    z-index: 80;
+    width: min(36rem, calc(100vw - 2rem));
+    max-height: min(70dvh, 32rem);
+    transform: translate(-50%, -50%);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+    border: 1px solid rgb(229 231 235);
+    border-radius: 1rem;
+    background: #fff;
+    padding: 1rem;
+    box-shadow: 0 20px 50px rgb(15 23 42 / 25%);
+}
+
+.dark .seo-agent-workspace__skill-browser {
+    border-color: rgb(55 65 81);
+    background: rgb(17 24 39);
+}
+
+.seo-agent-workspace__skill-browser-list {
+    min-height: 0;
+    flex: 1;
+    overflow-y: auto;
+}
+
+.seo-agent-workspace__skill-wrap {
+    margin-top: 0.75rem;
+}
+
+.seo-agent-workspace__diagnostics {
+    flex: 1;
+    min-height: 0;
+    overflow: auto;
+    border: 1px solid rgb(229 231 235);
+    border-radius: 1rem;
+    background: #fff;
+    padding: 1rem;
+}
+
+.dark .seo-agent-workspace__diagnostics {
+    border-color: rgb(55 65 81);
+    background: rgb(17 24 39);
+}
+
+.seo-agent-workspace__diagnostics h3 {
+    margin-bottom: 0.75rem;
+    font-size: 1rem;
+    font-weight: 600;
+}
+
+.seo-agent-workspace__drawer-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    background: rgb(0 0 0 / 40%);
+}
+
+.seo-agent-workspace__drawer {
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    z-index: 50;
+    width: 20rem;
+    overflow-y: auto;
+    background: #fff;
+    padding: 0.75rem;
+    box-shadow: 0 20px 40px rgb(0 0 0 / 25%);
+}
+
+.dark .seo-agent-workspace__drawer {
+    background: rgb(17 24 39);
+}
+
+.seo-agent-workspace__drawer.is-left {
+    left: 0;
+}
+
+.seo-agent-workspace__drawer.is-right {
+    right: 0;
+}
+
+@media (max-width: 1023px) {
+    .seo-agent-workspace {
+        height: auto;
+        max-height: none;
+        overflow: visible;
+    }
+
+    .fi-main:has(.seo-agent-workspace),
+    .fi-main-ctn:has(.seo-agent-workspace) {
+        overflow: auto;
+    }
+
+    .seo-agent-workspace__grid {
+        min-height: 70vh;
+        overflow: visible;
+    }
+
+    .seo-agent-workspace-chat {
+        min-height: 70vh;
+    }
+}

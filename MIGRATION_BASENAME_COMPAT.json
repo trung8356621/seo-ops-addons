@@ -1,0 +1,995 @@
+{
+    "version": 1,
+    "note": "Migrations relocated into peer addon folders. Laravel migration history uses basename only. No duplicate basenames; no rename compatibility map required.",
+    "total_addon_migrations": 162,
+    "renamed_basenames": [],
+    "duplicate_basenames": [],
+    "missing_connection_property": [
+        "addons/commerce/database/migrations/2026_07_20_240000_create_article_product_reviews_table.php",
+        "addons/commerce/database/migrations/2026_07_21_100000_article_product_reviews_schedule_columns.php",
+        "addons/commerce/database/migrations/2026_07_21_120000_product_review_lifecycle_and_rule_visibility.php",
+        "addons/commerce/database/migrations/2026_07_21_140000_article_product_reviews_generation_batch.php",
+        "addons/commerce/database/migrations/2026_07_26_220000_create_product_gallery_parent_child_executions_tables.php",
+        "addons/_legacy-obsolete/database/migrations/2026_07_18_120000_create_automation_action_runs_table.php",
+        "addons/_legacy-obsolete/database/migrations/2026_07_19_210000_create_business_hook_tables.php",
+        "addons/_legacy-obsolete/database/migrations/2026_07_20_100000_automation_v2_graph_and_scheduler.php",
+        "addons/_legacy-obsolete/database/migrations/2026_07_20_120000_automation_v3_versions_and_ops.php",
+        "addons/_legacy-obsolete/database/migrations/2026_07_20_220000_automation_manual_trigger_columns.php",
+        "addons/_legacy-obsolete/database/migrations/2026_07_20_230000_add_allow_manual_trigger_to_automation_rules.php",
+        "addons/_legacy-obsolete/database/migrations/2026_07_21_100000_add_classification_to_automation_rules.php"
+    ],
+    "entries": [
+        {
+            "basename": "2026_07_27_140000_create_content_project_agent_sessions_table.php",
+            "path": "addons/agent/database/migrations/2026_07_27_140000_create_content_project_agent_sessions_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_27_150000_create_content_project_agent_planner_tables.php",
+            "path": "addons/agent/database/migrations/2026_07_27_150000_create_content_project_agent_planner_tables.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_28_190000_create_seo_agent_workspace_tables.php",
+            "path": "addons/agent/database/migrations/2026_07_28_190000_create_seo_agent_workspace_tables.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_28_210000_phase2_agent_execution_orchestration.php",
+            "path": "addons/agent/database/migrations/2026_07_28_210000_phase2_agent_execution_orchestration.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_28_220000_phase3_agent_planning_runs.php",
+            "path": "addons/agent/database/migrations/2026_07_28_220000_phase3_agent_planning_runs.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_28_230000_phase4_agent_knowledge.php",
+            "path": "addons/agent/database/migrations/2026_07_28_230000_phase4_agent_knowledge.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_28_240000_phase5_agent_automations.php",
+            "path": "addons/agent/database/migrations/2026_07_28_240000_phase5_agent_automations.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_28_250000_phase6_agent_observability.php",
+            "path": "addons/agent/database/migrations/2026_07_28_250000_phase6_agent_observability.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_28_260000_phase7_agent_packs.php",
+            "path": "addons/agent/database/migrations/2026_07_28_260000_phase7_agent_packs.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_16_100000_create_prompts_table.php",
+            "path": "addons/ai-prompt/database/migrations/2026_05_16_100000_create_prompts_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_16_100002_create_prompt_parts_table.php",
+            "path": "addons/ai-prompt/database/migrations/2026_05_16_100002_create_prompt_parts_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_16_100004_create_prompt_results_table.php",
+            "path": "addons/ai-prompt/database/migrations/2026_05_16_100004_create_prompt_results_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_18_120001_add_name_type_is_active_to_prompts_table.php",
+            "path": "addons/ai-prompt/database/migrations/2026_05_18_120001_add_name_type_is_active_to_prompts_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_18_140000_add_prompt_builder_columns_to_prompts_table.php",
+            "path": "addons/ai-prompt/database/migrations/2026_05_18_140000_add_prompt_builder_columns_to_prompts_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_19_100000_add_variables_and_part_name_columns.php",
+            "path": "addons/ai-prompt/database/migrations/2026_05_19_100000_add_variables_and_part_name_columns.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_19_120000_replace_site_id_with_ai_connection_on_prompts.php",
+            "path": "addons/ai-prompt/database/migrations/2026_05_19_120000_replace_site_id_with_ai_connection_on_prompts.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_20_100000_create_seo_tasks_and_drop_prompt_type.php",
+            "path": "addons/ai-prompt/database/migrations/2026_05_20_100000_create_seo_tasks_and_drop_prompt_type.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_20_140000_create_task_test_results_table.php",
+            "path": "addons/ai-prompt/database/migrations/2026_05_20_140000_create_task_test_results_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_21_1350000_create_seo_prompt_resultables_table.php",
+            "path": "addons/ai-prompt/database/migrations/2026_05_21_1350000_create_seo_prompt_resultables_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_01_110000_add_default_model_category_to_prompts_table.php",
+            "path": "addons/ai-prompt/database/migrations/2026_06_01_110000_add_default_model_category_to_prompts_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_01_140000_add_markdown_content_to_prompts_table.php",
+            "path": "addons/ai-prompt/database/migrations/2026_06_01_140000_add_markdown_content_to_prompts_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_10_094500_create_seo_prompt_result_links_table.php",
+            "path": "addons/ai-prompt/database/migrations/2026_06_10_094500_create_seo_prompt_result_links_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_18_100000_add_hook_columns_to_prompts_table.php",
+            "path": "addons/ai-prompt/database/migrations/2026_07_18_100000_add_hook_columns_to_prompts_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_18_140000_change_prompt_hook_version_to_string.php",
+            "path": "addons/ai-prompt/database/migrations/2026_07_18_140000_change_prompt_hook_version_to_string.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_25_120000_install_default_comment_prompt_binding.php",
+            "path": "addons/ai-prompt/database/migrations/2026_07_25_120000_install_default_comment_prompt_binding.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_26_140000_install_default_improve_prompt_binding.php",
+            "path": "addons/ai-prompt/database/migrations/2026_07_26_140000_install_default_improve_prompt_binding.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_20_240000_create_article_product_reviews_table.php",
+            "path": "addons/commerce/database/migrations/2026_07_20_240000_create_article_product_reviews_table.php",
+            "has_connection_property": false,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_21_100000_article_product_reviews_schedule_columns.php",
+            "path": "addons/commerce/database/migrations/2026_07_21_100000_article_product_reviews_schedule_columns.php",
+            "has_connection_property": false,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_21_120000_product_review_lifecycle_and_rule_visibility.php",
+            "path": "addons/commerce/database/migrations/2026_07_21_120000_product_review_lifecycle_and_rule_visibility.php",
+            "has_connection_property": false,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_21_140000_article_product_reviews_generation_batch.php",
+            "path": "addons/commerce/database/migrations/2026_07_21_140000_article_product_reviews_generation_batch.php",
+            "has_connection_property": false,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_26_220000_create_product_gallery_parent_child_executions_tables.php",
+            "path": "addons/commerce/database/migrations/2026_07_26_220000_create_product_gallery_parent_child_executions_tables.php",
+            "has_connection_property": false,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_16_100005_create_articles_table.php",
+            "path": "addons/content/database/migrations/2026_05_16_100005_create_articles_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_16_100007_create_article_meta_table.php",
+            "path": "addons/content/database/migrations/2026_05_16_100007_create_article_meta_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_17_120000_add_type_to_seo_articles_table.php",
+            "path": "addons/content/database/migrations/2026_05_17_120000_add_type_to_seo_articles_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_18_100000_make_articles_user_id_nullable.php",
+            "path": "addons/content/database/migrations/2026_05_18_100000_make_articles_user_id_nullable.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_20_160000_create_seo_article_links_table.php",
+            "path": "addons/content/database/migrations/2026_05_20_160000_create_seo_article_links_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_20_160001_add_link_counts_to_articles_table.php",
+            "path": "addons/content/database/migrations/2026_05_20_160001_add_link_counts_to_articles_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_20_170000_create_seo_faqs_table.php",
+            "path": "addons/content/database/migrations/2026_05_20_170000_create_seo_faqs_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_21_150000_add_more_to_seo_faqs_table.php",
+            "path": "addons/content/database/migrations/2026_05_21_150000_add_more_to_seo_faqs_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_03_090000_add_review_fields_to_articles_table.php",
+            "path": "addons/content/database/migrations/2026_06_03_090000_add_review_fields_to_articles_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_03_120000_add_skip_seo_score_to_articles_table.php",
+            "path": "addons/content/database/migrations/2026_06_03_120000_add_skip_seo_score_to_articles_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_11_090000_create_seo_article_headings_table.php",
+            "path": "addons/content/database/migrations/2026_06_11_090000_create_seo_article_headings_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_12_150000_create_seo_article_revisions_table.php",
+            "path": "addons/content/database/migrations/2026_06_12_150000_create_seo_article_revisions_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_16_120000_add_translation_group_id_to_articles_table.php",
+            "path": "addons/content/database/migrations/2026_06_16_120000_add_translation_group_id_to_articles_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_23_120000_create_seo_article_reviews_and_review_status.php",
+            "path": "addons/content/database/migrations/2026_07_23_120000_create_seo_article_reviews_and_review_status.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_24_100000_add_last_saved_timestamps_to_articles_table.php",
+            "path": "addons/content/database/migrations/2026_07_24_100000_add_last_saved_timestamps_to_articles_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_26_160000_add_last_ai_content_at_to_articles_table.php",
+            "path": "addons/content/database/migrations/2026_07_26_160000_add_last_ai_content_at_to_articles_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_31_120000_cutover_drop_articles_is_reviewed.php",
+            "path": "addons/content/database/migrations/2026_07_31_120000_cutover_drop_articles_is_reviewed.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_08_01_100000_create_seo_article_ai_history_tables.php",
+            "path": "addons/content/database/migrations/2026_08_01_100000_create_seo_article_ai_history_tables.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_08_02_140000_add_document_version_to_articles_table.php",
+            "path": "addons/content/database/migrations/2026_08_02_140000_add_document_version_to_articles_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_08_02_140100_create_article_editor_sessions_table.php",
+            "path": "addons/content/database/migrations/2026_08_02_140100_create_article_editor_sessions_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_08_03_000100_add_editor_document_to_articles_table.php",
+            "path": "addons/content/database/migrations/2026_08_03_000100_add_editor_document_to_articles_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_08_05_110000_add_featured_image_projection_to_articles_table.php",
+            "path": "addons/content/database/migrations/2026_08_05_110000_add_featured_image_projection_to_articles_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_08_08_120000_add_manual_index_timestamps_to_articles_table.php",
+            "path": "addons/content/database/migrations/2026_08_08_120000_add_manual_index_timestamps_to_articles_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_31_100000_create_seo_projects_tables.php",
+            "path": "addons/content-projects/database/migrations/2026_05_31_100000_create_seo_projects_tables.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_31_110000_add_description_to_seo_project_tasks.php",
+            "path": "addons/content-projects/database/migrations/2026_05_31_110000_add_description_to_seo_project_tasks.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_31_120000_add_site_id_to_seo_project_tasks.php",
+            "path": "addons/content-projects/database/migrations/2026_05_31_120000_add_site_id_to_seo_project_tasks.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_03_140000_add_site_id_to_seo_projects_table.php",
+            "path": "addons/content-projects/database/migrations/2026_06_03_140000_add_site_id_to_seo_projects_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_05_100000_add_post_type_to_seo_project_tasks.php",
+            "path": "addons/content-projects/database/migrations/2026_06_05_100000_add_post_type_to_seo_project_tasks.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_05_110000_create_seo_project_runs_table.php",
+            "path": "addons/content-projects/database/migrations/2026_06_05_110000_create_seo_project_runs_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_08_100100_add_article_id_to_seo_project_tasks_table.php",
+            "path": "addons/content-projects/database/migrations/2026_06_08_100100_add_article_id_to_seo_project_tasks_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_08_100200_enforce_unique_article_per_project_task.php",
+            "path": "addons/content-projects/database/migrations/2026_06_08_100200_enforce_unique_article_per_project_task.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_11_160000_add_loai_san_pham_to_seo_project_tasks_table.php",
+            "path": "addons/content-projects/database/migrations/2026_06_11_160000_add_loai_san_pham_to_seo_project_tasks_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_12_100000_add_rewrite_mode_to_seo_project_tasks_table.php",
+            "path": "addons/content-projects/database/migrations/2026_06_12_100000_add_rewrite_mode_to_seo_project_tasks_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_18_100000_add_improve_type_to_seo_project_tasks_table.php",
+            "path": "addons/content-projects/database/migrations/2026_06_18_100000_add_improve_type_to_seo_project_tasks_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_24_110000_add_new_title_type_to_seo_project_tasks_table.php",
+            "path": "addons/content-projects/database/migrations/2026_06_24_110000_add_new_title_type_to_seo_project_tasks_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_13_100000_create_seo_project_archives_tables.php",
+            "path": "addons/content-projects/database/migrations/2026_07_13_100000_create_seo_project_archives_tables.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_16_120000_add_archive_project_kind_and_task_timestamps.php",
+            "path": "addons/content-projects/database/migrations/2026_07_16_120000_add_archive_project_kind_and_task_timestamps.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_16_140000_create_seo_content_archive_items_and_article_flag.php",
+            "path": "addons/content-projects/database/migrations/2026_07_16_140000_create_seo_content_archive_items_and_article_flag.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_18_160000_add_lifecycle_columns_to_seo_project_tasks_table.php",
+            "path": "addons/content-projects/database/migrations/2026_07_18_160000_add_lifecycle_columns_to_seo_project_tasks_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_18_160100_create_seo_project_run_items_table.php",
+            "path": "addons/content-projects/database/migrations/2026_07_18_160100_create_seo_project_run_items_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_18_160200_create_seo_project_task_events_table.php",
+            "path": "addons/content-projects/database/migrations/2026_07_18_160200_create_seo_project_task_events_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_19_180000_add_task_id_to_seo_content_archive_items_table.php",
+            "path": "addons/content-projects/database/migrations/2026_07_19_180000_add_task_id_to_seo_content_archive_items_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_19_200000_add_consolidation_columns_to_seo_project_runs_table.php",
+            "path": "addons/content-projects/database/migrations/2026_07_19_200000_add_consolidation_columns_to_seo_project_runs_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_19_201000_add_unique_project_source_key_to_seo_project_tasks_table.php",
+            "path": "addons/content-projects/database/migrations/2026_07_19_201000_add_unique_project_source_key_to_seo_project_tasks_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_21_150000_add_settings_to_seo_project_runs.php",
+            "path": "addons/content-projects/database/migrations/2026_07_21_150000_add_settings_to_seo_project_runs.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_24_140000_extend_seo_project_archives_for_project_unit.php",
+            "path": "addons/content-projects/database/migrations/2026_07_24_140000_extend_seo_project_archives_for_project_unit.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_24_160000_normalize_seo_project_task_actions.php",
+            "path": "addons/content-projects/database/migrations/2026_07_24_160000_normalize_seo_project_task_actions.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_27_100000_add_scheduled_publish_at_to_seo_project_tasks_table.php",
+            "path": "addons/content-projects/database/migrations/2026_07_27_100000_add_scheduled_publish_at_to_seo_project_tasks_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_27_110000_add_publish_queue_fields_to_seo_project_tasks_table.php",
+            "path": "addons/content-projects/database/migrations/2026_07_27_110000_add_publish_queue_fields_to_seo_project_tasks_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_27_120000_create_content_project_application_tables.php",
+            "path": "addons/content-projects/database/migrations/2026_07_27_120000_create_content_project_application_tables.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_27_130000_create_content_project_operations_tables.php",
+            "path": "addons/content-projects/database/migrations/2026_07_27_130000_create_content_project_operations_tables.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_08_01_110000_create_seo_content_project_item_generation_read_states_table.php",
+            "path": "addons/content-projects/database/migrations/2026_08_01_110000_create_seo_content_project_item_generation_read_states_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_08_01_120000_add_content_manager_review_reporting_to_seo_project_tasks.php",
+            "path": "addons/content-projects/database/migrations/2026_08_01_120000_add_content_manager_review_reporting_to_seo_project_tasks.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_08_04_160000_add_generation_blocked_to_seo_project_tasks.php",
+            "path": "addons/content-projects/database/migrations/2026_08_04_160000_add_generation_blocked_to_seo_project_tasks.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_08_05_100000_add_delivery_dispatch_publisher_markers_to_seo_project_tasks.php",
+            "path": "addons/content-projects/database/migrations/2026_08_05_100000_add_delivery_dispatch_publisher_markers_to_seo_project_tasks.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_22_120000_create_seo_media_table.php",
+            "path": "addons/media/database/migrations/2026_05_22_120000_create_seo_media_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_23_100000_create_seo_watermark_settings_table.php",
+            "path": "addons/media/database/migrations/2026_05_23_100000_create_seo_watermark_settings_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_24_100000_create_seo_image_optimization_settings_table.php",
+            "path": "addons/media/database/migrations/2026_05_24_100000_create_seo_image_optimization_settings_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_24_100100_add_alt_text_to_seo_media_table.php",
+            "path": "addons/media/database/migrations/2026_05_24_100100_add_alt_text_to_seo_media_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_25_100000_add_watermark_design_columns.php",
+            "path": "addons/media/database/migrations/2026_05_25_100000_add_watermark_design_columns.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_26_100000_create_seo_wp_media_backups_table.php",
+            "path": "addons/media/database/migrations/2026_05_26_100000_create_seo_wp_media_backups_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_27_100000_create_seo_media_processing_histories_table.php",
+            "path": "addons/media/database/migrations/2026_05_27_100000_create_seo_media_processing_histories_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_27_110000_add_status_to_seo_media_table.php",
+            "path": "addons/media/database/migrations/2026_05_27_110000_add_status_to_seo_media_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_27_120000_add_ai_job_fields_to_seo_media_table.php",
+            "path": "addons/media/database/migrations/2026_05_27_120000_add_ai_job_fields_to_seo_media_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_29_100000_add_wp_attachment_to_seo_media.php",
+            "path": "addons/media/database/migrations/2026_05_29_100000_add_wp_attachment_to_seo_media.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_30_100000_create_seo_wp_media_edited_pending_table.php",
+            "path": "addons/media/database/migrations/2026_05_30_100000_create_seo_wp_media_edited_pending_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_01_130000_merge_generated_images_into_seo_media.php",
+            "path": "addons/media/database/migrations/2026_06_01_130000_merge_generated_images_into_seo_media.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_04_100000_create_seo_media_meta_table.php",
+            "path": "addons/media/database/migrations/2026_06_04_100000_create_seo_media_meta_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_04_110000_drop_auxiliary_columns_from_seo_media_table.php",
+            "path": "addons/media/database/migrations/2026_06_04_110000_drop_auxiliary_columns_from_seo_media_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_04_120000_move_site_and_article_into_seo_media_meta.php",
+            "path": "addons/media/database/migrations/2026_06_04_120000_move_site_and_article_into_seo_media_meta.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_08_02_100000_add_publishing_queue_handoff_to_seo_project_tasks.php",
+            "path": "addons/publishing/database/migrations/2026_08_02_100000_add_publishing_queue_handoff_to_seo_project_tasks.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_08_04_160000_add_publishing_lease_and_retry_fields_to_seo_project_tasks.php",
+            "path": "addons/publishing/database/migrations/2026_08_04_160000_add_publishing_lease_and_retry_fields_to_seo_project_tasks.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_16_100003_create_keywords_table.php",
+            "path": "addons/search-foundation/database/migrations/2026_05_16_100003_create_keywords_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_20_150000_add_parent_id_to_keywords_table.php",
+            "path": "addons/search-foundation/database/migrations/2026_05_20_150000_add_parent_id_to_keywords_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_28_100000_add_keyword_type_and_link_keyword_id.php",
+            "path": "addons/search-foundation/database/migrations/2026_05_28_100000_add_keyword_type_and_link_keyword_id.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_28_110000_remove_link_like_internal_keywords.php",
+            "path": "addons/search-foundation/database/migrations/2026_05_28_110000_remove_link_like_internal_keywords.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_12_120000_create_tags_and_keyword_tag_tables.php",
+            "path": "addons/search-foundation/database/migrations/2026_06_12_120000_create_tags_and_keyword_tag_tables.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_12_130000_refactor_keywords_to_keyword_meta.php",
+            "path": "addons/search-foundation/database/migrations/2026_06_12_130000_refactor_keywords_to_keyword_meta.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_13_100000_normalize_keywords_seo_links_nxn.php",
+            "path": "addons/search-foundation/database/migrations/2026_06_13_100000_normalize_keywords_seo_links_nxn.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_14_100000_merge_keyword_types_to_normal.php",
+            "path": "addons/search-foundation/database/migrations/2026_06_14_100000_merge_keyword_types_to_normal.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_18_100000_dedupe_tags_and_add_unique_site_name.php",
+            "path": "addons/search-foundation/database/migrations/2026_06_18_100000_dedupe_tags_and_add_unique_site_name.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_18_100000_reform_keywords_to_seo_link_maps.php",
+            "path": "addons/search-foundation/database/migrations/2026_06_18_100000_reform_keywords_to_seo_link_maps.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_18_110000_tags_global_unique_name.php",
+            "path": "addons/search-foundation/database/migrations/2026_06_18_110000_tags_global_unique_name.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_18_120000_add_broken_status_to_seo_link_maps.php",
+            "path": "addons/search-foundation/database/migrations/2026_06_18_120000_add_broken_status_to_seo_link_maps.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_18_120000_remove_site_id_from_tags.php",
+            "path": "addons/search-foundation/database/migrations/2026_06_18_120000_remove_site_id_from_tags.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_18_130000_add_http_audit_columns_to_seo_link_maps.php",
+            "path": "addons/search-foundation/database/migrations/2026_06_18_130000_add_http_audit_columns_to_seo_link_maps.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_22_100000_create_keyword_site_meta_table.php",
+            "path": "addons/search-foundation/database/migrations/2026_06_22_100000_create_keyword_site_meta_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_23_100000_reform_keyword_meta_eav.php",
+            "path": "addons/search-foundation/database/migrations/2026_06_23_100000_reform_keyword_meta_eav.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_23_110000_create_seo_link_audits_table.php",
+            "path": "addons/search-foundation/database/migrations/2026_06_23_110000_create_seo_link_audits_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_01_120000_create_seo_pending_internal_links_table.php",
+            "path": "addons/search-foundation/database/migrations/2026_07_01_120000_create_seo_pending_internal_links_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_11_100000_create_seo_external_api_connections_tables.php",
+            "path": "addons/search-intelligence/database/migrations/2026_07_11_100000_create_seo_external_api_connections_tables.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_11_100100_create_keyword_rank_snapshots_table.php",
+            "path": "addons/search-intelligence/database/migrations/2026_07_11_100100_create_keyword_rank_snapshots_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_11_110000_add_oauth_app_credentials_to_seo_gsc_master_connections.php",
+            "path": "addons/search-intelligence/database/migrations/2026_07_11_110000_add_oauth_app_credentials_to_seo_gsc_master_connections.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_11_120000_create_seo_serp_provider_connections_table.php",
+            "path": "addons/search-intelligence/database/migrations/2026_07_11_120000_create_seo_serp_provider_connections_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_11_120100_extend_keyword_rank_snapshots_for_serp_providers.php",
+            "path": "addons/search-intelligence/database/migrations/2026_07_11_120100_extend_keyword_rank_snapshots_for_serp_providers.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_12_100000_create_seo_rank_keyword_groups_tables.php",
+            "path": "addons/search-intelligence/database/migrations/2026_07_12_100000_create_seo_rank_keyword_groups_tables.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_12_100100_extend_rank_snapshots_for_keyword_groups.php",
+            "path": "addons/search-intelligence/database/migrations/2026_07_12_100100_extend_rank_snapshots_for_keyword_groups.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_12_110000_create_keyword_group_metric_snapshots_table.php",
+            "path": "addons/search-intelligence/database/migrations/2026_07_12_110000_create_keyword_group_metric_snapshots_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_13_140000_add_keyword_review_tables.php",
+            "path": "addons/search-intelligence/database/migrations/2026_07_13_140000_add_keyword_review_tables.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_27_170000_create_keyword_intelligence_tables.php",
+            "path": "addons/search-intelligence/database/migrations/2026_07_27_170000_create_keyword_intelligence_tables.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_27_171000_enrich_keyword_intelligence_tables.php",
+            "path": "addons/search-intelligence/database/migrations/2026_07_27_171000_enrich_keyword_intelligence_tables.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_28_120000_phase2_keyword_analysis_engine.php",
+            "path": "addons/search-intelligence/database/migrations/2026_07_28_120000_phase2_keyword_analysis_engine.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_28_140000_phase3_topical_map_conversion.php",
+            "path": "addons/search-intelligence/database/migrations/2026_07_28_140000_phase3_topical_map_conversion.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_28_160000_create_serp_intelligence_tables.php",
+            "path": "addons/search-intelligence/database/migrations/2026_07_28_160000_create_serp_intelligence_tables.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_28_180000_create_gsc_intelligence_tables.php",
+            "path": "addons/search-intelligence/database/migrations/2026_07_28_180000_create_gsc_intelligence_tables.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_08_10_100000_add_keyword_id_to_seo_keywords_table.php",
+            "path": "addons/search-intelligence/database/migrations/2026_08_10_100000_add_keyword_id_to_seo_keywords_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_13_120000_add_seo_audit_query_indexes.php",
+            "path": "addons/seo/database/migrations/2026_07_13_120000_add_seo_audit_query_indexes.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_27_160000_create_seo_extension_states_table.php",
+            "path": "addons/seo/database/migrations/2026_07_27_160000_create_seo_extension_states_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_29_100000_create_site_sync_v2_tables.php",
+            "path": "addons/site-sync/database/migrations/2026_07_29_100000_create_site_sync_v2_tables.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_29_140000_site_sync_v2_wave2_inbound_and_locks.php",
+            "path": "addons/site-sync/database/migrations/2026_07_29_140000_site_sync_v2_wave2_inbound_and_locks.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_29_160000_site_sync_v2_wave3_indexes.php",
+            "path": "addons/site-sync/database/migrations/2026_07_29_160000_site_sync_v2_wave3_indexes.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_29_180000_site_sync_v2_wave4_cutover_tables.php",
+            "path": "addons/site-sync/database/migrations/2026_07_29_180000_site_sync_v2_wave4_cutover_tables.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_20_200000_create_wordpress_side_effect_attempts_table.php",
+            "path": "addons/wordpress/database/migrations/2026_07_20_200000_create_wordpress_side_effect_attempts_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_21_220000_create_seo_article_wp_sync_jobs_table.php",
+            "path": "addons/wordpress/database/migrations/2026_07_21_220000_create_seo_article_wp_sync_jobs_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_16_100001_create_entities_table.php",
+            "path": "addons/_legacy-obsolete/database/migrations/2026_05_16_100001_create_entities_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_16_100006_create_article_keyword_table.php",
+            "path": "addons/_legacy-obsolete/database/migrations/2026_05_16_100006_create_article_keyword_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_16_100008_create_entity_results_table.php",
+            "path": "addons/_legacy-obsolete/database/migrations/2026_05_16_100008_create_entity_results_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_05_22_100000_create_seo_generated_images_table.php",
+            "path": "addons/_legacy-obsolete/database/migrations/2026_05_22_100000_create_seo_generated_images_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_02_100000_drop_prompt_parts_and_sync_prompt_variables.php",
+            "path": "addons/_legacy-obsolete/database/migrations/2026_06_02_100000_drop_prompt_parts_and_sync_prompt_variables.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_18_110000_drop_seo_prompt_resultables_table.php",
+            "path": "addons/_legacy-obsolete/database/migrations/2026_06_18_110000_drop_seo_prompt_resultables_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_19_120000_drop_entities_and_entity_results_tables.php",
+            "path": "addons/_legacy-obsolete/database/migrations/2026_06_19_120000_drop_entities_and_entity_results_tables.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_23_120000_drop_legacy_seo_links_tables.php",
+            "path": "addons/_legacy-obsolete/database/migrations/2026_06_23_120000_drop_legacy_seo_links_tables.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_06_24_100000_drop_article_keyword_table.php",
+            "path": "addons/_legacy-obsolete/database/migrations/2026_06_24_100000_drop_article_keyword_table.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_18_120000_create_automation_action_runs_table.php",
+            "path": "addons/_legacy-obsolete/database/migrations/2026_07_18_120000_create_automation_action_runs_table.php",
+            "has_connection_property": false,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_19_210000_create_business_hook_tables.php",
+            "path": "addons/_legacy-obsolete/database/migrations/2026_07_19_210000_create_business_hook_tables.php",
+            "has_connection_property": false,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_20_100000_automation_v2_graph_and_scheduler.php",
+            "path": "addons/_legacy-obsolete/database/migrations/2026_07_20_100000_automation_v2_graph_and_scheduler.php",
+            "has_connection_property": false,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_20_120000_automation_v3_versions_and_ops.php",
+            "path": "addons/_legacy-obsolete/database/migrations/2026_07_20_120000_automation_v3_versions_and_ops.php",
+            "has_connection_property": false,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_20_220000_automation_manual_trigger_columns.php",
+            "path": "addons/_legacy-obsolete/database/migrations/2026_07_20_220000_automation_manual_trigger_columns.php",
+            "has_connection_property": false,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_20_230000_add_allow_manual_trigger_to_automation_rules.php",
+            "path": "addons/_legacy-obsolete/database/migrations/2026_07_20_230000_add_allow_manual_trigger_to_automation_rules.php",
+            "has_connection_property": false,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_21_100000_add_classification_to_automation_rules.php",
+            "path": "addons/_legacy-obsolete/database/migrations/2026_07_21_100000_add_classification_to_automation_rules.php",
+            "has_connection_property": false,
+            "compatibility": "basename_preserved"
+        },
+        {
+            "basename": "2026_07_22_120000_widen_business_events_event_uuid.php",
+            "path": "addons/_legacy-obsolete/database/migrations/2026_07_22_120000_widen_business_events_event_uuid.php",
+            "has_connection_property": true,
+            "compatibility": "basename_preserved"
+        }
+    ]
+}

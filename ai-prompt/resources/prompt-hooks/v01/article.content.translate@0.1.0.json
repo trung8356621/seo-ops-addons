@@ -1,0 +1,55 @@
+{
+  "spec_version": "0.1",
+  "key": "article.content.translate",
+  "version": "0.1.0",
+  "name": "Translate article",
+  "description": "Translate article content without changing meaning or structure.",
+  "enabled": true,
+  "status": "experimental",
+  "settings_visible": true,
+  "category": "article_editor",
+  "model": {
+    "provider": "prompt_connection",
+    "name": "configured",
+    "capability": "text",
+    "structured_output": false,
+    "settings": {}
+  },
+  "locale": { "mode": "site", "fallback": "en" },
+  "input_schema": {
+    "input": { "type": "string", "required": true, "max_length": 200000, "label": "Source article content" },
+    "language": { "type": "string", "required": false, "nullable": true, "max_length": 64, "label": "Target language" }
+  },
+  "output_schema": {
+    "type": "text",
+    "normalize": ["trim"],
+    "validation": { "not_empty": true }
+  },
+  "template": {
+    "source": "legacy_prompt_content"
+  },
+  "presentation": {
+    "description": "Translate article content to the target language while preserving meaning and structure.",
+    "default_instructions": [
+      "Translate the source article into the target language.",
+      "Do not change the meaning of the source.",
+      "Preserve Markdown structure and heading hierarchy when present.",
+      "Do not add commentary before or after the translation."
+    ],
+    "output_format": [
+      "Translated article content only — no explanations."
+    ],
+    "notes": [
+      "Prompt Markdown is the template sent to the model for this Hook."
+    ],
+    "variables": [
+      { "key": "input", "required": true },
+      { "key": "language", "required": false }
+    ]
+  },
+  "retry": { "max": 0 },
+  "logging": { "store_full_prompt": false, "redact_sensitive": true },
+  "side_effects": [],
+  "strict_template_variables": false,
+  "metadata": { "ownership": "settings_binding" }
+}

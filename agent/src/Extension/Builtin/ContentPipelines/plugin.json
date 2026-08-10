@@ -1,0 +1,10 @@
+{
+  "id": "content-pipelines",
+  "name": "Built-in Content Pipelines",
+  "version": "1.0.0",
+  "sdk": 1,
+  "provider": "Omnichannel\\Addons\\Agent\\Extension\\Builtin\\ContentPipelines\\ContentPipelinesExtensionProvider",
+  "providers": ["pipeline"],
+  "capabilities": [],
+  "requires": []
+}

@@ -1,0 +1,55 @@
+{
+  "spec_version": "0.1",
+  "key": "product.gallery.generate",
+  "version": "0.1.0",
+  "name": "Product gallery",
+  "description": "Generate product gallery images from the selected Prompt.",
+  "enabled": true,
+  "status": "experimental",
+  "settings_visible": true,
+  "category": "media",
+  "model": {
+    "provider": "prompt_connection",
+    "name": "configured",
+    "capability": "image",
+    "structured_output": false,
+    "settings": {}
+  },
+  "locale": { "mode": "site", "fallback": "en" },
+  "input_schema": {
+    "input": { "type": "string", "required": false, "nullable": true, "max_length": 5000, "label": "Image brief" },
+    "title": { "type": "string", "required": false, "nullable": true, "max_length": 500, "label": "Product title" }
+  },
+  "output_schema": {
+    "type": "text",
+    "normalize": ["trim"],
+    "validation": {}
+  },
+  "template": {
+    "source": "legacy_prompt_content"
+  },
+  "presentation": {
+    "description": "Generate product gallery images using the bound image Prompt.",
+    "default_instructions": [
+      "Create images suitable for a product gallery album.",
+      "Prefer clear layouts that work well on a product page.",
+      "Follow the Prompt Markdown and image tool settings of the selected Prompt."
+    ],
+    "output_format": [
+      "Image output from the selected image model / Prompt pipeline."
+    ],
+    "notes": [
+      "This Hook covers gallery image generation only.",
+      "It does not replace or rewrite the Product Gallery Description field."
+    ],
+    "variables": [
+      { "key": "input", "required": false },
+      { "key": "title", "required": false }
+    ]
+  },
+  "retry": { "max": 0 },
+  "logging": { "store_full_prompt": false, "redact_sensitive": true },
+  "side_effects": [],
+  "strict_template_variables": false,
+  "metadata": { "ownership": "settings_binding" }
+}

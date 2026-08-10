@@ -1,0 +1,11 @@
+{
+  "id": "local-seo",
+  "name": "Local SEO Provider",
+  "version": "1.0.0",
+  "sdk": 1,
+  "type": "builtin",
+  "provider": "Omnichannel\\Addons\\Seo\\Extension\\Builtin\\LocalSeo\\LocalSeoExtensionProvider",
+  "providers": ["seo"],
+  "capabilities": [],
+  "requires": []
+}

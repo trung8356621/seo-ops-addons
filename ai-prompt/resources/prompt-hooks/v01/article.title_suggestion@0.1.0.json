@@ -1,0 +1,64 @@
+{
+  "spec_version": "0.1",
+  "key": "article.title_suggestion",
+  "version": "0.1.0",
+  "name": "Suggest article title",
+  "description": "Experimental title suggestion — pinned 0.1.0",
+  "enabled": true,
+  "status": "experimental",
+  "settings_visible": true,
+  "category": "article_editor",
+  "classification": "EXPERIMENTAL",
+  "model": {
+    "provider": "prompt_connection",
+    "name": "configured",
+    "capability": "text",
+    "structured_output": false,
+    "settings": {}
+  },
+  "locale": { "mode": "site", "fallback": "en" },
+  "input_schema": {
+    "keyword": { "type": "string", "required": true, "max_length": 500 },
+    "old_title": { "type": "string", "required": false, "nullable": true, "max_length": 300 }
+  },
+  "settings": {
+    "max_length": { "type": "integer", "default": 65, "min": 30, "max": 100 },
+    "preserve_meaning": { "type": "boolean", "default": true }
+  },
+  "output_schema": {
+    "type": "text",
+    "normalize": ["trim", "strip_markdown_fence", "strip_wrapping_quotes", "first_non_empty_line"],
+    "validation": { "not_empty": true }
+  },
+  "template": {
+    "system": "Suggest one SEO title.",
+    "user": "Keyword: {{keyword}}\nOld title: {{old_title}}\nMax length: {{max_length}}"
+  },
+  "presentation": {
+    "description": "Suggest a new article title from the focus keyword and current title.",
+    "default_instructions": [
+      "Return exactly one article title as plain text.",
+      "Stay close to the topic and focus keyword.",
+      "If an old title is provided, improve it — do not copy it blindly.",
+      "Keep the title within the configured maximum length when possible.",
+      "Do not add explanations, prefixes, markdown, or wrapping quotes."
+    ],
+    "output_format": [
+      "One complete title line only — no list and no extra commentary."
+    ],
+    "notes": [
+      "Preserve-meaning and max-length settings on the Prompt Hook still apply."
+    ],
+    "variables": [
+      { "key": "keyword", "required": true },
+      { "key": "old_title", "required": false }
+    ]
+  },
+  "validation": { "not_empty": true },
+  "retry": { "max": 0 },
+  "logging": { "store_full_prompt": false, "redact_sensitive": true },
+  "permissions": { "capability": "text" },
+  "metadata": { "promote_checklist": ["parity_samples", "locale_ok", "redaction_ok", "no_domain_write"] },
+  "side_effects": [],
+  "strict_template_variables": false
+}

@@ -1,0 +1,20 @@
+{
+    "name":  "Content",
+    "slug":  "content",
+    "version":  "0.1.0",
+    "description":  "Peer addon — Content. Equal-level; no parent/child ownership.",
+    "provider":  "Omnichannel\\Addons\\Content\\ContentServiceProvider",
+    "register_early":  false,
+    "legacy":  false,
+    "provides":  [
+                     "content.document",
+                     "content.editor"
+                 ],
+    "requires":  [
+
+                 ],
+    "optional":  [
+                     "media.library",
+                     "ai.prompt"
+                 ]
+}

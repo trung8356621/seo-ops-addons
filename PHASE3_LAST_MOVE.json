@@ -1,0 +1,7 @@
+{
+    "rewrites": {
+        "App\\Addons\\SeoContentAi\\Services\\ContentProject": "Omnichannel\\Addons\\ContentProjects\\Services\\ContentProject"
+    },
+    "moved": 233,
+    "updated": 585
+}

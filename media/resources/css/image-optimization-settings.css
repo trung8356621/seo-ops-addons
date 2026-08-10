@@ -1,0 +1,220 @@
+.seo-image-opt {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+.seo-image-opt__toolbar {
+    padding: 1rem 1.25rem;
+    border-radius: 0.75rem;
+    border: 1px solid rgb(229 231 235);
+    background: #fff;
+}
+
+.dark .seo-image-opt__toolbar {
+    border-color: rgb(31 41 55);
+    background: rgb(17 24 39);
+}
+
+.seo-image-opt__toolbar-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.seo-image-opt__label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: rgb(55 65 81);
+}
+
+.dark .seo-image-opt__label {
+    color: rgb(209 213 219);
+}
+
+.seo-image-opt__input {
+    width: 100%;
+    max-width: 100%;
+    font-size: 0.875rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgb(209 213 219);
+    padding: 0.5rem 0.75rem;
+    background: #fff;
+    color: rgb(17 24 39);
+}
+
+.dark .seo-image-opt__input {
+    border-color: rgb(55 65 81);
+    background: rgb(31 41 55);
+    color: #fff;
+}
+
+.seo-image-opt__toolbar-row > .relative {
+    min-width: 220px;
+    max-width: 360px;
+}
+
+.seo-image-opt__hint {
+    margin: 0.5rem 0 0;
+    font-size: 0.75rem;
+    color: rgb(107 114 128);
+}
+
+.seo-image-opt__grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+}
+
+@media (min-width: 768px) {
+    .seo-image-opt__grid {
+        grid-template-columns: repeat(2, 1fr);
+    }
+}
+
+.seo-image-opt__card {
+    padding: 1.5rem;
+    border-radius: 0.75rem;
+    border: 1px solid rgb(229 231 235);
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.dark .seo-image-opt__card {
+    border-color: rgb(31 41 55);
+    background: rgb(17 24 39);
+}
+
+.seo-image-opt__card--wide {
+    grid-column: 1 / -1;
+}
+
+.seo-image-opt__card-title {
+    margin: 0;
+    font-size: 1rem;
+    font-weight: 700;
+    color: rgb(17 24 39);
+}
+
+.dark .seo-image-opt__card-title {
+    color: #fff;
+}
+
+.seo-image-opt__divider {
+    margin: 0;
+    border: none;
+    border-top: 1px solid rgb(243 244 246);
+}
+
+.dark .seo-image-opt__divider {
+    border-top-color: rgb(31 41 55);
+}
+
+.seo-image-opt__check {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    cursor: pointer;
+}
+
+.seo-image-opt__check input {
+    margin-top: 0.2rem;
+    flex-shrink: 0;
+}
+
+.seo-image-opt__check strong {
+    display: block;
+    font-size: 0.875rem;
+    color: rgb(31 41 55);
+}
+
+.dark .seo-image-opt__check strong {
+    color: rgb(229 231 235);
+}
+
+.seo-image-opt__check small {
+    display: block;
+    margin-top: 0.15rem;
+    font-size: 0.75rem;
+    color: rgb(156 163 175);
+}
+
+.seo-image-opt__range-wrap {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.seo-image-opt__range-label {
+    font-size: 0.75rem;
+    color: rgb(107 114 128);
+}
+
+.seo-image-opt__range {
+    width: 100%;
+    accent-color: rgb(5 150 105);
+}
+
+.seo-image-opt__range-hints {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.625rem;
+    color: rgb(156 163 175);
+}
+
+.seo-image-opt__dims {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 1rem;
+}
+
+.seo-image-opt__field-label {
+    display: block;
+    margin-bottom: 0.25rem;
+    font-size: 0.75rem;
+    color: rgb(107 114 128);
+}
+
+.seo-image-opt__seo-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+}
+
+@media (min-width: 768px) {
+    .seo-image-opt__seo-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+.seo-image-opt__seo-checks {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.seo-image-opt__pattern-hint {
+    margin: 0.35rem 0 0;
+    font-size: 0.6875rem;
+    line-height: 1.5;
+    color: rgb(156 163 175);
+}
+
+.seo-image-opt__pattern-hint code {
+    font-size: 0.65rem;
+    padding: 0.1rem 0.25rem;
+    border-radius: 0.25rem;
+    background: rgb(243 244 246);
+}
+
+.dark .seo-image-opt__pattern-hint code {
+    background: rgb(31 41 55);
+}
+
+.seo-image-opt__actions {
+    display: flex;
+    justify-content: flex-end;
+}

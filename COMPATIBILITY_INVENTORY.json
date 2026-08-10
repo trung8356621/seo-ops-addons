@@ -1,0 +1,43 @@
+{
+  "version": 2,
+  "updated": "2026-08-10",
+  "legacy_namespace": "App\\Addons\\SeoContentAi",
+  "policy": "Each remaining reference must be A) documented compatibility or B) removed.",
+  "intentional_compatibility": [
+    {
+      "ref": "App\\Addons\\SeoContentAi\\*",
+      "why": "Transitional monolith until physical class move to peer addons completes",
+      "bound": "seo-content-ai addon.json legacy=true"
+    },
+    {
+      "ref": "SeoPanelProvider / SeoToolsPanelProvider via register_early",
+      "why": "Filament panels still live under legacy path",
+      "bound": "addon.json panel_provider + providers[]"
+    },
+    {
+      "ref": "window.__seoPublishBoxSnapshot",
+      "why": "Publishing UI still Alpine shell; publishingActions wraps it",
+      "bound": "editor/domains/publishing"
+    },
+    {
+      "ref": "articleMediaPickerCache localStorage",
+      "why": "Same-session picker cache with explicit owner/TTL — not business SoT",
+      "bound": "media picker cache utils"
+    },
+    {
+      "ref": "addons/_legacy-obsolete/database/migrations",
+      "why": "Historical create/drop chain required for migrate order; marked obsolete owner",
+      "bound": "config/addon_migration_ownership.php"
+    }
+  ],
+  "removed_or_relocated_in_phase_2": [
+    "All SeoContentAi/database/migrations/*.php moved to addons/*/database/migrations",
+    "bootstrap providers no longer hard-code SEO panels (Phase 1)",
+    "seo-content-ai.migrations_path single-dir assumption replaced by AddonMigrationRegistrar"
+  ],
+  "still_to_migrate_code": [
+    "Models/Services/Filament/Http under SeoContentAi namespaces",
+    "Direct CP→WordPress concrete imports",
+    "SeoArticleEditor mega-state (domains layer now exists; host still holds UI state)"
+  ]
+}

@@ -1,0 +1,87 @@
+{
+  "spec_version": "0.1",
+  "key": "article.comment.generate",
+  "version": "0.1.0",
+  "name": "Generate article comments",
+  "description": "Generate natural seeded comments for an article.",
+  "enabled": true,
+  "status": "experimental",
+  "settings_visible": true,
+  "category": "article_editor",
+  "model": {
+    "provider": "prompt_connection",
+    "name": "configured",
+    "capability": "text",
+    "structured_output": false,
+    "settings": {}
+  },
+  "locale": { "mode": "site", "fallback": "vi" },
+  "input_schema": {
+    "post_title": {
+      "type": "string",
+      "required": true,
+      "max_length": 500,
+      "label": "Article title"
+    },
+    "post_excerpt": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 2000,
+      "label": "Content excerpt"
+    },
+    "post_type": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 64,
+      "label": "Post type"
+    },
+    "site_short_description": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 1000,
+      "label": "Website short description"
+    }
+  },
+  "output_schema": {
+    "type": "text",
+    "normalize": ["trim"],
+    "validation": { "not_empty": true }
+  },
+  "template": {
+    "source": "legacy_prompt_content"
+  },
+  "presentation": {
+    "description": "Generate natural reader comments for seeding on an article.",
+    "default_instructions": [
+      "Write as a real reader, not as the author.",
+      "Comments should add value or ask an open follow-up question.",
+      "Email addresses must match the commenter name.",
+      "Do not add greetings, titles, or extra explanations outside the comment lines."
+    ],
+    "output_format": [
+      "One comment per line.",
+      "Each line: Full name | Email | Comment text",
+      "Only comment lines — no heading or surrounding prose."
+    ],
+    "notes": [
+      "The Prompt Markdown sets how many comments to request.",
+      "The parser accepts up to 10 valid lines and skips invalid ones."
+    ],
+    "variables": [
+      { "key": "post_title", "required": true },
+      { "key": "post_excerpt", "required": false },
+      { "key": "post_type", "required": false },
+      { "key": "site_short_description", "required": false }
+    ]
+  },
+  "retry": { "max": 1, "on": ["output_invalid"] },
+  "logging": { "store_full_prompt": false, "redact_sensitive": true },
+  "side_effects": [],
+  "strict_template_variables": false,
+  "metadata": {
+    "ownership": "settings_binding"
+  }
+}

@@ -1,0 +1,73 @@
+{
+  "spec_version": "0.1",
+  "key": "product.gallery.plan",
+  "version": "0.1.0",
+  "name": "Product gallery plan",
+  "description": "Plan product gallery shot angles as JSON only. Does not generate images.",
+  "enabled": true,
+  "status": "experimental",
+  "settings_visible": true,
+  "category": "media",
+  "model": {
+    "provider": "prompt_connection",
+    "name": "configured",
+    "capability": "text",
+    "structured_output": true,
+    "settings": { "temperature": 0.2 }
+  },
+  "locale": { "mode": "site", "fallback": "en" },
+  "input_schema": {
+    "product_title": { "type": "string", "required": true, "max_length": 500, "label": "Product title" },
+    "keyword": { "type": "string", "required": false, "nullable": true, "max_length": 300, "label": "Focus keyword" },
+    "product_description": { "type": "string", "required": false, "nullable": true, "max_length": 5000, "label": "Product description" },
+    "product_attributes": { "type": "string", "required": false, "nullable": true, "max_length": 3000, "label": "Product attributes" },
+    "product_identity": { "type": "string", "required": false, "nullable": true, "max_length": 3000, "label": "Product identity" },
+    "negative_constraints": { "type": "string", "required": false, "nullable": true, "max_length": 2000, "label": "Negative constraints" },
+    "requested_image_count": { "type": "integer", "required": false, "default": 6, "label": "Requested image count" },
+    "language": { "type": "string", "required": false, "nullable": true, "max_length": 16, "label": "Language" }
+  },
+  "output_schema": {
+    "type": "json",
+    "normalize": ["trim", "strip_markdown_fence"],
+    "validation": { "not_empty": true, "json_object": true }
+  },
+  "template": {
+    "source": "legacy_prompt_content"
+  },
+  "presentation": {
+    "description": "Lập danh sách góc chụp cho album sản phẩm. Chỉ trả JSON. Không sinh ảnh.",
+    "default_instructions": [
+      "Return JSON only — no markdown fences.",
+      "shots[].slot must be unique and start at 1.",
+      "shots[].shot_key must be unique.",
+      "priority must be required|optional.",
+      "aspect_ratio must be supported by runtime.",
+      "instruction must be non-empty.",
+      "Do not request collage, grid, multi-panel, or text/labels inside images.",
+      "Keep shot count within requested_image_count."
+    ],
+    "output_format": [
+      "{ \"shots\": [ { \"slot\": 1, \"shot_key\": \"front\", \"label\": \"...\", \"priority\": \"required\", \"aspect_ratio\": \"1:1\", \"instruction\": \"...\" } ] }"
+    ],
+    "notes": [
+      "This Hook plans angles only — Parent/Child generate hooks create images.",
+      "Mode 2 uses ProductGalleryPlanParser for validation.",
+      "Reference images are not part of this text hook."
+    ],
+    "variables": [
+      { "key": "product_title", "required": true },
+      { "key": "keyword", "required": false },
+      { "key": "product_description", "required": false },
+      { "key": "product_attributes", "required": false },
+      { "key": "product_identity", "required": false },
+      { "key": "negative_constraints", "required": false },
+      { "key": "requested_image_count", "required": false },
+      { "key": "language", "required": false }
+    ]
+  },
+  "retry": { "max": 0 },
+  "logging": { "store_full_prompt": false, "redact_sensitive": true },
+  "side_effects": [],
+  "strict_template_variables": true,
+  "metadata": { "ownership": "settings_binding", "gallery_mode": "parent_child" }
+}

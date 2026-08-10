@@ -1,0 +1,211 @@
+{
+  "spec_version": "0.1",
+  "key": "article.content.generate",
+  "version": "0.1.0",
+  "status": "experimental",
+  "settings_visible": true,
+  "category": "article_writing",
+  "name": "Generate article content",
+  "description": "Settings binding cho Editor «Viết lại toàn bộ» (source=existing_article) và direct generate. Content Project Publish vẫn dùng Prompt trên Workflow node.",
+  "enabled": true,
+  "classification": "NORMALIZE_NOW",
+
+  "legacy_binding": "publish_article_task_id → TaskWorkflowTestRunner prompt nodes → PromptTestPublish / article.content.update",
+
+  "model": {
+    "provider": "prompt_connection",
+    "name": "configured",
+    "settings": {
+      "temperature": 0.6
+    }
+  },
+
+  "locale": {
+    "mode": "site",
+    "fallback": "en"
+  },
+
+  "input_schema": {
+    "input": {
+      "type": "string",
+      "required": true,
+      "nullable": false,
+      "max_length": 120000,
+      "allowed_source": [
+        "runtime",
+        "previous_outputs",
+        "task"
+      ]
+    },
+    "post_title": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 500,
+      "allowed_source": [
+        "runtime",
+        "task",
+        "previous_outputs"
+      ]
+    },
+    "focus_keyword": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 500,
+      "allowed_source": [
+        "runtime",
+        "task"
+      ]
+    },
+    "site_short_description": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 8000,
+      "allowed_source": [
+        "site_context"
+      ]
+    },
+    "tone": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 500,
+      "allowed_source": [
+        "seo_prompt_settings",
+        "runtime"
+      ]
+    },
+    "article_length": {
+      "type": "integer",
+      "required": false,
+      "nullable": true,
+      "minimum": 300,
+      "maximum": 20000,
+      "description": "Target article length in words (product vs other from seo_prompt_settings).",
+      "allowed_source": [
+        "seo_prompt_settings",
+        "runtime"
+      ]
+    },
+    "keyword_density": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 2000,
+      "allowed_source": [
+        "seo_prompt_settings",
+        "runtime"
+      ]
+    },
+    "site_cta": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 5000,
+      "allowed_source": [
+        "site_context",
+        "runtime"
+      ]
+    },
+    "language": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 100,
+      "allowed_source": [
+        "site_context",
+        "runtime"
+      ]
+    },
+    "search_intent": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 1000,
+      "allowed_source": [
+        "runtime",
+        "previous_outputs",
+        "task"
+      ]
+    }
+  },
+
+  "output_schema": {
+    "type": "markdown",
+    "validation": {
+      "not_empty": true,
+      "length_unit": "words",
+      "minimum_length": 300,
+      "reject_task_markers": false,
+      "reject_provider_preamble": true
+    },
+    "normalize": [
+      "trim",
+      "strip_markdown_fence"
+    ]
+  },
+
+  "output_contract": "markdown.article",
+
+  "template": {
+    "source": "legacy_prompt_content",
+    "system": null,
+    "user": null
+  },
+
+  "validation": {
+    "not_empty": true
+  },
+
+  "retry": {
+    "max": 1,
+    "on": [
+      "empty",
+      "provider_timeout",
+      "truncated"
+    ]
+  },
+
+  "logging": {
+    "store_full_prompt": false,
+    "store_full_output": false,
+    "redact_sensitive": true
+  },
+
+  "permissions": {
+    "capability": "text"
+  },
+
+  "presentation": {
+    "default_instructions": [
+      "Generate full article markdown from outline, existing article, or brief (source_type).",
+      "Respect outline structure when source is outline; do not invent conflicting facts.",
+      "Settings binding used by Editor full rewrite (source=existing_article) and direct generate."
+    ],
+    "output_format": [
+      "Markdown article body (no surrounding code fence)."
+    ],
+    "notes": [
+      "Hook key: article.content.generate — Content Project Publish still uses Workflow node Prompt.",
+      "Legacy article.content.rewrite is compatibility-only; do not bind new Prompts to it."
+    ]
+  },
+
+  "metadata": {
+    "prompt_concern": "full article generation (outline | existing_article | brief)",
+    "workflow_concern": "consume planning outputs and expose article markdown",
+    "domain_action_concern": "article persistence belongs to workflow action",
+    "ui_concern": "Prompt Editor and Workflow Prompt block",
+    "article_length_unit": "words",
+    "source_type_rules": {
+      "outline": "Dàn ý và hướng dẫn viết là cấu trúc bắt buộc.",
+      "existing_article": "Viết lại toàn bộ bài hiện có, giữ thông tin đúng và hữu ích, không paraphrase từng câu, không giữ cấu trúc yếu chỉ vì bài cũ có.",
+      "brief": "Tự xây cấu trúc phù hợp từ tiêu đề/từ khóa/mô tả."
+    },
+    "replaces_hook": "article.content.rewrite"
+  },
+
+  "side_effects": []
+}

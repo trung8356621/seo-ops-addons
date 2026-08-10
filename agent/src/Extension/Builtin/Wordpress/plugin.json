@@ -1,0 +1,14 @@
+{
+  "id": "wordpress",
+  "name": "WordPress Publisher",
+  "version": "1.0.0",
+  "sdk": 1,
+  "type": "builtin",
+  "provider": "Omnichannel\\Addons\\WordPress\\Extension\\WordpressExtensionProvider",
+  "providers": ["publisher"],
+  "provides": {
+    "publishers": ["wordpress"]
+  },
+  "capabilities": [],
+  "requires": []
+}

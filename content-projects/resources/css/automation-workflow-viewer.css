@@ -1,0 +1,212 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@source '../js/components/automation-workflow-viewer/**/*.{js,jsx}';
+@source '../js/components/automation-workflow/canvasUtils.js';
+
+.awv-shell {
+    min-height: calc(100vh - 14rem);
+}
+
+.awv-shell .awv-canvas,
+.awv-shell .relative.flex.min-h-0.min-w-0.flex-1.flex-col {
+    min-height: calc(100vh - 18rem);
+}
+
+.awv-list-col {
+    width: 100%;
+    max-width: 18rem;
+}
+
+@media (min-width: 1024px) {
+    .awv-list-col {
+        flex: 0 0 17rem;
+        max-width: 17rem;
+    }
+}
+
+.awv-inspector-open {
+    width: 20rem;
+    max-width: 22rem;
+}
+
+@media (max-width: 1023px) {
+    .awv-list-col {
+        max-width: 100%;
+    }
+
+    .awv-shell .flex.min-h-0.flex-1 {
+        position: relative;
+    }
+
+    .awv-inspector-open {
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 30;
+        box-shadow: -8px 0 24px rgba(15, 23, 42, 0.12);
+        background: #fff;
+    }
+
+    .dark .awv-inspector-open {
+        background: #020617;
+    }
+}
+
+@media (max-width: 767px) {
+    .awv-shell {
+        min-height: calc(100vh - 12rem);
+    }
+}
+
+.awv-canvas {
+    background-color: #f8fafc;
+    background-image: radial-gradient(circle, #cbd5e1 1px, transparent 1px);
+    background-size: 20px 20px;
+}
+
+.dark .awv-canvas {
+    background-color: #0f172a;
+    background-image: radial-gradient(circle, #334155 1px, transparent 1px);
+}
+
+.awv-node {
+    user-select: none;
+    cursor: pointer;
+}
+
+.awv-node-selected {
+    box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.35);
+}
+
+.awv-badge {
+    display: inline-flex;
+    align-items: center;
+    border-radius: 9999px;
+    padding: 0.1rem 0.45rem;
+    font-size: 10px;
+    font-weight: 600;
+    line-height: 1.2;
+}
+
+.awv-status-completed,
+.awv-badge.awv-status-completed {
+    background: #d1fae5;
+    color: #047857;
+}
+
+.awv-status-processing,
+.awv-badge.awv-status-processing {
+    background: #dbeafe;
+    color: #1d4ed8;
+}
+
+.awv-status-failed,
+.awv-badge.awv-status-failed {
+    background: #ffe4e6;
+    color: #be123c;
+}
+
+.awv-status-stale,
+.awv-badge.awv-status-stale {
+    background: #ffedd5;
+    color: #c2410c;
+}
+
+.awv-status-never,
+.awv-status-registered,
+.awv-badge.awv-status-never,
+.awv-badge.awv-status-registered {
+    background: #f1f5f9;
+    color: #475569;
+}
+
+.awv-badge-optional {
+    background: #fff7ed;
+    color: #c2410c;
+    border: 1px dashed #fdba74;
+}
+
+.awv-badge-manual {
+    background: #eef2ff;
+    color: #4338ca;
+}
+
+.awv-badge-queued {
+    background: #e0f2fe;
+    color: #0369a1;
+}
+
+.awv-tool-btn {
+    border-radius: 0.375rem;
+    border: 1px solid #e2e8f0;
+    background: #fff;
+    padding: 0.25rem 0.55rem;
+    font-size: 11px;
+    font-weight: 600;
+    color: #334155;
+}
+
+.awv-tool-btn:hover {
+    background: #f8fafc;
+}
+
+.awv-tool-btn-active {
+    border-color: #6366f1;
+    background: #eef2ff;
+    color: #4338ca;
+}
+
+.dark .awv-tool-btn {
+    border-color: #334155;
+    background: #0f172a;
+    color: #e2e8f0;
+}
+
+.dark .awv-tool-btn-active {
+    border-color: #818cf8;
+    background: #312e81;
+    color: #e0e7ff;
+}
+
+.awv-edge-label {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.awv-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+}
+
+.awv-table th,
+.awv-table td {
+    border-bottom: 1px solid #e2e8f0;
+    padding: 0.55rem 0.65rem;
+    text-align: left;
+    vertical-align: top;
+}
+
+.awv-table th {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #64748b;
+    background: #f8fafc;
+}
+
+.dark .awv-table th,
+.dark .awv-table td {
+    border-bottom-color: #334155;
+}
+
+.dark .awv-table th {
+    background: #0f172a;
+    color: #94a3b8;
+}

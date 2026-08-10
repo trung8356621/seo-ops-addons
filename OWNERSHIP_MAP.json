@@ -1,0 +1,31 @@
+{
+  "version": 2,
+  "phase": 2,
+  "note": "Migrations relocated to peer addon folders. Business PHP still largely under SeoContentAi until Phase 3 class move.",
+  "client_core": {
+    "path": "app/Core",
+    "owns": ["Addon runtime", "Capability/Command/Event/API/Automation foundations", "AddonMigrationRegistrar", "MigrationPathLocator"]
+  },
+  "migration_ownership": "addons/DB_OWNERSHIP_MAP.json",
+  "compatibility": "addons/COMPATIBILITY_INVENTORY.json",
+  "commands": {
+    "after_legacy_sql_import": [
+      "php artisan refactor:data-counts",
+      "php artisan refactor:reconcile-migrations",
+      "php artisan refactor:reconcile-migrations --apply",
+      "php artisan refactor:migrate --reconcile --verify",
+      "php artisan refactor:migrate --verify",
+      "php artisan refactor:data-counts"
+    ],
+    "migrate": "php artisan refactor:migrate",
+    "migrate_verify": "php artisan refactor:migrate --verify",
+    "reconcile": "php artisan refactor:reconcile-migrations [--apply]",
+    "data_counts": "php artisan refactor:data-counts",
+    "fresh_test_only": "DB_DATABASE=omi_channel_test SEO_DB_DATABASE=omi_seo_ai_test php artisan refactor:migrate-fresh --seed --confirm-destroy-test-db"
+  },
+  "db_safety": {
+    "protected_databases": ["omi_channel", "omi_seo_ai", "omi_channel_real", "omi_seo_ai_real"],
+    "disposable_patterns": ["*_test", "*_testing", "test_*", "phpunit_*", "pest_*"],
+    "basename_compat": "addons/MIGRATION_BASENAME_COMPAT.json"
+  }
+}

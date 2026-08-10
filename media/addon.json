@@ -1,0 +1,20 @@
+{
+    "name":  "Media",
+    "slug":  "media",
+    "version":  "0.1.0",
+    "description":  "Peer addon — Media. Equal-level; no parent/child ownership.",
+    "provider":  "Omnichannel\\Addons\\Media\\MediaServiceProvider",
+    "register_early":  false,
+    "legacy":  false,
+    "provides":  [
+                     "media.library",
+                     "media.picker"
+                 ],
+    "requires":  [
+
+                 ],
+    "optional":  [
+                     "wordpress.bridge",
+                     "ai.prompt"
+                 ]
+}

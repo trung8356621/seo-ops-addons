@@ -1,0 +1,40 @@
+{
+  "id": "9646-equivalent",
+  "title": "Phong cách Preppy",
+  "slug": "phong-cach-preppy",
+  "keyword": "phong cách preppy",
+  "meta_description": "Khám phá phong cách preppy: đặc điểm, cách phối đồ và gợi ý outfit thanh lịch.",
+  "score_version": "seo-scoring.v1",
+  "notes": "Anonymized Vietnamese fixture for JS/PHP parity. expected_total_score filled after both engines agree on same content.",
+  "content": "<h2>Phong cách Preppy là gì</h2><p>Phong cách preppy mang hơi hướng học đường Mỹ, nhấn mạnh sự gọn gàng và thanh lịch.</p><h2>Cách phối đồ Preppy</h2><p>Áo polo, áo len gile và chân váy xếp ly là những món cơ bản của phong cách preppy.</p><table><tr><th>Món đồ</th><th>Gợi ý</th></tr><tr><td>Áo polo</td><td>Tone trung tính</td></tr></table><p><img src=\"/media/preppy.jpg\" alt=\"Phong cách preppy\" /></p><p><a href=\"https://en.wikipedia.org/wiki/Preppy\">Wikipedia Preppy</a></p>",
+  "headings": ["Phong cách Preppy là gì", "Cách phối đồ Preppy"],
+  "images": [{"src": "/media/preppy.jpg", "alt": "Phong cách preppy"}],
+  "internal_links": [],
+  "external_links": [{"href": "https://en.wikipedia.org/wiki/Preppy", "text": "Wikipedia Preppy"}],
+  "faq": [{"question": "Phong cách preppy phù hợp ai?", "answer": "Người thích vẻ thanh lịch, cổ điển."}],
+  "expected_rule_keys": [
+    "missing_focus_keyword",
+    "h2_missing",
+    "content_length_low",
+    "image_ratio_missing",
+    "image_alt_missing",
+    "wiki_trust_missing",
+    "faq_missing",
+    "keyword_missing_in_title",
+    "keyword_missing_in_meta",
+    "keyword_missing_in_slug",
+    "keyword_missing_in_intro",
+    "featured_snippet_missing"
+  ],
+  "root_cause_40_vs_58": {
+    "list_score_before": 40,
+    "editor_score_before": 58,
+    "gap": 18,
+    "primary_cause": "List reads stale seo_rule_violations from last PHP job; Editor idle-JS scores local draft. React save did not persist PHP score.",
+    "likely_rule_combos": [
+      "content_length_low(15)+keyword_missing_in_intro(3)",
+      "wiki_trust_missing(15)+keyword_missing_in_intro(3)",
+      "faq_missing(10)+featured_snippet_below_excellent(4)+keyword_field(4)"
+    ]
+  }
+}

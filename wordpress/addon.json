@@ -1,0 +1,20 @@
+{
+    "name":  "WordPress",
+    "slug":  "wordpress",
+    "version":  "0.1.0",
+    "description":  "Peer addon — WordPress. Equal-level; no parent/child ownership.",
+    "provider":  "Omnichannel\\Addons\\WordPress\\WordPressServiceProvider",
+    "register_early":  false,
+    "legacy":  false,
+    "provides":  [
+                     "wordpress.bridge",
+                     "wordpress.publisher"
+                 ],
+    "requires":  [
+
+                 ],
+    "optional":  [
+                     "content.document",
+                     "media.library"
+                 ]
+}

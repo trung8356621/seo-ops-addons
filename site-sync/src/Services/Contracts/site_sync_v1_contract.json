@@ -1,0 +1,14 @@
+{
+  "schema": "site_sync.v1",
+  "modes": ["snapshot", "delta"],
+  "min_bridge_version": "1.0.62",
+  "laravel_package": "App\\Addons\\SeoContentAi\\Services\\SiteSync",
+  "keyword_priority": ["manual", "provider", "workspace"],
+  "feature_flags": {
+    "SEO_SITE_SYNC_V2_ORCHESTRATOR": true,
+    "SEO_SITE_SYNC_V2_UI": true,
+    "SEO_SITE_SYNC_V2_LEGACY_ACTIONS": true,
+    "SEO_SITE_SYNC_V2_COMPAT_PUSH": true,
+    "SEO_SITE_SYNC_V2_DUAL_RUN": true
+  }
+}

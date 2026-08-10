@@ -1,0 +1,741 @@
+.magic-eraser-standalone-body {
+    margin: 0;
+}
+
+.magic-eraser-standalone-body .fi-sidebar,
+.magic-eraser-standalone-body .fi-topbar,
+.magic-eraser-standalone-body .fi-header,
+.magic-eraser-standalone-body .fi-page-header {
+    display: none !important;
+}
+
+.magic-eraser-standalone-body .fi-main-ctn,
+.magic-eraser-standalone-body .fi-main {
+    padding: 0 !important;
+    margin: 0 !important;
+    max-width: none !important;
+}
+
+.magic-eraser-standalone-body .fi-page {
+    padding: 0 !important;
+}
+
+.magic-eraser-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 100060;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1.5rem;
+    background: rgba(2, 6, 23, 0.92);
+    backdrop-filter: blur(4px);
+}
+
+.magic-eraser-root--standalone {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    display: flex;
+    flex-direction: column;
+    background: #020617;
+}
+
+.magic-eraser-shell {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    max-width: 72rem;
+    height: 90vh;
+    overflow: hidden;
+    border: 1px solid #334155;
+    border-radius: 1rem;
+    background: #0f172a;
+    box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+}
+
+.magic-eraser-shell--standalone {
+    max-width: none;
+    width: 100%;
+    height: 100vh;
+    border: none;
+    border-radius: 0;
+    box-shadow: none;
+}
+
+.magic-eraser-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 1rem;
+    flex-shrink: 0;
+    height: 3.5rem;
+    padding: 0 1.5rem;
+    border-bottom: 1px solid #1e293b;
+    background: #020617;
+}
+
+.magic-eraser-topbar-left {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    flex: 1;
+    min-width: 0;
+}
+
+.magic-eraser-tool-group {
+    display: flex;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    border: 1px solid #1e293b;
+    border-radius: 0.5rem;
+    background: #0f172a;
+}
+
+/* Toolbar icon buttons (SVG) */
+.magic-eraser-tb-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    border: none;
+    cursor: pointer;
+    transition:
+        background 0.15s ease,
+        color 0.15s ease,
+        box-shadow 0.15s ease;
+}
+
+.magic-eraser-tb-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+
+.magic-eraser-tb-btn--tool {
+    width: 2.25rem;
+    height: 2.25rem;
+    padding: 0;
+    border-radius: 0.35rem;
+    background: transparent;
+    color: #94a3b8;
+}
+
+.magic-eraser-tb-btn--tool:hover:not(:disabled) {
+    background: #1e293b;
+    color: #f8fafc;
+}
+
+.magic-eraser-tb-btn--tool.is-active {
+    background: #f43f5e;
+    color: #fff;
+    box-shadow: 0 0 0 1px rgba(244, 63, 94, 0.4);
+}
+
+.magic-eraser-tb-btn--icon {
+    width: 2rem;
+    height: 2rem;
+    padding: 0;
+    border-radius: 0.35rem;
+    background: transparent;
+    color: #cbd5e1;
+}
+
+.magic-eraser-tb-btn--icon:hover:not(:disabled) {
+    background: #1e293b;
+    color: #fff;
+}
+
+.magic-eraser-tb-btn--action-secondary {
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.5rem;
+    background: #1e293b;
+    color: #e2e8f0;
+}
+
+.magic-eraser-tb-btn--action-secondary:hover:not(:disabled) {
+    background: #334155;
+}
+
+.magic-eraser-tb-btn--action-primary {
+    width: 2.5rem;
+    height: 2.5rem;
+    border-radius: 0.5rem;
+    background: #059669;
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(5, 150, 105, 0.35);
+}
+
+.magic-eraser-tb-btn--action-primary:hover:not(:disabled) {
+    background: #10b981;
+}
+
+.magic-eraser-tb-btn--sidebar {
+    width: 100%;
+    min-height: 2.5rem;
+    padding: 0.5rem 0.75rem;
+    border-radius: 0.5rem;
+    border: 1px solid #334155;
+    background: #1e293b;
+    color: #e2e8f0;
+    font-size: 0.75rem;
+    font-weight: 600;
+    justify-content: flex-start;
+}
+
+.magic-eraser-tb-btn--sidebar:hover:not(:disabled) {
+    background: #334155;
+    border-color: #475569;
+}
+
+.magic-eraser-sidebar-action-label {
+    flex: 1;
+    text-align: left;
+}
+
+.magic-eraser-tb-btn--fill {
+    width: 100%;
+    min-height: 2.75rem;
+    padding: 0.65rem 1rem;
+    justify-content: center;
+    gap: 0.5rem;
+    border: none;
+    border-radius: 0.75rem;
+    background: linear-gradient(135deg, #e11d48, #db2777);
+    color: #fff;
+    font-size: 0.8125rem;
+    font-weight: 700;
+    box-shadow: 0 8px 20px rgba(225, 29, 72, 0.25);
+}
+
+.magic-eraser-tb-btn--fill:hover:not(:disabled) {
+    background: linear-gradient(135deg, #f43f5e, #ec4899);
+}
+
+.magic-eraser-tb-btn--fill:disabled {
+    opacity: 0.45;
+}
+
+.magic-eraser-zoom-group {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem 0.5rem;
+    border: 1px solid #1e293b;
+    border-radius: 0.5rem;
+    background: #0f172a;
+}
+
+.magic-eraser-zoom-label {
+    min-width: 3rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #cbd5e1;
+    text-align: center;
+}
+
+.magic-eraser-fit-btn {
+    font-size: 1rem;
+    line-height: 1;
+}
+
+.magic-eraser-title {
+    margin: 0;
+    font-size: 0.875rem;
+    font-weight: 700;
+    color: #fff;
+}
+
+.magic-eraser-title-icon {
+    color: #f43f5e;
+}
+
+.magic-eraser-undo-group {
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
+    padding: 0.25rem;
+    border: 1px solid #1e293b;
+    border-radius: 0.5rem;
+    background: #0f172a;
+}
+
+.magic-eraser-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0.375rem;
+    border: none;
+    border-radius: 0.25rem;
+    background: transparent;
+    color: #cbd5e1;
+    cursor: pointer;
+}
+
+.magic-eraser-icon-btn:hover:not(:disabled) {
+    background: #1e293b;
+}
+
+.magic-eraser-icon-btn:disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.magic-eraser-divider {
+    width: 1px;
+    height: 1rem;
+    background: #334155;
+}
+
+.magic-eraser-topbar-actions {
+    display: flex;
+    gap: 0.75rem;
+}
+
+.magic-eraser-btn-secondary,
+.magic-eraser-btn-save {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    padding: 0.375rem 0.75rem;
+    border: none;
+    border-radius: 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    cursor: pointer;
+}
+
+.magic-eraser-btn-secondary {
+    background: #1e293b;
+    color: #fff;
+}
+
+.magic-eraser-btn-secondary:hover:not(:disabled) {
+    background: #334155;
+}
+
+.magic-eraser-btn-save {
+    background: #059669;
+    color: #fff;
+    font-weight: 700;
+}
+
+.magic-eraser-btn-save:hover:not(:disabled) {
+    background: #10b981;
+}
+
+.magic-eraser-body {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+.magic-eraser-canvas-area {
+    position: relative;
+    flex: 1;
+    overflow: hidden;
+    background: #0f172a;
+    background-image:
+        linear-gradient(45deg, #1e293b 25%, transparent 25%),
+        linear-gradient(-45deg, #1e293b 25%, transparent 25%),
+        linear-gradient(45deg, transparent 75%, #1e293b 75%),
+        linear-gradient(-45deg, transparent 75%, #1e293b 75%);
+    background-size: 20px 20px;
+    background-position:
+        0 0,
+        0 10px,
+        10px -10px,
+        -10px 0;
+}
+
+.magic-eraser-canvas-area.is-hand-mode {
+    cursor: grab;
+}
+
+.magic-eraser-canvas-area.is-hand-mode:active {
+    cursor: grabbing;
+}
+
+.magic-eraser-stage-outer {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+}
+
+.magic-eraser-stage {
+    position: absolute;
+    top: 0;
+    left: 0;
+    transform-origin: 0 0;
+    will-change: transform;
+}
+
+.magic-eraser-loading {
+    color: #64748b;
+    animation: magic-eraser-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes magic-eraser-pulse {
+    0%,
+    100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+.magic-eraser-canvas-wrap {
+    position: relative;
+    overflow: hidden;
+    border: 1px solid #475569;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.45);
+    background-image: url("data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAAMUlEQVQ4T2NkYGAQYcAP3uCTZhw1gGGYhAGBZIA/nYBvwA8sHBAxDAigB0YNR8kAGHnCygAANo0F/9B4m9YAAAAASUVORK5CYII=");
+}
+
+.magic-eraser-canvas-wrap.is-picking,
+.magic-eraser-canvas-wrap.is-crosshair {
+    cursor: crosshair;
+}
+
+.magic-eraser-canvas-wrap.is-brush {
+    cursor: crosshair;
+}
+
+.magic-eraser-canvas-wrap.is-hand {
+    cursor: grab;
+}
+
+.magic-eraser-canvas-wrap.is-hand:active {
+    cursor: grabbing;
+}
+
+.magic-eraser-canvas-image {
+    display: block;
+    vertical-align: top;
+}
+
+.magic-eraser-canvas-mask {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 10;
+    touch-action: none;
+}
+
+.magic-eraser-canvas-preview {
+    position: absolute;
+    top: 0;
+    left: 0;
+    z-index: 11;
+    pointer-events: none;
+}
+
+.magic-eraser-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+    width: 22rem;
+    padding: 1rem 1.25rem;
+    border-left: 1px solid #1e293b;
+    background: #020617;
+    overflow-y: auto;
+}
+
+.magic-eraser-panel {
+    padding: 1rem;
+    border: 1px solid #1e293b;
+    border-radius: 0.75rem;
+    background: rgba(15, 23, 42, 0.6);
+}
+
+.magic-eraser-panel-title {
+    margin: 0 0 1rem;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: #94a3b8;
+}
+
+.magic-eraser-color-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+}
+
+.magic-eraser-color-input {
+    width: 2.5rem;
+    height: 2.5rem;
+    padding: 2px;
+    border: 1px solid #334155;
+    border-radius: 0.25rem;
+    background: #0f172a;
+    cursor: pointer;
+}
+
+.magic-eraser-hex {
+    flex: 1;
+    min-width: 0;
+    font-family: ui-monospace, monospace;
+    font-size: 0.75rem;
+    color: #cbd5e1;
+}
+
+.magic-eraser-color-pick-btn {
+    flex-shrink: 0;
+    margin-left: auto;
+}
+
+.magic-eraser-pick-btn {
+    margin-left: auto;
+    padding: 0.5rem;
+    border: 1px solid #334155;
+    border-radius: 0.5rem;
+    background: #1e293b;
+    cursor: pointer;
+}
+
+.magic-eraser-pick-btn.is-active {
+    border-color: #f43f5e;
+    background: #f43f5e;
+    animation: magic-eraser-pulse 1s ease-in-out infinite;
+}
+
+.magic-eraser-hint {
+    margin: 0.5rem 0 0;
+    font-size: 0.625rem;
+    font-style: italic;
+    color: #fb7185;
+}
+
+.magic-eraser-brush-row {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    margin-bottom: 0.75rem;
+}
+
+.magic-eraser-range {
+    flex: 1;
+    accent-color: #f43f5e;
+}
+
+.magic-eraser-brush-size {
+    width: 2rem;
+    font-family: ui-monospace, monospace;
+    font-size: 0.75rem;
+    color: #cbd5e1;
+}
+
+.magic-eraser-btn-clear {
+    width: 100%;
+    padding: 0.5rem;
+    border: 1px solid #334155;
+    border-radius: 0.5rem;
+    background: #1e293b;
+    color: #cbd5e1;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    cursor: pointer;
+}
+
+.magic-eraser-btn-clear:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.magic-eraser-panel-footer {
+    margin-top: auto;
+    display: flex;
+    gap: 10px;
+}
+
+.magic-eraser-btn-fill {
+    width: 100%;
+    padding: 0.75rem;
+    border: none;
+    border-radius: 0.75rem;
+    background: linear-gradient(to right, #e11d48, #db2777);
+    color: #fff;
+    font-size: 0.875rem;
+    font-weight: 700;
+    cursor: pointer;
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.2);
+}
+
+.magic-eraser-btn-fill:hover:not(:disabled) {
+    background: linear-gradient(to right, #f43f5e, #ec4899);
+}
+
+.magic-eraser-btn-fill:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.magic-eraser-shortcuts {
+    padding: 0.85rem 1rem;
+    border: 1px solid #1e293b;
+    border-radius: 0.75rem;
+    background: rgba(15, 23, 42, 0.55);
+}
+
+.magic-eraser-shortcuts-title {
+    margin: 0 0 0.65rem;
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: #94a3b8;
+}
+
+.magic-eraser-shortcuts-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    max-height: min(42vh, 22rem);
+    overflow-y: auto;
+    padding-right: 0.15rem;
+}
+
+.magic-eraser-shortcuts-grid::-webkit-scrollbar {
+    width: 5px;
+}
+
+.magic-eraser-shortcuts-grid::-webkit-scrollbar-thumb {
+    background: #334155;
+    border-radius: 4px;
+}
+
+.magic-eraser-shortcuts-group-label {
+    margin: 0 0 0.35rem;
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+    text-transform: uppercase;
+    color: #64748b;
+}
+
+.magic-eraser-shortcuts-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+
+.magic-eraser-shortcuts-list li {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: 0.5rem 0.65rem;
+    align-items: baseline;
+    padding: 0.28rem 0;
+    font-size: 0.6875rem;
+    line-height: 1.45;
+    border-bottom: 1px solid rgba(51, 65, 85, 0.45);
+}
+
+.magic-eraser-shortcuts-list li:last-child {
+    border-bottom: none;
+}
+
+.magic-eraser-shortcuts-keys {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.15rem;
+}
+
+.magic-eraser-shortcuts-plus {
+    color: #475569;
+    font-size: 0.55rem;
+    font-weight: 700;
+    user-select: none;
+}
+
+.magic-eraser-shortcuts-desc {
+    color: #94a3b8;
+}
+
+.magic-eraser-shortcuts-list kbd {
+    display: inline-block;
+    padding: 0.12rem 0.35rem;
+    border: 1px solid #334155;
+    border-radius: 0.25rem;
+    background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+    color: #f1f5f9;
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size: 0.6rem;
+    font-weight: 600;
+    line-height: 1.35;
+    white-space: nowrap;
+    box-shadow: 0 1px 0 #020617;
+}
+
+/* --- Media Image Editor: tab shell (Magic Eraser + Image Splitter) --- */
+
+.media-editor-shell {
+    display: flex;
+    flex-direction: column;
+}
+
+.media-editor-tabbar {
+    display: flex;
+    align-items: stretch;
+    flex-shrink: 0;
+    gap: 0.25rem;
+    padding: 0 1rem;
+    border-bottom: 1px solid #1e293b;
+    background: #020617;
+}
+
+.media-editor-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin: 0;
+    padding: 0.75rem 1rem;
+    border: none;
+    border-bottom: 2px solid transparent;
+    background: transparent;
+    color: #94a3b8;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    cursor: pointer;
+    transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+
+.media-editor-tab:hover {
+    color: #e2e8f0;
+    background: rgba(30, 41, 59, 0.45);
+}
+
+.media-editor-tab.is-active {
+    color: #f8fafc;
+    border-bottom-color: #38bdf8;
+    background: rgba(15, 23, 42, 0.85);
+}
+
+.media-editor-tab-body {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.magic-eraser-tab-panel,
+.image-splitter-panel {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}
+
+.magic-eraser-panel {
+    display: flex;
+    flex: 1;
+    flex-direction: column;
+    min-height: 0;
+    overflow: hidden;
+}

@@ -1,0 +1,54 @@
+{
+    "name": "omnichannel/addons",
+    "description": "Omnichannel peer addons monorepo (no parent/child hierarchy)",
+    "type": "library",
+    "license": "proprietary",
+    "require": {
+        "php": "^8.2",
+        "omnichannel/client-core": "*"
+    },
+    "autoload": {
+        "psr-4": {
+            "Omnichannel\\Addons\\SearchFoundation\\": "search-foundation/src/",
+            "Omnichannel\\Addons\\Seo\\": "seo/src/",
+            "Omnichannel\\Addons\\SearchIntelligence\\": "search-intelligence/src/",
+            "Omnichannel\\Addons\\AiPrompt\\": "ai-prompt/src/",
+            "Omnichannel\\Addons\\Content\\": "content/src/",
+            "Omnichannel\\Addons\\ContentProjects\\": "content-projects/src/",
+            "Omnichannel\\Addons\\Media\\": "media/src/",
+            "Omnichannel\\Addons\\WordPress\\": "wordpress/src/",
+            "Omnichannel\\Addons\\Publishing\\": "publishing/src/",
+            "Omnichannel\\Addons\\SiteSync\\": "site-sync/src/",
+            "Omnichannel\\Addons\\Agent\\": "agent/src/",
+            "Omnichannel\\Addons\\Social\\": "social/src/",
+            "Omnichannel\\Addons\\Commerce\\": "commerce/src/",
+            "App\\Addons\\SeoContentAi\\": "seo-content-ai-compat/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "Omnichannel\\Addons\\Content\\Tests\\": "content/tests/",
+            "Omnichannel\\Addons\\Media\\Tests\\": "media/tests/",
+            "Omnichannel\\Addons\\Seo\\Tests\\": "seo/tests/",
+            "Omnichannel\\Addons\\WordPress\\Tests\\": "wordpress/tests/",
+            "Omnichannel\\Addons\\Publishing\\Tests\\": "publishing/tests/",
+            "Omnichannel\\Addons\\ContentProjects\\Tests\\": "content-projects/tests/",
+            "Omnichannel\\Addons\\SearchIntelligence\\Tests\\": "search-intelligence/tests/",
+            "Omnichannel\\Addons\\AiPrompt\\Tests\\": "ai-prompt/tests/",
+            "Omnichannel\\Addons\\SiteSync\\Tests\\": "site-sync/tests/",
+            "Omnichannel\\Addons\\Agent\\Tests\\": "agent/tests/"
+        }
+    },
+    "minimum-stability": "dev",
+    "prefer-stable": true,
+    "repositories": [
+        {
+            "type": "path",
+            "url": "../omnichannel-client-core",
+            "options": {
+                "symlink": true
+            }
+        }
+    ],
+    "version": "0.1.0"
+}

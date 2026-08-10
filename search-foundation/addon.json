@@ -1,0 +1,18 @@
+{
+    "name":  "Search Foundation",
+    "slug":  "search-foundation",
+    "version":  "0.1.0",
+    "description":  "Peer addon — Search Foundation. Equal-level; no parent/child ownership.",
+    "provider":  "Omnichannel\\Addons\\SearchFoundation\\SearchFoundationServiceProvider",
+    "register_early":  false,
+    "legacy":  false,
+    "provides":  [
+                     "search.keyword"
+                 ],
+    "requires":  [
+
+                 ],
+    "optional":  [
+
+                 ]
+}

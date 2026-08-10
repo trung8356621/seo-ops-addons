@@ -1,0 +1,39 @@
+{
+  "schema_version": 3,
+  "template": "article-complete-wordpress",
+  "rule": {
+    "code": "article-complete-wordpress",
+    "name": "Article complete → WordPress",
+    "description": "When article completes, delay then sync to WordPress. DISABLED by default.",
+    "event_name": "article.completed",
+    "is_enabled": false,
+    "priority": 100,
+    "stop_on_failure": true,
+    "run_mode": "queued",
+    "workflow_mode": "graph",
+    "trigger_type": "event",
+    "conditions": {
+      "all": [
+        {
+          "field": "event.site_id",
+          "operator": "exists"
+        }
+      ]
+    },
+    "nodes": [
+      { "node_key": "trigger", "node_type": "trigger", "name": "Trigger", "position": 0, "is_enabled": true },
+      { "node_key": "delay_5s", "node_type": "delay", "name": "Delay 5s", "position": 1, "is_enabled": true, "config": { "seconds": 5 } },
+      { "node_key": "wp_sync", "node_type": "action", "name": "WordPress sync", "action_code": "wordpress.article.sync", "position": 2, "is_enabled": true, "input_mapping": { "article_id": "{{ payload.article_id }}" }, "settings": { "mode": "sync" } },
+      { "node_key": "notify_fail", "node_type": "action", "name": "Notify failure", "action_code": "notification.send", "position": 3, "is_enabled": true, "input_mapping": { "message": "WP sync failed for article {{ payload.article_id }}" } },
+      { "node_key": "end_ok", "node_type": "end", "name": "End OK", "position": 4, "is_enabled": true },
+      { "node_key": "end_fail", "node_type": "end", "name": "End fail", "position": 5, "is_enabled": true }
+    ],
+    "edges": [
+      { "from_node_key": "trigger", "to_node_key": "delay_5s", "branch": "always", "priority": 100 },
+      { "from_node_key": "delay_5s", "to_node_key": "wp_sync", "branch": "always", "priority": 100 },
+      { "from_node_key": "wp_sync", "to_node_key": "end_ok", "branch": "success", "priority": 100 },
+      { "from_node_key": "wp_sync", "to_node_key": "notify_fail", "branch": "failure", "priority": 100 },
+      { "from_node_key": "notify_fail", "to_node_key": "end_fail", "branch": "always", "priority": 100 }
+    ]
+  }
+}

@@ -1,0 +1,58 @@
+{
+  "spec_version": "0.1",
+  "key": "article.faq.generate",
+  "version": "0.1.0",
+  "name": "Generate FAQ content",
+  "description": "NORMALIZE_NOW — AI FAQ text/JSON only. Domain persist stays in caller/Business Action.",
+  "enabled": true,
+  "status": "experimental",
+  "settings_visible": true,
+  "category": "article_editor",
+  "model": {
+    "provider": "prompt_connection",
+    "name": "configured",
+    "structured_output": true,
+    "settings": {}
+  },
+  "locale": { "mode": "site", "fallback": "en" },
+  "input_schema": {
+    "title": { "type": "string", "required": false, "nullable": true },
+    "content_excerpt": { "type": "string", "required": false, "nullable": true, "max_length": 100000 },
+    "language": { "type": "string", "required": false, "nullable": true }
+  },
+  "output_schema": {
+    "type": "json",
+    "normalize": ["trim", "strip_markdown_fence"],
+    "validation": { "not_empty": true, "json_object": true }
+  },
+  "template": {
+    "system": "Return FAQ as a JSON object with key faqs (array of {question, answer}). Language: {{language}}. No markdown fences.",
+    "user": "Title: {{title}}\nContent:\n{{content_excerpt}}"
+  },
+  "presentation": {
+    "description": "Generate frequently asked questions from the article content.",
+    "default_instructions": [
+      "Questions must relate directly to the article content.",
+      "Answers should be short and useful.",
+      "Do not add facts that are not present in the source.",
+      "Avoid duplicate questions that cover the same idea."
+    ],
+    "output_format": [
+      "A JSON object: {\"faqs\":[{\"question\":\"...\",\"answer\":\"...\"}, ...]}",
+      "Readable shape per item: Question / Answer.",
+      "No markdown fences and no free-form essay outside the JSON object."
+    ],
+    "notes": [
+      "Domain persistence (saving FAQ to the article) stays in the caller — this Hook only generates content."
+    ],
+    "variables": [
+      { "key": "title", "required": false },
+      { "key": "content_excerpt", "required": false },
+      { "key": "language", "required": false }
+    ]
+  },
+  "retry": { "max": 0 },
+  "logging": { "store_full_prompt": false, "redact_sensitive": true },
+  "side_effects": [],
+  "strict_template_variables": false
+}

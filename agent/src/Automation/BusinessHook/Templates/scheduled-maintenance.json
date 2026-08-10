@@ -1,0 +1,31 @@
+{
+  "schema_version": 3,
+  "template": "scheduled-maintenance",
+  "rule": {
+    "code": "scheduled-maintenance",
+    "name": "Scheduled maintenance dispatch",
+    "description": "Cron-style maintenance hook. DISABLED by default.",
+    "event_name": "automation.schedule.triggered",
+    "is_enabled": false,
+    "priority": 50,
+    "stop_on_failure": true,
+    "run_mode": "queued",
+    "workflow_mode": "graph",
+    "trigger_type": "schedule",
+    "schedule_expression": "0 2 * * *",
+    "schedule_timezone": "UTC",
+    "nodes": [
+      { "node_key": "trigger", "node_type": "trigger", "name": "Schedule trigger", "position": 0, "is_enabled": true },
+      { "node_key": "delay_1s", "node_type": "delay", "name": "Stagger 1s", "position": 1, "is_enabled": true, "config": { "seconds": 1 } },
+      { "node_key": "dispatch", "node_type": "dispatch_event", "name": "Dispatch maintenance event", "position": 2, "is_enabled": true, "settings": { "event_name": "automation.schedule.triggered" } },
+      { "node_key": "end_ok", "node_type": "end", "name": "End OK", "position": 3, "is_enabled": true },
+      { "node_key": "end_fail", "node_type": "end", "name": "End fail", "position": 4, "is_enabled": true }
+    ],
+    "edges": [
+      { "from_node_key": "trigger", "to_node_key": "delay_1s", "branch": "always", "priority": 100 },
+      { "from_node_key": "delay_1s", "to_node_key": "dispatch", "branch": "always", "priority": 100 },
+      { "from_node_key": "dispatch", "to_node_key": "end_ok", "branch": "success", "priority": 100 },
+      { "from_node_key": "dispatch", "to_node_key": "end_fail", "branch": "failure", "priority": 100 }
+    ]
+  }
+}

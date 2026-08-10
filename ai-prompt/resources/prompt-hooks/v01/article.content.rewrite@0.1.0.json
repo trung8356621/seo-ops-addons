@@ -1,0 +1,207 @@
+{
+  "spec_version": "0.1",
+  "key": "article.content.rewrite",
+  "version": "0.1.0",
+  "status": "experimental",
+  "settings_visible": false,
+  "category": "article_writing",
+  "name": "Rewrite article content",
+  "description": "LEGACY — runtime adapts to article.content.generate + source=existing_article. Do not bind new Prompts to this hook.",
+  "enabled": true,
+  "classification": "NORMALIZE_NOW",
+
+  "legacy_binding": "Phase 0.3 adapter → article.content.generate (existing_article). DB rewrite_article_task_id kept, not read at runtime.",
+
+  "model": {
+    "provider": "prompt_connection",
+    "name": "configured",
+    "settings": {
+      "temperature": 0.5
+    }
+  },
+
+  "locale": {
+    "mode": "site",
+    "fallback": "en"
+  },
+
+  "input_schema": {
+    "input": {
+      "type": "string",
+      "required": true,
+      "nullable": false,
+      "max_length": 160000,
+      "allowed_source": [
+        "runtime",
+        "task",
+        "previous_outputs"
+      ]
+    },
+    "rewrite_instruction": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 12000,
+      "allowed_source": [
+        "runtime",
+        "task"
+      ]
+    },
+    "post_title": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 500,
+      "allowed_source": [
+        "runtime",
+        "task"
+      ]
+    },
+    "focus_keyword": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 500,
+      "allowed_source": [
+        "runtime",
+        "task"
+      ]
+    },
+    "site_short_description": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 8000,
+      "allowed_source": [
+        "site_context"
+      ]
+    },
+    "tone": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 500,
+      "allowed_source": [
+        "seo_prompt_settings",
+        "runtime"
+      ]
+    },
+    "article_length": {
+      "type": "integer",
+      "required": false,
+      "nullable": true,
+      "minimum": 300,
+      "maximum": 20000,
+      "description": "Target article length in words (product vs other from seo_prompt_settings).",
+      "allowed_source": [
+        "seo_prompt_settings",
+        "runtime"
+      ]
+    },
+    "keyword_density": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 2000,
+      "allowed_source": [
+        "seo_prompt_settings",
+        "runtime"
+      ]
+    },
+    "site_cta": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 5000,
+      "allowed_source": [
+        "site_context",
+        "runtime"
+      ]
+    },
+    "language": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 100,
+      "allowed_source": [
+        "site_context",
+        "runtime"
+      ]
+    },
+    "preserve_headings": {
+      "type": "boolean",
+      "required": false,
+      "nullable": false,
+      "default": true,
+      "allowed_source": [
+        "runtime",
+        "task"
+      ]
+    },
+    "preserve_facts": {
+      "type": "boolean",
+      "required": false,
+      "nullable": false,
+      "default": true,
+      "allowed_source": [
+        "runtime",
+        "task"
+      ]
+    }
+  },
+
+  "output_schema": {
+    "type": "markdown",
+    "validation": {
+      "not_empty": true,
+      "length_unit": "words",
+      "minimum_length": 300,
+      "reject_provider_preamble": true
+    },
+    "normalize": [
+      "trim",
+      "strip_markdown_fence"
+    ]
+  },
+
+  "output_contract": "markdown.article",
+
+  "template": {
+    "source": "legacy_prompt_content",
+    "system": null,
+    "user": null
+  },
+
+  "validation": {
+    "not_empty": true
+  },
+
+  "retry": {
+    "max": 1,
+    "on": [
+      "empty",
+      "provider_timeout",
+      "truncated"
+    ]
+  },
+
+  "logging": {
+    "store_full_prompt": false,
+    "store_full_output": false,
+    "redact_sensitive": true
+  },
+
+  "permissions": {
+    "capability": "text"
+  },
+
+  "metadata": {
+    "prompt_concern": "rewrite existing article",
+    "workflow_concern": "return revised article markdown",
+    "domain_action_concern": "article update belongs to Business Action",
+    "ui_concern": "Prompt Editor, Article Editor or Workflow Prompt block",
+    "article_length_unit": "words"
+  },
+
+  "side_effects": []
+}

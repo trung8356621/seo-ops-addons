@@ -1,0 +1,151 @@
+{
+  "spec_version": "0.1",
+  "key": "article.content.improve",
+  "version": "0.1.0",
+  "status": "experimental",
+  "settings_visible": true,
+  "category": "article_writing",
+  "name": "Improve article content",
+  "description": "Chỉnh sửa bài theo yêu cầu cụ thể — không full generation, không outline, không article_length toàn bài.",
+  "enabled": true,
+  "classification": "NORMALIZE_NOW",
+
+  "legacy_binding": "TYPE_IMPROVE Content Project → ArticleImproveExecutionService (Settings binding). Không dùng Publish workflow / article.content.generate.",
+
+  "model": {
+    "provider": "prompt_connection",
+    "name": "configured",
+    "settings": {
+      "temperature": 0.4
+    }
+  },
+
+  "locale": {
+    "mode": "site",
+    "fallback": "en"
+  },
+
+  "input_schema": {
+    "input": {
+      "type": "string",
+      "required": true,
+      "nullable": false,
+      "max_length": 160000,
+      "allowed_source": [
+        "runtime",
+        "task"
+      ]
+    },
+    "improve_instruction": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 12000,
+      "allowed_source": [
+        "runtime",
+        "task"
+      ]
+    },
+    "rewrite_instruction": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 12000,
+      "allowed_source": [
+        "runtime",
+        "task"
+      ]
+    },
+    "post_title": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 500,
+      "allowed_source": [
+        "runtime",
+        "task"
+      ]
+    },
+    "focus_keyword": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 500,
+      "allowed_source": [
+        "runtime",
+        "task"
+      ]
+    }
+  },
+
+  "output_schema": {
+    "type": "markdown",
+    "validation": {
+      "not_empty": true,
+      "reject_task_markers": false,
+      "reject_provider_preamble": true
+    },
+    "normalize": [
+      "trim",
+      "strip_markdown_fence"
+    ]
+  },
+
+  "output_contract": "markdown.article",
+
+  "template": {
+    "source": "legacy_prompt_content",
+    "system": null,
+    "user": null
+  },
+
+  "validation": {
+    "not_empty": true
+  },
+
+  "retry": {
+    "max": 1,
+    "on": [
+      "empty",
+      "provider_timeout",
+      "truncated"
+    ]
+  },
+
+  "logging": {
+    "store_full_prompt": false,
+    "store_full_output": false,
+    "redact_sensitive": true
+  },
+
+  "permissions": {
+    "capability": "text"
+  },
+
+  "presentation": {
+    "default_instructions": [
+      "Chỉnh sửa bài theo yêu cầu cụ thể của người dùng.",
+      "Giữ thông tin đúng; không viết lại toàn bài kiểu paraphrase.",
+      "Không yêu cầu outline; không áp article_length toàn bài."
+    ],
+    "output_format": [
+      "Markdown bài viết đã chỉnh (không bọc fence)."
+    ],
+    "notes": [
+      "Capability riêng article.content.improve — không dùng Publish workflow."
+    ]
+  },
+
+  "metadata": {
+    "prompt_concern": "local improve by instruction — not full article writing",
+    "isolation": "ArticleImproveExecutionService only; never ArticleWritingExecutionService",
+    "does_not_use": [
+      "article.content.generate",
+      "getPublishArticleTaskId",
+      "outline",
+      "article_length full"
+    ]
+  },
+
+  "side_effects": []
+}

@@ -1,0 +1,84 @@
+{
+  "spec_version": "0.1",
+  "key": "product.gallery.child.generate",
+  "version": "0.1.0",
+  "name": "Product gallery child image",
+  "description": "Generate one child product image from parent reference and a shot definition.",
+  "enabled": true,
+  "status": "experimental",
+  "settings_visible": true,
+  "category": "media",
+  "model": {
+    "provider": "prompt_connection",
+    "name": "configured",
+    "capability": "image",
+    "structured_output": false,
+    "settings": {}
+  },
+  "locale": { "mode": "site", "fallback": "en" },
+  "input_schema": {
+    "product_title": { "type": "string", "required": true, "max_length": 500, "label": "Product title" },
+    "product_identity": { "type": "string", "required": false, "nullable": true, "max_length": 3000, "label": "Product identity" },
+    "primary_color": { "type": "string", "required": false, "nullable": true, "max_length": 120, "label": "Primary color" },
+    "secondary_color": { "type": "string", "required": false, "nullable": true, "max_length": 120, "label": "Secondary color" },
+    "material": { "type": "string", "required": false, "nullable": true, "max_length": 300, "label": "Material" },
+    "product_shape": { "type": "string", "required": false, "nullable": true, "max_length": 300, "label": "Shape" },
+    "distinctive_features": { "type": "string", "required": false, "nullable": true, "max_length": 3000, "label": "Distinctive features" },
+    "negative_constraints": { "type": "string", "required": false, "nullable": true, "max_length": 2000, "label": "Negative constraints" },
+    "shot_key": { "type": "string", "required": true, "max_length": 64, "label": "Shot key" },
+    "shot_label": { "type": "string", "required": false, "nullable": true, "max_length": 200, "label": "Shot label" },
+    "aspect_ratio": { "type": "string", "required": false, "nullable": true, "max_length": 16, "label": "Aspect ratio" },
+    "shot_instruction": { "type": "string", "required": true, "max_length": 4000, "label": "Shot instruction" },
+    "parent_media_id": { "type": "string", "required": false, "nullable": true, "max_length": 32, "label": "Parent media id" }
+  },
+  "output_schema": {
+    "type": "text",
+    "normalize": ["trim"],
+    "validation": {}
+  },
+  "template": {
+    "source": "legacy_prompt_content"
+  },
+  "presentation": {
+    "description": "Tạo một ảnh con theo góc chụp đã chỉ định, giữ nhận dạng sản phẩm theo ảnh cha.",
+    "default_instructions": [
+      "Generate exactly one image for this shot only.",
+      "Preserve product identity from the parent reference.",
+      "No collage, no grid, no text, no labels.",
+      "Do not change material/color/distinctive details except as required by the shot instruction."
+    ],
+    "output_format": [
+      "Single image binary from Gemini native image + parent inlineData (provider runtime)."
+    ],
+    "notes": [
+      "media_artifact_role = generated_child_reference",
+      "Reference image attachment: parent supplied at provider runtime via Gemini inlineData — not embedded in text prompt.",
+      "Retry child must reuse parent + global context + shot definition."
+    ],
+    "variables": [
+      { "key": "product_title", "required": true },
+      { "key": "product_identity", "required": false },
+      { "key": "primary_color", "required": false },
+      { "key": "secondary_color", "required": false },
+      { "key": "material", "required": false },
+      { "key": "product_shape", "required": false },
+      { "key": "distinctive_features", "required": false },
+      { "key": "negative_constraints", "required": false },
+      { "key": "shot_key", "required": true },
+      { "key": "shot_label", "required": false },
+      { "key": "aspect_ratio", "required": false },
+      { "key": "shot_instruction", "required": true },
+      { "key": "parent_media_id", "required": false }
+    ]
+  },
+  "retry": { "max": 0 },
+  "logging": { "store_full_prompt": false, "redact_sensitive": true },
+  "side_effects": [],
+  "strict_template_variables": true,
+  "metadata": {
+    "ownership": "settings_binding",
+    "gallery_mode": "parent_child",
+    "one_image_only": true,
+    "reference_attachment": "provider_runtime_inline_data"
+  }
+}

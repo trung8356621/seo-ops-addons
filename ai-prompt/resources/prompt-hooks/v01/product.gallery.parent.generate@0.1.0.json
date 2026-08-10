@@ -1,0 +1,77 @@
+{
+  "spec_version": "0.1",
+  "key": "product.gallery.parent.generate",
+  "version": "0.1.0",
+  "name": "Product gallery parent image",
+  "description": "Generate one hero/reference product image for Parent/Child gallery mode.",
+  "enabled": true,
+  "status": "experimental",
+  "settings_visible": true,
+  "category": "media",
+  "model": {
+    "provider": "prompt_connection",
+    "name": "configured",
+    "capability": "image",
+    "structured_output": false,
+    "settings": {}
+  },
+  "locale": { "mode": "site", "fallback": "en" },
+  "input_schema": {
+    "product_title": { "type": "string", "required": true, "max_length": 500, "label": "Product title" },
+    "product_category": { "type": "string", "required": false, "nullable": true, "max_length": 300, "label": "Category" },
+    "product_brand": { "type": "string", "required": false, "nullable": true, "max_length": 300, "label": "Brand" },
+    "primary_color": { "type": "string", "required": false, "nullable": true, "max_length": 120, "label": "Primary color" },
+    "secondary_color": { "type": "string", "required": false, "nullable": true, "max_length": 120, "label": "Secondary color" },
+    "material": { "type": "string", "required": false, "nullable": true, "max_length": 300, "label": "Material" },
+    "product_shape": { "type": "string", "required": false, "nullable": true, "max_length": 300, "label": "Shape" },
+    "distinctive_features": { "type": "string", "required": false, "nullable": true, "max_length": 3000, "label": "Distinctive features" },
+    "negative_constraints": { "type": "string", "required": false, "nullable": true, "max_length": 2000, "label": "Negative constraints" },
+    "original_media_ids": { "type": "string", "required": false, "nullable": true, "max_length": 500, "label": "Original media ids (metadata)" }
+  },
+  "output_schema": {
+    "type": "text",
+    "normalize": ["trim"],
+    "validation": {}
+  },
+  "template": {
+    "source": "legacy_prompt_content"
+  },
+  "presentation": {
+    "description": "Tạo ảnh tham chiếu chính của sản phẩm. Một ảnh duy nhất.",
+    "default_instructions": [
+      "Generate exactly one image.",
+      "No collage, no grid, no labels, no text in the image.",
+      "Clear product identity, simple background, angle easy to use as reference."
+    ],
+    "output_format": [
+      "Single image binary from Gemini native image + inlineData references (provider runtime)."
+    ],
+    "notes": [
+      "media_artifact_role = generated_parent",
+      "Reference image attachment: supplied at provider runtime via Gemini inlineData — not embedded in text prompt.",
+      "Requires provider supports_reference_image for Mode 2 child generation."
+    ],
+    "variables": [
+      { "key": "product_title", "required": true },
+      { "key": "product_category", "required": false },
+      { "key": "product_brand", "required": false },
+      { "key": "primary_color", "required": false },
+      { "key": "secondary_color", "required": false },
+      { "key": "material", "required": false },
+      { "key": "product_shape", "required": false },
+      { "key": "distinctive_features", "required": false },
+      { "key": "negative_constraints", "required": false },
+      { "key": "original_media_ids", "required": false }
+    ]
+  },
+  "retry": { "max": 0 },
+  "logging": { "store_full_prompt": false, "redact_sensitive": true },
+  "side_effects": [],
+  "strict_template_variables": true,
+  "metadata": {
+    "ownership": "settings_binding",
+    "gallery_mode": "parent_child",
+    "one_image_only": true,
+    "reference_attachment": "provider_runtime_inline_data"
+  }
+}

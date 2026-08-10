@@ -1,0 +1,58 @@
+{
+  "spec_version": "0.1",
+  "key": "keyword.discovery.structured",
+  "version": "0.1.0",
+  "name": "Structured keyword discovery",
+  "description": "NORMALIZE_NOW — JSON keywords. No domain write in hook.",
+  "enabled": true,
+  "status": "experimental",
+  "settings_visible": true,
+  "category": "keywords",
+  "model": {
+    "provider": "prompt_connection",
+    "name": "configured",
+    "structured_output": true,
+    "settings": { "temperature": 0.2 }
+  },
+  "locale": { "mode": "site", "fallback": "en" },
+  "input_schema": {
+    "seed_topic": { "type": "string", "required": true, "max_length": 1000 },
+    "count": { "type": "integer", "required": false, "default": 10 },
+    "brief": { "type": "string", "required": false, "nullable": true, "max_length": 5000 }
+  },
+  "output_schema": {
+    "type": "json",
+    "normalize": ["trim", "strip_markdown_fence"],
+    "validation": { "not_empty": true, "json_object": true }
+  },
+  "template": {
+    "system": "Return JSON only. No markdown fences.",
+    "user": "Topic: {{seed_topic}}\nCount: {{count}}\nBrief: {{brief}}"
+  },
+  "presentation": {
+    "description": "Propose structured keyword data for Content Project planning.",
+    "default_instructions": [
+      "Keep results on-topic for the seed topic and brief.",
+      "Follow the structured JSON contract — no free-form essays.",
+      "Avoid duplicate keywords.",
+      "Return JSON only — no markdown fences."
+    ],
+    "output_format": [
+      "A JSON object of structured keyword recommendations.",
+      "Caller currently reads list entries as strings or objects with a keyword field."
+    ],
+    "notes": [
+      "This Hook does not write keywords to the domain database — callers persist results.",
+      "Field-level keys beyond keyword are not fixed in the Hook schema yet — keep the JSON object generic."
+    ],
+    "variables": [
+      { "key": "seed_topic", "required": true },
+      { "key": "count", "required": false },
+      { "key": "brief", "required": false }
+    ]
+  },
+  "retry": { "max": 0 },
+  "logging": { "store_full_prompt": false, "redact_sensitive": true },
+  "side_effects": [],
+  "strict_template_variables": false
+}

@@ -1,0 +1,77 @@
+{
+  "schema_version": 1,
+  "key": "article.title_suggestion",
+  "version": 1,
+
+  "label_key": "prompt_hooks.article_title_suggestion.label",
+  "description_key": "prompt_hooks.article_title_suggestion.description",
+
+  "documentation": {
+    "path": "docs/prompt-hooks/article-title-suggestion.md"
+  },
+
+  "model": {
+    "capability": "text",
+    "structured_output": false
+  },
+
+  "input": {
+    "fields": {
+      "keyword": {
+        "type": "string",
+        "required": true,
+        "normalize": ["trim", "empty_to_null"],
+        "sources": [
+          { "type": "runtime", "path": "keyword" },
+          { "type": "entity", "path": "article.focus_keyword" },
+          { "type": "entity", "path": "article.keyword" }
+        ]
+      },
+      "old_title": {
+        "type": ["string", "null"],
+        "required": false,
+        "normalize": ["trim", "empty_to_null"],
+        "sources": [
+          { "type": "runtime", "path": "old_title" },
+          { "type": "entity", "path": "article.title" },
+          { "type": "constant", "value": null }
+        ]
+      }
+    },
+    "prompt_payload": ["keyword", "old_title"]
+  },
+
+  "settings": {
+    "max_length": {
+      "type": "integer",
+      "default": 65,
+      "min": 30,
+      "max": 100,
+      "label_key": "prompt_hooks.article_title_suggestion.settings.max_length"
+    },
+    "preserve_meaning": {
+      "type": "boolean",
+      "default": true,
+      "label_key": "prompt_hooks.article_title_suggestion.settings.preserve_meaning"
+    }
+  },
+
+  "template": {
+    "template_key": "prompt_hooks.article_title_suggestion.template",
+    "position": "after_prompt",
+    "nullable": false
+  },
+
+  "output": {
+    "format": "text",
+    "normalize": [
+      "trim",
+      "strip_markdown_fence",
+      "strip_wrapping_quotes",
+      "first_non_empty_line"
+    ],
+    "validation": {
+      "not_empty": true
+    }
+  }
+}

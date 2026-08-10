@@ -1,0 +1,27 @@
+{
+  "schema_version": 3,
+  "template": "content-project-failure-notify",
+  "rule": {
+    "code": "content-project-failure-notify",
+    "name": "Content project task failure notify",
+    "description": "Notify when content project task fails. DISABLED by default.",
+    "event_name": "content_project.task.failed",
+    "is_enabled": false,
+    "priority": 100,
+    "stop_on_failure": true,
+    "run_mode": "queued",
+    "workflow_mode": "graph",
+    "trigger_type": "event",
+    "nodes": [
+      { "node_key": "trigger", "node_type": "trigger", "name": "Trigger", "position": 0, "is_enabled": true },
+      { "node_key": "notify", "node_type": "action", "name": "Send notification", "action_code": "notification.send", "position": 1, "is_enabled": true, "input_mapping": { "message": "Task {{ payload.task_id }} failed in project {{ payload.project_id }}" } },
+      { "node_key": "end_ok", "node_type": "end", "name": "End OK", "position": 2, "is_enabled": true },
+      { "node_key": "end_fail", "node_type": "end", "name": "End fail", "position": 3, "is_enabled": true }
+    ],
+    "edges": [
+      { "from_node_key": "trigger", "to_node_key": "notify", "branch": "always", "priority": 100 },
+      { "from_node_key": "notify", "to_node_key": "end_ok", "branch": "success", "priority": 100 },
+      { "from_node_key": "notify", "to_node_key": "end_fail", "branch": "failure", "priority": 100 }
+    ]
+  }
+}

@@ -1,0 +1,19 @@
+{
+    "name":  "Site Sync",
+    "slug":  "site-sync",
+    "version":  "0.1.0",
+    "description":  "Peer addon — Site Sync. Equal-level; no parent/child ownership.",
+    "provider":  "Omnichannel\\Addons\\SiteSync\\SiteSyncServiceProvider",
+    "register_early":  false,
+    "legacy":  false,
+    "provides":  [
+                     "site-sync.v2"
+                 ],
+    "requires":  [
+
+                 ],
+    "optional":  [
+                     "wordpress.bridge",
+                     "content.document"
+                 ]
+}

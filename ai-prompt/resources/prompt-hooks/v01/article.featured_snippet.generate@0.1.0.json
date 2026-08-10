@@ -1,0 +1,61 @@
+{
+  "spec_version": "0.1",
+  "key": "article.featured_snippet.generate",
+  "version": "0.1.0",
+  "name": "Featured snippet generation",
+  "description": "Generate a featured-snippet-ready block (definition / steps / bullets / table). Preview + user confirm before insert.",
+  "enabled": true,
+  "status": "experimental",
+  "settings_visible": true,
+  "category": "article_editor",
+  "model": {
+    "provider": "prompt_connection",
+    "name": "configured",
+    "structured_output": false,
+    "settings": {}
+  },
+  "locale": { "mode": "site", "fallback": "en" },
+  "input_schema": {
+    "title": { "type": "string", "required": false, "nullable": true },
+    "focus_keyword": { "type": "string", "required": false, "nullable": true },
+    "outline": { "type": "string", "required": false, "nullable": true, "max_length": 20000 },
+    "section_content": { "type": "string", "required": false, "nullable": true, "max_length": 50000 },
+    "language": { "type": "string", "required": false, "nullable": true },
+    "domain": { "type": "string", "required": false, "nullable": true }
+  },
+  "output_schema": {
+    "type": "text",
+    "normalize": ["trim", "strip_markdown_fence"],
+    "validation": { "not_empty": true }
+  },
+  "template": {
+    "system": "Write a featured-snippet-ready HTML block for search intent (short definition, numbered steps, bullets, or comparison table). Language: {{language}}. Do not wrap in full article.",
+    "user": "Title: {{title}}\nFocus keyword: {{focus_keyword}}\nDomain: {{domain}}\nOutline:\n{{outline}}\n\nRelevant section:\n{{section_content}}"
+  },
+  "presentation": {
+    "description": "Generate a short answer block suitable for a featured snippet.",
+    "default_instructions": [
+      "Answer the main topic or question directly.",
+      "Prefer information from the current section and outline.",
+      "Keep the block concise and clear.",
+      "Do not wrap the result in a full article.",
+      "Do not add filler introductions or conclusions."
+    ],
+    "output_format": [
+      "One featured-snippet-ready HTML block (definition, steps, bullets, or comparison table).",
+      "Plain text/HTML content only — no surrounding article shell."
+    ],
+    "variables": [
+      { "key": "title", "required": false },
+      { "key": "focus_keyword", "required": false },
+      { "key": "outline", "required": false },
+      { "key": "section_content", "required": false },
+      { "key": "language", "required": false },
+      { "key": "domain", "required": false }
+    ]
+  },
+  "retry": { "max": 0 },
+  "logging": { "store_full_prompt": false, "redact_sensitive": true },
+  "side_effects": [],
+  "strict_template_variables": false
+}

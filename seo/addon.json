@@ -1,0 +1,21 @@
+{
+    "name":  "SEO",
+    "slug":  "seo",
+    "version":  "0.1.0",
+    "description":  "Peer addon — SEO. Equal-level; no parent/child ownership.",
+    "provider":  "Omnichannel\\Addons\\Seo\\SeoServiceProvider",
+    "register_early":  false,
+    "legacy":  false,
+    "provides":  [
+                     "seo.audit",
+                     "seo.onpage",
+                     "seo.enrichment"
+                 ],
+    "requires":  [
+                     "search.keyword"
+                 ],
+    "optional":  [
+                     "ai.prompt",
+                     "content.document"
+                 ]
+}

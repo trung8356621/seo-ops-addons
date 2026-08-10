@@ -1,0 +1,372 @@
+.reviewed-dashboard {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    width: 100%;
+}
+.reviewed-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 16px;
+}
+@media (max-width: 1024px) {
+    .reviewed-stats-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+@media (max-width: 640px) {
+    .reviewed-stats-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+}
+.reviewed-stat-card {
+    display: flex;
+    align-items: flex-start;
+    gap: 14px;
+    padding: 16px;
+    background: #fff;
+    border: 1px solid #E5E7EB;
+    border-radius: 12px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    transition: background 0.15s, box-shadow 0.15s;
+}
+.reviewed-stat-card:hover {
+    background: #F9FAFB;
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+}
+.dark .reviewed-stat-card {
+    background: rgb(17 24 39);
+    border-color: rgb(55 65 81);
+}
+.dark .reviewed-stat-card:hover {
+    background: rgb(31 41 55);
+}
+.reviewed-stat-card__icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    border-radius: 10px;
+    background: #EFF6FF;
+    color: #2563EB;
+}
+.dark .reviewed-stat-card__icon {
+    background: rgb(30 58 95);
+    color: #93C5FD;
+}
+.reviewed-stat-card__title {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: #6B7280;
+}
+.dark .reviewed-stat-card__title {
+    color: #9CA3AF;
+}
+.reviewed-stat-card__value {
+    margin-top: 2px;
+    font-size: 1.75rem;
+    font-weight: 700;
+    line-height: 1.2;
+    color: #111827;
+    letter-spacing: -0.02em;
+}
+.dark .reviewed-stat-card__value {
+    color: #F9FAFB;
+}
+.reviewed-stat-card__subtitle {
+    margin-top: 2px;
+    font-size: 0.75rem;
+    color: #9CA3AF;
+}
+.reviewed-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px 16px;
+}
+.reviewed-toolbar__search {
+    flex: 1 1 220px;
+    min-width: 0;
+}
+.reviewed-toolbar__filters {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    gap: 12px;
+}
+.reviewed-field {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 140px;
+}
+.reviewed-field__label {
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: #6B7280;
+}
+.dark .reviewed-field__label {
+    color: #9CA3AF;
+}
+.reviewed-field__input {
+    display: block;
+    width: 100%;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.875rem;
+    line-height: 1.25rem;
+    color: #111827;
+    background: #fff;
+    border: 1px solid #E5E7EB;
+    border-radius: 8px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+.reviewed-field__input:focus {
+    outline: none;
+    border-color: #93C5FD;
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.15);
+}
+.dark .reviewed-field__input {
+    color: #F9FAFB;
+    background: rgb(17 24 39);
+    border-color: rgb(55 65 81);
+}
+.reviewed-day-groups {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    width: 100%;
+}
+.reviewed-day-card {
+    /* visible: action menus must not clip; radius still from border-radius */
+    overflow: visible;
+    width: 100%;
+    background: #fff;
+    border: 1px solid #E5E7EB;
+    border-radius: 12px;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    transition: box-shadow 0.15s;
+}
+.reviewed-day-card:hover {
+    box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+}
+.dark .reviewed-day-card {
+    background: rgb(17 24 39);
+    border-color: rgb(55 65 81);
+}
+.reviewed-day-card__trigger {
+    display: flex;
+    width: 100%;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    padding: 16px;
+    text-align: left;
+    background: #fff;
+    border: none;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+.reviewed-day-card__trigger:hover {
+    background: #F9FAFB;
+}
+.dark .reviewed-day-card__trigger {
+    background: rgb(17 24 39);
+}
+.dark .reviewed-day-card__trigger:hover {
+    background: rgb(31 41 55);
+}
+.reviewed-day-card__title-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+}
+.reviewed-day-card__date {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: #111827;
+}
+.dark .reviewed-day-card__date {
+    color: #F9FAFB;
+}
+.reviewed-day-card__today {
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: #2563EB;
+}
+.dark .reviewed-day-card__today {
+    color: #93C5FD;
+}
+.reviewed-day-card__badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.125rem 0.625rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #1D4ED8;
+    background: #DBEAFE;
+    border-radius: 9999px;
+}
+.dark .reviewed-day-card__badge {
+    color: #BFDBFE;
+    background: rgb(30 58 95);
+}
+.reviewed-day-card__meta {
+    display: none;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+    font-size: 0.75rem;
+    color: #6B7280;
+}
+@media (min-width: 768px) {
+    .reviewed-day-card__meta {
+        display: flex;
+    }
+}
+.reviewed-day-card__meta-item {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+.reviewed-day-card__meta-label {
+    font-size: 0.6875rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: #9CA3AF;
+}
+.reviewed-day-card__meta-value {
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #374151;
+}
+.dark .reviewed-day-card__meta-value {
+    color: #E5E7EB;
+}
+.reviewed-day-card__chevron {
+    width: 1.25rem;
+    height: 1.25rem;
+    flex-shrink: 0;
+    color: #9CA3AF;
+    transition: transform 0.2s ease;
+}
+.reviewed-day-card__chevron.is-open {
+    transform: rotate(180deg);
+}
+.reviewed-day-card__body {
+    border-top: 1px solid #E5E7EB;
+    overflow: visible;
+}
+.dark .reviewed-day-card__body {
+    border-top-color: rgb(55 65 81);
+}
+.reviewed-article-list {
+    display: flex;
+    flex-direction: column;
+    overflow: visible;
+}
+.reviewed-article-item {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 16px;
+    border-bottom: 1px solid #F3F4F6;
+    transition: background 0.15s;
+    overflow: visible;
+}
+.reviewed-article-item:last-child {
+    border-bottom: none;
+}
+.reviewed-article-item:hover {
+    background: #F9FAFB;
+}
+.dark .reviewed-article-item {
+    border-bottom-color: rgb(31 41 55);
+}
+.dark .reviewed-article-item:hover {
+    background: rgb(31 41 55);
+}
+.reviewed-article-item__icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    border-radius: 10px;
+    background: #F3F4F6;
+    color: #6B7280;
+}
+.dark .reviewed-article-item__icon {
+    background: rgb(31 41 55);
+    color: #9CA3AF;
+}
+.reviewed-article-item__content {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+.reviewed-article-item__title {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: #111827;
+    line-height: 1.4;
+    word-break: break-word;
+}
+.dark .reviewed-article-item__title {
+    color: #F9FAFB;
+}
+.reviewed-article-item__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px;
+    margin-top: 4px;
+    font-size: 0.75rem;
+    color: #6B7280;
+}
+.reviewed-article-item__status-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 9999px;
+    background: #22C55E;
+}
+.reviewed-article-item__actions {
+    display: flex;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    position: relative;
+    z-index: 20;
+    overflow: visible;
+}
+.reviewed-article-item__actions-menu {
+    position: absolute;
+    right: 0;
+    z-index: 40;
+    margin-top: 0.25rem;
+    width: 14rem;
+    overflow: hidden;
+    border-radius: 0.75rem;
+    background: #fff;
+    padding: 0.25rem 0;
+    border: 1px solid #E5E7EB;
+    box-shadow: 0 10px 15px -3px rgba(15, 23, 42, 0.12), 0 4px 6px -4px rgba(15, 23, 42, 0.08);
+}
+.dark .reviewed-article-item__actions-menu {
+    background: rgb(17 24 39);
+    border-color: rgb(55 65 81);
+}
+@media (max-width: 640px) {
+    .reviewed-article-item {
+        flex-wrap: wrap;
+    }
+    .reviewed-article-item__actions {
+        width: 100%;
+        padding-left: 54px;
+    }
+}

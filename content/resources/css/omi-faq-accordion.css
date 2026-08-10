@@ -1,0 +1,135 @@
+/* Accordion FAQ — editor preview, Laravel preview, WordPress [omi_faq] */
+.omi-faq-container {
+    margin: 1.25rem 0;
+    border: 1px solid #e5e7eb;
+    border-radius: 4px;
+    overflow: hidden;
+    background: #fff;
+}
+
+.omi-faq-item {
+    border-bottom: 1px solid #e5e7eb;
+    background: #fff;
+}
+
+.omi-faq-item:last-child {
+    border-bottom: none;
+}
+
+.omi-faq-item__summary {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.65rem;
+    list-style: none;
+    cursor: pointer;
+    padding: 0.85rem 1rem;
+    margin: 0;
+    font-size: 0.9375rem;
+    font-weight: 600;
+    line-height: 1.45;
+    color: #374151;
+    user-select: none;
+}
+
+.omi-faq-item__summary::-webkit-details-marker {
+    display: none;
+}
+
+.omi-faq-item__chevron {
+    flex-shrink: 0;
+    width: 0.55rem;
+    height: 0.55rem;
+    margin-top: 0.35rem;
+    border-right: 2px solid #9ca3af;
+    border-bottom: 2px solid #9ca3af;
+    transform: rotate(45deg);
+    transition: transform 0.15s ease, border-color 0.15s ease;
+}
+
+.omi-faq-item[open] > .omi-faq-item__summary {
+    background: #f3faf4;
+    border-top: 3px solid #16a34a;
+    color: #166534;
+    font-weight: 700;
+}
+
+.omi-faq-item[open] > .omi-faq-item__summary .omi-faq-item__chevron {
+    margin-top: 0.5rem;
+    border-color: #16a34a;
+    transform: rotate(-135deg);
+}
+
+.omi-faq-item__body {
+    padding: 0 1rem 1rem 2.1rem;
+    background: #fff;
+    color: #374151;
+    font-size: 0.9375rem;
+    line-height: 1.65;
+}
+
+.omi-faq-item__more {
+    margin-bottom: 0.65rem;
+}
+
+.omi-faq-item__answer p {
+    margin: 0 0 0.65rem;
+}
+
+.omi-faq-item__answer p:last-child,
+.omi-faq-item__answer ul:last-child,
+.omi-faq-item__answer ol:last-child {
+    margin-bottom: 0;
+}
+
+.omi-faq-item__answer ul,
+.omi-faq-item__answer ol {
+    margin: 0.5rem 0;
+    padding-left: 1.25rem;
+}
+
+.omi-faq-item__answer a {
+    color: #16a34a;
+    text-decoration: underline;
+}
+
+/* Editor: preview thay cho placeholder */
+.omi-faq-editor-preview {
+    margin: 0.5rem 0;
+}
+
+.omi-faq-editor-preview__hint {
+    margin: 0.5rem 0 0;
+    font-size: 0.75rem;
+    font-style: italic;
+    color: #646970;
+    text-align: center;
+}
+
+.dark .omi-faq-container {
+    border-color: rgb(71 85 105);
+    background: rgb(17 24 39);
+}
+
+.dark .omi-faq-item {
+    border-bottom-color: rgb(55 65 81);
+    background: rgb(17 24 39);
+}
+
+.dark .omi-faq-item__summary {
+    color: rgb(226 232 240);
+}
+
+.dark .omi-faq-item[open] > .omi-faq-item__summary {
+    background: rgb(20 83 45 / 0.25);
+    border-top-color: #22c55e;
+    color: #86efac;
+}
+
+.dark .omi-faq-item__body {
+    background: rgb(17 24 39);
+    color: rgb(203 213 225);
+}
+
+.dark .omi-faq-editor-preview__hint {
+    color: rgb(148 163 184);
+}

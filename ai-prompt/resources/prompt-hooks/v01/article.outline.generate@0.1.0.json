@@ -1,0 +1,216 @@
+{
+  "spec_version": "0.1",
+  "key": "article.outline.generate",
+  "version": "0.1.0",
+  "status": "experimental",
+  "settings_visible": true,
+  "category": "article_editor",
+  "name": "Generate article outline and vocabulary",
+  "description": "Generate an SEO article outline and semantic vocabulary in one provider call, then expose each task through separate workflow output ports.",
+  "enabled": true,
+  "classification": "NORMALIZE_NOW",
+
+  "legacy_binding": "outline_heading_regenerator_prompt_id | publish workflow prompt→parse_outline",
+
+  "model": {
+    "provider": "prompt_connection",
+    "name": "configured",
+    "settings": {
+      "temperature": 0.4
+    }
+  },
+
+  "locale": {
+    "mode": "site",
+    "fallback": "en"
+  },
+
+  "input_schema": {
+    "post_title": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 500,
+      "allowed_source": [
+        "runtime",
+        "task",
+        "previous_outputs"
+      ]
+    },
+    "keyword": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 500,
+      "allowed_source": [
+        "runtime",
+        "task"
+      ]
+    },
+    "topic": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 500,
+      "allowed_source": [
+        "runtime",
+        "task"
+      ]
+    },
+    "site_description": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 8000,
+      "allowed_source": [
+        "site_context"
+      ]
+    },
+    "tone": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 500,
+      "allowed_source": [
+        "seo_prompt_settings",
+        "runtime"
+      ]
+    },
+    "language": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 100,
+      "allowed_source": [
+        "site_context",
+        "runtime"
+      ]
+    }
+  },
+
+  "output_schema": {
+    "type": "markdown_sections",
+
+    "sections": [
+      {
+        "key": "outline",
+        "label": "Dàn ý",
+        "task": 1,
+        "content_type": "markdown",
+        "start_marker": "[START_TASK_1_OUTLINE]",
+        "end_marker": "[END_TASK_1_OUTLINE]",
+        "required": true,
+        "output_port": "task_1_outline",
+        "validation": {
+          "not_empty": true,
+          "min_length": 100,
+          "reject_nested_task_markers": true
+        },
+        "normalize": [
+          "trim",
+          "strip_markdown_fence"
+        ]
+      },
+      {
+        "key": "vocabulary",
+        "label": "Từ vựng",
+        "task": 2,
+        "content_type": "markdown",
+        "start_marker": "[START_TASK_2_VOCABULARY]",
+        "end_marker": "[END_TASK_2_VOCABULARY]",
+        "required": true,
+        "output_port": "task_2_vocabulary",
+        "validation": {
+          "not_empty": true,
+          "min_length": 100,
+          "reject_nested_task_markers": true
+        },
+        "normalize": [
+          "trim",
+          "strip_markdown_fence"
+        ]
+      }
+    ],
+
+    "combined_output": {
+      "enabled": true,
+      "output_port": "total",
+      "preserve_markers": true
+    },
+
+    "validation": {
+      "reject_unknown_task_markers": true,
+      "reject_duplicate_sections": true,
+      "require_declared_order": true,
+      "allow_text_outside_sections": false
+    }
+  },
+
+  "template": {
+    "source": "legacy_prompt_content",
+    "system": null,
+    "user": null
+  },
+  "presentation": {
+    "description": "Generate an article outline and writing vocabulary from the topic and keyword.",
+    "default_instructions": [
+      "Build a clear outline structure that matches search intent.",
+      "Keep headings distinct — avoid overlapping ideas.",
+      "Do not write the full article body in this step.",
+      "Include semantic vocabulary / writing guidance in the second section.",
+      "When post_title is empty but keyword is provided, propose a strong SEO title from the keyword.",
+      "When only post_title is provided, use it as the main topic — do not invent a focus keyword."
+    ],
+    "output_format": [
+      "Structured Markdown with two declared sections:",
+      "Task 1 — Outline between the outline markers.",
+      "Task 2 — Vocabulary / writing instructions between the vocabulary markers."
+    ],
+    "notes": [
+      "Prompt Markdown is the template sent to the model for this Hook."
+    ],
+    "variables": [
+      { "key": "post_title", "required": false },
+      { "key": "keyword", "required": false },
+      { "key": "topic", "required": false },
+      { "key": "site_description", "required": false },
+      { "key": "tone", "required": false },
+      { "key": "language", "required": false }
+    ]
+  },
+  "validation": {
+    "not_empty": true
+  },
+
+  "retry": {
+    "max": 1,
+    "on": [
+      "empty",
+      "provider_timeout",
+      "missing_required_section"
+    ]
+  },
+
+  "logging": {
+    "store_full_prompt": false,
+    "store_full_output": false,
+    "redact_sensitive": true
+  },
+
+  "permissions": {
+    "capability": "text"
+  },
+
+  "metadata": {
+    "prompt_concern": "outline and semantic vocabulary in structured markdown sections",
+    "workflow_concern": "split provider output into Task 1, Task 2 and Total output ports",
+    "domain_action_concern": "none",
+    "ui_concern": "workflow prompt block with multiple output ports",
+    "multi_section_exception": true,
+    "require_any_of": [
+      ["post_title", "keyword"]
+    ]
+  },
+
+  "side_effects": []
+}

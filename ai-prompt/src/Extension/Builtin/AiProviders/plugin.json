@@ -1,0 +1,10 @@
+{
+  "id": "ai-providers",
+  "name": "Built-in AI Providers",
+  "version": "1.0.0",
+  "sdk": 1,
+  "provider": "Omnichannel\\Addons\\AiPrompt\\Extension\\Builtin\\AiProviders\\AiProvidersExtensionProvider",
+  "providers": ["ai"],
+  "capabilities": [],
+  "requires": []
+}

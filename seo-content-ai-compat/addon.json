@@ -1,0 +1,43 @@
+{
+    "_registration_note": "COMPATIBILITY BOOTSTRAP ONLY \u2014 lives in omnichannel-addons/seo-content-ai-compat. Do not add business ownership. Peer addons are siblings under omnichannel-addons/.",
+    "name": "SEO Content AI (compatibility shell)",
+    "slug": "seo-content-ai",
+    "version": "1.0.0",
+    "description": "COMPATIBILITY SHELL ONLY \u2014 Filament views/lang/config/panel bootstrap. Active business under peer addons in this monorepo.",
+    "icon": "heroicon-o-sparkles",
+    "provider": "App\\Addons\\SeoContentAi\\SeoContentAiServiceProvider",
+    "panel_provider": "App\\Addons\\SeoContentAi\\Providers\\SeoPanelProvider",
+    "providers": [
+        "App\\Providers\\Filament\\SeoToolsPanelProvider"
+    ],
+    "register_early": true,
+    "legacy": true,
+    "provides": [
+        "legacy.seo-content-ai"
+    ],
+    "requires": [],
+    "optional": [
+        "search.keyword",
+        "seo.audit",
+        "search.intelligence",
+        "ai.prompt",
+        "content.document",
+        "content.projects",
+        "media.library",
+        "wordpress.bridge",
+        "publishing.queue",
+        "site-sync.v2",
+        "agent.workspace",
+        "social.publish",
+        "commerce.product"
+    ],
+    "external_plugins": [
+        {
+            "slug": "omi-seo-ai-bridge",
+            "label": "TVH SEO AI Bridge",
+            "platform": "wordpress",
+            "package_prefix": "omi-seo-ai-bridge",
+            "metadata_option_key": "wp_plugin_bridge_info"
+        }
+    ]
+}

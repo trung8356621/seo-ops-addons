@@ -1,0 +1,78 @@
+{
+  "schema_version": 1,
+  "key": "article.meta_description_suggestion",
+  "version": 1,
+
+  "label_key": "prompt_hooks.article_meta_description_suggestion.label",
+  "description_key": "prompt_hooks.article_meta_description_suggestion.description",
+
+  "documentation": {
+    "path": "docs/prompt-hooks/article-meta-description-suggestion.md"
+  },
+
+  "model": {
+    "capability": "text",
+    "structured_output": false
+  },
+
+  "input": {
+    "fields": {
+      "title": {
+        "type": "string",
+        "required": true,
+        "normalize": ["trim", "empty_to_null"],
+        "sources": [
+          { "type": "runtime", "path": "title" },
+          { "type": "entity", "path": "article.title" }
+        ]
+      },
+      "old_description": {
+        "type": ["string", "null"],
+        "required": false,
+        "normalize": ["trim", "empty_to_null"],
+        "sources": [
+          { "type": "runtime", "path": "old_description" },
+          { "type": "entity", "path": "article.description" },
+          { "type": "constant", "value": null }
+        ]
+      }
+    },
+    "prompt_payload": ["title", "old_description"]
+  },
+
+  "settings": {
+    "max_length": {
+      "type": "integer",
+      "default": 160,
+      "min": 100,
+      "max": 200,
+      "label_key": "prompt_hooks.article_meta_description_suggestion.settings.max_length"
+    },
+    "min_length": {
+      "type": "integer",
+      "default": 120,
+      "min": 50,
+      "max": 180,
+      "label_key": "prompt_hooks.article_meta_description_suggestion.settings.min_length"
+    }
+  },
+
+  "template": {
+    "template_key": "prompt_hooks.article_meta_description_suggestion.template",
+    "position": "after_prompt",
+    "nullable": false
+  },
+
+  "output": {
+    "format": "text",
+    "normalize": [
+      "trim",
+      "strip_markdown_fence",
+      "strip_wrapping_quotes",
+      "first_non_empty_line"
+    ],
+    "validation": {
+      "not_empty": true
+    }
+  }
+}

@@ -1,0 +1,153 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@source '../js/**/*.{js,jsx}';
+
+body:has(#seo-task-workflow-builder-root) {
+  overflow: hidden;
+}
+
+body:has(#seo-task-workflow-builder-root) .fi-sidebar,
+body:has(#seo-task-workflow-builder-root) .fi-topbar,
+body:has(#seo-task-workflow-builder-root) .seo-global-chat {
+  display: none !important;
+}
+
+body:has(#seo-task-workflow-builder-root) .fi-main-ctn,
+body:has(#seo-task-workflow-builder-root) .fi-main {
+  width: 100% !important;
+  max-width: none !important;
+  height: 100dvh !important;
+  margin: 0 !important;
+  padding: 0 !important;
+}
+
+body:has(#seo-task-workflow-builder-root) .seo-task-builder-page {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  width: 100vw;
+  height: 100dvh;
+}
+
+/* Filament theme.css is unlayered and overrides @layer utilities on <button>. */
+.seo-flow-builder .seo-flow-btn-primary {
+  background-color: #059669 !important;
+  border-color: #059669 !important;
+  color: #ffffff !important;
+}
+
+.seo-flow-builder .seo-flow-btn-primary:hover {
+  background-color: #10b981 !important;
+  border-color: #10b981 !important;
+}
+
+.seo-flow-builder .seo-flow-chip-active-emerald {
+  background-color: #059669 !important;
+  border-color: #059669 !important;
+  color: #ffffff !important;
+}
+
+.seo-flow-builder .seo-flow-chip-active-sky {
+  background-color: #0284c7 !important;
+  border-color: #0284c7 !important;
+  color: #ffffff !important;
+}
+
+.seo-flow-builder[data-theme='light'] .seo-flow-chip-off {
+  background-color: #ffffff !important;
+  border-color: #d1d5db !important;
+  color: #1f2937 !important;
+}
+
+.seo-flow-builder[data-theme='light'] .seo-flow-chip-off:hover {
+  background-color: #f3f4f6 !important;
+}
+
+.seo-flow-builder[data-theme='dark'] .seo-flow-chip-off {
+  background-color: #1e293b !important;
+  border-color: #475569 !important;
+  color: #e2e8f0 !important;
+}
+
+.seo-flow-builder[data-theme='dark'] .seo-flow-chip-off:hover {
+  background-color: #334155 !important;
+}
+
+/* Start nodes — no input port (article, user_input) */
+.seo-flow-builder .seo-flow-node--start {
+  border-style: dashed !important;
+  border-width: 2px !important;
+  box-shadow: 0 0 0 1px rgb(16 185 129 / 0.12), 0 10px 24px rgb(15 23 42 / 0.12) !important;
+}
+
+.seo-flow-builder .seo-flow-node--start-article {
+  background: linear-gradient(165deg, #f0f9ff 0%, #ffffff 55%) !important;
+  border-color: #38bdf8 !important;
+}
+
+.seo-flow-builder .seo-flow-node--start-input {
+  background: linear-gradient(165deg, #fff7ed 0%, #ffffff 55%) !important;
+  border-color: #fb923c !important;
+}
+
+.seo-flow-builder .seo-flow-node--start-article-dark {
+  background: linear-gradient(165deg, rgb(12 74 110 / 0.45) 0%, rgb(30 41 59) 55%) !important;
+  border-color: #38bdf8 !important;
+}
+
+.seo-flow-builder .seo-flow-node--start-input-dark {
+  background: linear-gradient(165deg, rgb(124 45 18 / 0.35) 0%, rgb(30 41 59) 55%) !important;
+  border-color: #fb923c !important;
+}
+
+.seo-flow-builder .seo-flow-node__badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.45rem;
+  border-radius: 9999px;
+  font-size: 0.625rem;
+  font-weight: 800;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+
+.seo-flow-builder .seo-flow-node__badge--start {
+  color: #047857;
+  background: rgb(16 185 129 / 0.14);
+  border: 1px solid rgb(16 185 129 / 0.35);
+}
+
+.seo-flow-builder[data-theme='dark'] .seo-flow-node__badge--start {
+  color: #6ee7b7;
+  background: rgb(16 185 129 / 0.18);
+  border-color: rgb(16 185 129 / 0.4);
+}
+
+/* End node — terminal, input only */
+.seo-flow-builder .seo-flow-node--end {
+  border-style: double !important;
+  border-width: 3px !important;
+  background: linear-gradient(165deg, #f8fafc 0%, #ffffff 70%) !important;
+  border-color: #64748b !important;
+  box-shadow: inset 0 0 0 1px rgb(100 116 139 / 0.15) !important;
+}
+
+.seo-flow-builder .seo-flow-node--end-dark {
+  background: linear-gradient(165deg, rgb(51 65 85 / 0.55) 0%, rgb(30 41 59) 70%) !important;
+  border-color: #94a3b8 !important;
+}
+
+.seo-flow-builder .seo-flow-node__badge--end {
+  color: #475569;
+  background: rgb(100 116 139 / 0.12);
+  border: 1px solid rgb(100 116 139 / 0.35);
+}
+
+.seo-flow-builder[data-theme='dark'] .seo-flow-node__badge--end {
+  color: #cbd5e1;
+  background: rgb(148 163 184 / 0.16);
+  border-color: rgb(148 163 184 / 0.35);
+}

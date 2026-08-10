@@ -1,0 +1,52 @@
+<?php
+
+declare(strict_types=1);
+
+return [
+    'sdk_version' => 1,
+    'core_capabilities_protected_prefix' => 'content_project.',
+    'extension_id_pattern' => '/^[a-z0-9][a-z0-9._-]*$/',
+    'event_versions' => [
+        'content_project.created' => 'v1',
+        'content_project.generated' => 'v1',
+        'article.published' => 'v1',
+        'content_project.archived' => 'v1',
+        'site_sync.started' => 'v1',
+        'site_sync.completed' => 'v1',
+        'site_sync.failed' => 'v1',
+    ],
+    'forbidden_dependency_rules' => [
+        ['from' => 'Application/Handlers', 'forbid_import' => 'Extension\\Builtin\\Wordpress\\WordPressPublisher'],
+        ['from' => 'Application/Handlers', 'forbid_import' => 'WordPressContentPublisher'],
+        ['from' => 'Agent', 'forbid_import' => 'Extension\\Builtin'],
+        ['from' => 'Agent', 'forbid_import' => 'WordPressArticleSyncService'],
+    ],
+    'public_reference_prefixes' => ['cp_', 'cpi_', 'ssr_'],
+    'site_sync_v2' => [
+        'enabled' => filter_var(env('SEO_SITE_SYNC_V2_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
+        'orchestrator' => filter_var(env('SEO_SITE_SYNC_V2_ORCHESTRATOR', true), FILTER_VALIDATE_BOOLEAN),
+        'ui' => filter_var(env('SEO_SITE_SYNC_V2_UI', true), FILTER_VALIDATE_BOOLEAN),
+        'ui_enabled' => filter_var(env('SEO_SITE_SYNC_V2_UI', true), FILTER_VALIDATE_BOOLEAN),
+        'legacy_actions' => filter_var(env('SEO_SITE_SYNC_V2_LEGACY_ACTIONS', false), FILTER_VALIDATE_BOOLEAN),
+        'legacy_actions_visible' => filter_var(env('SEO_SITE_SYNC_V2_LEGACY_ACTIONS', false), FILTER_VALIDATE_BOOLEAN),
+        'compat_push' => filter_var(env('SEO_SITE_SYNC_V2_COMPAT_PUSH', true), FILTER_VALIDATE_BOOLEAN),
+        'dual_run_shadow' => filter_var(env('SEO_SITE_SYNC_V2_DUAL_RUN', false), FILTER_VALIDATE_BOOLEAN),
+        'auto_push' => filter_var(env('SEO_SITE_SYNC_V2_AUTO_PUSH', true), FILTER_VALIDATE_BOOLEAN),
+        'auto_push_enabled' => filter_var(env('SEO_SITE_SYNC_V2_AUTO_PUSH', true), FILTER_VALIDATE_BOOLEAN),
+        'reconciliation' => filter_var(env('SEO_SITE_SYNC_V2_RECONCILIATION', true), FILTER_VALIDATE_BOOLEAN),
+        'reconciliation_enabled' => filter_var(env('SEO_SITE_SYNC_V2_RECONCILIATION', true), FILTER_VALIDATE_BOOLEAN),
+        'workspace_fallback' => filter_var(env('SEO_SITE_SYNC_V2_WORKSPACE_FALLBACK', true), FILTER_VALIDATE_BOOLEAN),
+        'workspace_fallback_enabled' => filter_var(env('SEO_SITE_SYNC_V2_WORKSPACE_FALLBACK', true), FILTER_VALIDATE_BOOLEAN),
+        'accept_v1_contract' => filter_var(env('SEO_SITE_SYNC_V2_ACCEPT_V1', true), FILTER_VALIDATE_BOOLEAN),
+        'require_signed_callbacks' => filter_var(env('SEO_SITE_SYNC_V2_REQUIRE_SIGNED', false), FILTER_VALIDATE_BOOLEAN),
+        'emergency_rollback' => filter_var(env('SEO_SITE_SYNC_V2_EMERGENCY_ROLLBACK', false), FILTER_VALIDATE_BOOLEAN),
+        'mode_default' => env('SEO_SITE_SYNC_V2_MODE_DEFAULT', 'legacy_active'),
+        'shadow_comparison' => filter_var(env('SEO_SITE_SYNC_V2_SHADOW_COMPARISON', true), FILTER_VALIDATE_BOOLEAN),
+        'cutover_ui' => filter_var(env('SEO_SITE_SYNC_V2_CUTOVER_UI', true), FILTER_VALIDATE_BOOLEAN),
+        'allow_manual_activate' => filter_var(env('SEO_SITE_SYNC_V2_ALLOW_MANUAL_ACTIVATE', true), FILTER_VALIDATE_BOOLEAN),
+        'allow_rollback' => filter_var(env('SEO_SITE_SYNC_V2_ALLOW_ROLLBACK', true), FILTER_VALIDATE_BOOLEAN),
+        'legacy_scheduler' => filter_var(env('SEO_SITE_SYNC_V2_LEGACY_SCHEDULER', true), FILTER_VALIDATE_BOOLEAN),
+        'comparison_export' => filter_var(env('SEO_SITE_SYNC_V2_COMPARISON_EXPORT', true), FILTER_VALIDATE_BOOLEAN),
+        'repair_enabled' => filter_var(env('SEO_SITE_SYNC_V2_REPAIR_ENABLED', true), FILTER_VALIDATE_BOOLEAN),
+    ],
+];

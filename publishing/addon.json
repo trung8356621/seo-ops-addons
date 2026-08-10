@@ -1,0 +1,19 @@
+{
+    "name":  "Publishing",
+    "slug":  "publishing",
+    "version":  "0.1.0",
+    "description":  "Peer addon — Publishing. Equal-level; no parent/child ownership.",
+    "provider":  "Omnichannel\\Addons\\Publishing\\PublishingServiceProvider",
+    "register_early":  false,
+    "legacy":  false,
+    "provides":  [
+                     "publishing.queue"
+                 ],
+    "requires":  [
+
+                 ],
+    "optional":  [
+                     "wordpress.publisher",
+                     "content.document"
+                 ]
+}

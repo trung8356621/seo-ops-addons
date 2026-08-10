@@ -1,0 +1,21 @@
+{
+    "name":  "Search Intelligence",
+    "slug":  "search-intelligence",
+    "version":  "0.1.0",
+    "description":  "Peer addon — Search Intelligence. Equal-level; no parent/child ownership.",
+    "provider":  "Omnichannel\\Addons\\SearchIntelligence\\SearchIntelligenceServiceProvider",
+    "register_early":  false,
+    "legacy":  false,
+    "provides":  [
+                     "search.intelligence",
+                     "search.rank",
+                     "search.gsc"
+                 ],
+    "requires":  [
+                     "search.keyword"
+                 ],
+    "optional":  [
+                     "seo.audit",
+                     "content.projects"
+                 ]
+}

@@ -1,0 +1,21 @@
+{
+    "name":  "Agent",
+    "slug":  "agent",
+    "version":  "0.1.0",
+    "description":  "Peer addon — Agent. Equal-level; no parent/child ownership.",
+    "provider":  "Omnichannel\\Addons\\Agent\\AgentServiceProvider",
+    "register_early":  false,
+    "legacy":  false,
+    "provides":  [
+                     "agent.workspace",
+                     "agent.mcp"
+                 ],
+    "requires":  [
+
+                 ],
+    "optional":  [
+                     "content.projects",
+                     "publishing.queue",
+                     "seo.audit"
+                 ]
+}
