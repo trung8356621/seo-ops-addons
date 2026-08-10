@@ -15,6 +15,7 @@ use App\Models\User;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Tests\Support\ProjectRoot;
 use Tests\TestCase;
 
 final class SeoPerformanceDashboardServiceTest extends TestCase
@@ -165,7 +166,7 @@ final class SeoPerformanceDashboardServiceTest extends TestCase
 
     public function test_performance_hub_blade_places_rankings_before_advanced_analysis(): void
     {
-        $blade = (string) file_get_contents(base_path('app/Addons/SeoContentAi/resources/views/seo/performance-hub.blade.php'));
+        $blade = (string) file_get_contents(ProjectRoot::addonsPath().'/seo-content-ai-compat/resources/views/seo/performance-hub.blade.php');
 
         $rankingsPos = strpos($blade, 'rankings-table');
         $advancedPos = strpos($blade, 'advanced-analysis');
@@ -177,7 +178,7 @@ final class SeoPerformanceDashboardServiceTest extends TestCase
 
     public function test_advanced_analysis_partial_defaults_collapsed(): void
     {
-        $partial = (string) file_get_contents(base_path('app/Addons/SeoContentAi/resources/views/seo/performance-hub/partials/advanced-analysis.blade.php'));
+        $partial = (string) file_get_contents(ProjectRoot::addonsPath().'/seo-content-ai-compat/resources/views/seo/performance-hub/partials/advanced-analysis.blade.php');
 
         $this->assertStringContainsString('expanded: false', $partial);
         $this->assertStringContainsString('advanced_show', $partial);
@@ -186,7 +187,7 @@ final class SeoPerformanceDashboardServiceTest extends TestCase
 
     public function test_visibility_chart_partial_has_no_empty_placeholder(): void
     {
-        $partial = (string) file_get_contents(base_path('app/Addons/SeoContentAi/resources/views/seo/performance-hub/partials/visibility-chart.blade.php'));
+        $partial = (string) file_get_contents(ProjectRoot::addonsPath().'/seo-content-ai-compat/resources/views/seo/performance-hub/partials/visibility-chart.blade.php');
 
         $this->assertStringNotContainsString('performance-hub-empty-state', $partial);
         $this->assertStringNotContainsString('empty_not_synced', $partial);

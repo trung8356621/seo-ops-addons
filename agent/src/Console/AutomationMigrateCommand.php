@@ -78,9 +78,20 @@ final class AutomationMigrateCommand extends Command
         $connections->bootstrapFromConnection($model);
         $this->info('Running SEO addon migrations (automation schema is no-op / owned by core)…');
 
+        // Compat shell path after peer split (was app/Addons/SeoContentAi/database/migrations).
+        $relativePath = 'addons/seo-content-ai-compat/database/migrations';
+        if (! is_dir(base_path($relativePath))) {
+            $this->comment(
+                'No compat migration directory at '.$relativePath
+                .'; peer migrations via AddonMigrationRegistrar / refactor:migrate.'
+            );
+
+            return self::SUCCESS;
+        }
+
         return $this->call('migrate', [
             '--database' => 'omi_seo_ai',
-            '--path' => 'app/Addons/SeoContentAi/database/migrations',
+            '--path' => $relativePath,
             '--force' => true,
         ]);
     }
