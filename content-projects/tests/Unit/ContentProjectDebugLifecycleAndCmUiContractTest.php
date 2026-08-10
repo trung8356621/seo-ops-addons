@@ -30,7 +30,7 @@ final class ContentProjectDebugLifecycleAndCmUiContractTest extends TestCase
     public function test_config_flag_default_off(): void
     {
         // tests/Unit â†’ SeoContentAi â†’ Addons â†’ app â†’ project root
-        $path = dirname(__DIR__, 4).DIRECTORY_SEPARATOR.'config'.DIRECTORY_SEPARATOR.'seo-content-ai.php';
+        $path = ProjectRoot::path().DIRECTORY_SEPARATOR.'config'.DIRECTORY_SEPARATOR.'seo-content-ai.php';
         self::assertFileExists($path);
         $cfg = (string) file_get_contents($path);
         self::assertStringContainsString('CONTENT_PROJECT_DEBUG_LIFECYCLE_OVERRIDE', $cfg);

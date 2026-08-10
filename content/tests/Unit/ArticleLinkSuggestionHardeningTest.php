@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Tests\Unit;
 
+use Tests\Support\ProjectRoot;
+
 use Omnichannel\Addons\Content\Services\ArticleInternalLinkSuggestionService;
 use Omnichannel\Addons\Content\Services\ArticleLinkSuggestionCandidateRetriever;
 use Omnichannel\Addons\Content\Services\ArticleLinkSuggestionSearchTermsBuilder;
@@ -288,7 +290,7 @@ final class ArticleLinkSuggestionHardeningTest extends TestCase
 
     public function test_config_defines_central_limits(): void
     {
-        $configPath = dirname(__DIR__, 4).DIRECTORY_SEPARATOR.'config'.DIRECTORY_SEPARATOR.'seo-content-ai.php';
+        $configPath = ProjectRoot::path().DIRECTORY_SEPARATOR.'config'.DIRECTORY_SEPARATOR.'seo-content-ai.php';
         self::assertFileExists($configPath);
         $source = (string) file_get_contents($configPath);
         self::assertStringContainsString("'link_suggestions'", $source);

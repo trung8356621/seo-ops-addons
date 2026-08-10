@@ -292,7 +292,7 @@ final class ArticleLengthWordsValidationTest extends TestCase
             self::assertStringContainsString($validator, $src, $relative);
         }
 
-        $config = (string) file_get_contents(dirname(__DIR__, 4).'/config/seo-content-ai.php');
+        $config = (string) file_get_contents(ProjectRoot::path().'/config/seo-content-ai.php');
         self::assertStringContainsString("'minimum_acceptable_words'", $config);
         self::assertStringContainsString('1400', $config);
     }

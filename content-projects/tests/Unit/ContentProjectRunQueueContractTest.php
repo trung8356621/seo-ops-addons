@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Tests\Unit;
 
+use Tests\Support\ProjectRoot;
+
 use Omnichannel\Addons\ContentProjects\Jobs\RunContentProjectArticleJob;
 use Omnichannel\Addons\ContentProjects\Support\Queue\ContentProjectQueueRuntimeSafety;
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectRunEngineFeature;
@@ -28,7 +30,7 @@ final class ContentProjectRunQueueContractTest extends TestCase
 
     public function test_config_key_and_env_documented_in_config_file(): void
     {
-        $configPath = dirname(__DIR__, 4).DIRECTORY_SEPARATOR.'config'.DIRECTORY_SEPARATOR.'seo-content-ai.php';
+        $configPath = ProjectRoot::path().DIRECTORY_SEPARATOR.'config'.DIRECTORY_SEPARATOR.'seo-content-ai.php';
         self::assertFileExists($configPath);
 
         $source = (string) file_get_contents($configPath);
@@ -58,7 +60,7 @@ final class ContentProjectRunQueueContractTest extends TestCase
 
     public function test_database_queue_retry_after_fallback_is_at_least_production_target(): void
     {
-        $queueConfigPath = dirname(__DIR__, 4).DIRECTORY_SEPARATOR.'config'.DIRECTORY_SEPARATOR.'queue.php';
+        $queueConfigPath = ProjectRoot::path().DIRECTORY_SEPARATOR.'config'.DIRECTORY_SEPARATOR.'queue.php';
         self::assertFileExists($queueConfigPath);
         $source = (string) file_get_contents($queueConfigPath);
         self::assertStringContainsString("env('DB_QUEUE_RETRY_AFTER', 1200)", $source);
@@ -67,7 +69,7 @@ final class ContentProjectRunQueueContractTest extends TestCase
 
     public function test_env_example_documents_retry_after_1200(): void
     {
-        $envExample = dirname(__DIR__, 4).DIRECTORY_SEPARATOR.'.env.example';
+        $envExample = ProjectRoot::path().DIRECTORY_SEPARATOR.'.env.example';
         self::assertFileExists($envExample);
         $source = (string) file_get_contents($envExample);
         self::assertMatchesRegularExpression('/^DB_QUEUE_RETRY_AFTER=1200/m', $source);

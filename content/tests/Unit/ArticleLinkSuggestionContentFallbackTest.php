@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Tests\Unit;
 
+use Tests\Support\ProjectRoot;
+
 use Omnichannel\Addons\Content\Services\ArticleInternalLinkSearchService;
 use Omnichannel\Addons\Content\Services\ArticleInternalLinkSuggestionService;
 use Omnichannel\Addons\Content\Services\ArticleLinkSuggestionContentKeywordFallback;
@@ -197,7 +199,7 @@ final class ArticleLinkSuggestionContentFallbackTest extends TestCase
 
     public function test_config_has_fallback_knobs_and_stop_phrases(): void
     {
-        $configPath = dirname(__DIR__, 4).DIRECTORY_SEPARATOR.'config'.DIRECTORY_SEPARATOR.'seo-content-ai.php';
+        $configPath = ProjectRoot::path().DIRECTORY_SEPARATOR.'config'.DIRECTORY_SEPARATOR.'seo-content-ai.php';
         self::assertFileExists($configPath);
         $source = (string) file_get_contents($configPath);
 

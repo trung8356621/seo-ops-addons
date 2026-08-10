@@ -97,7 +97,7 @@ final class QueueRoutingContractTest extends TestCase
     {
         // Filament DB notifications in-app use sendToDatabase (sync). Any Laravel
         // ShouldQueue notification without onQueue() lands on connection default queue.
-        $queueConfig = (string) file_get_contents(dirname(__DIR__, 4).'/config/queue.php');
+        $queueConfig = (string) file_get_contents(ProjectRoot::path().'/config/queue.php');
         self::assertStringContainsString("env('DB_QUEUE', 'default')", $queueConfig);
 
         $notificationSources = [

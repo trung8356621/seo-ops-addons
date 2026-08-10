@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Tests\Unit;
 
+use Tests\Support\ProjectRoot;
+
 
 use Tests\Support\LegacyAddonPath;
 use Omnichannel\Addons\AiPrompt\PromptHooks\PromptHookManifestLoader;
@@ -24,7 +26,7 @@ final class PromptHookDocumentationTest extends TestCase
 
     private function repoRoot(): string
     {
-        return dirname(__DIR__, 4);
+        return ProjectRoot::path();
     }
 
     public function test_each_manifest_has_unique_documentation_file(): void

@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Agent\Tests\Unit;
 
+use Tests\Support\ProjectRoot;
+
 use Omnichannel\Addons\Agent\Automation\Presentation\AutomationFlowPresentationRegistry;
 use Omnichannel\Addons\Agent\Filament\Pages\AutomationFlowsPage;
 use App\Http\Middleware\Filament\RestrictAdminAutomationOnlyUsers;
@@ -44,7 +46,7 @@ final class AutomationAdminFlowsUiTest extends TestCase
 
     public function test_admin_panel_provider_registers_flows_page(): void
     {
-        $providerPath = dirname(__DIR__, 4).'/app'.'/Providers/Filament/AdminPanelProvider.php';
+        $providerPath = ProjectRoot::path().'/app'.'/Providers/Filament/AdminPanelProvider.php';
         self::assertFileExists($providerPath);
 
         $source = (string) file_get_contents($providerPath);
@@ -56,7 +58,7 @@ final class AutomationAdminFlowsUiTest extends TestCase
     public function test_custom_login_allows_automation_staff(): void
     {
         $source = (string) file_get_contents(
-            dirname(__DIR__, 4).'/app'.'/Filament/Pages/Auth/CustomLogin.php'
+            ProjectRoot::path().'/app'.'/Filament/Pages/Auth/CustomLogin.php'
         );
 
         self::assertStringContainsString('canAccessAdminAutomationPanel', $source);

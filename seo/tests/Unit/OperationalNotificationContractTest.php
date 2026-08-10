@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Seo\Tests\Unit;
 
+use Tests\Support\ProjectRoot;
+
 use Omnichannel\Addons\Seo\Enums\NotificationSeverity;
 use Omnichannel\Addons\Seo\Enums\OperationalNotificationEventCode;
 use Omnichannel\Addons\Seo\Services\Notifications\OperationalNotificationDeepLinks;
@@ -24,7 +26,7 @@ final class OperationalNotificationContractTest extends TestCase
     private function readCore(string $relative): string
     {
         // Unit → tests → SeoContentAi → Addons → app → project root
-        $path = dirname(__DIR__, 4).DIRECTORY_SEPARATOR.str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $relative);
+        $path = ProjectRoot::path().DIRECTORY_SEPARATOR.str_replace(['/', '\\'], DIRECTORY_SEPARATOR, $relative);
         self::assertFileExists($path);
         $body = file_get_contents($path);
         self::assertIsString($body);

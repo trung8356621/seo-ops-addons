@@ -129,30 +129,15 @@ final class ArticleWritingStablePhase10Test extends TestCase
         // Instantiating without container: call static-like via partial mock pattern â€” use file scan helper.
         $svcFile = ProjectRoot::addonsPath().'/content/src/Services/ArticleWritingStableHealthService.php';
         self::assertFileExists($svcFile);
-        $probe = new class
-        {
-            public function stillReads(): bool
-            {
-                $files = [
-                    dirname(__DIR__, 4).'/app/Addons'.'/Services/CreateArticlesFromTaskService.php',
-                    dirname(__DIR__, 4).'/app/Addons'.'/Services/ArticleWritingExecutionService.php',
-                    dirname(__DIR__, 4).'/app/Addons'.'/Services/ArticleWritingLegacyRewriteAdapter.php',
-                    dirname(__DIR__, 4).'/app/Addons'.'/Services/TaskWorkflowTestRunner.php',
-                ];
-                // paths wrong in anon â€” use absolute from test
-                return false;
-            }
-        };
-        unset($probe);
 
         foreach ([
-            'CreateArticlesFromTaskService.php' => 'addons/content-projects/src/Services/CreateArticlesFromTaskService.php',
-            'ArticleWritingExecutionService.php' => 'addons/content/src/Services/ArticleWritingExecutionService.php',
-            'ArticleWritingLegacyRewriteAdapter.php' => 'addons/content/src/Services/ArticleWritingLegacyRewriteAdapter.php',
-            'SeoProjectWorkflowStepCatalogService.php' => 'addons/content-projects/src/Services/SeoProjectWorkflowStepCatalogService.php',
-            'TaskWorkflowTestRunner.php' => 'addons/ai-prompt/src/Services/TaskWorkflowTestRunner.php',
+            'CreateArticlesFromTaskService.php' => 'content-projects/src/Services/CreateArticlesFromTaskService.php',
+            'ArticleWritingExecutionService.php' => 'content/src/Services/ArticleWritingExecutionService.php',
+            'ArticleWritingLegacyRewriteAdapter.php' => 'content/src/Services/ArticleWritingLegacyRewriteAdapter.php',
+            'SeoProjectWorkflowStepCatalogService.php' => 'content-projects/src/Services/SeoProjectWorkflowStepCatalogService.php',
+            'TaskWorkflowTestRunner.php' => 'ai-prompt/src/Services/TaskWorkflowTestRunner.php',
         ] as $name => $relative) {
-            $src = (string) file_get_contents(dirname(__DIR__, 4).'/'.$relative);
+            $src = (string) file_get_contents(ProjectRoot::addonsPath().'/'.$relative);
             self::assertStringNotContainsString('getRewriteArticleTaskId(', $src, $name);
         }
     }
