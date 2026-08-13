@@ -144,7 +144,9 @@ final class ArticleEditorSyncWpVisibilityTest extends TestCase
         );
         self::assertStringContainsString('resolveAiMediaPrompt', $panel);
         self::assertStringContainsString('resolved.rendered', $panel);
-        self::assertStringContainsString('preview_prompt', $panel);
+        self::assertStringContainsString('copy_prompt', $panel);
+        self::assertStringNotContainsString('preview_prompt', $panel);
+        self::assertStringNotContainsString('seo-ai-media-preview-prompt', $panel);
         self::assertStringNotContainsString('await navigator.clipboard.writeText(trimmed)', $panel);
 
         $service = (string) file_get_contents(

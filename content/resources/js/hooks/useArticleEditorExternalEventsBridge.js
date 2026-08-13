@@ -639,6 +639,36 @@ export default function useArticleEditorExternalEventsBridge({ activeBlockId, ac
             }
 
             if (isProcessingStatus && mediaId > 0) {
+                // Đã có spinner (client data-URI hoặc pending map) — chỉ bind, không insert lần 2.
+                const existingProcessing = blocksRef.current.find((block) => {
+                    if (block?.type !== 'image' || !block?.image?.isProcessing) {
+                        return false;
+                    }
+                    const seoId = Number(block.image?.seoMediaId ?? block.image?.seo_media_id ?? 0);
+                    return seoId <= 0 || seoId === mediaId;
+                });
+                if (existingProcessing) {
+                    patchImageInBlocks(
+                        existingProcessing.id,
+                        {
+                            seoMediaId: mediaId,
+                            isProcessing: true,
+                            src: url || AI_PLACEHOLDER_LOADING_URL,
+                        },
+                        true,
+                    );
+                    pendingAiMediaRef.current.set(mediaId, {
+                        blockId: existingProcessing.id,
+                        mediaType: 'image',
+                    });
+                    startMediaStatusPolling(mediaId, 'image');
+                    window.dispatchEvent(
+                        new CustomEvent('article-ai-media-job-updated', { detail: { seoMediaId: mediaId } }),
+                    );
+
+                    return;
+                }
+
                 const placeholderId = placeProcessingImagePlaceholder(refBlockId, url || AI_PLACEHOLDER_LOADING_URL, {
                     seoMediaId: mediaId,
                     isProcessing: true,

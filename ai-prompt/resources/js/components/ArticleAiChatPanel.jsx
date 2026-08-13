@@ -1,5 +1,5 @@
 ﻿import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Check, Copy, Eye, ImageIcon, RefreshCw, Video, X } from 'lucide-react';
+import { Check, Copy, ImageIcon, RefreshCw, Video, X } from 'lucide-react';
 import {
     getAiMediaLaunchContext,
     subscribeAiMediaLaunchContext,
@@ -29,7 +29,6 @@ export default function ArticleAiChatPanel({
     const [resolveError, setResolveError] = useState('');
     const [finalPrompt, setFinalPrompt] = useState('');
     const [finalPromptMeta, setFinalPromptMeta] = useState(null);
-    const [previewOpen, setPreviewOpen] = useState(false);
     const generateLockRef = useRef(false);
     const inputRef = useRef(null);
     const copiedTimerRef = useRef(null);
@@ -59,7 +58,6 @@ export default function ArticleAiChatPanel({
         setFinalPrompt('');
         setFinalPromptMeta(null);
         setResolveError('');
-        setPreviewOpen(false);
         setCopied(false);
     }, [prompt, mediaType]);
 
@@ -164,10 +162,9 @@ export default function ArticleAiChatPanel({
         }));
     }, []);
 
-    const handlePreviewPrompt = useCallback(async () => {
+    const handleRetryResolve = useCallback(async () => {
         try {
             await resolveFinalPrompt({ force: true });
-            setPreviewOpen(true);
         } catch (error) {
             notifyResolveError(error);
         }
@@ -235,7 +232,7 @@ export default function ArticleAiChatPanel({
                 <div className="seo-ai-chat-compose">
                     {applyBlocked ? (
                         <p className="mb-2 text-xs text-amber-700 dark:text-amber-300">
-                            Session read-only — generation/apply blocked
+                            {t('editor_session_read_only_generate')}
                         </p>
                     ) : null}
 
@@ -280,7 +277,7 @@ export default function ArticleAiChatPanel({
                             <button
                                 type="button"
                                 className="seo-ai-media-retry-resolve"
-                                onClick={() => void handlePreviewPrompt()}
+                                onClick={() => void handleRetryResolve()}
                                 disabled={!hasPrompt || busy}
                             >
                                 <RefreshCw size={14} aria-hidden />
@@ -301,17 +298,6 @@ export default function ArticleAiChatPanel({
                             {copied ? t('copy_prompt_done') : t('copy_prompt')}
                         </button>
 
-                        <button
-                            type="button"
-                            className="seo-ai-media-preview-prompt"
-                            onClick={() => void handlePreviewPrompt()}
-                            disabled={!hasPrompt || busy}
-                            title={t('preview_prompt')}
-                        >
-                            <Eye size={15} aria-hidden />
-                            {resolveLoading ? t('generate_image_preview_prompt_loading') : t('preview_prompt')}
-                        </button>
-
                         {canGenerateWithApi ? (
                             <button
                                 type="button"
@@ -326,26 +312,6 @@ export default function ArticleAiChatPanel({
                             </button>
                         ) : null}
                     </div>
-
-                    {previewOpen && finalPrompt ? (
-                        <div className="seo-ai-media-final-prompt-preview">
-                            <div className="seo-ai-media-final-prompt-preview__header">
-                                <strong>{t('preview_prompt')}</strong>
-                                {finalPromptMeta ? (
-                                    <span className="seo-ai-media-final-prompt-preview__meta">
-                                        #{finalPromptMeta.promptId}
-                                        {' · '}
-                                        {finalPromptMeta.source}
-                                        {' · '}
-                                        {finalPromptMeta.contextLength}
-                                        {'→'}
-                                        {finalPromptMeta.renderedLength}
-                                    </span>
-                                ) : null}
-                            </div>
-                            <pre className="seo-ai-media-final-prompt-preview__body">{finalPrompt}</pre>
-                        </div>
-                    ) : null}
                 </div>
             </div>
         </div>

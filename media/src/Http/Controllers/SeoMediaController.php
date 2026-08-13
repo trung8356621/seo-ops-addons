@@ -789,8 +789,13 @@ class SeoMediaController extends Controller
      */
     private function formatAiMediaPayload(SeoMedia $media): array
     {
-        $status = (string) ($media->status ?? 'completed');
+        $status = strtolower(trim((string) ($media->status ?? 'completed')));
+        if ($status === '') {
+            $status = 'completed';
+        }
+
         $url = (string) ($media->url ?? '');
+        $errorMessage = filled($media->error_message) ? (string) $media->error_message : null;
 
         if (str_contains($url, 'placeholder-loading')) {
             $url = SeoMedia::placeholderLoadingUrl();
@@ -800,11 +805,19 @@ class SeoMediaController extends Controller
             $url = $media->publicUrl();
         }
 
+        // Column/meta drift hoặc job “completed” nhưng vẫn placeholder → client poll mãi.
+        if ($status === 'completed' && str_contains((string) ($media->url ?? ''), 'placeholder-loading')) {
+            $status = 'failed';
+            $errorMessage = $errorMessage !== null && $errorMessage !== ''
+                ? $errorMessage
+                : 'Job AI kết thúc nhưng không có ảnh kết quả.';
+        }
+
         return [
             'id' => (int) $media->id,
             'status' => $status,
             'url' => $url,
-            'error_message' => $media->error_message,
+            'error_message' => $errorMessage,
             'source' => (string) ($media->source ?? ''),
             'media_type' => $media->aiToolType(),
             'editor_block_id' => (string) ($media->editor_block_id ?? ''),

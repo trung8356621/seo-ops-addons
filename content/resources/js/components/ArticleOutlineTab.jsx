@@ -2,6 +2,7 @@
 import { AlertTriangle, Check, ChevronDown, ChevronUp, Copy, Loader2, Pencil, Plus, RefreshCw, ShieldAlert, Sparkles, Trash2 } from 'lucide-react';
 import { csrfToken, seoArticleApiHeaders } from '@seo-addon/utils/seoArticleApi.js';
 import { isPersistedOutlineHeadingId } from '../utils/contentDocumentHelpers';
+import { t } from '../utils/i18n';
 
 const outlineUrl = (articleId) => `/api/seo/articles/${articleId}/outline`;
 const outlineRefreshUrl = (articleId) => `/api/seo/articles/${articleId}/outline/refresh`;
@@ -12,7 +13,7 @@ const generateUrl = (articleId, headingId) =>
 
 function extractOutlineApiErrorMessage(data, response) {
     if (response.status === 419) {
-        return 'Phiên đăng nhập hết hạn — tải lại trang rồi thử lại.';
+        return t('outline_session_expired');
     }
 
     const direct = typeof data?.message === 'string' ? data.message.trim() : '';
@@ -388,8 +389,8 @@ function HeadingBlock({
                 window.dispatchEvent(
                     new CustomEvent('seo-article-editor-notify', {
                         detail: {
-                            title: 'Outline',
-                            body: 'Không copy được heading — kiểm tra quyền clipboard.',
+                            title: t('outline_notify_title'),
+                            body: t('outline_copy_failed'),
                             status: 'warning',
                         },
                     }),
@@ -455,7 +456,7 @@ function HeadingBlock({
                                     endEditing();
                                 }
                             }}
-                            placeholder="HTML heading (vd: Túi xách <a href=&quot;/slug&quot;>nam</a>)"
+                            placeholder={t('outline_html_placeholder')}
                         />
                     ) : (
                         <input
@@ -479,7 +480,7 @@ function HeadingBlock({
                         />
                     )
                 ) : (
-                    <span className="seo-outline-block__text" title="Click: nhảy tới editor · Double-click: focus nhóm">
+                    <span className="seo-outline-block__text" title={t('outline_click_jump_hint')}>
                         {node.heading_text}
                     </span>
                 )}
@@ -487,8 +488,8 @@ function HeadingBlock({
                     <button
                         type="button"
                         className="seo-outline-block__copy-btn"
-                        title={copied ? 'Đã copy' : 'Copy heading'}
-                        aria-label={copied ? 'Đã copy heading' : 'Copy heading'}
+                        title={copied ? t('outline_copied') : t('outline_copy_heading')}
+                        aria-label={copied ? t('outline_copied_heading') : t('outline_copy_heading')}
                         onClick={handleCopyHeading}
                     >
                         {copied ? (
@@ -520,7 +521,7 @@ function HeadingBlock({
                         type="button"
                         className="seo-outline-block__action-btn"
                         disabled={!canMoveUp || isBusy}
-                        title="Di chuyển lên"
+                        title={t('outline_move_up')}
                         onClick={(e) => {
                             e.stopPropagation();
                             if (canMoveUp && !isBusy) {
@@ -534,7 +535,7 @@ function HeadingBlock({
                         type="button"
                         className="seo-outline-block__action-btn"
                         disabled={!canMoveDown || isBusy}
-                        title="Di chuyển xuống"
+                        title={t('outline_move_down')}
                         onClick={(e) => {
                             e.stopPropagation();
                             if (canMoveDown && !isBusy) {
@@ -554,7 +555,7 @@ function HeadingBlock({
                             }
                         }}
                     >
-                        <span className="seo-outline-block__action-label">Sửa tay</span>
+                        <span className="seo-outline-block__action-label">{t('outline_edit_manual')}</span>
                         <Pencil size={14} strokeWidth={1.75} />
                     </button>
                     {canGenerateOutlineHeading ? (
@@ -570,7 +571,7 @@ function HeadingBlock({
                             }}
                         >
                             <span className="seo-outline-block__action-label">
-                                {isBusy ? 'Đang gen...' : 'AI gen'}
+                                {isBusy ? t('outline_ai_gen_busy') : t('outline_ai_gen')}
                             </span>
                             {isBusy ? (
                                 <Loader2 size={14} strokeWidth={1.75} className="seo-outline-spin" />
@@ -583,7 +584,7 @@ function HeadingBlock({
                         type="button"
                         className="seo-outline-block__action-btn seo-outline-block__action-btn--danger"
                         disabled={!canDelete || isBusy}
-                        title="Xóa heading"
+                        title={t('outline_delete_heading')}
                         onClick={(e) => {
                             e.stopPropagation();
                             if (canDelete && !isBusy) {
@@ -854,7 +855,7 @@ export default function ArticleOutlineTab({
                     onOutlineLoaded?.(outline);
                 }
             } catch (e) {
-                setError(e.message || 'Không tải được outline.');
+                setError(e.message || t('outline_load_failed'));
             } finally {
                 setLoading(false);
             }
@@ -891,7 +892,7 @@ export default function ArticleOutlineTab({
             setTree(outline);
             onOutlineLoaded?.(outline);
         } catch (e) {
-            setError(e.message || 'Không tải được outline.');
+            setError(e.message || t('outline_load_failed'));
         } finally {
             setLoading(false);
         }
@@ -951,16 +952,16 @@ export default function ArticleOutlineTab({
 
             if (found.length > 0) {
                 notify(
-                    'Dò trùng lặp',
-                    `Phát hiện ${found.length} heading trùng với bài viết khác trong site.`,
+                    t('outline_duplicates_panel_title'),
+                    t('outline_duplicates_found', { count: found.length }),
                     'warning',
                 );
             } else {
-                notify('Dò trùng lặp', 'Không phát hiện heading trùng lặp.', 'success');
+                notify(t('outline_duplicates_panel_title'), t('outline_duplicates_none'), 'success');
             }
         } catch (e) {
             exitDuplicateMode();
-            notify('Dò trùng lặp', e.message || 'Dò trùng lặp thất bại.', 'danger');
+            notify(t('outline_duplicates_panel_title'), e.message || t('outline_duplicates_failed'), 'danger');
         } finally {
             setIsLoadingCheck(false);
         }
@@ -997,7 +998,7 @@ export default function ArticleOutlineTab({
                 if (cancelled) return;
                 setCompareTree([]);
                 setCompareArticleTitle('');
-                setCompareError(e.message || 'Không tải được dàn ý bài viết gốc.');
+                setCompareError(e.message || t('outline_compare_load_failed'));
             })
             .finally(() => {
                 if (!cancelled) {
@@ -1044,7 +1045,7 @@ export default function ArticleOutlineTab({
                 : findOutlineNodeWithGroup(tree, level, headingText);
         if (!match) {
             if (tree.length > 0 && headingId == null) {
-                notify('Outline', 'Không tìm thấy heading tương ứng trong outline.', 'warning');
+                notify(t('outline_notify_title'), t('outline_heading_not_found'), 'warning');
             }
             return;
         }
@@ -1249,19 +1250,19 @@ export default function ArticleOutlineTab({
                 });
 
                 if (result?.ok === false) {
-                    notify('Outline', result.error?.message || 'Không lưu được heading.', 'danger');
+                    notify(t('outline_notify_title'), result.error?.message || t('outline_heading_save_failed'), 'danger');
                     return;
                 }
 
                 const duplicates = Array.isArray(result?.data?.duplicates) ? result.data.duplicates : [];
                 if (duplicates.length > 0) {
                     notify(
-                        'Cảnh báo trùng heading',
-                        `Heading này trùng với ${duplicates.length} heading khác trong site (vd: "${duplicates[0].article_title}").`,
+                        t('outline_heading_duplicate_title'),
+                        t('outline_heading_duplicate_warn', { count: duplicates.length, title: duplicates[0].article_title }),
                         'warning',
                     );
                 } else if (isPersistedOutlineHeadingId(node.id)) {
-                    notify('Outline', 'Đã lưu heading.', 'success');
+                    notify(t('outline_notify_title'), t('outline_heading_saved'), 'success');
                 }
 
                 return;
@@ -1277,15 +1278,15 @@ export default function ArticleOutlineTab({
                 const duplicates = Array.isArray(data.duplicates) ? data.duplicates : [];
                 if (duplicates.length > 0) {
                     notify(
-                        'Cảnh báo trùng heading',
-                        `Heading này trùng với ${duplicates.length} heading khác trong site (vd: "${duplicates[0].article_title}").`,
+                        t('outline_heading_duplicate_title'),
+                        t('outline_heading_duplicate_warn', { count: duplicates.length, title: duplicates[0].article_title }),
                         'warning',
                     );
                 } else {
-                    notify('Outline', 'Đã lưu heading.', 'success');
+                    notify(t('outline_notify_title'), t('outline_heading_saved'), 'success');
                 }
             } catch (e) {
-                notify('Outline', e.message || 'Không lưu được heading.', 'danger');
+                notify(t('outline_notify_title'), e.message || t('outline_heading_save_failed'), 'danger');
             }
         },
         [applyHeadingPatch, articleId, notify, onSaveOutlineHeadingTitle],
@@ -1309,19 +1310,19 @@ export default function ArticleOutlineTab({
                 });
 
                 if (result?.ok === false) {
-                    notify('Outline', result.error?.message || 'Không lưu được heading.', 'danger');
+                    notify(t('outline_notify_title'), result.error?.message || t('outline_heading_save_failed'), 'danger');
                     return;
                 }
 
                 const duplicates = Array.isArray(result?.data?.duplicates) ? result.data.duplicates : [];
                 if (duplicates.length > 0) {
                     notify(
-                        'Cảnh báo trùng heading',
-                        `Heading này trùng với ${duplicates.length} heading khác trong site (vd: "${duplicates[0].article_title}").`,
+                        t('outline_heading_duplicate_title'),
+                        t('outline_heading_duplicate_warn', { count: duplicates.length, title: duplicates[0].article_title }),
                         'warning',
                     );
                 } else if (isPersistedOutlineHeadingId(node.id)) {
-                    notify('Outline', 'Đã lưu heading HTML.', 'success');
+                    notify(t('outline_notify_title'), t('outline_heading_html_saved'), 'success');
                 }
 
                 return;
@@ -1345,15 +1346,15 @@ export default function ArticleOutlineTab({
                 const duplicates = Array.isArray(data.duplicates) ? data.duplicates : [];
                 if (duplicates.length > 0) {
                     notify(
-                        'Cảnh báo trùng heading',
-                        `Heading này trùng với ${duplicates.length} heading khác trong site (vd: "${duplicates[0].article_title}").`,
+                        t('outline_heading_duplicate_title'),
+                        t('outline_heading_duplicate_warn', { count: duplicates.length, title: duplicates[0].article_title }),
                         'warning',
                     );
                 } else {
-                    notify('Outline', 'Đã lưu heading HTML.', 'success');
+                    notify(t('outline_notify_title'), t('outline_heading_html_saved'), 'success');
                 }
             } catch (e) {
-                notify('Outline', e.message || 'Không lưu được heading.', 'danger');
+                notify(t('outline_notify_title'), e.message || t('outline_heading_save_failed'), 'danger');
             }
         },
         [applyHeadingPatch, articleId, notify, onHeadingHtmlChange, onSaveOutlineHeadingTitle],
@@ -1372,9 +1373,9 @@ export default function ArticleOutlineTab({
                 if (newText !== '' && newText !== node.heading_text) {
                     applyHeadingPatch(node, newText);
                 }
-                notify('Outline', 'Đã gen lại heading bằng AI.', 'success');
+                notify(t('outline_notify_title'), t('outline_ai_regen_success'), 'success');
             } catch (e) {
-                notify('Outline', e.message || 'AI gen heading thất bại.', 'danger');
+                notify(t('outline_notify_title'), e.message || t('outline_ai_regen_failed'), 'danger');
             } finally {
                 setBusyHeadingId(null);
             }
@@ -1407,13 +1408,13 @@ export default function ArticleOutlineTab({
             }}
         >
             <div className="seo-outline-toolbar">
-                <h3 className="seo-outline-title">Outline / Dàn ý (H2–H4)</h3>
+                <h3 className="seo-outline-title">{t('outline_title')}</h3>
                 <div className="seo-outline-toolbar__actions">
                     {onOutlineAddSection ? (
                         <button
                             type="button"
                             className="seo-outline-reload seo-outline-add-section-btn"
-                            title="Thêm section mới"
+                            title={t('outline_add_section_title')}
                             disabled={loading}
                             onClick={(e) => {
                                 e.stopPropagation();
@@ -1421,13 +1422,13 @@ export default function ArticleOutlineTab({
                             }}
                         >
                             <Plus size={15} strokeWidth={1.75} />
-                            Thêm section
+                            {t('outline_add_section')}
                         </button>
                     ) : null}
                     <button
                         type="button"
                         className="seo-outline-reload"
-                        title="Tải lại outline từ nội dung bài"
+                        title={t('outline_reload_title')}
                         disabled={loading}
                         onClick={(e) => {
                             e.stopPropagation();
@@ -1439,7 +1440,7 @@ export default function ArticleOutlineTab({
                             strokeWidth={1.75}
                             className={loading ? 'seo-outline-spin' : ''}
                         />
-                        Tải lại
+                        {t('outline_reload')}
                     </button>
                     <button
                         type="button"
@@ -1452,8 +1453,8 @@ export default function ArticleOutlineTab({
                             .join(' ')}
                         title={
                             isDuplicateModeActive
-                                ? 'Thoát chế độ dò trùng lặp'
-                                : 'Dò heading trùng lặp với các bài khác trong site'
+                                ? t('outline_exit_duplicates_title')
+                                : t('outline_check_duplicates_title')
                         }
                         disabled={
                             loading ||
@@ -1471,30 +1472,30 @@ export default function ArticleOutlineTab({
                             <ShieldAlert size={15} strokeWidth={1.75} />
                         )}
                         {isLoadingCheck
-                            ? 'Đang dò...'
+                            ? t('outline_checking')
                             : isDuplicateModeActive
-                              ? 'Thoát chế độ dò trùng'
-                              : 'Dò trùng lặp'}
+                              ? t('outline_exit_duplicates')
+                              : t('outline_check_duplicates')}
                     </button>
                 </div>
             </div>
 
             {loading ? (
                 <div className="seo-outline-empty">
-                    <Loader2 size={18} className="seo-outline-spin" /> Đang tải outline...
+                    <Loader2 size={18} className="seo-outline-spin" /> {t('outline_loading')}
                 </div>
             ) : error !== '' ? (
                 <div className="seo-outline-empty seo-outline-empty--error">{error}</div>
             ) : tree.length === 0 ? (
                 <div className="seo-outline-empty">
-                    Bài viết chưa có heading H2–H4 nào để bóc tách.
+                    {t('outline_empty')}
                 </div>
             ) : showDuplicateSplit ? (
                 <div className="seo-outline-split">
                     <div className="seo-outline-split__col">
                         <div className="seo-outline-split__head seo-outline-split__head--current">
                             <AlertTriangle size={14} strokeWidth={1.75} />
-                            Dàn ý hiện tại ({duplicates.length} heading trùng)
+                            {t('outline_duplicates_current', { count: duplicates.length })}
                         </div>
                         <div className="seo-outline-tree">
                             <OutlineTree
@@ -1526,30 +1527,28 @@ export default function ArticleOutlineTab({
                         {!selectedDuplicateArticleId ? (
                             <div className="seo-outline-split__placeholder">
                                 <ShieldAlert size={22} strokeWidth={1.5} />
-                                Nhấn vào cảnh báo đỏ ở dàn ý bên trái để xem chi tiết bài viết bị
-                                trùng.
+                                {t('outline_compare_placeholder')}
                             </div>
                         ) : (
                             <>
                                 <div className="seo-outline-split__head">
-                                    Dàn ý bài viết gốc (ID: {selectedDuplicateArticleId})
+                                    {t('outline_compare_head', { id: selectedDuplicateArticleId })}
                                 </div>
                                 {compareArticleTitle !== '' ? (
                                     <h3 className="seo-outline-split__article-title">
-                                        Bài viết: {compareArticleTitle}
+                                        {t('outline_compare_article', { title: compareArticleTitle })}
                                     </h3>
                                 ) : null}
                                 {compareLoading ? (
                                     <div className="seo-outline-empty">
-                                        <Loader2 size={16} className="seo-outline-spin" /> Đang tải
-                                        dàn ý bài gốc...
+                                        <Loader2 size={16} className="seo-outline-spin" /> {t('outline_loading')}
                                     </div>
                                 ) : compareError !== '' ? (
                                     <div className="seo-outline-empty seo-outline-empty--error">
                                         {compareError}
                                     </div>
                                 ) : compareTree.length === 0 ? (
-                                    <div className="seo-outline-empty">Bài gốc chưa có dàn ý.</div>
+                                    <div className="seo-outline-empty">{t('outline_compare_empty')}</div>
                                 ) : (
                                     <div className="seo-outline-tree">
                                         <ReadOnlyOutlineTree

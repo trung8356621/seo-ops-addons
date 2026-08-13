@@ -1,4 +1,4 @@
-import { AI_PLACEHOLDER_LOADING_URL, fetchArticleAiMediaJobs, fetchSeoMediaStatus } from '@media-addon/utils/seoMediaApi.js';
+import { AI_PLACEHOLDER_LOADING_URL, fetchArticleAiMediaJobs, fetchSeoMediaStatus, isAiPlaceholderLoadingSrc } from '@media-addon/utils/seoMediaApi.js';
 import { appendProductAlbumItems, syncProductAlbumToServer } from '@media-addon/utils/articleProductAlbumStorage.js';
 import { assertWritableEditorSession } from '../utils/editorSessionState';
 import { callEditArticleLivewire } from '../utils/articleEditorLivewire';
@@ -104,12 +104,37 @@ export default function useArticleEditorImageGeneration({ activeBlockIdRef, arti
             );
         }
 
+        // Gỡ spinner trùng từ race insert (client data-URI + Livewire path).
+        updateBlocksWithoutHistory((prev) =>
+            prev.filter((block) => {
+                if (block.id === targetBlockId || block?.type !== 'image') {
+                    return true;
+                }
+                const image = block?.image ?? null;
+                if (!image?.isProcessing && !isAiPlaceholderLoadingSrc(image?.src)) {
+                    return true;
+                }
+                const seoId = Number(image?.seoMediaId ?? image?.seo_media_id ?? 0);
+                if (mediaId > 0 && seoId === mediaId) {
+                    return false;
+                }
+                // Leftover spinner chưa gắn seoMediaId.
+                return seoId > 0;
+            }),
+        );
+
         pendingAiMediaRef.current.delete(mediaId);
+        for (const [key, pending] of [...pendingAiMediaRef.current.entries()]) {
+            if (pending?.awaitingServer || String(pending?.blockId ?? '') === targetBlockId) {
+                pendingAiMediaRef.current.delete(key);
+            }
+        }
+        clearMediaPolling?.(mediaId);
         window.dispatchEvent(new CustomEvent('article-ai-media-job-updated', { detail: { seoMediaId: mediaId } }));
         setImagesReloadKey((k) => k + 1);
         scheduleAutosave();
         return true;
-    }, [isDismissedEditorImageMedia, patchImageInBlocks, scheduleAutosave, updateBlocksWithoutHistory]);
+    }, [clearMediaPolling, isDismissedEditorImageMedia, patchImageInBlocks, scheduleAutosave, updateBlocksWithoutHistory]);
 
     const applyCompletedMediaToProductGallery = useCallback((mediaId, finalUrl, galleryItems = null) => {
         if (!articleId) {
@@ -179,7 +204,31 @@ export default function useArticleEditorImageGeneration({ activeBlockIdRef, arti
 
                 if (status === 'completed' && url) {
                     if (url.includes('placeholder-loading')) {
-                        // Job ghi completed nhưng URL vẫn placeholder — poll tiếp.
+                        clearMediaPolling(mediaId);
+                        pendingAiMediaRef.current.delete(mediaId);
+                        window.dispatchEvent(
+                            new CustomEvent('article-ai-media-job-updated', { detail: { seoMediaId: mediaId } }),
+                        );
+                        window.dispatchEvent(
+                            new CustomEvent('article-ai-media-failed', {
+                                detail: {
+                                    type: mediaType,
+                                    message: payload?.error_message || t('editor_ai_failed'),
+                                    seoMediaId: mediaId,
+                                },
+                            }),
+                        );
+                        setImagesReloadKey((k) => k + 1);
+                        window.dispatchEvent(
+                            new CustomEvent('seo-article-editor-notify', {
+                                detail: {
+                                    title: mediaType === 'video' ? t('editor_generate_video_failed') : t('editor_generate_image_failed'),
+                                    body: payload?.error_message || t('editor_generate_image_no_result'),
+                                    status: 'danger',
+                                },
+                            }),
+                        );
+                        return;
                     } else if (isDismissedEditorImageMedia(mediaId)) {
                         clearMediaPolling(mediaId);
                         pendingAiMediaRef.current.delete(mediaId);
@@ -405,7 +454,14 @@ export default function useArticleEditorImageGeneration({ activeBlockIdRef, arti
                 if (patchMediaId > 0 && currentMediaId === patchMediaId) {
                     return true;
                 }
-                return Boolean(current?.isProcessing) && String(current.src).trim() === url;
+                if (!current?.isProcessing) {
+                    return false;
+                }
+                // Match mọi AI spinner — data-URI local và path /assets/...placeholder-loading là cùng 1 placeholder.
+                if (isAiPlaceholderLoadingSrc(current.src) || isAiPlaceholderLoadingSrc(url)) {
+                    return true;
+                }
+                return String(current.src).trim() === url;
             });
             if (existingPlaceholder) {
                 const baseImage = existingPlaceholder.image ?? parseImageFromBlockContent(existingPlaceholder.content) ?? {};
@@ -507,7 +563,7 @@ export default function useArticleEditorImageGeneration({ activeBlockIdRef, arti
                 window.dispatchEvent(new CustomEvent('article-ai-media-failed', {
                     detail: {
                         type: 'image',
-                        message: 'Đang có yêu cầu tạo ảnh khác — vui lòng đợi vài giây.',
+                        message: t('editor_generate_image_busy'),
                     },
                 }));
 
@@ -545,7 +601,7 @@ export default function useArticleEditorImageGeneration({ activeBlockIdRef, arti
             setArticleAutosaveLock('generate-image-request', true);
 
             try {
-                const result = await callEditArticleLivewire(
+                const livewireCall = callEditArticleLivewire(
                     'generateArticleImageFromEditor',
                     selectionText,
                     String(payload.selectionHtml ?? ''),
@@ -556,6 +612,14 @@ export default function useArticleEditorImageGeneration({ activeBlockIdRef, arti
                     String(payload.loaiSanPhamCustom ?? '').trim(),
                     String(payload.galleryGenerationMode ?? 'sprite').trim() || 'sprite',
                 );
+                const result = await Promise.race([
+                    livewireCall,
+                    new Promise((_, reject) => {
+                        window.setTimeout(() => {
+                            reject(new Error(t('editor_generate_image_timeout')));
+                        }, 90_000);
+                    }),
+                ]);
 
                 if (result && typeof result === 'object' && result.ok === false) {
                     clearAwaitingClientImagePlaceholders();

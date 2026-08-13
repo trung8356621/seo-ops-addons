@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Support;
 
+use Omnichannel\Addons\Seo\Support\RenderingPreference;
+
 enum TypographyValidationLevel: string
 {
     case Fast = 'fast';

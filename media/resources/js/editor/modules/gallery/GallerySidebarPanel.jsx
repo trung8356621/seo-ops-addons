@@ -26,7 +26,11 @@ export function GallerySidebarPanel({ articleId = null, active = false }) {
 
     const openGenerate = useCallback(() => {
         if (!mutable) {
-            notify({ title: 'Gallery', body: 'Read-only', status: 'warning' });
+            notify({
+                title: t('editor_gallery_notify_title'),
+                body: t('editor_gallery_read_only'),
+                status: 'warning',
+            });
             return;
         }
         window.dispatchEvent(new CustomEvent('seo-open-generate-image-modal', {
@@ -36,7 +40,11 @@ export function GallerySidebarPanel({ articleId = null, active = false }) {
 
     const openPicker = useCallback(() => {
         if (!mutable) {
-            notify({ title: 'Gallery', body: 'Read-only', status: 'warning' });
+            notify({
+                title: t('editor_gallery_notify_title'),
+                body: t('editor_gallery_read_only'),
+                status: 'warning',
+            });
             return;
         }
         picker.open({
@@ -68,9 +76,13 @@ export function GallerySidebarPanel({ articleId = null, active = false }) {
                 ];
                 try {
                     await media.replaceGallery(merged);
-                    notify({ title: 'Gallery updated', status: 'success' });
+                    notify({ title: t('editor_gallery_updated'), status: 'success' });
                 } catch (error) {
-                    notify({ title: 'Gallery failed', body: String(error?.message || 'error'), status: 'warning' });
+                    notify({
+                        title: t('editor_gallery_failed'),
+                        body: String(error?.message || t('prompt_hook_try_again')),
+                        status: 'warning',
+                    });
                 }
             },
         });
@@ -82,7 +94,11 @@ export function GallerySidebarPanel({ articleId = null, active = false }) {
         try {
             await media.replaceGallery(next);
         } catch (error) {
-            notify({ title: 'Remove failed', body: String(error?.message || 'error'), status: 'warning' });
+            notify({
+                title: t('editor_gallery_remove_failed'),
+                body: String(error?.message || t('prompt_hook_try_again')),
+                status: 'warning',
+            });
         }
     }, [mutable, items, media, notify]);
 
@@ -105,7 +121,11 @@ export function GallerySidebarPanel({ articleId = null, active = false }) {
         try {
             await media.reorderGallery(nextIds);
         } catch (error) {
-            notify({ title: 'Reorder failed', body: String(error?.message || 'error'), status: 'warning' });
+            notify({
+                title: t('editor_gallery_reorder_failed'),
+                body: String(error?.message || t('prompt_hook_try_again')),
+                status: 'warning',
+            });
         }
     }, [mutable, dragId, items, media, notify]);
 
@@ -118,7 +138,7 @@ export function GallerySidebarPanel({ articleId = null, active = false }) {
             <section className="seo-assistant-widget seo-assistant-widget--product-album seo-assistant-widget--static">
                 <header className="seo-assistant-widget__header seo-assistant-widget__header--static">
                     <div className="seo-assistant-widget__toggle seo-assistant-widget__toggle--static">
-                        <span className="seo-assistant-widget__title">Album hình ảnh sản phẩm</span>
+                        <span className="seo-assistant-widget__title">{t('editor_product_album_title')}</span>
                     </div>
                 </header>
                 <div className="seo-assistant-widget__body">
@@ -138,13 +158,17 @@ export function GallerySidebarPanel({ articleId = null, active = false }) {
                                         onDragEnd={() => setDragId(null)}
                                     >
                                         <img src={String(image.url || '')} alt="" className="wp-product-gallery-thumb" />
-                                        {index === 0 ? <span className="wp-product-gallery-badge">Đại diện</span> : null}
+                                        {index === 0 ? (
+                                            <span className="wp-product-gallery-badge">
+                                                {t('editor_product_album_badge_featured')}
+                                            </span>
+                                        ) : null}
                                         {mutable ? (
                                             <button
                                                 type="button"
                                                 className="wp-product-gallery-remove"
                                                 onClick={() => void removeItem(image)}
-                                                title="Xóa ảnh khỏi album"
+                                                title={t('editor_product_album_remove')}
                                             >
                                                 <Trash2 size={12} />
                                             </button>
@@ -154,7 +178,7 @@ export function GallerySidebarPanel({ articleId = null, active = false }) {
                             })}
                         </div>
                     ) : (
-                        <p className="text-xs text-gray-500 dark:text-gray-400">Chưa có ảnh trong album</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">{t('editor_product_album_empty')}</p>
                     )}
                     <button
                         type="button"
@@ -171,12 +195,12 @@ export function GallerySidebarPanel({ articleId = null, active = false }) {
                         onClick={openPicker}
                         disabled={!mutable}
                     >
-                        <Plus size={14} className="inline" /> Thêm ảnh thư viện sản phẩm
+                        <Plus size={14} className="inline" /> {t('editor_product_album_add_library')}
                     </button>
                     <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">
                         {items.length === 0
-                            ? 'Chưa có ảnh trong album'
-                            : `${items.length} ảnh · Ảnh đầu là đại diện · Kéo thả để đổi vị trí`}
+                            ? t('editor_product_album_empty')
+                            : t('editor_product_album_count_hint', { count: items.length })}
                     </p>
                 </div>
             </section>

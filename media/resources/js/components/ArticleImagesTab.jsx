@@ -957,6 +957,7 @@ export default function ArticleImagesTab({
     }, [blockImages, extraImages, useUnifiedInventory, featuredImage, galleryImages]);
     const [aiJobs, setAiJobs] = useState([]);
     const lastJumpTokenRef = useRef(null);
+    const aiJobsInFlightRef = useRef(false);
 
     const loadAiJobs = useCallback(async () => {
         if (!articleId) {
@@ -964,11 +965,18 @@ export default function ArticleImagesTab({
             return;
         }
 
+        if (aiJobsInFlightRef.current) {
+            return;
+        }
+
+        aiJobsInFlightRef.current = true;
         try {
             const items = await fetchArticleAiMediaJobs(articleId);
             setAiJobs(items);
         } catch {
             // Giữ danh sách cũ khi poll lỗi mạng tạm thời.
+        } finally {
+            aiJobsInFlightRef.current = false;
         }
     }, [articleId]);
 

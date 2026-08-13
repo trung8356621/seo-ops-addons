@@ -156,7 +156,7 @@ class GenerateMediaJob implements ShouldQueue
                 }
             }
 
-            if ($finalUrl === '') {
+            if ($finalUrl === '' || str_contains($finalUrl, 'placeholder-loading')) {
                 throw new PromptRunException('Không nhận được URL kết quả từ AI.');
             }
 

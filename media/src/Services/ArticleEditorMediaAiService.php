@@ -315,8 +315,7 @@ final class ArticleEditorMediaAiService
                 $variables,
                 $toolType,
             )
-                ->onQueue('media_generation')
-                ->afterResponse();
+                ->onQueue('media_generation');
         } catch (\Throwable $exception) {
             $placeholder->update([
                 'status' => 'failed',
@@ -573,8 +572,7 @@ final class ArticleEditorMediaAiService
             );
 
             GenerateMediaJob::dispatch($placeholder->id, (int) $prompt->id, $variables, 'video')
-                ->onQueue('media_generation')
-                ->afterResponse();
+                ->onQueue('media_generation');
 
             return [
                 'url' => (string) $placeholder->url,
@@ -1307,6 +1305,20 @@ final class ArticleEditorMediaAiService
             'status' => 'failed',
             'error_message' => 'Quá thời gian chờ xử lý AI. Kiểm tra queue worker rồi bấm Thử lại.',
         ]);
+
+        // completed nhưng vẫn placeholder = failed (tránh client poll vô hạn).
+        SeoMedia::query()
+            ->where('article_id', $articleId)
+            ->whereIn('source', ['ai_prompt', 'ai_video_prompt'])
+            ->where('status', 'completed')
+            ->where(function ($query): void {
+                $query->where('url', 'like', '%placeholder-loading%')
+                    ->orWhere('path', 'like', '%placeholder-loading%');
+            })
+            ->update([
+                'status' => 'failed',
+                'error_message' => 'Job AI kết thúc nhưng không có ảnh kết quả.',
+            ]);
     }
 
     public function failAllProcessingAiMediaJobs(int $articleId, string $reason): void
@@ -1414,8 +1426,7 @@ final class ArticleEditorMediaAiService
         ]);
 
         GenerateMediaJob::dispatch($media->id, $promptId, $variables, $toolType)
-            ->onQueue('media_generation')
-            ->afterResponse();
+            ->onQueue('media_generation');
 
         return $media->fresh();
     }
