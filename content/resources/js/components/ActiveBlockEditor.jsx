@@ -86,12 +86,27 @@ function ActiveBlockEditor({
         [articleId, siteId],
     );
 
+    // TipTap v3 useEditor runs compareOptions after every render (empty deps).
+    // Unstable editorProps/extensions → setOptions → selectionUpdate → setState → #185 loop.
+    const documentExtensions = useMemo(
+        () => getDefaultArticleEditorRuntime().getDocumentExtensions(),
+        [],
+    );
+    const editorProps = useMemo(() => ({
+        attributes: {
+            class: 'prose prose-slate max-w-none dark:prose-invert min-h-[48px] focus:outline-none tiptap-editor-content',
+            'data-placeholder': t('editor_enter_content'),
+        },
+        handlePaste: clipboardPasteHandler,
+    }), [clipboardPasteHandler]);
+
     // Phase 6A — TipTap extensions from internal runtime registry (stable identity).
     const editor = useEditor({
-        extensions: getDefaultArticleEditorRuntime().getDocumentExtensions(),
+        extensions: documentExtensions,
         content: initialEditorContent,
         editable: Boolean(editable),
         parseOptions: TIPTAP_HTML_PARSE_OPTIONS,
+        editorProps,
         onCreate: () => {
             // Initial content must not dirty / autosave. Enable after first paint.
             acceptUpdatesRef.current = false;
@@ -154,14 +169,7 @@ function ActiveBlockEditor({
                 editor: ed,
             });
         },
-        editorProps: {
-            attributes: {
-                class: 'prose prose-slate max-w-none dark:prose-invert min-h-[48px] focus:outline-none tiptap-editor-content',
-                'data-placeholder': t('editor_enter_content'),
-            },
-            handlePaste: clipboardPasteHandler,
-        },
-    });
+    }, [block.id]);
 
     useEffect(() => {
         if (!editor) return;

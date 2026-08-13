@@ -17,6 +17,7 @@ final class MemberListPresenter
         }
 
         $lines = [$title, ''];
+        $index = 1;
         foreach ($members as $row) {
             if (! is_array($row)) {
                 continue;
@@ -25,18 +26,24 @@ final class MemberListPresenter
             $email = (string) ($row['email'] ?? '');
             $name = (string) ($row['name'] ?? '');
             if ($id === '' && isset($row['label'])) {
-                $lines[] = (string) $row['label'];
+                $lines[] = $index.'. '.(string) $row['label'];
                 $lines[] = '';
+                $index++;
                 continue;
             }
-            $lines[] = 'ID: '.$id;
-            $lines[] = 'Email: '.($email !== '' ? $email : '—');
-            $lines[] = 'Name: '.($name !== '' ? $name : '—');
-            if (array_key_exists('available', $row)) {
-                $lines[] = 'Available: '.((bool) $row['available'] ? 'yes' : 'no');
+            $label = $name !== '' ? $name : ($email !== '' ? $email : '—');
+            $lines[] = $index.'. '.$label.' — ID: '.$id;
+            if ($email !== '' && $name !== '') {
+                $lines[] = '   Email: '.$email;
+            }
+            if (array_key_exists('available', $row) && $row['available'] !== null) {
+                $lines[] = '   Available: '.((bool) $row['available'] ? 'yes' : 'no');
             }
             $lines[] = '';
+            $index++;
         }
+
+        $lines[] = 'Dùng ID số với `/create-project` (ví dụ: 12).';
 
         return ReadResultPresenter::card($title, $lines);
     }

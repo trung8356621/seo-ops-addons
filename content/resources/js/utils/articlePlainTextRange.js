@@ -4,6 +4,7 @@ import { SEO_LINK_DEFAULT_ATTRS } from './inlineLinkNormalizer';
 
 /**
  * @typedef {{ node: Text, start: number, endNode: Text, endOffset: number }} PlainTextRange
+ * @typedef {{ includeLinkedText?: boolean }} PlainTextRangeOptions
  */
 
 /**
@@ -14,14 +15,21 @@ function isInsideLink(node) {
 }
 
 /**
+ * Collect text nodes for phrase matching.
+ *
+ * Default excludes text inside <a> (safe for wrap/insert — avoids nested anchors).
+ * Pass includeLinkedText:true for occurrence detection / highlight / href resolve.
+ *
  * @param {Node} root
+ * @param {PlainTextRangeOptions} [options]
  * @returns {Text[]}
  */
-export function collectEligibleTextNodes(root) {
+export function collectEligibleTextNodes(root, options = {}) {
     if (!root) {
         return [];
     }
 
+    const includeLinkedText = options.includeLinkedText === true;
     const doc = root.ownerDocument ?? document;
     const nodes = [];
     const walker = doc.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
@@ -29,7 +37,7 @@ export function collectEligibleTextNodes(root) {
             if (!textNode.textContent?.length) {
                 return NodeFilter.FILTER_REJECT;
             }
-            if (isInsideLink(textNode)) {
+            if (!includeLinkedText && isInsideLink(textNode)) {
                 return NodeFilter.FILTER_REJECT;
             }
             return NodeFilter.FILTER_ACCEPT;
@@ -51,15 +59,16 @@ export function collectEligibleTextNodes(root) {
  * @param {Node} root
  * @param {string} phrase
  * @param {number} matchIndex
+ * @param {PlainTextRangeOptions} [options]
  * @returns {PlainTextRange|null}
  */
-export function findPlainTextRangeInRoot(root, phrase, matchIndex = 0) {
+export function findPlainTextRangeInRoot(root, phrase, matchIndex = 0, options = {}) {
     const target = normalizeLinkText(phrase);
     if (!root || !target) {
         return null;
     }
 
-    const textNodes = collectEligibleTextNodes(root);
+    const textNodes = collectEligibleTextNodes(root, options);
     if (textNodes.length === 0) {
         return null;
     }
@@ -139,6 +148,26 @@ function mapOffsetsToTextRange(textNodes, parts, startIdx, endIdx) {
 }
 
 /**
+ * If the match sits entirely inside one <a href>, return that anchor.
+ *
+ * @param {PlainTextRange|null|undefined} match
+ * @returns {HTMLAnchorElement|null}
+ */
+export function enclosingAnchorForPlainTextRange(match) {
+    if (!match?.node || !match.endNode) {
+        return null;
+    }
+
+    const startAnchor = match.node.parentElement?.closest?.('a[href]') ?? null;
+    const endAnchor = match.endNode.parentElement?.closest?.('a[href]') ?? null;
+    if (!startAnchor || startAnchor !== endAnchor) {
+        return null;
+    }
+
+    return /** @type {HTMLAnchorElement} */ (startAnchor);
+}
+
+/**
  * @param {Document} doc
  * @param {PlainTextRange} match
  * @param {string} href
@@ -146,6 +175,10 @@ function mapOffsetsToTextRange(textNodes, parts, startIdx, endIdx) {
 export function wrapTextRangeWithLink(doc, match, href) {
     const url = String(href ?? '').trim();
     if (!url || !match?.node || !match.endNode) {
+        return false;
+    }
+
+    if (enclosingAnchorForPlainTextRange(match)) {
         return false;
     }
 

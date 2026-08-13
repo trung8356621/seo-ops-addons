@@ -50,6 +50,7 @@ class PromptRunnerService
         bool $isTaskMode = true,
         bool $runFullDependentChain = true,
         ?int $onlySubTaskIndex = null,
+        ?int $reuseResultId = null,
     ): PromptResult {
         $prompt->loadMissing(['aiConnection']);
 
@@ -134,20 +135,43 @@ class PromptRunnerService
 
         $compiled = $this->compilePrompt($prompt, $variables);
 
-        $result = PromptResult::query()->create([
-            'prompt_id' => $prompt->id,
-            'user_id' => (int) auth()->id(),
-            'site_id' => 0,
-            'status' => 'running',
-            'input_snapshot' => $this->sanitizeInputSnapshot($this->withImageOutputModeAudit([
-                'variables' => $variables,
-                'compiled_prompt' => $compiled,
-                'model_category' => $category,
-                'is_task_mode' => $isTaskMode,
-                'tools' => $toolType,
-            ], $prompt, $variables, $toolType)),
-            'started_at' => now(),
-        ]);
+        if ($reuseResultId !== null && $reuseResultId > 0) {
+            $result = PromptResult::query()->find($reuseResultId);
+            if (! $result instanceof PromptResult) {
+                throw new PromptRunException('Không tìm thấy bản ghi Prompt History để tiếp tục chạy.');
+            }
+
+            $result->update([
+                'prompt_id' => $prompt->id,
+                'status' => 'running',
+                'input_snapshot' => $this->sanitizeInputSnapshot($this->withImageOutputModeAudit([
+                    'variables' => $variables,
+                    'compiled_prompt' => $compiled,
+                    'model_category' => $category,
+                    'is_task_mode' => $isTaskMode,
+                    'tools' => $toolType,
+                ], $prompt, $variables, $toolType)),
+                'output_text' => null,
+                'error_message' => null,
+                'started_at' => now(),
+                'finished_at' => null,
+            ]);
+        } else {
+            $result = PromptResult::query()->create([
+                'prompt_id' => $prompt->id,
+                'user_id' => (int) auth()->id(),
+                'site_id' => 0,
+                'status' => 'running',
+                'input_snapshot' => $this->sanitizeInputSnapshot($this->withImageOutputModeAudit([
+                    'variables' => $variables,
+                    'compiled_prompt' => $compiled,
+                    'model_category' => $category,
+                    'is_task_mode' => $isTaskMode,
+                    'tools' => $toolType,
+                ], $prompt, $variables, $toolType)),
+                'started_at' => now(),
+            ]);
+        }
 
         try {
             [$output, $usage, $rawModel, $mediaMeta] = array_pad($this->executeWithModelRouting(

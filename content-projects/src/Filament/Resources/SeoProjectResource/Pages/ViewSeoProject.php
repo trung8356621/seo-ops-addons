@@ -36,6 +36,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectIte
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectItemGenerationLaunchPlanner;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectItemOperationsReadModel;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectExistingArticlePickerService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectStaleArticleLinkService;
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectRerunFromStep;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectInReviewReportingDefinition;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectRecentlyCompletedDefinition;
@@ -93,6 +94,14 @@ final class ViewSeoProject extends Page
 
     /** @var list<array<string, mixed>> */
     public array $selectExistingArticleResults = [];
+
+    public bool $missingArticleConfirmOpen = false;
+
+    public ?int $missingArticleConfirmTaskId = null;
+
+    public string $missingArticleConfirmTitle = '';
+
+    public ?int $missingArticleConfirmPreviousId = null;
 
     public string $search = '';
 
@@ -1198,6 +1207,115 @@ final class ViewSeoProject extends Page
             return;
         }
 
+        if (app(ContentProjectStaleArticleLinkService::class)->isStaleMissingCreateArticle($task)) {
+            $this->openMissingArticleConfirm($task);
+
+            return;
+        }
+
+        $this->executeCreateOrRerun($project, $task);
+    }
+
+    public function openMissingArticleConfirm(int|SeoProjectTask $taskOrId): void
+    {
+        $project = $this->requireProject();
+        if (! SeoAccessControl::canAccessContentProjectRun($project)) {
+            Notification::make()->title('Forbidden')->danger()->send();
+
+            return;
+        }
+
+        $task = $taskOrId instanceof SeoProjectTask
+            ? $taskOrId
+            : SeoProjectTask::query()
+                ->where('project_id', (int) $project->id)
+                ->whereKey((int) $taskOrId)
+                ->first();
+
+        if (! $task instanceof SeoProjectTask) {
+            return;
+        }
+
+        $title = trim((string) ($task->title ?? ''));
+        if ($title === '') {
+            $title = trim((string) ($task->keyword ?? $task->source_content ?? ''));
+        }
+        if ($title === '') {
+            $title = '#'.(int) $task->getKey();
+        }
+
+        $this->missingArticleConfirmOpen = true;
+        $this->missingArticleConfirmTaskId = (int) $task->getKey();
+        $this->missingArticleConfirmTitle = $title;
+        $this->missingArticleConfirmPreviousId = (int) ($task->article_id ?? 0) > 0
+            ? (int) $task->article_id
+            : null;
+        $this->dispatch(
+            'open-missing-article-confirm',
+            taskId: (int) $task->getKey(),
+            title: $title,
+            previousId: (int) ($this->missingArticleConfirmPreviousId ?? 0),
+        );
+    }
+
+    public function closeMissingArticleConfirm(): void
+    {
+        $this->missingArticleConfirmOpen = false;
+        $this->missingArticleConfirmTaskId = null;
+        $this->missingArticleConfirmTitle = '';
+        $this->missingArticleConfirmPreviousId = null;
+        $this->dispatch('close-missing-article-confirm');
+    }
+
+    /**
+     * User confirmed: clear stale article_id and restart generation from the beginning.
+     */
+    public function confirmRecreateMissingArticle(?int $taskId = null): void
+    {
+        $project = $this->requireProject();
+        if (! SeoAccessControl::canAccessContentProjectRun($project)) {
+            Notification::make()->title('Forbidden')->danger()->send();
+
+            return;
+        }
+
+        $resolvedTaskId = (int) ($taskId ?? $this->missingArticleConfirmTaskId ?? 0);
+        if ($resolvedTaskId <= 0) {
+            $this->closeMissingArticleConfirm();
+
+            return;
+        }
+
+        $task = SeoProjectTask::query()
+            ->where('project_id', (int) $project->id)
+            ->whereKey($resolvedTaskId)
+            ->first();
+        if (! $task instanceof SeoProjectTask) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.run_failed'))
+                ->body('Item not found.')
+                ->danger()
+                ->send();
+            $this->closeMissingArticleConfirm();
+
+            return;
+        }
+
+        app(ContentProjectStaleArticleLinkService::class)->clearForFreshCreate($task);
+        $this->closeMissingArticleConfirm();
+
+        Notification::make()
+            ->title(__('seo-content-ai::filament.projects.missing_article_recreate_started'))
+            ->success()
+            ->send();
+
+        $fresh = $task->fresh();
+        $this->executeCreateOrRerun($project, $fresh instanceof SeoProjectTask ? $fresh : $task);
+    }
+
+    private function executeCreateOrRerun(SeoProject $project, SeoProjectTask $task): void
+    {
+        $taskId = (int) $task->getKey();
         $plan = app(ContentProjectItemGenerationLaunchPlanner::class)->plan($project, $task);
         if ($plan['action'] === ContentProjectItemGenerationLaunchPlanner::ACTION_BLOCKED_ACTIVE) {
             Notification::make()
@@ -1221,14 +1339,14 @@ final class ViewSeoProject extends Page
         if ($plan['action'] === ContentProjectItemGenerationLaunchPlanner::ACTION_RERUN) {
             $this->dispatchBus(new RerunProjectItemsCommand(
                 (int) $project->id,
-                [(int) $taskId],
+                [$taskId],
                 SeoProjectRun::MODE_FULL,
             ));
 
             return;
         }
 
-        $this->dispatchGenerate([(int) $taskId]);
+        $this->dispatchGenerate([$taskId]);
     }
 
     public function rerunOne(int $taskId): void

@@ -9,6 +9,7 @@ use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\PromptHooks\PromptHookExecutionService;
 use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\PromptBindingResolver;
+use Omnichannel\Addons\AiPrompt\Services\PromptTestPublishService;
 use Omnichannel\Addons\Content\Support\ArticleImproveExecutionResult;
 use Omnichannel\Addons\Content\Support\ArticleImproveInput;
 use Omnichannel\Addons\Content\Support\ArticleWritingExecutionResult;

@@ -299,6 +299,8 @@ export function mergeSuggestionCatalog(...sources) {
             keyword_id: item?.keyword_id ?? null,
             can_insert: item?.can_insert !== false && href !== '',
             is_suggestion: true,
+            source: item?.source ?? item?.suggestion_source ?? null,
+            suggestion_source: item?.suggestion_source ?? item?.source ?? null,
         });
     });
 

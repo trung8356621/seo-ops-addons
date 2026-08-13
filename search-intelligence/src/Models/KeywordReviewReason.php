@@ -4,8 +4,9 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Models;
 
-use Omnichannel\Addons\SearchIntelligence\Enums\KeywordReviewStatus;
 use Omnichannel\Addons\SearchFoundation\Models\Concerns\BelongsToOnDefaultConnection;
+use Omnichannel\Addons\SearchFoundation\Models\Keyword;
+use Omnichannel\Addons\SearchIntelligence\Enums\KeywordReviewStatus;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;

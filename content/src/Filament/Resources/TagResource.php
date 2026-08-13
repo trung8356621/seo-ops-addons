@@ -4,12 +4,11 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Filament\Resources;
 
-
-
 use Omnichannel\Addons\Seo\Filament\Resources\SeoPanelResource;
 use Omnichannel\Addons\Content\Filament\Resources\TagResource\Pages;
 use Omnichannel\Addons\SearchFoundation\Models\Tag;
 use Omnichannel\Addons\SearchFoundation\Services\TagPersistenceService;
+use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -23,7 +22,7 @@ class TagResource extends SeoPanelResource
 {
     protected static ?string $model = Tag::class;
 
-    protected static ?string $slug = 'tags';
+    protected static ?string $slug = 'keywords/tags';
 
     protected static ?string $navigationLabel = 'Tags';
 
@@ -31,7 +30,9 @@ class TagResource extends SeoPanelResource
 
     protected static ?string $navigationGroup = null;
 
-    protected static ?int $navigationSort = 16;
+    protected static ?string $navigationParentItem = 'Keyword Intelligence';
+
+    protected static ?int $navigationSort = 4;
 
     public static function canViewAny(): bool
     {

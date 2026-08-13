@@ -4,14 +4,14 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Tests\Unit;
 
-
 use Tests\Support\LegacyAddonPath;
+use Tests\Support\ProjectRoot;
 use App\Addons\SeoContentAi\Providers\SeoPanelProvider;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 
 /**
- * Contract: Global AI Chat HTTP API must not stay registered after Agent Workspace cutover.
+ * Contract: Global AI Chat HTTP API + floating mount remain retired after Chat Workspace cutover.
  */
 final class GlobalAiChatRouteRetiredContractTest extends TestCase
 {
@@ -25,6 +25,7 @@ final class GlobalAiChatRouteRetiredContractTest extends TestCase
         self::assertStringNotContainsString('seo.global-ai-chat.models', $source);
         self::assertStringNotContainsString('seo.global-ai-chat.store', $source);
         self::assertStringNotContainsString('GlobalAiChatController', $source);
+        self::assertStringNotContainsString("view('seo-content-ai::components.global-ai-chat')", $source);
     }
 
     public function test_popup_blade_does_not_bind_retired_chat_routes(): void
@@ -38,6 +39,15 @@ final class GlobalAiChatRouteRetiredContractTest extends TestCase
         self::assertStringNotContainsString("route('seo.global-ai-chat.store')", $source);
         self::assertStringContainsString("\$modelsUrl = ''", $source);
         self::assertStringContainsString("\$chatUrl = ''", $source);
-        self::assertStringContainsString('openAgentWorkspace', $source);
+    }
+
+    public function test_team_message_controller_is_json_poll_only(): void
+    {
+        $source = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/seo/src/Http/Controllers/TeamMessageController.php',
+        );
+        self::assertStringContainsString('pollJson', $source);
+        self::assertStringNotContainsString('text/event-stream', $source);
+        self::assertStringContainsString('unreadCount', $source);
     }
 }

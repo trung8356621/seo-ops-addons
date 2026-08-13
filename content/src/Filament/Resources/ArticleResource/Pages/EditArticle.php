@@ -14,7 +14,6 @@ use Omnichannel\Addons\Seo\Exceptions\FaqManualExtractException;
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsWorkflows;
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
-use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\Seo\Filament\Resources\Pages\SeoEditRecord;
 use Omnichannel\Addons\Content\Models\ArticleMeta;
 use Omnichannel\Addons\Content\Models\SeoArticle;
@@ -47,6 +46,7 @@ use Omnichannel\Addons\SearchFoundation\Services\ArticleKeywordLinkReconcileServ
 use Omnichannel\Addons\Media\Services\ArticleMediaLocalService;
 use Omnichannel\Addons\Content\Services\ArticlePendingInternalLinkService;
 use Omnichannel\Addons\ContentProjects\Services\ArticlePipelineRerunService;
+use Omnichannel\Addons\ContentProjects\Services\KeywordProjectAssignmentService;
 use Omnichannel\Addons\Content\Services\ArticleAiHistory\ArticleAiHistoryApplicationService;
 use Omnichannel\Addons\Content\Services\ArticleAiHistory\ArticleAiHistoryPendingDraftStore;
 use Omnichannel\Addons\Content\Services\ArticleWritingExecutionService;
@@ -958,7 +958,11 @@ class EditArticle extends SeoEditRecord
                 ->body($result->message)
                 ->success()
                 ->send();
-            $this->js('window.setTimeout(() => window.location.reload(), 120)');
+            $this->js(
+                'window.__SEO_EDITOR_EXITING__=true;'
+                .'window.__seoMarkIntentionalEditorClose?.();'
+                .'window.setTimeout(() => window.location.reload(), 120)'
+            );
 
             return;
         }
@@ -1184,21 +1188,12 @@ class EditArticle extends SeoEditRecord
             return $this->resolveTaxonomyParentOptionKey();
         }
 
-        $wpPostType = strtolower(trim((string) (
-            match (SeoProjectTask::normalizePostType(ArticlePostTypeResolver::resolve($this->record))) {
-                SeoProjectTask::POST_TYPE_PRODUCT => 'product',
-                default => '',
-            }
-        )));
-        if ($wpPostType === 'product') {
-            return 'product_category';
-        }
-
-        $normalized = SeoProjectTask::normalizePostType(
+        $resolved = \Omnichannel\Addons\Content\Support\PublishingTaxonomyResolver::resolve(
             $postType ?? ArticlePostTypeResolver::resolve($this->record),
+            (string) ($this->record->type ?? ''),
         );
 
-        return $normalized === SeoProjectTask::POST_TYPE_PRODUCT ? 'product_category' : 'category';
+        return $resolved['taxonomy'] ?? 'category';
     }
 
     /**
@@ -2741,9 +2736,14 @@ class EditArticle extends SeoEditRecord
         $articleId = (int) $this->record->getKey();
         $siteId = (int) ($this->record->site_id ?? 0);
 
+        // Bypass editor beforeunload guard — intentional code reload after heavy action.
+        $prefix = 'window.__SEO_EDITOR_EXITING__=true;'
+            .'window.__seoMarkIntentionalEditorClose?.();'
+            ."window.__seoArticleHeavyActionOverlay?.show('{$action}', { persistUntilUnload: true });";
+
         if ($clearLocalState) {
             $this->js(
-                "window.__seoArticleHeavyActionOverlay?.show('{$action}', { persistUntilUnload: true });"
+                $prefix
                 ."window.__seoClearArticleLocalState?.({$articleId}, {$siteId});"
                 .'window.location.reload();'
             );
@@ -2752,7 +2752,7 @@ class EditArticle extends SeoEditRecord
         }
 
         $this->js(
-            "window.__seoArticleHeavyActionOverlay?.show('{$action}', { persistUntilUnload: true });"
+            $prefix
             .'window.location.reload();'
         );
     }
@@ -4146,6 +4146,7 @@ class EditArticle extends SeoEditRecord
                 'meta' => route('seo.articles.editor.meta', ['article' => $articleId]),
                 'links' => route('seo.articles.editor.links', ['article' => $articleId]),
                 'linksSuggestions' => route('seo.articles.editor.links-suggestions', ['article' => $articleId]),
+                'vocabulary' => route('seo.articles.editor.vocabulary', ['article' => $articleId]),
                 'settings' => route('seo.articles.editor.settings', ['article' => $articleId]),
                 'mediaPickerConfig' => route('seo.articles.editor.media-picker-config', ['article' => $articleId]),
                 'mediaSnapshot' => route('seo.articles.editor.media-snapshot', ['article' => $articleId]),
@@ -4988,6 +4989,29 @@ class EditArticle extends SeoEditRecord
     }
 
     /**
+     * @return array{
+     *     rendered: string,
+     *     prompt_id: int,
+     *     prompt_name: string,
+     *     post_processing?: array<string, mixed>,
+     *     error?: string,
+     * }
+     */
+    public function previewGenerateArticleVideoPrompt(
+        string $userBrief,
+        string $target = 'editor',
+        int $loaiSanPhamCategoryArticleId = 0,
+        string $loaiSanPhamCustom = '',
+        string $selectionText = '',
+    ): array {
+        return app(ArticleEditorMediaAiService::class)->previewRenderedVideoPrompt(
+            $this->record,
+            $userBrief,
+            $selectionText,
+        );
+    }
+
+    /**
      * @return array{ok: bool, message?: string, url?: string, seo_media_id?: int, status?: string}
      */
     public function generateArticleImageFromEditor(
@@ -5396,220 +5420,80 @@ class EditArticle extends SeoEditRecord
     }
 
     /**
-     * @param  array<string, mixed>  $data
-     */
-    public function assignCurrentArticleToContentProject(array $data): void
-    {
-        $siteId = ArticleResource::resolveArticleSiteId($this->record);
-        $projectId = ArticleResource::resolveDirectAssignContentProjectId($siteId)
-            ?? (int) ($data['project_id'] ?? 0);
-        $summary = ArticleResource::assignArticlesFromFormData(
-            collect([$this->record]),
-            $projectId,
-            $data,
-        );
-
-        Notification::make()
-            ->title(__('seo-content-ai::filament.article_list.assign_completed'))
-            ->body(ArticleResource::buildAssignContentProjectBody($summary))
-            ->success()
-            ->send();
-    }
-
-    /**
-     * @return array{project_id:int, options: array<int, string>}
-     */
-    public function quickCreateArticleContentProject(?int $writerId = null): array
-    {
-        $siteId = ArticleResource::resolveArticleSiteId($this->record);
-        if ($siteId === null || $siteId <= 0) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.article_list.quick_create_content_project_failed'))
-                ->body(__('seo-content-ai::filament.article_list.assign_projects_mixed_domains'))
-                ->danger()
-                ->send();
-
-            return ['project_id' => 0, 'options' => []];
-        }
-
-        try {
-            $project = ArticleResource::quickCreateContentProject($siteId, $writerId);
-        } catch (\Throwable $exception) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.article_list.quick_create_content_project_failed'))
-                ->body($exception->getMessage())
-                ->danger()
-                ->send();
-
-            return ['project_id' => 0, 'options' => ArticleResource::contentProjectOptions($siteId)];
-        }
-
-        Notification::make()
-            ->title(__('seo-content-ai::filament.article_list.quick_create_content_project_success'))
-            ->success()
-            ->send();
-
-        return [
-            'project_id' => (int) $project->getKey(),
-            'options' => ArticleResource::contentProjectOptions($siteId),
-        ];
-    }
-
-    /**
-     * @param  array<string, mixed>  $data
-     */
-    public function assignKeywordAnchorToContentProjectFromEditor(string $anchorPhrase, array $data = []): void
-    {
-        $this->completeKeywordAnchorContentProjectAssign(trim($anchorPhrase), $data);
-    }
-
-    /**
+     * Vocabulary Plan: assign phrases directly to a Content Project (no Assign drawer).
+     *
+     * Soft-full monthly capacity does not block; archived projects remain blocked.
+     *
+     * @param  list<string|array{keyword?: string, title?: string}>  $items
      * @return array{
      *     success: bool,
-     *     placeholder_href?: string,
-     *     keyword_id?: int,
-     *     assigned_to_project?: bool,
-     *     already_has_target?: bool,
-     *     message?: string,
+     *     message: string,
+     *     summary: array{added:int, duplicate:int, overflow:int, domain_mismatch:int, already_in_project:int, existing_article:int}
      * }
      */
-    public function assignPendingInternalLinkFromEditor(string $anchorPhrase, ?int $contentProjectId = null): array
+    public function assignVocabularyItemsToContentProject(int $projectId, array $items = []): array
     {
-        $siteId = (int) ($this->record->site_id ?? 0);
-        $projectId = $contentProjectId !== null && $contentProjectId > 0
-            ? $contentProjectId
-            : ArticleResource::resolveDirectAssignContentProjectId($siteId);
+        $phrases = [];
+        foreach ($items as $item) {
+            if (is_string($item)) {
+                $phrases[] = $item;
+                continue;
+            }
+            if (! is_array($item)) {
+                continue;
+            }
+            $phrase = trim((string) ($item['keyword'] ?? $item['title'] ?? $item['phrase'] ?? ''));
+            if ($phrase !== '') {
+                $phrases[] = $phrase;
+            }
+        }
 
-        if ($projectId === null || $projectId <= 0) {
+        $siteId = (int) (ArticleResource::resolveArticleSiteId($this->record) ?? $this->record->site_id ?? 0);
+        if ($projectId <= 0 || $siteId <= 0 || $phrases === []) {
             return [
                 'success' => false,
-                'message' => __('seo-content-ai::filament.article_edit.pending_link_no_content_project'),
+                'message' => __('seo-content-ai::filament.articles_optimal.assign_failed'),
+                'summary' => [
+                    'added' => 0,
+                    'duplicate' => 0,
+                    'overflow' => 0,
+                    'domain_mismatch' => 0,
+                    'already_in_project' => 0,
+                    'existing_article' => 0,
+                ],
             ];
         }
 
-        $allowedProjects = ArticleResource::contentProjectOptions($siteId);
-        if (! array_key_exists($projectId, $allowedProjects)) {
-            return [
-                'success' => false,
-                'message' => __('seo-content-ai::filament.article_edit.pending_link_invalid_content_project'),
-            ];
-        }
+        $summary = app(KeywordProjectAssignmentService::class)->assignPhrases(
+            $phrases,
+            $projectId,
+            $siteId,
+            false,
+            true,
+        );
 
-        return $this->assignPendingInternalLinkForEditor($anchorPhrase, $projectId);
-    }
+        $added = (int) ($summary['added'] ?? 0);
+        $body = ArticleResource::buildAssignContentProjectBody($summary);
 
-    private function completeKeywordAnchorContentProjectAssign(string $anchorPhrase, array $data): void
-    {
-        if ($anchorPhrase === '') {
+        if ($added > 0) {
             Notification::make()
-                ->title(__('seo-content-ai::filament.article_edit.pending_link_empty_phrase'))
-                ->warning()
-                ->send();
-
-            return;
-        }
-
-        $siteId = (int) ($this->record->site_id ?? 0);
-        $assignData = KeywordResource::resolveKeywordDirectAssignData($siteId) ?? $data;
-        $projectId = $this->resolveContentProjectIdFromAssignData($assignData, $siteId);
-
-        if ($projectId === null || $projectId <= 0) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.article_edit.pending_link_no_content_project'))
-                ->warning()
-                ->send();
-
-            return;
-        }
-
-        $result = $this->assignPendingInternalLinkForEditor($anchorPhrase, $projectId);
-
-        if (! ($result['success'] ?? false)) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.article_list.assign_failed'))
-                ->body((string) ($result['message'] ?? __('seo-content-ai::filament.keyword.workspace_assign_denied')))
-                ->danger()
-                ->send();
-
-            return;
-        }
-
-        if (! ($result['assigned_to_project'] ?? false)) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.article_edit.pending_link_created'))
-                ->body((string) ($result['message'] ?? ''))
+                ->title(__('seo-content-ai::filament.keyword.assign_completed'))
+                ->body($body)
                 ->success()
                 ->send();
         } else {
             Notification::make()
-                ->title(__('seo-content-ai::filament.keyword.assign_completed'))
-                ->body((string) ($result['message'] ?? ''))
-                ->success()
+                ->title(__('seo-content-ai::filament.articles_optimal.assign_failed'))
+                ->body($body !== '' ? $body : __('seo-content-ai::filament.articles_optimal.assign_failed'))
+                ->warning()
                 ->send();
         }
 
-        $this->dispatch(
-            'pending-internal-link-ready',
-            placeholderHref: (string) ($result['placeholder_href'] ?? ''),
-            message: (string) ($result['message'] ?? ''),
-        );
-    }
-
-    /**
-     * @return array{
-     *     success: bool,
-     *     placeholder_href?: string,
-     *     keyword_id?: int,
-     *     assigned_to_project?: bool,
-     *     already_has_target?: bool,
-     *     message?: string,
-     * }
-     */
-    private function assignPendingInternalLinkForEditor(string $anchorPhrase, ?int $projectId): array
-    {
-        return app(ArticlePendingInternalLinkService::class)->assignFromEditor(
-            $this->record,
-            $anchorPhrase,
-            $projectId,
-        );
-    }
-
-    /**
-     * @param  array<string, mixed>  $data
-     */
-    private function resolveContentProjectIdFromAssignData(array $data, int $siteId): ?int
-    {
-        $siteIds = collect($data['site_ids'] ?? [])
-            ->filter(static fn (mixed $value): bool => is_numeric($value) && (int) $value > 0)
-            ->map(static fn (mixed $value): int => (int) $value)
-            ->when($siteId > 0, fn ($collection) => $collection->prepend($siteId))
-            ->unique()
-            ->values();
-
-        foreach ($siteIds as $resolvedSiteId) {
-            $projectId = (int) ($data['project_id_'.$resolvedSiteId] ?? 0);
-            if ($projectId > 0) {
-                return $projectId;
-            }
-        }
-
-        $fallbackProjectId = (int) ($data['project_id'] ?? 0);
-        if ($fallbackProjectId > 0) {
-            return $fallbackProjectId;
-        }
-
-        foreach ($data as $key => $value) {
-            if (! is_string($key) || ! str_starts_with($key, 'project_id_')) {
-                continue;
-            }
-
-            $projectId = (int) $value;
-            if ($projectId > 0) {
-                return $projectId;
-            }
-        }
-
-        return null;
+        return [
+            'success' => $added > 0,
+            'message' => $body,
+            'summary' => $summary,
+        ];
     }
 
     public function generateFeaturedSnippetFromEditor(string $refBlockId, string $position = 'after'): void

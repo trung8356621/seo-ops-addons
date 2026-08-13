@@ -105,13 +105,41 @@ function getWorkflowRoleOptions() {
   return defaultWorkflowRoleOptions();
 }
 
+function suggestExecutionRoleFromPrompt(promptId) {
+  const config = getPromptConfig(promptId);
+  const hook = String(config?.hook_key ?? '').trim().split('@')[0];
+  const allowed = new Set(
+    getWorkflowRoleOptions()
+      .map((row) => String(row.value ?? '').trim())
+      .filter((value) => value !== ''),
+  );
+
+  if (hook !== '' && allowed.has(hook)) {
+    return hook;
+  }
+
+  // Image hooks share article.image.generate role.
+  if (
+    hook === 'article.featured_image.generate'
+    || hook === 'product.gallery.generate'
+  ) {
+    return allowed.has('article.image.generate') ? 'article.image.generate' : '';
+  }
+
+  if (hook === 'article.content.rewrite') {
+    return allowed.has('article.content.generate') ? 'article.content.generate' : '';
+  }
+
+  return '';
+}
+
 function defaultPromptNodeData(promptId) {
   const config = getPromptConfig(promptId) ?? mockPrompts[0];
 
   return {
     promptId: config?.id ?? 'p1',
     mergeOutlineToSave: false,
-    execution_role: '',
+    execution_role: suggestExecutionRoleFromPrompt(config?.id ?? promptId),
   };
 }
 
@@ -998,11 +1026,17 @@ export default function ArticleFlowBuilder({
                       value={selectedNode.data.promptId}
                       onChange={(e) => {
                         const promptId = e.target.value;
+                        const currentRole = String(selectedNode.data.execution_role ?? '').trim();
+                        const suggestedRole = suggestExecutionRoleFromPrompt(promptId);
                         updateNodeDataFields(selectedNode.id, {
                           promptId,
                           mergeOutlineToSave: isWriteFromOutlinePrompt(promptId)
                             ? Boolean(selectedNode.data.mergeOutlineToSave)
                             : false,
+                          // Auto-fill role from prompt hook when empty or still matching prior suggestion.
+                          ...(currentRole === '' || currentRole === suggestExecutionRoleFromPrompt(selectedNode.data.promptId)
+                            ? { execution_role: suggestedRole }
+                            : {}),
                         });
                       }}
                       className="w-full"

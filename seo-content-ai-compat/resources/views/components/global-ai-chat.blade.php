@@ -13,8 +13,10 @@
     $isContentManager = SeoAccessControl::isContentManager();
     // Star tab is Agent Workspace launcher — not in-popup AI runtime.
     $canUseAiChat = ! $isContentManager;
-    // php artisan serve cannot host long-lived SSE without blocking Livewire.
-    $teamSseEnabled = PHP_SAPI !== 'cli-server';
+    // Long-lived SSE holds an HTTP worker. On php artisan serve (single-thread) that
+    // freezes every Filament navigation (blank publishing-queue / Livewire hang).
+    // Local + cli-server always use short JSON poll; SSE only outside local.
+    $teamSseEnabled = PHP_SAPI !== 'cli-server' && ! app()->environment('local');
     $agentDeepLink = AgentWorkspaceDeepLink::forCurrentRequest();
     $teamChatConfig = app(TeamChatAttachmentService::class)->clientConfig();
     $mediaImportUrl = route('seo.media.import-url');
@@ -72,6 +74,7 @@
         teamSseEnabled: @js($teamSseEnabled),
         teamPollTimer: null,
         teamPollAfterId: null,
+        teamUnreadPollTimer: null,
         workspaceOwnerId: null,
         imageEditorOpen: false,
         imageEditorTarget: null,
@@ -96,10 +99,9 @@
             this.models = [];
             this.selectedModel = '';
 
+            // Badge-only while panel closed — never open SSE/poll stream on every page.
             this.refreshTeamUnreadOnInit().then(() => {
-                if (this.lastTeamMessageId > 0) {
-                    this.startTeamRealtime(this.lastTeamMessageId);
-                }
+                this.startTeamUnreadPoll();
             });
             this.requestBrowserNotificationPermission();
 
@@ -130,6 +132,7 @@
 
         destroy() {
             this.stopTeamRealtime();
+            this.stopTeamUnreadPoll();
             if (this._onGlobalAiChatImageSelected) {
                 window.removeEventListener('seo-global-ai-chat-image-selected', this._onGlobalAiChatImageSelected);
             }
@@ -184,6 +187,9 @@
         closePanel() {
             this.openChat = false;
             this.closeAttachmentLightbox();
+            // Release stream worker; keep lightweight unread badge poll.
+            this.stopTeamRealtime();
+            this.startTeamUnreadPoll();
         },
 
         switchTab(tab) {
@@ -246,6 +252,26 @@
                 this.teamPollTimer = null;
             }
             this.teamPollAfterId = null;
+        },
+
+        startTeamUnreadPoll() {
+            if (this.teamUnreadPollTimer) {
+                return;
+            }
+
+            this.teamUnreadPollTimer = window.setInterval(() => {
+                if (this.openChat) {
+                    return;
+                }
+                this.refreshTeamUnreadOnInit();
+            }, 15000);
+        },
+
+        stopTeamUnreadPoll() {
+            if (this.teamUnreadPollTimer) {
+                window.clearInterval(this.teamUnreadPollTimer);
+                this.teamUnreadPollTimer = null;
+            }
         },
 
         async pollTeamMessages(isInitial = false) {

@@ -75,6 +75,73 @@ final class ExtensionCutoverAiPipelineTest extends TestCase
             AiTextProviderInterface::class,
             class_implements(ClaudeAiTextProvider::class),
         );
+
+        $gemini = new \ReflectionClass(GeminiAiTextProvider::class);
+        $this->assertTrue($gemini->hasMethod('key'));
+        $keyMethod = $gemini->getMethod('key');
+        // key() needs instance — verify source declares gemini slug.
+        $src = (string) file_get_contents((string) $gemini->getFileName());
+        $this->assertStringContainsString("return 'gemini';", $src);
+    }
+
+    public function test_extension_context_uses_seo_extension_provider_registry_not_catalog(): void
+    {
+        $contextSrc = (string) file_get_contents(
+            (new \ReflectionClass(\Omnichannel\Addons\Agent\Extension\ExtensionContext::class))->getFileName(),
+        );
+        $this->assertStringContainsString(
+            'Omnichannel\\Addons\\Seo\\Extension\\Registry\\SeoProviderRegistry',
+            $contextSrc,
+        );
+        $this->assertStringNotContainsString(
+            'Omnichannel\\Addons\\SearchIntelligence\\Services\\SeoProviderRegistry',
+            $contextSrc,
+        );
+
+        $compatSrc = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/seo-content-ai-compat/SeoContentAiServiceProvider.php',
+        );
+        $this->assertStringContainsString(
+            'Omnichannel\\Addons\\Seo\\Extension\\Registry\\SeoProviderRegistry::class',
+            $compatSrc,
+        );
+        $this->assertStringContainsString('discoverAndRegister', $compatSrc);
+        $this->assertStringContainsString('bootExtensions', $compatSrc);
+        $this->assertStringContainsString('RuntimeLogger::report', $compatSrc);
+    }
+
+    public function test_ai_providers_extension_registers_gemini_text_key(): void
+    {
+        $registry = new \Omnichannel\Addons\AiPrompt\Extension\Registry\AiProviderRegistry;
+
+        $geminiProvider = new GeminiAiTextProvider(new GeminiGenerateContentClient);
+        $claudeProvider = new ClaudeAiTextProvider(new ClaudeMessagesClient);
+        $healthDriver = new \Omnichannel\Addons\AiPrompt\Extension\Builtin\AiProviders\AiProvidersHealthDriver(
+            $geminiProvider,
+            $claudeProvider,
+        );
+
+        // Same registration path as AiProvidersExtensionProvider::register().
+        $registry->registerText($geminiProvider);
+        $registry->registerText($claudeProvider);
+        $registry->register('ai-providers', $healthDriver);
+
+        $this->assertTrue($registry->hasText('gemini'));
+        $this->assertTrue($registry->hasText('claude'));
+        $this->assertSame(['gemini', 'claude'], $registry->textKeys());
+        $this->assertSame('gemini', $registry->getText('gemini')?->key());
+
+        $extSrc = (string) file_get_contents(
+            (new \ReflectionClass(AiProvidersExtensionProvider::class))->getFileName(),
+        );
+        $this->assertStringContainsString('registerText($this->gemini)', $extSrc);
+        $this->assertStringContainsString('registerText($this->claude)', $extSrc);
+
+        $resolverSrc = (string) file_get_contents(
+            (new \ReflectionClass(AiProviderResolver::class))->getFileName(),
+        );
+        $this->assertStringContainsString('hasText($key)', $resolverSrc);
+        $this->assertStringContainsString(AiProviderResolver::ERROR_NOT_REGISTERED, $resolverSrc);
     }
 
     public function test_builtin_ai_providers_plugin_manifest_exists_and_is_valid(): void

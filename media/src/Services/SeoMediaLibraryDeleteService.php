@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\Media\Services;
 
 use Omnichannel\Addons\Media\Models\SeoMedia;
 use Omnichannel\Addons\Media\Models\SeoMediaProcessingHistory;
+use Omnichannel\Addons\WordPress\Services\WordPressMediaLibraryService;
 use App\Models\Site;
 use Illuminate\Support\Facades\Storage;
 

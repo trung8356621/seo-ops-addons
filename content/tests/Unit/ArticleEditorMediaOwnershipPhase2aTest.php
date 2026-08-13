@@ -114,12 +114,31 @@ final class ArticleEditorMediaOwnershipPhase2aTest extends TestCase
         self::assertStringNotContainsString('localStorage.setItem', $album);
         self::assertStringNotContainsString('localStorage.getItem', $album);
         self::assertStringContainsString('replaceGalleryViaApi', $album);
+        // clearProductAlbumStorage must not wipe server album (WP pull reload path).
+        $clearAlbumStart = strpos($album, 'export function clearProductAlbumStorage');
+        self::assertNotFalse($clearAlbumStart);
+        $clearAlbumBody = substr($album, $clearAlbumStart, 700);
+        self::assertStringNotContainsString('replaceGalleryViaApi', $clearAlbumBody);
+        self::assertStringNotContainsString('saveProductAlbum(articleId, [])', $clearAlbumBody);
+
+        $featuredClearStart = strpos($featured, 'export function clearFeaturedImageStorage');
+        self::assertNotFalse($featuredClearStart);
+        $featuredClearBody = substr($featured, $featuredClearStart, 900);
+        self::assertStringContainsString('persist', $featuredClearBody);
+        self::assertStringContainsString('options.persist !== false', $featuredClearBody);
+
+        $localState = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/utils/articleLocalState.js',
+        );
+        self::assertStringContainsString("clearFeaturedImageStorage(articleId, { persist: false })", $localState);
+        self::assertStringContainsString('clearMediaSnapshot(articleId)', $localState);
 
         $snap = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content/resources/js/utils/articleEditorMediaSnapshot.js',
         );
         self::assertStringContainsString("ARTICLE_EDITOR_MEDIA_SNAPSHOT_EVENT = 'article-editor-media-snapshot-changed'", $snap);
         self::assertStringContainsString('discardLegacyMediaLocalStorage', $snap);
+        self::assertStringContainsString('export function clearMediaSnapshot', $snap);
         self::assertStringContainsString('incoming < currentVersion', $snap);
 
         $api = (string) file_get_contents(
@@ -138,6 +157,8 @@ final class ArticleEditorMediaOwnershipPhase2aTest extends TestCase
         self::assertStringContainsString('applyMediaSnapshot', $entry);
         self::assertStringContainsString('discardLegacyMediaLocalStorage', $entry);
         self::assertStringContainsString('mediaSnapshot', $entry);
+        self::assertStringContainsString('from_server: true', $entry);
+        self::assertStringNotContainsString('saveProductAlbum(syncedArticleId, gallery', $entry);
     }
 
     public function test_alpine_no_longer_owns_media_snapshot_shadow(): void
@@ -153,7 +174,11 @@ final class ArticleEditorMediaOwnershipPhase2aTest extends TestCase
         $editor = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content/resources/js/components/SeoArticleEditor.jsx',
         );
-        self::assertStringContainsString('article-editor-media-snapshot-changed', $editor);
+        self::assertStringContainsString('seo-product-gallery-updated', $editor);
+        self::assertStringContainsString('detail.from_snapshot', $editor);
+        self::assertStringContainsString('detail.from_server', $editor);
+        self::assertStringContainsString('detail.pending', $editor);
+        self::assertStringContainsString('skipPersist', $editor);
     }
 
     public function test_images_utils_no_longer_write_featured_localstorage(): void

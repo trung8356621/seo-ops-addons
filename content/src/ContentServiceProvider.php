@@ -22,7 +22,7 @@ final class ContentServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        // Routes/migrations attach as extraction progresses.
+        $this->loadViewsFrom(dirname(__DIR__).'/resources/views', 'content');
     }
 
     private function registerCapabilities(): void

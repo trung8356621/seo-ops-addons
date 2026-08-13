@@ -209,6 +209,9 @@ final class PublishingQueueActionUxContractTest extends TestCase
         self::assertStringNotContainsString('Recover now (', $hub);
         self::assertStringNotContainsString('recoverOpen = true', $hub);
 
+        self::assertStringContainsString('x-teleport="body"', $menu);
+        self::assertStringContainsString('cp-ops-menu--portal', $menu);
+        self::assertStringContainsString('reposition()', $menu);
         self::assertStringContainsString('Xuất bản ngay', $menu);
         self::assertStringContainsString('Thử lại ngay', $menu);
         self::assertStringContainsString('Bỏ khỏi Publishing Queue', $menu);

@@ -12,6 +12,7 @@ import { mediaModule } from '@media-addon/editor/modules/media/index.js';
 import { featuredModule } from '@media-addon/editor/modules/featured/index.js';
 import { galleryModule } from '@media-addon/editor/modules/gallery/index.js';
 import { linksModule } from './links';
+import { vocabularyModule } from './vocabulary';
 import { faqModule } from './faq';
 import { ctaContactModule } from './cta-contact';
 import { aiModule } from '@ai-prompt-addon/editor/modules/ai/index.js';
@@ -25,6 +26,7 @@ export const BUILTIN_ARTICLE_EDITOR_MODULES = Object.freeze([
     featuredModule,
     galleryModule,
     linksModule,
+    vocabularyModule,
     faqModule,
     ctaContactModule,
     aiModule,
@@ -40,6 +42,7 @@ export {
     featuredModule,
     galleryModule,
     linksModule,
+    vocabularyModule,
     faqModule,
     ctaContactModule,
     aiModule,

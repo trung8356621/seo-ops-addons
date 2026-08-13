@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Models;
 
+use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Enums\SeoProjectRunItemKind;
 use Omnichannel\Addons\ContentProjects\Support\SeoProjectRunItemClassifier;
 use Illuminate\Database\Eloquent\Builder;

@@ -69,6 +69,11 @@
             selectArticleOpen: false,
             selectArticleLocalLoading: false,
             selectArticleSearchTimer: null,
+            missingArticleOpen: false,
+            missingArticleTaskId: 0,
+            missingArticleTitle: '',
+            missingArticlePreviousId: 0,
+            missingArticleBusy: false,
             openSelectExistingArticleModal(taskId) {
                 const id = Number(taskId || 0);
                 if (id <= 0) return;
@@ -81,6 +86,35 @@
             closeSelectExistingArticleModal() {
                 this.selectArticleOpen = false;
                 $wire.closeSelectExistingArticle();
+            },
+            openMissingArticleConfirmModal(detail) {
+                const id = Number(detail?.taskId || 0);
+                if (id <= 0) return;
+                this.missingArticleOpen = true;
+                this.missingArticleBusy = false;
+                this.missingArticleTaskId = id;
+                this.missingArticleTitle = String(detail?.title || ('#' + id));
+                this.missingArticlePreviousId = Number(detail?.previousId || 0);
+            },
+            closeMissingArticleConfirmModal() {
+                this.missingArticleOpen = false;
+                this.missingArticleBusy = false;
+                this.missingArticleTaskId = 0;
+                this.missingArticleTitle = '';
+                this.missingArticlePreviousId = 0;
+                $wire.closeMissingArticleConfirm();
+            },
+            confirmMissingArticleRecreate() {
+                const id = Number(this.missingArticleTaskId || 0);
+                if (id <= 0 || this.missingArticleBusy) return;
+                this.missingArticleBusy = true;
+                $wire.confirmRecreateMissingArticle(id).finally(() => {
+                    this.missingArticleBusy = false;
+                    this.missingArticleOpen = false;
+                    this.missingArticleTaskId = 0;
+                    this.missingArticleTitle = '';
+                    this.missingArticlePreviousId = 0;
+                });
             },
             scheduleSelectArticleSearch() {
                 if (this.selectArticleSearchTimer) {
@@ -553,6 +587,8 @@
         x-on:cp-ops-debug-lifecycle-bulk.window="openDebugBulk($event.detail || {})"
         x-on:open-select-existing-article.window="openSelectExistingArticleModal($event.detail?.taskId)"
         x-on:close-select-existing-article.window="selectArticleOpen = false"
+        x-on:open-missing-article-confirm.window="openMissingArticleConfirmModal($event.detail || {})"
+        x-on:close-missing-article-confirm.window="missingArticleOpen = false"
     >
         @if ($this->settingsOpen)
             <div class="rounded-xl border border-gray-200 bg-white p-4 text-sm dark:border-gray-700 dark:bg-gray-900">
@@ -684,6 +720,65 @@
                     <button type="button" @click="debugOpen = false" class="fi-btn fi-btn-color-gray fi-size-sm">{{ __('seo-content-ai::filament.projects.archive_cancel') }}</button>
                     <button type="button" @click="confirmDebugLifecycle()" class="fi-btn fi-btn-color-warning fi-size-sm">
                         {{ __('seo-content-ai::filament.projects.ops_debug_lifecycle_confirm') }}
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        {{-- Missing article recreate modal — Alpine open first; confirm clears + reruns --}}
+        <div
+            x-show="missingArticleOpen"
+            x-cloak
+            x-transition.opacity.duration.150ms
+            class="fixed inset-0 z-[60] flex items-center justify-center bg-gray-950/50 p-4 backdrop-blur-[2px]"
+            @keydown.escape.window="if (missingArticleOpen) { closeMissingArticleConfirmModal() }"
+        >
+            <div
+                x-show="missingArticleOpen"
+                x-transition:enter="ease-out duration-150"
+                x-transition:enter-start="opacity-0 translate-y-1 scale-[0.98]"
+                x-transition:enter-end="opacity-100 translate-y-0 scale-100"
+                class="w-full max-w-md overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl ring-1 ring-black/5 dark:border-gray-700 dark:bg-gray-900 dark:ring-white/10"
+                @click.outside="closeMissingArticleConfirmModal()"
+            >
+                <div class="px-5 pt-5 pb-3">
+                    <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">
+                        {{ __('seo-content-ai::filament.projects.missing_article_confirm_title') }}
+                    </h3>
+                    <p class="mt-2 text-sm text-gray-600 dark:text-gray-300">
+                        {{ __('seo-content-ai::filament.projects.missing_article_confirm_body') }}
+                    </p>
+                    <p class="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                        <span class="font-medium" x-text="missingArticleTitle"></span>
+                        <template x-if="missingArticlePreviousId > 0">
+                            <span class="ml-1 text-xs opacity-80">(ID <span x-text="missingArticlePreviousId"></span>)</span>
+                        </template>
+                    </p>
+                    <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                        {{ __('seo-content-ai::filament.projects.missing_article_confirm_hint') }}
+                    </p>
+                </div>
+                <div class="flex justify-end gap-2 border-t border-gray-100 bg-gray-50 px-5 py-3 dark:border-gray-800 dark:bg-gray-950/40">
+                    <button
+                        type="button"
+                        class="fi-btn fi-btn-color-gray fi-size-sm"
+                        @click="closeMissingArticleConfirmModal()"
+                        :disabled="missingArticleBusy"
+                    >
+                        {{ __('seo-content-ai::filament.projects.missing_article_confirm_cancel') }}
+                    </button>
+                    <button
+                        type="button"
+                        class="fi-btn fi-btn-color-primary fi-size-sm inline-flex items-center gap-1"
+                        @click="confirmMissingArticleRecreate()"
+                        :disabled="missingArticleBusy"
+                        :class="{ 'opacity-50 pointer-events-none': missingArticleBusy }"
+                    >
+                        <svg x-show="missingArticleBusy" class="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                        </svg>
+                        <span>{{ __('seo-content-ai::filament.projects.missing_article_confirm_create') }}</span>
                     </button>
                 </div>
             </div>

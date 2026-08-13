@@ -748,6 +748,21 @@ body:has(.keyword-dictionary-page) .fi-page-content {
     pointer-events: auto;
 }
 
+/* Assign drawer stacked above Keyword Detail: one backdrop, preserve detail underneath. */
+body.assign-drawer-open .keyword-detail-backdrop.is-visible {
+    opacity: 0;
+    pointer-events: none;
+}
+
+body.assign-drawer-open .keyword-detail-drawer {
+    pointer-events: none;
+}
+
+body.assign-drawer-open .keyword-detail-drawer.is-visible {
+    /* Keep visible under Assign (stack), but do not accept clicks. */
+    visibility: visible;
+}
+
 .keyword-detail-drawer {
     position: fixed;
     top: 0;

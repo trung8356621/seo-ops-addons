@@ -13,6 +13,7 @@ use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordLinkTargetResolver;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\Seo\Support\SeoLinkMapNetworkStatusPresenter;
 
 final class KeywordLinkDetailPanelPresenter
 {

@@ -1,3 +1,5 @@
+import { isAiPlaceholderLoadingSrc } from './seoMediaApi.js';
+
 /** Static placeholder — không animate (tránh “load hoài” như placeholder-loading.svg). */
 export const BROKEN_IMAGE_PLACEHOLDER =
     'data:image/svg+xml,' +
@@ -41,8 +43,29 @@ export function installBrokenImageGuard(root, brokenSrcKeys) {
         return () => {};
     }
 
+    const shouldSkipBrokenGuard = (img) => {
+        if (!(img instanceof HTMLImageElement)) {
+            return true;
+        }
+
+        const rawSrc = String(img.getAttribute('src') || img.currentSrc || '').trim();
+        if (isAiPlaceholderLoadingSrc(rawSrc)) {
+            return true;
+        }
+
+        return Boolean(
+            img.dataset.aiProcessing === '1'
+            || img.hasAttribute('data-ai-processing')
+            || img.closest('[data-ai-processing="1"]'),
+        );
+    };
+
     const freezeImg = (img) => {
         if (!(img instanceof HTMLImageElement)) {
+            return;
+        }
+
+        if (shouldSkipBrokenGuard(img)) {
             return;
         }
 
@@ -64,6 +87,10 @@ export function installBrokenImageGuard(root, brokenSrcKeys) {
 
     const applyKnownBroken = () => {
         root.querySelectorAll('img').forEach((img) => {
+            if (shouldSkipBrokenGuard(img)) {
+                return;
+            }
+
             const rawSrc = String(img.getAttribute('src') || '').trim();
             const key = normalizeBrokenImageSrcKey(rawSrc);
             if (key && brokenSrcKeys.has(key)) {

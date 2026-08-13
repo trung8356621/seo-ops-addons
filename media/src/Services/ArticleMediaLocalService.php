@@ -7,6 +7,8 @@ namespace Omnichannel\Addons\Media\Services;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Media\Models\SeoMedia;
 use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
+use Omnichannel\Addons\WordPress\Services\WordPressArticleMediaService;
+use Omnichannel\Addons\WordPress\Services\WordPressLocalMediaSyncService;
 use Illuminate\Support\Facades\Storage;
 
 final class ArticleMediaLocalService

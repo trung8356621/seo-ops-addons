@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\ContentProjects\Filament\Pages;
 
 
 use Omnichannel\Addons\Seo\Filament\Pages\SeoPanelPage;
+use Omnichannel\Addons\SearchFoundation\Filament\Pages\SeoExtensions;
 use Omnichannel\Addons\ContentProjects\Models\ContentProjectAgentApproval;
 use Omnichannel\Addons\ContentProjects\Models\ContentProjectAgentPlan;
 use Omnichannel\Addons\ContentProjects\Models\ContentProjectOperation;

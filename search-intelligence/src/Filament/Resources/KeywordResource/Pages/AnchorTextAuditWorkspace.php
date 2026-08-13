@@ -14,6 +14,8 @@ use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordLinkTargetResolver;
 use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
+use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectActionFactory;
+use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectContract;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\Seo\Support\SeoLinkMapNetworkStatusPresenter;
 use Omnichannel\Addons\Seo\Support\SeoLinkTriageQuery;
@@ -125,72 +127,21 @@ final class AnchorTextAuditWorkspace extends Page implements HasActions, HasForm
 
     public function assignToContentProjectAction(): Action
     {
-        return Action::make('assignToContentProject')
-            ->label(__('seo-content-ai::filament.keyword.link_triage_assign_task'))
-            ->icon('heroicon-o-inbox-arrow-down')
-            ->modalHeading(__('seo-content-ai::filament.article_list.assign_to_content_project'))
-            ->modalDescription(__('seo-content-ai::filament.keyword.workspace_assign_description'))
-            ->modalSubmitActionLabel(__('seo-content-ai::filament.article_list.assign'))
-            ->form(function (array $arguments): array {
-                $keyword = $this->resolveKeywordForMapId((int) ($arguments['mapId'] ?? 0));
-                if (! $keyword instanceof Keyword) {
-                    return [];
-                }
-
-                $siteId = $this->resolveMapSiteId((int) ($arguments['mapId'] ?? 0));
-
-                if (KeywordResource::resolveKeywordDirectAssignData($siteId) !== null) {
-                    return [];
-                }
-
-                return KeywordResource::assignKeywordContentProjectFormSchema(
-                    $siteId !== null && $siteId > 0 ? [$siteId] : [],
-                );
-            })
-            ->requiresConfirmation(function (array $arguments): bool {
-                $siteId = $this->resolveMapSiteId((int) ($arguments['mapId'] ?? 0));
-
-                return KeywordResource::resolveKeywordDirectAssignData($siteId) === null;
-            })
-            ->modalHidden(function (array $arguments): bool {
-                $siteId = $this->resolveMapSiteId((int) ($arguments['mapId'] ?? 0));
-
-                return KeywordResource::resolveKeywordDirectAssignData($siteId) !== null;
-            })
-            ->action(function (array $arguments, array $data): void {
+        return AssignToContentProjectActionFactory::pageAction(
+            resolvePayload: function (array $arguments): array {
                 $mapId = (int) ($arguments['mapId'] ?? 0);
                 $keyword = $this->resolveKeywordForMapId($mapId);
-                if (! $keyword instanceof Keyword) {
-                    Notification::make()
-                        ->title(__('seo-content-ai::filament.keyword.workspace_map_not_found'))
-                        ->danger()
-                        ->send();
-
-                    return;
-                }
-
-                if (! KeywordResource::canAssignKeywordToContentProject($keyword)) {
-                    Notification::make()
-                        ->title(__('seo-content-ai::filament.keyword.workspace_assign_denied'))
-                        ->warning()
-                        ->send();
-
-                    return;
-                }
-
                 $siteId = $this->resolveMapSiteId($mapId);
-                $assignData = KeywordResource::resolveKeywordDirectAssignData($siteId) ?? $data;
-                $summary = KeywordResource::executeAssignKeywordsToContentProjects(
-                    Collection::make([$keyword]),
-                    $assignData,
-                );
 
-                Notification::make()
-                    ->title(__('seo-content-ai::filament.keyword.assign_completed'))
-                    ->body(ArticleResource::buildAssignContentProjectBody($summary))
-                    ->success()
-                    ->send();
-            });
+                return AssignToContentProjectContract::keywordPayload(
+                    source: 'anchor_text_audit',
+                    keywordIds: $keyword instanceof Keyword ? [(int) $keyword->id] : [],
+                    siteIds: $siteId !== null && $siteId > 0 ? [$siteId] : [],
+                    mapId: $mapId > 0 ? $mapId : null,
+                );
+            },
+            name: 'assignToContentProject',
+        );
     }
 
     public function markLinkMapAsActive(int $mapId): void

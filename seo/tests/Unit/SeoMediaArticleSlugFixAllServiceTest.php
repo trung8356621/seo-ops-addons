@@ -85,6 +85,29 @@ final class SeoMediaArticleSlugFixAllServiceTest extends TestCase
         self::assertStringContainsString('đã chuẩn', mb_strtolower($result['message']));
     }
 
+    public function test_fix_pending_media_for_publish_requires_keyword(): void
+    {
+        $article = new SeoArticle(['body' => '<p>x</p>', 'title' => '']);
+        $article->setRelation('articleMetas', collect());
+
+        $result = $this->service->fixPendingMediaForPublish($article, [976]);
+
+        self::assertFalse($result['success']);
+        self::assertSame([976], $result['failed_ids']);
+        self::assertStringContainsString('từ khóa', mb_strtolower($result['message']));
+    }
+
+    public function test_fix_pending_media_empty_pending_skips(): void
+    {
+        $article = new SeoArticle(['body' => '<p>x</p>', 'title' => 'Boho']);
+
+        $result = $this->service->fixPendingMediaForPublish($article, []);
+
+        self::assertTrue($result['skipped']);
+        self::assertTrue($result['success']);
+        self::assertSame(0, $result['applied']);
+    }
+
     private function makeService(): SeoMediaArticleSlugFixAllService
     {
         $urlReplacement = new SeoMediaUrlReplacementService();

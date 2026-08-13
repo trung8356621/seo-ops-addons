@@ -1,4 +1,4 @@
-import { findPlainTextRangeInRoot } from './articlePlainTextRange';
+import { enclosingAnchorForPlainTextRange, findPlainTextRangeInRoot } from './articlePlainTextRange';
 import { normalizeLinkText } from './articleLinkTextNormalize';
 import {
     SEO_EDITOR_LINK_MARK_CLASS,
@@ -352,9 +352,12 @@ export function countPlainTextInHtml(html, text) {
  * @param {HTMLElement} root
  * @param {string} text
  * @param {number} matchIndex
+ * @param {{ includeLinkedText?: boolean }} [options]
  */
-export function findPlainTextMatchInRoot(root, text, matchIndex = 0) {
-    return findPlainTextRangeInRoot(root, text, matchIndex);
+export function findPlainTextMatchInRoot(root, text, matchIndex = 0, options = {}) {
+    return findPlainTextRangeInRoot(root, text, matchIndex, {
+        includeLinkedText: options.includeLinkedText !== false,
+    });
 }
 
 /**
@@ -375,7 +378,8 @@ export function scrollToPlainTextInBlock(blockId, text, matchIndex = 0, options 
             return;
         }
 
-        const match = findPlainTextMatchInRoot(slot, text, matchIndex);
+        // Include linked text so Vocabulary occurrences stay highlightable after linking.
+        const match = findPlainTextMatchInRoot(slot, text, matchIndex, { includeLinkedText: true });
 
         if (match) {
             const range = document.createRange();
@@ -400,6 +404,12 @@ export function scrollToPlainTextInBlock(blockId, text, matchIndex = 0, options 
                 options.onDone?.();
                 return;
             } catch {
+                const anchor = enclosingAnchorForPlainTextRange(match);
+                if (anchor) {
+                    highlightAnchorElement(anchor);
+                    options.onDone?.();
+                    return;
+                }
                 range.startContainer.parentElement?.scrollIntoView({
                     behavior: tryNo === 0 ? 'smooth' : 'auto',
                     block: 'center',

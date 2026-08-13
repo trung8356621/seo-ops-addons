@@ -4,21 +4,26 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Support;
 
-
 use Omnichannel\Addons\AiPrompt\Support\PromptTextMetrics;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\OutputTruncated;
 
 /**
  * Length contract cho full article generation (generate / legacy rewrite).
  *
- * target_article_length = {{article_length}} trong Prompt (mục tiêu).
- * minimum_acceptable_words = hard guard (config, default 1400) — không vượt target.
+ * target_article_length = {{article_length}} trong Prompt (mục tiêu AI — không hard-fail).
+ * minimum_acceptable_words = floor(target × ratio) + 1 — ACCEPT khi actual >= minimum
+ * (target 2000 + ratio 0.5 ⇒ minimum 1001 ⇒ >1000 words).
  *
  * Improve không dùng class này.
  */
 final class ArticleGenerationLengthValidator
 {
-    public const DEFAULT_MINIMUM_ACCEPTABLE_WORDS = 1400;
+    public const DEFAULT_MINIMUM_ACCEPTABLE_RATIO = 0.5;
+
+    /**
+     * Fallback khi target ≤ 0 (schema thiếu article_length).
+     */
+    public const DEFAULT_ABSOLUTE_FLOOR_WHEN_NO_TARGET = 300;
 
     /**
      * @return array{
@@ -67,28 +72,65 @@ final class ArticleGenerationLengthValidator
     }
 
     /**
-     * Hard floor từ config; không bao giờ đòi nhiều hơn target Prompt.
+     * Minimum word count để ACCEPT (inclusive).
+     * target × ratio là soft floor; actual phải > floor ⇒ minimum = floor + 1.
      */
     public function minimumForTarget(int $targetArticleLength): int
     {
-        $floor = $this->configuredMinimum();
         $target = max(0, $targetArticleLength);
         if ($target <= 0) {
-            return $floor;
+            return max(1, $this->configuredAbsoluteFloorWhenNoTarget());
         }
 
-        return min($target, $floor);
+        $ratio = $this->configuredRatio();
+        $softFloor = (int) floor($target * $ratio);
+
+        return max(1, $softFloor + 1);
     }
 
-    public function configuredMinimum(): int
+    public function configuredRatio(): float
     {
-        $default = self::DEFAULT_MINIMUM_ACCEPTABLE_WORDS;
+        $default = self::DEFAULT_MINIMUM_ACCEPTABLE_RATIO;
         if (! function_exists('config')) {
             return $default;
         }
 
         try {
-            $value = config('seo-content-ai.article_writing.minimum_acceptable_words', $default);
+            $value = config('seo-content-ai.article_writing.minimum_acceptable_ratio', $default);
+        } catch (\Throwable) {
+            return $default;
+        }
+
+        if (! is_numeric($value)) {
+            return $default;
+        }
+
+        $ratio = (float) $value;
+
+        return ($ratio > 0.0 && $ratio <= 1.0) ? $ratio : $default;
+    }
+
+    /**
+     * @deprecated Dùng configuredRatio() — giữ method để tương thích test/source cũ nếu còn gọi.
+     */
+    public function configuredMinimum(): int
+    {
+        // Legacy callers expect "floor for default article target 2000".
+        return $this->minimumForTarget(2000);
+    }
+
+    public function configuredAbsoluteFloorWhenNoTarget(): int
+    {
+        $default = self::DEFAULT_ABSOLUTE_FLOOR_WHEN_NO_TARGET;
+        if (! function_exists('config')) {
+            return $default;
+        }
+
+        try {
+            $value = config(
+                'seo-content-ai.article_writing.absolute_floor_when_no_target',
+                $default,
+            );
         } catch (\Throwable) {
             return $default;
         }

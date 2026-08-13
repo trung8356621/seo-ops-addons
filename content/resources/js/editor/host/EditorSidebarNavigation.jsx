@@ -30,10 +30,26 @@ function normalizeSearchText(value) {
 }
 
 function chipStatus(health) {
-    return health?.status ?? 'neutral';
+    const status = String(health?.status || 'neutral');
+    const issues = Number(health?.issue_count ?? health?.error_count ?? 0);
+    // Red/warning only from canonical diagnostics — never from refresh/loading.
+    if (status === 'error' && issues > 0) {
+        return 'error';
+    }
+    if (status === 'warning' && issues > 0) {
+        return 'warning';
+    }
+    if (status === 'success' || status === 'info') {
+        return status;
+    }
+    return 'neutral';
 }
 
 function chipIssueCount(chipId, health) {
+    const status = chipStatus(health);
+    if (status !== 'error' && status !== 'warning') {
+        return null;
+    }
     if (chipId === 'images') {
         const errors = Number(health?.error_count ?? 0);
         const warnings = Number(health?.warning_count ?? 0);
@@ -42,6 +58,18 @@ function chipIssueCount(chipId, health) {
     }
     const count = Number(health?.issue_count ?? 0);
     return count > 0 ? count : null;
+}
+
+function isRefreshing(health) {
+    return String(health?.refresh_status || '') === 'refreshing';
+}
+
+function resolveChipHealth(chipId, healthMap) {
+    if (chipId === 'cta') {
+        // CTA metric is navigator-badge owned. Never inherit Links validation severity.
+        return healthMap?.cta || null;
+    }
+    return healthMap?.[chipId] || null;
 }
 
 function chipBadge(chipId, health, badges) {
@@ -325,14 +353,12 @@ export function EditorSidebarNavigation({
             </div>
             <div className="seo-assistant-dock__tabs" role="tablist" aria-label="Assistant panels">
                 {chips.map((chip) => {
-                    const healthKey = chip.id === 'cta' ? 'cta' : chip.id;
-                    const health = healthMap?.[healthKey]
-                        || (chip.id === 'cta' ? healthMap?.links : null)
-                        || null;
+                    const health = resolveChipHealth(chip.id, healthMap);
                     const status = chipStatus(health);
                     const active = activePanel === chip.id;
                     const badge = chipBadge(chip.id, health, badges);
                     const issue = chipIssueCount(chip.id, health);
+                    const refreshing = isRefreshing(health);
                     const tooltip = chipReasonsTooltip(chip.id, health) || chip.fullLabel
                         || chip.disabledReason;
                     const className = [
@@ -341,6 +367,7 @@ export function EditorSidebarNavigation({
                         status === 'error' ? 'is-status-error' : '',
                         status === 'warning' ? 'is-status-warning' : '',
                         status === 'success' ? 'is-status-success' : '',
+                        refreshing ? 'is-refreshing' : '',
                         chip.shell ? 'is-shell-boundary' : '',
                         chip.disabled ? 'is-disabled' : '',
                     ].filter(Boolean).join(' ');
@@ -366,6 +393,9 @@ export function EditorSidebarNavigation({
                             ) : null}
                             {issue ? (
                                 <span className="seo-assistant-dock__tab-issue" aria-hidden="true">{issue}</span>
+                            ) : null}
+                            {refreshing ? (
+                                <span className="seo-assistant-dock__tab-refresh" aria-hidden="true" title="Refreshing">↻</span>
                             ) : null}
                         </button>
                     );

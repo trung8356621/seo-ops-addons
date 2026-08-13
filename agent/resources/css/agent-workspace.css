@@ -1,35 +1,82 @@
 /* Agent Workspace — scoped layout. Do not affect other admin pages. */
 
+/*
+ * Height chain: Filament fullHeight + flex ancestors → Agent fills remaining viewport.
+ * Do NOT hug content height. Do NOT use magic calc(100vh - Npx) for Agent shell.
+ */
+html:has(.seo-agent-workspace),
+body:has(.seo-agent-workspace) {
+    height: 100%;
+    overflow: hidden;
+}
+
+.fi-body:has(.seo-agent-workspace),
+.fi-layout:has(.seo-agent-workspace) {
+    height: 100%;
+    min-height: 0;
+    overflow: hidden;
+}
+
 .fi-main:has(.seo-agent-workspace),
 .fi-main-ctn:has(.seo-agent-workspace) {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    flex-direction: column;
     overflow: hidden;
 }
 
 .fi-page:has(.seo-agent-workspace) {
+    display: flex;
+    flex: 1;
     height: 100%;
     min-height: 0;
+    flex-direction: column;
+    overflow: hidden;
 }
 
 .fi-page:has(.seo-agent-workspace) > section {
     display: flex;
+    flex: 1;
     height: 100%;
     min-height: 0;
     flex-direction: column;
     gap: 0.5rem;
     overflow: hidden;
-    padding-top: 0.75rem;
-    padding-bottom: 0.75rem;
+    padding-top: 0.5rem;
+    padding-bottom: 0.5rem;
+}
+
+/* Filament intermediates (header sibling + slot grid) must stretch, not hug content. */
+.fi-page:has(.seo-agent-workspace) > section > div {
+    display: flex;
+    flex: 1 1 0;
+    min-height: 0;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.fi-page:has(.seo-agent-workspace) > section > div > div {
+    display: flex;
+    flex: 1 1 0;
+    min-height: 0;
+    flex-direction: column;
+    gap: 0;
+    overflow: hidden;
+}
+
+.fi-page:has(.seo-agent-workspace) .fi-header {
+    flex: none;
 }
 
 .seo-agent-workspace {
     --chat-teal: #0d9488;
-    --seo-agent-header-offset: 7.5rem;
     display: flex;
-    height: calc(100dvh - var(--seo-agent-header-offset));
-    max-height: calc(100dvh - var(--seo-agent-header-offset));
+    flex: 1 1 0;
     min-height: 0;
+    width: 100%;
     flex-direction: column;
-    gap: 0.75rem;
+    gap: 0.5rem;
     overflow: hidden;
 }
 
@@ -46,11 +93,15 @@
 }
 
 .seo-agent-workspace__ghost-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
     border: 1px solid rgb(229 231 235);
     border-radius: 0.75rem;
     background: #fff;
-    padding: 0.4rem 0.75rem;
+    padding: 0.35rem 0.65rem;
     font-size: 0.8125rem;
+    line-height: 1.2;
     cursor: pointer;
 }
 
@@ -74,11 +125,13 @@
 }
 
 .seo-agent-workspace__grid {
-    display: grid;
-    flex: 1;
+    position: relative;
+    display: flex;
+    flex: 1 1 0;
+    align-items: stretch;
+    min-width: 0;
     min-height: 0;
-    grid-template-columns: minmax(0, 1fr);
-    gap: 0.75rem;
+    gap: 0;
     overflow: hidden;
 }
 
@@ -88,9 +141,12 @@
     position: relative;
     display: flex;
     width: 100%;
+    min-width: 0;
     max-width: none;
-    height: 100%;
+    height: auto;
     min-height: 0;
+    flex: 1 1 0;
+    align-self: stretch;
     flex-direction: column;
     overflow: hidden;
     border: 1px solid rgb(229 231 235);
@@ -114,18 +170,54 @@
     border-bottom-color: rgb(55 65 81);
 }
 
+.seo-agent-workspace__suggestions-toggle {
+    font-weight: 500;
+    color: rgb(75 85 99);
+}
+
+.dark .seo-agent-workspace__suggestions-toggle {
+    color: rgb(209 213 219);
+}
+
+.seo-agent-workspace__suggestions-chevron {
+    transition: transform 150ms ease;
+}
+
+.seo-agent-workspace__suggestions-chevron.is-open {
+    transform: rotate(90deg);
+}
+
+.seo-agent-workspace-chat__body {
+    display: flex;
+    flex: 1 1 0;
+    min-width: 0;
+    min-height: 0;
+    flex-direction: column;
+    overflow: hidden;
+}
+
 .seo-agent-workspace-chat__messages {
-    flex: 1;
+    display: flex;
+    flex: 1 1 0;
     min-height: 0;
     max-height: none;
+    flex-direction: column;
     overflow-x: hidden;
     overflow-y: auto;
+    overscroll-behavior: contain;
     padding: 0.65rem 0.75rem;
+}
+
+.seo-agent-workspace-chat__messages > .seo-global-chat__empty,
+.seo-agent-workspace-chat__messages > .seo-agent-chat__empty {
+    flex: 1 1 auto;
+    min-height: 100%;
 }
 
 .seo-agent-workspace-chat__composer-wrap {
     position: relative;
     flex: none;
+    flex-shrink: 0;
     z-index: 5;
     border-top: 1px solid rgb(229 231 235);
     background: inherit;
@@ -182,25 +274,81 @@
     margin-top: 0.75rem;
 }
 
-.seo-agent-workspace__template-grid {
-    display: grid;
-    gap: 0.65rem;
-    margin-top: 1rem;
-    width: 100%;
-    max-width: 36rem;
+/* Collapsible suggestions sidebar (desktop inline; mobile overlay). */
+.seo-agent-workspace__suggestions-backdrop {
+    display: none;
 }
 
-@media (min-width: 640px) {
-    .seo-agent-workspace__template-grid {
-        grid-template-columns: 1fr 1fr;
-    }
+.seo-agent-workspace__suggestions {
+    display: none;
+    flex-direction: column;
+    align-self: stretch;
+    height: auto;
+    min-width: 0;
+    min-height: 0;
+    overflow: hidden;
+    border: 1px solid rgb(229 231 235);
+    border-left: 1px solid rgb(229 231 235);
+    border-radius: 1rem;
+    background: #fff;
+}
+
+.dark .seo-agent-workspace__suggestions {
+    border-color: rgb(55 65 81);
+    background: rgb(17 24 39);
+}
+
+.seo-agent-workspace__grid.has-suggestions .seo-agent-workspace__suggestions {
+    display: flex;
+}
+
+.seo-agent-workspace__suggestions-head {
+    display: flex;
+    flex: none;
+    flex-shrink: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    border-bottom: 1px solid rgb(229 231 235);
+    padding: 0.65rem 0.75rem;
+}
+
+.dark .seo-agent-workspace__suggestions-head {
+    border-bottom-color: rgb(55 65 81);
+}
+
+.seo-agent-workspace__suggestions-head h3 {
+    margin: 0;
+    font-size: 0.8125rem;
+    font-weight: 600;
+}
+
+.seo-agent-workspace__suggestions-list {
+    display: flex;
+    flex: 1 1 0;
+    min-height: 0;
+    flex-direction: column;
+    gap: 0.5rem;
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 0.65rem 0.75rem;
+}
+
+.seo-agent-workspace__suggestions-empty {
+    margin: 0;
+    font-size: 0.75rem;
+    color: rgb(107 114 128);
 }
 
 .seo-agent-workspace__template-card {
+    display: block;
+    width: 100%;
+    flex: none;
     border: 1px solid rgb(229 231 235);
-    border-radius: 0.9rem;
+    border-radius: 0.75rem;
     background: #fff;
-    padding: 0.75rem;
+    padding: 0.65rem 0.75rem;
     text-align: left;
     cursor: pointer;
     transition: border-color 120ms ease, background 120ms ease;
@@ -623,24 +771,64 @@
     right: 0;
 }
 
-@media (max-width: 1023px) {
-    .seo-agent-workspace {
+/* Desktop: sidebar sits inline beside chat (no overlay on transcript/composer). */
+@media (min-width: 1024px) {
+    .seo-agent-workspace__grid.has-suggestions {
+        gap: 0;
+    }
+
+    .seo-agent-workspace__grid.has-suggestions .seo-agent-workspace-chat {
+        border-top-right-radius: 0;
+        border-bottom-right-radius: 0;
+        border-right: 0;
+    }
+
+    .seo-agent-workspace__grid.has-suggestions .seo-agent-workspace__suggestions {
+        width: 20rem;
+        min-width: 17.5rem;
+        max-width: 21.25rem;
+        flex: 0 0 20rem;
+        align-self: stretch;
+        min-height: 0;
         height: auto;
-        max-height: none;
-        overflow: visible;
+        border-radius: 0 1rem 1rem 0;
+        border-left: 1px solid rgb(229 231 235);
     }
 
-    .fi-main:has(.seo-agent-workspace),
-    .fi-main-ctn:has(.seo-agent-workspace) {
-        overflow: auto;
+    .dark .seo-agent-workspace__grid.has-suggestions .seo-agent-workspace__suggestions {
+        border-left-color: rgb(55 65 81);
     }
 
-    .seo-agent-workspace__grid {
-        min-height: 70vh;
-        overflow: visible;
+    .seo-agent-workspace__suggestions-backdrop {
+        display: none !important;
+    }
+}
+
+/* Small screens: suggestions become an overlay drawer; chat keeps full width. */
+@media (max-width: 1023px) {
+    .seo-agent-workspace__grid.has-suggestions .seo-agent-workspace__suggestions-backdrop {
+        display: block;
+        position: absolute;
+        inset: 0;
+        z-index: 20;
+        border: 0;
+        background: rgb(15 23 42 / 35%);
+        cursor: pointer;
     }
 
-    .seo-agent-workspace-chat {
-        min-height: 70vh;
+    .seo-agent-workspace__grid.has-suggestions .seo-agent-workspace__suggestions {
+        position: absolute;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        z-index: 30;
+        width: min(20rem, 88vw);
+        border-radius: 0;
+        border-left: 1px solid rgb(229 231 235);
+        box-shadow: -12px 0 32px rgb(15 23 42 / 18%);
+    }
+
+    .dark .seo-agent-workspace__grid.has-suggestions .seo-agent-workspace__suggestions {
+        border-left-color: rgb(55 65 81);
     }
 }

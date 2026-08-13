@@ -1,4 +1,3 @@
-<x-filament-panels::page>
     @vite([
         'addons/ai-prompt/resources/css/global-ai-chat.css',
         'addons/agent/resources/css/agent-workspace.css',
@@ -53,9 +52,12 @@
         x-on:keydown.escape.window="onEscape()"
         x-on:agent-focus-composer.window="focusComposer()"
         x-on:agent-cli-template-ready.window="onCliTemplateReady()"
+        x-on:agent-suggestion-prefilled.window="onSuggestionPrefilled()"
     >
         @unless ($bootOk)
-            <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100">
+            <div
+                class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-100"
+            >
                 {{ \Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentWorkspaceDeepLink::MISSING_SITE_MESSAGE }}
             </div>
         @else
@@ -80,148 +82,207 @@
             </div>
 
             @if (($activePanel ?? 'chat') === 'chat')
-            <div class="seo-agent-workspace__grid">
+            <div
+                class="seo-agent-workspace__grid"
+                x-bind:class="suggestionsOpen && 'has-suggestions'"
+            >
                 <section class="seo-global-chat seo-agent-workspace-chat">
                     <x-seo-content-ai::seo-agent-chat.header
                         :title="__('seo-content-ai::filament.agent_workspace.title')"
                         :subtitle="$subtitle"
-                    />
-
-                    <div
-                        class="seo-global-chat__messages seo-agent-workspace-chat__messages"
-                        x-ref="chatMessages"
-                        wire:loading.class="opacity-60"
-                        wire:target="sendMessage,submitComposer,submitClarification,saveProposedPlan"
-                        @if ($this->hasActiveExecutionPoll())
-                            wire:poll.5s="pollActiveExecutions"
-                        @endif
                     >
-                        @if (count($messages) === 0)
-                            <x-seo-content-ai::seo-agent-chat.empty-state
-                                :title="__('seo-content-ai::filament.agent_workspace.empty_title')"
-                                :description="__('seo-content-ai::filament.agent_workspace.empty_hint')"
-                            />
-                            {{-- Template cards: value + static wire:click selectTemplate($event.currentTarget.value). --}}
-                            <div class="seo-agent-workspace__template-grid">
-                                @foreach ($suggestedActions as $card)
-                                    <x-seo-content-ai::agent-workspace.action-button
-                                        action="selectTemplate"
-                                        :value="$card['key']"
-                                        wire:key="agent-template-{{ $card['key'] }}"
-                                        class="seo-agent-workspace__template-card"
-                                        wire:loading.attr="disabled"
-                                        wire:target="selectTemplate"
-                                    >
-                                        <div class="seo-agent-workspace__template-title">{{ $card['title'] }}</div>
-                                        <div class="seo-agent-workspace__template-desc">{{ $card['description'] }}</div>
-                                    </x-seo-content-ai::agent-workspace.action-button>
-                                @endforeach
-                            </div>
-                        @endif
-
-                        @foreach ($messages as $message)
-                            <div wire:key="agent-msg-{{ $message['public_ref'] ?? ($loop->index) }}">
-                                <x-seo-content-ai::seo-agent-chat.message
-                                    :role="$message['role'] ?? 'assistant'"
-                                    :content="$message['content'] ?? ''"
-                                    :message-type="$message['message_type'] ?? 'text'"
+                        <x-slot:actions>
+                            <button
+                                type="button"
+                                class="seo-agent-workspace__ghost-btn seo-agent-workspace__suggestions-toggle"
+                                x-on:click="toggleSuggestions()"
+                                x-bind:aria-expanded="suggestionsOpen ? 'true' : 'false'"
+                                aria-controls="seo-agent-suggestions-panel"
+                            >
+                                <span>{{ __('seo-content-ai::filament.agent_workspace.suggestions') }}</span>
+                                <svg
+                                    class="seo-agent-workspace__suggestions-chevron"
+                                    x-bind:class="suggestionsOpen && 'is-open'"
+                                    xmlns="http://www.w3.org/2000/svg"
+                                    viewBox="0 0 20 20"
+                                    fill="currentColor"
+                                    aria-hidden="true"
+                                    width="14"
+                                    height="14"
                                 >
-                                    <?php if (($message['role'] ?? '') !== 'user'): ?>
-                                        @include('seo-content-ai::filament.pages.partials.agent-message-structured', ['message' => $message])
-                                    <?php endif; ?>
-                                </x-seo-content-ai::seo-agent-chat.message>
-                            </div>
-                        @endforeach
+                                    <path fill-rule="evenodd" d="M7.21 14.77a.75.75 0 01.02-1.06L10.94 10 7.23 6.29a.75.75 0 111.06-1.06l4.24 4.24a.75.75 0 010 1.06l-4.24 4.24a.75.75 0 01-1.08 0z" clip-rule="evenodd" />
+                                </svg>
+                            </button>
+                        </x-slot:actions>
+                    </x-seo-content-ai::seo-agent-chat.header>
 
-                        @if ($composerSubmitting ?? false)
-                            <div class="seo-agent-workspace__pending" wire:key="agent-pending">
-                                <div class="seo-global-chat__typing" aria-live="polite">
-                                    <span></span><span></span><span></span>
-                                </div>
-                                <span class="text-xs text-gray-500">Đang xử lý…</span>
-                            </div>
-                        @endif
-                    </div>
-
-                    <div class="seo-agent-workspace-chat__composer-wrap relative">
+                    <div class="seo-agent-workspace-chat__body">
                         <div
-                            class="seo-agent-workspace__palette"
-                            role="listbox"
-                            aria-label="Slash commands"
-                            x-ref="paletteRoot"
-                            x-show="paletteOpen"
-                            x-cloak
+                            class="seo-global-chat__messages seo-agent-workspace-chat__messages"
+                            x-ref="chatMessages"
+                            wire:loading.class="opacity-60"
+                            wire:target="sendMessage,submitComposer,submitClarification,saveProposedPlan"
+                            @if ($this->hasActiveExecutionPoll())
+                                wire:poll.5s="pollActiveExecutions"
+                            @endif
                         >
-                            <div class="seo-agent-workspace__palette-head">Commands</div>
-                            <template x-for="(row, idx) in filteredCommands" :key="row.name">
-                                <div>
-                                    <div
-                                        class="seo-agent-workspace__palette-group"
-                                        x-show="idx === 0 || (filteredCommands[idx - 1] && filteredCommands[idx - 1].group !== row.group)"
-                                        x-text="row.group || 'Other'"
-                                    ></div>
+                            @if (count($messages) === 0)
+                                <x-seo-content-ai::seo-agent-chat.empty-state
+                                    :title="__('seo-content-ai::filament.agent_workspace.empty_title')"
+                                    :description="__('seo-content-ai::filament.agent_workspace.empty_hint')"
+                                />
+                            @endif
+
+                            @foreach ($messages as $message)
+                                <div wire:key="agent-msg-{{ $message['public_ref'] ?? ($loop->index) }}">
+                                    <x-seo-content-ai::seo-agent-chat.message
+                                        :role="$message['role'] ?? 'assistant'"
+                                        :content="$message['content'] ?? ''"
+                                        :message-type="$message['message_type'] ?? 'text'"
+                                    >
+                                        <?php if (($message['role'] ?? '') !== 'user'): ?>
+                                            @include('seo-content-ai::filament.pages.partials.agent-message-structured', ['message' => $message])
+                                        <?php endif; ?>
+                                    </x-seo-content-ai::seo-agent-chat.message>
+                                </div>
+                            @endforeach
+
+                            @if ($composerSubmitting ?? false)
+                                <div class="seo-agent-workspace__pending" wire:key="agent-pending">
+                                    <div class="seo-global-chat__typing" aria-live="polite">
+                                        <span></span><span></span><span></span>
+                                    </div>
+                                    <span class="text-xs text-gray-500">Đang xử lý…</span>
+                                </div>
+                            @endif
+                        </div>
+
+                        <div class="seo-agent-workspace-chat__composer-wrap relative">
+                            <div
+                                class="seo-agent-workspace__palette"
+                                role="listbox"
+                                aria-label="Slash commands"
+                                x-ref="paletteRoot"
+                                x-show="paletteOpen"
+                                x-cloak
+                            >
+                                <div class="seo-agent-workspace__palette-head">Commands</div>
+                                <template x-for="(row, idx) in filteredCommands" :key="row.name">
+                                    <div>
+                                        <div
+                                            class="seo-agent-workspace__palette-group"
+                                            x-show="idx === 0 || (filteredCommands[idx - 1] && filteredCommands[idx - 1].group !== row.group)"
+                                            x-text="row.group || 'Other'"
+                                        ></div>
+                                        <button
+                                            type="button"
+                                            role="option"
+                                            class="seo-agent-workspace__palette-item"
+                                            x-bind:value="row.name"
+                                            x-bind:data-index="idx"
+                                            x-bind:class="paletteIndex === idx && 'is-active'"
+                                            x-on:mouseenter="paletteIndex = idx; updateHelpFromRow(row)"
+                                            x-on:click="selectPaletteRow(row)"
+                                        >
+                                            <div class="seo-agent-workspace__palette-main">
+                                                <div class="seo-agent-workspace__palette-cmd" x-text="row.name"></div>
+                                                <div class="seo-agent-workspace__palette-desc" x-text="row.description"></div>
+                                            </div>
+                                        </button>
+                                    </div>
+                                </template>
+                                <div
+                                    class="seo-agent-workspace__palette-empty"
+                                    x-show="filteredCommands.length === 0"
+                                    x-cloak
+                                >Không tìm thấy lệnh.</div>
+                            </div>
+
+                            <div
+                                class="seo-agent-workspace__cli-help"
+                                x-show="cliHelp && cliHelp.example"
+                                x-cloak
+                            >
+                                <div class="seo-agent-workspace__cli-help-example">
+                                    <span>Example:</span>
+                                    <code x-text="cliHelp.example"></code>
+                                </div>
+                            </div>
+
+                            <div
+                                class="seo-agent-workspace__arg-suggest"
+                                x-show="argSuggestions.length > 0 || argLoading"
+                                x-cloak
+                            >
+                                <div class="seo-agent-workspace__arg-suggest-loading" x-show="argLoading" x-cloak>Đang tải…</div>
+                                <template x-for="suggest in argSuggestions" :key="suggest.value">
                                     <button
                                         type="button"
-                                        role="option"
-                                        class="seo-agent-workspace__palette-item"
-                                        x-bind:value="row.name"
-                                        x-bind:data-index="idx"
-                                        x-bind:class="paletteIndex === idx && 'is-active'"
-                                        x-on:mouseenter="paletteIndex = idx; updateHelpFromRow(row)"
-                                        x-on:click="selectPaletteRow(row)"
-                                    >
-                                        <div class="seo-agent-workspace__palette-main">
-                                            <div class="seo-agent-workspace__palette-cmd" x-text="row.name"></div>
-                                            <div class="seo-agent-workspace__palette-desc" x-text="row.description"></div>
-                                        </div>
-                                    </button>
-                                </div>
-                            </template>
-                            <div
-                                class="seo-agent-workspace__palette-empty"
-                                x-show="filteredCommands.length === 0"
-                                x-cloak
-                            >Không tìm thấy lệnh.</div>
-                        </div>
-
-                        <div
-                            class="seo-agent-workspace__cli-help"
-                            x-show="cliHelp && cliHelp.example"
-                            x-cloak
-                        >
-                            <div class="seo-agent-workspace__cli-help-example">
-                                <span>Example:</span>
-                                <code x-text="cliHelp.example"></code>
+                                        class="seo-agent-workspace__arg-suggest-item"
+                                        x-bind:data-value="suggest.value"
+                                        x-on:click="applyArgSuggestion($el.dataset.value)"
+                                        x-text="suggest.label"
+                                    ></button>
+                                </template>
                             </div>
-                        </div>
 
-                        <div
-                            class="seo-agent-workspace__arg-suggest"
-                            x-show="argSuggestions.length > 0 || argLoading"
-                            x-cloak
-                        >
-                            <div class="seo-agent-workspace__arg-suggest-loading" x-show="argLoading" x-cloak>Đang tải…</div>
-                            <template x-for="suggest in argSuggestions" :key="suggest.value">
-                                <button
-                                    type="button"
-                                    class="seo-agent-workspace__arg-suggest-item"
-                                    x-bind:data-value="suggest.value"
-                                    x-on:click="applyArgSuggestion($el.dataset.value)"
-                                    x-text="suggest.label"
-                                ></button>
-                            </template>
+                            <x-seo-content-ai::seo-agent-chat.composer
+                                :placeholder="__('seo-content-ai::filament.agent_workspace.composer_placeholder')"
+                            >
+                                <x-slot:below>
+                                    <div class="seo-agent-workspace__cli-global-keys">Tab: biến tiếp theo · Shift+Tab: biến trước</div>
+                                    <x-seo-content-ai::seo-agent-chat.disclaimer />
+                                </x-slot:below>
+                            </x-seo-content-ai::seo-agent-chat.composer>
                         </div>
-
-                        <x-seo-content-ai::seo-agent-chat.composer
-                            :placeholder="__('seo-content-ai::filament.agent_workspace.composer_placeholder')"
-                        >
-                            <x-slot:below>
-                                <div class="seo-agent-workspace__cli-global-keys">Tab: biến tiếp theo · Shift+Tab: biến trước</div>
-                                <x-seo-content-ai::seo-agent-chat.disclaimer />
-                            </x-slot:below>
-                        </x-seo-content-ai::seo-agent-chat.composer>
                     </div>
                 </section>
+
+                {{-- Starter templates: prefill composer only via selectTemplate — never auto-send. --}}
+                <button
+                    type="button"
+                    class="seo-agent-workspace__suggestions-backdrop"
+                    x-on:click="closeSuggestions()"
+                    aria-label="{{ __('seo-content-ai::filament.agent_workspace.suggestions_close') }}"
+                    tabindex="-1"
+                ></button>
+                <aside
+                    id="seo-agent-suggestions-panel"
+                    class="seo-agent-workspace__suggestions"
+                    x-bind:aria-hidden="suggestionsOpen ? 'false' : 'true'"
+                    wire:loading.class="pointer-events-none opacity-60"
+                    wire:target="selectTemplate"
+                >
+                    <div class="seo-agent-workspace__suggestions-head">
+                        <h3>{{ __('seo-content-ai::filament.agent_workspace.suggestions') }}</h3>
+                        <button
+                            type="button"
+                            class="seo-agent-workspace__ghost-btn"
+                            x-on:click="closeSuggestions()"
+                        >
+                            {{ __('seo-content-ai::filament.agent_workspace.suggestions_close') }}
+                        </button>
+                    </div>
+                    <div class="seo-agent-workspace__suggestions-list">
+                        @forelse ($suggestedActions as $card)
+                            <x-seo-content-ai::agent-workspace.action-button
+                                action="selectTemplate"
+                                :value="$card['key']"
+                                wire:key="agent-template-{{ $card['key'] }}"
+                                class="seo-agent-workspace__template-card"
+                                wire:loading.attr="disabled"
+                                wire:target="selectTemplate"
+                            >
+                                <div class="seo-agent-workspace__template-title">{{ $card['title'] }}</div>
+                                <div class="seo-agent-workspace__template-desc">{{ $card['description'] }}</div>
+                            </x-seo-content-ai::agent-workspace.action-button>
+                        @empty
+                            <p class="seo-agent-workspace__suggestions-empty">
+                                {{ __('seo-content-ai::filament.agent_workspace.suggestions_empty') }}
+                            </p>
+                        @endforelse
+                    </div>
+                </aside>
             </div>
             @endif
             {{-- No skill/modal/drawer UI in chat-only UX --}}
@@ -248,6 +309,7 @@
                     return {
                         conversationsOpen: false,
                         contextOpen: false,
+                        suggestionsOpen: false,
                         paletteOpen: false,
                         paletteIndex: 0,
                         placeholderIndex: 0,
@@ -266,6 +328,8 @@
                         _restoreFocusAfterMorph: false,
                         stickToBottom: true,
                         _chatObserver: null,
+                        /** Block Enter/Send briefly after suggestion prefill (click-steal / key leak). */
+                        _blockSubmitUntil: 0,
 
                         init: function () {
                             var self = this;
@@ -310,6 +374,14 @@
                                     }
                                 });
                             }
+                        },
+
+                        toggleSuggestions: function () {
+                            this.suggestionsOpen = ! this.suggestionsOpen;
+                        },
+
+                        closeSuggestions: function () {
+                            this.suggestionsOpen = false;
                         },
 
                         initChatAutoScroll: function () {
@@ -497,6 +569,10 @@
                                 this.closePalette();
                                 return;
                             }
+                            if (this.suggestionsOpen) {
+                                this.closeSuggestions();
+                                return;
+                            }
                             this.argSuggestions = [];
                             this.cliHelp = null;
                         },
@@ -544,6 +620,17 @@
                                 self.focusFirstPlaceholder();
                                 self.scheduleArgSuggest();
                             });
+                        },
+
+                        onSuggestionPrefilled: function () {
+                            // Suggestions never auto-send — arm guard before focusing composer.
+                            this._blockSubmitUntil = Date.now() + 600;
+                            this.onCliTemplateReady();
+                            this.focusComposer({ force: true });
+                        },
+
+                        isSubmitBlocked: function () {
+                            return Date.now() < (this._blockSubmitUntil || 0);
                         },
 
                         findPlaceholders: function (text) {
@@ -721,6 +808,9 @@
                             }
                             event.preventDefault();
                             event.stopPropagation();
+                            if (this.isSubmitBlocked()) {
+                                return;
+                            }
                             if (this.composerSubmitting || this.$wire.composerSubmitting) {
                                 return;
                             }
@@ -733,6 +823,9 @@
 
                         submitAgentComposer: function () {
                             var self = this;
+                            if (this.isSubmitBlocked()) {
+                                return;
+                            }
                             if (this.composerSubmitting || this.$wire.composerSubmitting) {
                                 return;
                             }
@@ -772,4 +865,3 @@
             document.addEventListener('alpine:init', register);
         })();
     </script>
-</x-filament-panels::page>

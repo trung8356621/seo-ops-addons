@@ -125,10 +125,13 @@
                             <template x-if="item.can_assign_content_project">
                                 <button
                                     type="button"
-                                    class="inline-flex items-center gap-1.5 rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800 transition hover:bg-amber-100 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
+                                    class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-warning-600 transition hover:bg-warning-50 dark:hover:bg-warning-500/10"
                                     :data-assign-link-map="item.id"
+                                    data-assign-content-project-trigger
+                                    title="{{ \Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectContract::label() }}"
+                                    aria-label="{{ \Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectContract::label() }}"
                                 >
-                                    {{ __('seo-content-ai::filament.article_list.assign_to_content_project') }}
+                                    <x-filament::icon icon="heroicon-o-folder-plus" class="h-4 w-4" />
                                 </button>
                             </template>
                         </div>

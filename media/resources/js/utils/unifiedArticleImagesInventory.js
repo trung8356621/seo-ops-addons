@@ -137,6 +137,10 @@ export function rowRequiresLocalSlugFix(row) {
         return true;
     }
 
+    if (/placeholder-loading/i.test(src) || /placeholder-loading/i.test(slug)) {
+        return false;
+    }
+
     return /^(image|img|photo|untitled|download|dsc|img_)[-_]?\d*$/i.test(slug)
         || /^(paste|clipboard|import)-[a-f0-9]{8,}$/i.test(slug)
         || /placeholder/i.test(slug);

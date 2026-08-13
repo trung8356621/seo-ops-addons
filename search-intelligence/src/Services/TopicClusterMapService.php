@@ -12,6 +12,7 @@ use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordMetaRepository;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 use App\Models\Site;
 
 final class TopicClusterMapService

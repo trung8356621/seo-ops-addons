@@ -59,6 +59,10 @@
                     window.__seoResetPublishTabPrimed = () => {};
                     this.syncCategoryTaxonomyFromPostType();
                     this.restoreWpCategoriesFromStorage();
+                    if (this.requiresCategories() && this.resolveEffectiveCategoryIds().length === 0) {
+                        this.highlightError = true;
+                    }
+                    this.emitPublishingCategoriesChanged();
                     window.addEventListener('seo-wp-categories-fetched', (event) => this.onWpCategoriesFetched(event));
                     window.addEventListener('seo-assistant-open-publishing', () => {
                         void this.ensurePublishCategoryOptions();
@@ -96,6 +100,15 @@
                         return;
                     }
 
+                    const resolved = typeof window.__seoResolvePublishCategoryRequirement === 'function'
+                        ? window.__seoResolvePublishCategoryRequirement(this.postType, this.recordType)
+                        : null;
+                    if (resolved?.taxonomy) {
+                        this.categoryTaxonomy = resolved.taxonomy;
+
+                        return;
+                    }
+
                     this.categoryTaxonomy = this.postType === 'product' ? 'product_category' : 'category';
                 },
 
@@ -116,7 +129,37 @@
                         return false;
                     }
 
-                    return this.postType === 'article' || this.postType === 'product';
+                    const resolved = typeof window.__seoResolvePublishCategoryRequirement === 'function'
+                        ? window.__seoResolvePublishCategoryRequirement(this.postType, this.recordType)
+                        : null;
+                    if (resolved && typeof resolved === 'object') {
+                        return resolved.required === true;
+                    }
+
+                    // Fallback when resolver JS not loaded yet.
+                    if (this.postType === 'page') {
+                        return false;
+                    }
+
+                    return this.postType === 'article'
+                        || this.postType === 'post'
+                        || this.postType === 'product';
+                },
+
+                emitPublishingCategoriesChanged() {
+                    const selectedIds = typeof this.resolveEffectiveCategoryIds === 'function'
+                        ? this.resolveEffectiveCategoryIds()
+                        : (Array.isArray(this.selectedIds) ? this.selectedIds.map(Number) : []);
+                    window.dispatchEvent(new CustomEvent('seo-publishing-categories-changed', {
+                        detail: {
+                            articleId: this.articleId,
+                            postType: this.postType,
+                            recordType: this.recordType,
+                            selectedIds,
+                            categoryTaxonomy: this.categoryTaxonomy,
+                            required: this.requiresCategories(),
+                        },
+                    }));
                 },
 
                 taxonomy() {
@@ -174,6 +217,7 @@
                     }
 
                     this.queueSave();
+                    this.emitPublishingCategoriesChanged();
                 },
 
                 selectParentTerm(id) {
@@ -181,6 +225,7 @@
                     this.selectedIds = this.selectedIds[0] === id ? [] : [id];
                     this.highlightError = false;
                     this.queueSave();
+                    this.emitPublishingCategoriesChanged();
                 },
 
                 isParentSelected(id) {
@@ -204,6 +249,7 @@
                     this.syncCategoryTaxonomyFromPostType();
                     this.selectedIds = this.filterValidCategoryIds(this.selectedIds);
                     this.queueSave();
+                    this.emitPublishingCategoriesChanged();
                 },
 
                 readWireCategoryIds() {
@@ -483,7 +529,7 @@
                 <p class="text-xs text-sky-700 dark:text-sky-300" x-show="wpSyncHint() !== ''" x-text="wpSyncHint()" x-cloak></p>
 
                 <p class="text-xs" x-bind:class="highlightError ? 'text-red-600 dark:text-red-400' : 'text-gray-500 dark:text-gray-400'">
-                    <span x-show="highlightError" x-cloak>Chọn ít nhất 1 danh mục trước khi đăng lên WordPress.</span>
+                    <span x-show="highlightError" x-cloak>Chưa chọn danh mục.</span>
                     <span x-show="!highlightError" x-text="`Đã chọn ${selectedIds.length} danh mục`"></span>
                 </p>
             </div>

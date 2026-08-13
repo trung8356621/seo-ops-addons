@@ -118,6 +118,10 @@ final class PublishFailureClassifier
             'not configured',
             'missing article',
             'plugin thiếu',
+            'media_preflight',
+            'slug_fix',
+            'wordpress_slug_fix',
+            'cần xử lý trước khi xuất bản',
         ] as $needle) {
             if (str_contains($hay, $needle)) {
                 return true;

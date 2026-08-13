@@ -26,18 +26,19 @@ final class AgentWorkspaceInteractionBindingTest extends TestCase
         $source = (string) file_get_contents($path);
 
         self::assertStringContainsString('value="{{ $reference }}"', $source);
-        self::assertStringContainsString('wire:click="selectSkill($event.currentTarget.value)"', $source);
-        self::assertStringContainsString('wire:click="selectTemplate($event.currentTarget.value)"', $source);
-        self::assertStringContainsString('wire:click="selectCommand($event.currentTarget.value)"', $source);
+        self::assertStringContainsString('wire:click.prevent="selectSkill($event.currentTarget.value)"', $source);
+        self::assertStringContainsString('wire:click.prevent="selectTemplate($event.currentTarget.value)"', $source);
+        self::assertStringContainsString('wire:click.prevent="selectCommand($event.currentTarget.value)"', $source);
         self::assertStringNotContainsString('@js(', $source);
         self::assertStringNotContainsString('Js::from', $source);
         self::assertStringNotContainsString('x-on:click="$wire.', $source);
         self::assertStringNotContainsString('wire:click="{{', $source);
+        self::assertStringNotContainsString('wire:click.prevent="{{', $source);
     }
 
     public function test_agent_workspace_blades_have_no_dynamic_js_injection(): void
     {
-        $addonViews = LegacyAddonPath::resolve('resources/views');
+        $addonViews = ProjectRoot::addonsPath().'/seo-content-ai-compat/resources/views';
         $roots = [
             $addonViews.'/filament/pages/agent-workspace.blade.php',
             $addonViews.'/filament/pages/partials/agent-context-panel.blade.php',
@@ -117,7 +118,10 @@ final class AgentWorkspaceInteractionBindingTest extends TestCase
             self::assertInstanceOf(DOMElement::class, $button, $key);
 
             $value = $button->getAttribute('value');
-            $wireClick = $button->getAttribute('wire:click');
+            $wireClick = $button->getAttribute('wire:click.prevent');
+            if ($wireClick === '') {
+                $wireClick = $button->getAttribute('wire:click');
+            }
 
             self::assertSame($key, html_entity_decode($value, ENT_QUOTES));
             self::assertSame('selectTemplate($event.currentTarget.value)', $wireClick);
@@ -135,8 +139,8 @@ final class AgentWorkspaceInteractionBindingTest extends TestCase
 
         $source = (string) file_get_contents($pagePath);
 
-        self::assertMatchesRegularExpression('/function\s+selectCommand\s*\(/', $source, 'Missing selectCommand â€” upload AgentWorkspacePage.php');
-        self::assertMatchesRegularExpression('/function\s+sendMessage\s*\(\s*\?string\s+\$message\s*=\s*null\s*\)/', $source, 'Missing sendMessage(?string $message = null)');
+        self::assertMatchesRegularExpression('/function\s+selectCommand\s*\(/', $source, 'Missing selectCommand — upload AgentWorkspacePage.php');
+        self::assertMatchesRegularExpression('/function\s+sendMessage\s*\(\s*\?string\s+\$message\s*=\s*null/', $source, 'Missing sendMessage(?string $message = null, ...)');
         self::assertMatchesRegularExpression('/function\s+normalizeAgentReference\s*\(/', $source);
         self::assertMatchesRegularExpression('/function\s+pollActiveExecutions\s*\(/', $source);
         self::assertStringContainsString('strlen($value) > $maxLength', $source);
@@ -144,7 +148,7 @@ final class AgentWorkspaceInteractionBindingTest extends TestCase
 
     public function test_composer_has_single_submit_owner(): void
     {
-        $path = LegacyAddonPath::resolve('resources/views/components/seo-agent-chat/composer.blade.php');
+        $path = ProjectRoot::addonsPath().'/seo-content-ai-compat/resources/views/components/seo-agent-chat/composer.blade.php';
         $source = (string) file_get_contents($path);
 
         self::assertStringContainsString('x-on:submit.prevent="submitAgentComposer()"', $source);
@@ -153,6 +157,7 @@ final class AgentWorkspaceInteractionBindingTest extends TestCase
         self::assertStringNotContainsString('wire:submit', $source);
         self::assertStringNotContainsString('wire:click', $source);
         self::assertDoesNotMatchRegularExpression('/\bwire:model(?:\.[\w.-]+)?\s*=/', $source);
+        self::assertStringContainsString('wire:target="selectTemplate"', $source);
     }
 
     public function test_no_dual_wire_and_alpine_click_on_action_button(): void
@@ -160,7 +165,7 @@ final class AgentWorkspaceInteractionBindingTest extends TestCase
         $path = LegacyAddonPath::resolve('resources/views/components/agent-workspace/action-button.blade.php');
         $source = (string) file_get_contents($path);
 
-        self::assertStringContainsString('wire:click=', $source);
+        self::assertStringContainsString('wire:click.prevent=', $source);
         self::assertStringNotContainsString('x-on:click=', $source);
         self::assertStringNotContainsString('onclick=', $source);
     }

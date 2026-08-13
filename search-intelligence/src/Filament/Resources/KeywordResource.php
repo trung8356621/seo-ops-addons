@@ -16,6 +16,8 @@ use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectActionFactory;
+use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectContract;
 use Omnichannel\Addons\SearchFoundation\Models\Tag;
 use Omnichannel\Addons\Seo\Services\DomainOverviewService;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordDebugRescrapeService;
@@ -657,47 +659,19 @@ class KeywordResource extends SeoPanelResource
                             })()
                         JS;
                     }),
-                Tables\Actions\Action::make('assign_to_content_project')
-                    ->label(__('seo-content-ai::filament.article_list.assign_to_content_project'))
-                    ->icon('heroicon-o-folder-plus')
-                    ->iconButton()
-                    ->tooltip(__('seo-content-ai::filament.article_list.assign_to_content_project'))
-                    ->color('warning')
-                    ->visible(fn (Keyword $record): bool => static::canAssignKeywordToContentProject($record))
-                    ->form(function (Keyword $record): array {
+                AssignToContentProjectActionFactory::tableRowAction(
+                    resolvePayload: function (Model $record): array {
+                        /** @var Keyword $record */
                         $siteId = static::resolveKeywordSiteId($record);
 
-                        if (static::resolveKeywordDirectAssignData($siteId) !== null) {
-                            return [];
-                        }
-
-                        return static::assignKeywordContentProjectFormSchema(
-                            $siteId !== null ? [(int) $siteId] : [],
+                        return AssignToContentProjectContract::keywordPayload(
+                            source: 'keyword_table',
+                            keywordIds: [(int) $record->id],
+                            siteIds: $siteId !== null && $siteId > 0 ? [(int) $siteId] : [],
                         );
-                    })
-                    ->requiresConfirmation(fn (Keyword $record): bool => static::resolveKeywordDirectAssignData(
-                        static::resolveKeywordSiteId($record),
-                    ) === null)
-                    ->modalHidden(fn (Keyword $record): bool => static::resolveKeywordDirectAssignData(
-                        static::resolveKeywordSiteId($record),
-                    ) !== null)
-                    ->modalHeading(__('seo-content-ai::filament.article_list.assign_to_content_project'))
-                    ->modalDescription(__('seo-content-ai::filament.keyword.assign_to_content_project_description'))
-                    ->modalSubmitActionLabel(__('seo-content-ai::filament.article_list.assign'))
-                    ->action(function (Keyword $record, array $data): void {
-                        $siteId = static::resolveKeywordSiteId($record);
-                        $assignData = static::resolveKeywordDirectAssignData($siteId) ?? $data;
-                        $summary = static::executeAssignKeywordsToContentProjects(
-                            Collection::make([$record]),
-                            $assignData,
-                        );
-
-                        Notification::make()
-                            ->title(__('seo-content-ai::filament.keyword.assign_completed'))
-                            ->body(ArticleResource::buildAssignContentProjectBody($summary))
-                            ->success()
-                            ->send();
-                    }),
+                    },
+                    visible: fn (Keyword $record): bool => static::canAssignKeywordToContentProject($record),
+                ),
                 Tables\Actions\Action::make('add_to_rank_group')
                     ->label(__('seo-content-ai::filament.rank_group.add_to_group'))
                     ->icon('heroicon-o-rectangle-stack')
@@ -930,37 +904,23 @@ class KeywordResource extends SeoPanelResource
                                 ->success()
                                 ->send();
                         }),
-                    Tables\Actions\BulkAction::make('assign_to_content_project')
-                        ->label(__('seo-content-ai::filament.article_list.assign_to_content_project'))
-                        ->icon('heroicon-o-folder-plus')
-                        ->color('warning')
-                        ->deselectRecordsAfterCompletion()
-                        ->form(function (Collection $records): array {
-                            if (static::resolveKeywordDirectAssignData() !== null) {
-                                return [];
-                            }
+                    AssignToContentProjectActionFactory::tableBulkAction(
+                        resolvePayload: function (Collection $records): array {
+                            $siteIds = static::resolveBulkKeywordsSiteIds($records);
 
-                            return static::assignKeywordContentProjectFormSchema(
-                                ($siteIds = static::resolveBulkKeywordsSiteIds($records)) !== []
+                            return AssignToContentProjectContract::keywordPayload(
+                                source: 'keyword_table_bulk',
+                                keywordIds: $records
+                                    ->filter(static fn (mixed $record): bool => $record instanceof Keyword)
+                                    ->map(static fn (Keyword $keyword): int => (int) $keyword->id)
+                                    ->values()
+                                    ->all(),
+                                siteIds: $siteIds !== []
                                     ? $siteIds
                                     : (SeoAccessControl::globalSiteId() !== null ? [(int) SeoAccessControl::globalSiteId()] : []),
                             );
-                        })
-                        ->requiresConfirmation(fn (Collection $records): bool => static::resolveKeywordDirectAssignData() === null)
-                        ->modalHidden(fn (Collection $records): bool => static::resolveKeywordDirectAssignData() !== null)
-                        ->modalHeading(__('seo-content-ai::filament.article_list.assign_to_content_project'))
-                        ->modalDescription(__('seo-content-ai::filament.keyword.assign_to_content_project_description'))
-                        ->modalSubmitActionLabel(__('seo-content-ai::filament.article_list.assign'))
-                        ->action(function (Collection $records, array $data): void {
-                            $assignData = static::resolveKeywordDirectAssignData() ?? $data;
-                            $summary = static::executeAssignKeywordsToContentProjects($records, $assignData);
-
-                            Notification::make()
-                                ->title(__('seo-content-ai::filament.keyword.assign_completed'))
-                                ->body(ArticleResource::buildAssignContentProjectBody($summary))
-                                ->success()
-                                ->send();
-                        }),
+                        },
+                    ),
                     Tables\Actions\BulkAction::make('add_to_rank_group')
                         ->label(__('seo-content-ai::filament.rank_group.add_to_group_bulk'))
                         ->icon('heroicon-o-rectangle-stack')
@@ -2208,109 +2168,6 @@ class KeywordResource extends SeoPanelResource
                 ->required()
                 ->multiple()
                 ->minItems(1),
-        ];
-    }
-
-    /**
-     * @param  list<int>|null  $defaultSiteIds
-     * @return list<Forms\Components\Component>
-     */
-    public static function assignKeywordContentProjectFormSchema(?array $defaultSiteIds = null): array
-    {
-        $defaultSiteIds = collect($defaultSiteIds ?? [])
-            ->filter(static fn (mixed $siteId): bool => is_numeric($siteId) && (int) $siteId > 0)
-            ->map(static fn (mixed $siteId): int => (int) $siteId)
-            ->unique()
-            ->values()
-            ->all();
-
-        if ($defaultSiteIds === [] && ($globalSiteId = SeoAccessControl::globalSiteId()) !== null) {
-            $defaultSiteIds = [(int) $globalSiteId];
-        }
-
-        $domainOptions = static::siteSelectOptions();
-
-        $projectFields = collect($domainOptions)
-            ->map(function (string $label, int|string $siteId) use ($defaultSiteIds): Forms\Components\Select {
-                $siteId = (int) $siteId;
-                $fieldName = 'project_id_'.$siteId;
-
-                return ArticleResource::assignContentProjectSelectField(
-                    fn (): ?int => $siteId,
-                    fieldName: $fieldName,
-                )
-                    ->key('keyword-assign-project-'.$siteId)
-                    ->label(__('seo-content-ai::filament.article_list.content_project').' — '.trim($label))
-                    ->default(function () use ($siteId, $defaultSiteIds): mixed {
-                        if (! in_array($siteId, $defaultSiteIds, true)) {
-                            return null;
-                        }
-
-                        $direct = ArticleResource::resolveDirectAssignContentProjectId($siteId);
-
-                        return $direct !== null && $direct > 0 ? $direct : null;
-                    })
-                    ->required(fn (Get $get): bool => in_array(
-                        $siteId,
-                        collect($get('site_ids') ?? [])
-                            ->filter(static fn (mixed $value): bool => is_numeric($value) && (int) $value > 0)
-                            ->map(static fn (mixed $value): int => (int) $value)
-                            ->all(),
-                        true,
-                    ))
-                    ->visible(fn (Get $get): bool => in_array(
-                        $siteId,
-                        collect($get('site_ids') ?? [])
-                            ->filter(static fn (mixed $value): bool => is_numeric($value) && (int) $value > 0)
-                            ->map(static fn (mixed $value): int => (int) $value)
-                            ->all(),
-                        true,
-                    ));
-            })
-            ->values()
-            ->all();
-
-        return [
-            Forms\Components\Select::make('site_ids')
-                ->label(__('seo-content-ai::filament.keyword.domain'))
-                ->options(fn (): array => $domainOptions)
-                ->default($defaultSiteIds)
-                ->required()
-                ->multiple()
-                ->searchable()
-                ->preload()
-                ->native(false)
-                ->live()
-                ->helperText(__('seo-content-ai::filament.keyword.assign_to_content_project_sites_hint')),
-            ...$projectFields,
-        ];
-    }
-
-    /**
-     * Form gọn cho editor bài viết: domain cố định theo bài, tránh schema động mất state.
-     *
-     * @return list<Forms\Components\Component>
-     */
-    public static function assignKeywordContentProjectFormSchemaForSite(int $siteId): array
-    {
-        if ($siteId <= 0) {
-            return static::assignKeywordContentProjectFormSchema();
-        }
-
-        $domainOptions = static::siteSelectOptions();
-        $label = trim((string) ($domainOptions[$siteId] ?? ('#'.$siteId)));
-        $fieldName = 'project_id_'.$siteId;
-
-        return [
-            Forms\Components\Hidden::make('site_ids')
-                ->default([$siteId])
-                ->dehydrated(),
-            ArticleResource::assignContentProjectSelectField(
-                fn (): ?int => $siteId,
-                fieldName: $fieldName,
-            )
-                ->key('keyword-assign-project-'.$siteId)
-                ->label(__('seo-content-ai::filament.article_list.content_project').' — '.$label),
         ];
     }
 

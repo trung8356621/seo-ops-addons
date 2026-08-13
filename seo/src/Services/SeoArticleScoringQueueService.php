@@ -12,6 +12,7 @@ use Omnichannel\Addons\Seo\Support\SeoScoringStatus;
 use App\Support\RuntimeLogger;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 
 final class SeoArticleScoringQueueService
 {
@@ -126,7 +127,7 @@ final class SeoArticleScoringQueueService
 
         $this->eligibleArticlesQuery($siteId)
             ->with('articleMetas')
-            ->orderBy('id')
+            ->orderBy('articles.id')
             ->chunkById(100, function ($articles) use (&$staleQueued): void {
                 foreach ($articles as $article) {
                     if (! $article instanceof SeoArticle) {
@@ -148,7 +149,7 @@ final class SeoArticleScoringQueueService
                         $staleQueued++;
                     }
                 }
-            });
+            }, 'articles.id', 'id');
 
         if ($context !== []) {
             RuntimeLogger::warning('seo.scoring.queue_missing_or_stale', array_merge($context, [
@@ -226,7 +227,7 @@ final class SeoArticleScoringQueueService
         $queued = 0;
         $skipped = 0;
 
-        $query->select(['id'])->orderBy('id')->chunkById(200, function ($articles) use (&$queued, &$skipped, $force): void {
+        $query->select(['articles.id'])->orderBy('articles.id')->chunkById(200, function ($articles) use (&$queued, &$skipped, $force): void {
             foreach ($articles as $article) {
                 if (! $article instanceof SeoArticle) {
                     continue;
@@ -238,7 +239,7 @@ final class SeoArticleScoringQueueService
                     $skipped++;
                 }
             }
-        });
+        }, 'articles.id', 'id');
 
         return ['queued' => $queued, 'skipped' => $skipped];
     }
@@ -249,10 +250,10 @@ final class SeoArticleScoringQueueService
     private function eligibleArticlesQuery(int $siteId): Builder
     {
         return SeoArticle::query()
-            ->where('site_id', $siteId)
+            ->where('articles.site_id', $siteId)
             ->countsTowardSeoScore()
-            ->whereNotIn('type', ['category', 'product_category'])
-            ->where('status', '!=', 'trash');
+            ->whereNotIn('articles.type', ['category', 'product_category'])
+            ->where('articles.status', '!=', 'trash');
     }
 
     /**
@@ -266,7 +267,7 @@ final class SeoArticleScoringQueueService
             $sub->whereDoesntHave('articleMetas', static function (Builder $meta): void {
                 $meta->where('meta_key', \Omnichannel\Addons\Seo\Support\SeoScoringRulesRegistry::META_KEY_VIOLATIONS);
             })
-                ->orWhereNull('seo_score')
+                ->orWhereNull($this->seoScoreColumn())
                 ->orWhereHas('articleMetas', static function (Builder $meta): void {
                     $meta->where('meta_key', SeoScoringStatus::META_KEY_STATUS)
                         ->where('meta_value', SeoScoringStatus::STATUS_FAILED);
@@ -277,13 +278,29 @@ final class SeoArticleScoringQueueService
     }
 
     /**
+     * Qualify score column for queries that may leftJoin seo_article_profiles (sap_skip).
+     */
+    private function seoScoreColumn(): string
+    {
+        try {
+            if (Schema::connection('omi_seo_ai')->hasColumn('articles', 'seo_score')) {
+                return 'articles.seo_score';
+            }
+        } catch (\Throwable) {
+            // Fall through to profile column.
+        }
+
+        return 'sap_skip.seo_score';
+    }
+
+    /**
      * @param  Builder<SeoArticle>  $query
      */
     private function applyCompletedScope(Builder $query): void
     {
         $query->whereHas('articleMetas', static function (Builder $meta): void {
             $meta->where('meta_key', \Omnichannel\Addons\Seo\Support\SeoScoringRulesRegistry::META_KEY_VIOLATIONS);
-        })->whereNotNull('seo_score');
+        })->whereNotNull($this->seoScoreColumn());
     }
 
     /**

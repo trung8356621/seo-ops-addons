@@ -82,14 +82,28 @@ final class ContentProjectEditorLocalSaveTest extends TestCase
             LegacyAddonPath::resolve('resources/views/filament/resources/article-resource/pages/partials/article-editor-page-actions.blade.php'),
         );
         self::assertStringContainsString('articleIsInContentProject', $actions);
+        self::assertStringContainsString('$contentProjectWpSyncEligible', $actions);
         self::assertStringContainsString('page_action_save_close_label', $actions);
         self::assertStringContainsString('data-seo-page-action="save-close"', $actions);
         self::assertStringContainsString('data-seo-content-project-url', $actions);
         self::assertStringContainsString("action: 'save-close'", $actions);
         self::assertStringNotContainsString('project_local_save', $actions);
-        // Unpublished CP still save-close; Published CP may also show post_publish sync.
-        self::assertStringContainsString('postPublishWpSyncEligible', $actions);
-        self::assertStringContainsString('data-seo-sync-mode="wordpress_sync"', $actions);
+        self::assertStringNotContainsString('postPublishWpSyncEligible', $actions);
+
+        $eligibleBranch = $this->extractBetween(
+            $actions,
+            '@if ($inContentProject && $contentProjectWpSyncEligible)',
+            '@elseif ($inContentProject)',
+        );
+        $projectBranch = $this->extractBetween(
+            $actions,
+            '@elseif ($inContentProject)',
+            '@else',
+        );
+        self::assertStringNotContainsString('data-seo-page-action="sync"', $eligibleBranch);
+        self::assertStringNotContainsString('data-seo-page-action="sync"', $projectBranch);
+        self::assertStringNotContainsString('data-seo-sync-mode="wordpress_sync"', $eligibleBranch);
+        self::assertStringNotContainsString('data-seo-sync-mode="wordpress_sync"', $projectBranch);
 
         $editorEntry = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content/resources/js/article-editor.jsx',
@@ -98,6 +112,12 @@ final class ContentProjectEditorLocalSaveTest extends TestCase
         self::assertStringContainsString('closeEditorAfterProjectLocalSave', $editorEntry);
         self::assertStringContainsString('saveArticleViaApiSingleFlight', $editorEntry);
         self::assertStringContainsString("normalizedAction === 'save-close'", $editorEntry);
+
+        $blade = (string) file_get_contents(
+            LegacyAddonPath::resolve('resources/views/filament/resources/article-resource/pages/edit-article.blade.php'),
+        );
+        self::assertStringContainsString('syncContentProjectEligible', $blade);
+        self::assertStringNotContainsString('__SEO_EDITOR_CONTENT_PROJECT_ID__', $blade);
     }
 
     public function test_has_unpublished_changes_ignores_stale_wp_post_id_alone(): void

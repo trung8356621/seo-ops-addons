@@ -125,6 +125,7 @@ final class ArticleEditorMediaHealthSyncContractTest extends TestCase
         self::assertStringContainsString('data-seo-page-action="sync"', $actions);
         self::assertStringContainsString('data-seo-sync-mode="wordpress_sync"', $actions);
         self::assertStringContainsString('data-seo-page-action="save-close"', $actions);
+        self::assertStringContainsString('articleIsInContentProject', $actions);
         self::assertStringContainsString('$contentProjectWpSyncEligible', $actions);
     }
 

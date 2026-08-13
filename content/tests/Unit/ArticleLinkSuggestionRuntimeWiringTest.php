@@ -64,7 +64,11 @@ final class ArticleLinkSuggestionRuntimeWiringTest extends TestCase
         self::assertStringContainsString('LinkSuggestionStopPhraseFilter::isStopPhrase', $body);
         self::assertStringContainsString('shouldRun($primaryValidInternal)', $body);
         self::assertStringNotContainsString('outlineHeadingPhrases', $body);
-        self::assertStringContainsString('[LINK_FALLBACK_DEBUG]', $body);
+
+        $serviceSource = (string) file_get_contents(
+            (new ReflectionClass(ArticleInternalLinkSuggestionService::class))->getFileName()
+        );
+        self::assertStringContainsString('[LINK_FALLBACK_DEBUG]', $serviceSource);
     }
 
     public function test_fallback_gate_uses_valid_primary_count(): void
@@ -112,7 +116,7 @@ final class ArticleLinkSuggestionRuntimeWiringTest extends TestCase
         self::assertStringContainsString('links-suggestions.post', $source);
     }
 
-    public function test_sidebar_posts_editor_html_and_has_fallback_button(): void
+    public function test_sidebar_posts_editor_html_and_has_unified_suggestion_button(): void
     {
         $source = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content/resources/js/components/ArticleLinksSidebar.jsx',
@@ -120,8 +124,12 @@ final class ArticleLinkSuggestionRuntimeWiringTest extends TestCase
         self::assertStringContainsString('requestEditorDocumentHtml', $source);
         self::assertStringContainsString("method: 'POST'", $source);
         self::assertStringContainsString("mode: 'fallback'", $source);
-        self::assertStringContainsString('onGenerateFallbackSuggestions', $source);
-        self::assertStringContainsString('links_generate_fallback', $source);
+        self::assertStringContainsString('suggestionCursorRef', $source);
+        self::assertStringContainsString('links_find_more_suggestions', $source);
+        self::assertStringContainsString('is-content-suggestion', $source);
+        self::assertStringContainsString('findPhraseOccurrencesInBlocks', $source);
+        self::assertStringNotContainsString('onGenerateFallbackSuggestions', $source);
+        self::assertStringNotContainsString('links_generate_fallback', $source);
     }
 
     public function test_suggestion_anchor_supports_inline_double_click_edit(): void
@@ -153,7 +161,7 @@ final class ArticleLinkSuggestionRuntimeWiringTest extends TestCase
         self::assertStringContainsString('suppressClickRef', $source);
         self::assertStringContainsString('links_suggestion_edit_anchor_hint', $i18n);
         self::assertStringContainsString('Double-click to edit anchor text', $i18n);
-        self::assertStringContainsString('Double click Ä‘á»ƒ sá»­a anchor text', $i18n);
+        self::assertStringContainsString('Double click để sửa anchor text', $i18n);
         self::assertStringContainsString('.wp-article-links-keyword-edit', $css);
         self::assertStringContainsString('.wp-article-links-keyword.is-suggestion.is-editable-anchor', $css);
     }
@@ -161,7 +169,7 @@ final class ArticleLinkSuggestionRuntimeWiringTest extends TestCase
     public function test_editor_responds_to_document_html_request(): void
     {
         $source = (string) file_get_contents(
-            ProjectRoot::addonsPath().'/content/resources/js/components/SeoArticleEditor.jsx',
+            ProjectRoot::addonsPath().'/content/resources/js/hooks/useArticleEditorImageLifecycle.js',
         );
         self::assertStringContainsString('seo-editor-document-html-request', $source);
         self::assertStringContainsString('seo-editor-document-html', $source);

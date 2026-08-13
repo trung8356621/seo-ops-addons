@@ -337,7 +337,9 @@ final class ArticlePolylangSyncService
             ->where(function ($query) use ($wpIds, $article): void {
                 $query->whereKey((int) $article->id);
                 if ($wpIds !== []) {
-                    $query->orWhereIn('wp_post_id', $wpIds);
+                    $query->orWhere(function ($wpQuery) use ($wpIds): void {
+                        $wpQuery->whereWpPostIdIn($wpIds);
+                    });
                 }
             })
             ->update(['translation_group_id' => $groupId]);

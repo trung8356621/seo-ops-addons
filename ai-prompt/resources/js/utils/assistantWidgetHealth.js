@@ -90,11 +90,30 @@ function rowHasMediaSignal(row) {
     return src !== '' || localSrc !== '' || wpAttachmentId > 0 || seoMediaId > 0;
 }
 
+function isAiMediaLoadingPlaceholder(row) {
+    if (!row) {
+        return false;
+    }
+
+    if (row.isProcessing || row.is_processing) {
+        return true;
+    }
+
+    const src = String(row.src ?? row.url ?? row.localSrc ?? row.local_src ?? '').trim();
+
+    return /placeholder-loading/i.test(src) || src.includes('seo-ai-media-loading-placeholder');
+}
+
 /** Placeholder / empty filename for local-safe media only. */
 export function rowHasLocalPlaceholderSlug(row) {
     if (!row || isWordPressProtectedMedia(row) || !isBulkSlugRenameSafeMedia(row)) {
         return false;
     }
+
+    if (isAiMediaLoadingPlaceholder(row)) {
+        return false;
+    }
+
     const src = String(row.src ?? row.url ?? row.localSrc ?? row.local_src ?? '').trim();
     const basenameRaw = src.split('/').pop()?.split('?')[0] ?? '';
     const basename = basenameRaw.replace(/\.[^.]+$/, '');
@@ -109,6 +128,10 @@ export function rowHasLocalPlaceholderSlug(row) {
 }
 
 function rowUploadIncomplete(row) {
+    if (isAiMediaLoadingPlaceholder(row)) {
+        return false;
+    }
+
     const src = String(row?.src ?? row?.url ?? row?.localSrc ?? row?.local_src ?? '').trim();
     if (src === '') {
         return true;
@@ -469,7 +492,10 @@ export function buildFeaturedWidgetHealth({
         const wpId = Number(row.wpAttachmentId ?? 0);
         const seoId = Number(row.seoMediaId ?? 0);
 
-        if (/placeholder/i.test(url) || url.startsWith('blob:')) {
+        if (
+            !isAiMediaLoadingPlaceholder({ src: url, isProcessing: item?.isProcessing ?? item?.is_processing })
+            && (/placeholder/i.test(url) || url.startsWith('blob:'))
+        ) {
             reasons.push({
                 code: 'featured_upload_incomplete',
                 message: locale === 'en' ? 'Featured image upload incomplete' : 'Ảnh đại diện chưa upload xong',
@@ -567,6 +593,65 @@ export function buildGalleryWidgetHealth({
         item_count: list.length,
         issue_count: hard.length,
         status: hard.length > 0 ? 'error' : (list.length > 0 ? 'success' : (required ? 'error' : 'neutral')),
+        reasons,
+    };
+}
+
+/**
+ * Publishing readiness — missing required category (post-type aware).
+ *
+ * @param {{
+ *   postType?: string,
+ *   recordType?: string,
+ *   selectedIds?: number[],
+ *   required?: boolean|null,
+ *   taxonomy?: string|null,
+ *   locale?: string,
+ * }} [input]
+ */
+export function buildPublishingWidgetHealth({
+    postType = 'article',
+    recordType = '',
+    selectedIds = [],
+    required = null,
+    taxonomy = null,
+    locale = 'vi',
+} = {}) {
+    const ids = (Array.isArray(selectedIds) ? selectedIds : [])
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id) && id > 0);
+    const needsCategory = required === null || required === undefined
+        ? false
+        : Boolean(required);
+    const reasons = [];
+
+    if (needsCategory && ids.length === 0) {
+        const taxonomyKey = String(taxonomy || '').trim();
+        const isProduct = taxonomyKey === 'product_category' || taxonomyKey === 'product_cat';
+        reasons.push({
+            code: 'publishing_category_missing',
+            message: locale === 'en'
+                ? (isProduct ? 'Product category is required.' : 'Category is required.')
+                : 'Chưa chọn danh mục.',
+            target: 'publishing',
+            severity: 'error',
+            params: {
+                post_type: String(postType || ''),
+                record_type: String(recordType || ''),
+                taxonomy: taxonomyKey || null,
+            },
+        });
+    }
+
+    const issueCount = reasons.length;
+
+    return {
+        key: 'publishing',
+        item_count: ids.length,
+        issue_count: issueCount,
+        error_count: issueCount,
+        warning_count: 0,
+        status: issueCount > 0 ? 'error' : (needsCategory ? 'success' : 'neutral'),
         reasons,
     };
 }

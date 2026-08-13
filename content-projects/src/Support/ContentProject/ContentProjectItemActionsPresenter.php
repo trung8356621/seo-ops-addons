@@ -21,6 +21,7 @@ use Omnichannel\Addons\Publishing\Support\PublishingQueue\PublishingQueueHandoff
  *     run_again: bool,
  *     create_or_rerun: bool,
  *     create_or_rerun_label: string,
+ *     confirm_recreate_missing_article: bool,
  *     stop_generation: bool,
  *     resume_generation: bool,
  *     select_existing_article: bool,
@@ -255,12 +256,16 @@ final class ContentProjectItemActionsPresenter
         $hasLifecycle = $archiveItem;
         $hasDebug = $debugToApproved || $debugToScheduled || $debugToPublished;
 
+        $confirmRecreateMissingArticle = $createOrRerun
+            && ! empty($row['stale_missing_article']);
+
         $flags = [
             'open_article' => $openArticle,
             'generate' => false,
             'run_again' => false,
             'create_or_rerun' => $createOrRerun,
             'create_or_rerun_label' => $createOrRerunLabel,
+            'confirm_recreate_missing_article' => $confirmRecreateMissingArticle,
             'stop_generation' => $stopGeneration,
             'resume_generation' => $resumeGeneration,
             'select_existing_article' => $selectExistingArticle,
@@ -320,6 +325,7 @@ final class ContentProjectItemActionsPresenter
         $flags['generate'] = false;
         $flags['run_again'] = false;
         $flags['create_or_rerun'] = false;
+        $flags['confirm_recreate_missing_article'] = false;
         $flags['stop_generation'] = false;
         $flags['resume_generation'] = false;
         $flags['select_existing_article'] = false;

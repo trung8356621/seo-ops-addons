@@ -33,6 +33,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectQue
 use Omnichannel\Addons\Publishing\Services\Publishing\ContentPublishingStrategy;
 use Omnichannel\Addons\Publishing\Services\Publishing\ContentPublishingStrategyResolver;
 use Omnichannel\Addons\Publishing\Services\Publishing\DispatchClaimResult;
+use Omnichannel\Addons\Publishing\Services\Publishing\PublishingLocalMediaSlugPreparer;
 use Omnichannel\Addons\WordPress\Services\ArticleWordPressSyncFlagService;
 use Omnichannel\Addons\WordPress\Services\WordPressSlugFixRequiredException;
 use Omnichannel\Addons\WordPress\Services\WordPressWriteReadinessGuard;
@@ -54,6 +55,7 @@ final class ProcessScheduledProjectItemPublishHandler extends AbstractPublishing
         private readonly ContentProjectIdempotencyStore $idempotencyStore,
         private readonly ArticleWordPressSyncFlagService $syncFlags,
         private readonly ContentPublishingStrategyResolver $strategyResolver = new ContentPublishingStrategyResolver,
+        private readonly ?PublishingLocalMediaSlugPreparer $mediaSlugPreparer = null,
     ) {
         parent::__construct($tenantGuard, $businessLock, $previewToken);
     }
@@ -157,26 +159,86 @@ final class ProcessScheduledProjectItemPublishHandler extends AbstractPublishing
         }
 
         try {
+            $preparer = $this->mediaSlugPreparer ?? app(PublishingLocalMediaSlugPreparer::class);
+            $prep = $preparer->prepareForPublish($article);
+            if (! ($prep['ready'] ?? false)) {
+                $pending = is_array($prep['pending_after'] ?? null) ? $prep['pending_after'] : [];
+                $message = trim((string) ($prep['message'] ?? ''));
+                if ($message === '') {
+                    $message = 'Media cần xử lý trước khi xuất bản.';
+                }
+
+                RuntimeLogger::info('publishing.media_preflight_hard_blocked', [
+                    'task_id' => $itemId,
+                    'article_id' => (int) $article->id,
+                    'site_id' => (int) ($article->site_id ?? 0),
+                    'pending_before' => $prep['pending_before'] ?? [],
+                    'pending_after' => $pending,
+                    'applied' => $prep['applied'] ?? 0,
+                    'not_auto_fixable_ids' => $prep['not_auto_fixable_ids'] ?? [],
+                ]);
+
+                $this->persistPublishFailure($task, $message, 'media_preflight_blocked');
+
+                return ContentProjectActionResult::fail(
+                    'media_preflight_blocked',
+                    $message,
+                    $projectId,
+                    affectedItemIds: [$itemId],
+                    metadata: [
+                        'blocked_prerequisite' => true,
+                        'retry_count_unchanged' => false,
+                        'publisher_invoked' => false,
+                        'media_upload_started' => false,
+                        'pending_media_ids' => $pending,
+                        'auto_fix_attempted' => (bool) ($prep['auto_fix_attempted'] ?? false),
+                        'auto_fix_applied' => (int) ($prep['applied'] ?? 0),
+                    ],
+                );
+            }
+
+            if ((int) ($prep['applied'] ?? 0) > 0) {
+                RuntimeLogger::info('publishing.media_preflight_prepared', [
+                    'task_id' => $itemId,
+                    'article_id' => (int) $article->id,
+                    'applied' => (int) $prep['applied'],
+                    'pending_before' => $prep['pending_before'] ?? [],
+                ]);
+                $article = $article->fresh() ?? $article;
+            }
+
+            // Safety net — preparer should have cleared auto-fixable pending.
             app(WordPressWriteReadinessGuard::class)->assertCanWriteToWordPress($article, 'publishing_queue.process');
         } catch (WordPressSlugFixRequiredException $e) {
+            $pending = is_array($e->context['pending_media_ids'] ?? null)
+                ? array_values(array_map('intval', $e->context['pending_media_ids']))
+                : [];
+            $message = 'Media '
+                .implode(', ', array_map(static fn (int $id): string => (string) $id, array_slice($pending, 0, 10)))
+                .' cần xử lý trước khi xuất bản';
+
             RuntimeLogger::info('publishing.prerequisite_blocked', [
                 'task_id' => $itemId,
                 'article_id' => (int) $article->id,
                 'site_id' => (int) ($article->site_id ?? 0),
-                'error_code' => WordPressSlugFixRequiredException::ERROR_CODE,
-                'pending_count' => (int) ($e->context['pending_count'] ?? 0),
+                'error_code' => 'media_preflight_blocked',
+                'pending_count' => (int) ($e->context['pending_count'] ?? count($pending)),
+                'pending_media_ids' => $pending,
             ]);
 
+            $this->persistPublishFailure($task, $message, 'media_preflight_blocked');
+
             return ContentProjectActionResult::fail(
-                WordPressSlugFixRequiredException::ERROR_CODE,
-                WordPressSlugFixRequiredException::MESSAGE,
+                'media_preflight_blocked',
+                $message,
                 $projectId,
                 affectedItemIds: [$itemId],
                 metadata: [
                     'blocked_prerequisite' => true,
-                    'retry_count_unchanged' => true,
+                    'retry_count_unchanged' => false,
                     'publisher_invoked' => false,
                     'media_upload_started' => false,
+                    'pending_media_ids' => $pending,
                 ],
             );
         }
@@ -421,11 +483,17 @@ final class ProcessScheduledProjectItemPublishHandler extends AbstractPublishing
             'message' => $message,
         ]);
 
-        // Missing automation / publisher resolution = permanent (do not burn retries).
-        if (in_array($code, ['automation_missing_rule', 'automation_rejected', 'publisher_resolution'], true)) {
+        // Missing automation / publisher resolution / media preflight = permanent (do not burn retries).
+        if (in_array($code, [
+            'automation_missing_rule',
+            'automation_rejected',
+            'publisher_resolution',
+            'media_preflight_blocked',
+            WordPressSlugFixRequiredException::ERROR_CODE,
+        ], true)) {
             $classification = new \Omnichannel\Addons\Publishing\Application\Publishing\PublishFailureClassification(
                 retryable: false,
-                code: $classification->code,
+                code: $code === WordPressSlugFixRequiredException::ERROR_CODE ? 'media_preflight_blocked' : $classification->code,
                 message: $classification->message,
                 httpStatus: $classification->httpStatus,
             );

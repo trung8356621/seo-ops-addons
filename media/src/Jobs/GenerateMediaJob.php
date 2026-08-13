@@ -121,6 +121,7 @@ class GenerateMediaJob implements ShouldQueue
                 $finalUrl = trim((string) ($workflowResult['url'] ?? ''));
                 $workflowSnapshot = is_array($workflowResult['snapshot'] ?? null) ? $workflowResult['snapshot'] : [];
             } else {
+                $linkedResultId = (int) ($runVariables['_linked_prompt_result_id'] ?? 0);
                 $promptResult = $promptMediaStorage->usingTargetMedia(
                     $media,
                     fn () => $promptRunner->run(
@@ -128,13 +129,14 @@ class GenerateMediaJob implements ShouldQueue
                         $runVariables,
                         isTaskMode: false,
                         runFullDependentChain: $this->runFullDependentChain,
+                        reuseResultId: $linkedResultId > 0 ? $linkedResultId : null,
                     ),
                 );
                 $output = trim((string) ($promptResult->output_text ?? ''));
                 $finalUrl = trim((string) (explode("\n", $output, 2)[0] ?? ''));
                 $workflowSnapshot = is_array($promptResult->input_snapshot) ? $promptResult->input_snapshot : [];
 
-                if ($articleId > 0) {
+                if ($articleId > 0 && $linkedResultId <= 0) {
                     try {
                         $promptResultLinks->linkPromptResult(
                             promptResultId: (int) $promptResult->id,

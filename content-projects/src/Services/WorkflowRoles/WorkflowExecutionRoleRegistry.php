@@ -86,6 +86,10 @@ final class WorkflowExecutionRoleRegistry
             return false;
         }
 
+        if (str_contains($hookKey, '@')) {
+            $hookKey = trim(explode('@', $hookKey, 2)[0]);
+        }
+
         return in_array($hookKey, $this->allowedHooks($role), true);
     }
 
@@ -94,6 +98,11 @@ final class WorkflowExecutionRoleRegistry
         $hookKey = trim($hookKey);
         if ($hookKey === '') {
             return null;
+        }
+
+        // Normalize versioned keys before match.
+        if (str_contains($hookKey, '@')) {
+            $hookKey = trim(explode('@', $hookKey, 2)[0]);
         }
 
         // Exact / canonical matches only — migration confidence cao.

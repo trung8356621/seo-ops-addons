@@ -13,7 +13,6 @@ use Omnichannel\Addons\Commerce\Services\ProductGallery\ProductGalleryCanaryProm
 use Omnichannel\Addons\Commerce\Services\ProductGallery\ProductGalleryCanaryReadinessService;
 use Omnichannel\Addons\Media\Support\ProductGallery\ProductGalleryCanaryAccess;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
-use App\Models\Site;
 use Filament\Forms;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
@@ -96,7 +95,10 @@ final class ProductGalleryCanaryPage extends Page implements HasForms
                     ->schema([
                         Forms\Components\Select::make('site_id')
                             ->label('Domain / site')
-                            ->options(fn (): array => Site::query()->orderBy('name')->pluck('name', 'id')->all())
+                            ->options(fn (): array => SeoAccessControl::accessibleSitesQuery()
+                                ->orderBy('domain')
+                                ->pluck('domain', 'id')
+                                ->all())
                             ->searchable()
                             ->required()
                             ->native(false),

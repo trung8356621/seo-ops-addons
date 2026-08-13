@@ -43,7 +43,13 @@ final class ContentProjectSkills
                 'form_schema' => [
                     ['key' => 'project_name', 'label' => 'Tên project', 'type' => 'text', 'required' => true],
                     ['key' => 'month', 'label' => 'Tháng thực hiện', 'type' => 'month', 'required' => true],
-                    ['key' => 'assignee_ref', 'label' => 'Người phụ trách', 'type' => 'user', 'required' => false],
+                    [
+                        'key' => 'assignee_ref',
+                        'label' => 'Member ID phụ trách',
+                        'type' => 'member',
+                        'required' => true,
+                        'help' => 'Nhập member ID. Nếu chưa biết ID, dùng /member-list.',
+                    ],
                     ['key' => 'description', 'label' => 'Mô tả', 'type' => 'textarea', 'required' => false],
                     [
                         'key' => 'seed_mode',
@@ -62,6 +68,7 @@ final class ContentProjectSkills
                 'input_schema' => [
                     'project_name' => ['type' => 'string', 'required' => true],
                     'month' => ['type' => 'string', 'required' => true],
+                    'assignee_ref' => ['type' => 'string', 'required' => true],
                 ],
                 'result_presentation' => [
                     'primary_link' => 'content_project',

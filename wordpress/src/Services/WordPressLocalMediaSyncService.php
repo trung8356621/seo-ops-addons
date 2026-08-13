@@ -7,6 +7,8 @@ namespace Omnichannel\Addons\WordPress\Services;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Media\Models\SeoImageOptimizationSetting;
 use Omnichannel\Addons\Media\Models\SeoMedia;
+use Omnichannel\Addons\Media\Services\SeoImageOptimizationService;
+use Omnichannel\Addons\Media\Services\SeoMediaStorageService;
 use Omnichannel\Addons\WordPress\Services\WordPressSlugFixRequiredException;
 use Omnichannel\Addons\WordPress\Services\WordPressWriteReadinessGuard;
 use App\Models\Site;

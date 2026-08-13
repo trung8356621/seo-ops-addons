@@ -39,9 +39,11 @@ function actionFingerprint(element) {
     );
 
     if (
-        alpineClick.includes('open-article-assign-content-project-modal')
+        alpineClick.includes('assign-content-project:open')
+        || alpineClick.includes('assign-to-content-project')
         || label.includes('assign to content project')
         || label.includes('phân vào content project')
+        || label.includes('phân vào dự án nội dung')
     ) {
         return 'assign-content-project';
     }

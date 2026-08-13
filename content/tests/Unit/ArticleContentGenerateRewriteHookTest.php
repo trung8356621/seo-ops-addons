@@ -54,7 +54,7 @@ final class ArticleContentGenerateRewriteHookTest extends TestCase
 
     private function longMarkdown(string $prefix = '# Article'): string
     {
-        // article.content.generate validates against minimum_acceptable_words (floor 1400, ≤ target).
+        // article.content.generate validates against minimum_acceptable_words (ratio 50% of target).
         return $prefix."\n\n".str_repeat('Nội dung bài viết mẫu cho validation word. ', 400);
     }
 

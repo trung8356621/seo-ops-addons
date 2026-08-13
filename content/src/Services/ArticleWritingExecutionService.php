@@ -16,6 +16,9 @@ use Omnichannel\Addons\Content\Services\ArticleWriting\BriefArticleWritingSource
 use Omnichannel\Addons\Content\Services\ArticleWriting\ExistingArticleWritingSourceProvider;
 use Omnichannel\Addons\Content\Services\ArticleWriting\OutlineArticleWritingSourceProvider;
 use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\PromptBindingResolver;
+use Omnichannel\Addons\AiPrompt\Services\PromptTestPublishService;
+use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
+use Omnichannel\Addons\AiPrompt\Services\TaskWorkflowTestRunner;
 use Omnichannel\Addons\ContentProjects\Services\WorkflowRoles\WorkflowExecutionRoleResolver;
 use Omnichannel\Addons\Content\Support\ArticleWritingExecutionContext;
 use Omnichannel\Addons\Content\Support\ArticleWritingExecutionResult;
@@ -23,7 +26,6 @@ use Omnichannel\Addons\Content\Support\ArticleWritingInput;
 use Omnichannel\Addons\ContentProjects\Support\TaskTestContext;
 use Omnichannel\Addons\ContentProjects\Support\WorkflowExecutionSnapshot;
 use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
-use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
 
 /**
  * Entry duy nhất cho article.content.generate (outline / existing_article / brief).

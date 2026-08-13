@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AiPrompt\Services;
 
 use Omnichannel\Addons\AiPrompt\Models\ApiConnectionListRow;
+use Omnichannel\Addons\SearchIntelligence\Services\DataForSeoConnectionService;
+use Omnichannel\Addons\SearchIntelligence\Services\GoogleSearchConsoleConnectionService;
+use Omnichannel\Addons\SearchIntelligence\Services\SeoSerpProviderConnectionService;
 use App\Models\ApiConnection;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\Eloquent\Model;

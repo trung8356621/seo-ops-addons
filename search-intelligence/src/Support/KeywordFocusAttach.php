@@ -10,6 +10,7 @@ use Omnichannel\Addons\SearchFoundation\Models\KeywordMeta;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordMetaRepository;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordPersistenceService;
+use Omnichannel\Addons\SearchFoundation\Support\KeywordOrphanCleanup;
 use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 
 final class KeywordFocusAttach
@@ -149,19 +150,34 @@ final class KeywordFocusAttach
             return;
         }
 
-        $query = KeywordMeta::query()
-            ->where('meta_key', KeywordMetaKey::MainArticleId->value)
-            ->where('meta_value', (string) $articleId);
+        $attempts = 0;
+        $staleKeywordIds = [];
 
-        if ($exceptKeywordId !== null && $exceptKeywordId > 0) {
-            $query->where('keyword_id', '!=', $exceptKeywordId);
+        while (true) {
+            $attempts++;
+            try {
+                $query = KeywordMeta::query()
+                    ->where('meta_key', KeywordMetaKey::MainArticleId->value)
+                    ->where('meta_value', (string) $articleId);
+
+                if ($exceptKeywordId !== null && $exceptKeywordId > 0) {
+                    $query->where('keyword_id', '!=', $exceptKeywordId);
+                }
+
+                $staleKeywordIds = $query->pluck('keyword_id')
+                    ->map(static fn (mixed $id): int => (int) $id)
+                    ->all();
+
+                $query->delete();
+                break;
+            } catch (\Illuminate\Database\QueryException $e) {
+                // MySQL deadlock (1213) under concurrent site-sync keyword attach.
+                if ($attempts >= 3 || ! str_contains($e->getMessage(), '1213')) {
+                    throw $e;
+                }
+                usleep(50_000 * $attempts);
+            }
         }
-
-        $staleKeywordIds = $query->pluck('keyword_id')
-            ->map(static fn (mixed $id): int => (int) $id)
-            ->all();
-
-        $query->delete();
 
         if ($staleKeywordIds !== []) {
             KeywordOrphanCleanup::deleteUnusedByIds($staleKeywordIds);

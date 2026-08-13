@@ -112,7 +112,14 @@ import {
     subscribeEditorNavigation,
 } from '../editor/runtime/editorRuntimeNavigation';
 import { publishPartialRuntimeWidgetHealth } from '../editor/runtime/composeRuntimeWidgetHealth';
-import { installRuntimeHealthBadgeBridge } from '../editor/runtime/editorRuntimeHealthStore';
+import {
+    bindDiagnosticsArticleScope,
+    getDiagnosticsGeneration,
+    installRuntimeHealthBadgeBridge,
+    patchRuntimeWidgetHealth,
+} from '../editor/runtime/editorRuntimeHealthStore';
+import { buildPublishingWidgetHealth } from '@ai-prompt-addon/utils/assistantWidgetHealth.js';
+import { resolvePublishingCategoryTaxonomy } from '../utils/publishingTaxonomyResolver';
 import { SHELL_BOUNDARY_NAV_ITEMS } from '../editor/runtime/editorShellNavItems';
 import {
     discardLegacyMediaLocalStorage,
@@ -278,7 +285,7 @@ import {
     stripEditorTransientMarkup,
 } from '../utils/articleEditorTransientMarkup';
 import FaqAccordionPreview from './FaqAccordionPreview';
-import { Undo2, Redo2, Plus, ChevronDown, ChevronRight, ImageIcon, Table, Link2, Wand2, AlertTriangle, Search, ListPlus, Sparkles, ListCollapse, Trash2, BarChart3, Star } from 'lucide-react';
+import { Undo2, Redo2, Plus, ChevronDown, ChevronRight, ImageIcon, Table, Link2, AlertTriangle, Search, ListPlus, Sparkles, ListCollapse, Trash2, BarChart3, Star } from 'lucide-react';
 import {
     getSelectionHtmlFromEditor,
     getSelectionTextFromEditor,
@@ -528,6 +535,7 @@ export default function SeoArticleEditor({
         image: null,
         reviews: null,
         links: null,
+        vocabulary: null,
         faq: null,
         featured: null,
         aiChat: null,
@@ -549,8 +557,9 @@ export default function SeoArticleEditor({
     const [mediaPickerRoot, setMediaPickerRoot] = useState(null);
     const [runtimeContextRevision, setRuntimeContextRevision] = useState(0);
 
-    // Phase 6B/6C.1 � shell bridge + runtime navigation (no dual CustomEvent listeners in host).
+    // Phase 6B/6C.1 — shell bridge + runtime navigation (no dual CustomEvent listeners in host).
     useEffect(() => {
+        bindDiagnosticsArticleScope(articleId);
         const uninstallBridge = installEditorShellCompatibilityBridge();
         const uninstallMediaPickerBridge = installMediaPickerCompatibilityBridge();
         const uninstallBadgeBridge = installRuntimeHealthBadgeBridge();
@@ -566,7 +575,7 @@ export default function SeoArticleEditor({
                 setActiveHeavyModule(normalized);
                 return;
             }
-            // External / Alpine-only / closed ? unmount editor-hosted heavy body.
+            // External / Alpine-only / closed — unmount editor-hosted heavy body.
             setActiveHeavyModule(null);
         });
         // Align initial chip with runtime default.
@@ -580,7 +589,7 @@ export default function SeoArticleEditor({
             imagesAbortRef.current?.abort();
             reviewsAbortRef.current?.abort();
         };
-    }, []);
+    }, [articleId]);
 
     // Phase 3: fetch images only while Images is the active heavy module; abort on leave.
     useEffect(() => {
@@ -670,15 +679,23 @@ export default function SeoArticleEditor({
             );
 
             if (supportsProductGallery && articleId) {
-                if (items.length === 0) {
-                    clearFeaturedImageStorage(articleId);
-                } else {
-                    const first = items[0];
-                    saveFeaturedImage(articleId, {
-                        url: first.url,
-                        wpAttachmentId: first.id,
-                        seoMediaId: first.id,
-                    });
+                // Snapshot/server/pending events already own persistence — UI mirror only.
+                const skipPersist = Boolean(
+                    detail.from_snapshot
+                    || detail.from_server
+                    || detail.pending,
+                );
+                if (!skipPersist) {
+                    if (items.length === 0) {
+                        clearFeaturedImageStorage(articleId);
+                    } else {
+                        const first = items[0];
+                        saveFeaturedImage(articleId, {
+                            url: first.url,
+                            wpAttachmentId: first.id,
+                            seoMediaId: first.id,
+                        });
+                    }
                 }
                 mediaActions.markDirty();
             }
@@ -1032,7 +1049,7 @@ export default function SeoArticleEditor({
     const seoFailedCount = seoFailedItems.length;
 
     useEffect(() => {
-        // Content widgets only � typing (blocks) must not rebuild featured/gallery health.
+        // Content widgets only — typing (blocks) must not rebuild featured/gallery health.
         const locale = String(document?.documentElement?.lang ?? 'vi').startsWith('en') ? 'en' : 'vi';
         const contentImages = collectContentImagesFromArticle(blocks);
         const imageRows = unifiedImageRows;
@@ -1040,7 +1057,7 @@ export default function SeoArticleEditor({
         const fromAnalysis = analysis?.metrics?.image_ratio ?? {};
         const useSnap = fromAnalysis.count_source === 'media_snapshot'
             && Number.isFinite(Number(fromAnalysis.valid_image_count));
-        // Ratio current = body content occurrences only � never unified inventory total.
+        // Ratio current = body content occurrences only — never unified inventory total.
         const validCount = useSnap
             ? Math.max(0, Number(fromAnalysis.valid_image_count) || 0)
             : contentImages.valid_content_image_count;
@@ -1074,12 +1091,18 @@ export default function SeoArticleEditor({
             words_per_image: wordsPerImage,
         };
         const runtime = getDefaultArticleEditorRuntime();
+        const linksSource = extractedLinks
+            ?? analysis?.extracted_links
+            ?? null;
+        const seoIncomplete = analyzing && (!analysis || !Array.isArray(analysis?.violations));
         publishPartialRuntimeWidgetHealth(runtime, {
             seo: {
                 focusKeyword: keyword,
                 violations: analysis?.violations ?? [],
                 failedItems: seoFailedItems,
                 locale,
+                incomplete: seoIncomplete,
+                analysisReady: !seoIncomplete,
             },
             images: {
                 rows: imageRows,
@@ -1087,16 +1110,24 @@ export default function SeoArticleEditor({
                 imageRatioMetrics,
                 locale,
                 messages: scoringMessages,
+                incomplete: false,
             },
             links: {
-                extractedLinks: analysis?.extracted_links ?? extractedLinks,
+                extractedLinks: linksSource,
                 locale,
+                incomplete: linksSource == null,
             },
         }, {
             reviewsBadge: showReviewsTab && isProductPost ? virtualReviews.length : null,
+        }, {
+            articleId,
+            generation: getDiagnosticsGeneration(),
+            preserveStable: true,
         });
     }, [
         analysis,
+        analyzing,
+        articleId,
         blocks,
         unifiedImageRows,
         supplementalImages,
@@ -1112,7 +1143,7 @@ export default function SeoArticleEditor({
     ]);
 
     useEffect(() => {
-        // Media snapshot widgets � independent of TipTap typing / blocks.
+        // Media snapshot widgets — independent of TipTap typing / blocks.
         const locale = String(document?.documentElement?.lang ?? 'vi').startsWith('en') ? 'en' : 'vi';
         const keyword = String(focusKeyword ?? '').trim();
         const runtime = getDefaultArticleEditorRuntime();
@@ -1133,6 +1164,10 @@ export default function SeoArticleEditor({
                 keyword,
                 locale,
             },
+        }, {}, {
+            articleId,
+            generation: getDiagnosticsGeneration(),
+            preserveStable: true,
         });
     }, [
         articleId,
@@ -1143,6 +1178,54 @@ export default function SeoArticleEditor({
         featuredHealthSnapshot,
         mediaHealthTick,
     ]);
+
+    // Publishing shell chip — category readiness from Alpine/Livewire staged state (Laravel-only OK).
+    useEffect(() => {
+        const publishPublishingHealth = (detail = {}) => {
+            const postType = String(
+                detail.postType
+                ?? detail.post_type
+                ?? articleType
+                ?? initialPostType
+                ?? 'article',
+            ).trim();
+            const recordType = String(detail.recordType ?? detail.record_type ?? '').trim();
+            const selectedIds = Array.isArray(detail.selectedIds)
+                ? detail.selectedIds
+                : (Array.isArray(detail.selected_ids) ? detail.selected_ids : (
+                    typeof window.__seoPublishCategoriesSnapshot === 'function'
+                        ? window.__seoPublishCategoriesSnapshot()
+                        : []
+                ));
+            const resolved = resolvePublishingCategoryTaxonomy(postType, recordType);
+            const locale = String(document?.documentElement?.lang ?? 'vi').startsWith('en') ? 'en' : 'vi';
+            const health = buildPublishingWidgetHealth({
+                postType,
+                recordType,
+                selectedIds,
+                required: resolved.required,
+                taxonomy: resolved.taxonomy,
+                locale,
+            });
+            patchRuntimeWidgetHealth({ publishing: health }, {}, {
+                articleId,
+                generation: getDiagnosticsGeneration(),
+                preserveStable: true,
+            });
+        };
+
+        publishPublishingHealth();
+        const onCategoriesChanged = (event) => publishPublishingHealth(event?.detail || {});
+        const onPostTypeChanged = (event) => publishPublishingHealth({
+            postType: event?.detail?.postType ?? event?.detail?.post_type,
+        });
+        window.addEventListener('seo-publishing-categories-changed', onCategoriesChanged);
+        window.addEventListener('seo-publish-post-type-changed', onPostTypeChanged);
+        return () => {
+            window.removeEventListener('seo-publishing-categories-changed', onCategoriesChanged);
+            window.removeEventListener('seo-publish-post-type-changed', onPostTypeChanged);
+        };
+    }, [articleId, articleType, initialPostType]);
 
     // Phase 6C.3 — Featured/Gallery health from media snapshot (no Alpine tick / LS).
     useEffect(() => {
@@ -1193,9 +1276,9 @@ export default function SeoArticleEditor({
 
         const { applySlugRenameFinished, armBlockOutsideClickGuard, assertNoLocalSlugFixBeforeWpSync, handleImageAltTitleChange, patchImageInBlocks, persistEditorContentImmediately, quickFixAltTitleAllImages, quickFixAltTitleSingleImage, quickFixSlugAllImages, quickFixSlugSingleImage, selectPlainTextInBlock } = useArticleEditorImageSlugRename({ articleId, articleTitle, blockEditorsRef, blockFlushRef, blockOutsideClickGuardUntilRef, blocksRef, cancelLocalDraftSave, commitActiveBlock, connectionHashRef, draftScope, focusKeyword, getExportHtml, pendingLocalRenameQueueRef, pendingLocalRenameResultsRef, pendingQuickFixKeywordRef, pendingWpRenameRequestRef, publishEditorImagesCatalogRef, quickFixSlugAllBusy, requestAnalyze, scheduleAutosave, setActiveBlockId, setBlocks, setGlobalEditor, setImagesReloadKey, setMediaHealthTick, setQuickFixSlugAllBusy, setSaveStatus, siteId, siteIdRef, skipNextAutosave, slugRenameManagedByBatchRef, supplementalImages, supplementalImagesRef, supportsProductGallery, tempMergeRef, unifiedImageRows, unifiedImagesInventory, updateBlocksWithoutHistory, withDraftSite });
 
-        const { collapseSectionsExcept, focusImageBlock, insertCtaLinkIntoContent, insertSuggestedLinkIntoContent, quickGenerateImageForSection, removeInternalLinkFromContent, scrollToExtractedLink, scrollToFeaturedSnippetTable } = useArticleEditorLinksAndSnippets({ activeBlockId, activeBlockIdRef, applySlugRenameFinished, articleId, articleTitle, blockById, blockEditorsRef, blockFlushRef, blocksRef, clearTempMerge, commitActiveBlock, connectionHashRef, editorSections, focusKeyword, intraSelectionRef, linkScrollTokenRef, notifyIntroNoImages, persistEditorContentImmediately, requestAnalyze, scheduleAutosave, sectionByBlockId, selectPlainTextInBlock, setActiveBlockId, setBlocks, setCollapsedSectionIds, setExtractedLinks, setGlobalEditor, setImageRenameBusy, setImageRenameBusyCount, setSaveStatus, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomainRef, slugRenameManagedByBatchRef, updateBlockContent });
+        const { collapseSectionsExcept, focusImageBlock, insertCtaLinkIntoContent, insertSuggestedLinkIntoContent, quickGenerateImageForSection, removeInternalLinkFromContent, scrollToExtractedLink, scrollToFeaturedSnippetTable } = useArticleEditorLinksAndSnippets({ activeBlockId, activeBlockIdRef, applySlugRenameFinished, articleId, articleTitle, blockById, blockEditorsRef, blockFlushRef, blocksRef, clearTempMerge, commitActiveBlock, connectionHashRef, editorHostActionsRef, editorSections, focusKeyword, intraSelectionRef, linkScrollTokenRef, notifyIntroNoImages, persistEditorContentImmediately, requestAnalyze, scheduleAutosave, sectionByBlockId, selectPlainTextInBlock, setActiveBlockId, setBlocks, setCollapsedSectionIds, setExtractedLinks, setGlobalEditor, setImageRenameBusy, setImageRenameBusyCount, setSaveStatus, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomainRef, slugRenameManagedByBatchRef, updateBlockContent });
 
-        const { clearMediaPolling, deleteBlock, isDismissedEditorImageMedia, makeImageFeatured, removeImageBlock, removeSupplementalImage } = useArticleEditorImageLifecycle({ activeBlockId, articleId, blockFlushRef, blocks, blocksRef, clearTempMerge, commitActiveBlock, dismissedEditorImageMediaIdsRef, editorHostActionsRef, extractedLinks, focusImageBlock, getExportHtml, insertCtaLinkIntoContent, insertSuggestedLinkIntoContent, intraSelectionRef, mediaPollTimersRef, pendingAiMediaRef, publishEditorImagesCatalogRef, publishExtractedLinks, removeInternalLinkFromContent, requestGenerateArticleImageRef, scheduleAutosave, scrollToExtractedLink, scrollToFeaturedSnippetTable, setActiveBlockId, setBlocks, setExtractedLinks, setGlobalEditor, setImagesReloadKey, siteDomain, siteDomainRef, suggestedExternalLinks, suggestedInternalLinks, supplementalImagesRef, supportsProductGallery, tempMergeRef, utilitySchedulerRef });
+        const { clearMediaPolling, deleteBlock, isDismissedEditorImageMedia, makeImageFeatured, removeImageBlock, removeSupplementalImage } = useArticleEditorImageLifecycle({ activeBlockId, articleId, articleTitle, blockById, blockFlushRef, blocks, blocksRef, clearTempMerge, commitActiveBlock, dismissedEditorImageMediaIdsRef, editorHostActionsRef, extractedLinks, focusImageBlock, focusKeyword, generateImageTargetRef, getExportHtml, insertCtaLinkIntoContent, insertSuggestedLinkIntoContent, intraSelectionRef, mediaPollTimersRef, pendingAiMediaRef, publishEditorImagesCatalogRef, publishExtractedLinks, removeInternalLinkFromContent, requestGenerateArticleImageRef, scheduleAutosave, scrollToExtractedLink, scrollToFeaturedSnippetTable, sectionByBlockId, setActiveBlockId, setBlocks, setExtractedLinks, setGlobalEditor, setImagesReloadKey, siteDomain, siteDomainRef, suggestedExternalLinks, suggestedInternalLinks, supplementalImagesRef, supportsProductGallery, tempMergeRef, utilitySchedulerRef });
 
         const { activateBlock, clearOutlineFocus, insertBlockRelative, syncOutlineFocusFromBlock } = useArticleEditorBlockActivation({ activeBlockId, activeBlockIdRef, armBlockOutsideClickGuard, articleId, blocks, blocksRef, clearTempMerge, collapsedSectionIds, commitActiveBlock, focusedOutlineHeadingRef, intraSelectionRef, isIntroBlockId, notifyIntroNoImages, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, outlineHeadingKeys, sectionByBlockId, setActiveBlockId, setBlocks, setCollapsedSectionIds, setGlobalEditor, setInsertMenu, setOutlineHeadingCommand, tempMerge, tempMergeRef });
 
@@ -1207,7 +1290,7 @@ export default function SeoArticleEditor({
         const { mergedDisplay, saveLabel } = useArticleEditorExternalEventsBridge({ activeBlockId, activeBlockIdRef, analyzedBlocksRef, applyCompletedMediaToPlaceholder, applyCompletedMediaToProductGallery, applySeoAnalysisResult, articleId, articleTitle, assertNoLocalSlugFixBeforeWpSync, assertWritableDocumentNotWhitespaceCorrupted, blockEditorsRef, blockFlushRef, blockOutsideClickGuardUntilRef, blocks, blocksRef, clearAwaitingClientImagePlaceholders, clearMediaPolling, clearOutlineFocus, clearTempMerge, connectionHashRef, dismissedEditorImageMediaIdsRef, editorHostActionsRef, findImageBlockByMediaId, generateImageTargetRef, getExportHtml, globalEditor, initialPostImages, insertImageAfterBlock, insertVideoAfterBlock, isDismissedEditorImageMedia, lastSeoAnalysisRef, mediaPollTimersRef, networkRecovering, networkUnavailable, outlineHasSavedHeadings, panelFaqsRef, patchImageInBlocks, pendingAiMediaRef, placeProcessingImagePlaceholder, postImagesRef, publishEditorImagesCatalogRef, reconcileImagesTabWithBlocks, requestAnalyze, requestGenerateArticleImage, resolveAiRefBlockId, resolveArticleFaqsSnapshot, runLocalSeoAnalysis, saveStatus, scheduleAutosave, scheduleIdleSeoAnalysis, sectionByBlockId, seoDomain, seoMetaRef, setActiveBlockId, setArticleType, setBlocks, setFaqCount, setGlobalEditor, setImagesReloadKey, setInsertMenu, setPanelFaqs, setSaveStatus, setSavedSeoScore, setSeoStale, setSupportsProductGallery, skipNextAutosave, startMediaStatusPolling, supplementalImagesRef, tempMerge, tempMergeRef, updateBlockContent });
 
     // Sync text heading t? tab Outline v? block tuong ?ng trong editor ch�nh.
-        const { addSection, addSectionAfter, applyOutlineHeadingHtml, applyOutlineHeadingText, collapseAllSections, confirmFeaturedSnippetPromptInsert, focusOutlineFromSectionHeader, handleOutlineHeadingFromEditor, handleOutlineLoaded, insertFeaturedSnippetAsNewSectionAfter, jumpToOutlineHeading, requestGenerateFeaturedSnippetAfterSection, resolveHeadingInnerHtml, runFeaturedSnippetPromptGenerate, saveSectionTitleFromHeader, toggleSectionCollapse } = useArticleEditorOutline({ activeBlockId, articleId, articleTitle, blockEditorsRef, blockFlushRef, blocksRef, canGenerateFeaturedSnippet, collapseSectionsExcept, commitActiveBlock, editorSections, featuredSnippetGenerating, featuredSnippetPreviewHtml, featuredSnippetTargetRef, focusImageBlock, focusKeyword, focusedOutlineHeadingRef, outlineAppendDoneRef, outlineAppendInflightRef, outlineFingerprintRef, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, outlineHeadingIdsByKeyRef, outlineRailRef, scheduleIdleSeoAnalysis, sectionByBlockId, sectionHeadingBlockIds, setActiveBlockId, setBlocks, setClientOutline, setCollapsedSectionIds, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptOpen, setGlobalEditor, setImagesTabJumpTarget, setInsertMenu, setOutlineHasSavedHeadings, setOutlineHeadingKeys, setOutlineTreeSync, setSectionTitleEditRequest, syncOutlineFocusFromBlock, tempMergeRef });
+        const { addSection, addSectionAfter, applyOutlineHeadingHtml, applyOutlineHeadingText, collapseAllSections, confirmFeaturedSnippetPromptInsert, focusOutlineFromSectionHeader, handleOutlineHeadingFromEditor, handleOutlineLoaded, insertFeaturedSnippetAsNewSectionAfter, jumpToOutlineHeading, requestGenerateFeaturedSnippetAfterSection, resolveHeadingInnerHtml, runFeaturedSnippetPromptGenerate, saveSectionTitleFromHeader, toggleSectionCollapse, updateOutlineHeadingTitle } = useArticleEditorOutline({ activeBlockId, articleId, articleTitle, blockEditorsRef, blockFlushRef, blocksRef, canGenerateFeaturedSnippet, collapseSectionsExcept, commitActiveBlock, editorSections, featuredSnippetGenerating, featuredSnippetPreviewHtml, featuredSnippetTargetRef, focusImageBlock, focusKeyword, focusedOutlineHeadingRef, outlineAppendDoneRef, outlineAppendInflightRef, outlineFingerprintRef, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, outlineHeadingIdsByKeyRef, outlineRailRef, scheduleIdleSeoAnalysis, sectionByBlockId, sectionHeadingBlockIds, setActiveBlockId, setBlocks, setClientOutline, setCollapsedSectionIds, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptOpen, setGlobalEditor, setImagesTabJumpTarget, setInsertMenu, setOutlineHasSavedHeadings, setOutlineHeadingKeys, setOutlineTreeSync, setSectionTitleEditRequest, syncOutlineFocusFromBlock, tempMergeRef });
 
         const { handleEditorSearchAction } = useArticleEditorSearch({ blockById, clearTempMerge, commitActiveBlock, editorSections, featuredSnippetTargetRef, insertFeaturedSnippetAsNewSectionAfter, publishEditorImagesCatalogRef, quickReplaceFind, quickReplaceValue, setBlocks, setCollapsedSectionIds, setEditorSearchMatchCount, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setImagesReloadKey, tempMergeRef });
 
@@ -1442,6 +1525,7 @@ export default function SeoArticleEditor({
                             onOutlineLoaded={handleOutlineLoaded}
                             onHeadingTextChange={applyOutlineHeadingText}
                             onHeadingHtmlChange={applyOutlineHeadingHtml}
+                            onSaveOutlineHeadingTitle={updateOutlineHeadingTitle}
                             onJumpToEditorHeading={jumpToOutlineHeading}
                             onOutlineMoveHeading={handleOutlineMoveHeading}
                             onOutlineDeleteHeading={handleOutlineDeleteHeading}
@@ -1701,15 +1785,15 @@ export default function SeoArticleEditor({
                                                     <span>{stats.wordCount}</span>
                                                 </span>
 
-                                                {!section.isIntro && stats.imageCount === 0 ? (
+                                                {!section.isIntro ? (
                                                     <button
                                                         type="button"
                                                         onClick={() => quickGenerateImageForSection(section)}
                                                         className="seo-section-header-icon-btn ml-1 border-sky-300 bg-sky-50 text-sky-700 hover:bg-sky-100 dark:border-sky-500/70 dark:bg-sky-900/30 dark:text-sky-200"
-                                                        title={t('editor_quick_generate_image_section')}
-                                                        aria-label={t('editor_quick_generate_image')}
+                                                        title={t('ai_visual_section')}
+                                                        aria-label={t('ai_visual')}
                                                     >
-                                                        <Wand2 size={12} />
+                                                        <Sparkles size={12} />
                                                     </button>
                                                 ) : null}
 

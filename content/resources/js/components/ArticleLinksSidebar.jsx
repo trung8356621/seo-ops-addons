@@ -40,6 +40,16 @@ import {
     dispatchCtaInsert,
     useCtaQuickTemplates,
 } from './CtaContactInsertList';
+import {
+    collectEditorBlocksFromDom,
+    findPhraseOccurrencesInBlocks,
+    scrollToPhraseOccurrence,
+} from '../utils/articlePhraseOccurrences';
+
+function isContentSuggestion(item) {
+    const source = String(item?.source ?? item?.suggestion_source ?? '').trim();
+    return source === 'content_keyword_fallback' || source === 'content';
+}
 
 /**
  * Links panel base payload (extracted + domain lists) — no keyword suggestion scan.
@@ -390,6 +400,7 @@ function KeywordList({
     onRemoveInternalLink,
     onReviewWarning,
     onReviewDanger,
+    isContentSuggestionRow = () => false,
 }) {
     const [editingKey, setEditingKey] = useState('');
     const [draftAnchor, setDraftAnchor] = useState('');
@@ -510,12 +521,17 @@ function KeywordList({
                     const isRowHiding = hiddenRowKeys?.has(itemKey) === true;
                     const isReviewLoading = reviewLoadingKey === itemKey;
                     const isReviewOpen = reviewPopoverItemKey === itemKey;
+                    const isContentRow = variant === 'suggestion' && isContentSuggestionRow(item);
+                    const showReviewActions =
+                        variant === 'suggestion'
+                        && !isContentRow
+                        && (onReviewWarning || onReviewDanger);
 
                     return (
                         <li
                             key={itemKey}
                             data-keyword-row-key={itemKey}
-                            className={`wp-article-links-keyword-row${isRowHiding ? ' is-row-hiding' : ''}${isReviewLoading ? ' is-review-loading' : ''}${isReviewOpen ? ' is-review-open' : ''}`}
+                            className={`wp-article-links-keyword-row${isRowHiding ? ' is-row-hiding' : ''}${isReviewLoading ? ' is-review-loading' : ''}${isReviewOpen ? ' is-review-open' : ''}${isContentRow ? ' is-content-suggestion' : ''}`}
                             aria-hidden={isRowHiding}
                         >
                             {interactive && isEditing ? (
@@ -639,7 +655,7 @@ function KeywordList({
                                     <Copy size={14} aria-hidden />
                                 </button>
                             ) : null}
-                            {variant === 'suggestion' && (onReviewWarning || onReviewDanger) ? (
+                            {showReviewActions ? (
                                 <>
                                     {onReviewWarning ? (
                                         <button
@@ -716,8 +732,9 @@ function InternalLinksSection({
     excludedCount = 0,
     onClearExcluded,
     onGenerateSuggestions,
-    onGenerateFallbackSuggestions,
     suggestionsLoading = false,
+    suggestionsHasResults = false,
+    suggestionsExhausted = false,
     reviewLoadingKey = '',
     reviewPopoverItemKey = '',
     onKeywordClick,
@@ -728,6 +745,7 @@ function InternalLinksSection({
     onRemoveInternalLink,
     onReviewWarning,
     onReviewDanger,
+    isContentSuggestionRow = () => false,
 }) {
     const showSuggestions = internal.length < 10 && suggestedInternal.length > 0;
     const showExcludedClear = excludedCount > 0;
@@ -764,29 +782,20 @@ function InternalLinksSection({
                 <p className="wp-article-links-empty">{t('links_internal_empty')}</p>
             )}
             {showGenerate ? (
-                <div className="wp-article-links-generate-row" style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
+                <div className="wp-article-links-generate-row">
                     <button
                         type="button"
                         className="wp-article-links-clear-excluded-btn"
-                        disabled={suggestionsLoading}
+                        disabled={suggestionsLoading || (suggestionsHasResults && suggestionsExhausted)}
                         onClick={onGenerateSuggestions}
                     >
                         {suggestionsLoading ? <Loader2 size={13} className="animate-spin" aria-hidden /> : <RotateCcw size={13} aria-hidden />}
                         {suggestionsLoading
                             ? t('links_suggestions_loading')
-                            : t('links_generate_suggestions')}
+                            : suggestionsHasResults
+                              ? t('links_find_more_suggestions')
+                              : t('links_generate_suggestions')}
                     </button>
-                    {typeof onGenerateFallbackSuggestions === 'function' ? (
-                        <button
-                            type="button"
-                            className="wp-article-links-clear-excluded-btn"
-                            disabled={suggestionsLoading}
-                            onClick={onGenerateFallbackSuggestions}
-                            title={t('links_generate_fallback_hint')}
-                        >
-                            {t('links_generate_fallback')}
-                        </button>
-                    ) : null}
                 </div>
             ) : null}
             {showSuggestions || showExcludedClear ? (
@@ -808,6 +817,7 @@ function InternalLinksSection({
                             onCopyKeyword={onCopyKeyword}
                             onReviewWarning={onReviewWarning}
                             onReviewDanger={onReviewDanger}
+                            isContentSuggestionRow={isContentSuggestionRow}
                         />
                     ) : (
                         <p className="wp-article-links-empty">{t('links_suggestions_all_excluded')}</p>
@@ -956,6 +966,15 @@ export default function ArticleLinksSidebar({
     const [suggestionsError, setSuggestionsError] = useState(null);
     const [suggestionsEmpty, setSuggestionsEmpty] = useState(false);
     const suggestionsAbortRef = useRef(null);
+    const suggestionCursorRef = useRef({ phase: 'idle', hasResults: false });
+    const [suggestionPhase, setSuggestionPhase] = useState('idle');
+    const [suggestionsHasResults, setSuggestionsHasResults] = useState(false);
+
+    const bumpSuggestionCursor = (next) => {
+        suggestionCursorRef.current = next;
+        setSuggestionPhase(next.phase);
+        setSuggestionsHasResults(next.hasResults === true);
+    };
 
     useEffect(() => {
         // Lazy mount often misses prior client-document scans — ask editor to republish.
@@ -1039,7 +1058,36 @@ export default function ArticleLinksSidebar({
     }, []);
 
     const [suggestionsLoading, setSuggestionsLoading] = useState(false);
-    const applySuggestionPayload = (payload, source) => {
+    const countUsableSuggestions = (catalog = keywordCatalogRef.current) => {
+        const partitioned = partitionSuggestionCatalogBySite(catalog, siteDomainRef.current);
+        const visible = buildVisibleInternalSuggestions({
+            catalog: partitioned.internal,
+            internal: linksRef.current.internal ?? [],
+            external: linksRef.current.external ?? [],
+            excludedLabels: [],
+            skipContentFilter: true,
+        });
+
+        return visible.filter((item) => !isSuggestionExcluded(String(item?.text ?? ''), excludedPersistRef.current)).length;
+    };
+
+    const buildExistingInternalPayload = () => {
+        const partitioned = partitionSuggestionCatalogBySite(
+            keywordCatalogRef.current,
+            siteDomainRef.current,
+        );
+
+        return partitioned.internal.map((item) => ({
+            text: String(item?.text ?? ''),
+            href: String(item?.href ?? item?.target_url ?? ''),
+            keyword_id: item?.keyword_id ?? null,
+            source: item?.source ?? item?.suggestion_source ?? null,
+            target_url: item?.target_url ?? item?.href ?? null,
+        }));
+    };
+
+    const applySuggestionPayload = (payload, source, options = {}) => {
+        const append = options.append === true;
         if (payload?.suggestionDebug && typeof window !== 'undefined') {
             // eslint-disable-next-line no-console
             console.info('[LINK_FALLBACK_DEBUG]', {
@@ -1048,12 +1096,47 @@ export default function ArticleLinksSidebar({
                 debug: payload.suggestionDebug,
             });
         }
+        const incomingInternal = mergeSuggestionCatalog(
+            payload.suggestedInternalLinksCatalog ?? [],
+            payload.suggestedInternalLinks ?? [],
+        );
+        const incomingExternal = mergeSuggestionCatalog(
+            payload.suggestedExternalLinksCatalog ?? [],
+            payload.suggestedExternalLinks ?? [],
+        );
         const empty =
-            payload.suggestedInternalLinks.length === 0
-            && payload.suggestedExternalLinks.length === 0
-            && payload.suggestedInternalLinksCatalog.length === 0
-            && payload.suggestedExternalLinksCatalog.length === 0;
-        setSuggestionsEmpty(empty);
+            incomingInternal.length === 0
+            && incomingExternal.length === 0;
+        if (!append) {
+            setSuggestionsEmpty(empty);
+        } else if (empty) {
+            bumpSuggestionCursor({
+                phase: 'exhausted',
+                hasResults: suggestionCursorRef.current.hasResults,
+            });
+        }
+
+        if (append) {
+            const partitioned = partitionSuggestionCatalogBySite(incomingInternal, siteDomainRef.current);
+            keywordCatalogRef.current = mergeSuggestionCatalog(
+                keywordCatalogRef.current,
+                partitioned.internal,
+            );
+            externalKeywordCatalogRef.current = mergeSuggestionCatalog(
+                externalKeywordCatalogRef.current,
+                partitioned.external,
+                incomingExternal,
+            );
+            setCatalogVersion((value) => value + 1);
+            if (!empty) {
+                bumpSuggestionCursor({
+                    phase: 'source1_done',
+                    hasResults: true,
+                });
+            }
+            return;
+        }
+
         window.dispatchEvent(
             new CustomEvent('seo-editor-links-updated', {
                 detail: {
@@ -1070,37 +1153,84 @@ export default function ArticleLinksSidebar({
         );
     };
 
-    const loadLinkSuggestions = async (mode = 'full') => {
+    const loadLinkSuggestions = async () => {
         const { articleId } = articleMetaRef.current;
         if (suggestionsLoading) {
             return;
         }
+
+        const findMore = suggestionCursorRef.current.hasResults === true;
         suggestionsAbortRef.current?.abort();
         const controller = new AbortController();
         suggestionsAbortRef.current = controller;
         setSuggestionsLoading(true);
         setSuggestionsError(null);
-        setSuggestionsEmpty(false);
+        if (!findMore) {
+            setSuggestionsEmpty(false);
+            bumpSuggestionCursor({ phase: 'idle', hasResults: false });
+        } else {
+            bumpSuggestionCursor({
+                phase: 'source2_active',
+                hasResults: true,
+            });
+        }
+
         try {
             const content = await requestEditorDocumentHtml();
+            if (findMore) {
+                const payload = await fetchEditorLinksSuggestions(articleId, {
+                    content,
+                    mode: 'fallback',
+                    existingInternal: buildExistingInternalPayload(),
+                    signal: controller.signal,
+                });
+                if (controller.signal.aborted) {
+                    return;
+                }
+                applySuggestionPayload(payload, 'links-suggestions-fallback', { append: true });
+                return;
+            }
+
             const payload = await fetchEditorLinksSuggestions(articleId, {
                 content,
-                mode: mode === 'fallback' ? 'fallback' : 'full',
-                existingInternal: mode === 'fallback' ? (suggestedInternalRef.current ?? []) : [],
+                mode: 'full',
                 signal: controller.signal,
             });
             if (controller.signal.aborted) {
                 return;
             }
-            applySuggestionPayload(
-                payload,
-                mode === 'fallback' ? 'links-suggestions-fallback' : 'links-suggestions',
-            );
+            applySuggestionPayload(payload, 'links-suggestions');
+
+            let usableCount = countUsableSuggestions();
+            if (usableCount < 5) {
+                const fallbackPayload = await fetchEditorLinksSuggestions(articleId, {
+                    content,
+                    mode: 'fallback',
+                    existingInternal: buildExistingInternalPayload(),
+                    signal: controller.signal,
+                });
+                if (controller.signal.aborted) {
+                    return;
+                }
+                applySuggestionPayload(fallbackPayload, 'links-suggestions-fallback', { append: true });
+                usableCount = countUsableSuggestions(keywordCatalogRef.current);
+            }
+
+            bumpSuggestionCursor({
+                phase: usableCount > 0 ? 'source1_done' : 'exhausted',
+                hasResults: usableCount > 0,
+            });
         } catch (error) {
             if (error?.name === 'AbortError' || controller.signal.aborted) {
                 return;
             }
             setSuggestionsError(t('editor_links_suggestions_error'));
+            if (findMore) {
+                bumpSuggestionCursor({
+                    phase: suggestionCursorRef.current.hasResults ? 'source1_done' : 'idle',
+                    hasResults: suggestionCursorRef.current.hasResults,
+                });
+            }
         } finally {
             if (!controller.signal.aborted) {
                 setSuggestionsLoading(false);
@@ -1293,7 +1423,7 @@ export default function ArticleLinksSidebar({
         const onLinksUpdate = (event) => {
             const detail = event.detail ?? {};
             // Server base/catalog events must not wipe client existing-link scan.
-            if (detail.source === 'links-base' || detail.source === 'links-suggestions') {
+            if (detail.source === 'links-base' || detail.source === 'links-suggestions' || detail.source === 'links-suggestions-fallback') {
                 setArticlePlainText(String(detail.article_plain_text ?? ''));
                 if (Array.isArray(detail.domain_link_list_catalog) && detail.domain_link_list_catalog.length > 0) {
                     allDomainLinksRef.current = detail.domain_link_list_catalog;
@@ -1375,6 +1505,8 @@ export default function ArticleLinksSidebar({
                     }
                     setCatalogVersion((value) => value + 1);
                     setHiddenRowKeys(new Set());
+                } else if (detail.source === 'links-suggestions-fallback') {
+                    return;
                 }
                 return;
             }
@@ -1641,6 +1773,41 @@ export default function ArticleLinksSidebar({
             return !isSuggestionExcluded(String(item?.text ?? ''), excludedSuggestionLabels);
         });
     }, [internal, external, excludedSuggestionLabels, reviewedKeywordIds, articlePlainText, catalogVersion, anchorEditTick]);
+
+    const scrollToContentSuggestion = (item, index, itemKey) => {
+        setActiveKey(itemKey);
+        const phrase = String(item?.text ?? '').trim();
+        if (phrase === '') {
+            return;
+        }
+
+        const blocks = collectEditorBlocksFromDom();
+        const occurrences = findPhraseOccurrencesInBlocks(blocks, phrase, 2);
+        const currentCycle = Number(cycleByKey[itemKey] ?? 0);
+        const occurrence = occurrences.length > 0
+            ? occurrences[currentCycle % occurrences.length]
+            : null;
+
+        setCycleByKey((prev) => ({
+            ...prev,
+            [itemKey]: currentCycle + 1,
+        }));
+
+        if (occurrence) {
+            scrollToPhraseOccurrence(occurrence);
+            return;
+        }
+
+        scrollToKeyword(item, 'internal', index, itemKey, { searchPlainText: true });
+    };
+
+    const handleInternalSuggestionClick = (item, index, itemKey) => {
+        if (isContentSuggestion(item)) {
+            scrollToContentSuggestion(item, index, itemKey);
+            return;
+        }
+        scrollToKeyword(item, 'internal', index, itemKey, { searchPlainText: true });
+    };
 
     const copyKeyword = async (value) => {
         const text = String(value ?? '').trim();
@@ -1940,17 +2107,16 @@ export default function ArticleLinksSidebar({
                         hiddenRowKeys={hiddenRowKeys}
                         excludedCount={excludedSuggestionLabels.size}
                         onClearExcluded={clearExcludedSuggestions}
-                        onGenerateSuggestions={() => loadLinkSuggestions('full')}
-                        onGenerateFallbackSuggestions={() => loadLinkSuggestions('fallback')}
+                        onGenerateSuggestions={loadLinkSuggestions}
                         suggestionsLoading={suggestionsLoading}
+                        suggestionsHasResults={suggestionsHasResults}
+                        suggestionsExhausted={suggestionPhase === 'exhausted'}
                         onKeywordClick={(item, index, itemKey) =>
                             scrollToKeyword(item, 'internal', index, itemKey)
                         }
                         onCopyKeyword={copyKeyword}
                         onRemoveInternalLink={removeInternalLink}
-                        onSuggestionClick={(item, index, itemKey) =>
-                            scrollToKeyword(item, 'internal', index, itemKey, { searchPlainText: true })
-                        }
+                        onSuggestionClick={handleInternalSuggestionClick}
                         onInsertSuggestion={insertSuggestedLink}
                         onUpdateSuggestionAnchor={updateSuggestionAnchor}
                         reviewLoadingKey={reviewLoadingKey}
@@ -1961,6 +2127,7 @@ export default function ArticleLinksSidebar({
                         onReviewDanger={(item, _index, itemKey, anchorEl) =>
                             openReviewPopover(item, itemKey, 'danger', anchorEl)
                         }
+                        isContentSuggestionRow={isContentSuggestion}
                     />
                 </LinkAssistantSection>
 

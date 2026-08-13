@@ -12,7 +12,9 @@ use Omnichannel\Addons\AiPrompt\Models\SeoTask;
 use Omnichannel\Addons\Media\Support\ImageToolType;
 use Omnichannel\Addons\AiPrompt\Support\PromptMediaPersistContext;
 use Omnichannel\Addons\ContentProjects\Support\TaskTestContext;
+use Omnichannel\Addons\AiPrompt\Services\PromptMediaStorageService;
 use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
+use Omnichannel\Addons\AiPrompt\Services\TaskWorkflowTestRunner;
 
 /**
  * Chạy full workflow graph từ Editor — BC extract last prompt khi cần.

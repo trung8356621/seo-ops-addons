@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\Content\Support;
 use Omnichannel\Addons\Content\Enums\ArticleWritingExecutionMode;
 use Omnichannel\Addons\AiPrompt\Enums\ArticleWritingPromptOwnerType;
 use Omnichannel\Addons\AiPrompt\Models\SeoTask;
+use Omnichannel\Addons\ContentProjects\Support\TaskTestContext;
 
 /**
  * Context cho ArticleWritingExecutionService — không chứa Livewire/HTTP/queue.

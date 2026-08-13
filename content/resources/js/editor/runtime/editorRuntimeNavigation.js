@@ -8,6 +8,7 @@ import {
     isEditorHostedModule,
     normalizeHeavyModuleId,
 } from '../../utils/articleEditorModules';
+import { pushAiMediaLaunchContext } from './editorAiMediaWorkspace';
 
 /** @type {string|null} */
 let activePanelId = 'seo';
@@ -73,6 +74,9 @@ export function openPanel(rawId, meta = {}) {
     }
 
     activePanelId = panelId;
+    if (panelId === 'ai-chat' && meta.detail && typeof meta.detail === 'object') {
+        pushAiMediaLaunchContext(meta.detail);
+    }
     if (isEditorHostedModule(panelId)) {
         dispatchActiveModule(panelId, meta);
     } else {

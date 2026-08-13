@@ -96,15 +96,17 @@
             @endif
 
             @if ($row['can_assign_content_project'] ?? false)
-                <button
+                <x-filament::icon-button
                     type="button"
+                    icon="heroicon-o-folder-plus"
+                    size="sm"
+                    color="warning"
                     wire:click="mountAction('assignToContentProject', { mapId: {{ (int) ($row['id'] ?? 0) }} })"
                     wire:loading.attr="disabled"
-                    class="link-triage-action-btn link-triage-action-btn--assign"
-                >
-                    <x-filament::icon icon="heroicon-m-inbox-arrow-down" class="h-4 w-4" />
-                    {{ __('seo-content-ai::filament.keyword.link_triage_assign_task') }}
-                </button>
+                    :tooltip="\Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectContract::label()"
+                    :label="\Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectContract::label()"
+                    data-assign-content-project-trigger
+                />
             @endif
         </div>
     </td>

@@ -320,10 +320,9 @@ final class ContentProjectSmartGenerationActionTest extends TestCase
         self::assertStringContainsString('item_action_smart_rerun', $menu);
         self::assertStringNotContainsString('wire:click="generateOne(', $menu);
         self::assertStringNotContainsString('wire:click="rerunOne(', $menu);
-        self::assertLessThanOrEqual(
-            1,
-            substr_count($menu, 'createOrRerunOne({{ $tid }})') > 0 ? 2 : 0,
-        );
+        // Primary CTA + overflow menu share the same smart action (missing-article path uses Alpine modal).
+        self::assertSame(2, substr_count($menu, 'wire:click="createOrRerunOne({{ $tid }})"'));
+        self::assertStringContainsString('open-missing-article-confirm', $menu);
 
         $page = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content-projects/src/Filament/Resources/SeoProjectResource/Pages/ViewSeoProject.php',

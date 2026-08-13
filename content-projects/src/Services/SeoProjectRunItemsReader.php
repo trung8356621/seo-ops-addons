@@ -8,6 +8,7 @@ use Omnichannel\Addons\Content\Enums\ArticleReviewStatus;
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectErrorCode;
 use Omnichannel\Addons\ContentProjects\Enums\SeoProjectRunItemStatus;
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
+use Omnichannel\Addons\Content\Services\ArticleEditorReadinessService;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRunItem;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;

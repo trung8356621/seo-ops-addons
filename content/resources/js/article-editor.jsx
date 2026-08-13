@@ -5,7 +5,6 @@ import './editor/modules';
 import { registerDomainSaveOwners, unregisterDomainSaveOwners } from './editor/domains';
 import SeoArticleEditor from './components/SeoArticleEditor';
 import WordPressMediaRenameModal from '@wordpress-addon/components/WordPressMediaRenameModal.jsx';
-import ArticleAiFloatingLauncher from '@ai-prompt-addon/components/ArticleAiFloatingLauncher.jsx';
 import '../css/article-editor.css';
 import '../css/seo-select.css';
 import '../../../media/resources/css/image-splitter.css';
@@ -78,6 +77,7 @@ import { installArticleAutosaveLock } from './utils/articleAutosaveLock';
 import { installArticleOperationTracker } from './utils/articleOperationTracker';
 import { mountArticleTitlePromptHook } from '@ai-prompt-addon/utils/articleTitlePromptHook.js';
 import '@seo-addon/utils/seoAssistantNavigator.js';
+import './utils/publishingTaxonomyResolver';
 import {
     applyFetchedWpCategories,
     loadWpCategoryIds,
@@ -610,14 +610,17 @@ function registerArticleEditorLivewireBridge() {
 
             const detail = normalizeLivewireEventDetail(payload);
             const gallery = normalizeProductAlbumList(detail.gallery);
-            const syncedArticleId = detail.article_id ?? detail.articleId;
-            if (syncedArticleId && gallery.length > 0) {
-                saveProductAlbum(syncedArticleId, gallery, { dispatch: false });
-            }
-
+            // Livewire already persisted — forward UI event only. Do NOT replaceGalleryViaApi
+            // (stale expected_snapshot_version → 409 Media snapshot version conflict).
             forwardingLivewireEvents.add(name);
             try {
-                window.dispatchEvent(new CustomEvent(name, { detail: { ...detail, gallery } }));
+                window.dispatchEvent(new CustomEvent(name, {
+                    detail: {
+                        ...detail,
+                        gallery,
+                        from_server: true,
+                    },
+                }));
             } finally {
                 queueMicrotask(() => {
                     forwardingLivewireEvents.delete(name);
@@ -1470,11 +1473,6 @@ function mountArticleEditorPage() {
 
     pageCleanups.push(installArticleEditorStickyHeaderBridge());
     pageCleanups.push(installArticleEditorPageBodyClass());
-
-    const launcherRoot = document.getElementById('seo-article-ai-launcher-root');
-    if (launcherRoot) {
-        getOrCreateReactRoot(launcherRoot).render(<ArticleAiFloatingLauncher />);
-    }
 
     if (perfDebugEnabled && typeof performance !== 'undefined' && typeof performance.mark === 'function') {
         performance.mark('seo-article-editor-mount-end');

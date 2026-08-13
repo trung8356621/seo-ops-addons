@@ -5,6 +5,7 @@ import { callEditArticleLivewire } from '../utils/articleEditorLivewire';
 import { computeLinkBubblePosition } from '../utils/linkEditorAnchor';
 import { applyLinkToSelection } from '../utils/inlineLinkNormalizer';
 import { executeEditorCommand } from '../utils/editorCommands';
+import { openAssignToContentProject, AssignToContentProjectContract } from '../utils/assignToContentProject';
 import { t } from '../utils/i18n';
 
 const ARTICLE_SEARCH_DEBOUNCE_MS = 450;
@@ -300,9 +301,13 @@ export default function LinkEditBubble({ editor, anchorRect, containerRef, onClo
         setAssignNotice('');
 
         try {
-            window.dispatchEvent(new CustomEvent('open-keyword-assign-content-project-modal', {
-                detail: { anchorPhrase: phrase },
-            }));
+            openAssignToContentProject({
+                mode: AssignToContentProjectContract.MODE_PENDING_LINK,
+                source: 'link_edit_bubble',
+                article_ids: [Number(articleId)],
+                site_ids: siteId != null && Number(siteId) > 0 ? [Number(siteId)] : [],
+                anchor_phrase: phrase,
+            });
         } catch (error) {
             const message = error instanceof Error ? error.message : t('link_bubble_assign_failed');
             setArticleSearchError(message);

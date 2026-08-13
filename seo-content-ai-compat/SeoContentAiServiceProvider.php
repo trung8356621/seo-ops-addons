@@ -974,8 +974,12 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
                 $discovery = $this->app->make(\Omnichannel\Addons\Agent\Extension\ExtensionDiscovery::class);
                 $discovery->discoverAndRegister();
                 $discovery->bootExtensions();
-            } catch (\Throwable) {
-                // Extension SDK không được phá boot addon
+            } catch (\Throwable $exception) {
+                // Extension SDK không được phá boot addon — nhưng phải surface nguyên nhân
+                // (vd. type mismatch registry) thay vì nuốt im và để ai_provider.not_registered.
+                \App\Support\RuntimeLogger::report($exception, [
+                    'source' => 'SeoContentAiServiceProvider::bootExtensions',
+                ]);
             }
         });
     }

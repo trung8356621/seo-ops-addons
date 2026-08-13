@@ -1,5 +1,8 @@
 ﻿import { detectWordPressImageSize } from '@wordpress-addon/utils/wordpressImageSize.js';
 import { isLocalSeoMediaSrc, resolveFullWordPressImageUrl } from '@wordpress-addon/utils/wordpressImageUrl.js';
+import { isAiPlaceholderLoadingSrc } from './seoMediaApi.js';
+
+export { isAiPlaceholderLoadingSrc };
 
 const ALIGN_CLASSES = {
     none: '',
@@ -68,14 +71,6 @@ function parseSeoMediaIdFromVideo(el) {
     if (!el) return null;
     const id = Number(el.getAttribute('data-seo-media-id'));
     return id > 0 ? id : null;
-}
-
-export function isAiPlaceholderLoadingSrc(src) {
-    if (!src) {
-        return false;
-    }
-
-    return String(src).includes('placeholder-loading');
 }
 
 function slugFromSrc(src) {

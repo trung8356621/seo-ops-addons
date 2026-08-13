@@ -100,4 +100,91 @@ final class TeamMessageControllerTest extends TestCase
         $delta->assertJsonCount(1, 'messages');
         $delta->assertJsonPath('messages.0.id', $second->id);
     }
+
+    public function test_unread_count_and_mark_read_use_cursor(): void
+    {
+        if (! Schema::hasTable('team_messages') || ! Schema::hasTable('team_chat_read_cursors')) {
+            $this->markTestSkipped('team chat tables are not available.');
+        }
+
+        $owner = User::query()->create([
+            'name' => 'Owner Unread',
+            'email' => 'owner-team-unread@test.test',
+            'password' => bcrypt('secret'),
+            'role' => User::ROLE_OWNER,
+            'status' => User::STATUS_NORMAL,
+            'seo_role' => User::SEO_ROLE_MANAGER,
+        ]);
+
+        $staff = User::query()->create([
+            'name' => 'Staff Unread',
+            'email' => 'staff-team-unread@test.test',
+            'password' => bcrypt('secret'),
+            'role' => User::ROLE_STAFF,
+            'parent_id' => $owner->id,
+            'status' => User::STATUS_NORMAL,
+            'seo_role' => User::SEO_ROLE_PLANNER,
+        ]);
+
+        $first = TeamMessage::query()->create([
+            'owner_id' => $owner->id,
+            'user_id' => $staff->id,
+            'message' => 'A',
+        ]);
+        $second = TeamMessage::query()->create([
+            'owner_id' => $owner->id,
+            'user_id' => $staff->id,
+            'message' => 'B',
+        ]);
+
+        $unread = $this->actingAs($owner)->getJson('/api/seo/team/unread-count');
+        $unread->assertOk();
+        $unread->assertJson(['unread' => 2]);
+
+        $mark = $this->actingAs($owner)->postJson('/api/seo/team/mark-read', [
+            'last_read_message_id' => $first->id,
+        ]);
+        $mark->assertOk();
+
+        $unread2 = $this->actingAs($owner)->getJson('/api/seo/team/unread-count');
+        $unread2->assertOk();
+        $unread2->assertJson(['unread' => 1, 'last_read_message_id' => $first->id]);
+
+        $this->actingAs($owner)->postJson('/api/seo/team/mark-read', [
+            'last_read_message_id' => $second->id,
+        ])->assertOk();
+
+        $this->actingAs($owner)->getJson('/api/seo/team/unread-count')
+            ->assertOk()
+            ->assertJson(['unread' => 0]);
+    }
+
+    public function test_local_env_without_poll_flag_still_returns_json_not_sse(): void
+    {
+        if (! Schema::hasTable('team_messages')) {
+            $this->markTestSkipped('team_messages table is not available.');
+        }
+
+        $owner = User::query()->create([
+            'name' => 'Owner Local',
+            'email' => 'owner-team-local@test.test',
+            'password' => bcrypt('secret'),
+            'role' => User::ROLE_OWNER,
+            'status' => User::STATUS_NORMAL,
+            'seo_role' => User::SEO_ROLE_MANAGER,
+        ]);
+
+        TeamMessage::query()->create([
+            'owner_id' => $owner->id,
+            'user_id' => $owner->id,
+            'message' => 'Local poll fallback',
+        ]);
+
+        // Mimic EventSource open without poll=1 — must not enter StreamedResponse hang path.
+        $response = $this->actingAs($owner)->getJson('/api/seo/team/messages?after_id=0');
+        $response->assertOk();
+        $response->assertJsonPath('history_end', true);
+        $response->assertJsonCount(1, 'messages');
+        self::assertStringContainsString('application/json', (string) $response->headers->get('Content-Type'));
+    }
 }

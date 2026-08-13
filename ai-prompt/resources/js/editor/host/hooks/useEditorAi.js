@@ -53,6 +53,6 @@ export function useEditorAi() {
             }
             return host?.actions?.generateArticleVideo?.(detail);
         },
-        applyPrefill: (detail) => host?.actions?.applyAiChatPrefill?.(detail),
+        applyPrefill: (detail) => host?.actions?.openAiMedia?.(detail),
     }), [host, canApply, collectContext]);
 }

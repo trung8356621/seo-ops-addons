@@ -35,7 +35,10 @@ export function articleShortcutActionFromEvent(event) {
     const key = String(event.key || '').toLowerCase();
 
     if (key === 's') {
-        return event.shiftKey ? 'sync' : 'save';
+        if (event.shiftKey) {
+            return 'sync';
+        }
+        return 'save';
     }
     if (key === 'p' && event.shiftKey) {
         return 'preview';

@@ -9,7 +9,8 @@
     "panel_provider": "App\\Addons\\SeoContentAi\\Providers\\SeoPanelProvider",
     "providers": [
         "App\\Providers\\Filament\\SeoToolsPanelProvider",
-        "Omnichannel\\Addons\\Seo\\SeoServiceProvider"
+        "Omnichannel\\Addons\\Seo\\SeoServiceProvider",
+        "Omnichannel\\Addons\\Content\\ContentServiceProvider"
     ],
     "register_early": true,
     "legacy": true,

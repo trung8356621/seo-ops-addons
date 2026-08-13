@@ -36,8 +36,8 @@ final class ArticleEditorRewriteWordPressSyncEligibilityTest extends TestCase
         self::assertStringContainsString("'rewrite_existing_synced'", $controller);
 
         $blade = (string) file_get_contents($this->addon('resources/views/filament/resources/article-resource/pages/partials/article-editor-page-actions.blade.php'));
-        self::assertStringContainsString('ArticleWordPressSyncEligibility::class', $blade);
-        self::assertStringContainsString('$contentProjectWpSyncEligible', $blade);
+        self::assertStringContainsString('articleIsInContentProject', $blade);
+        self::assertStringNotContainsString('$contentProjectWpSyncEligible', $blade);
         self::assertStringNotContainsString('PostPublishWordPressSyncEligibility::class', $blade);
     }
 

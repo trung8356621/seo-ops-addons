@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Agent\Tests\Unit;
 
+use Omnichannel\Addons\Agent\Filament\Pages\AgentWorkspaceLegacyRedirect;
 use Omnichannel\Addons\Agent\Filament\Pages\AgentWorkspacePage;
 use App\Filament\Pages\AgentWorkspaceRedirect;
 use PHPUnit\Framework\TestCase;
@@ -28,10 +29,14 @@ final class AgentWorkspaceRedirectTest extends TestCase
         self::assertStringNotContainsString('orderBy', $source);
     }
 
-    public function test_seo_page_slug_remains_agent(): void
+    public function test_seo_chat_page_slug_is_chat_and_legacy_agent_redirects(): void
     {
-        $reflection = new ReflectionClass(AgentWorkspacePage::class);
-        self::assertSame('agent', $reflection->getStaticPropertyValue('slug'));
-        self::assertNull($reflection->getStaticPropertyValue('navigationGroup'));
+        $chat = new ReflectionClass(AgentWorkspacePage::class);
+        self::assertSame('chat', $chat->getStaticPropertyValue('slug'));
+        self::assertNull($chat->getStaticPropertyValue('navigationGroup'));
+
+        $legacy = new ReflectionClass(AgentWorkspaceLegacyRedirect::class);
+        self::assertSame('agent', $legacy->getStaticPropertyValue('slug'));
+        self::assertFalse($legacy->getStaticPropertyValue('shouldRegisterNavigation'));
     }
 }

@@ -875,6 +875,38 @@ final class SeoCreateArticleSettingsService implements \Omnichannel\Addons\Conte
     }
 
     /**
+     * Legacy bindings often point at Prompts with empty hook_key — stamp so Settings options show names.
+     *
+     * @param  array<string, int>  $bindings
+     */
+    public function healEmptyPromptHookKeys(array $bindings): void
+    {
+        foreach ($bindings as $hookKey => $promptId) {
+            $hookKey = trim((string) $hookKey);
+            $id = $this->positiveIntOrNull($promptId);
+            if ($hookKey === '' || $id === null) {
+                continue;
+            }
+
+            $prompt = \Omnichannel\Addons\AiPrompt\Models\SeoPrompt::query()->find($id);
+            if ($prompt === null) {
+                continue;
+            }
+
+            $current = trim((string) ($prompt->hook_key ?? ''));
+            if ($current !== '') {
+                continue;
+            }
+
+            $prompt->hook_key = $hookKey;
+            if (trim((string) ($prompt->hook_version ?? '')) === '') {
+                $prompt->hook_version = '0.1.0';
+            }
+            $prompt->save();
+        }
+    }
+
+    /**
      * @deprecated Dùng getCreateVideoPromptId()
      */
     public function getCreateVideoTaskId(): ?int
@@ -947,6 +979,8 @@ final class SeoCreateArticleSettingsService implements \Omnichannel\Addons\Conte
             foreach (self::LEGACY_PROMPT_FIELD_TO_HOOK as $legacyField => $hookKey) {
                 $patch[$legacyField] = $incoming[$hookKey] ?? null;
             }
+
+            $this->healEmptyPromptHookKeys($incoming);
         }
 
         if (array_key_exists(self::KEY_LEGACY_CREATE_IMAGE_PROMPT, $settings)

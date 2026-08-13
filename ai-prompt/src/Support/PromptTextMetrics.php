@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Support;
 
+use Omnichannel\Addons\Content\Support\ArticleGenerationLengthValidator;
+
 /**
  * Text metrics for prompt-hook validation — word count khớp editor JS
  * ({@see resources/js/utils/articleEditorMetrics.js} countWordsFromText).
@@ -39,9 +41,8 @@ final class PromptTextMetrics
     }
 
     /**
-     * Hard validation floor cho full article generation.
-     * Target Prompt vẫn là $articleLength; floor config (default 1400), không vượt target.
-     * $hardFloor chỉ dùng khi article_length <= 0 (fallback schema).
+     * Soft acceptance floor cho full article generation (ratio of target).
+     * Target Prompt vẫn là $articleLength; $hardFloor chỉ khi article_length ≤ 0.
      */
     public static function minWordsFromArticleLength(int $articleLength, int $hardFloor = 300): int
     {

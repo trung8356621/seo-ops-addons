@@ -9,6 +9,7 @@ use Omnichannel\Addons\Agent\Automation\BusinessHook\Support\BusinessHookEmitter
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectPublishingQueueRunner;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\PublishingConnectionCandidateResolver;
+use Omnichannel\Addons\SearchFoundation\Services\SeoDatabaseConnectionService;
 use Omnichannel\Addons\Seo\Support\SeoConnectionContext;
 use App\Models\SeoDatabaseConnection;
 use App\Support\RuntimeLogger;

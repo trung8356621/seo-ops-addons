@@ -122,11 +122,13 @@ final class AllDomainsDashboardService
 
         if ($siteIds !== []) {
             $articleCounts = SeoArticle::query()
-                ->whereIn('site_id', $siteIds)
-                ->whereIn('user_id', $members->pluck('id')->all())
+                ->whereIn('articles.site_id', $siteIds)
+                ->whereIn('articles.user_id', $members->pluck('id')->all())
                 ->countsTowardSeoScore()
-                ->selectRaw('user_id, COUNT(*) as aggregate')
-                ->groupBy('user_id')
+                // Replace scope's articles.* select — incompatible with ONLY_FULL_GROUP_BY.
+                ->select('articles.user_id')
+                ->selectRaw('COUNT(*) as aggregate')
+                ->groupBy('articles.user_id')
                 ->pluck('aggregate', 'user_id')
                 ->all();
         }

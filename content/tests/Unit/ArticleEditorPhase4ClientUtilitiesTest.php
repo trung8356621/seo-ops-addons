@@ -62,13 +62,36 @@ final class ArticleEditorPhase4ClientUtilitiesTest extends TestCase
     public function test_append_outline_heading_no_longer_posts_on_section_add(): void
     {
         $source = (string) file_get_contents(
-            ProjectRoot::addonsPath().'/content/resources/js/components/SeoArticleEditor.jsx',
+            ProjectRoot::addonsPath().'/content/resources/js/hooks/useArticleEditorOutline.js',
         );
         $start = strpos($source, 'const appendOutlineHeadingForBlock = useCallback');
         self::assertNotFalse($start);
         $body = substr($source, $start, 1800);
         self::assertStringContainsString('client:', $body);
         self::assertStringNotContainsString("outlineApiRequest(articleId, ''", $body);
+    }
+
+    public function test_outline_heading_edit_is_local_first_without_server_id_gate(): void
+    {
+        $outlineTab = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/components/ArticleOutlineTab.jsx',
+        );
+        $outlineHook = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/hooks/useArticleEditorOutline.js',
+        );
+        $helpers = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/utils/contentDocumentHelpers.js',
+        );
+
+        self::assertStringNotContainsString(
+            'Heading chưa lưu xong trên server',
+            $outlineTab,
+        );
+        self::assertStringContainsString('onSaveOutlineHeadingTitle', $outlineTab);
+        self::assertStringContainsString('updateOutlineHeadingTitle', $outlineHook);
+        self::assertStringContainsString('export function isPersistedOutlineHeadingId', $helpers);
+        self::assertStringContainsString('resolveBlockIdFromOutlineHeadingId', $helpers);
+        self::assertStringContainsString('client:', $helpers);
     }
 
     public function test_draft_schema_remains_html_canonical_v2(): void

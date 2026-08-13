@@ -37,23 +37,20 @@ use Illuminate\Support\Str;
 use Throwable;
 
 /**
- * Agent Workspace — /seo/{connection_hash}/agent
+ * Chat Workspace — /seo/{connection_hash}/chat
+ * Tabs: Agent | Group Chat | Support Ticket
+ * Agent runtime remains on this Livewire page (tab=agent).
  *
+ * @see docs/modules/CHAT_WORKSPACE.md
  * @see docs/modules/AGENT_WORKSPACE.md
  */
 final class AgentWorkspacePage extends SeoPanelPage
 {
-    protected static ?string $slug = 'agent';
+    protected static ?string $slug = 'chat';
 
-    protected static ?string $navigationIcon = 'heroicon-o-cpu-chip';
+    protected static bool $shouldRegisterNavigation = false;
 
-    protected static ?string $navigationGroup = null;
-
-    protected static ?int $navigationSort = 5;
-
-    protected static bool $shouldRegisterNavigation = true;
-
-    protected static string $view = 'seo-content-ai::filament.pages.agent-workspace';
+    protected static string $view = 'seo-content-ai::filament.pages.chat-workspace';
 
     private const DRAFT_CONTEXT_KEY = 'active_interaction_draft';
 
@@ -63,6 +60,9 @@ final class AgentWorkspacePage extends SeoPanelPage
      * Suppress "append user command" when skill was resolved from an already-sent composer message.
      */
     private bool $suppressUserCommandAppend = false;
+
+    /** @var 'agent'|'group'|'ticket' */
+    public string $chatTab = 'agent';
 
     public string $activePanel = 'chat';
 
@@ -224,12 +224,12 @@ final class AgentWorkspacePage extends SeoPanelPage
 
     public static function getNavigationLabel(): string
     {
-        return __('seo-content-ai::filament.agent_workspace.nav');
+        return __('seo-content-ai::filament.chat_workspace.nav');
     }
 
     public function getTitle(): string
     {
-        return __('seo-content-ai::filament.agent_workspace.title');
+        return __('seo-content-ai::filament.chat_workspace.title');
     }
 
     public function getMaxContentWidth(): MaxWidth|string|null
@@ -237,15 +237,29 @@ final class AgentWorkspacePage extends SeoPanelPage
         return MaxWidth::Full;
     }
 
+    public static function getNavigationBadge(): ?string
+    {
+        // Badge updated client-side by chat-unread-badge; avoid heavy query on every nav render.
+        return null;
+    }
+
     public function mount(): void
     {
         abort_unless(static::canAccess(), 403);
+
+        $tab = strtolower(trim((string) request()->query('tab', 'agent')));
+        $this->chatTab = in_array($tab, ['agent', 'group', 'ticket'], true) ? $tab : 'agent';
+
+        // Group / ticket tabs do not need Agent boot (keeps page light).
+        if ($this->chatTab !== 'agent') {
+            return;
+        }
 
         try {
             $this->bootWorkspace();
             $this->applyDeepLinkParams();
         } catch (Throwable $e) {
-            RuntimeLogger::report($e, ['page' => 'agent-workspace']);
+            RuntimeLogger::report($e, ['page' => 'chat-workspace-agent']);
             Notification::make()
                 ->title(__('seo-content-ai::filament.agent_workspace.boot_failed'))
                 ->body($e->getMessage())
@@ -1072,7 +1086,8 @@ final class AgentWorkspacePage extends SeoPanelPage
     }
 
     /**
-     * Chat template cards → resolve template → selectSkill. Does not execute.
+     * Suggestion cards → composer prefill only. Never submit / execute / open skill flow.
+     * SUGGESTION EXECUTION RULE: shortcut into composerText — user must Send/Enter explicitly.
      */
     public function selectTemplate(string $templateKey): void
     {
@@ -1098,18 +1113,31 @@ final class AgentWorkspacePage extends SeoPanelPage
                 return;
             }
 
-            $this->activeTemplateKey = $template->key;
+            $prefill = $this->resolveSuggestionComposerPrefill($template);
+            if ($prefill === '') {
+                return;
+            }
 
-            if ($template->skillKey !== null) {
-                $this->selectSkill($template->skillKey);
+            // Do not silently overwrite text the user is already typing.
+            if (trim($this->composerText) !== '') {
+                $this->dispatch('agent-focus-composer');
 
                 return;
             }
 
-            if (trim($this->composerText) === '') {
-                $this->composerText = $template->promptTemplate;
-                $this->dispatch('agent-focus-composer');
-            }
+            // Prefill must not leave / resume an in-flight skill execution path.
+            $this->activeSkillKey = null;
+            $this->skillForm = [];
+            $this->skillFormSchema = [];
+            $this->skillMeta = null;
+            $this->skillAvailability = [];
+            $this->previewPayload = null;
+            $this->pendingExecutionRef = null;
+            $this->pendingConfirmationToken = null;
+
+            $this->activeTemplateKey = $template->key;
+            $this->prefillComposerFromSuggestion($prefill);
+            $this->dispatch('agent-suggestion-prefilled');
         } catch (Throwable $e) {
             RuntimeLogger::report($e, ['page' => 'agent-workspace', 'action' => 'selectTemplate', 'template' => $raw]);
             Notification::make()
@@ -1118,6 +1146,51 @@ final class AgentWorkspacePage extends SeoPanelPage
                 ->danger()
                 ->send();
         }
+    }
+
+    /**
+     * Prefill composer text for a suggestion — no send / execute.
+     */
+    private function prefillComposerFromSuggestion(string $prefill): void
+    {
+        $this->composerText = $prefill;
+        $this->showPalette = false;
+
+        $token = explode(' ', trim($prefill), 2)[0] ?? '';
+        $definition = AgentCliCommandCatalog::get($token);
+        if ($definition !== null) {
+            $this->activeCliCommand = $definition['command'];
+            $this->cliHelpPanel = [
+                'command' => $definition['command'],
+                'description' => $definition['description'],
+                'example' => $definition['example'],
+            ];
+            $this->dispatch('agent-cli-template-ready');
+        }
+
+        $this->dispatch('agent-focus-composer');
+    }
+
+    /**
+     * Resolve suggestion prefill text without executing.
+     * Prefer existing CLI catalog template for the mapped skill; else prompt_template.
+     */
+    private function resolveSuggestionComposerPrefill(\Omnichannel\Addons\Agent\Services\AgentWorkspace\Dtos\AgentChatTemplate $template): string
+    {
+        if ($template->skillKey !== null && $template->skillKey !== '') {
+            foreach (AgentCliCommandCatalog::all() as $row) {
+                if (($row['skill_key'] ?? null) === $template->skillKey) {
+                    return AgentCliCommandCatalog::buildTemplate($row);
+                }
+            }
+
+            $skill = app(AgentSkillRegistry::class)->get($template->skillKey);
+            if ($skill !== null && trim($skill->slashCommand) !== '') {
+                return trim($skill->slashCommand);
+            }
+        }
+
+        return trim($template->promptTemplate);
     }
 
     /** @deprecated Use selectSkill — kept for Livewire payload compatibility. */

@@ -115,9 +115,16 @@ final class SeoOverviewSettingsService
         }
 
         $keywords = $this->normalizeKeywords($data[self::KEY_FAQ_CATCH_KEYWORDS] ?? null);
+        if ($keywords !== [] && $this->hasByteCorruptedUtf8Labels($keywords)) {
+            $keywords = [];
+        }
+
         $skipWords = array_key_exists(self::KEY_OUTLINE_SKIP_WORDS, $data)
             ? $this->normalizeKeywords($data[self::KEY_OUTLINE_SKIP_WORDS])
             : self::DEFAULT_OUTLINE_SKIP_WORDS;
+        if ($skipWords !== [] && $this->hasByteCorruptedUtf8Labels($skipWords)) {
+            $skipWords = self::DEFAULT_OUTLINE_SKIP_WORDS;
+        }
 
         return $this->mergeTeamChatDefaults([
             self::KEY_FAQ_CATCH_KEYWORDS => $keywords !== [] ? $keywords : self::DEFAULT_FAQ_CATCH_KEYWORDS,
@@ -364,5 +371,21 @@ final class SeoOverviewSettingsService
         }
 
         return $keywords;
+    }
+
+    /**
+     * Phát hiện chuỗi bị thay byte UTF-8 bằng '?' (vd. "câu hỏi" → "c??u h???i").
+     *
+     * @param  list<string>  $labels
+     */
+    private function hasByteCorruptedUtf8Labels(array $labels): bool
+    {
+        foreach ($labels as $label) {
+            if (preg_match('/\?\?\?/', $label) === 1) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

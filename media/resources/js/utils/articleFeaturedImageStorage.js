@@ -1,5 +1,7 @@
 ﻿import {
+    applyMediaSnapshot,
     clearFeaturedViaApi,
+    discardLegacyMediaLocalStorage,
     featuredFromSnapshot,
     getMediaSnapshot,
     normalizeFeaturedMediaItem,
@@ -52,9 +54,28 @@ export function persistFeaturedImageDraftToServer(articleId, wire) {
     });
 }
 
-export function clearFeaturedImageStorage(articleId) {
+/**
+ * @param {number|string} articleId
+ * @param {{ persist?: boolean }} [options]  persist=false → client memory only (reload path).
+ */
+export function clearFeaturedImageStorage(articleId, options = {}) {
     const id = Number(articleId ?? 0);
     if (!Number.isFinite(id) || id <= 0) {
+        return;
+    }
+
+    const persist = options.persist !== false;
+    const current = getMediaSnapshot(id);
+    if (current?.article_id) {
+        applyMediaSnapshot(id, {
+            ...current,
+            featured: null,
+        }, { force: true });
+    } else {
+        discardLegacyMediaLocalStorage(id);
+    }
+
+    if (!persist) {
         return;
     }
 

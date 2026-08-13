@@ -15,6 +15,20 @@ export default function useArticleEditorBlockContentCommands({ activeBlockIdRef,
             return;
         }
         setBlocks((prev) => {
+            const current = prev.find((b) => b.id === id);
+            if (!current) {
+                return prev;
+            }
+
+            const contentUnchanged = current.content === newContent;
+            const imageUnchanged = imageData === undefined
+                || (imageData === null
+                    ? current.image === undefined
+                    : current.image === imageData);
+            if (contentUnchanged && imageUnchanged) {
+                return prev;
+            }
+
             const nextBlocks = prev.map((b) =>
                 b.id === id
                     ? {
@@ -118,6 +132,7 @@ export default function useArticleEditorBlockContentCommands({ activeBlockIdRef,
                 applyEditorBlockImage: (detail) => editorHostActionsRef.current.applyEditorBlockImage?.(detail),
                 generateArticleImage: (detail) => editorHostActionsRef.current.generateArticleImage?.(detail),
                 generateArticleVideo: (detail) => editorHostActionsRef.current.generateArticleVideo?.(detail),
+                openAiMedia: (detail) => editorHostActionsRef.current.openAiMedia?.(detail),
                 getActiveBlockId: () => activeBlockIdRef.current,
                 getExportHtml: () => editorHostActionsRef.current.getExportHtml?.() ?? '',
                 getSelectionHtml: () => editorHostActionsRef.current.getSelectionHtml?.() ?? '',

@@ -42,6 +42,10 @@ export {
 export {
     setRuntimeWidgetHealth,
     patchRuntimeWidgetHealth,
+    bindDiagnosticsArticleScope,
+    beginDiagnosticsRefresh,
+    markDiagnosticsRefreshing,
+    getDiagnosticsGeneration,
     subscribeRuntimeWidgetHealth,
     installRuntimeHealthBadgeBridge,
     publishEditorShellHealthSummary,

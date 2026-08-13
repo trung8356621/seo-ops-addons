@@ -8,6 +8,7 @@ use Omnichannel\Addons\Media\Models\SeoMedia;
 use App\Models\Site;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
+use Omnichannel\Addons\WordPress\Services\WordPressMediaLibraryService;
 
 final class SeoImageSplitterService
 {

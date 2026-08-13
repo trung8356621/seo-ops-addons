@@ -127,6 +127,206 @@ final class SeoMediaArticleSlugFixAllService
     }
 
     /**
+     * Deterministic local-media slug normalization for publishing preflight.
+     * Reuses SeoMediaArticleSlugFixService — covers readiness-pending IDs even when
+     * the media is article-linked but not currently rendered as a body <img>.
+     *
+     * @param  list<int>  $pendingMediaIds
+     * @return array{
+     *     skipped: bool,
+     *     success: bool,
+     *     message: string,
+     *     applied: int,
+     *     replacements: list<array<string, mixed>>,
+     *     not_auto_fixable_ids: list<int>,
+     *     failed_ids: list<int>
+     * }
+     */
+    public function fixPendingMediaForPublish(SeoArticle $article, array $pendingMediaIds): array
+    {
+        $pendingMediaIds = array_values(array_unique(array_filter(array_map(
+            static fn (mixed $id): int => (int) $id,
+            $pendingMediaIds,
+        ), static fn (int $id): bool => $id > 0)));
+
+        if ($pendingMediaIds === []) {
+            return [
+                'skipped' => true,
+                'success' => true,
+                'message' => 'Không có media pending cần chuẩn hóa.',
+                'applied' => 0,
+                'replacements' => [],
+                'not_auto_fixable_ids' => [],
+                'failed_ids' => [],
+            ];
+        }
+
+        $keyword = $this->resolveKeyword($article);
+        if ($keyword === '') {
+            return [
+                'skipped' => false,
+                'success' => false,
+                'message' => 'Không có từ khóa/tiêu đề để chuẩn hóa slug ảnh trước khi xuất bản.',
+                'applied' => 0,
+                'replacements' => [],
+                'not_auto_fixable_ids' => $pendingMediaIds,
+                'failed_ids' => $pendingMediaIds,
+            ];
+        }
+
+        $usedSlugs = $this->collectUsedSlugs($article, $pendingMediaIds);
+        $items = [];
+        $notAutoFixable = [];
+        $ordinal = 0;
+
+        foreach ($pendingMediaIds as $mediaId) {
+            $media = SeoMedia::query()->find($mediaId);
+            if (! $media instanceof SeoMedia) {
+                $notAutoFixable[] = $mediaId;
+                continue;
+            }
+
+            $path = ltrim(str_replace('\\', '/', (string) ($media->path ?? '')), '/');
+            $isLocalPath = str_starts_with($path, 'uploads/seo_media/');
+            $wpAttachmentId = (int) ($media->wp_attachment_id ?? 0);
+            if (! $isLocalPath || ($wpAttachmentId > 0 && ! $isLocalPath)) {
+                $notAutoFixable[] = $mediaId;
+                continue;
+            }
+
+            $ordinal++;
+            $targetSlug = $this->allocateUniqueSlug($keyword, $ordinal, $usedSlugs);
+            if ($targetSlug === '') {
+                $notAutoFixable[] = $mediaId;
+                continue;
+            }
+
+            $oldSlug = trim((string) ($media->slug ?? ''));
+            if ($oldSlug === '') {
+                $oldSlug = pathinfo($path, PATHINFO_FILENAME);
+            }
+
+            $usedSlugs[$targetSlug] = true;
+            $items[] = [
+                'seo_media_id' => $mediaId,
+                'url' => (string) ($media->url ?: '/storage/'.$path),
+                'new_slug' => $targetSlug,
+                'old_slug' => $oldSlug,
+            ];
+        }
+
+        if ($items === []) {
+            return [
+                'skipped' => false,
+                'success' => false,
+                'message' => 'Media pending không thể chuẩn hóa tự động (cần xử lý thủ công).',
+                'applied' => 0,
+                'replacements' => [],
+                'not_auto_fixable_ids' => array_values(array_unique($notAutoFixable)),
+                'failed_ids' => array_values(array_unique($notAutoFixable)),
+            ];
+        }
+
+        $result = $this->slugFix->fixSlugs($article, $items, [
+            'system_publish_preflight' => true,
+        ]);
+        $failedFromSkip = [];
+        foreach (is_array($result['skipped'] ?? null) ? $result['skipped'] : [] as $skip) {
+            if (! is_array($skip)) {
+                continue;
+            }
+            $id = (int) ($skip['seo_media_id'] ?? 0);
+            if ($id > 0) {
+                $failedFromSkip[] = $id;
+                if (($skip['reason'] ?? '') === 'wordpress_media_requires_explicit_rename') {
+                    $notAutoFixable[] = $id;
+                }
+            }
+        }
+
+        $success = (bool) ($result['success'] ?? false) && $failedFromSkip === [] && $notAutoFixable === [];
+
+        return [
+            'skipped' => false,
+            'success' => $success,
+            'message' => (string) ($result['message'] ?? ($success
+                ? 'Đã chuẩn hóa slug media local trước khi xuất bản.'
+                : 'Chuẩn hóa slug media không hoàn tất.')),
+            'applied' => count($result['replacements'] ?? []),
+            'replacements' => is_array($result['replacements'] ?? null) ? $result['replacements'] : [],
+            'not_auto_fixable_ids' => array_values(array_unique($notAutoFixable)),
+            'failed_ids' => array_values(array_unique(array_merge($failedFromSkip, $notAutoFixable))),
+        ];
+    }
+
+    /**
+     * @param  list<int>  $pendingMediaIds
+     * @return array<string, true>
+     */
+    private function collectUsedSlugs(SeoArticle $article, array $pendingMediaIds): array
+    {
+        $used = [];
+        foreach ($this->collectLocalImages($article) as $image) {
+            $slug = Str::slug((string) ($image['old_slug'] ?? ''));
+            if ($slug !== '') {
+                $used[$slug] = true;
+            }
+        }
+
+        $articleId = (int) $article->getKey();
+        $siteId = (int) ($article->site_id ?? 0);
+        $linked = SeoMedia::query()
+            ->when($siteId > 0, static function ($query) use ($siteId): void {
+                $query->where(function ($siteQuery) use ($siteId): void {
+                    $siteQuery->where('site_id', $siteId)->orWhereNull('site_id');
+                });
+            })
+            ->limit(500)
+            ->get();
+
+        foreach ($linked as $media) {
+            if (! $media instanceof SeoMedia) {
+                continue;
+            }
+            $id = (int) $media->getKey();
+            if (in_array($id, $pendingMediaIds, true)) {
+                continue;
+            }
+            $linkedToArticle = in_array($articleId, SeoMedia::normalizeArticleIds($media->article_id), true)
+                || (int) ($media->primary_article_id ?? 0) === $articleId;
+            if (! $linkedToArticle) {
+                continue;
+            }
+            $slug = Str::slug(trim((string) ($media->slug ?? '')));
+            if ($slug !== '') {
+                $used[$slug] = true;
+            }
+        }
+
+        return $used;
+    }
+
+    /**
+     * @param  array<string, true>  $usedSlugs
+     */
+    private function allocateUniqueSlug(string $keyword, int $ordinal, array &$usedSlugs): string
+    {
+        $candidate = $this->imageSlugFromKeyword($keyword, max(1, $ordinal));
+        if ($candidate === '') {
+            return '';
+        }
+
+        $n = 0;
+        $slug = $candidate;
+        while (isset($usedSlugs[$slug])) {
+            $n++;
+            $slug = $candidate.'-'.$n;
+        }
+
+        return $slug;
+    }
+
+    /**
      * @return list<array{seo_media_id: int|null, url: string, old_slug: string}>
      */
     private function collectLocalImages(SeoArticle $article): array

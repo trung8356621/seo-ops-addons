@@ -107,21 +107,30 @@
             $createOrRerunLabel = (($a['create_or_rerun_label'] ?? 'create') === 'rerun')
                 ? __('seo-content-ai::filament.projects.item_action_smart_rerun')
                 : __('seo-content-ai::filament.projects.item_action_smart_create');
+            $confirmMissing = ! empty($a['confirm_recreate_missing_article']);
         @endphp
         <button
             type="button"
-            wire:click="createOrRerunOne({{ $tid }})"
-            wire:target="createOrRerunOne({{ $tid }})"
-            wire:loading.attr="disabled"
+            @if ($confirmMissing)
+                @click="$dispatch('open-missing-article-confirm', { taskId: {{ $tid }}, title: @js($title), previousId: {{ (int) ($row['article_id'] ?? 0) }} })"
+            @else
+                wire:click="createOrRerunOne({{ $tid }})"
+                wire:target="createOrRerunOne({{ $tid }})"
+                wire:loading.attr="disabled"
+            @endif
             class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-success-600 ring-1 ring-gray-200 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-success-400 dark:ring-gray-700 dark:hover:bg-gray-800"
             aria-label="{{ $createOrRerunLabel }}"
             title="{{ $createOrRerunLabel }}"
         >
-            <x-filament::icon wire:loading.remove wire:target="createOrRerunOne({{ $tid }})" icon="heroicon-o-play" class="h-4 w-4" />
-            <svg wire:loading wire:target="createOrRerunOne({{ $tid }})" class="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-            </svg>
+            @if ($confirmMissing)
+                <x-filament::icon icon="heroicon-o-play" class="h-4 w-4" />
+            @else
+                <x-filament::icon wire:loading.remove wire:target="createOrRerunOne({{ $tid }})" icon="heroicon-o-play" class="h-4 w-4" />
+                <svg wire:loading wire:target="createOrRerunOne({{ $tid }})" class="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                </svg>
+            @endif
         </button>
     @endif
 
@@ -208,8 +217,20 @@
                         $menuCreateOrRerunLabel = (($a['create_or_rerun_label'] ?? 'create') === 'rerun')
                             ? __('seo-content-ai::filament.projects.item_action_smart_rerun')
                             : __('seo-content-ai::filament.projects.item_action_smart_create');
+                        $menuConfirmMissing = ! empty($a['confirm_recreate_missing_article']);
                     @endphp
-                    <button role="menuitem" type="button" wire:click="createOrRerunOne({{ $tid }})" @click="open = false" class="{{ $itemClass }}" title="{{ $menuCreateOrRerunLabel }}">
+                    <button
+                        role="menuitem"
+                        type="button"
+                        @if ($menuConfirmMissing)
+                            @click="open = false; $dispatch('open-missing-article-confirm', { taskId: {{ $tid }}, title: @js($title), previousId: {{ (int) ($row['article_id'] ?? 0) }} })"
+                        @else
+                            wire:click="createOrRerunOne({{ $tid }})"
+                            @click="open = false"
+                        @endif
+                        class="{{ $itemClass }}"
+                        title="{{ $menuCreateOrRerunLabel }}"
+                    >
                         <x-filament::icon icon="heroicon-o-play" class="cp-ops-menu__icon" />
                         <span class="cp-ops-menu__label">{{ $menuCreateOrRerunLabel }}</span>
                     </button>

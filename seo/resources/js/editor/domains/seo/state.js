@@ -71,7 +71,8 @@ export const seoActions = {
         }
         return {
             seo_analysis: state.analysis,
-            focus_keyword: state.focusKeyword,
+            // Consumed by ArticleEditorSaveContext::fromBundle (top-level + DB fallback).
+            focus_keyword: String(state.focusKeyword ?? '').trim(),
         };
     },
 };

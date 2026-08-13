@@ -13,6 +13,8 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRunItem;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\AiPrompt\Models\SeoTask;
+use Omnichannel\Addons\AiPrompt\Services\TaskTestInputResolver;
+use Omnichannel\Addons\AiPrompt\Services\TaskWorkflowTestRunner;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectActiveExecutionResolver;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExecutionStatus;
 use App\Support\RuntimeLogger;

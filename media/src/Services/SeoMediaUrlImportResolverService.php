@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Media\Services;
 
 use Omnichannel\Addons\Media\Models\SeoMedia;
+use Omnichannel\Addons\WordPress\Services\WordPressMediaLibraryService;
 use Omnichannel\Addons\WordPress\Support\WordPressImageUrl;
 use Omnichannel\Addons\WordPress\Support\WordPressSiteUrlMatcher;
 use App\Models\Site;

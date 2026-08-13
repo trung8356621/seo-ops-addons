@@ -33,7 +33,7 @@ final class ArticleEditorCoreBootstrapContractTest extends TestCase
         }
 
         foreach ([
-            'seoSummary', 'images', 'faqs', 'faqsCount', 'meta', 'links', 'linksSuggestions', 'settings', 'mediaPickerConfig',
+            'seoSummary', 'images', 'faqs', 'faqsCount', 'meta', 'links', 'linksSuggestions', 'vocabulary', 'settings', 'mediaPickerConfig',
         ] as $endpoint) {
             self::assertStringContainsString("'{$endpoint}'", $body, "core bootstrap endpoints missing {$endpoint}");
         }

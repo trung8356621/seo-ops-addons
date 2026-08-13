@@ -118,7 +118,11 @@ final class ArticleCreateOriginResolver
 
         $existing = (int) ($task->article_id ?? 0);
         if ($existing > 0 && $existing !== $articleId) {
-            return;
+            // Stale missing article_id (backup restore) — cho phép gắn bài mới.
+            $existingStillAlive = SeoArticle::query()->whereKey($existing)->exists();
+            if ($existingStillAlive) {
+                return;
+            }
         }
 
         if ($existing === $articleId) {

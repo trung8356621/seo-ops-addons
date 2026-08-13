@@ -481,7 +481,11 @@ final class ContentProjectItemOperationsReadModel
             'keyword' => $keyword !== '' ? $keyword : '—',
             'title' => $title !== '' ? $title : '—',
             'article_id' => $articleId > 0 ? $articleId : null,
-            'article_edit_url' => $articleId > 0
+            'article_missing' => $articleId > 0 && ! ($article instanceof SeoArticle),
+            'stale_missing_article' => SeoProjectTask::isNewArticleType($type)
+                && $articleId > 0
+                && ! ($article instanceof SeoArticle),
+            'article_edit_url' => ($articleId > 0 && $article instanceof SeoArticle)
                 ? ArticleResource::getUrl('edit', ['record' => $articleId])
                 : null,
             'article_slug' => $article instanceof SeoArticle ? (string) ($article->slug ?? '') : '',

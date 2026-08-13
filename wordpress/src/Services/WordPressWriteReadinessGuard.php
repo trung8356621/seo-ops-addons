@@ -25,9 +25,7 @@ final class WordPressWriteReadinessGuard
             ? (int) $target->getKey()
             : (int) ($article?->site_id ?? 0);
 
-        $pending = $article instanceof SeoArticle
-            ? $this->pendingArticleLocalSlugFixes($article)
-            : $this->pendingSiteLocalSlugFixes($siteId);
+        $pending = $this->pendingLocalSlugFixIds($target);
 
         if ($pending === []) {
             return;
@@ -40,6 +38,45 @@ final class WordPressWriteReadinessGuard
             'pending_media_ids' => array_slice($pending, 0, 20),
             'pending_count' => count($pending),
         ]);
+    }
+
+    /**
+     * Local media IDs that still need deterministic slug normalization before WP writes.
+     *
+     * @return list<int>
+     */
+    public function pendingLocalSlugFixIds(SeoArticle|Site $target): array
+    {
+        if ($target instanceof SeoArticle) {
+            $article = $target->fresh() ?? $target;
+
+            return $this->pendingArticleLocalSlugFixes($article);
+        }
+
+        return $this->pendingSiteLocalSlugFixes((int) $target->getKey());
+    }
+
+    public function slugRequiresLocalFix(string $slug): bool
+    {
+        return $this->slugRequiresFix($slug);
+    }
+
+    public function isAutoFixableLocalMedia(SeoMedia $media): bool
+    {
+        if (! $this->isLocalWritableMedia($media)) {
+            return false;
+        }
+
+        // Linked WP attachment without local storage evidence needs human / explicit WP rename.
+        $wpAttachmentId = (int) ($media->wp_attachment_id ?? 0);
+        if ($wpAttachmentId > 0) {
+            $path = ltrim(str_replace('\\', '/', (string) ($media->path ?? '')), '/');
+            if (! str_starts_with($path, 'uploads/seo_media/')) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function isReadOnlyOperation(string $operation): bool
@@ -141,7 +178,15 @@ final class WordPressWriteReadinessGuard
 
         return str_starts_with($path, 'uploads/seo_media/')
             || str_contains($url, '/storage/uploads/seo_media/')
-            || in_array(strtolower(trim((string) ($media->source ?? ''))), ['local', 'uploaded', 'generated', 'ai_prompt', 'storage_adopt', 'clipboard'], true);
+            || in_array(strtolower(trim((string) ($media->source ?? ''))), [
+                'local',
+                'uploaded',
+                'generated',
+                'ai_prompt',
+                'storage_adopt',
+                'clipboard',
+                'url_import',
+            ], true);
     }
 
     private function slugRequiresFix(string $slug): bool

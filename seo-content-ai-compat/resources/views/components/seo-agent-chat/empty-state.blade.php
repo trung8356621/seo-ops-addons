@@ -1,6 +1,6 @@
 @props([
     'title' => 'Tôi có thể giúp gì?',
-    'description' => 'Gõ / để xem kỹ năng, hoặc chọn một mẫu bên dưới.',
+    'description' => 'Gõ / để xem tất cả kỹ năng',
 ])
 
 <div {{ $attributes->merge(['class' => 'seo-global-chat__empty seo-agent-chat__empty']) }}>
@@ -9,5 +9,4 @@
     </span>
     <h3>{{ $title }}</h3>
     <p>{{ $description }}</p>
-    {{ $slot }}
 </div>

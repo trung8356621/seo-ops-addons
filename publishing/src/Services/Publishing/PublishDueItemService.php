@@ -245,17 +245,25 @@ final class PublishDueItemService
             );
         }
 
-        if ($status === ContentProjectPublishQueueStatus::Failed->value) {
+        $preflightHardBlock = $result->code === 'media_preflight_blocked'
+            || (
+                ($result->metadata['blocked_prerequisite'] ?? false) === true
+                && ($result->metadata['retry_count_unchanged'] ?? true) === false
+            );
+
+        if ($status === ContentProjectPublishQueueStatus::Failed->value || $preflightHardBlock) {
             return new PublishDueItemOutcome(
                 itemId: $itemId,
                 trigger: $trigger,
                 outcome: PublishDueItemOutcome::FAILED,
-                reason: 'publisher_failed',
-                publisherInvoked: true,
-                claimSuccess: true,
-                claimCode: DispatchClaimResult::CLAIMED,
-                finalStatus: $status,
-                meta: $result->metadata,
+                reason: $preflightHardBlock && $result->code !== ''
+                    ? $result->code
+                    : 'publisher_failed',
+                publisherInvoked: ! $preflightHardBlock,
+                claimSuccess: ! $preflightHardBlock,
+                claimCode: $preflightHardBlock ? $claimCode : DispatchClaimResult::CLAIMED,
+                finalStatus: $status !== '' ? $status : ContentProjectPublishQueueStatus::Failed->value,
+                meta: array_merge($result->metadata, ['message' => $result->message]),
             );
         }
 

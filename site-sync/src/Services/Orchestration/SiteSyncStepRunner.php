@@ -164,6 +164,20 @@ final class SiteSyncStepRunner
 
             $metrics = $this->executeStep($site, $run, (string) $step->step_key);
 
+            $run->refresh();
+            if (in_array((string) $run->status, ['canceled', 'cancelled'], true)) {
+                $step->refresh();
+                if ((string) $step->status === 'running') {
+                    $step->forceFill([
+                        'status' => 'skipped',
+                        'error_message' => 'Canceled by operator',
+                        'finished_at' => now(),
+                    ])->save();
+                }
+
+                return;
+            }
+
             if (! empty($metrics['__defer_step'])) {
                 unset($metrics['__defer_step']);
                 $checkpoint = is_array($step->checkpoint) ? $step->checkpoint : [];

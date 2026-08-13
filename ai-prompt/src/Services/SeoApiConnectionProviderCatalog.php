@@ -13,6 +13,7 @@ use Omnichannel\Addons\Seo\Enums\SeoProviderCategory;
 use Omnichannel\Addons\SearchIntelligence\Providers\Serp\SearchApiProvider;
 use Omnichannel\Addons\SearchIntelligence\Providers\Serp\SerpApiProvider;
 use Omnichannel\Addons\SearchIntelligence\Providers\Serp\SerperDevProvider;
+use Omnichannel\Addons\SearchIntelligence\Services\SeoProviderCapabilityResolver;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
 
 class SeoApiConnectionProviderCatalog

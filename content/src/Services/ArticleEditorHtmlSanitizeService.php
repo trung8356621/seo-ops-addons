@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Services;
 
+use Omnichannel\Addons\Seo\Services\InlineLinkNormalizer;
 use DOMDocument;
 use DOMElement;
 use DOMNode;

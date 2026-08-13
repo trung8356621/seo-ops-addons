@@ -1,6 +1,7 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { AlertTriangle, Check, ChevronDown, ChevronUp, Copy, Loader2, Pencil, Plus, RefreshCw, ShieldAlert, Sparkles, Trash2 } from 'lucide-react';
 import { csrfToken, seoArticleApiHeaders } from '@seo-addon/utils/seoArticleApi.js';
+import { isPersistedOutlineHeadingId } from '../utils/contentDocumentHelpers';
 
 const outlineUrl = (articleId) => `/api/seo/articles/${articleId}/outline`;
 const outlineRefreshUrl = (articleId) => `/api/seo/articles/${articleId}/outline/refresh`;
@@ -64,24 +65,17 @@ function truncateOutlineHeadingText(text) {
     return Array.from(normalizeOutlineHeadingText(text)).slice(0, OUTLINE_HEADING_TEXT_MAX).join('');
 }
 
-function isPersistedOutlineHeadingId(headingId) {
-    const raw = String(headingId ?? '').trim();
-    if (raw === '' || raw.startsWith('pending-')) {
-        return false;
-    }
-
-    return /^\d+$/.test(raw);
-}
-
 function headingHtmlHasLink(html) {
     return /<a[\s>]/i.test(String(html ?? ''));
 }
 
 /** Tìm node outline theo id, kèm groupId (H2 container). */
 function findOutlineNodeById(nodes, headingId, groupId = null) {
+    const targetId = String(headingId ?? '');
+
     for (const node of nodes) {
         const ownGroupId = node.level <= 2 ? node.id : groupId;
-        if (Number(node.id) === Number(headingId)) {
+        if (String(node.id) === targetId) {
             return { node, groupId: ownGroupId };
         }
         if (Array.isArray(node.children) && node.children.length > 0) {
@@ -96,7 +90,7 @@ function findOutlineNodeById(nodes, headingId, groupId = null) {
 }
 
 function nodeContainsHeadingId(node, headingId) {
-    if (Number(node.id) === Number(headingId)) {
+    if (String(node.id) === String(headingId)) {
         return true;
     }
 
@@ -768,6 +762,7 @@ export default function ArticleOutlineTab({
     onOutlineLoaded,
     onHeadingTextChange,
     onHeadingHtmlChange,
+    onSaveOutlineHeadingTitle = null,
     onJumpToEditorHeading,
     onOutlineMoveHeading,
     onOutlineDeleteHeading,
@@ -1239,21 +1234,39 @@ export default function ArticleOutlineTab({
 
     const handleSaveText = useCallback(
         async (node, newText) => {
-            if (!isPersistedOutlineHeadingId(node?.id)) {
-                notify(
-                    'Outline',
-                    'Heading chưa lưu xong trên server — đợi giây lát rồi sửa lại.',
-                    'warning',
-                );
-                return;
-            }
-
             const trimmed = truncateOutlineHeadingText(newText);
             if (trimmed === '') {
                 return;
             }
 
-            // Optimistic update để UI mượt; lỗi thì revert.
+            if (typeof onSaveOutlineHeadingTitle === 'function') {
+                const result = await onSaveOutlineHeadingTitle({
+                    level: node.level,
+                    oldText: node.heading_text,
+                    newText: trimmed,
+                    headingId: node.id,
+                    blockId: node.block_id ?? null,
+                });
+
+                if (result?.ok === false) {
+                    notify('Outline', result.error?.message || 'Không lưu được heading.', 'danger');
+                    return;
+                }
+
+                const duplicates = Array.isArray(result?.data?.duplicates) ? result.data.duplicates : [];
+                if (duplicates.length > 0) {
+                    notify(
+                        'Cảnh báo trùng heading',
+                        `Heading này trùng với ${duplicates.length} heading khác trong site (vd: "${duplicates[0].article_title}").`,
+                        'warning',
+                    );
+                } else if (isPersistedOutlineHeadingId(node.id)) {
+                    notify('Outline', 'Đã lưu heading.', 'success');
+                }
+
+                return;
+            }
+
             applyHeadingPatch(node, trimmed);
             try {
                 const data = await requestJson(headingUrl(articleId, node.id), {
@@ -1272,26 +1285,45 @@ export default function ArticleOutlineTab({
                     notify('Outline', 'Đã lưu heading.', 'success');
                 }
             } catch (e) {
-                applyHeadingPatch({ ...node, heading_text: trimmed }, node.heading_text);
                 notify('Outline', e.message || 'Không lưu được heading.', 'danger');
             }
         },
-        [applyHeadingPatch, articleId, notify],
+        [applyHeadingPatch, articleId, notify, onSaveOutlineHeadingTitle],
     );
 
     const handleSaveHtml = useCallback(
         async (node, headingHtml, plainText) => {
-            if (!isPersistedOutlineHeadingId(node?.id)) {
-                notify(
-                    'Outline',
-                    'Heading chưa lưu xong trên server — đợi giây lát rồi sửa lại.',
-                    'warning',
-                );
+            const newText = truncateOutlineHeadingText(plainText);
+            if (newText === '') {
                 return;
             }
 
-            const newText = truncateOutlineHeadingText(plainText);
-            if (newText === '') {
+            if (typeof onSaveOutlineHeadingTitle === 'function') {
+                const result = await onSaveOutlineHeadingTitle({
+                    level: node.level,
+                    oldText: node.heading_text,
+                    newText,
+                    headingHtml,
+                    headingId: node.id,
+                    blockId: node.block_id ?? null,
+                });
+
+                if (result?.ok === false) {
+                    notify('Outline', result.error?.message || 'Không lưu được heading.', 'danger');
+                    return;
+                }
+
+                const duplicates = Array.isArray(result?.data?.duplicates) ? result.data.duplicates : [];
+                if (duplicates.length > 0) {
+                    notify(
+                        'Cảnh báo trùng heading',
+                        `Heading này trùng với ${duplicates.length} heading khác trong site (vd: "${duplicates[0].article_title}").`,
+                        'warning',
+                    );
+                } else if (isPersistedOutlineHeadingId(node.id)) {
+                    notify('Outline', 'Đã lưu heading HTML.', 'success');
+                }
+
                 return;
             }
 
@@ -1321,11 +1353,10 @@ export default function ArticleOutlineTab({
                     notify('Outline', 'Đã lưu heading HTML.', 'success');
                 }
             } catch (e) {
-                applyHeadingPatch({ ...node, heading_text: newText }, node.heading_text);
                 notify('Outline', e.message || 'Không lưu được heading.', 'danger');
             }
         },
-        [applyHeadingPatch, articleId, notify, onHeadingHtmlChange],
+        [applyHeadingPatch, articleId, notify, onHeadingHtmlChange, onSaveOutlineHeadingTitle],
     );
 
     const handleGenerate = useCallback(

@@ -9,7 +9,8 @@ use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\Models\SeoTask;
 
 /**
- * Runtime lookup theo execution_role — không title/hook heuristic.
+ * Runtime lookup theo execution_role; khi thiếu role thì resolve từ Prompt hook
+ * qua registry (không title heuristic).
  */
 class WorkflowExecutionRoleResolver
 {
@@ -24,9 +25,25 @@ class WorkflowExecutionRoleResolver
     {
         $data = is_array($node['data'] ?? null) ? $node['data'] : [];
 
-        return WorkflowExecutionRole::tryFromMixed(
+        $explicit = WorkflowExecutionRole::tryFromMixed(
             $data[WorkflowExecutionRoleRegistry::NODE_DATA_KEY] ?? null,
         );
+        if ($explicit instanceof WorkflowExecutionRole) {
+            return $explicit;
+        }
+
+        // Prompt + hook đã cấu hình = source of truth khi execution_role trống
+        // (Workflow Builder từng lưu promptId mà không auto-gán role).
+        $promptId = isset($data['promptId']) ? (int) $data['promptId'] : 0;
+        $hook = $this->promptHookKeyOrEmpty($promptId);
+        if ($hook === '') {
+            $hook = trim((string) ($data['hook_key'] ?? $data['hookKey'] ?? ''));
+            if (str_contains($hook, '@')) {
+                $hook = trim(explode('@', $hook, 2)[0]);
+            }
+        }
+
+        return $hook !== '' ? $this->registry->suggestRoleFromHook($hook) : null;
     }
 
     /**
@@ -37,27 +54,42 @@ class WorkflowExecutionRoleResolver
         $flow = is_array($task->flow_data) ? $task->flow_data : [];
         $nodes = is_array($flow['nodes'] ?? null) ? $flow['nodes'] : [];
 
+        $hookMatch = null;
+
         foreach ($nodes as $node) {
             if (! is_array($node)) {
-                continue;
-            }
-            if ($this->readRole($node) !== $role) {
                 continue;
             }
             $nodeId = trim((string) ($node['id'] ?? ''));
             if ($nodeId === '') {
                 continue;
             }
-            $promptId = isset($node['data']['promptId']) ? (int) $node['data']['promptId'] : 0;
 
-            return [
+            $data = is_array($node['data'] ?? null) ? $node['data'] : [];
+            $promptId = isset($data['promptId']) ? (int) $data['promptId'] : 0;
+            $payload = [
                 'node_id' => $nodeId,
                 'node' => $node,
                 'prompt_id' => $promptId > 0 ? $promptId : null,
             ];
+
+            $explicit = WorkflowExecutionRole::tryFromMixed(
+                $data[WorkflowExecutionRoleRegistry::NODE_DATA_KEY] ?? null,
+            );
+            if ($explicit === $role) {
+                return $payload;
+            }
+
+            if ($explicit !== null) {
+                continue;
+            }
+
+            if ($this->readRole($node) === $role && $hookMatch === null) {
+                $hookMatch = $payload;
+            }
         }
 
-        return null;
+        return $hookMatch;
     }
 
     public function requireNodeId(SeoTask $task, WorkflowExecutionRole $role): string
@@ -175,9 +207,15 @@ class WorkflowExecutionRoleResolver
             return '';
         }
 
-        return $prompt instanceof SeoPrompt
+        $hook = $prompt instanceof SeoPrompt
             ? trim((string) ($prompt->hook_key ?? ''))
             : '';
+
+        if ($hook !== '' && str_contains($hook, '@')) {
+            $hook = trim(explode('@', $hook, 2)[0]);
+        }
+
+        return $hook;
     }
 
     private function promptExists(int $promptId): bool

@@ -59,7 +59,7 @@ final class AgentCliCommandCatalog
             [
                 'command' => '/project-create',
                 'description' => 'Tạo Content Project mới.',
-                'example' => '/project-create --name="Kế hoạch tháng 8" --month="08/2026" --member-id=""',
+                'example' => '/project-create --name="Kế hoạch tháng 8" --month="08/2026" --member-id=12',
                 'skill_key' => 'content_project.create',
                 'capability_key' => 'content_project.create',
                 'local_only' => false,
@@ -67,7 +67,7 @@ final class AgentCliCommandCatalog
                 'args' => [
                     ['flags' => ['--name'], 'key' => 'project_name', 'label' => 'Tên project', 'required' => true, 'type' => 'string'],
                     ['flags' => ['--month'], 'key' => 'month', 'label' => 'Tháng', 'required' => true, 'type' => 'month'],
-                    ['flags' => ['--member-id', '--member'], 'key' => 'assignee_ref', 'label' => 'Member ID', 'required' => false, 'type' => 'member'],
+                    ['flags' => ['--member-id', '--member'], 'key' => 'assignee_ref', 'label' => 'Member ID', 'required' => true, 'type' => 'member'],
                 ],
             ],
             [

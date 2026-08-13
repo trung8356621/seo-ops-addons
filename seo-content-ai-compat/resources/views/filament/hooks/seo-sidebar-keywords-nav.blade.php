@@ -1,4 +1,5 @@
 @php
+    use Omnichannel\Addons\Content\Filament\Resources\TagResource;
     use Omnichannel\Addons\SearchIntelligence\Filament\Pages\AiKeywordDiscovery;
     use Omnichannel\Addons\SearchIntelligence\Filament\Pages\SeoPerformanceHub;
     use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
@@ -7,6 +8,7 @@
     $contentEditorUrl = KeywordResource::getUrl('index');
     $aiDiscoveryUrl = AiKeywordDiscovery::getUrl();
     $performanceHubUrl = SeoPerformanceHub::getUrl();
+    $tagsUrl = TagResource::getUrl('index');
     $isKeywordsActive = request()->routeIs([
         'filament.seo.resources.keywords.*',
         'filament.seo.pages.ai-keyword-discovery',
@@ -93,6 +95,17 @@
                     ])
                 >
                     {{ __('seo-content-ai::filament.performance_hub.nav_seo_performance') }}
+                </a>
+            </li>
+            <li>
+                <a
+                    href="{{ $tagsUrl }}"
+                    @class([
+                        'seo-keywords-dropdown__link',
+                        'is-active' => request()->routeIs('filament.seo.resources.keywords.tags.*'),
+                    ])
+                >
+                    {{ __('seo-content-ai::filament.nav.tags') }}
                 </a>
             </li>
         </ul>

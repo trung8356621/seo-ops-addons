@@ -7,12 +7,13 @@ namespace Omnichannel\Addons\Seo\Services;
 
 use Omnichannel\Addons\AiPrompt\Services\WorkflowParserService;
 use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
-use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
-use Omnichannel\Addons\Seo\Enums\SeoLinkMapType;
-use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Services\ArticleInternalLinkSuggestionService;
 use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
+use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
+use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchFoundation\Support\KeywordPhraseMatcher;
+use Omnichannel\Addons\Seo\Enums\SeoLinkMapType;
 use Omnichannel\Addons\Seo\Support\SeoLinkMapLinkTypeClassifier;
 use Omnichannel\Addons\Seo\Support\SeoScoringRulesRegistry;
 use DOMDocument;

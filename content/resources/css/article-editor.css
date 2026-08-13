@@ -2754,6 +2754,208 @@ p.article-cta a.article-cta__value {
     flex-wrap: wrap;
 }
 
+.seo-ai-media-mode-tabs {
+    display: flex;
+    gap: 0.35rem;
+    margin-bottom: 0.5rem;
+}
+
+.seo-ai-media-mode-tab {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    flex: 1;
+    justify-content: center;
+    height: 30px;
+    padding: 0 0.5rem;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    background: #f8fafc;
+    color: #334155;
+    cursor: pointer;
+}
+
+.seo-ai-media-mode-tab.is-active {
+    border-color: #2563eb;
+    background: #eff6ff;
+    color: #1d4ed8;
+}
+
+.seo-ai-media-actions {
+    gap: 0.5rem;
+}
+
+.seo-ai-media-copy-prompt {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    flex: 1;
+    min-width: 0;
+    height: 34px;
+    padding: 0 0.85rem;
+    font-size: 12px;
+    font-weight: 600;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    color: #fff;
+    background: #2563eb;
+}
+
+.seo-ai-media-generate-api {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    height: 34px;
+    padding: 0 0.75rem;
+    font-size: 12px;
+    font-weight: 500;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    cursor: pointer;
+    color: #475569;
+    background: #fff;
+}
+
+.seo-ai-media-copy-prompt:disabled,
+.seo-ai-media-generate-api:disabled,
+.seo-ai-media-preview-prompt:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.seo-ai-media-preview-prompt {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    height: 34px;
+    padding: 0 0.75rem;
+    font-size: 12px;
+    font-weight: 500;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    cursor: pointer;
+    color: #475569;
+    background: #fff;
+}
+
+.seo-ai-media-resolve-error {
+    margin: 0.5rem 0;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid #fecaca;
+    border-radius: 4px;
+    background: #fef2f2;
+    color: #991b1b;
+    font-size: 12px;
+}
+
+.seo-ai-media-resolve-error p {
+    margin: 0 0 0.5rem;
+}
+
+.seo-ai-media-retry-resolve {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    font-size: 12px;
+    font-weight: 600;
+    color: #b91c1c;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+}
+
+.seo-ai-media-final-prompt-preview {
+    margin-top: 0.75rem;
+    border: 1px solid #cbd5e1;
+    border-radius: 4px;
+    background: #f8fafc;
+    overflow: hidden;
+}
+
+.seo-ai-media-final-prompt-preview__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.45rem 0.65rem;
+    border-bottom: 1px solid #e2e8f0;
+    font-size: 11px;
+}
+
+.seo-ai-media-final-prompt-preview__meta {
+    color: #64748b;
+    font-weight: 500;
+}
+
+.seo-ai-media-final-prompt-preview__body {
+    margin: 0;
+    max-height: 220px;
+    overflow: auto;
+    padding: 0.65rem;
+    font-size: 11px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+    color: #0f172a;
+}
+
+.dark .seo-ai-media-preview-prompt {
+    border-color: #475569;
+    background: #0f172a;
+    color: #cbd5e1;
+}
+
+.dark .seo-ai-media-resolve-error {
+    border-color: #7f1d1d;
+    background: #450a0a;
+    color: #fecaca;
+}
+
+.dark .seo-ai-media-final-prompt-preview {
+    border-color: #475569;
+    background: #0f172a;
+}
+
+.dark .seo-ai-media-final-prompt-preview__header {
+    border-bottom-color: #334155;
+}
+
+.dark .seo-ai-media-final-prompt-preview__body {
+    color: #e2e8f0;
+}
+
+.dark .seo-ai-media-copy-prompt:disabled,
+.dark .seo-ai-media-generate-api:disabled,
+.dark .seo-ai-media-preview-prompt:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.dark .seo-ai-media-mode-tab {
+    border-color: #475569;
+    background: #1e293b;
+    color: #e2e8f0;
+}
+
+.dark .seo-ai-media-mode-tab.is-active {
+    border-color: #3b82f6;
+    background: #1e3a5f;
+    color: #bfdbfe;
+}
+
+.dark .seo-ai-media-generate-api {
+    border-color: #475569;
+    background: #0f172a;
+    color: #cbd5e1;
+}
+
 /* Editor: không có toolbar full-width; chỉ bubble trên block đang active */
 .seo-editor-busy-overlay {
     position: fixed;
@@ -6650,6 +6852,509 @@ p.article-cta a.article-cta__value {
     border-color: #fbbf24;
 }
 
+.wp-article-links-keyword-row.is-content-suggestion .wp-article-links-keyword.is-suggestion {
+    color: #0369a1;
+    background: #f0f9ff;
+    border-color: #7dd3fc;
+    border-style: dotted;
+}
+
+.wp-article-links-keyword-row.is-content-suggestion .wp-article-links-keyword.is-suggestion:hover {
+    background: #e0f2fe;
+    border-color: #38bdf8;
+}
+
+.dark .wp-article-links-keyword-row.is-content-suggestion .wp-article-links-keyword.is-suggestion {
+    color: #7dd3fc;
+    background: rgb(12 74 110 / 0.45);
+    border-color: rgb(56 189 248 / 0.45);
+}
+
+.dark .wp-article-links-keyword-row.is-content-suggestion .wp-article-links-keyword.is-suggestion:hover {
+    background: rgb(7 89 133 / 0.55);
+}
+
+.seo-assistant-widget--vocabulary {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: min(70vh, calc(100vh - var(--wp-article-sidebar-top, 4.75rem) - 2rem));
+    height: 100%;
+    overflow: hidden;
+}
+
+.seo-assistant-widget--vocabulary .seo-assistant-widget__header {
+    flex-shrink: 0;
+}
+
+.seo-assistant-widget--vocabulary .seo-assistant-widget__body {
+    display: flex !important;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
+    padding: 0.5rem 0.75rem 0.75rem;
+}
+
+.wp-article-vocabulary {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    height: 100%;
+    gap: 0.5rem;
+    overflow: hidden;
+}
+
+.wp-article-vocabulary-empty {
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8125rem;
+    color: #6b7280;
+}
+
+.wp-article-vocabulary-sticky-top {
+    flex-shrink: 0;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: #fff;
+}
+
+.wp-article-vocabulary-mode-toggle {
+    display: flex;
+    flex-shrink: 0;
+    gap: 0.375rem;
+    padding: 0 0.15rem 0.35rem;
+}
+
+.wp-article-vocabulary-scroll {
+    /* Hard viewport cap — do not rely only on flex ancestors for overflow. */
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: min(26rem, calc(100dvh - var(--wp-article-sidebar-top, 4.75rem) - 14rem));
+    overflow-x: hidden;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+    padding: 0 0.15rem 0.5rem;
+    scrollbar-gutter: stable;
+    scrollbar-width: thin;
+    scrollbar-color: #94a3b8 #e5e7eb;
+}
+
+.wp-article-vocabulary-scroll::-webkit-scrollbar {
+    width: 10px;
+}
+
+.wp-article-vocabulary-scroll::-webkit-scrollbar-track {
+    background: #e5e7eb;
+    border-radius: 9999px;
+}
+
+.wp-article-vocabulary-scroll::-webkit-scrollbar-thumb {
+    background: #94a3b8;
+    border-radius: 9999px;
+    border: 2px solid #e5e7eb;
+}
+
+.wp-article-vocabulary-scroll::-webkit-scrollbar-thumb:hover {
+    background: #64748b;
+}
+
+.dark .wp-article-vocabulary-scroll {
+    scrollbar-color: #64748b #1f2937;
+}
+
+.dark .wp-article-vocabulary-scroll::-webkit-scrollbar-track {
+    background: #1f2937;
+}
+
+.dark .wp-article-vocabulary-scroll::-webkit-scrollbar-thumb {
+    background: #64748b;
+    border-color: #1f2937;
+}
+
+.dark .wp-article-vocabulary-scroll::-webkit-scrollbar-thumb:hover {
+    background: #94a3b8;
+}
+
+.wp-article-vocabulary-mode-btn {
+    flex: 1;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.375rem;
+    background: #fff;
+    padding: 0.375rem 0.5rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: #4b5563;
+}
+
+.wp-article-vocabulary-mode-btn.is-active {
+    border-color: #f59e0b;
+    background: #fffbeb;
+    color: #b45309;
+}
+
+.wp-article-vocabulary-group + .wp-article-vocabulary-group {
+    border-top: 1px solid #f3f4f6;
+    padding-top: 0.5rem;
+    margin-top: 0.35rem;
+}
+
+.wp-article-vocabulary-group-toggle {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    width: 100%;
+    border: 0;
+    background: transparent;
+    padding: 0.375rem 0.35rem;
+    text-align: left;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #374151;
+}
+
+.wp-article-vocabulary-group-title {
+    flex: 1;
+}
+
+.wp-article-vocabulary-group-body {
+    padding: 0 0.15rem 0.35rem 0.35rem;
+    overflow: visible;
+}
+
+.wp-article-vocabulary-select-all {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    margin-bottom: 0.375rem;
+    font-size: 0.75rem;
+    color: #6b7280;
+}
+
+.wp-article-vocabulary-items {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+}
+
+.wp-article-vocabulary-items.is-in-article {
+    gap: 0.65rem;
+}
+
+.wp-article-vocabulary-item-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.375rem;
+    font-size: 0.8125rem;
+}
+
+.wp-article-vocabulary-anchor {
+    border: 1px solid #eef2f7;
+    border-radius: 0.5rem;
+    background: #fafbfc;
+    padding: 0.45rem 0.5rem 0.4rem;
+}
+
+.wp-article-vocabulary-anchor-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.4rem;
+}
+
+.wp-article-vocabulary-anchor-phrase {
+    flex: 1 1 auto;
+    min-width: 0;
+    border: 0;
+    background: transparent;
+    padding: 0;
+    text-align: left;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    line-height: 1.35;
+    color: #111827;
+    cursor: pointer;
+}
+
+.wp-article-vocabulary-anchor-phrase:hover {
+    color: #1d4ed8;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+}
+
+.wp-article-vocabulary-anchor-meta {
+    flex-shrink: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.2rem;
+    margin-top: 0.05rem;
+}
+
+.wp-article-vocabulary-occ-count {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: #6b7280;
+    white-space: nowrap;
+}
+
+.wp-article-vocabulary-occ-nav {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.1rem;
+    border: 1px solid #e5e7eb;
+    border-radius: 9999px;
+    background: #fff;
+    padding: 0.05rem 0.15rem;
+}
+
+.wp-article-vocabulary-occ-nav-index {
+    min-width: 1.7rem;
+    text-align: center;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: #4b5563;
+    font-variant-numeric: tabular-nums;
+}
+
+.wp-article-vocabulary-occ-nav-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 1.15rem;
+    height: 1.15rem;
+    border: 0;
+    border-radius: 9999px;
+    background: transparent;
+    color: #4b5563;
+}
+
+.wp-article-vocabulary-occ-nav-btn:hover {
+    background: #f3f4f6;
+    color: #111827;
+}
+
+.wp-article-vocabulary-candidates {
+    margin-top: 0.4rem;
+    padding-left: 0.55rem;
+    border-left: 2px solid #dbeafe;
+}
+
+.wp-article-vocabulary-related-loading,
+.wp-article-vocabulary-related-empty {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+    font-size: 0.6875rem;
+    color: #9ca3af;
+}
+
+.wp-article-vocabulary-candidate-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.2rem;
+}
+
+.wp-article-vocabulary-candidate {
+    display: flex;
+    width: 100%;
+    align-items: flex-start;
+    gap: 0.35rem;
+    border: 0;
+    border-radius: 0.35rem;
+    background: transparent;
+    padding: 0.25rem 0.3rem;
+    text-align: left;
+    color: #1d4ed8;
+}
+
+.wp-article-vocabulary-candidate:hover {
+    background: #eff6ff;
+    color: #1e40af;
+}
+
+.wp-article-vocabulary-candidate-main {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.05rem;
+}
+
+.wp-article-vocabulary-candidate-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.3;
+}
+
+.wp-article-vocabulary-candidate-title-row {
+    display: inline-flex;
+    align-items: flex-start;
+    gap: 0.25rem;
+}
+
+.wp-article-vocabulary-candidate-check {
+    flex-shrink: 0;
+    margin-top: 0.1rem;
+    color: #059669;
+}
+
+.wp-article-vocabulary-candidate.is-current-link {
+    color: #065f46;
+    background: #ecfdf5;
+}
+
+.wp-article-vocabulary-candidate-current {
+    display: inline-block;
+    margin-top: 0.1rem;
+    font-size: 0.625rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: #047857;
+}
+
+.wp-article-vocabulary-project-select {
+    margin-top: 0.55rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.3rem;
+}
+
+.wp-article-vocabulary-project-label {
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: #4b5563;
+}
+
+.wp-article-vocabulary-project-hint {
+    margin: 0;
+    font-size: 0.6875rem;
+    color: #b45309;
+}
+
+.wp-article-vocabulary-assign-feedback {
+    margin: 0 0 0.4rem;
+    font-size: 0.6875rem;
+    color: #047857;
+}
+
+.wp-article-vocabulary-candidate-path {
+    font-size: 0.6875rem;
+    font-weight: 400;
+    color: #6b7280;
+    word-break: break-all;
+}
+
+.wp-article-vocabulary-candidate-icon {
+    flex-shrink: 0;
+    margin-top: 0.15rem;
+    opacity: 0;
+    color: #2563eb;
+}
+
+.wp-article-vocabulary-candidate:hover .wp-article-vocabulary-candidate-icon {
+    opacity: 1;
+}
+
+.wp-article-vocabulary-assign-sticky {
+    flex-shrink: 0;
+    position: sticky;
+    bottom: 0;
+    padding: 0.5rem 0.15rem 0;
+    background: linear-gradient(180deg, rgb(255 255 255 / 0), #fff 35%);
+}
+
+.wp-article-vocabulary-assign-btn {
+    width: 100%;
+    border: 1px solid #f59e0b;
+    border-radius: 0.375rem;
+    background: #fffbeb;
+    padding: 0.5rem 0.75rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: #b45309;
+}
+
+.wp-article-vocabulary-assign-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.dark .wp-article-vocabulary-sticky-top {
+    background: rgb(17 24 39);
+}
+
+.dark .wp-article-vocabulary-mode-btn {
+    border-color: rgb(75 85 99 / 0.6);
+    background: rgb(17 24 39 / 0.6);
+    color: #d1d5db;
+}
+
+.dark .wp-article-vocabulary-mode-btn.is-active {
+    border-color: rgb(251 191 36 / 0.55);
+    background: rgb(69 26 3 / 0.45);
+    color: #fcd34d;
+}
+
+.dark .wp-article-vocabulary-anchor {
+    border-color: rgb(55 65 81 / 0.9);
+    background: rgb(17 24 39 / 0.55);
+}
+
+.dark .wp-article-vocabulary-anchor-phrase {
+    color: #f3f4f6;
+}
+
+.dark .wp-article-vocabulary-anchor-phrase:hover {
+    color: #7dd3fc;
+}
+
+.dark .wp-article-vocabulary-occ-nav {
+    border-color: rgb(75 85 99 / 0.7);
+    background: rgb(17 24 39);
+}
+
+.dark .wp-article-vocabulary-occ-nav-index,
+.dark .wp-article-vocabulary-occ-count {
+    color: #d1d5db;
+}
+
+.dark .wp-article-vocabulary-candidates {
+    border-left-color: rgb(56 189 248 / 0.35);
+}
+
+.dark .wp-article-vocabulary-candidate {
+    color: #7dd3fc;
+}
+
+.dark .wp-article-vocabulary-candidate:hover {
+    background: rgb(12 74 110 / 0.35);
+    color: #bae6fd;
+}
+
+.dark .wp-article-vocabulary-candidate-path {
+    color: #94a3b8;
+}
+
+.dark .wp-article-vocabulary-assign-sticky {
+    background: linear-gradient(180deg, rgb(17 24 39 / 0), rgb(17 24 39) 35%);
+}
+
+.dark .wp-article-vocabulary-assign-btn {
+    border-color: rgb(251 191 36 / 0.55);
+    background: rgb(69 26 3 / 0.45);
+    color: #fcd34d;
+}
+
 .wp-article-links-keyword-edit {
     display: block;
     width: 100%;
@@ -9841,6 +10546,7 @@ section[data-seo-section-id].is-outline-jump-highlight {
 .seo-assistant-host.is-panel-filter .seo-assistant-widget--seo .seo-assistant-widget__header,
 .seo-assistant-host.is-panel-filter .seo-assistant-widget--images .seo-assistant-widget__header,
 .seo-assistant-host.is-panel-filter .seo-assistant-widget--links .seo-assistant-widget__header,
+.seo-assistant-host.is-panel-filter .seo-assistant-widget--vocabulary .seo-assistant-widget__header,
 .seo-assistant-host.is-panel-filter .seo-assistant-widget--reviews .seo-assistant-widget__header,
 .seo-assistant-host.is-panel-filter .seo-assistant-widget--article-info > .seo-assistant-widget__header,
 .seo-assistant-host.is-panel-filter .seo-assistant-widget--publishing > .seo-assistant-widget__header--static,
@@ -9869,7 +10575,10 @@ section[data-seo-section-id].is-outline-jump-highlight {
 .seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="seo"],
 .seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="images"],
 .seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="links"],
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="publishing"] {
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="vocabulary"],
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="faq"],
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="publishing"],
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="article"] {
     flex: 1 1 auto;
     min-height: 0;
     max-height: var(--seo-assistant-filter-panel-max);
@@ -9880,7 +10589,8 @@ section[data-seo-section-id].is-outline-jump-highlight {
 
 .seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="seo"] #seo-article-seo-assistant-root,
 .seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="images"] #seo-article-image-assistant-root,
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="links"] #seo-article-links-root {
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="links"] #seo-article-links-root,
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="vocabulary"] #seo-article-vocabulary-root {
     flex: 1 1 auto;
     min-height: 0;
     display: flex;
@@ -9891,10 +10601,12 @@ section[data-seo-section-id].is-outline-jump-highlight {
 .seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="seo"] .seo-assistant-widget--seo,
 .seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="images"] .seo-assistant-widget--images,
 .seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="links"] .seo-assistant-widget--links,
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="vocabulary"] .seo-assistant-widget--vocabulary,
 .seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="publishing"] > .seo-assistant-widget--publishing {
     flex: 1 1 auto;
     min-height: 0;
     max-height: 100%;
+    height: 100%;
     display: flex;
     flex-direction: column;
     overflow: hidden;
@@ -9906,10 +10618,48 @@ section[data-seo-section-id].is-outline-jump-highlight {
 .seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="publishing"] > .seo-assistant-widget--publishing > .seo-assistant-widget__body {
     flex: 1 1 auto;
     min-height: 0;
+    max-height: var(--seo-assistant-filter-panel-max);
     overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
+    scrollbar-width: thin;
+    scrollbar-color: #94a3b8 #e5e7eb;
+}
+
+/* Vocabulary keeps ONE internal scroll on .wp-article-vocabulary-scroll (not the widget body). */
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="vocabulary"] .seo-assistant-widget--vocabulary > .seo-assistant-widget__body {
+    display: flex !important;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: var(--seo-assistant-filter-panel-max);
+    overflow: hidden;
+    overscroll-behavior: contain;
+}
+
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="vocabulary"] .wp-article-vocabulary-scroll {
+    max-height: calc(var(--seo-assistant-filter-panel-max) - 3.25rem);
+}
+
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="vocabulary"] #seo-article-vocabulary-root > *,
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="vocabulary"] .seo-assistant-widget--vocabulary,
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="vocabulary"] .wp-article-vocabulary-panel-shell {
+    flex: 1 1 auto;
+    min-height: 0;
+    height: 100%;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.wp-article-vocabulary-panel-shell {
+    display: flex;
+    flex-direction: column;
+    flex: 1 1 auto;
+    min-height: 0;
+    height: 100%;
+    overflow: hidden;
 }
 
 .seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="images"] .seo-article-images-list {
@@ -10130,6 +10880,22 @@ section[data-seo-section-id].is-outline-jump-highlight {
     line-height: 1.2;
     color: #fff;
     background: #dc2626;
+}
+
+.seo-assistant-dock__tab-refresh {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    margin-left: 0.1rem;
+    font-size: 0.7rem;
+    line-height: 1;
+    opacity: 0.65;
+    animation: seo-assistant-dock-refresh-spin 1s linear infinite;
+}
+
+@keyframes seo-assistant-dock-refresh-spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
 }
 
 .seo-assistant-dock__tab.is-status-warning .seo-assistant-dock__tab-issue {

@@ -76,17 +76,30 @@ final class WordPressSlugFixWriteGuardContractTest extends TestCase
         self::assertStringContainsString('blockWhenSlugFixRequired($articleId, $site, \'virtual_comments.sync\')', $virtualComments);
     }
 
-    public function test_queue_prerequisite_block_happens_before_claim_and_without_retry_burn(): void
+    public function test_queue_prerequisite_auto_fixes_or_hard_fails_before_claim(): void
     {
         $handler = $this->readAddon('Services/ContentProject/Application/Handlers/ProcessScheduledProjectItemPublishHandler.php');
-        $guardPos = strpos($handler, 'publishing_queue.process');
+        $prepPos = strpos($handler, 'PublishingLocalMediaSlugPreparer');
         $claimPos = strpos($handler, 'claimForDispatch');
 
-        self::assertIsInt($guardPos);
+        self::assertIsInt($prepPos);
         self::assertIsInt($claimPos);
-        self::assertLessThan($claimPos, $guardPos);
-        self::assertStringContainsString('retry_count_unchanged', $handler);
+        self::assertLessThan($claimPos, $prepPos);
+        self::assertStringContainsString('prepareForPublish', $handler);
+        self::assertStringContainsString('media_preflight_blocked', $handler);
+        self::assertStringContainsString('persistPublishFailure', $handler);
+        self::assertStringContainsString("'retry_count_unchanged' => false", $handler);
+        self::assertStringNotContainsString("'retry_count_unchanged' => true", $handler);
         self::assertStringContainsString('publisher_invoked', $handler);
         self::assertStringContainsString('media_upload_started', $handler);
+    }
+
+    public function test_readiness_guard_exposes_pending_ids_for_publish_autofix(): void
+    {
+        $guard = $this->readAddon('Services/WordPress/WordPressWriteReadinessGuard.php');
+
+        self::assertStringContainsString('function pendingLocalSlugFixIds', $guard);
+        self::assertStringContainsString('function isAutoFixableLocalMedia', $guard);
+        self::assertStringContainsString('url_import', $guard);
     }
 }

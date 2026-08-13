@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SiteSync\Services\Presentation;
 
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Support\SystemDateTime;
 use Omnichannel\Addons\SiteSync\Models\SeoArticleScoreSource;
 use Omnichannel\Addons\SiteSync\Models\SeoSiteLinkCatalog;
 use Omnichannel\Addons\SiteSync\Models\SeoSiteManualLink;
@@ -178,7 +179,9 @@ final class SiteSyncStatusPresenter
             'phase_label' => $this->phaseLabel($currentStep),
             'public_ref' => (string) $run->public_ref,
             'run_id' => (int) $run->id,
-            'last_progress_at' => $lastProgressAt,
+            'last_progress_at' => $lastProgressAt !== ''
+                ? (SystemDateTime::formatDateTime($lastProgressAt) ?? $lastProgressAt)
+                : null,
             'counters' => $counters,
             'warnings' => array_values(array_unique($warnings)),
             'capability_sources' => $sources,
@@ -526,7 +529,13 @@ final class SiteSyncStatusPresenter
             $parts[] = ((int) $counters['articles']).' bài đã đối soát';
         }
         if (isset($counters['urls_changed'])) {
-            $parts[] = ((int) $counters['urls_changed']).' bài thay đổi';
+            $parts[] = ((int) $counters['urls_changed']).' URL catalog thay đổi';
+        }
+        if (isset($counters['created']) && (int) $counters['created'] > 0) {
+            $parts[] = ((int) $counters['created']).' bài tạo mới';
+        }
+        if (isset($counters['updated']) && (int) $counters['updated'] > 0) {
+            $parts[] = ((int) $counters['updated']).' bài cập nhật';
         }
         if (isset($counters['urls_synced'])) {
             $parts[] = ((int) $counters['urls_synced']).' URL đồng bộ';

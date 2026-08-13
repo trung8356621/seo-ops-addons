@@ -52,6 +52,9 @@ final class SeoKeywordSettingsService
         }
 
         $blacklist = $this->normalizeKeywords($data[self::KEY_CTA_BLACKLIST] ?? null);
+        if ($blacklist !== [] && $this->hasByteCorruptedUtf8Labels($blacklist)) {
+            $blacklist = [];
+        }
 
         return [
             self::KEY_CTA_BLACKLIST => $blacklist !== [] ? $blacklist : self::DEFAULT_CTA_BLACKLIST,
@@ -146,5 +149,21 @@ final class SeoKeywordSettingsService
         }
 
         return $keywords;
+    }
+
+    /**
+     * Phát hiện chuỗi bị thay byte UTF-8 bằng '?' (vd. "tại đây" → "t???i ????y").
+     *
+     * @param  list<string>  $labels
+     */
+    private function hasByteCorruptedUtf8Labels(array $labels): bool
+    {
+        foreach ($labels as $label) {
+            if (preg_match('/\?\?\?/', $label) === 1) {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

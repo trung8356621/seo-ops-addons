@@ -1,8 +1,6 @@
 @php
-    $projectOptions = $this->getContentProjectOptions();
-    $contentProjectsUrl = \Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource::getUrl('index');
-    $assignTypeOptions = $this->getAssignTypeOptions();
-    $rewriteModeOptions = $this->getRewriteModeOptions();
+    use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectContract;
+
     $scoringFilters = $this->getScoringRuleFilterDefinitions();
     $aggregateFilters = $this->getAggregateFilterDefinitions();
     $selectedSiteId = (int) ($filterSiteId ?? 0);
@@ -14,6 +12,8 @@
             (int) ($row['id'] ?? 0) => (bool) ($row['has_focus_keyword'] ?? false),
         ])
         ->all();
+    $assignOpenEvent = AssignToContentProjectContract::OPEN_EVENT;
+    $assignSuccessEvent = AssignToContentProjectContract::SUCCESS_EVENT;
 @endphp
 
 @if ($defaultLoading)
@@ -31,19 +31,13 @@
 <div
     class="fi-page articles-optimal-page"
     x-data="{
-        sidebarProjectId: @entangle('sidebarProjectId'),
         selectedArticleIds: @entangle('selectedArticleIds'),
-        sidebarCollapsed: @entangle('sidebarCollapsed'),
         bulkMenuOpen: false,
-        assignArticleId: null,
-        assignType: 'rewrite',
-        rewriteMode: 'keyword',
-        rewriteNotes: '',
-        assignFocusKeyword: '',
-        assignNeedsKeyword: false,
         visibleIds: @js($visibleIds),
         articleFocusMap: @js($articleFocusMap),
         removedIds: [],
+        assignOpenEvent: @js($assignOpenEvent),
+        assignSuccessEvent: @js($assignSuccessEvent),
         hideRows(ids) {
             const nums = (Array.isArray(ids) ? ids : [ids]).map(Number).filter((id) => id > 0);
             this.removedIds = Array.from(new Set([...this.removedIds.map(Number), ...nums]));
@@ -61,6 +55,16 @@
             this.$watch('selectedArticleIds', (value) => {
                 if (! Array.isArray(value) || value.length === 0) {
                     this.bulkMenuOpen = false;
+                }
+            });
+            window.addEventListener(this.assignSuccessEvent, (event) => {
+                const detail = event.detail || {};
+                if (detail.source !== 'seo_audit' && detail.source !== 'seo_audit_bulk') {
+                    return;
+                }
+                const ids = Array.isArray(detail.article_ids) ? detail.article_ids : [];
+                if (ids.length > 0) {
+                    this.hideRows(ids);
                 }
             });
         },
@@ -90,63 +94,35 @@
         toggleSelectAll(checked) {
             this.selectedArticleIds = checked ? this.selectableVisibleIds() : [];
         },
-        openAssignSidebar(articleId = null) {
+        openAssignDrawer(articleId = null) {
             this.bulkMenuOpen = false;
-            this.assignArticleId = articleId ? Number(articleId) : null;
-            this.assignType = 'rewrite';
-            this.rewriteMode = 'keyword';
-            this.rewriteNotes = '';
-            this.assignFocusKeyword = '';
-            this.assignNeedsKeyword = this.assignArticleId
-                ? ! this.articleFocusMap[this.assignArticleId]
+            const ids = articleId
+                ? [Number(articleId)].filter((id) => id > 0)
+                : this.assignableSelectedIds();
+            if (ids.length === 0) {
+                return;
+            }
+            const needsFocus = articleId
+                ? ! this.articleFocusMap[Number(articleId)]
                 : false;
-            this.sidebarCollapsed = false;
-        },
-        closeAssignSidebar() {
-            this.sidebarCollapsed = true;
-            this.assignArticleId = null;
-            this.assignNeedsKeyword = false;
-            this.assignFocusKeyword = '';
-        },
-        clearAssignTarget() {
-            this.assignArticleId = null;
-            this.assignNeedsKeyword = false;
-            this.assignFocusKeyword = '';
-        },
-        assignTargetIds() {
-            if (this.assignArticleId) {
-                return [Number(this.assignArticleId)];
-            }
-
-            return this.assignableSelectedIds();
-        },
-        canSubmitAssign() {
-            return !! this.sidebarProjectId
-                && this.assignTargetIds().length > 0
-                && (! this.assignNeedsKeyword || String(this.assignFocusKeyword || '').trim() !== '');
-        },
-        submitSidebarAssign() {
-            const ids = this.assignTargetIds();
-            if (ids.length === 0 || ! this.sidebarProjectId) {
-                return;
-            }
-
-            const focusKeyword = String(this.assignFocusKeyword || '').trim();
-            if (this.assignNeedsKeyword && focusKeyword === '') {
-                return;
-            }
-
-            const payload = {
-                project_id: this.sidebarProjectId,
-                type: this.assignType,
-                rewrite_mode: 'content',
-                rewrite_notes: this.rewriteNotes,
-                focus_keyword: focusKeyword,
-            };
-
-            this.hideRows(ids);
-            this.clearAssignTarget();
-            this.$wire.assignFromSidebar(ids, payload);
+            window.dispatchEvent(new CustomEvent(this.assignOpenEvent, {
+                detail: {
+                    mode: 'article',
+                    source: articleId ? 'seo_audit' : 'seo_audit_bulk',
+                    article_ids: ids,
+                    site_ids: [@js($selectedSiteId)].filter((id) => Number(id) > 0),
+                    defaults: { type: 'rewrite' },
+                    options: {
+                        ignore_monthly_capacity: true,
+                        detect_missing_focus_keyword: true,
+                        show_focus_keyword: needsFocus,
+                        show_quick_create: false,
+                        show_article_fields: true,
+                        show_keyword_override: false,
+                        show_title_override: false,
+                    },
+                },
+            }));
         },
         runSkipSelected() {
             this.bulkMenuOpen = false;
@@ -167,7 +143,7 @@
             if (this.assignableSelectedIds().length === 0) {
                 return;
             }
-            this.openAssignSidebar(null);
+            this.openAssignDrawer(null);
         },
     }"
 >
@@ -177,11 +153,7 @@
         class="hidden"
     ></span>
 
-    <div
-        class="space-y-6 transition-all duration-300"
-        x-bind:style="! sidebarCollapsed ? 'padding-right: 31%;' : 'padding-right: 0;'"
-    >
-        <div class="space-y-6">
+    <div class="space-y-6">
         <x-filament::section>
             <x-slot name="heading">
                 {{ __('seo-content-ai::filament.articles_optimal.filters_heading') }}
@@ -297,8 +269,8 @@
                         type="submit"
                         wire:loading.attr="disabled"
                         wire:target="runScan"
-                        @disabled(! $canScan)
-                        @class(['opacity-50 pointer-events-none' => ! $canScan])
+                        :disabled="! $canScan"
+                        :class="$canScan ? null : 'opacity-50 pointer-events-none'"
                     >
                         @if ($scanState === 'failed')
                             <span>{{ __('seo-content-ai::filament.articles_optimal.scan_retry') }}</span>
@@ -367,7 +339,7 @@
                     x-show="selectedArticleIds.length > 0"
                     x-cloak
                 >
-                    <div class="relative" @click.outside="bulkMenuOpen = false">
+                    <div class="relative" x-on:click.outside="bulkMenuOpen = false">
                         <button
                             type="button"
                             class="inline-flex items-center gap-1.5 whitespace-nowrap rounded-lg bg-gray-50 px-3 py-2 text-sm font-semibold text-gray-700 ring-1 ring-inset ring-gray-200 hover:bg-gray-100 dark:bg-white/5 dark:text-gray-200 dark:ring-white/10 dark:hover:bg-white/10"
@@ -396,7 +368,7 @@
                                 x-bind:title="hasSelectedMissingKeyword() ? @js(__('seo-content-ai::filament.articles_optimal.assign_missing_keyword_bulk')) : ''"
                             >
                                 <x-filament::icon icon="heroicon-o-folder-plus" class="h-4 w-4 shrink-0 text-warning-600" />
-                                {{ __('seo-content-ai::filament.articles_optimal.action_assign_project') }}
+                                {{ \Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectContract::label() }}
                             </button>
                         </div>
                     </div>
@@ -490,12 +462,21 @@
                                         <div class="flex flex-wrap gap-2">
                                             <x-filament::icon-button tag="a" href="{{ $row['edit_url'] }}" icon="heroicon-o-pencil-square" size="sm" color="gray" tooltip="{{ __('seo-content-ai::filament.articles_optimal.action_edit') }}" label="{{ __('seo-content-ai::filament.articles_optimal.action_open_article') }}" />
                                             <x-filament::icon-button icon="heroicon-o-eye-slash" size="sm" color="warning" x-on:click="runSkipRow({{ (int) $row['id'] }})" tooltip="{{ __('seo-content-ai::filament.articles_optimal.action_skip_audit') }}" />
-                                            <x-filament::icon-button
-                                                icon="heroicon-o-folder-plus"
-                                                size="sm"
-                                                color="info"
-                                                x-on:click="openAssignSidebar({{ (int) $row['id'] }})"
-                                                tooltip="{{ __('seo-content-ai::filament.articles_optimal.action_assign_project') }}"
+                                            <x-content::assign-to-content-project-trigger
+                                                mode="article"
+                                                source="seo_audit"
+                                                :article-ids="[(int) $row['id']]"
+                                                :site-ids="$selectedSiteId > 0 ? [$selectedSiteId] : []"
+                                                :defaults="['type' => 'rewrite']"
+                                                :options="[
+                                                    'ignore_monthly_capacity' => true,
+                                                    'detect_missing_focus_keyword' => true,
+                                                    'show_focus_keyword' => empty($row['has_focus_keyword']),
+                                                    'show_quick_create' => false,
+                                                    'show_article_fields' => true,
+                                                    'show_keyword_override' => false,
+                                                    'show_title_override' => false,
+                                                ]"
                                             />
                                         </div>
                                     </td>
@@ -510,103 +491,6 @@
                 </div>
             @endif
         </x-filament::section>
-        </div>
     </div>
-
-    <aside
-        class="overflow-y-auto border-l border-gray-200 bg-white p-4 shadow-xl transition-transform duration-300 dark:border-white/10 dark:bg-gray-900"
-        style="position: fixed; right: 0; top: 0; bottom: 0; width: 30%; z-index: 50;"
-        x-bind:style="sidebarCollapsed
-            ? 'position: fixed; right: 0; top: 0; bottom: 0; width: 30%; z-index: 50; transform: translateX(100%); pointer-events: none;'
-            : 'position: fixed; right: 0; top: 0; bottom: 0; width: 30%; z-index: 50; transform: translateX(0); pointer-events: auto;'"
-        x-bind:aria-hidden="sidebarCollapsed"
-    >
-        <div class="mt-20 space-y-4">
-            <div class="flex items-center justify-between gap-2">
-                <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                    {{ __('seo-content-ai::filament.articles_optimal.assign_modal_heading') }}
-                </h3>
-                <x-filament::icon-button
-                    type="button"
-                    icon="heroicon-o-x-mark"
-                    color="gray"
-                    x-on:click="closeAssignSidebar()"
-                    tooltip="{{ __('seo-content-ai::filament.articles_optimal.sidebar_collapse') }}"
-                />
-            </div>
-
-            <p class="text-xs text-gray-500" x-text="`${assignTargetIds().length} {{ __('seo-content-ai::filament.articles_optimal.bulk_selected_suffix') }}`"></p>
-
-            <div class="flex items-end gap-2">
-                <div class="min-w-0 flex-1">
-                    <label class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ __('seo-content-ai::filament.articles_optimal.sidebar_project_label') }}</label>
-                    <x-select
-                        x-ref="projectSelect"
-                        x-model="sidebarProjectId"
-                        class="mt-1 block w-full rounded-lg border-gray-300 text-sm shadow-sm dark:border-white/10 dark:bg-gray-950"
-                    >
-                        <option value="">{{ __('seo-content-ai::filament.articles_optimal.sidebar_select_project') }}</option>
-                        @foreach ($projectOptions as $projectId => $projectLabel)
-                            <option value="{{ $projectId }}">{{ $projectLabel }}</option>
-                        @endforeach
-                    </x-select>
-                </div>
-                <x-filament::icon-button
-                    tag="a"
-                    href="{{ $contentProjectsUrl }}"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    icon="heroicon-o-arrow-top-right-on-square"
-                    color="gray"
-                    tooltip="{{ __('seo-content-ai::filament.articles_optimal.open_content_projects') }}"
-                />
-            </div>
-
-            <div>
-                <label class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ __('seo-content-ai::filament.projects.article_type') }}</label>
-                <x-select x-model="assignType" class="mt-1 block w-full rounded-lg border-gray-300 text-sm dark:border-white/10 dark:bg-gray-950">
-                    @foreach ($assignTypeOptions as $value => $label)
-                        <option value="{{ $value }}">{{ $label }}</option>
-                    @endforeach
-                </x-select>
-            </div>
-
-            <div x-show="assignType === 'improve'" x-cloak>
-                <label class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ __('seo-content-ai::filament.projects.improve_instruction') }}</label>
-                <textarea
-                    x-model="rewriteNotes"
-                    rows="3"
-                    class="mt-1 block w-full rounded-lg border-gray-300 text-sm dark:border-white/10 dark:bg-gray-950"
-                    placeholder="{{ __('seo-content-ai::filament.projects.improve_instruction_placeholder') }}"
-                ></textarea>
-            </div>
-
-            <div x-show="assignNeedsKeyword" x-cloak>
-                <label class="text-sm font-medium text-gray-700 dark:text-gray-200">
-                    {{ __('seo-content-ai::filament.articles_optimal.assign_focus_keyword') }}
-                    <span class="text-rose-600">*</span>
-                </label>
-                <input
-                    type="text"
-                    x-model="assignFocusKeyword"
-                    required
-                    class="mt-1 block w-full rounded-lg border-gray-300 text-sm shadow-sm dark:border-white/10 dark:bg-gray-950"
-                    placeholder="{{ __('seo-content-ai::filament.articles_optimal.assign_focus_keyword_placeholder') }}"
-                />
-                <p class="mt-1 text-xs text-amber-600 dark:text-amber-400">{{ __('seo-content-ai::filament.articles_optimal.assign_focus_keyword_help') }}</p>
-            </div>
-
-            <x-filament::button
-                type="button"
-                color="info"
-                class="w-full"
-                x-on:click="submitSidebarAssign()"
-                x-bind:disabled="! canSubmitAssign()"
-                x-bind:class="canSubmitAssign() ? '' : 'opacity-50 pointer-events-none'"
-            >
-                {{ __('seo-content-ai::filament.article_list.assign') }}
-            </x-filament::button>
-        </div>
-    </aside>
 
 </div>

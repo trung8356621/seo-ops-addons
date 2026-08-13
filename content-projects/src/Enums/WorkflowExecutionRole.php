@@ -55,6 +55,14 @@ enum WorkflowExecutionRole: string
         }
 
         $raw = trim((string) $value);
+        if ($raw === '') {
+            return null;
+        }
+
+        // Normalize versioned keys: article.outline.generate@0.1.0 → article.outline.generate
+        if (str_contains($raw, '@')) {
+            $raw = trim(explode('@', $raw, 2)[0]);
+        }
 
         return $raw === '' ? null : self::tryFrom($raw);
     }

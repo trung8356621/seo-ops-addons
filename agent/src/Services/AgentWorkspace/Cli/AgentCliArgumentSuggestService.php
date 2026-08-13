@@ -6,8 +6,8 @@ namespace Omnichannel\Addons\Agent\Services\AgentWorkspace\Cli;
 
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\Agent\Services\AgentWorkspace\Dtos\AgentWorkspaceContext;
-use Omnichannel\Addons\Seo\Support\SeoAccessControl;
-use App\Models\User;
+use Omnichannel\Addons\ContentProjects\Services\ContentProjectStaffAvailabilityService;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 
 /**
  * Read-only suggestions for CLI argument autocomplete (UX layer).
@@ -46,21 +46,37 @@ final class AgentCliArgumentSuggestService
     }
 
     /**
-     * @return list<array{value: string, label: string, id?: int, email?: string, name?: string}>
+     * Eligible Content Project assignees from canonical staff availability rules.
+     *
+     * @return list<array{value: string, label: string, id?: int, email?: string, name?: string, available?: bool}>
      */
     public function suggestMembers(AgentWorkspaceContext $context, string $query = '', bool $availableOnly = false): array
     {
-        unset($context, $availableOnly);
+        unset($context);
 
-        $ownerId = SeoAccessControl::accountOwnerId() ?? (int) auth()->id();
+        $service = app(ContentProjectStaffAvailabilityService::class);
         $needle = strtolower(trim($query));
 
-        $users = User::query()
-            ->where('parent_id', $ownerId)
-            ->where('role', User::ROLE_STAFF)
-            ->orderBy('id')
-            ->limit(50)
-            ->get();
+        if ($availableOnly) {
+            $month = ContentProjectMonthContext::normalize(now()->format('Y-m-d'));
+            $users = $service->unassignedStaffQuery($month, $needle !== '' ? $query : null)
+                ->limit(50)
+                ->get();
+        } else {
+            $queryBuilder = $service->baseAssignableStaffQuery();
+            if ($needle !== '') {
+                $like = '%'.$needle.'%';
+                $queryBuilder->where(function ($builder) use ($like, $needle): void {
+                    $builder
+                        ->where('name', 'like', $like)
+                        ->orWhere('email', 'like', $like);
+                    if (ctype_digit($needle)) {
+                        $builder->orWhere('id', (int) $needle);
+                    }
+                });
+            }
+            $users = $queryBuilder->limit(50)->get();
+        }
 
         $out = [];
         foreach ($users as $user) {
@@ -68,19 +84,17 @@ final class AgentCliArgumentSuggestService
             $email = (string) $user->email;
             $name = (string) ($user->display_name ?? $user->name ?? $email);
             $label = '#'.$id.' · '.$email.' · '.$name;
-            if ($needle !== ''
-                && ! str_contains((string) $id, $needle)
-                && ! str_contains(strtolower($email), $needle)
-                && ! str_contains(strtolower($name), $needle)) {
-                continue;
-            }
-            $out[] = [
+            $row = [
                 'value' => (string) $id,
                 'label' => $label,
                 'id' => $id,
                 'email' => $email,
                 'name' => $name,
             ];
+            if ($availableOnly) {
+                $row['available'] = true;
+            }
+            $out[] = $row;
         }
 
         return array_slice($out, 0, 20);

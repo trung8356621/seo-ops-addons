@@ -12,8 +12,10 @@ import {
     findBlockIdForOutlineHeading,
     flattenOutlineHeadingKeys,
     flattenOutlineNodes,
+    isPersistedOutlineHeadingId,
     outlineApiRequest,
     outlineHeadingKey,
+    resolveBlockIdFromOutlineHeadingId,
     truncateOutlineHeadingText,
 } from '../utils/contentDocumentHelpers';
 import { callEditArticleLivewire } from '../utils/articleEditorLivewire';
@@ -27,20 +29,11 @@ import { useCallback, useEffect, useRef } from 'react';
  * extraction). Mechanical move - no behavior change.
  */
 export default function useArticleEditorOutline({ activeBlockId, articleId, articleTitle, blockEditorsRef, blockFlushRef, blocksRef, canGenerateFeaturedSnippet, collapseSectionsExcept, commitActiveBlock, editorSections, featuredSnippetGenerating, featuredSnippetPreviewHtml, featuredSnippetTargetRef, focusImageBlock, focusKeyword, focusedOutlineHeadingRef, outlineAppendDoneRef, outlineAppendInflightRef, outlineFingerprintRef, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, outlineHeadingIdsByKeyRef, outlineRailRef, scheduleIdleSeoAnalysis, sectionByBlockId, sectionHeadingBlockIds, setActiveBlockId, setBlocks, setClientOutline, setCollapsedSectionIds, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptOpen, setGlobalEditor, setImagesTabJumpTarget, setInsertMenu, setOutlineHasSavedHeadings, setOutlineHeadingKeys, setOutlineTreeSync, setSectionTitleEditRequest, syncOutlineFocusFromBlock, tempMergeRef }) {
-    const resolveBlockIdForOutlineHeadingId = useCallback((headingId) => {
-        const targetId = Number(headingId);
-        if (!Number.isFinite(targetId)) {
-            return null;
-        }
-
-        for (const [blockId, mappedId] of outlineHeadingIdsByBlockIdRef.current.entries()) {
-            if (Number(mappedId) === targetId) {
-                return blockId;
-            }
-        }
-
-        return null;
-    }, []);
+    const resolveBlockIdForOutlineHeadingId = useCallback(
+        (headingId) =>
+            resolveBlockIdFromOutlineHeadingId(headingId, outlineHeadingIdsByBlockIdRef.current),
+        [],
+    );
 
     const applyOutlineHeadingText = useCallback(({ level, oldText, newText, headingId = null }) => {
         const targetLevel = Number(level) || 0;
@@ -366,6 +359,64 @@ export default function useArticleEditorOutline({ activeBlockId, articleId, arti
         return headingId ?? null;
     }, []);
 
+    const updateOutlineHeadingTitle = useCallback(
+        async ({ level, oldText, newText, headingId = null, headingHtml = null, blockId = null }) => {
+            const trimmed = truncateOutlineHeadingText(newText);
+            const old = truncateOutlineHeadingText(oldText);
+            if (trimmed === '' || trimmed === old) {
+                return { ok: true, skipped: true };
+            }
+
+            const resolvedBlockId =
+                String(blockId ?? '').trim()
+                || resolveBlockIdForOutlineHeadingId(headingId);
+            const effectiveHeadingId =
+                headingId ?? (resolvedBlockId ? `client:${resolvedBlockId}` : null);
+
+            if (headingHtml != null && String(headingHtml).trim() !== '') {
+                applyOutlineHeadingHtml({
+                    level,
+                    oldText: old,
+                    headingHtml,
+                    newText: trimmed,
+                    headingId: effectiveHeadingId,
+                });
+            } else {
+                applyOutlineHeadingText({
+                    level,
+                    oldText: old,
+                    newText: trimmed,
+                    headingId: effectiveHeadingId,
+                });
+            }
+
+            if (effectiveHeadingId != null) {
+                setOutlineTreeSync({
+                    token: Date.now(),
+                    action: 'patchText',
+                    headingId: effectiveHeadingId,
+                    newText: trimmed,
+                });
+            }
+
+            if (!isPersistedOutlineHeadingId(headingId) || !articleId) {
+                return { ok: true, localOnly: true };
+            }
+
+            try {
+                const data = await outlineApiRequest(articleId, `/${headingId}`, {
+                    method: 'PUT',
+                    body: JSON.stringify({ heading_text: trimmed }),
+                });
+
+                return { ok: true, data };
+            } catch (error) {
+                return { ok: false, error };
+            }
+        },
+        [applyOutlineHeadingHtml, applyOutlineHeadingText, articleId, resolveBlockIdForOutlineHeadingId],
+    );
+
     const saveSectionTitleFromHeader = useCallback(
         async (section, newText) => {
             if (section?.isIntro) {
@@ -384,14 +435,15 @@ export default function useArticleEditorOutline({ activeBlockId, articleId, arti
             const level = meta?.level ?? 2;
             const headingId = resolveOutlineHeadingIdForSection(section);
 
-            applyOutlineHeadingText({
-                level,
-                oldText,
-                newText: trimmed,
-                headingId,
-            });
-
             if (headingId == null) {
+                await updateOutlineHeadingTitle({
+                    level,
+                    oldText,
+                    newText: trimmed,
+                    headingId: null,
+                    blockId: headingBlockId,
+                });
+
                 if (!articleId) {
                     return;
                 }
@@ -416,12 +468,6 @@ export default function useArticleEditorOutline({ activeBlockId, articleId, arti
                         { afterHeadingId, focusEdit: false },
                     );
                 } catch (error) {
-                    applyOutlineHeadingText({
-                        level,
-                        oldText: trimmed,
-                        newText: oldText,
-                        headingId: null,
-                    });
                     window.dispatchEvent(
                         new CustomEvent('seo-article-editor-notify', {
                             detail: {
@@ -436,43 +482,32 @@ export default function useArticleEditorOutline({ activeBlockId, articleId, arti
                 return;
             }
 
-            setOutlineTreeSync({
-                token: Date.now(),
-                action: 'patchText',
-                headingId,
+            const result = await updateOutlineHeadingTitle({
+                level,
+                oldText,
                 newText: trimmed,
+                headingId,
+                blockId: headingBlockId,
             });
 
-            try {
-                await outlineApiRequest(articleId, `/${headingId}`, {
-                    method: 'PUT',
-                    body: JSON.stringify({ heading_text: trimmed }),
-                });
-            } catch (error) {
-                applyOutlineHeadingText({
-                    level,
-                    oldText: trimmed,
-                    newText: oldText,
-                    headingId,
-                });
-                setOutlineTreeSync({
-                    token: Date.now(),
-                    action: 'patchText',
-                    headingId,
-                    newText: oldText,
-                });
+            if (result?.ok === false) {
                 window.dispatchEvent(
                     new CustomEvent('seo-article-editor-notify', {
                         detail: {
                             title: 'Outline',
-                            body: error?.message || 'Không lưu được tiêu đề section.',
+                            body: result.error?.message || 'Không lưu được tiêu đề section.',
                             status: 'danger',
                         },
                     }),
                 );
             }
         },
-        [appendOutlineHeadingForBlock, applyOutlineHeadingText, articleId, resolveOutlineHeadingIdForSection],
+        [
+            appendOutlineHeadingForBlock,
+            articleId,
+            resolveOutlineHeadingIdForSection,
+            updateOutlineHeadingTitle,
+        ],
     );
 
     const scrollPageToTop = useCallback(() => {
@@ -965,5 +1000,5 @@ export default function useArticleEditorOutline({ activeBlockId, articleId, arti
         [articleTitle, canGenerateFeaturedSnippet, featuredSnippetGenerating, focusKeyword],
     );
 
-    return { addSection, addSectionAfter, applyOutlineHeadingHtml, applyOutlineHeadingText, collapseAllSections, confirmFeaturedSnippetPromptInsert, focusOutlineFromSectionHeader, handleOutlineHeadingFromEditor, handleOutlineLoaded, insertFeaturedSnippetAsNewSectionAfter, jumpToOutlineHeading, requestGenerateFeaturedSnippetAfterSection, resolveHeadingInnerHtml, runFeaturedSnippetPromptGenerate, saveSectionTitleFromHeader, toggleSectionCollapse };
+    return { addSection, addSectionAfter, applyOutlineHeadingHtml, applyOutlineHeadingText, collapseAllSections, confirmFeaturedSnippetPromptInsert, focusOutlineFromSectionHeader, handleOutlineHeadingFromEditor, handleOutlineLoaded, insertFeaturedSnippetAsNewSectionAfter, jumpToOutlineHeading, requestGenerateFeaturedSnippetAfterSection, resolveHeadingInnerHtml, runFeaturedSnippetPromptGenerate, saveSectionTitleFromHeader, toggleSectionCollapse, updateOutlineHeadingTitle };
 }

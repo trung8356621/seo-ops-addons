@@ -43,17 +43,24 @@ final class ArticleEditorRuntimeCompletionPhase6c4Test extends TestCase
 
     public function test_ai_panel_uses_host_actions_not_generate_events(): void
     {
-        $panel = (string) file_get_contents($this->js('components/ArticleAiChatPanel.jsx'));
+        $panel = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/ai-prompt/resources/js/components/ArticleAiChatPanel.jsx',
+        );
         self::assertStringContainsString('onGenerateImage', $panel);
         self::assertStringContainsString('onGenerateVideo', $panel);
         self::assertStringContainsString('onClose', $panel);
+        self::assertStringContainsString("t('copy_prompt')", $panel);
+        self::assertStringContainsString("t('ai_media')", $panel);
         self::assertStringNotContainsString("seo-article-ai-chat-close", $panel);
         self::assertStringNotContainsString("generate-article-image", $panel);
         self::assertStringNotContainsString('setContent', $panel);
         self::assertStringNotContainsString('editor.chain', $panel);
 
-        $hook = (string) file_get_contents($this->js('editor/host/hooks/useEditorAi.js'));
+        $hook = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/ai-prompt/resources/js/editor/host/hooks/useEditorAi.js',
+        );
         self::assertStringContainsString('generateArticleImage', $hook);
+        self::assertStringContainsString('openAiMedia', $hook);
         self::assertStringContainsString('canMutateEditor', $hook);
         self::assertStringContainsString('openPanel', $hook);
     }
@@ -160,14 +167,14 @@ final class ArticleEditorRuntimeCompletionPhase6c4Test extends TestCase
         self::assertStringContainsString('shell: true', $shell);
     }
 
-    public function test_fab_and_block_insert_use_open_panel(): void
+    public function test_block_insert_uses_open_ai_media_host_action(): void
     {
-        $fab = (string) file_get_contents($this->js('components/ArticleAiFloatingLauncher.jsx'));
-        self::assertStringContainsString('openPanel', $fab);
-        self::assertStringNotContainsString('seo-article-ai-chat-open', $fab);
-
         $menu = (string) file_get_contents($this->js('components/BlockInsertMenu.jsx'));
+        self::assertStringContainsString('openAiMedia', $menu);
         self::assertStringContainsString("openPanel('ai-chat'", $menu);
+
+        $entry = (string) file_get_contents($this->js('article-editor.jsx'));
+        self::assertStringNotContainsString('ArticleAiFloatingLauncher', $entry);
     }
 
     public function test_single_shared_media_picker_component(): void

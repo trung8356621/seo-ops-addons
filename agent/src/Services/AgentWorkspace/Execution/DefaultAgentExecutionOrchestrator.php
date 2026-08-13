@@ -755,12 +755,21 @@ final class DefaultAgentExecutionOrchestrator implements AgentExecutionOrchestra
             $itemCount = count($normalized['selected_item_refs']);
         }
 
+        $attributes = is_array($normalized['attributes'] ?? null) ? $normalized['attributes'] : [];
+        $assigneeId = $attributes['user_id']
+            ?? $attributes['assignee_ref']
+            ?? $normalized['assignee_ref']
+            ?? null;
+
         return [
             'action' => $skill->name,
             'slash_command' => $skill->slashCommand,
             'site' => $context->siteName,
             'project_ref' => $normalized['project_ref'] ?? $context->projectRef,
             'workspace_ref' => $normalized['workspace_ref'] ?? $context->workspaceRef,
+            'project_name' => $attributes['name'] ?? $normalized['project_name'] ?? null,
+            'month' => $attributes['month'] ?? $normalized['month'] ?? null,
+            'member_id' => $assigneeId !== null && $assigneeId !== '' ? (string) $assigneeId : null,
             'affected_item_count' => $itemCount,
         ];
     }

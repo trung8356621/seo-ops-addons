@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\Agent\Tests\Unit;
 
 
 use Tests\Support\LegacyAddonPath;
+use Tests\Support\ProjectRoot;
 use Omnichannel\Addons\Agent\Filament\Pages\AgentWorkspacePage;
 use App\Addons\SeoContentAi\Providers\SeoPanelProvider;
 use Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentWorkspaceApplicationService;
@@ -25,9 +26,9 @@ final class AgentWorkspaceUiTest extends TestCase
         $navigationGroup = $reflection->getStaticPropertyValue('navigationGroup');
         $view = $reflection->getStaticPropertyValue('view');
 
-        self::assertSame('agent', $slug);
+        self::assertSame('chat', $slug);
         self::assertNull($navigationGroup);
-        self::assertSame('seo-content-ai::filament.pages.agent-workspace', $view);
+        self::assertSame('seo-content-ai::filament.pages.chat-workspace', $view);
     }
 
     public function test_agent_workspace_blade_view_exists(): void
@@ -41,22 +42,32 @@ final class AgentWorkspaceUiTest extends TestCase
         self::assertStringContainsString('seo-agent-chat.composer', $source);
         self::assertStringContainsString('seo-agent-chat.empty-state', $source);
         self::assertStringContainsString('action="selectTemplate"', $source);
-        self::assertStringContainsString('selectPaletteElement($el)', $source);
+        self::assertStringContainsString('seo-agent-workspace__suggestions', $source);
+        self::assertStringContainsString('toggleSuggestions()', $source);
+        self::assertStringContainsString('selectPaletteElement', $source);
         self::assertStringNotContainsString('@js(', $source);
         self::assertStringNotContainsString('Js::from(', $source);
         self::assertStringNotContainsString("wire:target=\"openTemplate('", $source);
         self::assertStringContainsString('x-data="seoAgentWorkspace"', $source);
         self::assertStringContainsString('Alpine.data', $source);
         self::assertStringContainsString('element.value', $source);
-        self::assertStringContainsString('selectPaletteElement($el)', $source);
-        self::assertStringContainsString('<x-filament-panels::page>', $source);
+        self::assertStringContainsString('selectPaletteElement', $source);
         self::assertStringContainsString("@vite([", $source);
-        self::assertTrue(
-            strpos($source, '<x-filament-panels::page>') < strpos($source, '@vite(['),
-            'Vite assets must load inside Filament page root (single Livewire root)',
-        );
         self::assertStringNotContainsString('agent-workspace.general-panel', $source);
         self::assertStringNotContainsString('MCP Markdown', $source);
+        // Welcome surface must not host starter cards — suggestions live in sidebar only.
+        self::assertStringNotContainsString('seo-agent-workspace__template-grid', $source);
+        self::assertMatchesRegularExpression(
+            '/seo-agent-chat\.empty-state[\s\S]*?@endif[\s\S]*?seo-agent-workspace__suggestions/s',
+            $source,
+            'Suggestions sidebar must be outside the empty-message welcome block',
+        );
+
+        $shell = (string) file_get_contents(
+            LegacyAddonPath::resolve('resources/views/filament/pages/chat-workspace.blade.php'),
+        );
+        self::assertStringContainsString('<x-filament-panels::page full-height>', $shell);
+        self::assertStringContainsString("filament.pages.agent-workspace", $shell);
     }
 
     public function test_agent_workspace_does_not_embed_mcp_markdown(): void
@@ -71,13 +82,13 @@ final class AgentWorkspaceUiTest extends TestCase
         self::assertStringNotContainsString('mcpCapabilityDoc', $pageSource);
         self::assertStringNotContainsString('MCP Markdown', $viewSource);
         self::assertFileDoesNotExist(
-            LegacyAddonPath::resolve('resources/views/filament/pages/partials/agent-workspace/general-panel.blade.php'),
+            ProjectRoot::addonsPath().'/seo-content-ai-compat/resources/views/filament/pages/partials/agent-workspace/general-panel.blade.php',
         );
     }
 
     public function test_shared_chat_components_exist(): void
     {
-        $base = LegacyAddonPath::resolve('resources/views/components/seo-agent-chat');
+        $base = ProjectRoot::addonsPath().'/seo-content-ai-compat/resources/views/components/seo-agent-chat';
         foreach (['star-icon', 'empty-state', 'disclaimer', 'header', 'message', 'composer'] as $name) {
             self::assertFileExists($base.'/'.$name.'.blade.php', $name);
         }
@@ -91,20 +102,20 @@ final class AgentWorkspaceUiTest extends TestCase
         self::assertSame('agent', $slug);
     }
 
-    public function test_global_ai_chat_ai_star_is_agent_workspace_launcher(): void
+    public function test_floating_chat_retired_and_deep_link_helper_intact(): void
     {
         $bladePath = LegacyAddonPath::resolve('resources/views/components/global-ai-chat.blade.php');
         self::assertFileExists($bladePath);
 
         $source = (string) file_get_contents($bladePath);
-
         self::assertStringContainsString('openAgentWorkspace', $source);
         self::assertStringContainsString('AgentWorkspaceDeepLink::forCurrentRequest', $source);
-        self::assertStringContainsString('agent_workspace.open_workspace', $source);
-        self::assertStringContainsString('window.location.assign', $source);
-        self::assertStringNotContainsString("x-on:click=\"switchTab('ai')\"", $source);
-        self::assertStringContainsString("x-on:click=\"openAgentWorkspace()\"", $source);
-        self::assertStringContainsString('seo-agent-chat.star-icon', $source);
+
+        $provider = (string) file_get_contents(
+            (new ReflectionClass(SeoPanelProvider::class))->getFileName(),
+        );
+        self::assertStringNotContainsString("view('seo-content-ai::components.global-ai-chat')", $provider);
+        self::assertStringContainsString('chat-unread-badge', $provider);
     }
 
     public function test_popup_does_not_call_agent_application_service(): void
@@ -138,12 +149,22 @@ final class AgentWorkspaceUiTest extends TestCase
         self::assertStringNotContainsString('AgentGateway', $selectSkillBody);
         self::assertStringNotContainsString('gateway->execute', $selectSkillBody);
         self::assertStringNotContainsString('CommandBus', $selectSkillBody);
-        self::assertStringNotContainsString('->execute(', $selectSkillBody);
+        self::assertStringContainsString('AgentWorkspaceApplicationService', $selectSkillBody);
         self::assertStringContainsString('openSkill', $selectSkillBody);
 
-        self::assertStringContainsString('selectSkill', $selectTemplateBody);
+        // Suggestions must prefill composer only — never open skill / send / submit.
+        self::assertStringNotContainsString('selectSkill(', $selectTemplateBody);
+        self::assertStringContainsString('composerText', $selectTemplateBody);
+        self::assertStringContainsString('prefillComposerFromSuggestion', $selectTemplateBody);
+        self::assertStringContainsString('resolveSuggestionComposerPrefill', $selectTemplateBody);
+        self::assertStringContainsString('agent-suggestion-prefilled', $selectTemplateBody);
         self::assertStringNotContainsString('gateway->execute', $selectTemplateBody);
         self::assertStringNotContainsString('CommandBus', $selectTemplateBody);
+        self::assertStringNotContainsString('sendMessage', $selectTemplateBody);
+        self::assertStringNotContainsString('submitComposer', $selectTemplateBody);
+        self::assertStringNotContainsString('openSkill(', $selectTemplateBody);
+        self::assertStringNotContainsString('->preview(', $selectTemplateBody);
+        self::assertStringNotContainsString('->execute(', $selectTemplateBody);
     }
 
     public function test_select_skill_resolves_from_registry_not_browser_definition(): void
@@ -182,18 +203,18 @@ final class AgentWorkspaceUiTest extends TestCase
         self::assertStringContainsString('@if ($usable)', $source);
     }
 
-    public function test_global_chat_suppressed_on_agent_workspace(): void
+    public function test_global_chat_suppressed_everywhere_floating_retired(): void
     {
         $providerSource = (string) file_get_contents(
             (new ReflectionClass(SeoPanelProvider::class))->getFileName(),
         );
-        self::assertStringContainsString('AgentWorkspaceUiContext::hidesGlobalChat', $providerSource);
+        self::assertStringNotContainsString("view('seo-content-ai::components.global-ai-chat')", $providerSource);
 
         $uiContext = (string) file_get_contents(
             (new ReflectionClass(AgentWorkspaceUiContext::class))->getFileName(),
         );
+        self::assertStringContainsString('filament.seo.pages.chat', $uiContext);
         self::assertStringContainsString('filament.seo.pages.agent', $uiContext);
-        self::assertStringContainsString('filament.admin.pages.agent', $uiContext);
         self::assertStringContainsString('hidesGlobalChat', $uiContext);
     }
 

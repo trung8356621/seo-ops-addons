@@ -25,6 +25,12 @@ export default function useArticleEditorSeoAnalysis({ articleId, articleTitle, a
             return;
         }
 
+        // Incomplete server/async patches (no violations key) must not wipe last-stable SEO diagnostics.
+        if (!Object.prototype.hasOwnProperty.call(result, 'violations') && lastSeoAnalysisRef.current) {
+            setAnalyzing(false);
+            return;
+        }
+
         const payload = buildSeoAnalysisPayload(result);
         lastSeoAnalysisRef.current = payload;
 

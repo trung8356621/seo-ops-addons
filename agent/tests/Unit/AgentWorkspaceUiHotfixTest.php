@@ -87,16 +87,16 @@ final class AgentWorkspaceUiHotfixTest extends TestCase
 
     public function test_agent_workspace_view_has_single_root_vite_and_no_nested_form_markers(): void
     {
-        $path = LegacyAddonPath::resolve('resources/views/filament/pages/agent-workspace.blade.php');
-        $source = (string) file_get_contents($path);
-
-        self::assertStringContainsString('<x-filament-panels::page>', $source);
-        self::assertNotFalse(strpos($source, '@vite(['));
-        self::assertTrue(
-            strpos($source, '<x-filament-panels::page>') < strpos($source, '@vite([')
-            && strpos($source, '@vite([') < strpos($source, '</x-filament-panels::page>'),
-            'Vite assets must load inside Filament page root',
+        $shell = (string) file_get_contents(
+            LegacyAddonPath::resolve('resources/views/filament/pages/chat-workspace.blade.php'),
         );
+        $source = (string) file_get_contents(
+            LegacyAddonPath::resolve('resources/views/filament/pages/agent-workspace.blade.php'),
+        );
+
+        self::assertStringContainsString('<x-filament-panels::page full-height>', $shell);
+        self::assertStringContainsString('@vite([', $source);
+        self::assertStringContainsString('filament.pages.agent-workspace', $shell);
 
         self::assertStringContainsString('command-catalog.js', $source);
         self::assertStringContainsString('seo-agent-workspace__palette', $source);
@@ -112,12 +112,18 @@ final class AgentWorkspaceUiHotfixTest extends TestCase
         $source = (string) file_get_contents($path);
 
         self::assertStringContainsString('seo-agent-workspace__template-card', $source);
+        self::assertStringContainsString('seo-agent-workspace__suggestions', $source);
         self::assertStringContainsString('action="selectTemplate"', $source);
+        self::assertStringContainsString('onSuggestionPrefilled', $source);
+        self::assertStringContainsString('_blockSubmitUntil', $source);
+        self::assertStringContainsString('isSubmitBlocked', $source);
+        self::assertStringContainsString('agent-suggestion-prefilled', $source);
         self::assertStringContainsString('selectPaletteRow(row)', $source);
         self::assertStringContainsString('filteredCommands', $source);
         self::assertStringContainsString('wire:key="agent-template-', $source);
         self::assertStringContainsString('wire:key="agent-msg-', $source);
         self::assertStringContainsString('AgentCommandCatalog', $source);
+        self::assertStringNotContainsString('seo-agent-workspace__template-grid', $source);
         self::assertStringNotContainsString('@js(', $source);
         self::assertStringNotContainsString('Js::from(', $source);
         self::assertStringNotContainsString('@click=', $source);
@@ -129,11 +135,29 @@ final class AgentWorkspaceUiHotfixTest extends TestCase
         $source = (string) file_get_contents($path);
 
         self::assertStringContainsString('.fi-main:has(.seo-agent-workspace)', $source);
-        self::assertStringContainsString('100dvh', $source);
         self::assertStringContainsString('min-height: 0', $source);
         self::assertStringContainsString('.seo-agent-workspace-chat__messages', $source);
         self::assertStringContainsString('overflow-y: auto', $source);
+        self::assertStringContainsString('.seo-agent-workspace__suggestions', $source);
+        self::assertStringContainsString('.seo-agent-workspace-chat__body', $source);
         self::assertStringContainsString('.seo-agent-workspace__skill-drawer', $source);
+        self::assertStringContainsString('> section > div', $source);
+        self::assertStringNotContainsString('--seo-agent-header-offset', $source);
+        self::assertStringNotContainsString('calc(100dvh -', $source);
+        self::assertStringNotContainsString('--seo-agent-header-offset', $this->extractCssBlock($source, '.seo-agent-workspace'));
+    }
+
+    /**
+     * @return string
+     */
+    private function extractCssBlock(string $source, string $selector): string
+    {
+        $pattern = '/'.preg_quote($selector, '/').'\s*\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}/s';
+        if (! preg_match($pattern, $source, $match)) {
+            return '';
+        }
+
+        return $match[1];
     }
 
     public function test_page_does_not_bypass_gateway_or_command_bus_from_ui_entrypoints(): void

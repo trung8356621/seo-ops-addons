@@ -223,6 +223,43 @@ export const extractOutlineApiErrorMessage = (data, response) => {
 
 export const outlineApiCsrfToken = () => csrfToken();
 
+/** Server-persisted outline row id (numeric). Client ids like `client:{blockId}` are local-only. */
+export function isPersistedOutlineHeadingId(headingId) {
+    const raw = String(headingId ?? '').trim();
+    if (raw === '' || raw.startsWith('pending-')) {
+        return false;
+    }
+
+    return /^\d+$/.test(raw);
+}
+
+/** Resolve editor block id from outline heading id (numeric, client:, or pending-). */
+export function resolveBlockIdFromOutlineHeadingId(headingId, blockIdByHeadingId = null) {
+    const raw = String(headingId ?? '').trim();
+    if (raw.startsWith('client:')) {
+        const blockId = raw.slice('client:'.length).trim();
+        return blockId !== '' ? blockId : null;
+    }
+
+    if (raw.startsWith('pending-')) {
+        const blockId = raw.slice('pending-'.length).trim();
+        return blockId !== '' ? blockId : null;
+    }
+
+    const targetId = Number(raw);
+    if (!Number.isFinite(targetId) || !blockIdByHeadingId) {
+        return null;
+    }
+
+    for (const [blockId, mappedId] of blockIdByHeadingId.entries()) {
+        if (Number(mappedId) === targetId) {
+            return blockId;
+        }
+    }
+
+    return null;
+}
+
 export async function outlineApiRequest(articleId, path, options = {}) {
     // Phase 4: client outline ids are not server resources.
     if (/\/(?:client:|pending-)/.test(String(path ?? ''))) {

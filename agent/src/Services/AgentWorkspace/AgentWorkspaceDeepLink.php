@@ -49,6 +49,7 @@ final class AgentWorkspaceDeepLink
         }
 
         $params = self::filterParams([
+            'tab' => 'agent',
             'project_ref' => $query['project_ref'] ?? null,
             'workspace_ref' => $query['workspace_ref'] ?? null,
             'article_ref' => $query['article_ref'] ?? null,

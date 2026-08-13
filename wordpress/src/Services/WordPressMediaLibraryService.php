@@ -4,16 +4,17 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\WordPress\Services;
 
+use Omnichannel\Addons\Media\Services\SeoWpMediaEditedPendingService;
 use Omnichannel\Addons\WordPress\Support\WordPressImageUrl;
 use Omnichannel\Addons\WordPress\Services\WordPressSlugFixRequiredException;
 use Omnichannel\Addons\WordPress\Services\WordPressWriteReadinessGuard;
+use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 use App\Models\Site;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Throwable;
-use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 
 final class WordPressMediaLibraryService
 {

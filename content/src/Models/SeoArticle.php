@@ -134,17 +134,21 @@ class SeoArticle extends Model
             });
         }
 
-        // Post-drop: join seo_article_profiles and re-expose seo_score/skip_seo_score
-        // under their legacy names so unqualified whereNotNull('seo_score') etc. in
-        // callers (DomainOverviewService, ArticlesOptimal, ...) keep working unambiguously.
-        return $query->leftJoin('seo_article_profiles as sap_skip', 'sap_skip.article_id', '=', 'articles.id')
+        // Post-drop: join seo_article_profiles for skip filter.
+        // Do not force articles.* here when caller already chose columns (GROUP BY / aggregates).
+        $query = $query->leftJoin('seo_article_profiles as sap_skip', 'sap_skip.article_id', '=', 'articles.id')
             ->where(function ($sub): void {
                 $sub->where('sap_skip.skip_seo_score', false)
                     ->orWhereNull('sap_skip.skip_seo_score');
-            })
-            ->select('articles.*')
-            ->addSelect('sap_skip.seo_score as seo_score')
-            ->addSelect('sap_skip.skip_seo_score as skip_seo_score');
+            });
+
+        if ($query->getQuery()->columns === null) {
+            $query->select('articles.*')
+                ->addSelect('sap_skip.seo_score as seo_score')
+                ->addSelect('sap_skip.skip_seo_score as skip_seo_score');
+        }
+
+        return $query;
     }
 
     /**
@@ -312,7 +316,11 @@ class SeoArticle extends Model
 
     public function projectTasks(): HasMany
     {
-        return $this->hasMany(SeoProjectTask::class, 'article_id');
+        // FQCN string — Content must not same-namespace-resolve a missing SeoProjectTask.
+        return $this->hasMany(
+            \Omnichannel\Addons\ContentProjects\Models\SeoProjectTask::class,
+            'article_id',
+        );
     }
 
     public function faqs(): HasMany

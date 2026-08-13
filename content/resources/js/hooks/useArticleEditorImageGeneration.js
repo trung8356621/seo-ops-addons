@@ -504,6 +504,13 @@ export default function useArticleEditorImageGeneration({ activeBlockIdRef, arti
             }
 
             if (generateImageInFlightRef.current) {
+                window.dispatchEvent(new CustomEvent('article-ai-media-failed', {
+                    detail: {
+                        type: 'image',
+                        message: 'Đang có yêu cầu tạo ảnh khác — vui lòng đợi vài giây.',
+                    },
+                }));
+
                 return;
             }
             generateImageInFlightRef.current = true;

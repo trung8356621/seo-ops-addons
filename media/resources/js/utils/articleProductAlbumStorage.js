@@ -1,4 +1,7 @@
 ﻿import {
+    applyMediaSnapshot,
+    clearMediaSnapshot,
+    discardLegacyMediaLocalStorage,
     galleryFromSnapshot,
     getMediaSnapshot,
     replaceGalleryViaApi,
@@ -180,6 +183,29 @@ export async function syncProductAlbumToServer(articleId) {
     return persistProductAlbumDraftToServer(articleId, null);
 }
 
+/**
+ * Client-only clear before reload. Must NOT PUT empty gallery to server
+ * (that wiped WP pull results and caused media_snapshot_version_conflict).
+ */
 export function clearProductAlbumStorage(articleId) {
-    return saveProductAlbum(articleId, []);
+    const id = Number(articleId ?? 0);
+    if (!Number.isFinite(id) || id <= 0) {
+        return [];
+    }
+
+    const current = getMediaSnapshot(id);
+    if (current?.article_id) {
+        applyMediaSnapshot(id, {
+            ...current,
+            gallery: {
+                required: Boolean(current.gallery?.required),
+                items: [],
+            },
+        }, { force: true });
+    } else {
+        clearMediaSnapshot(id);
+        discardLegacyMediaLocalStorage(id);
+    }
+
+    return [];
 }

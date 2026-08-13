@@ -15,7 +15,10 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRunItem;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\AiPrompt\Models\SeoTask;
+use Omnichannel\Addons\AiPrompt\Services\PromptResultLinkService;
+use Omnichannel\Addons\AiPrompt\Services\TaskTestInputResolver;
 use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
+use Omnichannel\Addons\Content\Services\ArticleEditorReadinessService;
 use Omnichannel\Addons\ContentProjects\Services\WorkflowRoles\WorkflowExecutionSnapshotBuilder;
 use Omnichannel\Addons\ContentProjects\Support\ContentProjectRunSettings;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
@@ -25,7 +28,6 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Omnichannel\Addons\AiPrompt\Services\PromptResultLinkService;
 
 final class SeoProjectWorkflowRunService
 {

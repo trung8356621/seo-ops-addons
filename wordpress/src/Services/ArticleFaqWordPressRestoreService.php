@@ -7,6 +7,8 @@ namespace Omnichannel\Addons\WordPress\Services;
 
 use Omnichannel\Addons\AiPrompt\Services\WorkflowParserService;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Services\ArticleContentFaqService;
+use Omnichannel\Addons\Content\Services\ArticleFaqExtractDebugService;
 use Omnichannel\Addons\Seo\Support\FaqRowNormalizer;
 use Omnichannel\Addons\Media\Services\ArticlePostImagesService;
 use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;

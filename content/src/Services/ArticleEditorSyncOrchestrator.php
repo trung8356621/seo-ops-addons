@@ -12,6 +12,10 @@ use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
+use Omnichannel\Addons\WordPress\Services\WordPressArticleSyncService;
+use Omnichannel\Addons\WordPress\Services\WordPressLocalMediaSyncService;
+use Omnichannel\Addons\WordPress\Services\ArticleWpSyncQueueService;
+use Omnichannel\Addons\Media\Services\SeoImageOptimizationService;
 use Omnichannel\Addons\Content\Services\ArticleEditorPersistService;
 
 final class ArticleEditorSyncOrchestrator

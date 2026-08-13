@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Services;
 
+use Omnichannel\Addons\AiPrompt\Services\SeoExtendedProviderConnectionService;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
 
 final class SeoProviderConnectionStatusService

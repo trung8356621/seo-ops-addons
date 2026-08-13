@@ -142,6 +142,17 @@ final class ArticleEditorMediaAiService
                 $editorBlockId,
             );
 
+            $linkedResultId = $this->recordQueuedEditorMediaPromptAttempt(
+                $article,
+                $prompt,
+                $variables,
+                $config,
+                (int) $placeholder->id,
+                $editorBlockId,
+            );
+            $variables['_linked_prompt_result_id'] = (string) $linkedResultId;
+            $placeholder->update(['prompt_variables' => $variables]);
+
             $this->dispatchGenerateMediaJob(
                 $placeholder,
                 (int) $prompt->id,
@@ -354,7 +365,8 @@ final class ArticleEditorMediaAiService
             $loaiSanPhamCustom,
         );
 
-        $prompt = $this->resolveEditorMediaConfig($target)['prompt'];
+        $config = $this->resolveEditorMediaConfig($target);
+        $prompt = $config['prompt'];
 
         $mergeLoai = $this->shouldMergeLoaiSanPham(
             $prompt,
@@ -379,21 +391,145 @@ final class ArticleEditorMediaAiService
         try {
             $rendered = app(PromptRunnerService::class)->compilePrompt($prompt, $variables);
         } catch (\Throwable $exception) {
-            return [
-                'rendered' => '',
-                'prompt_id' => (int) $prompt->id,
-                'prompt_name' => (string) ($prompt->name ?? ''),
-                'post_processing' => PromptPostProcessing::fromPrompt($prompt),
-                'error' => $exception->getMessage(),
-            ];
+            return $this->finalizeEditorMediaPromptPreviewPayload(
+                '',
+                $prompt,
+                $config,
+                trim($userBrief),
+                $exception->getMessage(),
+            );
         }
 
-        return [
+        return $this->finalizeEditorMediaPromptPreviewPayload($rendered, $prompt, $config, trim($userBrief));
+    }
+
+    /**
+     * @param  array{source: string, prompt: SeoPrompt, task_id: int|null, tool_type: string, media_target: string}  $config
+     * @return array{
+     *     rendered: string,
+     *     prompt_id: int,
+     *     prompt_name: string,
+     *     source: string,
+     *     media_target: string,
+     *     task_id: int|null,
+     *     context_length: int,
+     *     rendered_length: int,
+     *     post_processing: array<string, mixed>,
+     *     error?: string,
+     * }
+     */
+    private function finalizeEditorMediaPromptPreviewPayload(
+        string $rendered,
+        SeoPrompt $prompt,
+        array $config,
+        string $userBrief,
+        ?string $error = null,
+    ): array {
+        $rendered = trim($rendered);
+        $payload = [
             'rendered' => $rendered,
             'prompt_id' => (int) $prompt->id,
             'prompt_name' => (string) ($prompt->name ?? ''),
+            'source' => (string) ($config['source'] ?? SeoCreateArticleSettingsService::SOURCE_PROMPT),
+            'media_target' => (string) ($config['media_target'] ?? 'editor'),
+            'task_id' => isset($config['task_id']) && is_int($config['task_id']) ? $config['task_id'] : null,
+            'context_length' => mb_strlen($userBrief),
+            'rendered_length' => mb_strlen($rendered),
             'post_processing' => PromptPostProcessing::fromPrompt($prompt),
         ];
+
+        if ($error !== null && $error !== '') {
+            $payload['error'] = $error;
+        }
+
+        return $payload;
+    }
+
+    /**
+     * @param  array<string, string>  $variables
+     * @param  array{source: string, prompt: SeoPrompt, task_id: int|null, tool_type: string, media_target: string}  $config
+     */
+    private function recordQueuedEditorMediaPromptAttempt(
+        SeoArticle $article,
+        SeoPrompt $prompt,
+        array $variables,
+        array $config,
+        int $seoMediaId,
+        string $editorBlockId,
+    ): int {
+        $compiled = app(PromptRunnerService::class)->compilePrompt($prompt, $variables);
+        $toolType = (string) ($config['tool_type'] ?? 'image');
+
+        $result = \Omnichannel\Addons\AiPrompt\Models\PromptResult::query()->create([
+            'prompt_id' => (int) $prompt->id,
+            'user_id' => (int) (auth()->id() ?? 0),
+            'site_id' => (int) ($article->site_id ?? 0),
+            'status' => 'running',
+            'input_snapshot' => [
+                'variables' => $variables,
+                'compiled_prompt' => $compiled,
+                'tools' => $toolType,
+                'editor_media_target' => (string) ($config['media_target'] ?? 'editor'),
+                'editor_media_source' => (string) ($config['source'] ?? SeoCreateArticleSettingsService::SOURCE_PROMPT),
+                'seo_media_id' => $seoMediaId,
+                'phase' => 'queued',
+            ],
+            'started_at' => now(),
+        ]);
+
+        app(\Omnichannel\Addons\AiPrompt\Services\PromptResultLinkService::class)->linkPromptResult(
+            promptResultId: (int) $result->id,
+            articleId: (int) $article->id,
+            source: 'editor_media_generation',
+            meta: [
+                'tool_type' => $toolType,
+                'seo_media_id' => $seoMediaId,
+                'editor_block_id' => $editorBlockId,
+                'phase' => 'queued',
+            ],
+        );
+
+        return (int) $result->id;
+    }
+
+    /**
+     * @return array{
+     *     rendered: string,
+     *     prompt_id: int,
+     *     prompt_name: string,
+     *     error?: string,
+     * }
+     */
+    public function previewRenderedVideoPrompt(
+        SeoArticle $article,
+        string $userBrief,
+        string $selectionText = '',
+    ): array {
+        $config = $this->resolveEditorVideoConfig();
+        $prompt = $config['prompt'];
+        $selection = trim($selectionText) !== '' ? trim($selectionText) : trim($userBrief);
+
+        $variables = $this->attachEditorExecutionVariables(
+            $this->filterVariablesForPrompt(
+                $prompt,
+                $this->buildVariables($article, $selection, '', $userBrief, target: 'editor'),
+            ),
+            $config,
+        );
+
+        try {
+            $rendered = app(PromptRunnerService::class)->compilePrompt($prompt, $variables);
+        } catch (\Throwable $exception) {
+            return $this->finalizeEditorMediaPromptPreviewPayload(
+                '',
+                $prompt,
+                $config,
+                trim($userBrief),
+                $exception->getMessage(),
+            );
+        }
+
+        return $this->finalizeEditorMediaPromptPreviewPayload($rendered, $prompt, $config, trim($userBrief));
     }
 
     /**

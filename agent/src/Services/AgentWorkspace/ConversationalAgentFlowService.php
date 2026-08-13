@@ -83,10 +83,13 @@ final class ConversationalAgentFlowService
             'boolean' => $this->parseBoolean($input),
 
             'enum' => $this->parseEnum($field, $input),
+            'select' => $this->parseEnum($field, $input),
 
             'date' => $this->parseDate($input),
             'datetime' => $this->parseDateTime($input),
             'month' => $this->parseMonth($input),
+
+            'member', 'user' => $this->parseMemberId($input),
 
             'array' => $this->parseArray($rawInput),
 
@@ -132,7 +135,7 @@ final class ConversationalAgentFlowService
                     ['label' => 'Không', 'value' => '0'],
                 ],
             ],
-            'enum' => [
+            'enum', 'select' => [
                 'content' => "Thiếu tham số: {$label}\nChọn {$label}:",
                 'quickReplies' => array_values(array_map(
                     static fn ($opt): array => [
@@ -154,6 +157,9 @@ final class ConversationalAgentFlowService
             'integer' => [
                 'content' => "Thiếu tham số: {$label}\nNhập {$label} bằng số.",
             ],
+            'member', 'user' => [
+                'content' => "Thiếu tham số: {$label}\nNhập member ID phụ trách (chỉ số ID).\nNếu chưa biết ID, dùng `/member-list`.",
+            ],
             'array' => [
                 'content' => "Thiếu tham số: {$label}\nNhập mỗi mục trên một dòng hoặc phân cách bằng dấu phẩy.",
             ],
@@ -173,6 +179,24 @@ final class ConversationalAgentFlowService
         }
 
         return ['ok' => true, 'value' => (int) $input];
+    }
+
+    /**
+     * Channel-neutral member ID (plain text). Accepts numeric ID only.
+     *
+     * @return array{ok:true,value:string}|array{ok:false,error:string}
+     */
+    private function parseMemberId(string $input): array
+    {
+        $normalized = trim($input);
+        if (preg_match('/^#?(\d+)$/', $normalized, $match) === 1) {
+            return ['ok' => true, 'value' => (string) ((int) $match[1])];
+        }
+
+        return [
+            'ok' => false,
+            'error' => 'Member ID phải là số. Dùng `/member-list` để xem danh sách.',
+        ];
     }
 
     /**

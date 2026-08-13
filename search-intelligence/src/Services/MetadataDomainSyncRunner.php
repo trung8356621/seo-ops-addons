@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Services;
 
 use Omnichannel\Addons\SearchFoundation\Support\MetadataDomainSyncCache;
+use Omnichannel\Addons\WordPress\Services\SyncDomainContentService;
 use App\Models\Site;
 use App\Models\User;
 use Filament\Notifications\Notification;

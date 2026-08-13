@@ -72,14 +72,15 @@
                 </div>
             </div>
 
-            <div data-keyword-detail-backdrop class="keyword-detail-backdrop" aria-hidden="true"></div>
+            <div wire:ignore>
+                <div data-keyword-detail-backdrop class="keyword-detail-backdrop" aria-hidden="true"></div>
 
-            <aside
-                data-keyword-detail-panel
-                class="keyword-detail-drawer is-hidden"
-                aria-label="{{ __('seo-content-ai::filament.keyword.drawer_panel_label') }}"
-                aria-hidden="true"
-            >
+                <aside
+                    data-keyword-detail-panel
+                    class="keyword-detail-drawer is-hidden"
+                    aria-label="{{ __('seo-content-ai::filament.keyword.drawer_panel_label') }}"
+                    aria-hidden="true"
+                >
                 <div class="keyword-detail-drawer__inner flex h-full w-full min-h-0 flex-col">
                     <header class="keyword-detail-drawer__header flex-shrink-0">
                         <div class="flex items-start justify-between gap-3">
@@ -187,6 +188,7 @@
                     </footer>
                 </div>
             </aside>
+            </div>
         </div>
     </div>
 

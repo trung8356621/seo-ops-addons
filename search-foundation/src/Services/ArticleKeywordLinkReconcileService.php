@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\SearchFoundation\Services;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordFocusAttach;
 use Omnichannel\Addons\Content\Services\ArticleLinkContextMapService;
+use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 
 /**
  * Đối chiếu từ khóa ↔ liên kết outbound khi bài viết được cập nhật / đồng bộ nội dung.

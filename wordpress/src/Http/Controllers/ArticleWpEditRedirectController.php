@@ -10,6 +10,7 @@ use Omnichannel\Addons\Content\Services\ArticleByWpIdResolver;
 use Omnichannel\Addons\SearchFoundation\Services\SeoDatabaseConnectionService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\Seo\Support\SeoConnectionContext;
+use Omnichannel\Addons\WordPress\Services\SyncDomainContentService;
 use Omnichannel\Addons\WordPress\Support\WordPressSiteUrlMatcher;
 use App\Http\Controllers\Controller;
 use App\Models\Site;
@@ -45,8 +46,15 @@ final class ArticleWpEditRedirectController extends Controller
         $databaseConnection->bootstrapBySiteId((int) $site->id);
 
         $article = $articleResolver->resolve($site, $wpId, $type);
+        // Delta sync không kéo bài WP "không đổi" — thiếu local thì pull đúng wp_id.
         if (! $article instanceof SeoArticle) {
-            abort(404, 'Chưa có bài SEO tương ứng với ID WordPress này. Hãy đồng bộ domain trước.');
+            $pulled = app(SyncDomainContentService::class)->ensureImportedByWpId($site, $wpId, $type);
+            $article = ($pulled['success'] ?? false) && ($pulled['article'] ?? null) instanceof SeoArticle
+                ? $pulled['article']
+                : null;
+            if (! $article instanceof SeoArticle) {
+                abort(404, (string) ($pulled['message'] ?? 'Chưa có bài SEO tương ứng với ID WordPress này. Hãy đồng bộ lại toàn bộ domain.'));
+            }
         }
 
         abort_unless($this->canEditArticle($article), 403);

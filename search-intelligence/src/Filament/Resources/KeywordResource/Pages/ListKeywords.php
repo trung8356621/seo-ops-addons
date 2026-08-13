@@ -16,6 +16,8 @@ use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
 use Omnichannel\Addons\Seo\Services\DomainOverviewService;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordPersistenceService;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordReviewService;
+use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectActionFactory;
+use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectContract;
 use Omnichannel\Addons\Seo\Support\CtaKeywordBlacklistFilter;
 use Omnichannel\Addons\SearchFoundation\Support\InternalAnchorKeywordFilter;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
@@ -197,136 +199,46 @@ class ListKeywords extends ListRecords
 
     public function assignToContentProjectAction(): Action
     {
-        return Action::make('assignToContentProject')
-            ->label(__('seo-content-ai::filament.article_list.assign_to_content_project'))
-            ->icon('heroicon-o-folder-plus')
-            ->modalHeading(__('seo-content-ai::filament.article_list.assign_to_content_project'))
-            ->modalDescription(__('seo-content-ai::filament.keyword.workspace_assign_description'))
-            ->modalSubmitActionLabel(__('seo-content-ai::filament.article_list.assign'))
-            ->form(function (array $arguments): array {
-                $keyword = $this->resolveKeywordForMapId((int) ($arguments['mapId'] ?? 0));
-                if (! $keyword instanceof Keyword) {
-                    return [];
-                }
-
-                $siteId = $this->resolveMapSiteId((int) ($arguments['mapId'] ?? 0));
-
-                if (KeywordResource::resolveKeywordDirectAssignData($siteId) !== null) {
-                    return [];
-                }
-
-                return KeywordResource::assignKeywordContentProjectFormSchema(
-                    $siteId !== null && $siteId > 0 ? [$siteId] : [],
-                );
-            })
-            ->requiresConfirmation(function (array $arguments): bool {
-                $siteId = $this->resolveMapSiteId((int) ($arguments['mapId'] ?? 0));
-
-                return KeywordResource::resolveKeywordDirectAssignData($siteId) === null;
-            })
-            ->modalHidden(function (array $arguments): bool {
-                $siteId = $this->resolveMapSiteId((int) ($arguments['mapId'] ?? 0));
-
-                return KeywordResource::resolveKeywordDirectAssignData($siteId) !== null;
-            })
-            ->action(function (array $arguments, array $data): void {
+        return AssignToContentProjectActionFactory::pageAction(
+            resolvePayload: function (array $arguments): array {
                 $mapId = (int) ($arguments['mapId'] ?? 0);
                 $keyword = $this->resolveKeywordForMapId($mapId);
-                if (! $keyword instanceof Keyword) {
-                    Notification::make()
-                        ->title(__('seo-content-ai::filament.keyword.workspace_map_not_found'))
-                        ->danger()
-                        ->send();
-
-                    return;
-                }
-
-                if (! KeywordResource::canAssignKeywordToContentProject($keyword)) {
-                    Notification::make()
-                        ->title(__('seo-content-ai::filament.keyword.workspace_assign_denied'))
-                        ->warning()
-                        ->send();
-
-                    return;
-                }
-
                 $siteId = $this->resolveMapSiteId($mapId);
-                $assignData = KeywordResource::resolveKeywordDirectAssignData($siteId) ?? $data;
-                $summary = KeywordResource::executeAssignKeywordsToContentProjects(
-                    Collection::make([$keyword]),
-                    $assignData,
-                );
 
-                Notification::make()
-                    ->title(__('seo-content-ai::filament.keyword.assign_completed'))
-                    ->body(ArticleResource::buildAssignContentProjectBody($summary))
-                    ->success()
-                    ->send();
-            });
+                return AssignToContentProjectContract::keywordPayload(
+                    source: 'keyword_detail_link_map',
+                    keywordIds: $keyword instanceof Keyword ? [(int) $keyword->id] : [],
+                    siteIds: $siteId !== null && $siteId > 0 ? [$siteId] : [],
+                    mapId: $mapId > 0 ? $mapId : null,
+                );
+            },
+            name: 'assignToContentProject',
+        );
     }
 
     public function assignArticleToContentProjectAction(): Action
     {
-        return Action::make('assignArticleToContentProject')
-            ->label(__('seo-content-ai::filament.article_list.assign_to_content_project'))
-            ->icon('heroicon-o-folder-plus')
-            ->modalHeading(__('seo-content-ai::filament.article_list.assign_to_content_project'))
-            ->modalDescription(__('seo-content-ai::filament.article_list.assign_to_content_project_description'))
-            ->modalSubmitActionLabel(__('seo-content-ai::filament.article_list.assign'))
-            ->form(function (array $arguments): array {
+        return AssignToContentProjectActionFactory::pageAction(
+            resolvePayload: function (array $arguments): array {
                 $article = $this->resolveArticleForAssign((int) ($arguments['articleId'] ?? 0));
-                if (! $article instanceof SeoArticle) {
-                    return [];
-                }
+                $siteId = $article instanceof SeoArticle
+                    ? ArticleResource::resolveArticleSiteId($article)
+                    : null;
 
-                $siteId = ArticleResource::resolveArticleSiteId($article);
-
-                if (ArticleResource::resolveDirectAssignContentProjectId($siteId) !== null) {
-                    return ArticleResource::assignArticleTaskFormFields();
-                }
-
-                return ArticleResource::assignContentProjectFormFields(
-                    fn (): ?int => $siteId,
+                return AssignToContentProjectContract::articlePayload(
+                    source: 'keyword_dictionary_drawer',
+                    articleIds: $article instanceof SeoArticle ? [(int) $article->id] : [],
+                    siteId: $siteId,
+                    options: [
+                        'show_quick_create' => true,
+                        'show_article_fields' => true,
+                        'show_keyword_override' => true,
+                        'show_title_override' => true,
+                    ],
                 );
-            })
-            ->action(function (array $arguments, array $data): void {
-                $article = $this->resolveArticleForAssign((int) ($arguments['articleId'] ?? 0));
-                if (! $article instanceof SeoArticle) {
-                    Notification::make()
-                        ->title(__('seo-content-ai::filament.keyword.workspace_article_not_found'))
-                        ->danger()
-                        ->send();
-
-                    return;
-                }
-
-                if (
-                    ArticleResource::articleIsInContentProject($article)
-                    || ArticleResource::articleIsContentArchived($article)
-                ) {
-                    Notification::make()
-                        ->title(__('seo-content-ai::filament.articles_optimal.assign_failed'))
-                        ->warning()
-                        ->send();
-
-                    return;
-                }
-
-                $siteId = ArticleResource::resolveArticleSiteId($article);
-                $projectId = ArticleResource::resolveDirectAssignContentProjectId($siteId)
-                    ?? (int) ($data['project_id'] ?? 0);
-                $summary = ArticleResource::assignArticlesFromFormData(
-                    Collection::make([$article]),
-                    $projectId,
-                    $data,
-                );
-
-                Notification::make()
-                    ->title(__('seo-content-ai::filament.article_list.assign_completed'))
-                    ->body(ArticleResource::buildAssignContentProjectBody($summary))
-                    ->success()
-                    ->send();
-            });
+            },
+            name: 'assignArticleToContentProject',
+        );
     }
 
     private function resolveArticleForAssign(int $articleId): ?SeoArticle

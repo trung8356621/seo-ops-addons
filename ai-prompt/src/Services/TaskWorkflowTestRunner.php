@@ -23,7 +23,10 @@ use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookUiFailureMapper;
 use Omnichannel\Addons\ContentProjects\Services\Workflow\ArtifactReusePolicy;
 use Omnichannel\Addons\ContentProjects\Services\ArticleGenerationInputResolver;
 use Omnichannel\Addons\Content\Services\ArticleWritingAssembler;
+use Omnichannel\Addons\Content\Services\ArticleWritingExecutionService;
 use Omnichannel\Addons\Content\Services\ArticleWritingLegacyRewriteAdapter;
+use Omnichannel\Addons\Content\Services\ArticleContentFaqService;
+use Omnichannel\Addons\Content\Services\ArticleProductGalleryDistributeService;
 use Omnichannel\Addons\Content\Services\SeoFaqPersistenceService;
 use Omnichannel\Addons\Content\Support\ArticleGenerationSourceResult;
 use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
@@ -34,9 +37,11 @@ use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\Seo\Support\SeoRuleViolationsResolver;
 use Omnichannel\Addons\Seo\Support\SeoScoringRulesRegistry;
 use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
+use Omnichannel\Addons\Seo\Services\SeoScoringCalculator;
 use Omnichannel\Addons\Seo\Services\WorkflowKeywordResearchService;
 use Omnichannel\Addons\WordPress\Services\WordPressCommentReviewService;
 use Omnichannel\Addons\ContentProjects\Support\TaskTestContext;
+use Omnichannel\Addons\ContentProjects\Support\ProjectTaskOriginVariables;
 use Omnichannel\Addons\ContentProjects\Support\Workflow\WorkflowTypedArtifact;
 use Omnichannel\Addons\ContentProjects\Support\WorkflowExecutionState;
 use App\Models\Site;
@@ -2419,6 +2424,22 @@ final class TaskWorkflowTestRunner
                 $siteId,
                 $focusKeyword,
             );
+        }
+
+        // Gắn ngay vào Content Project item để UI có link click được (prompt history).
+        $originId = ProjectTaskOriginVariables::read($variables);
+        if ($originId === null) {
+            $fallbackTaskId = (int) ($variables['project_task_id'] ?? $variables['task_id'] ?? 0);
+            $originId = $fallbackTaskId > 0 ? $fallbackTaskId : null;
+        }
+        if ($originId !== null) {
+            $originResolver = app(\Omnichannel\Addons\Agent\Automation\Support\ArticleCreateOriginResolver::class);
+            $originResolver->persistOriginMeta(
+                $article,
+                \Omnichannel\Addons\Agent\Automation\Support\ArticleCreateOriginResolver::ORIGIN_SEO_PROJECT_TASK,
+                $originId,
+            );
+            $originResolver->attachToProjectTaskIfNeeded($originId, (int) $article->id);
         }
 
         return $article;

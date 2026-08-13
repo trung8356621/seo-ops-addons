@@ -19,6 +19,7 @@ use Illuminate\Support\Str;
 use Intervention\Image\Format;
 use Intervention\Image\Laravel\Facades\Image;
 use Omnichannel\Addons\Media\Services\ArticleMediaLocalService;
+use Omnichannel\Addons\Media\Services\SeoWatermarkService;
 
 final class PromptPostProcessingApplyService
 {

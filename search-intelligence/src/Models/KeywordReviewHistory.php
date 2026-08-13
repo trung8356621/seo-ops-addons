@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Models;
 
+use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Models\Concerns\BelongsToOnDefaultConnection;
+use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;

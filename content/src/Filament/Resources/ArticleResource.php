@@ -18,6 +18,8 @@ use Omnichannel\Addons\Media\Models\SeoMediaProcessingHistory;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource;
+use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectActionFactory;
+use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectContract;
 use Omnichannel\Addons\Media\Services\ArticleFeaturedImageProjection;
 use Omnichannel\Addons\Media\Services\ArticleMediaLocalService;
 use Omnichannel\Addons\Content\Services\ArticleReviewService;
@@ -37,10 +39,7 @@ use App\Models\Site;
 use App\Models\User;
 use Carbon\Carbon;
 use Filament\Forms;
-use Filament\Forms\Components\Actions\Action as FormAction;
 use Filament\Forms\Form;
-use Filament\Forms\Get;
-use Filament\Forms\Set;
 use Filament\Notifications\Notification;
 use Filament\Tables;
 use Filament\Tables\Enums\FiltersLayout;
@@ -621,42 +620,29 @@ class ArticleResource extends SeoPanelResource
                                 ->success()
                                 ->send();
                         }),
-                    Tables\Actions\BulkAction::make('assign_to_content_project')
-                        ->label(__('seo-content-ai::filament.article_list.assign_to_content_project'))
-                        ->icon('heroicon-o-folder-plus')
-                        ->color('warning')
-                        ->visible(fn (): bool => SeoAccessControl::canMutateInSeoPanel())
-                        ->deselectRecordsAfterCompletion()
-                        ->form(function (Collection $records): array {
+                    AssignToContentProjectActionFactory::tableBulkAction(
+                        resolvePayload: function (SupportCollection $records): array {
                             $siteId = static::resolveBulkArticlesSiteId($records);
+                            $articleIds = $records
+                                ->filter(static fn (mixed $record): bool => $record instanceof SeoArticle)
+                                ->map(static fn (SeoArticle $article): int => (int) $article->id)
+                                ->values()
+                                ->all();
 
-                            if (static::resolveDirectAssignContentProjectId($siteId) !== null) {
-                                return static::assignArticleTaskFormFields();
-                            }
-
-                            return static::assignContentProjectFormFields(
-                                fn (): ?int => $siteId,
-                                fn (): ?string => $siteId === null
-                                    ? __('seo-content-ai::filament.article_list.assign_projects_mixed_domains')
-                                    : null,
+                            return AssignToContentProjectContract::articlePayload(
+                                source: 'article_table_bulk',
+                                articleIds: $articleIds,
+                                siteId: $siteId,
+                                options: [
+                                    'show_quick_create' => true,
+                                    'show_article_fields' => true,
+                                    'show_keyword_override' => true,
+                                    'show_title_override' => true,
+                                ],
                             );
-                        })
-                        ->requiresConfirmation(false)
-                        ->modalHeading(__('seo-content-ai::filament.article_list.assign_to_content_project'))
-                        ->modalDescription(__('seo-content-ai::filament.article_list.assign_to_content_project_description'))
-                        ->modalSubmitActionLabel(__('seo-content-ai::filament.article_list.assign'))
-                        ->action(function (Collection $records, array $data): void {
-                            $siteId = static::resolveBulkArticlesSiteId($records);
-                            $projectId = static::resolveDirectAssignContentProjectId($siteId)
-                                ?? (int) ($data['project_id'] ?? 0);
-                            $summary = static::assignArticlesFromFormData($records, $projectId, $data);
-
-                            Notification::make()
-                                ->title(__('seo-content-ai::filament.article_list.assign_completed'))
-                                ->body(static::buildAssignContentProjectBody($summary))
-                                ->success()
-                                ->send();
-                        }),
+                        },
+                        visible: fn (): bool => SeoAccessControl::canMutateInSeoPanel(),
+                    ),
                     Tables\Actions\BulkAction::make('skip_seo_audit')
                         ->label(__('seo-content-ai::filament.article_list.skip_articles'))
                         ->icon('heroicon-o-eye-slash')
@@ -1561,45 +1547,27 @@ class ArticleResource extends SeoPanelResource
                         ? SeoProjectResource::getProjectWorkspaceUrl($project)
                         : null;
                 }),
-            Tables\Actions\Action::make('assign_to_content_project')
-                ->icon('heroicon-o-folder-plus')
-                ->iconButton()
-                ->color('warning')
-                ->tooltip(__('seo-content-ai::filament.article_list.assign_to_content_project'))
-                ->visible(fn (SeoArticle $record): bool => SeoAccessControl::canMutateInSeoPanel()
+            AssignToContentProjectActionFactory::tableRowAction(
+                resolvePayload: function (Model $record): array {
+                    /** @var SeoArticle $record */
+                    $siteId = static::resolveArticleSiteId($record);
+
+                    return AssignToContentProjectContract::articlePayload(
+                        source: 'article_table',
+                        articleIds: [(int) $record->id],
+                        siteId: $siteId,
+                        options: [
+                            'show_quick_create' => true,
+                            'show_article_fields' => true,
+                            'show_keyword_override' => true,
+                            'show_title_override' => true,
+                        ],
+                    );
+                },
+                visible: fn (SeoArticle $record): bool => SeoAccessControl::canMutateInSeoPanel()
                     && ! static::articleIsInContentProject($record)
-                    && ! static::articleIsContentArchived($record))
-                ->form(function (SeoArticle $record): array {
-                    $siteId = static::resolveArticleSiteId($record);
-
-                    if (static::resolveDirectAssignContentProjectId($siteId) !== null) {
-                        return static::assignArticleTaskFormFields();
-                    }
-
-                    return static::assignContentProjectFormFields(
-                        fn (): ?int => $siteId,
-                    );
-                })
-                ->requiresConfirmation(false)
-                ->modalHeading(__('seo-content-ai::filament.article_list.assign_to_content_project'))
-                ->modalDescription(__('seo-content-ai::filament.article_list.assign_to_content_project_description'))
-                ->modalSubmitActionLabel(__('seo-content-ai::filament.article_list.assign'))
-                ->action(function (SeoArticle $record, array $data): void {
-                    $siteId = static::resolveArticleSiteId($record);
-                    $projectId = static::resolveDirectAssignContentProjectId($siteId)
-                        ?? (int) ($data['project_id'] ?? 0);
-                    $summary = static::assignArticlesFromFormData(
-                        Collection::make([$record]),
-                        $projectId,
-                        $data,
-                    );
-
-                    Notification::make()
-                        ->title(__('seo-content-ai::filament.article_list.assign_completed'))
-                        ->body(static::buildAssignContentProjectBody($summary))
-                        ->success()
-                        ->send();
-                }),
+                    && ! static::articleIsContentArchived($record),
+            ),
             Tables\Actions\EditAction::make()
                 ->iconButton(),
             Tables\Actions\DeleteAction::make()
@@ -1927,163 +1895,6 @@ class ArticleResource extends SeoPanelResource
         return $projectId;
     }
 
-    /**
-     * @param  callable(Get=): ?int  $resolveSiteId
-     * @param  (callable(): ?string)|null  $resolveHelperText
-     */
-    public static function assignContentProjectSelectField(
-        callable $resolveSiteId,
-        ?callable $resolveHelperText = null,
-        string $fieldName = 'project_id',
-    ): Forms\Components\Select {
-        $select = Forms\Components\Select::make($fieldName)
-            ->label(__('seo-content-ai::filament.article_list.content_project'))
-            ->options(fn (Get $get): array => static::contentProjectOptions(
-                static::resolveAssignContentProjectSiteId($resolveSiteId, $get),
-            ))
-            ->required()
-            ->searchable()
-            ->preload()
-            ->native(false)
-            ->suffixAction(
-                FormAction::make('quick_create_content_project')
-                    ->label(__('seo-content-ai::filament.article_list.quick_create_content_project'))
-                    ->icon('heroicon-o-plus')
-                    ->form([
-                        Forms\Components\Select::make('user_id')
-                            ->label(__('seo-content-ai::filament.projects.assign_writer'))
-                            ->options(fn (): array => SeoProjectResource::userSelectOptions())
-                            ->searchable()
-                            ->preload()
-                            ->required()
-                            ->default(fn (): ?int => SeoAccessControl::isContentManager() ? (int) auth()->id() : null)
-                            ->disabled(fn (): bool => SeoAccessControl::isContentManager())
-                            ->dehydrated()
-                            ->native(false),
-                    ])
-                    ->action(function (array $data, Set $set, Get $get) use ($resolveSiteId, $fieldName): void {
-                        $siteId = (int) (static::resolveAssignContentProjectSiteId($resolveSiteId, $get) ?? 0);
-                        if ($siteId <= 0) {
-                            Notification::make()
-                                ->title(__('seo-content-ai::filament.article_list.quick_create_content_project_failed'))
-                                ->body(__('seo-content-ai::filament.article_list.assign_projects_mixed_domains'))
-                                ->danger()
-                                ->send();
-
-                            return;
-                        }
-
-                        try {
-                            $project = static::quickCreateContentProject($siteId, (int) ($data['user_id'] ?? 0));
-                            $set($fieldName, $project->id);
-
-                            Notification::make()
-                                ->title(__('seo-content-ai::filament.article_list.quick_create_content_project_success'))
-                                ->body(__('seo-content-ai::filament.article_list.quick_create_content_project_success_body', [
-                                    'name' => $project->name,
-                                ]))
-                                ->success()
-                                ->send();
-                        } catch (\InvalidArgumentException $exception) {
-                            Notification::make()
-                                ->title(__('seo-content-ai::filament.article_list.quick_create_content_project_failed'))
-                                ->body($exception->getMessage())
-                                ->danger()
-                                ->send();
-                        }
-                    }),
-            );
-
-        if ($resolveHelperText !== null) {
-            $select->helperText(fn (): ?string => $resolveHelperText());
-        }
-
-        return $select;
-    }
-
-    /**
-     * @return list<Forms\Components\Component>
-     */
-    public static function assignTaskTypeSelectField(): Forms\Components\Select
-    {
-        return Forms\Components\Select::make('type')
-            ->label(__('seo-content-ai::filament.projects.article_type'))
-            ->options(SeoProjectTask::typeOptions())
-            ->default(SeoProjectTask::TYPE_REWRITE)
-            ->required()
-            ->native(false)
-            ->live();
-    }
-
-    /**
-     * @return list<Forms\Components\Component>
-     */
-    public static function assignRewriteModeFormFields(): array
-    {
-        return [
-            Forms\Components\TextInput::make('keyword')
-                ->label(__('seo-content-ai::filament.projects.keyword'))
-                ->placeholder(__('seo-content-ai::filament.projects.keyword_placeholder'))
-                ->maxLength(500)
-                ->visible(fn (Get $get): bool => in_array(
-                    static::normalizeAssignTaskType($get('type')),
-                    [SeoProjectTask::TYPE_CREATE, SeoProjectTask::TYPE_REWRITE],
-                    true,
-                )),
-            Forms\Components\TextInput::make('title')
-                ->label(__('seo-content-ai::filament.projects.title_field'))
-                ->placeholder(__('seo-content-ai::filament.projects.title_field_placeholder'))
-                ->maxLength(500)
-                ->visible(fn (Get $get): bool => in_array(
-                    static::normalizeAssignTaskType($get('type')),
-                    [SeoProjectTask::TYPE_CREATE, SeoProjectTask::TYPE_REWRITE],
-                    true,
-                )),
-            Forms\Components\Textarea::make('secondary_description')
-                ->label(__('seo-content-ai::filament.projects.secondary_description'))
-                ->placeholder(__('seo-content-ai::filament.projects.secondary_description_placeholder'))
-                ->rows(3)
-                ->visible(fn (Get $get): bool => in_array(
-                    static::normalizeAssignTaskType($get('type')),
-                    [SeoProjectTask::TYPE_CREATE, SeoProjectTask::TYPE_REWRITE],
-                    true,
-                ))
-                ->columnSpanFull(),
-            Forms\Components\Textarea::make('rewrite_notes')
-                ->label(__('seo-content-ai::filament.projects.improve_instruction'))
-                ->placeholder(__('seo-content-ai::filament.projects.improve_instruction_placeholder'))
-                ->rows(3)
-                ->visible(fn (Get $get): bool => static::normalizeAssignTaskType($get('type')) === SeoProjectTask::TYPE_IMPROVE)
-                ->columnSpanFull(),
-        ];
-    }
-
-    /**
-     * @return list<Forms\Components\Component>
-     */
-    public static function assignArticleTaskFormFields(): array
-    {
-        return array_merge(
-            [static::assignTaskTypeSelectField()],
-            static::assignRewriteModeFormFields(),
-        );
-    }
-
-    /**
-     * @param  callable(Get=): ?int  $resolveSiteId
-     * @param  (callable(): ?string)|null  $resolveHelperText
-     * @return list<Forms\Components\Component>
-     */
-    public static function assignContentProjectFormFields(
-        callable $resolveSiteId,
-        ?callable $resolveHelperText = null,
-    ): array {
-        return array_merge(
-            [static::assignContentProjectSelectField($resolveSiteId, $resolveHelperText)],
-            static::assignArticleTaskFormFields(),
-        );
-    }
-
     public static function normalizeAssignTaskType(mixed $value): string
     {
         return SeoProjectTask::normalizeType($value);
@@ -2111,27 +1922,6 @@ class ArticleResource extends SeoPanelResource
             is_string($data['title'] ?? null) ? $data['title'] : null,
             (bool) ($data['ignore_monthly_capacity'] ?? false),
         );
-    }
-
-    /**
-     * @param  callable(Get=): ?int  $resolveSiteId
-     */
-    private static function resolveAssignContentProjectSiteId(callable $resolveSiteId, ?Get $get = null): ?int
-    {
-        if ($get instanceof Get && $resolveSiteId instanceof \Closure) {
-            $reflection = new \ReflectionFunction($resolveSiteId);
-            $firstParameter = $reflection->getParameters()[0] ?? null;
-
-            if ($firstParameter !== null) {
-                $type = $firstParameter->getType();
-
-                if ($type instanceof \ReflectionNamedType && $type->getName() === Get::class) {
-                    return $resolveSiteId($get);
-                }
-            }
-        }
-
-        return $resolveSiteId();
     }
 
     public static function quickCreateContentProject(int $siteId, ?int $userId = null): SeoProject
@@ -2221,10 +2011,14 @@ class ArticleResource extends SeoPanelResource
     }
 
     /**
+     * Vocabulary Plan: soft-full projects stay selectable; archived / hard-closed stay out.
+     *
      * @return array<int, string>
      */
-    public static function contentProjectOptionsForSeoAudit(?int $siteId = null): array
-    {
+    public static function contentProjectOptionsForVocabularyPlanning(
+        ?int $siteId = null,
+        ?int $includeSelectedProjectId = null,
+    ): array {
         if ($siteId === null || $siteId <= 0) {
             return [];
         }
@@ -2238,6 +2032,7 @@ class ArticleResource extends SeoPanelResource
             ->orderByDesc('month')
             ->orderBy('id')
             ->where('site_id', $siteId)
+            ->whereNull('archived_at')
             ->where(function ($builder): void {
                 $builder->where('kind', SeoProject::KIND_MONTHLY)->orWhereNull('kind');
             });
@@ -2246,25 +2041,52 @@ class ArticleResource extends SeoPanelResource
             $query->where('user_id', (int) auth()->id());
         }
 
-        return $query
+        $options = $query
             ->get()
             ->mapWithKeys(function (SeoProject $project): array {
+                $remaining = $project->remainingTaskCapacity();
                 $domain = trim((string) ($project->site?->domain ?? ''));
-                $writer = $project->user instanceof User
-                    ? SeoProjectResource::formatUserSelectLabel($project->user)
-                    : '';
+                $capacityLabel = $remaining > 0
+                    ? sprintf('còn %d', $remaining)
+                    : 'đầy';
 
                 return [
                     (int) $project->id => sprintf(
-                        '%s - %s - %s (%s)',
+                        '%s · %s (%s, %s)',
                         (string) $project->name,
-                        $domain !== '' ? $domain : '-',
-                        $writer !== '' ? $writer : '-',
+                        $domain !== '' ? $domain : '—',
                         $project->monthCarbon()->format('m/Y'),
+                        $capacityLabel,
                     ),
                 ];
             })
             ->all();
+
+        if (
+            $includeSelectedProjectId !== null
+            && $includeSelectedProjectId > 0
+            && ! array_key_exists($includeSelectedProjectId, $options)
+        ) {
+            $selected = SeoProject::query()
+                ->with(['site'])
+                ->whereKey($includeSelectedProjectId)
+                ->where('site_id', $siteId)
+                ->whereNull('archived_at')
+                ->first();
+            if ($selected instanceof SeoProject) {
+                $domain = trim((string) ($selected->site?->domain ?? ''));
+                $remaining = $selected->remainingTaskCapacity();
+                $options[(int) $selected->id] = sprintf(
+                    '%s · %s (%s, %s)',
+                    (string) $selected->name,
+                    $domain !== '' ? $domain : '—',
+                    $selected->monthCarbon()->format('m/Y'),
+                    $remaining > 0 ? sprintf('còn %d', $remaining) : 'đầy',
+                );
+            }
+        }
+
+        return $options;
     }
 
     public static function resolveArticleProjectSourceContent(SeoArticle $article): string

@@ -5,9 +5,12 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Services;
 
 
+use Omnichannel\Addons\Content\Services\ArticleImproveExecutionService;
 use Omnichannel\Addons\Content\Services\ArticleOutlineResolver;
+use Omnichannel\Addons\Content\Services\ArticleWritingExecutionService;
 use Omnichannel\Addons\Agent\Automation\Data\ActionContext;
 use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
+use Omnichannel\Addons\Seo\Services\SeoMainDomainService;
 use Omnichannel\Addons\Agent\Automation\Data\ActionResult;
 use Omnichannel\Addons\Agent\Automation\Migration\AutomationMigrationWriteException;
 use Omnichannel\Addons\Agent\Automation\Migration\ProjectArticleCreateCallerBridge;
@@ -15,6 +18,8 @@ use Omnichannel\Addons\Agent\Automation\Runtime\ActionRunner;
 use Omnichannel\Addons\Agent\Automation\Support\ArticleCreateOriginResolver;
 use Omnichannel\Addons\Content\Enums\ArticleWritingExecutionMode;
 use Omnichannel\Addons\AiPrompt\Enums\ArticleWritingPromptOwnerType;
+use Omnichannel\Addons\AiPrompt\Services\TaskTestInputResolver;
+use Omnichannel\Addons\AiPrompt\Services\TaskWorkflowTestRunner;
 use Omnichannel\Addons\Content\Enums\ArticleWritingSourceType;
 use Omnichannel\Addons\ContentProjects\Enums\WorkflowExecutionRole;
 use Omnichannel\Addons\Content\Models\SeoArticle;
@@ -25,6 +30,7 @@ use Omnichannel\Addons\ContentProjects\Services\WorkflowRoles\WorkflowExecutionS
 use Omnichannel\Addons\Content\Support\ArticleWritingExecutionContext;
 use Omnichannel\Addons\Content\Support\ArticleWritingInput;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemIdentity;
+use Omnichannel\Addons\SearchFoundation\Services\DomainLinkListKeywordSyncService;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordFocusAttach;
 use Omnichannel\Addons\ContentProjects\Support\ProjectTaskOriginVariables;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
@@ -318,6 +324,16 @@ final class CreateArticlesFromTaskService
         }
 
         $steps = [];
+
+        // CREATE / recreate: tạo + gắn draft sớm để item có link click được (prompt history),
+        // kể cả khi bước Prompt sau đó fail.
+        if (
+            $projectType !== SeoProjectTask::TYPE_REWRITE
+            && $projectType !== SeoProjectTask::TYPE_IMPROVE
+            && ! ($context->article instanceof SeoArticle)
+        ) {
+            $context = $this->ensureProjectTaskDraftArticle($context, $resolvedSiteId, $keyword);
+        }
 
         try {
             if ($projectType === SeoProjectTask::TYPE_REWRITE) {
@@ -641,6 +657,42 @@ final class CreateArticlesFromTaskService
         return $context->article instanceof SeoArticle
             ? (int) $context->article->id
             : null;
+    }
+
+    /**
+     * Ensure Content Project item has a live draft article before workflow runs.
+     * Attaches task.article_id immediately so Ops UI link is clickable.
+     */
+    private function ensureProjectTaskDraftArticle(
+        TaskTestContext $context,
+        int $siteId,
+        string $keyword,
+    ): TaskTestContext {
+        $originId = ProjectTaskOriginVariables::read($context->variables);
+        if ($originId === null) {
+            return $context;
+        }
+
+        $task = SeoProjectTask::query()->find($originId);
+        if ($task instanceof SeoProjectTask) {
+            $existingId = (int) ($task->article_id ?? 0);
+            if ($existingId > 0) {
+                $existing = SeoArticle::query()->find($existingId);
+                if ($existing instanceof SeoArticle) {
+                    return $context->withArticle($existing);
+                }
+            }
+        }
+
+        $variables = $context->variables;
+        if ($context->postType !== null && $context->postType !== '') {
+            $variables['_project_post_type'] = $context->postType;
+        }
+
+        $article = $this->createDraftArticle($siteId, $keyword, $variables, []);
+        $task?->refresh();
+
+        return $context->withArticle($article);
     }
 
     /**
@@ -1036,7 +1088,7 @@ final class CreateArticlesFromTaskService
     /**
      * @return array<int|string, string>
      */
-    public function taskOptionsForSettings(): array
+    public function taskOptionsForSettings(?int $includeTaskId = null): array
     {
         $query = SeoTask::query()->where('is_active', true)->orderBy('name');
 
@@ -1044,6 +1096,49 @@ final class CreateArticlesFromTaskService
             $query->where('user_id', SeoAccessControl::accountSiteOwnerId());
         }
 
-        return $query->pluck('name', 'id')->all();
+        $options = $query
+            ->pluck('name', 'id')
+            ->mapWithKeys(static fn (mixed $name, mixed $id): array => [
+                (int) $id => trim((string) $name) !== '' ? trim((string) $name) : ('#'.(int) $id),
+            ])
+            ->all();
+
+        $id = (int) ($includeTaskId ?? 0);
+        if ($id > 0 && ! array_key_exists($id, $options)) {
+            $taskQuery = SeoTask::query()->whereKey($id);
+            if (SeoAccessControl::shouldScopeToAccountOwner()) {
+                $taskQuery->where('user_id', SeoAccessControl::accountSiteOwnerId());
+            }
+            $task = $taskQuery->first();
+            if ($task !== null) {
+                $name = trim((string) ($task->name ?? ''));
+                $label = $name !== '' ? $name : '#'.$id;
+                if (! (bool) ($task->is_active ?? false)) {
+                    $label .= ' ('.(string) __('seo-content-ai::filament.settings_workflows.task_inactive').')';
+                }
+                $options[$id] = $label;
+            } else {
+                $options[$id] = '#'.$id;
+            }
+        }
+
+        return $options;
+    }
+
+    public function taskLabel(mixed $taskId): ?string
+    {
+        $id = (int) $taskId;
+        if ($id <= 0) {
+            return null;
+        }
+
+        $task = SeoTask::query()->find($id);
+        if ($task === null) {
+            return '#'.$id;
+        }
+
+        $name = trim((string) ($task->name ?? ''));
+
+        return $name !== '' ? $name : '#'.$id;
     }
 }

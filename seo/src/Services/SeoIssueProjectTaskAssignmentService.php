@@ -7,6 +7,8 @@ namespace Omnichannel\Addons\Seo\Services;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\ContentProjects\Services\SeoProjectArticleOwnerSyncService;
+use Omnichannel\Addons\ContentProjects\Services\SeoProjectTaskUniqueWriter;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;

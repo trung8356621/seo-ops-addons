@@ -5,13 +5,17 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Agent\Extension\Registry;
 
 use Omnichannel\Addons\AiPrompt\Extension\Contracts\AiProviderDriver;
-use Omnichannel\Addons\Agent\Extension\Contracts\CapabilityContributor;
-use Omnichannel\Addons\Media\Extension\Contracts\MediaProcessorDriver;
-use Omnichannel\Addons\Agent\Extension\Contracts\PipelineStepDriver;
 use Omnichannel\Addons\AiPrompt\Extension\Contracts\PromptHookContributor;
+use Omnichannel\Addons\AiPrompt\Extension\Registry\AiProviderRegistry;
+use Omnichannel\Addons\AiPrompt\Extension\Registry\PromptHookExtensionRegistry;
+use Omnichannel\Addons\Agent\Extension\Contracts\CapabilityContributor;
+use Omnichannel\Addons\Agent\Extension\Contracts\PipelineStepDriver;
+use Omnichannel\Addons\Agent\Extension\Contracts\WorkflowContributor;
+use Omnichannel\Addons\Media\Extension\Contracts\MediaProcessorDriver;
+use Omnichannel\Addons\Media\Extension\Registry\MediaProcessorRegistry;
 use Omnichannel\Addons\Publishing\Extension\Contracts\PublisherDriver;
 use Omnichannel\Addons\Seo\Extension\Contracts\SeoProviderDriver;
-use Omnichannel\Addons\Agent\Extension\Contracts\WorkflowContributor;
+use Omnichannel\Addons\Seo\Extension\Registry\SeoProviderRegistry;
 
 final class ContentPlatformRegistry
 {

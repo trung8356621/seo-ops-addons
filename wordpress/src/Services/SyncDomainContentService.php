@@ -6,8 +6,12 @@ namespace Omnichannel\Addons\WordPress\Services;
 
 
 use Omnichannel\Addons\Seo\Services\SeoAnalyzerService;
+use Omnichannel\Addons\Seo\Services\SeoArticleScoringQueueService;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Services\ArticleLastSavedTimestampService;
+use Omnichannel\Addons\Content\Services\ArticleTocExtractionService;
+use Omnichannel\Addons\Content\Services\ClearDomainArticlesService;
 use Omnichannel\Addons\SearchFoundation\Support\DomainSyncManifestComparator;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordFocusAttach;
 use Omnichannel\Addons\SearchIntelligence\Support\RankMathSeoValueNormalizer;
@@ -218,6 +222,128 @@ class SyncDomainContentService
                 'message' => 'Đồng bộ từ WordPress thất bại: '.$e->getMessage(),
             ];
         }
+    }
+
+    /**
+     * Pull + import one WP entity by wp_id when local SEO article is missing
+     * (e.g. "Sửa trên Laravel" / wp-edit-redirect after an old DB restore).
+     *
+     * @return array{success: bool, message: string, article?: SeoArticle}
+     */
+    public function ensureImportedByWpId(Site $site, int $wpId, string $preferredType = 'article'): array
+    {
+        if ($wpId <= 0) {
+            return ['success' => false, 'message' => 'wp_id không hợp lệ.'];
+        }
+
+        $validationError = $this->validateWordPressSite($site);
+        if ($validationError !== null) {
+            return [
+                'success' => false,
+                'message' => (string) ($validationError['message'] ?? 'Domain WordPress chưa sẵn sàng.'),
+            ];
+        }
+
+        $site->loadMissing('metas');
+        $readToken = trim((string) ($site->getMeta('seo_read_token') ?? ''));
+        if ($readToken === '') {
+            return ['success' => false, 'message' => 'Thiếu SEO read token cho domain.'];
+        }
+
+        $type = app(\Omnichannel\Addons\Content\Services\ArticleByWpIdResolver::class)
+            ->normalizeType($preferredType);
+        $wpEntity = in_array($type, ['category', 'product_category'], true) ? 'term' : 'post';
+        $ref = [
+            'wp_id' => $wpId,
+            'wp_entity' => $wpEntity,
+            'type' => $type,
+        ];
+        if ($wpEntity === 'term') {
+            $ref['wp_post_type'] = $type === 'product_category' ? 'product_cat' : 'category';
+        }
+
+        $items = $this->fetchItemsByRefs($site, $readToken, [$ref]);
+        if ($items === null || $items === []) {
+            return [
+                'success' => false,
+                'message' => 'Không lấy được bài từ WordPress (post không tồn tại hoặc bridge lỗi).',
+            ];
+        }
+
+        $item = $items[0];
+        if (! is_array($item) || (int) ($item['wp_id'] ?? 0) !== $wpId) {
+            return [
+                'success' => false,
+                'message' => 'WordPress trả về post không khớp wp_id.',
+            ];
+        }
+
+        $item['wp_id'] = $wpId;
+        $item['type'] = $this->normalizeType((string) ($item['type'] ?? $type));
+
+        $synced = [
+            'article' => 0,
+            'product' => 0,
+            'category' => 0,
+            'product_category' => 0,
+            'other' => 0,
+            'trashed' => 0,
+            'force_deleted' => 0,
+            'restored' => 0,
+        ];
+        $userId = (int) $site->user_id;
+        $syncFlags = app(ArticleWordPressSyncFlagService::class);
+
+        try {
+            DB::connection('omi_seo_ai')->transaction(function () use (
+                $site,
+                $item,
+                $wpId,
+                &$synced,
+                $userId,
+                $syncFlags,
+            ): void {
+                $this->importSingleSyncItem(
+                    site: $site,
+                    item: $item,
+                    wpId: $wpId,
+                    synced: $synced,
+                    userId: $userId,
+                    syncFlags: $syncFlags,
+                    forceOverwrite: true,
+                );
+            });
+        } catch (Throwable $e) {
+            Log::warning('SeoContentAi ensureImportedByWpId failed', [
+                'site_id' => (int) $site->id,
+                'wp_id' => $wpId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return [
+                'success' => false,
+                'message' => 'Import bài từ WordPress thất bại: '.$e->getMessage(),
+            ];
+        }
+
+        $article = SeoArticle::query()
+            ->where('site_id', (int) $site->id)
+            ->whereWpPostId($wpId)
+            ->where('type', $item['type'])
+            ->first();
+
+        if (! $article instanceof SeoArticle) {
+            return [
+                'success' => false,
+                'message' => 'Import xong nhưng không tìm thấy bài SEO tương ứng.',
+            ];
+        }
+
+        return [
+            'success' => true,
+            'message' => 'Đã kéo bài từ WordPress vào SEO.',
+            'article' => $article,
+        ];
     }
 
     /**
@@ -1199,14 +1325,20 @@ class SyncDomainContentService
             $articleAttributes['blocks'] = null;
         }
 
-        $article = SeoArticle::query()->updateOrCreate(
-            [
-                'site_id' => $site->id,
-                'wp_post_id' => $wpId,
-                'type' => $type,
-            ],
-            $articleAttributes,
-        );
+        // articles.wp_post_id was moved to wordpress_article_links — never use it as
+        // updateOrCreate match key on articles (Unknown column / silent sync skips).
+        if ($existing instanceof SeoArticle) {
+            $existing->fill($articleAttributes)->save();
+            $article = $existing;
+        } else {
+            $article = SeoArticle::query()->create(array_merge(
+                [
+                    'site_id' => $site->id,
+                    'type' => $type,
+                ],
+                $articleAttributes,
+            ));
+        }
 
         // Extension attrs via Eloquent: RoutesArticleExtensionAttributes → writers.
         $article->forceFill([

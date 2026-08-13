@@ -29,7 +29,7 @@ import {
     normalizeLinkLabel,
 } from '../utils/articleLinkSuggestionFilter';
 import { isCtaPlainTextType } from '../utils/ctaLinkFormat';
-import { replaceFirstPlainTextWithLink, replaceFirstPlainTextWithText, wrapPlainTextWithLinkInBlocks } from '../utils/articleLinkInsert';
+import { applyLinkToPhraseOccurrence, replaceFirstPlainTextWithLink, replaceFirstPlainTextWithText, wrapPlainTextWithLinkInBlocks } from '../utils/articleLinkInsert';
 import { saveDraft } from '../utils/articleEditorStorage';
 import { t } from '../utils/i18n';
 import { useCallback, useEffect } from 'react';
@@ -38,7 +38,7 @@ import { useCallback, useEffect } from 'react';
  * useArticleEditorLinksAndSnippets - extracted from SeoArticleEditor.jsx (Task 7 mechanical
  * extraction). Mechanical move - no behavior change.
  */
-export default function useArticleEditorLinksAndSnippets({ activeBlockId, activeBlockIdRef, applySlugRenameFinished, articleId, articleTitle, blockById, blockEditorsRef, blockFlushRef, blocksRef, clearTempMerge, commitActiveBlock, connectionHashRef, editorSections, focusKeyword, intraSelectionRef, linkScrollTokenRef, notifyIntroNoImages, persistEditorContentImmediately, requestAnalyze, scheduleAutosave, sectionByBlockId, selectPlainTextInBlock, setActiveBlockId, setBlocks, setCollapsedSectionIds, setExtractedLinks, setGlobalEditor, setImageRenameBusy, setImageRenameBusyCount, setSaveStatus, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomainRef, slugRenameManagedByBatchRef, updateBlockContent }) {
+export default function useArticleEditorLinksAndSnippets({ activeBlockId, activeBlockIdRef, applySlugRenameFinished, articleId, articleTitle, blockById, blockEditorsRef, blockFlushRef, blocksRef, clearTempMerge, commitActiveBlock, connectionHashRef, editorHostActionsRef, editorSections, focusKeyword, intraSelectionRef, linkScrollTokenRef, notifyIntroNoImages, persistEditorContentImmediately, requestAnalyze, scheduleAutosave, sectionByBlockId, selectPlainTextInBlock, setActiveBlockId, setBlocks, setCollapsedSectionIds, setExtractedLinks, setGlobalEditor, setImageRenameBusy, setImageRenameBusyCount, setSaveStatus, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomainRef, slugRenameManagedByBatchRef, updateBlockContent }) {
     useEffect(() => {
         const onLoading = (e) => {
             setImageRenameBusy(true);
@@ -145,39 +145,12 @@ export default function useArticleEditorLinksAndSnippets({ activeBlockId, active
                 return;
             }
 
-            const sectionBlocks = section.blockIds
-                .map((blockId) => blockById.get(blockId))
-                .filter(Boolean);
-            const sectionText = getPlainTextFromBlocks(sectionBlocks).trim();
-            if (!sectionText) {
-                window.dispatchEvent(
-                    new CustomEvent('seo-article-editor-notify', {
-                        detail: {
-                            title: t('generate_image'),
-                            body: 'Section has no plain text to build prompt.',
-                            status: 'warning',
-                        },
-                    }),
-                );
-                return;
-            }
-
-            const keyword = (focusKeyword || articleTitle || '').trim();
-            const promptInput = keyword ? `${keyword}\n\n${sectionText}` : sectionText;
-            const targetBlockId = String(section.blockIds?.[0] ?? activeBlockId ?? '').trim();
-
-            window.dispatchEvent(
-                new CustomEvent('generate-article-image', {
-                    detail: {
-                        selectionText: sectionText,
-                        selectionHtml: '',
-                        userBrief: promptInput,
-                        activeBlockId: targetBlockId,
-                    },
-                }),
-            );
+            editorHostActionsRef.current.openAiMedia?.({
+                section,
+                source: 'section_header',
+            });
         },
-        [activeBlockId, articleTitle, blockById, focusKeyword, notifyIntroNoImages],
+        [notifyIntroNoImages],
     );
 
     const scrollToFeaturedSnippetTable = useCallback(() => {
@@ -558,6 +531,26 @@ export default function useArticleEditorLinksAndSnippets({ activeBlockId, active
 
             commitActiveBlock();
 
+            const preferredBlockId = String(detail?.blockId ?? detail?.block_id ?? '').trim();
+            if (preferredBlockId) {
+                const targetBlock = blocksRef.current.find((item) => item.id === preferredBlockId);
+                if (targetBlock?.content) {
+                    const { html, replaced } = applyLinkToPhraseOccurrence(
+                        targetBlock.content,
+                        text,
+                        href,
+                        occurrenceIndex,
+                    );
+                    if (replaced) {
+                        notifyInserted(preferredBlockId, html);
+                        window.dispatchEvent(new CustomEvent('seo-editor-links-updated', {
+                            detail: { text, href, blockId: preferredBlockId },
+                        }));
+                        return;
+                    }
+                }
+            }
+
             const domResult = wrapPlainTextWithLinkInBlocks(
                 blocksRef.current,
                 text,
@@ -566,6 +559,9 @@ export default function useArticleEditorLinksAndSnippets({ activeBlockId, active
             );
             if (domResult) {
                 notifyInserted(domResult.blockId, domResult.html);
+                window.dispatchEvent(new CustomEvent('seo-editor-links-updated', {
+                    detail: { text, href, blockId: domResult.blockId },
+                }));
                 return;
             }
 

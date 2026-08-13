@@ -6,6 +6,8 @@ namespace Omnichannel\Addons\Agent\Services\AgentWorkspace;
 
 use Omnichannel\Addons\Agent\Services\AgentWorkspace\Dtos\AgentSkillDefinition;
 use Omnichannel\Addons\Agent\Services\AgentWorkspace\Dtos\AgentWorkspaceContext;
+use Omnichannel\Addons\ContentProjects\Services\ContentProjectStaffAvailabilityService;
+use InvalidArgumentException;
 
 /**
  * Resolves user-facing form fields into capability input.
@@ -79,9 +81,28 @@ final class AgentSkillInputResolver
                 'description' => (string) ($input['description'] ?? ''),
                 'month' => (string) ($input['month'] ?? ''),
             ];
-            if (! empty($input['assignee_ref'])) {
-                $attributes['assignee_ref'] = $input['assignee_ref'];
+
+            $assigneeRef = trim((string) ($input['assignee_ref'] ?? ''));
+            if ($assigneeRef === '' || ! preg_match('/^\d+$/', $assigneeRef)) {
+                throw new InvalidArgumentException(
+                    'Member ID phụ trách là bắt buộc. Dùng `/member-list` rồi nhập ID số.',
+                );
             }
+
+            $userId = (int) $assigneeRef;
+            $eligible = app(ContentProjectStaffAvailabilityService::class)
+                ->baseAssignableStaffQuery()
+                ->whereKey($userId)
+                ->exists();
+            if (! $eligible) {
+                throw new InvalidArgumentException(
+                    'Member ID '.$userId.' không hợp lệ hoặc không được phép nhận Content Project trong tenant hiện tại.',
+                );
+            }
+
+            // Canonical create field: seo_projects.user_id (never silent actor fallback).
+            $attributes['user_id'] = $userId;
+            $attributes['assignee_ref'] = (string) $userId;
 
             $tasksData = [];
             if (($input['seed_mode'] ?? 'none') === 'manual' && ! empty($input['items_text'])) {
@@ -174,6 +195,20 @@ final class AgentSkillInputResolver
         if (isset($summary['keywords']) && is_array($summary['keywords'])) {
             $summary['keywords_count'] = count($summary['keywords']);
             unset($summary['keywords']);
+        }
+        if (isset($summary['attributes']) && is_array($summary['attributes'])) {
+            $attrs = $summary['attributes'];
+            if (isset($attrs['name'])) {
+                $summary['project'] = $attrs['name'];
+            }
+            if (isset($attrs['month'])) {
+                $summary['month'] = $attrs['month'];
+            }
+            $memberId = $attrs['user_id'] ?? $attrs['assignee_ref'] ?? null;
+            if ($memberId !== null && $memberId !== '') {
+                $summary['member_id'] = (string) $memberId;
+            }
+            unset($summary['attributes'], $summary['assignee_ref']);
         }
 
         return $summary;

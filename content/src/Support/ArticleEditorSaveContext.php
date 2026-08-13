@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\Content\Support;
 
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\Seo\Support\SeoDisplayTimezone;
 use Carbon\Carbon;
 use Illuminate\Support\Str;
 
@@ -40,13 +41,26 @@ final readonly class ArticleEditorSaveContext
         $title = trim((string) ($meta['title'] ?? $article->title ?? ''));
         $slug = trim((string) ($meta['slug'] ?? $article->slug ?? ''));
         $seoMetaDescription = trim((string) ($meta['seo_meta_description'] ?? ''));
-        $focusKeyword = trim((string) ($meta['focus_keyword'] ?? ''));
+        // Prefer article_meta, then SEO-owner top-level flush. Empty/missing must NOT wipe
+        // canonical seo_focus_keyword on content/autosave (Laravel-owned; no WP required).
+        $focusKeyword = trim((string) ($meta['focus_keyword'] ?? $bundle['focus_keyword'] ?? ''));
+
+        if ($seoMetaDescription === '' || $focusKeyword === '') {
+            if (! $article->relationLoaded('articleMetas')) {
+                $article->loadMissing('articleMetas');
+            }
+        }
 
         if ($seoMetaDescription === '') {
-            $article->loadMissing('articleMetas');
             $seoMetaDescription = trim((string) ($article->articleMetas
                 ->firstWhere('meta_key', 'seo_meta_description')?->meta_value
                 ?? $article->articleMetas->firstWhere('meta_key', 'meta_description')?->meta_value
+                ?? ''));
+        }
+
+        if ($focusKeyword === '') {
+            $focusKeyword = trim((string) ($article->articleMetas
+                ->firstWhere('meta_key', 'seo_focus_keyword')?->meta_value
                 ?? ''));
         }
 

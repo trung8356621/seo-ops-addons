@@ -134,12 +134,16 @@ class SeoSettingsWorkflows extends Page implements HasForms
             }
 
             $encodedKey = SeoCreateArticleSettingsService::encodeHookKeyForForm($hookKey);
+            $bindingPath = SeoCreateArticleSettingsService::KEY_PROMPT_HOOK_BINDINGS.'.'.$encodedKey;
             $sectionSchema = [
-                Forms\Components\Select::make(
-                    SeoCreateArticleSettingsService::KEY_PROMPT_HOOK_BINDINGS.'.'.$encodedKey
-                )
+                Forms\Components\Select::make($bindingPath)
                     ->label(__('seo-content-ai::filament.settings_workflows.choose_prompt'))
-                    ->options(fn (SeoPromptSettingsOptionsService $options): array => $options->promptOptionsForHook($hookKey))
+                    ->options(function (SeoPromptSettingsOptionsService $options, Get $get) use ($hookKey, $bindingPath): array {
+                        $selected = (int) ($get($bindingPath) ?? 0);
+
+                        return $options->promptOptionsForHook($hookKey, $selected > 0 ? $selected : null);
+                    })
+                    ->getOptionLabelUsing(fn (mixed $value): ?string => app(SeoPromptSettingsOptionsService::class)->promptLabel($value))
                     ->searchable()
                     ->native(false)
                     ->position('auto')
@@ -220,7 +224,12 @@ class SeoSettingsWorkflows extends Page implements HasForms
                     === SeoCreateArticleSettingsService::SOURCE_PROMPT),
             Forms\Components\Select::make(SeoCreateArticleSettingsService::KEY_CREATE_PRODUCT_GALLERY_TASK)
                 ->label(__('seo-content-ai::filament.settings_workflows.choose_workflow'))
-                ->options(fn (CreateArticlesFromTaskService $service): array => $service->taskOptionsForSettings())
+                ->options(function (CreateArticlesFromTaskService $service, Get $get): array {
+                    $selected = (int) ($get(SeoCreateArticleSettingsService::KEY_CREATE_PRODUCT_GALLERY_TASK) ?? 0);
+
+                    return $service->taskOptionsForSettings($selected > 0 ? $selected : null);
+                })
+                ->getOptionLabelUsing(fn (mixed $value): ?string => app(CreateArticlesFromTaskService::class)->taskLabel($value))
                 ->searchable()
                 ->native(false)
                 ->position('auto')
@@ -269,7 +278,12 @@ class SeoSettingsWorkflows extends Page implements HasForms
     ): Forms\Components\Select {
         return Forms\Components\Select::make($field)
             ->label($label)
-            ->options(fn (CreateArticlesFromTaskService $service): array => $service->taskOptionsForSettings())
+            ->options(function (CreateArticlesFromTaskService $service, Get $get) use ($field): array {
+                $selected = (int) ($get($field) ?? 0);
+
+                return $service->taskOptionsForSettings($selected > 0 ? $selected : null);
+            })
+            ->getOptionLabelUsing(fn (mixed $value): ?string => app(CreateArticlesFromTaskService::class)->taskLabel($value))
             ->searchable()
             ->native(false)
             ->position('auto')
@@ -343,7 +357,19 @@ class SeoSettingsWorkflows extends Page implements HasForms
             $radio,
             Forms\Components\Select::make($promptKey)
                 ->label(__('seo-content-ai::filament.settings_workflows.choose_prompt'))
-                ->options($promptOptions)
+                ->options(function (SeoPromptSettingsOptionsService $options, Get $get) use ($promptOptions, $promptKey): array {
+                    $base = $promptOptions($options);
+                    $selected = (int) ($get($promptKey) ?? 0);
+                    if ($selected > 0 && ! array_key_exists($selected, $base)) {
+                        $label = $options->promptLabel($selected);
+                        if ($label !== null) {
+                            $base[$selected] = $label;
+                        }
+                    }
+
+                    return $base;
+                })
+                ->getOptionLabelUsing(fn (mixed $value): ?string => app(SeoPromptSettingsOptionsService::class)->promptLabel($value))
                 ->searchable()
                 ->native(false)
                 ->position('auto')
@@ -354,7 +380,12 @@ class SeoSettingsWorkflows extends Page implements HasForms
                     === SeoCreateArticleSettingsService::SOURCE_PROMPT),
             Forms\Components\Select::make($taskKey)
                 ->label(__('seo-content-ai::filament.settings_workflows.choose_workflow'))
-                ->options(fn (CreateArticlesFromTaskService $service): array => $service->taskOptionsForSettings())
+                ->options(function (CreateArticlesFromTaskService $service, Get $get) use ($taskKey): array {
+                    $selected = (int) ($get($taskKey) ?? 0);
+
+                    return $service->taskOptionsForSettings($selected > 0 ? $selected : null);
+                })
+                ->getOptionLabelUsing(fn (mixed $value): ?string => app(CreateArticlesFromTaskService::class)->taskLabel($value))
                 ->searchable()
                 ->native(false)
                 ->position('auto')

@@ -16,7 +16,38 @@ const MEDIA_STATUS_URL_TEMPLATE = '/api/seo/media/{id}/status';
 const MEDIA_RETRY_URL_TEMPLATE = '/api/seo/media/{id}/retry-generation';
 const MEDIA_DELETE_AI_JOB_URL_TEMPLATE = '/api/seo/media/{id}/ai-job';
 
-export const AI_PLACEHOLDER_LOADING_URL = '/assets/images/placeholder-loading.svg';
+/** Marker embedded in inline SVG — avoids network 404 on `/assets/images/placeholder-loading.svg`. */
+export const AI_LOADING_PLACEHOLDER_MARKER = 'seo-ai-media-loading-placeholder';
+
+/** Legacy static asset path (DB rows / saved HTML may still reference this). */
+export const AI_PLACEHOLDER_LOADING_PATH = '/assets/images/placeholder-loading.svg';
+
+export const AI_PLACEHOLDER_LOADING_URL =
+    'data:image/svg+xml,' +
+    encodeURIComponent(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="960" height="540" viewBox="0 0 960 540" role="img" aria-label="seo-ai-media-loading-placeholder">' +
+            '<defs><linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">' +
+            '<stop offset="0%" stop-color="#e2e8f0"/><stop offset="100%" stop-color="#cbd5e1"/></linearGradient></defs>' +
+            '<rect width="960" height="540" fill="url(#bg)"/>' +
+            '<circle cx="480" cy="250" r="44" fill="none" stroke="#64748b" stroke-width="10" stroke-linecap="round" stroke-dasharray="70 210">' +
+            '<animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="1.1s" repeatCount="indefinite"/></circle>' +
+            '<text x="480" y="330" text-anchor="middle" fill="#334155" font-size="24" font-family="Arial,sans-serif" font-weight="600">AI dang tao noi dung...</text>' +
+            '</svg>',
+    );
+
+export function isAiPlaceholderLoadingSrc(src) {
+    if (!src) {
+        return false;
+    }
+
+    const value = String(src);
+
+    return (
+        value.includes('placeholder-loading')
+        || value.includes(AI_LOADING_PLACEHOLDER_MARKER)
+        || value === AI_PLACEHOLDER_LOADING_URL
+    );
+}
 
 /** URL tương đối /storage/... — tránh lệch host/port khi APP_URL khác origin trình duyệt. */
 export function normalizeSeoMediaUrl(url) {

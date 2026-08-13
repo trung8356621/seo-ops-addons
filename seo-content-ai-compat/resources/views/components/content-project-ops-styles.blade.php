@@ -528,6 +528,23 @@
         .cp-ops-menu--top { bottom: calc(100% + 0.25rem); }
         .cp-ops-menu--end { right: 0; left: auto; }
         .cp-ops-menu--start { left: 0; right: auto; }
+        /* Teleported to body — collision placement via inline fixed top/left only. */
+        .cp-ops-menu--portal {
+            position: fixed;
+            top: auto;
+            right: auto;
+            bottom: auto;
+            left: auto;
+        }
+        .cp-ops-menu--portal.cp-ops-menu--bottom,
+        .cp-ops-menu--portal.cp-ops-menu--top,
+        .cp-ops-menu--portal.cp-ops-menu--end,
+        .cp-ops-menu--portal.cp-ops-menu--start {
+            top: auto;
+            right: auto;
+            bottom: auto;
+            left: auto;
+        }
         .cp-ops-menu__heading {
             margin: 0;
             padding: 0.25rem 0.75rem 0.125rem;

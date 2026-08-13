@@ -292,6 +292,14 @@
             window.dispatchEvent(new CustomEvent('article-wordpress-sync-lock', {
                 detail: { action: normalized },
             }));
+            if (normalized === 'save') {
+                window.dispatchEvent(new CustomEvent('article-editor-save-started', {
+                    detail: { articleId: Number(window.__SEO_ARTICLE_ID__ ?? 0) || 0 },
+                }));
+            }
+            window.dispatchEvent(new CustomEvent('article-editor-heavy-action-started', {
+                detail: { action: normalized, articleId: Number(window.__SEO_ARTICLE_ID__ ?? 0) || 0 },
+            }));
 
             return normalized;
         };
@@ -612,9 +620,14 @@
                 $event.detail.userBrief ?? '',
                 $event.detail.target ?? 'editor',
                 $event.detail.loaiSanPhamCategoryArticleId ?? 0,
-                $event.detail.loaiSanPhamCustom ?? ''
+                $event.detail.loaiSanPhamCustom ?? '',
+                $event.detail.selectionText ?? ''
             ).then((result) => {
                 window.dispatchEvent(new CustomEvent('article-generate-image-prompt-preview', { detail: result ?? {} }));
+            }).catch((error) => {
+                window.dispatchEvent(new CustomEvent('article-generate-image-prompt-preview', {
+                    detail: { error: error?.message ?? 'preview_failed', rendered: '' },
+                }));
             });
         "
         x-on:generate-article-video.window="$wire.generateArticleVideoFromEditor($event.detail.selectionText ?? '', $event.detail.selectionHtml ?? '', $event.detail.userBrief ?? '', $event.detail.activeBlockId ?? '')"
@@ -631,8 +644,6 @@
         "
         class="wp-article-edit seo-article-edit-content max-w-none"
     >
-        <div wire:ignore id="seo-article-ai-launcher-root"></div>
-
         @if ($this->hasWpDataOutOfSync())
             <div
                 class="mb-4 rounded-lg border border-danger-300 bg-danger-50 px-4 py-3 text-sm text-danger-800 dark:border-danger-600 dark:bg-danger-950/40 dark:text-danger-200"
@@ -893,6 +904,15 @@
                                         <div wire:ignore id="seo-article-links-root"></div>
                                     </div>
 
+                                    <div
+                                        class="seo-assistant-panel-slot"
+                                        data-assistant-panel-root="vocabulary"
+                                        x-show="isWidgetVisible('vocabulary')"
+                                        x-bind:class="{ 'is-active': panelFilterActive && runtimeActivePanel === 'vocabulary' }"
+                                    >
+                                        <div wire:ignore id="seo-article-vocabulary-root"></div>
+                                    </div>
+
                                             <div
                                                 class="seo-assistant-panel-slot"
                                                 data-assistant-panel-root="publishing"
@@ -963,6 +983,5 @@
         @vite('addons/content/resources/js/article-editor.jsx')
     @endpush
 
-    @include('seo-content-ai::filament.resources.article-resource.pages.partials.article-assign-content-project-modals', ['record' => $record])
 @endif
 </x-filament-panels::page>

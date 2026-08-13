@@ -15,7 +15,6 @@ export function AiChatSidebarPanel({
 }) {
     const ai = useEditorAi();
     const hostApi = useEditorHostApiOptional();
-    const aiDebug = hostApi?.ai?.debug ?? null;
     const canGenerateImage = hostApi?.ai?.canGenerateImage !== false;
     const canGenerateVideo = hostApi?.ai?.canGenerateVideo === true;
 
@@ -28,13 +27,9 @@ export function AiChatSidebarPanel({
             <Suspense fallback={<div className="seo-module-loading p-3 text-sm">{t('editor_module_loading')}</div>}>
                 <ArticleAiChatPanel
                     articleId={articleId}
-                    aiDebug={aiDebug}
                     canGenerateImage={canGenerateImage}
                     canGenerateVideo={canGenerateVideo}
                     onClose={() => ai.close()}
-                    onGenerateImage={(detail) => ai.generateImage(detail)}
-                    onGenerateVideo={(detail) => ai.generateVideo(detail)}
-                    collectContext={ai.collectContext}
                     canApply={ai.canApply}
                 />
             </Suspense>

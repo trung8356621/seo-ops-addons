@@ -39,6 +39,11 @@ export function cancelPendingServerAutosave() {
 export function beginExplicitEditorSave() {
     cancelPendingServerAutosave();
     suppressAutosaveUntil = Date.now() + 15_000;
+    if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('article-editor-save-started', {
+            detail: { articleId: Number(window.__SEO_ARTICLE_ID__ ?? 0) || 0 },
+        }));
+    }
 }
 
 export function endExplicitEditorSave() {

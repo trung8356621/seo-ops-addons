@@ -584,40 +584,45 @@ final class SeoImagePipeline
     private function flattenInterventionOntoWhite(ImageInterface $image): ImageInterface
     {
         try {
+            // Intervention Image ≥4.1: fillTransparentAreas. Bản cũ: blendTransparency.
+            if (method_exists($image, 'fillTransparentAreas')) {
+                $filled = $image->fillTransparentAreas('ffffff');
+                if ($filled instanceof ImageInterface) {
+                    return $filled;
+                }
+            }
+
             if (method_exists($image, 'blendTransparency')) {
                 $blended = $image->blendTransparency('ffffff');
                 if ($blended instanceof ImageInterface) {
                     return $blended;
                 }
             }
-        } catch (\Throwable) {
-            // fall through
-        }
-
-        try {
-            $canvas = $this->interventionManager()->create($image->width(), $image->height())->fill('ffffff');
-            $canvas->place($image);
-
-            return $canvas;
         } catch (\Throwable $exception) {
             logger()->warning('Intervention flatten onto white failed.', [
                 'message' => $exception->getMessage(),
             ]);
-
-            return $image;
         }
+
+        return $image;
     }
 
     private function readWithIntervention(string $absolutePath): ImageInterface
     {
         $manager = $this->interventionManager();
-        if (! method_exists($manager, 'read')) {
-            throw new \RuntimeException(
-                'Intervention ImageManager::read() missing — cần intervention/image ^3/^4 (composer install trên host).',
-            );
+
+        // Intervention Image 4.1+: decode()/decodePath(); 3.x/4.0: read().
+        if (method_exists($manager, 'decode')) {
+            return $manager->decode($absolutePath);
         }
 
-        return $manager->read($absolutePath);
+        if (method_exists($manager, 'read')) {
+            return $manager->read($absolutePath);
+        }
+
+        throw new \RuntimeException(
+            'Intervention ImageManager thiếu decode()/read() — cần intervention/image ^4 (composer install trên host).',
+        );
     }
 
     private function interventionManager(): ImageManager

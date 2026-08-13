@@ -5,26 +5,31 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Agent\Services\AgentWorkspace;
 
 /**
- * Shared UI visibility helpers for Agent Workspace surfaces.
+ * Shared UI visibility helpers for Chat / Agent Workspace surfaces.
  */
 final class AgentWorkspaceUiContext
 {
     /**
-     * Global floating chat must not mount on Agent Workspace pages.
+     * Floating chat is retired. Kept for compatibility checks / tests.
      */
     public static function hidesGlobalChat(): bool
     {
+        return true;
+    }
+
+    public static function isChatWorkspacePath(?string $path = null): bool
+    {
+        $path ??= trim(request()->path(), '/');
+
         if (request()->routeIs([
+            'filament.seo.pages.chat',
             'filament.seo.pages.agent',
             'filament.admin.pages.agent',
         ])) {
             return true;
         }
 
-        // Fallback when route name not resolved (Livewire subsequent requests / odd mounts).
-        $path = trim(request()->path(), '/');
-
-        return (bool) preg_match('#^seo/[^/]+/agent(?:/|$|\?)#', $path)
+        return (bool) preg_match('#^seo/[^/]+/(?:chat|agent)(?:/|$|\?)#', $path)
             || $path === 'admin/agent'
             || str_starts_with($path, 'admin/agent/');
     }

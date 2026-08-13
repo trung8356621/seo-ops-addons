@@ -7,6 +7,8 @@ namespace Omnichannel\Addons\Content\Http\Controllers;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Services\ArticleEditorLinksPayloadService;
 use Omnichannel\Addons\Content\Services\ArticleEditorSeoPayloadService;
+use Omnichannel\Addons\Content\Services\ArticleEditorVocabularyPayloadService;
+use Omnichannel\Addons\Media\Services\ArticleEditorMediaAiService;
 use Omnichannel\Addons\Media\Services\ArticleEditorSupplementalImagesService;
 use Omnichannel\Addons\Content\Services\ArticleFaqEditorService;
 use Omnichannel\Addons\Content\Services\ArticleFaqExtractDebugService;
@@ -177,6 +179,16 @@ final class ArticleEditorLazyPayloadController extends Controller
         ]);
     }
 
+    public function vocabulary(SeoArticle $article): JsonResponse
+    {
+        abort_unless(SeoAccessControl::canAccessArticle($article), 403);
+
+        return response()->json([
+            'success' => true,
+            'data' => app(ArticleEditorVocabularyPayloadService::class)->forArticle($article),
+        ]);
+    }
+
     public function linksSuggestions(SeoArticle $article, Request $request): JsonResponse
     {
         abort_unless(SeoAccessControl::canAccessArticle($article), 403);
@@ -235,6 +247,64 @@ final class ArticleEditorLazyPayloadController extends Controller
                 'article_length_product' => $promptSettings->resolveArticleLengthTarget('product'),
                 'article_length_default' => $promptSettings->resolveArticleLengthTarget('article'),
             ],
+        ]);
+    }
+
+    public function mediaPromptPreview(SeoArticle $article, Request $request): JsonResponse
+    {
+        abort_unless(SeoAccessControl::canAccessArticle($article), 403);
+
+        $validated = $request->validate([
+            'user_brief' => ['required', 'string', 'max:20000'],
+            'selection_text' => ['nullable', 'string', 'max:20000'],
+            'media_type' => ['nullable', 'string', 'in:image,video'],
+            'target' => ['nullable', 'string', 'max:64'],
+        ]);
+
+        $userBrief = trim((string) $validated['user_brief']);
+        $selectionText = trim((string) ($validated['selection_text'] ?? ''));
+        $mediaType = strtolower(trim((string) ($validated['media_type'] ?? 'image')));
+        $target = trim((string) ($validated['target'] ?? 'editor'));
+        if ($target === '') {
+            $target = 'editor';
+        }
+
+        $service = app(ArticleEditorMediaAiService::class);
+        $payload = $mediaType === 'video'
+            ? $service->previewRenderedVideoPrompt($article, $userBrief, $selectionText !== '' ? $selectionText : $userBrief)
+            : $service->previewRenderedImagePrompt(
+                $article,
+                $userBrief,
+                $target,
+                0,
+                '',
+                $selectionText !== '' ? $selectionText : $userBrief,
+            );
+
+        $rendered = trim((string) ($payload['rendered'] ?? ''));
+        $contextLength = mb_strlen($userBrief);
+        $renderedLength = mb_strlen($rendered);
+        $promptId = (int) ($payload['prompt_id'] ?? 0);
+
+        if ($rendered === '' || $promptId <= 0) {
+            return response()->json([
+                'success' => false,
+                'message' => (string) ($payload['error'] ?? 'Không thể tạo prompt hoàn chỉnh.'),
+                'data' => $payload,
+            ], 422);
+        }
+
+        if ($rendered === $userBrief || ($contextLength > 0 && $renderedLength <= $contextLength)) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Prompt đã merge không hợp lệ — thiếu template Settings.',
+                'data' => $payload,
+            ], 422);
+        }
+
+        return response()->json([
+            'success' => true,
+            'data' => $payload,
         ]);
     }
 

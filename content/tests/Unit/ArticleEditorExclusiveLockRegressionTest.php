@@ -71,6 +71,18 @@ final class ArticleEditorExclusiveLockRegressionTest extends TestCase
         self::assertStringContainsString("addEventListener('pagehide'", $shell);
         self::assertStringContainsString('sendBeacon', $shell);
         self::assertStringContainsString('__seoMarkIntentionalEditorClose?.()', $shell);
+
+        $editPage = $this->readAddon('src/Filament/Resources/ArticleResource/Pages/EditArticle.php');
+        self::assertStringContainsString('finishHeavyArticleActionWithReload', $editPage);
+        self::assertStringContainsString('window.__SEO_EDITOR_EXITING__=true;', $editPage);
+        self::assertStringContainsString('window.__seoMarkIntentionalEditorClose?.();', $editPage);
+        // Code reload after WP pull / heavy action must arm exit flags before location.reload.
+        $reloadFnStart = strpos($editPage, 'function finishHeavyArticleActionWithReload');
+        self::assertNotFalse($reloadFnStart);
+        $reloadFnBody = substr($editPage, $reloadFnStart, 1200);
+        self::assertStringContainsString('__SEO_EDITOR_EXITING__=true', $reloadFnBody);
+        self::assertStringContainsString('__seoMarkIntentionalEditorClose?.()', $reloadFnBody);
+        self::assertStringContainsString('location.reload()', $reloadFnBody);
     }
 
     public function test_lock_copy_is_exclusive_not_readonly(): void

@@ -30,6 +30,7 @@ use Omnichannel\Addons\Media\Http\Controllers\SeoMediaController;
 use Omnichannel\Addons\Seo\Http\Controllers\SeoPanelLogoutController;
 use Omnichannel\Addons\Seo\Http\Controllers\SeoPanelRedirectController;
 use Omnichannel\Addons\Media\Http\Controllers\SeoWatermarkController;
+use Omnichannel\Addons\Seo\Http\Controllers\SupportTicketController;
 use Omnichannel\Addons\Seo\Http\Controllers\TeamMessageController;
 use Omnichannel\Addons\Media\Http\Controllers\WorkspaceMediaPickerController;
 use Omnichannel\Addons\Seo\Http\Middleware\CheckMainRole;
@@ -84,6 +85,15 @@ class SeoPanelProvider extends PanelProvider
         $addonRoot = dirname(__DIR__);
 
         Livewire::component('global-seo-bar', \Omnichannel\Addons\Seo\Livewire\GlobalSeoBar::class);
+        Livewire::component(
+            'assign-to-content-project-drawer',
+            \Omnichannel\Addons\Content\Livewire\AssignToContentProjectDrawer::class,
+        );
+        // Compatibility alias — same canonical drawer component.
+        Livewire::component(
+            'assign-to-content-project-modal',
+            \Omnichannel\Addons\Content\Livewire\AssignToContentProjectDrawer::class,
+        );
 
         $this->loadViewsFrom($addonRoot.'/resources/views', 'seo-content-ai');
         $this->loadTranslationsFrom($addonRoot.'/lang', 'seo-content-ai');
@@ -178,6 +188,19 @@ class SeoPanelProvider extends PanelProvider
                 }
 
                 return new HtmlString(
+                    \Illuminate\Support\Facades\Blade::render('@livewire(\'assign-to-content-project-drawer\')')
+                );
+            },
+        );
+
+        FilamentView::registerRenderHook(
+            PanelsRenderHook::BODY_END,
+            function (): HtmlString {
+                if (! auth()->check() || ! request()->is('seo', 'seo/*')) {
+                    return new HtmlString('');
+                }
+
+                return new HtmlString(
                     view('seo-content-ai::filament.hooks.global-help-modal')->render()
                 );
             },
@@ -203,28 +226,11 @@ class SeoPanelProvider extends PanelProvider
                     return new HtmlString('');
                 }
 
-                if (
-                    request()->routeIs('filament.seo.resources.articles.edit')
-                    || preg_match('#^seo/articles/\d+/edit/?$#', request()->path()) === 1
-                    || request()->routeIs([
-                        'filament.seo.resources.keywords.index',
-                        'filament.seo.resources.keywords.focus',
-                        'filament.seo.resources.keywords.anchor-audit',
-                    ])
-                ) {
-                    return new HtmlString('');
-                }
-
-                // Agent Workspace is the full-page chat — do not mount floating launcher/runtime.
-                if (\Omnichannel\Addons\Agent\Services\AgentWorkspace\AgentWorkspaceUiContext::hidesGlobalChat()) {
-                    return new HtmlString(
-                        view('seo-content-ai::components.workspace-media-picker')->render()
-                    );
-                }
-
+                // Floating Chat Workspace retired — Chat lives at /seo/{hash}/chat only.
+                // Global pages may mount lightweight unread badge (sidebar), never message poll.
                 return new HtmlString(
                     view('seo-content-ai::components.workspace-media-picker')->render()
-                    .view('seo-content-ai::components.global-ai-chat')->render(),
+                    .view('seo-content-ai::components.chat-unread-badge')->render(),
                 );
             },
         );
@@ -466,6 +472,9 @@ class SeoPanelProvider extends PanelProvider
                 Route::get('/{article}/editor/links', [ArticleEditorLazyPayloadController::class, 'links'])
                     ->whereNumber('article')
                     ->name('seo.articles.editor.links');
+                Route::get('/{article}/editor/vocabulary', [ArticleEditorLazyPayloadController::class, 'vocabulary'])
+                    ->whereNumber('article')
+                    ->name('seo.articles.editor.vocabulary');
                 Route::get('/{article}/editor/links/suggestions', [ArticleEditorLazyPayloadController::class, 'linksSuggestions'])
                     ->whereNumber('article')
                     ->name('seo.articles.editor.links-suggestions');
@@ -475,6 +484,9 @@ class SeoPanelProvider extends PanelProvider
                 Route::get('/{article}/editor/settings', [ArticleEditorLazyPayloadController::class, 'settings'])
                     ->whereNumber('article')
                     ->name('seo.articles.editor.settings');
+                Route::post('/{article}/editor/media-prompt-preview', [ArticleEditorLazyPayloadController::class, 'mediaPromptPreview'])
+                    ->whereNumber('article')
+                    ->name('seo.articles.editor.media-prompt-preview');
                 Route::get('/{article}/editor/media-picker-config', [ArticleEditorLazyPayloadController::class, 'mediaPickerConfig'])
                     ->whereNumber('article')
                     ->name('seo.articles.editor.media-picker-config');
@@ -577,14 +589,29 @@ class SeoPanelProvider extends PanelProvider
             ->group(function (): void {
                 Route::get('/messages', [TeamMessageController::class, 'index'])
                     ->name('seo.team-messages.index');
+                Route::get('/unread-count', [TeamMessageController::class, 'unreadCount'])
+                    ->name('seo.team-messages.unread-count');
+                Route::post('/mark-read', [TeamMessageController::class, 'markRead'])
+                    ->name('seo.team-messages.mark-read');
                 Route::get('/config', [TeamMessageController::class, 'config'])
                     ->name('seo.team-messages.config');
                 Route::post('/messages', [TeamMessageController::class, 'store'])
                     ->name('seo.team-messages.store');
             });
 
-        // Global AI Chat HTTP API retired — Agent Workspace is sole chat/execution surface.
-        // Popup Team + star launcher remain; dead send()/loadModels() must not call removed routes.
+        Route::middleware($seoTeamApiMiddleware)
+            ->prefix('api/seo/support-tickets')
+            ->group(function (): void {
+                Route::get('/', [SupportTicketController::class, 'index'])
+                    ->name('seo.support-tickets.index');
+                Route::post('/', [SupportTicketController::class, 'store'])
+                    ->name('seo.support-tickets.store');
+                Route::post('/{id}/retry', [SupportTicketController::class, 'retry'])
+                    ->whereNumber('id')
+                    ->name('seo.support-tickets.retry');
+            });
+
+        // Floating Global AI Chat retired. Canonical communication UI: /seo/{hash}/chat.
 
         Route::middleware($seoWebApiMiddleware)
             ->prefix('seo/oauth/google-search-console')
@@ -655,6 +682,9 @@ class SeoPanelProvider extends PanelProvider
             ->path('seo/{connection_hash}')
             ->login(\Omnichannel\Addons\Seo\Filament\Pages\Auth\SeoLogin::class)
             ->profile(SeoEditProfile::class, isSimple: false)
+            ->brandLogo(asset('images/logo.png'))
+            ->brandLogoHeight('2.5rem')
+            ->favicon(asset('favicon.ico'))
             ->userMenuItems([
                 'profile' => MenuItem::make()
                     ->label(fn (): string => filament()->getUserName(Filament::auth()->user()))

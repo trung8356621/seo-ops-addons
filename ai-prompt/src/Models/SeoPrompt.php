@@ -16,7 +16,7 @@ class SeoPrompt extends Prompt
     {
         static::saving(function (self $prompt): void {
             $settings = is_array($prompt->settings) ? $prompt->settings : [];
-            $settings['detected_tags'] = app(\Omnichannel\Addons\ContentProjects\Services\WorkflowTagExtractorService::class)
+            $settings['detected_tags'] = app(\Omnichannel\Addons\AiPrompt\Services\WorkflowTagExtractorService::class)
                 ->detectTagsFromPromptTemplate((string) ($prompt->markdown_content ?? ''));
             $prompt->settings = $settings;
         });

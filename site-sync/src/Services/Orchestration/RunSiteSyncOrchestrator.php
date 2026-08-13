@@ -168,12 +168,43 @@ final class RunSiteSyncOrchestrator
             return ['success' => false, 'message' => 'Run not found.'];
         }
 
-        if ($run->status === 'canceled') {
+        if (in_array((string) $run->status, ['canceled', 'cancelled'], true)) {
             return ['success' => false, 'message' => 'Run canceled — cannot resume.'];
         }
 
-        if (! $run->resumable && $run->status === 'failed') {
-            $run->forceFill(['resumable' => true, 'status' => 'pending'])->save();
+        // Failed resume must clear step/run error so the domain UI leaves the failed
+        // banner and wire:poll can start (presenter only treats pending|running as running).
+        if ((string) $run->status === 'failed') {
+            $stepKey = trim((string) ($run->current_step ?? ''));
+            $failedStep = null;
+            if ($stepKey !== '') {
+                $failedStep = SeoSiteSyncRunStep::query()
+                    ->where('run_id', $runId)
+                    ->where('step_key', $stepKey)
+                    ->where('status', 'failed')
+                    ->first();
+            }
+            $failedStep ??= SeoSiteSyncRunStep::query()
+                ->where('run_id', $runId)
+                ->where('status', 'failed')
+                ->orderBy('step_order')
+                ->first();
+
+            if ($failedStep !== null) {
+                $failedStep->forceFill([
+                    'status' => 'pending',
+                    'error_message' => null,
+                    'finished_at' => null,
+                ])->save();
+                $stepKey = (string) $failedStep->step_key;
+            }
+
+            $run->forceFill([
+                'status' => 'pending',
+                'current_step' => $stepKey !== '' ? $stepKey : $run->current_step,
+                'resumable' => true,
+                'error_message' => null,
+            ])->save();
         }
 
         ProcessSiteSyncStepJob::dispatch((int) $run->id);
@@ -227,7 +258,7 @@ final class RunSiteSyncOrchestrator
         if ($run === null) {
             return ['success' => false, 'message' => 'Run not found.'];
         }
-        if (in_array($run->status, ['completed', 'canceled'], true)) {
+        if (in_array((string) $run->status, ['completed', 'completed_with_warnings', 'canceled', 'cancelled'], true)) {
             return [
                 'success' => true,
                 'message' => 'Run already finished.',
@@ -236,10 +267,16 @@ final class RunSiteSyncOrchestrator
             ];
         }
 
+        // Pending + in-flight running steps must stop; otherwise a reserved job can
+        // overwrite canceled → running and the UI looks "stuck forever".
         SeoSiteSyncRunStep::query()
             ->where('run_id', $runId)
-            ->where('status', 'pending')
-            ->update(['status' => 'skipped']);
+            ->whereIn('status', ['pending', 'running', 'failed'])
+            ->update([
+                'status' => 'skipped',
+                'error_message' => 'Canceled by operator',
+                'finished_at' => now(),
+            ]);
 
         $run->forceFill([
             'status' => 'canceled',
@@ -248,11 +285,44 @@ final class RunSiteSyncOrchestrator
             'error_message' => 'Canceled by operator',
         ])->save();
 
+        $this->discardQueuedStepJobs($runId);
+
         return [
             'success' => true,
             'message' => 'Run canceled. Already reconciled data kept.',
             'run_id' => $runId,
             'public_ref' => (string) $run->public_ref,
         ];
+    }
+
+    private function discardQueuedStepJobs(int $runId): void
+    {
+        try {
+            $jobs = \Illuminate\Support\Facades\DB::table('jobs')
+                ->where('queue', \Omnichannel\Addons\WordPress\Services\ArticleWpSyncQueueService::QUEUE_NAME)
+                ->orderBy('id')
+                ->get(['id', 'payload']);
+        } catch (\Throwable) {
+            return;
+        }
+
+        foreach ($jobs as $job) {
+            $payload = (string) ($job->payload ?? '');
+            if (! str_contains($payload, 'ProcessSiteSyncStepJob')) {
+                continue;
+            }
+
+            $decoded = json_decode($payload, true);
+            $command = is_array($decoded) ? (string) ($decoded['data']['command'] ?? '') : '';
+            $matchesRun = preg_match('/runId";i:'.$runId.';/', $command) === 1
+                || str_contains($payload, '"runId":'.$runId)
+                || str_contains($payload, '"runId": '.$runId);
+
+            if (! $matchesRun) {
+                continue;
+            }
+
+            \Illuminate\Support\Facades\DB::table('jobs')->where('id', (int) $job->id)->delete();
+        }
     }
 }

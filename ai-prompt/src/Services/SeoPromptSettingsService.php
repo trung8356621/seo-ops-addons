@@ -108,13 +108,37 @@ final class SeoPromptSettingsService
         }
 
         $tones = $this->normalizeTones($data[self::KEY_TONE_OF_VOICE] ?? null);
+        if ($tones !== [] && $this->hasByteCorruptedUtf8Labels($tones)) {
+            $tones = [];
+        }
+
+        $toneText = $this->normalizeText(
+            $data[self::KEY_TONE_TEXT] ?? null,
+            self::DEFAULT_TONE_TEXT,
+        );
+        if ($this->isByteCorruptedUtf8Label($toneText)) {
+            $toneText = self::DEFAULT_TONE_TEXT;
+        }
+
+        $keywordDensityProduct = $this->normalizeText(
+            $data[self::KEY_KEYWORD_DENSITY_PRODUCT] ?? null,
+            self::DEFAULT_KEYWORD_DENSITY_PRODUCT,
+        );
+        if ($this->isByteCorruptedUtf8Label($keywordDensityProduct)) {
+            $keywordDensityProduct = self::DEFAULT_KEYWORD_DENSITY_PRODUCT;
+        }
+
+        $keywordDensityDefault = $this->normalizeText(
+            $data[self::KEY_KEYWORD_DENSITY_DEFAULT] ?? null,
+            self::DEFAULT_KEYWORD_DENSITY_DEFAULT,
+        );
+        if ($this->isByteCorruptedUtf8Label($keywordDensityDefault)) {
+            $keywordDensityDefault = self::DEFAULT_KEYWORD_DENSITY_DEFAULT;
+        }
 
         return [
             self::KEY_TONE_OF_VOICE => $tones !== [] ? $tones : self::DEFAULT_TONES,
-            self::KEY_TONE_TEXT => $this->normalizeText(
-                $data[self::KEY_TONE_TEXT] ?? null,
-                self::DEFAULT_TONE_TEXT,
-            ),
+            self::KEY_TONE_TEXT => $toneText,
             self::KEY_ARTICLE_LENGTH_PRODUCT => $this->normalizeText(
                 $data[self::KEY_ARTICLE_LENGTH_PRODUCT] ?? null,
                 self::DEFAULT_ARTICLE_LENGTH_PRODUCT,
@@ -123,14 +147,8 @@ final class SeoPromptSettingsService
                 $data[self::KEY_ARTICLE_LENGTH_DEFAULT] ?? null,
                 self::DEFAULT_ARTICLE_LENGTH_DEFAULT,
             ),
-            self::KEY_KEYWORD_DENSITY_PRODUCT => $this->normalizeText(
-                $data[self::KEY_KEYWORD_DENSITY_PRODUCT] ?? null,
-                self::DEFAULT_KEYWORD_DENSITY_PRODUCT,
-            ),
-            self::KEY_KEYWORD_DENSITY_DEFAULT => $this->normalizeText(
-                $data[self::KEY_KEYWORD_DENSITY_DEFAULT] ?? null,
-                self::DEFAULT_KEYWORD_DENSITY_DEFAULT,
-            ),
+            self::KEY_KEYWORD_DENSITY_PRODUCT => $keywordDensityProduct,
+            self::KEY_KEYWORD_DENSITY_DEFAULT => $keywordDensityDefault,
             ...$this->normalizeFeaturedSnippetRowTiers($data),
             self::KEY_FEATURED_SNIPPET_MIN_COLUMNS => $this->intInRange(
                 $data[self::KEY_FEATURED_SNIPPET_MIN_COLUMNS] ?? null,
@@ -479,5 +497,26 @@ final class SeoPromptSettingsService
         $int = (int) $value;
 
         return $int > 0 ? $int : null;
+    }
+
+    /**
+     * Phát hiện chuỗi bị thay byte UTF-8 bằng '?' (vd. "Chuyên nghiệp" → "Chuy??n nghi???p").
+     *
+     * @param  list<string>  $labels
+     */
+    private function hasByteCorruptedUtf8Labels(array $labels): bool
+    {
+        foreach ($labels as $label) {
+            if ($this->isByteCorruptedUtf8Label($label)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isByteCorruptedUtf8Label(string $label): bool
+    {
+        return preg_match('/\?\?\?/', $label) === 1;
     }
 }

@@ -35,6 +35,25 @@ final class AgentContentProjectSkillsTest extends TestCase
         self::assertSame('preview', $skill->confirmationPolicy);
     }
 
+    public function test_create_project_requires_assignee_member_id(): void
+    {
+        $skill = $this->registry->get('content_project.create');
+
+        self::assertNotNull($skill);
+        $assignee = null;
+        foreach ($skill->formSchema as $field) {
+            if (($field['key'] ?? '') === 'assignee_ref') {
+                $assignee = $field;
+                break;
+            }
+        }
+        self::assertIsArray($assignee);
+        self::assertTrue((bool) ($assignee['required'] ?? false));
+        self::assertSame('member', $assignee['type'] ?? null);
+        self::assertArrayHasKey('assignee_ref', $skill->inputSchema);
+        self::assertTrue((bool) ($skill->inputSchema['assignee_ref']['required'] ?? false));
+    }
+
     public function test_archive_project_confirmation_policy_is_confirm(): void
     {
         $skill = $this->registry->get('content_project.archive');

@@ -17,6 +17,8 @@
         method="post"
         x-on:submit.prevent="submitAgentComposer()"
         class="seo-global-chat__composer-row seo-agent-chat__composer-row"
+        wire:loading.class="pointer-events-none opacity-60"
+        wire:target="selectTemplate"
     >
         <textarea
             id="seo-agent-composer-input"
@@ -38,6 +40,8 @@
             type="submit"
             class="seo-global-chat__send"
             x-bind:disabled="composerSubmitting || !!$wire.composerSubmitting || {{ $lockedLiteral }}"
+            wire:loading.attr="disabled"
+            wire:target="selectTemplate"
             @disabled($disabled)
             aria-label="Gửi"
         >

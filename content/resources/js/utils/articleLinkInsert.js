@@ -1,5 +1,9 @@
 import { normalizeLinkText } from './articleLinkScroll';
-import { findPlainTextRangeInRoot, wrapTextRangeWithLink } from './articlePlainTextRange';
+import {
+    enclosingAnchorForPlainTextRange,
+    findPlainTextRangeInRoot,
+    wrapTextRangeWithLink,
+} from './articlePlainTextRange';
 import { SEO_EDITOR_LINK_CLASS, stripEditorTransientMarkup } from './articleEditorTransientMarkup';
 import { normalizeInlineLinks, SEO_LINK_DEFAULT_ATTRS } from './inlineLinkNormalizer';
 
@@ -99,15 +103,6 @@ export function replaceFirstPlainTextWithLink(html, searchText, label, href) {
 }
 
 /**
- * Bọc lần xuất hiện đầu tiên của cụm từ (chưa nằm trong thẻ a) thành link nội bộ.
- * Hỗ trợ cụm từ nằm trong thẻ b/strong hoặc cắt qua nhiều text node.
- *
- * @param {string} html
- * @param {string} phrase
- * @param {string} href
- * @returns {{ html: string, replaced: boolean }}
- */
-/**
  * Tìm cụm từ trong các block editor và bọc link tại vị trí khớp đầu tiên.
  *
  * @param {Array<{ id: string, type?: string, content?: string }>} blocks
@@ -136,6 +131,84 @@ export function countEligiblePlainTextOccurrences(html, phrase) {
     }
 
     return count;
+}
+
+/**
+ * Count occurrences including text already inside <a> (Vocabulary / scroll index alignment).
+ *
+ * @param {string} html
+ * @param {string} phrase
+ */
+export function countAllPhraseOccurrences(html, phrase) {
+    const target = normalizeLinkText(phrase);
+    if (!target || !html) {
+        return 0;
+    }
+
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    let count = 0;
+
+    for (let index = 0; ; index += 1) {
+        if (!findPlainTextRangeInRoot(doc.body, target, index, { includeLinkedText: true })) {
+            break;
+        }
+        count += 1;
+    }
+
+    return count;
+}
+
+/**
+ * Wrap plain text OR update href when the occurrence is already linked.
+ *
+ * @param {string} html
+ * @param {string} phrase
+ * @param {string} href
+ * @param {number} [occurrenceIndex]
+ * @returns {{ html: string, replaced: boolean }}
+ */
+export function applyLinkToPhraseOccurrence(html, phrase, href, occurrenceIndex = 0) {
+    const target = normalizeLinkText(phrase);
+    const url = String(href ?? '').trim();
+    const matchIndex = Math.max(0, Number(occurrenceIndex) || 0);
+
+    if (!target || !url || !html) {
+        return { html, replaced: false };
+    }
+
+    const doc = new DOMParser().parseFromString(html, 'text/html');
+    const body = doc.body;
+    const match = findPlainTextRangeInRoot(body, target, matchIndex, { includeLinkedText: true });
+
+    if (!match) {
+        return { html, replaced: false };
+    }
+
+    const existing = enclosingAnchorForPlainTextRange(match);
+    if (existing) {
+        existing.setAttribute('href', url);
+        if (!existing.classList.contains(SEO_EDITOR_LINK_CLASS)) {
+            existing.classList.add(SEO_EDITOR_LINK_CLASS);
+        }
+        if (SEO_LINK_DEFAULT_ATTRS.target && !existing.getAttribute('target')) {
+            existing.setAttribute('target', SEO_LINK_DEFAULT_ATTRS.target);
+        }
+        if (SEO_LINK_DEFAULT_ATTRS.rel && !existing.getAttribute('rel')) {
+            existing.setAttribute('rel', SEO_LINK_DEFAULT_ATTRS.rel);
+        }
+
+        return {
+            html: normalizeInlineLinks(stripEditorTransientMarkup(body.innerHTML)),
+            replaced: true,
+        };
+    }
+
+    const ok = wrapTextRangeWithLink(doc, match, url);
+
+    return {
+        html: normalizeInlineLinks(stripEditorTransientMarkup(body.innerHTML)),
+        replaced: ok,
+    };
 }
 
 /**
@@ -211,4 +284,17 @@ export function wrapPlainTextWithLinkInBlocks(blocks, phrase, href, occurrenceIn
     }
 
     return null;
+}
+
+/**
+ * Block-scoped apply (Vocabulary): local matchIndex within one block, linked text allowed.
+ *
+ * @param {string} blockHtml
+ * @param {string} phrase
+ * @param {string} href
+ * @param {number} [occurrenceIndex]
+ * @returns {{ html: string, replaced: boolean }}
+ */
+export function applyLinkToPhraseOccurrenceInBlockHtml(blockHtml, phrase, href, occurrenceIndex = 0) {
+    return applyLinkToPhraseOccurrence(blockHtml, phrase, href, occurrenceIndex);
 }

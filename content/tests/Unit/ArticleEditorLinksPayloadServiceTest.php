@@ -19,8 +19,18 @@ final class ArticleEditorLinksPayloadServiceTest extends TestCase
 {
     public function test_base_extracts_links_and_domain_lists_without_suggestion_service(): void
     {
+        $ref = new ReflectionClass(ArticleEditorLinksPayloadService::class);
+        $source = (string) file_get_contents((string) $ref->getFileName());
         $body = $this->methodBody(ArticleEditorLinksPayloadService::class, 'base');
 
+        self::assertStringContainsString(
+            'use Omnichannel\\Addons\\Seo\\Services\\DomainLinkListEditorService;',
+            $source,
+        );
+        self::assertStringContainsString(
+            'use Omnichannel\\Addons\\Seo\\Services\\DomainCtaEditorService;',
+            $source,
+        );
         self::assertStringContainsString('resolveExtractedLinks', $body);
         self::assertStringContainsString('DomainLinkListEditorService', $body);
         self::assertStringContainsString('DomainCtaEditorService', $body);
@@ -42,12 +52,17 @@ final class ArticleEditorLinksPayloadServiceTest extends TestCase
         self::assertStringNotContainsString('->suggestExternalCatalog(', $body);
     }
 
-    public function test_service_never_calls_for_article(): void
+    public function test_service_never_calls_seo_payload_bundle(): void
     {
         $ref = new ReflectionClass(ArticleEditorLinksPayloadService::class);
         $source = (string) file_get_contents((string) $ref->getFileName());
 
-        self::assertStringNotContainsString('forArticle(', $source);
+        // Docblock may mention ArticleEditorSeoPayloadService; code must not call it.
+        self::assertStringNotContainsString('app(ArticleEditorSeoPayloadService', $source);
+        self::assertDoesNotMatchRegularExpression(
+            '/^use\s+.+\\\\ArticleEditorSeoPayloadService\s*;/m',
+            $source,
+        );
         self::assertStringNotContainsString('forEditorBootstrap(', $source);
     }
 

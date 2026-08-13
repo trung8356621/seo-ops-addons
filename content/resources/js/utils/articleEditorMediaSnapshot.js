@@ -99,6 +99,20 @@ export function discardLegacyMediaLocalStorage(articleId) {
     }
 }
 
+/**
+ * Drop in-memory snapshot + legacy localStorage only. Never mutates server.
+ * Used before reload after WordPress pull / destructive overwrite.
+ */
+export function clearMediaSnapshot(articleId) {
+    const id = Number(articleId ?? 0);
+    if (!Number.isFinite(id) || id <= 0) {
+        return;
+    }
+
+    delete snapshotsByArticle[id];
+    discardLegacyMediaLocalStorage(id);
+}
+
 export function getMediaSnapshot(articleId) {
     const id = Number(articleId ?? 0);
     if (!Number.isFinite(id) || id <= 0) {
@@ -500,6 +514,7 @@ export async function reorderGalleryViaApi(articleId, orderedIds, endpoint) {
 export default {
     ARTICLE_EDITOR_MEDIA_SNAPSHOT_EVENT,
     discardLegacyMediaLocalStorage,
+    clearMediaSnapshot,
     getMediaSnapshot,
     applyMediaSnapshot,
     featuredFromSnapshot,

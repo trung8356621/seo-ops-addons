@@ -24,16 +24,19 @@ final class ArticleLengthWordsValidationTest extends TestCase
         self::assertSame(5, PromptTextMetrics::wordCount('một hai ba bốn năm'));
     }
 
-    public function test_minimum_acceptable_words_uses_floor_not_target(): void
+    public function test_minimum_acceptable_words_uses_ratio_of_target(): void
     {
         $validator = new ArticleGenerationLengthValidator;
-        self::assertSame(1400, $validator->configuredMinimum());
-        self::assertSame(1400, $validator->minimumForTarget(2000));
-        self::assertSame(1400, $validator->minimumForTarget(3000));
-        self::assertSame(1000, $validator->minimumForTarget(1000));
-        self::assertSame(300, $validator->minimumForTarget(300));
-        self::assertSame(1400, PromptTextMetrics::minWordsFromArticleLength(2000));
-        self::assertSame(1000, PromptTextMetrics::minWordsFromArticleLength(1000));
+        self::assertSame(0.5, $validator->configuredRatio());
+        // target 2000 × 0.5 ⇒ soft floor 1000 ⇒ first accepted = 1001 (>1000)
+        self::assertSame(1001, $validator->minimumForTarget(2000));
+        self::assertSame(1001, $validator->configuredMinimum());
+        self::assertSame(1501, $validator->minimumForTarget(3000));
+        self::assertSame(501, $validator->minimumForTarget(1000));
+        self::assertSame(151, $validator->minimumForTarget(300));
+        self::assertSame(300, $validator->minimumForTarget(0));
+        self::assertSame(1001, PromptTextMetrics::minWordsFromArticleLength(2000));
+        self::assertSame(501, PromptTextMetrics::minWordsFromArticleLength(1000));
         self::assertSame(300, PromptTextMetrics::minWordsFromArticleLength(0));
     }
 
@@ -76,30 +79,44 @@ final class ArticleLengthWordsValidationTest extends TestCase
         $pipeline->process($def, ['text' => $text], null, ['article_length' => 1000]);
     }
 
-    public function test_output_pipeline_words_passes_at_exact_article_length_when_below_floor(): void
+    public function test_output_pipeline_words_passes_above_ratio_floor_for_target_1000(): void
     {
         $pipeline = new PromptHookRuntimeOutputPipeline;
         $def = $this->markdownWordsDefinition(300);
 
-        $text = trim(str_repeat('word ', 1000));
-        self::assertSame(1000, PromptTextMetrics::wordCount($text));
+        // target 1000 ⇒ minimum 501
+        $text = trim(str_repeat('word ', 501));
+        self::assertSame(501, PromptTextMetrics::wordCount($text));
 
         $out = $pipeline->process($def, ['text' => $text], null, ['article_length' => 1000]);
         self::assertSame($text, $out['value']);
         self::assertSame('accepted', $out['length_validation']['length_validation_result'] ?? null);
-        self::assertSame(1000, $out['length_validation']['minimum_acceptable_words'] ?? null);
+        self::assertSame(501, $out['length_validation']['minimum_acceptable_words'] ?? null);
         self::assertSame(1000, $out['length_validation']['target_article_length'] ?? null);
     }
 
-    public function test_output_pipeline_words_fails_below_clamped_minimum(): void
+    public function test_output_pipeline_words_fails_at_exact_ratio_floor_for_target_1000(): void
     {
         $pipeline = new PromptHookRuntimeOutputPipeline;
         $def = $this->markdownWordsDefinition(300);
 
-        $text = trim(str_repeat('word ', 999));
+        $text = trim(str_repeat('word ', 500));
         $this->expectException(OutputTruncated::class);
-        $this->expectExceptionMessage('actual: 999 words, minimum: 1000 words, target: 1000 words');
+        $this->expectExceptionMessage('actual: 500 words, minimum: 501 words, target: 1000 words');
         $pipeline->process($def, ['text' => $text], null, ['article_length' => 1000]);
+    }
+
+    public function test_gemini_bulkget_1375_words_target_2000_passes(): void
+    {
+        $pipeline = new PromptHookRuntimeOutputPipeline;
+        $def = $this->markdownWordsDefinition(300);
+
+        $text = trim(str_repeat('word ', 1375));
+        $out = $pipeline->process($def, ['text' => $text], null, ['article_length' => 2000]);
+        self::assertSame('accepted', $out['length_validation']['length_validation_result']);
+        self::assertSame(1375, $out['length_validation']['actual_word_count']);
+        self::assertSame(1001, $out['length_validation']['minimum_acceptable_words']);
+        self::assertSame(2000, $out['length_validation']['target_article_length']);
     }
 
     public function test_gemini_bulkget_1534_words_target_2000_passes(): void
@@ -111,40 +128,51 @@ final class ArticleLengthWordsValidationTest extends TestCase
         $out = $pipeline->process($def, ['text' => $text], null, ['article_length' => 2000]);
         self::assertSame('accepted', $out['length_validation']['length_validation_result']);
         self::assertSame(1534, $out['length_validation']['actual_word_count']);
-        self::assertSame(1400, $out['length_validation']['minimum_acceptable_words']);
+        self::assertSame(1001, $out['length_validation']['minimum_acceptable_words']);
         self::assertSame(2000, $out['length_validation']['target_article_length']);
     }
 
-    public function test_output_pipeline_words_passes_at_minimum_1400(): void
+    public function test_output_pipeline_words_passes_at_minimum_1001_for_target_2000(): void
     {
         $pipeline = new PromptHookRuntimeOutputPipeline;
         $def = $this->markdownWordsDefinition(300);
 
-        $text = trim(str_repeat('word ', 1400));
+        $text = trim(str_repeat('word ', 1001));
         $out = $pipeline->process($def, ['text' => $text], null, ['article_length' => 2000]);
         self::assertSame('accepted', $out['length_validation']['length_validation_result']);
     }
 
-    public function test_output_pipeline_words_fails_at_1399(): void
+    public function test_output_pipeline_words_fails_at_1000_for_target_2000(): void
     {
         $pipeline = new PromptHookRuntimeOutputPipeline;
         $def = $this->markdownWordsDefinition(300);
 
-        $text = trim(str_repeat('word ', 1399));
+        $text = trim(str_repeat('word ', 1000));
         $this->expectException(OutputTruncated::class);
-        $this->expectExceptionMessage('actual: 1399 words, minimum: 1400 words, target: 2000 words');
+        $this->expectExceptionMessage('actual: 1000 words, minimum: 1001 words, target: 2000 words');
         $pipeline->process($def, ['text' => $text], null, ['article_length' => 2000]);
     }
 
-    public function test_output_pipeline_words_target_3000_actual_1500_passes(): void
+    public function test_output_pipeline_words_target_3000_actual_1501_passes(): void
+    {
+        $pipeline = new PromptHookRuntimeOutputPipeline;
+        $def = $this->markdownWordsDefinition(300);
+
+        $text = trim(str_repeat('word ', 1501));
+        $out = $pipeline->process($def, ['text' => $text], null, ['article_length' => 3000]);
+        self::assertSame('accepted', $out['length_validation']['length_validation_result']);
+        self::assertSame(1501, $out['length_validation']['minimum_acceptable_words']);
+    }
+
+    public function test_output_pipeline_words_target_3000_actual_1500_fails_at_ratio_floor(): void
     {
         $pipeline = new PromptHookRuntimeOutputPipeline;
         $def = $this->markdownWordsDefinition(300);
 
         $text = trim(str_repeat('word ', 1500));
-        $out = $pipeline->process($def, ['text' => $text], null, ['article_length' => 3000]);
-        self::assertSame('accepted', $out['length_validation']['length_validation_result']);
-        self::assertSame(1400, $out['length_validation']['minimum_acceptable_words']);
+        $this->expectException(OutputTruncated::class);
+        $this->expectExceptionMessage('actual: 1500 words, minimum: 1501 words, target: 3000 words');
+        $pipeline->process($def, ['text' => $text], null, ['article_length' => 3000]);
     }
 
     public function test_finish_reason_length_fails_even_when_word_count_ok(): void
@@ -253,48 +281,35 @@ final class ArticleLengthWordsValidationTest extends TestCase
     public function test_shared_validator_wired_across_generation_paths(): void
     {
         $validator = ArticleGenerationLengthValidator::class;
-        $files = [
-            'PromptHooks/Output/PromptHookRuntimeOutputPipeline.php',
-            'PromptHooks/PromptHookOutputNormalizer.php',
-            'PromptHooks/Runtime/PromptHookExplicitBindingExecutor.php',
-            'Services/ArticleWritingExecutionService.php',
-            'Services/TaskWorkflowTestRunner.php',
-            'Services/ArticleWritingLegacyRewriteAdapter.php',
-            'Services/ArticleImproveExecutionService.php',
+        $checks = [
+            ProjectRoot::addonsPath().'/ai-prompt/src/PromptHooks/Output/PromptHookRuntimeOutputPipeline.php' => true,
+            ProjectRoot::addonsPath().'/ai-prompt/src/PromptHooks/PromptHookOutputNormalizer.php' => true,
+            ProjectRoot::addonsPath().'/ai-prompt/src/PromptHooks/Runtime/PromptHookExplicitBindingExecutor.php' => 'length_validation',
+            ProjectRoot::addonsPath().'/content/src/Services/ArticleWritingExecutionService.php' => 'length_validation',
+            ProjectRoot::addonsPath().'/ai-prompt/src/Services/TaskWorkflowTestRunner.php' => 'minimum_acceptable_words',
+            ProjectRoot::addonsPath().'/content/src/Services/ArticleWritingLegacyRewriteAdapter.php' => 'article.content.generate',
+            ProjectRoot::addonsPath().'/content/src/Services/ArticleImproveExecutionService.php' => false,
         ];
-        $root = ProjectRoot::addonsPath().'/ai-prompt';
-        foreach ($files as $relative) {
-            $src = (string) file_get_contents($root.'/'.$relative);
-            if ($relative === 'Services/ArticleImproveExecutionService.php') {
+
+        foreach ($checks as $path => $expect) {
+            self::assertFileExists($path, $path);
+            $src = (string) file_get_contents($path);
+            if ($expect === false) {
                 self::assertStringNotContainsString($validator, $src);
                 self::assertStringContainsString('Không truyền article_length', $src);
                 continue;
             }
-            if ($relative === 'Services/ArticleWritingLegacyRewriteAdapter.php') {
-                self::assertStringContainsString('article.content.generate', $src);
-                self::assertStringNotContainsString('article_length', $src);
+            if ($expect === true) {
+                self::assertStringContainsString($validator, $src, $path);
                 continue;
             }
-            if ($relative === 'Services/TaskWorkflowTestRunner.php') {
-                self::assertStringContainsString('minimum_acceptable_words', $src);
-                self::assertStringContainsString('PromptHookExplicitBindingExecutor', $src);
-                continue;
-            }
-            if ($relative === 'Services/ArticleWritingExecutionService.php') {
-                self::assertStringContainsString('length_validation', $src);
-                continue;
-            }
-            if ($relative === 'PromptHooks/Runtime/PromptHookExplicitBindingExecutor.php') {
-                self::assertStringContainsString('length_validation', $src);
-                self::assertStringContainsString('persistLengthValidationToPromptResult', $src);
-                continue;
-            }
-            self::assertStringContainsString($validator, $src, $relative);
+            self::assertStringContainsString((string) $expect, $src, $path);
         }
 
         $config = (string) file_get_contents(ProjectRoot::path().'/config/seo-content-ai.php');
-        self::assertStringContainsString("'minimum_acceptable_words'", $config);
-        self::assertStringContainsString('1400', $config);
+        self::assertStringContainsString("'minimum_acceptable_ratio'", $config);
+        self::assertStringContainsString('0.5', $config);
+        self::assertStringNotContainsString("'minimum_acceptable_words'", $config);
     }
 
     public function test_improve_hook_has_no_word_length_unit(): void

@@ -880,11 +880,14 @@ export function applyArticleEditorSavePatch(patch) {
     }
 
     if (patch.seo_analysis && typeof patch.seo_analysis === 'object') {
-        window.dispatchEvent(
-            new CustomEvent('seo-editor-analyze-result', {
-                detail: { result: patch.seo_analysis },
-            }),
-        );
+        // Incomplete analysis (no violations) must not wipe client diagnostics mid-save.
+        if (Object.prototype.hasOwnProperty.call(patch.seo_analysis, 'violations')) {
+            window.dispatchEvent(
+                new CustomEvent('seo-editor-analyze-result', {
+                    detail: { result: patch.seo_analysis },
+                }),
+            );
+        }
     }
 
     if (patch.revision_count != null) {

@@ -307,22 +307,7 @@
 
         @if (! $isContentManager)
             @if ($inContentProject && $contentProjectWpSyncEligible)
-                {{-- CP update-existing: Published or rewrite/improve with wp_post_id; never create. --}}
-                <button
-                    type="button"
-                    class="seo-editor-toolbar-btn seo-editor-toolbar-btn--accent seo-editor-toolbar-btn--labeled"
-                    title="{{ $syncTitle }}"
-                    aria-label="{{ $syncTitle }}"
-                    data-seo-page-action="sync"
-                    data-seo-sync-mode="{{ $wpSyncEligibility['mode'] ?? 'post_publish_wordpress_sync' }}"
-                    x-bind:disabled="!canSyncDocument()"
-                    x-on:click="if (!canSyncDocument()) { if (!canMutateDocument()) { notifyReadOnly(); } return; } window.dispatchEvent(new CustomEvent('article-editor-shortcut', { detail: { action: 'sync' } }))"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1.1 15.9-3.3-9.7h2l1.5 5.1 1.5-5.1h1.9l1.5 5.1 1.5-5.1h2l-3.3 9.7h-1.9l-1.5-4.9-1.5 4.9h-1.9z"/>
-                    </svg>
-                    <span class="seo-editor-toolbar-btn__label">{{ $syncLabel }}</span>
-                </button>
+                {{-- Content Project: Sync WP hidden (UI-only). Save & Close unchanged. --}}
                 <button
                     type="button"
                     class="seo-editor-toolbar-btn seo-editor-toolbar-btn--labeled"
@@ -792,18 +777,21 @@
                     <span>{{ __('seo-content-ai::filament.article_edit.open_content_project') }}</span>
                 </a>
             @elseif (! $isContentArchived)
-                <button
-                    type="button"
-                    class="seo-editor-menu-item"
-                    role="menuitem"
-                    data-seo-page-action="assign-content-project"
-                    x-on:click="moreOpen = false; window.dispatchEvent(new CustomEvent('open-article-assign-content-project-modal'))"
-                >
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" aria-hidden="true">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M12 10.5v6m3-3H9m4.06-7.19-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
-                    </svg>
-                    <span>{{ __('seo-content-ai::filament.article_list.assign_to_content_project') }}</span>
-                </button>
+                <x-content::assign-to-content-project-trigger
+                    variant="menu"
+                    mode="article"
+                    source="article_editor"
+                    :article-ids="[(int) $record->id]"
+                    :site-ids="[(int) ($record->site_id ?? 0)]"
+                    :defaults="['type' => \Omnichannel\Addons\ContentProjects\Models\SeoProjectTask::TYPE_REWRITE]"
+                    :options="[
+                        'show_quick_create' => true,
+                        'show_article_fields' => true,
+                        'show_keyword_override' => false,
+                        'show_title_override' => false,
+                    ]"
+                    x-on:click="moreOpen = false"
+                />
             @endif
 
             @if (\Omnichannel\Addons\Seo\Support\SeoAccessControl::canAccessManagerFeatures())

@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Services;
 
-
-use Omnichannel\Addons\Seo\Services\SeoAnalyzerService;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Seo\Services\DomainCtaEditorService;
+use Omnichannel\Addons\Seo\Services\DomainLinkListEditorService;
+use Omnichannel\Addons\Seo\Services\SeoAnalyzerService;
 
 /**
  * Links sidebar payload split out of ArticleEditorSeoPayloadService::forArticle()

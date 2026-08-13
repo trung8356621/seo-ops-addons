@@ -11,7 +11,7 @@ use Omnichannel\Addons\Media\Extension\Registry\MediaProcessorRegistry;
 use Omnichannel\Addons\Agent\Extension\Registry\PipelineRegistry;
 use Omnichannel\Addons\AiPrompt\Extension\Registry\PromptHookExtensionRegistry;
 use Omnichannel\Addons\Publishing\Extension\Registry\PublisherRegistry;
-use Omnichannel\Addons\SearchIntelligence\Services\SeoProviderRegistry;
+use Omnichannel\Addons\Seo\Extension\Registry\SeoProviderRegistry;
 use Omnichannel\Addons\Agent\Extension\Registry\WorkflowExtensionRegistry;
 use Omnichannel\Addons\Publishing\Application\Publishing\ContentPublisherRegistry;
 

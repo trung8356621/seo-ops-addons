@@ -6,6 +6,7 @@ import { clearFeaturedImageStorage, saveFeaturedImage } from '@media-addon/utils
 import { dispatchActiveBlockContext, exportBlocksToHtml } from '../utils/contentDocumentHelpers';
 import { loadProductAlbum, removeProductAlbumItem } from '@media-addon/utils/articleProductAlbumStorage.js';
 import { mediaActions } from '@media-addon/editor/domains/media/state.js';
+import { buildAiMediaContextFromBlock, buildAiMediaContextFromSection } from '../utils/buildAiMediaContext';
 import { openPanel } from '../editor/runtime/editorRuntimeNavigation';
 import { parseImageFromBlockContent } from '@media-addon/utils/blockImageUtils.js';
 import { scanExistingLinksCompat } from '../utils/existingLinkScanner';
@@ -17,7 +18,7 @@ import { useCallback, useEffect } from 'react';
  * useArticleEditorImageLifecycle - extracted from SeoArticleEditor.jsx (Task 7 mechanical
  * extraction). Mechanical move - no behavior change.
  */
-export default function useArticleEditorImageLifecycle({ activeBlockId, articleId, blockFlushRef, blocks, blocksRef, clearTempMerge, commitActiveBlock, dismissedEditorImageMediaIdsRef, editorHostActionsRef, extractedLinks, focusImageBlock, getExportHtml, insertCtaLinkIntoContent, insertSuggestedLinkIntoContent, intraSelectionRef, mediaPollTimersRef, pendingAiMediaRef, publishEditorImagesCatalogRef, publishExtractedLinks, removeInternalLinkFromContent, requestGenerateArticleImageRef, scheduleAutosave, scrollToExtractedLink, scrollToFeaturedSnippetTable, setActiveBlockId, setBlocks, setExtractedLinks, setGlobalEditor, setImagesReloadKey, siteDomain, siteDomainRef, suggestedExternalLinks, suggestedInternalLinks, supplementalImagesRef, supportsProductGallery, tempMergeRef, utilitySchedulerRef }) {
+export default function useArticleEditorImageLifecycle({ activeBlockId, articleId, articleTitle, blockById, blockFlushRef, blocks, blocksRef, clearTempMerge, commitActiveBlock, dismissedEditorImageMediaIdsRef, editorHostActionsRef, extractedLinks, focusImageBlock, focusKeyword, generateImageTargetRef, getExportHtml, insertCtaLinkIntoContent, insertSuggestedLinkIntoContent, intraSelectionRef, mediaPollTimersRef, pendingAiMediaRef, publishEditorImagesCatalogRef, publishExtractedLinks, removeInternalLinkFromContent, requestGenerateArticleImageRef, scheduleAutosave, scrollToExtractedLink, scrollToFeaturedSnippetTable, sectionByBlockId, setActiveBlockId, setBlocks, setExtractedLinks, setGlobalEditor, setImagesReloadKey, siteDomain, siteDomainRef, suggestedExternalLinks, suggestedInternalLinks, supplementalImagesRef, supportsProductGallery, tempMergeRef, utilitySchedulerRef }) {
     useEffect(() => {
         if (blocks.length === 0) {
             return undefined;
@@ -197,6 +198,55 @@ export default function useArticleEditorImageLifecycle({ activeBlockId, articleI
                 detail: detail && typeof detail === 'object' ? detail : {},
             }));
         };
+        editorHostActionsRef.current.openAiMedia = (detail) => {
+            const payload = detail != null && typeof detail === 'object' ? detail : {};
+            let ctx;
+
+            if (payload.section) {
+                ctx = buildAiMediaContextFromSection({
+                    section: payload.section,
+                    blockById,
+                    articleTitle,
+                    focusKeyword,
+                });
+            } else if (payload.blockId || payload.targetBlockId) {
+                ctx = buildAiMediaContextFromBlock({
+                    blockId: payload.blockId || payload.targetBlockId,
+                    blockById,
+                    sectionByBlockId,
+                    articleTitle,
+                    focusKeyword,
+                });
+            } else {
+                ctx = {
+                    prompt: String(payload.prompt ?? payload.prefill ?? payload.userBrief ?? '').trim(),
+                    targetBlockId: String(payload.targetBlockId ?? payload.blockId ?? '').trim() || null,
+                    mediaType: payload.mediaType === 'video' ? 'video' : 'image',
+                };
+            }
+
+            if (payload.mediaType === 'video' || payload.mediaType === 'image') {
+                ctx = { ...ctx, mediaType: payload.mediaType };
+            }
+
+            const targetId = String(ctx.targetBlockId ?? '').trim();
+            if (targetId) {
+                if (generateImageTargetRef) {
+                    generateImageTargetRef.current = targetId;
+                }
+                setActiveBlockId(targetId);
+                setGlobalEditor(null);
+                focusImageBlock?.(targetId);
+            }
+
+            openPanel('ai-chat', {
+                source: String(payload.source ?? 'host_open_ai_media'),
+                detail: {
+                    ...ctx,
+                    source: String(payload.source ?? 'host_open_ai_media'),
+                },
+            });
+        };
         editorHostActionsRef.current.getExportHtml = () => (
             typeof getExportHtml === 'function'
                 ? getExportHtml()
@@ -217,7 +267,7 @@ export default function useArticleEditorImageLifecycle({ activeBlockId, articleI
             window.removeEventListener('seo-editor-scroll-to-featured-snippet-table', onScrollToFeaturedSnippetTable);
             window.removeEventListener('seo-editor-document-html-request', onDocumentHtmlRequest);
         };
-    }, [scrollToExtractedLink, insertSuggestedLinkIntoContent, insertCtaLinkIntoContent, removeInternalLinkFromContent, scrollToFeaturedSnippetTable, getExportHtml, articleId, focusImageBlock]);
+    }, [scrollToExtractedLink, insertSuggestedLinkIntoContent, insertCtaLinkIntoContent, removeInternalLinkFromContent, scrollToFeaturedSnippetTable, getExportHtml, articleId, focusImageBlock, articleTitle, blockById, focusKeyword, generateImageTargetRef, sectionByBlockId, setActiveBlockId, setGlobalEditor]);
 
     const clearMediaPolling = useCallback((mediaId) => {
         const timer = mediaPollTimersRef.current.get(mediaId);

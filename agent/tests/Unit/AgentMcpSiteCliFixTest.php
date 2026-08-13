@@ -92,10 +92,11 @@ final class AgentMcpSiteCliFixTest extends TestCase
         self::assertStringContainsString('--member-id|--member', $blade);
 
         $presented = (new MemberListPresenter)->present([
-            ['id' => 15, 'email' => 'trang@example.com', 'name' => 'Trang Nguyá»…n', 'available' => true],
+            ['id' => 15, 'email' => 'trang@example.com', 'name' => 'Trang Nguyễn', 'available' => true],
         ], true);
         self::assertStringContainsString('ID: 15', (string) ($presented['summary'] ?? ''));
         self::assertStringContainsString('trang@example.com', (string) ($presented['summary'] ?? ''));
+        self::assertStringContainsString('/create-project', (string) ($presented['summary'] ?? ''));
 
         $parser = new AgentCliCommandParser();
         $bad = $parser->parse('/project-create --name="X" --month="08/2026" --member-id="Trang Nguyá»…n"');

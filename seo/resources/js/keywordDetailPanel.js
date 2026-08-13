@@ -255,6 +255,27 @@ function createKeywordDetailPanel(root, config) {
         document.body.classList.toggle('keyword-drawer-open', open && overlayMode);
     }
 
+    function restoreLayoutOpenClass() {
+        if (!state.open) {
+            return;
+        }
+        layout.classList.add('is-panel-open');
+        layout.classList.toggle('is-overlay-mode', isOverlayViewport());
+    }
+
+    function isAssignDrawerOpen() {
+        return document.body.classList.contains('assign-drawer-open');
+    }
+
+    function openAssignFromDetail(payload) {
+        window.dispatchEvent(new CustomEvent('assign-content-project:open', {
+            detail: {
+                ...payload,
+                source: payload.source || 'keyword_detail',
+            },
+        }));
+    }
+
     async function openPanel(keywordId) {
         const id = Number(keywordId);
         if (!Number.isFinite(id) || id <= 0) {
@@ -354,11 +375,21 @@ function createKeywordDetailPanel(root, config) {
         }
     }
 
-    closeBtn?.addEventListener('click', () => closePanel(true));
-    backdrop?.addEventListener('click', () => closePanel(true));
+    closeBtn?.addEventListener('click', () => {
+        if (isAssignDrawerOpen()) {
+            return;
+        }
+        closePanel(true);
+    });
+    backdrop?.addEventListener('click', () => {
+        if (isAssignDrawerOpen()) {
+            return;
+        }
+        closePanel(true);
+    });
 
     document.addEventListener('keydown', (event) => {
-        if (event.key === 'Escape' && state.open) {
+        if (event.key === 'Escape' && state.open && !isAssignDrawerOpen()) {
             closePanel(true);
         }
     });
@@ -373,7 +404,18 @@ function createKeywordDetailPanel(root, config) {
                 return;
             }
 
-            resolveLivewireComponent(config)?.call('mountAction', 'assignArticleToContentProject', { articleId });
+            // Client-side open — avoid Filament mountAction morph resetting this panel.
+            openAssignFromDetail({
+                mode: 'article',
+                source: 'keyword_detail',
+                article_ids: [articleId],
+                options: {
+                    show_quick_create: true,
+                    show_article_fields: true,
+                    show_keyword_override: true,
+                    show_title_override: true,
+                },
+            });
 
             return;
         }
@@ -390,10 +432,22 @@ function createKeywordDetailPanel(root, config) {
             return;
         }
 
-        resolveLivewireComponent(config)?.call('mountAction', 'assignToContentProject', { mapId });
+        const keywordId = Number(state.keywordId);
+        openAssignFromDetail({
+            mode: 'keyword',
+            source: 'keyword_detail',
+            keyword_ids: Number.isFinite(keywordId) && keywordId > 0 ? [keywordId] : [],
+            map_id: mapId,
+        });
     });
 
-    return { openPanel, closePanel };
+    return {
+        openPanel,
+        closePanel,
+        isOpen: () => state.open,
+        restoreLayoutOpenClass,
+        getKeywordId: () => state.keywordId,
+    };
 }
 
 function bindLivewireEventsOnce() {
@@ -409,6 +463,21 @@ function bindLivewireEventsOnce() {
 
     window.Livewire?.on('keyword-detail-close', () => {
         panelController?.closePanel(false);
+    });
+
+    window.addEventListener('assign-content-project:shell-open', () => {
+        document.body.classList.add('assign-drawer-stacked');
+        panelController?.restoreLayoutOpenClass?.();
+    });
+
+    window.addEventListener('assign-content-project:shell-close', () => {
+        document.body.classList.remove('assign-drawer-stacked');
+        panelController?.restoreLayoutOpenClass?.();
+    });
+
+    window.addEventListener('assign-content-project:success', () => {
+        // Keep Keyword Detail mounted; optional badge refresh can be added later.
+        panelController?.restoreLayoutOpenClass?.();
     });
 }
 
@@ -441,6 +510,9 @@ function bindTableRowLayersOnce(root, config) {
 
     window.Livewire?.hook('morph.updated', ({ el }) => {
         if (!el?.closest?.('.keyword-table-shell') && !el?.querySelector?.('.keyword-table-shell')) {
+            // Still restore layout class if ListKeywords morph wiped is-panel-open.
+            panelController?.restoreLayoutOpenClass?.();
+
             return;
         }
 
@@ -452,6 +524,7 @@ function bindTableRowLayersOnce(root, config) {
         }
 
         installRowClickLayers(layout, latestConfig);
+        panelController?.restoreLayoutOpenClass?.();
     });
 }
 

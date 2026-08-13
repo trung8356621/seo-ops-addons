@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\SearchIntelligence\Services;
 
 use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetricStatus;
 use Omnichannel\Addons\AiPrompt\Filament\Resources\AiConnectionResource;
+use Omnichannel\Addons\AiPrompt\Services\SeoExtendedProviderConnectionService;
 use Omnichannel\Addons\SearchIntelligence\Models\KeywordGroupMetricSnapshot;
 use Omnichannel\Addons\SearchIntelligence\Models\KeywordRankCheckRun;
 use Omnichannel\Addons\SearchIntelligence\Models\KeywordRankSnapshot;

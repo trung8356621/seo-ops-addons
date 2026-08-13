@@ -205,6 +205,10 @@ export default function useArticleEditorExternalEventsBridge({ activeBlockId, ac
         const handleServerAnalyzeResult = (event) => {
             const result = event?.detail?.result;
             if (result && typeof result === 'object') {
+                if (!Object.prototype.hasOwnProperty.call(result, 'violations')) {
+                    requestAnalyze();
+                    return;
+                }
                 applySeoAnalysisResult(result, 'saved');
                 const score = Number(result.total_score ?? result.score ?? result.seo_score);
                 if (Number.isFinite(score)) {

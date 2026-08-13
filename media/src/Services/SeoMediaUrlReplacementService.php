@@ -153,7 +153,7 @@ final class SeoMediaUrlReplacementService
 
     /**
      * @param  array<string, string>  $urlMap  canonical old_url => new_url
-     * @param  array{editor_session_id?: string|null, user?: \App\Models\User|null}  $context
+     * @param  array{editor_session_id?: string|null, user?: \App\Models\User|null, system_publish_preflight?: bool}  $context
      * @return array{article_updated: bool, remaining_old_refs: list<string>}
      */
     public function rewriteArticleReferences(SeoArticle $article, array $urlMap, array $context = []): array
@@ -165,8 +165,10 @@ final class SeoMediaUrlReplacementService
         $sessionId = isset($context['editor_session_id']) ? (string) $context['editor_session_id'] : null;
         $user = $context['user'] ?? null;
 
-        app(\Omnichannel\Addons\Content\Services\ArticleEditor\ArticleEditorSessionService::class)
-            ->assertBodyRewriteAllowed($article, 'media_url_rewrite', $sessionId, $user instanceof \App\Models\User ? $user : null);
+        if (($context['system_publish_preflight'] ?? false) !== true) {
+            app(\Omnichannel\Addons\Content\Services\ArticleEditor\ArticleEditorSessionService::class)
+                ->assertBodyRewriteAllowed($article, 'media_url_rewrite', $sessionId, $user instanceof \App\Models\User ? $user : null);
+        }
 
         $article = $article->fresh(['articleMetas']) ?? $article;
         $updated = false;

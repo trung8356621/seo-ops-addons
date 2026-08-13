@@ -24,6 +24,11 @@ final class ProductGalleryCanaryUiTest extends TestCase
         $this->assertTrue($page->hasMethod('loadPromptPreview'));
         $this->assertTrue($page->hasMethod('discardGenerated'));
 
+        $pageSource = (string) file_get_contents($page->getFileName() ?: '');
+        $this->assertStringContainsString("pluck('domain', 'id')", $pageSource);
+        $this->assertStringNotContainsString("orderBy('name')", $pageSource);
+        $this->assertStringContainsString('accessibleSitesQuery()', $pageSource);
+
         $access = (string) file_get_contents(
             (new ReflectionClass(ProductGalleryCanaryAccess::class))->getFileName() ?: '',
         );

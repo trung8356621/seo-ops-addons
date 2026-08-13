@@ -8,21 +8,16 @@ namespace Omnichannel\Addons\Content\Filament\Pages;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoPanelPage;
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\Content\Models\SeoArticle;
-use Omnichannel\Addons\ContentProjects\Models\SeoProject;
-use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
-use Omnichannel\Addons\Seo\Services\SeoAnalyzerService;
 use Omnichannel\Addons\Seo\Services\SeoAuditKeywordFlagService;
 use Omnichannel\Addons\Seo\Services\SeoAuditScanService;
 use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
 use Omnichannel\Addons\Seo\Services\SeoScoringSettingsService;
-use Omnichannel\Addons\SearchIntelligence\Support\KeywordFocusAttach;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Models\Site;
 use Filament\Notifications\Notification;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Collection;
 use Illuminate\Validation\ValidationException;
 use Livewire\Attributes\Computed;
 use Livewire\Attributes\Url;
@@ -82,11 +77,6 @@ final class ArticlesOptimal extends SeoPanelPage
 
     /** @var array<int, int> */
     public array $selectedArticleIds = [];
-
-    public ?int $sidebarProjectId = null;
-
-    /** Sidebar assign: true = ẩn. Persist qua Livewire để remorph không reset Alpine. */
-    public bool $sidebarCollapsed = true;
 
     public bool $scanning = false;
 
@@ -370,241 +360,12 @@ final class ArticlesOptimal extends SeoPanelPage
         }
     }
 
-    /**
-     * @return array<int, string>
-     */
-    public function getContentProjectOptions(): array
-    {
-        $options = [];
-        $siteId = $this->validatedFilterSiteId(throw: false);
-        if ($siteId !== null) {
-            $options += ArticleResource::contentProjectOptionsForSeoAudit((int) $siteId);
-        }
-
-        return $options;
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    public function getAssignTypeOptions(): array
-    {
-        return SeoProjectTask::typeOptions();
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    public function getRewriteModeOptions(): array
-    {
-        return SeoProjectTask::rewriteModeOptions();
-    }
-
-    public function selectSidebarProject(mixed $projectId): void
-    {
-        $this->sidebarProjectId = (int) $projectId > 0 ? (int) $projectId : null;
-        $this->skipRender();
-    }
-
-    /**
-     * @return list<array{id:int,title:string,status:string,type:string}>
-     */
-    public function getSidebarProjectArticles(): array
-    {
-        $projectId = (int) ($this->sidebarProjectId ?? 0);
-        if ($projectId <= 0) {
-            return [];
-        }
-
-        return SeoProjectTask::query()
-            ->with('article:id,title,status')
-            ->where('project_id', $projectId)
-            ->orderBy('target_date')
-            ->orderBy('id')
-            ->get()
-            ->map(function (SeoProjectTask $task): array {
-                $article = $task->article;
-
-                return [
-                    'id' => (int) ($article?->id ?? 0),
-                    'title' => trim((string) ($article?->title ?? $task->source_content)),
-                    'status' => (string) ($article?->status ?? $task->status ?? ''),
-                    'type' => (string) ($task->type ?? ''),
-                ];
-            })
-            ->all();
-    }
-
-    /**
-     * @param  array<int, int|string>  $articleIds
-     * @param  array<string, mixed>  $data
-     */
-    /**
-     * @return array{project_id:int, remaining:int}
-     */
-    public function assignFromSidebar(array $articleIds, array $data = []): array
-    {
-        if (! isset($data['project_id']) || (int) $data['project_id'] <= 0) {
-            $data['project_id'] = $this->sidebarProjectId;
-        }
-
-        $data['ignore_monthly_capacity'] = true;
-
-        $this->assignArticlesToContentProject($articleIds, $data);
-
-        $projectId = (int) ($data['project_id'] ?? 0);
-        $project = $projectId > 0 ? SeoProject::query()->find($projectId) : null;
-        $remaining = $project?->remainingTaskCapacity() ?? 0;
-
-        if ($project instanceof SeoProject && $remaining <= 2) {
-            Notification::make()
-                ->title($remaining === 0
-                    ? __('seo-content-ai::filament.articles_optimal.project_capacity_full')
-                    : __('seo-content-ai::filament.articles_optimal.project_capacity_near'))
-                ->body(__('seo-content-ai::filament.articles_optimal.project_capacity_remaining', [
-                    'count' => $remaining,
-                ]))
-                ->warning()
-                ->send();
-        }
-
-        return [
-            'project_id' => $projectId,
-            'remaining' => $remaining,
-        ];
-    }
-
     public function notifyAssignBlockedMissingKeyword(): void
     {
         Notification::make()
             ->title(__('seo-content-ai::filament.articles_optimal.assign_failed'))
             ->body(__('seo-content-ai::filament.articles_optimal.assign_missing_keyword_bulk'))
             ->warning()
-            ->send();
-
-        $this->skipRender();
-    }
-
-    /**
-     * @param  array<string, mixed>  $data
-     */
-    public function assignArticleToContentProject(int $articleId, array $data): void
-    {
-        $this->assignArticlesToContentProject([$articleId], $data);
-    }
-
-    public function assignArticleToSelectedProject(int $articleId): void
-    {
-        $this->assignArticlesToContentProject([$articleId], [
-            'project_id' => $this->sidebarProjectId,
-            'type' => SeoProjectTask::TYPE_REWRITE,
-            'rewrite_mode' => SeoProjectTask::REWRITE_MODE_KEYWORD,
-            'ignore_monthly_capacity' => true,
-        ]);
-    }
-
-    public function assignSelectedArticlesToSelectedProject(mixed $projectId = null): void
-    {
-        $this->assignArticlesToContentProject($this->selectedArticleIds, [
-            'project_id' => $projectId !== null && (int) $projectId > 0 ? (int) $projectId : $this->sidebarProjectId,
-            'type' => SeoProjectTask::TYPE_REWRITE,
-            'rewrite_mode' => SeoProjectTask::REWRITE_MODE_KEYWORD,
-            'ignore_monthly_capacity' => true,
-        ]);
-    }
-
-    /**
-     * @param  array<int, int|string>  $articleIds
-     * @param  array<string, mixed>  $data
-     */
-    private function assignArticlesToContentProject(array $articleIds, array $data): void
-    {
-        $projectId = (int) ($data['project_id'] ?? 0);
-        if ($projectId <= 0 || ! SeoProject::query()->whereKey($projectId)->exists()) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.articles_optimal.assign_failed'))
-                ->body(__('seo-content-ai::filament.articles_optimal.assign_no_project'))
-                ->warning()
-                ->send();
-            $this->skipRender();
-
-            return;
-        }
-
-        $ids = array_values(array_unique(array_filter(array_map('intval', $articleIds), static fn (int $id): bool => $id > 0)));
-        if ($ids === []) {
-            $this->skipRender();
-
-            return;
-        }
-
-        $records = $this->accessibleArticleQuery()
-            ->whereIn('id', $ids)
-            ->with(['articleMetas' => static function ($relation): void {
-                $relation->where('meta_key', 'seo_focus_keyword');
-            }])
-            ->get();
-
-        if ($records->isEmpty()) {
-            $this->skipRender();
-
-            return;
-        }
-
-        $analyzer = app(SeoAnalyzerService::class);
-        $focusKeywordInput = trim((string) ($data['focus_keyword'] ?? ''));
-        $missingFocus = $records->filter(static function (SeoArticle $article) use ($analyzer): bool {
-            return trim((string) ($analyzer->resolveFocusKeywordForArticle($article) ?? '')) === '';
-        });
-
-        if ($missingFocus->count() > 1) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.articles_optimal.assign_failed'))
-                ->body(__('seo-content-ai::filament.articles_optimal.assign_missing_keyword_bulk'))
-                ->warning()
-                ->send();
-            $this->skipRender();
-
-            return;
-        }
-
-        if ($missingFocus->count() === 1 && $focusKeywordInput === '') {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.articles_optimal.assign_failed'))
-                ->body(__('seo-content-ai::filament.articles_optimal.assign_missing_keyword_required'))
-                ->warning()
-                ->send();
-            $this->skipRender();
-
-            return;
-        }
-
-        if ($focusKeywordInput !== '') {
-            $userId = (int) (auth()->id() ?? 0);
-            foreach ($missingFocus as $article) {
-                $siteId = (int) ($article->site_id ?? 0);
-                if ($siteId <= 0) {
-                    continue;
-                }
-
-                KeywordFocusAttach::syncMainKeyword($article, $siteId, $userId, $focusKeywordInput);
-                $article->unsetRelation('articleMetas');
-            }
-        }
-
-        $summary = ArticleResource::assignArticlesFromFormData(
-            Collection::make($records),
-            $projectId,
-            $data,
-        );
-
-        $this->selectedArticleIds = array_values(array_diff(array_map('intval', $this->selectedArticleIds), $ids));
-        $this->sidebarProjectId = $projectId;
-
-        Notification::make()
-            ->title(__('seo-content-ai::filament.article_list.assign_completed'))
-            ->body(ArticleResource::buildAssignContentProjectBody($summary))
-            ->success()
             ->send();
 
         $this->skipRender();

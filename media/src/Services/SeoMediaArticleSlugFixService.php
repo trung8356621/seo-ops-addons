@@ -32,7 +32,7 @@ final class SeoMediaArticleSlugFixService
 
     /**
      * @param  list<array{seo_media_id?: int|null, url?: string|null, new_slug: string, old_slug?: string|null}>  $items
-     * @param  array{editor_session_id?: string|null, user?: \App\Models\User|null}  $context
+     * @param  array{editor_session_id?: string|null, user?: \App\Models\User|null, system_publish_preflight?: bool}  $context
      * @return array{
      *     success: bool,
      *     message: string,

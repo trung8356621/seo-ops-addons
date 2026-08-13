@@ -209,11 +209,11 @@ final class PublishingQueueHub extends SeoPanelPage
 
     public function getDateTimeSettingsUrlProperty(): ?string
     {
-        if (! \Omnichannel\Addons\Publishing\Filament\Pages\SeoSettingsDateTime::canAccess()) {
+        if (! \Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsDateTime::canAccess()) {
             return null;
         }
 
-        return \Omnichannel\Addons\Publishing\Filament\Pages\SeoSettingsDateTime::getUrl();
+        return \Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsDateTime::getUrl();
     }
 
     /**

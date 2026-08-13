@@ -1,25 +1,37 @@
-import React, { useEffect, useMemo } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import { getDefaultArticleEditorRuntime } from '../editor/runtime/defaultArticleEditorRuntime';
 import { answerHtmlForEditor } from '../utils/faqAnswerHtml';
 import BlockFormatToolbar from './BlockFormatToolbar';
 
+const FAQ_ANSWER_EDITOR_PROPS = Object.freeze({
+    attributes: Object.freeze({
+        class: 'prose prose-slate max-w-none dark:prose-invert min-h-[100px] focus:outline-none tiptap-editor-content seo-faq-answer-editor',
+    }),
+});
+
 export default function FaqAnswerEditor({ html, onChange, onFocus }) {
     const initialContent = useMemo(() => answerHtmlForEditor(html), []);
+    const onChangeRef = useRef(onChange);
+    const onFocusRef = useRef(onFocus);
+    onChangeRef.current = onChange;
+    onFocusRef.current = onFocus;
 
+    const documentExtensions = useMemo(
+        () => getDefaultArticleEditorRuntime().getDocumentExtensions(),
+        [],
+    );
+
+    // TipTap v3: unstable editorProps identity → setOptions every render → #185.
     const editor = useEditor({
-        extensions: getDefaultArticleEditorRuntime().getDocumentExtensions(),
+        extensions: documentExtensions,
         content: initialContent,
+        editorProps: FAQ_ANSWER_EDITOR_PROPS,
         onUpdate: ({ editor: ed }) => {
-            onChange(ed.getHTML());
+            onChangeRef.current?.(ed.getHTML());
         },
-        onFocus: () => onFocus?.(),
-        editorProps: {
-            attributes: {
-                class: 'prose prose-slate max-w-none dark:prose-invert min-h-[100px] focus:outline-none tiptap-editor-content seo-faq-answer-editor',
-            },
-        },
-    });
+        onFocus: () => onFocusRef.current?.(),
+    }, []);
 
     useEffect(() => {
         if (!editor) return;

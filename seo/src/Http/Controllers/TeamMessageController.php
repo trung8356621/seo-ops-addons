@@ -8,14 +8,19 @@ use Omnichannel\Addons\Content\Services\TeamChatAttachmentService;
 use Omnichannel\Addons\Content\Services\TeamChatNotificationService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Http\Controllers\Controller;
+use App\Models\TeamChatReadCursor;
 use App\Models\TeamMessage;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
-use Symfony\Component\HttpFoundation\StreamedResponse;
 
+/**
+ * Team group chat JSON API. Clients own poll/send UI state.
+ * Long-lived SSE is retired — always return short JSON (pollJson).
+ */
 final class TeamMessageController extends Controller
 {
     public function __construct(
@@ -35,7 +40,54 @@ final class TeamMessageController extends Controller
         ]);
     }
 
-    public function index(Request $request): JsonResponse|StreamedResponse
+    public function unreadCount(): JsonResponse
+    {
+        $ownerId = SeoAccessControl::accountOwnerId();
+        if ($ownerId === null || $ownerId <= 0) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        $userId = (int) auth()->id();
+        $sinceId = $this->resolveLastReadMessageId($ownerId, $userId);
+
+        $unread = TeamMessage::query()
+            ->where('owner_id', $ownerId)
+            ->where('id', '>', $sinceId)
+            ->when($userId > 0, fn ($query) => $query->where('user_id', '!=', $userId))
+            ->count();
+
+        return response()->json([
+            'unread' => $unread,
+            'last_read_message_id' => $sinceId,
+        ]);
+    }
+
+    public function markRead(Request $request): JsonResponse
+    {
+        $ownerId = SeoAccessControl::accountOwnerId();
+        if ($ownerId === null || $ownerId <= 0) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        $userId = (int) auth()->id();
+        if ($userId <= 0) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        $validated = $request->validate([
+            'last_read_message_id' => ['required', 'integer', 'min:0'],
+        ]);
+
+        $lastRead = (int) $validated['last_read_message_id'];
+        $this->upsertReadCursor($ownerId, $userId, $lastRead);
+
+        return response()->json([
+            'ok' => true,
+            'last_read_message_id' => $lastRead,
+        ]);
+    }
+
+    public function index(Request $request): JsonResponse
     {
         $ownerId = SeoAccessControl::accountOwnerId();
         if ($ownerId === null || $ownerId <= 0) {
@@ -45,6 +97,10 @@ final class TeamMessageController extends Controller
         if ($request->boolean('unread_summary')) {
             $sinceId = max(0, (int) $request->query('since_id', 0));
             $userId = (int) auth()->id();
+
+            if ($sinceId === 0 && Schema::hasTable('team_chat_read_cursors')) {
+                $sinceId = $this->resolveLastReadMessageId($ownerId, $userId);
+            }
 
             $unreadCount = TeamMessage::query()
                 ->where('owner_id', $ownerId)
@@ -65,82 +121,8 @@ final class TeamMessageController extends Controller
 
         $afterId = max(0, (int) $request->query('after_id', $request->query('last_id', 0)));
 
-        // php artisan serve (cli-server) is single-threaded: a long-lived SSE loop
-        // blocks Livewire / page navigations. Prefer short JSON poll there.
-        if ($request->boolean('poll') || PHP_SAPI === 'cli-server') {
-            return $this->pollJson($ownerId, $afterId);
-        }
-
-        return new StreamedResponse(function () use ($ownerId, $afterId): void {
-            @ini_set('zlib.output_compression', '0');
-            @ini_set('output_buffering', 'off');
-            set_time_limit(0);
-
-            while (ob_get_level() > 0) {
-                ob_end_flush();
-            }
-
-            $cursorId = $afterId;
-            $sendHistoryEnd = $cursorId === 0;
-
-            if ($sendHistoryEnd) {
-                $historyRows = TeamMessage::query()
-                    ->where('owner_id', $ownerId)
-                    ->with(['user:id,name,email'])
-                    ->orderByDesc('id')
-                    ->limit(50)
-                    ->get()
-                    ->reverse()
-                    ->values();
-
-                foreach ($historyRows as $message) {
-                    $this->emitSseMessage($message);
-                    $cursorId = max($cursorId, (int) $message->id);
-                }
-
-                $this->emitSseEvent('history_end', [
-                    'owner_id' => $ownerId,
-                    'current_user_id' => (int) auth()->id(),
-                    'config' => $this->attachmentService->clientConfig(),
-                    'can_use_ai' => ! SeoAccessControl::isContentManager(),
-                ]);
-            }
-
-            $lastHeartbeatAt = microtime(true);
-
-            while (true) {
-                if (connection_aborted() !== 0) {
-                    break;
-                }
-
-                $newRows = TeamMessage::query()
-                    ->where('owner_id', $ownerId)
-                    ->where('id', '>', $cursorId)
-                    ->with(['user:id,name,email'])
-                    ->orderBy('id')
-                    ->limit(100)
-                    ->get();
-
-                foreach ($newRows as $message) {
-                    $this->emitSseMessage($message);
-                    $cursorId = (int) $message->id;
-                }
-
-                $now = microtime(true);
-                if ($now - $lastHeartbeatAt >= 2.0) {
-                    echo ':'."\n\n";
-                    $this->flushSseOutput();
-                    $lastHeartbeatAt = $now;
-                }
-
-                usleep(500_000);
-            }
-        }, 200, [
-            'Content-Type' => 'text/event-stream',
-            'Cache-Control' => 'no-cache',
-            'Connection' => 'keep-alive',
-            'X-Accel-Buffering' => 'no',
-        ]);
+        // Always JSON poll — never long-lived SSE (blocks php artisan serve / workers).
+        return $this->pollJson($ownerId, $afterId);
     }
 
     private function pollJson(int $ownerId, int $afterId): JsonResponse
@@ -226,11 +208,21 @@ final class TeamMessageController extends Controller
         $message->load(['user:id,name,email']);
 
         $this->notifyWorkspaceMembers($message);
+        $this->upsertReadCursor($ownerId, (int) $sender->id, (int) $message->id);
 
         return response()->json([
             'success' => true,
             'message' => $this->serializeMessage($message),
         ], 201);
+    }
+
+    private function notifyWorkspaceMembers(TeamMessage $message): void
+    {
+        if (! class_exists(TeamChatNotificationService::class)) {
+            return;
+        }
+
+        app(TeamChatNotificationService::class)->notifyWorkspaceMembers($message);
     }
 
     /**
@@ -250,40 +242,6 @@ final class TeamMessageController extends Controller
      *     is_mine: bool
      * }
      */
-    private function notifyWorkspaceMembers(TeamMessage $message): void
-    {
-        if (! class_exists(TeamChatNotificationService::class)) {
-            return;
-        }
-
-        app(TeamChatNotificationService::class)->notifyWorkspaceMembers($message);
-    }
-
-    private function emitSseMessage(TeamMessage $message): void
-    {
-        echo 'data: '.json_encode($this->serializeMessage($message), JSON_THROW_ON_ERROR)."\n\n";
-        $this->flushSseOutput();
-    }
-
-    /**
-     * @param  array<string, mixed>  $payload
-     */
-    private function emitSseEvent(string $event, array $payload): void
-    {
-        echo 'event: '.$event."\n";
-        echo 'data: '.json_encode($payload, JSON_THROW_ON_ERROR)."\n\n";
-        $this->flushSseOutput();
-    }
-
-    private function flushSseOutput(): void
-    {
-        if (ob_get_level() > 0) {
-            ob_flush();
-        }
-
-        flush();
-    }
-
     private function serializeMessage(TeamMessage $message): array
     {
         $user = $message->user;
@@ -305,5 +263,46 @@ final class TeamMessageController extends Controller
             'created_at' => $message->created_at?->toIso8601String(),
             'is_mine' => (int) auth()->id() === (int) $message->user_id,
         ];
+    }
+
+    private function resolveLastReadMessageId(int $ownerId, int $userId): int
+    {
+        if ($userId <= 0 || ! Schema::hasTable('team_chat_read_cursors')) {
+            return 0;
+        }
+
+        $cursor = TeamChatReadCursor::query()
+            ->where('owner_id', $ownerId)
+            ->where('user_id', $userId)
+            ->value('last_read_message_id');
+
+        return max(0, (int) $cursor);
+    }
+
+    private function upsertReadCursor(int $ownerId, int $userId, int $lastReadMessageId): void
+    {
+        if ($userId <= 0 || ! Schema::hasTable('team_chat_read_cursors')) {
+            return;
+        }
+
+        $existing = TeamChatReadCursor::query()
+            ->where('owner_id', $ownerId)
+            ->where('user_id', $userId)
+            ->first();
+
+        if ($existing === null) {
+            TeamChatReadCursor::query()->create([
+                'owner_id' => $ownerId,
+                'user_id' => $userId,
+                'last_read_message_id' => max(0, $lastReadMessageId),
+            ]);
+
+            return;
+        }
+
+        if ($lastReadMessageId > (int) $existing->last_read_message_id) {
+            $existing->last_read_message_id = $lastReadMessageId;
+            $existing->save();
+        }
     }
 }

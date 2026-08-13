@@ -7,6 +7,8 @@ namespace Omnichannel\Addons\SearchFoundation\Models;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
 use Omnichannel\Addons\SearchIntelligence\Enums\KeywordReviewStatus;
+use Omnichannel\Addons\SearchIntelligence\Models\KeywordReviewHistory;
+use Omnichannel\Addons\SearchIntelligence\Models\KeywordReviewReason;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapStatus;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordMetaRepository;
 use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;

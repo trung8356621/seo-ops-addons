@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ArrowDown, ArrowUp, ChevronsDown, ChevronsUp, FileText, HelpCircle, Image as ImageIcon, Plus } from 'lucide-react';
+import { getEditorCommandHost } from '../utils/editorCommands';
 import { openPanel } from '../editor/runtime/editorRuntimeNavigation';
 import { t } from '../utils/i18n';
 
@@ -239,11 +240,20 @@ export function ImageBlockPickerBox({
     };
 
     const openAiChat = () => {
+        const host = getEditorCommandHost();
+        if (typeof host?.actions?.openAiMedia === 'function') {
+            host.actions.openAiMedia({
+                blockId: String(blockId ?? '').trim(),
+                source: 'image_block',
+            });
+            return;
+        }
+
         openPanel('ai-chat', {
-            source: 'block_insert_menu',
+            source: 'image_block',
             detail: {
                 blockId: String(blockId ?? '').trim(),
-                focusInput: true,
+                source: 'image_block',
             },
         });
     };
@@ -323,7 +333,7 @@ export function ImageBlockPickerBox({
                     onOpenMediaLibrary(e);
                 }}
             >
-                {t('image_block_label')}/{t('generate_video')}
+                {t('image_block_choose_media')}
             </button>
             <button
                 type="button"
@@ -342,7 +352,7 @@ export function ImageBlockPickerBox({
                     openAiChat();
                 }}
             >
-                {t('generate_image')}/{t('generate_video')}
+                {t('ai_prompt')}
             </button>
             <button
                 type="button"
@@ -361,7 +371,7 @@ export function ImageBlockPickerBox({
                     setMode('import');
                 }}
             >
-                Quick download
+                {t('image_block_upload')}
             </button>
         </div>
     );
