@@ -58,6 +58,9 @@ final class AssignToContentProjectUiArchitectureGuardTest extends TestCase
         $drawerBlade = (string) file_get_contents($view);
         self::assertStringContainsString('role="dialog"', $drawerBlade);
         self::assertStringContainsString('assign-to-content-project-drawer', $drawerBlade);
+        // Prefer Livewire can_submit — Alpine $wire.uiState?.can_submit permanently disabled Assign.
+        self::assertStringContainsString(":disabled=\"! \$this->uiState['can_submit']\"", $drawerBlade);
+        self::assertStringNotContainsString('$wire.uiState?.can_submit', $drawerBlade);
         self::assertStringContainsString('inset-y-0 right-0', $drawerBlade);
         self::assertStringContainsString('translate-x-full', $drawerBlade);
         self::assertStringContainsString('z-[10050]', $drawerBlade);
@@ -80,6 +83,16 @@ final class AssignToContentProjectUiArchitectureGuardTest extends TestCase
         self::assertStringContainsString("\$attributes->except(['x-on:click'", $trigger);
         self::assertStringContainsString('$mergedClick', $trigger);
         self::assertStringContainsString('$safeAttributes', $trigger);
+        self::assertStringContainsString('x-on:click="{{ $mergedClick }}"', $trigger);
+        self::assertStringContainsString('$assignLabel', $trigger);
+        self::assertStringContainsString('tooltip="{{ $assignLabel }}"', $trigger);
+        // Single HTML escape via {{ }} only — e(json)+{{ }} → &amp;quot; → Alpine SyntaxError.
+        self::assertStringContainsString('json_encode(AssignToContentProjectContract::OPEN_EVENT)', $trigger);
+        self::assertStringContainsString('json_encode($payload', $trigger);
+        self::assertStringNotContainsString('.e(json_encode', $trigger);
+        self::assertStringNotContainsString('e(json_encode(', $trigger);
+        self::assertStringNotContainsString(':tooltip="$label"', $trigger);
+        self::assertStringNotContainsString(':label="$label"', $trigger);
         self::assertStringNotContainsString(
             "x-on:click=\"{{ trim((\$attributes->get('x-on:click') ?? '').'; '.\$openScript) }}\"",
             $trigger,
@@ -210,6 +223,8 @@ final class AssignToContentProjectUiArchitectureGuardTest extends TestCase
 
         self::assertStringContainsString('AssignToContentProjectContract::OPEN_EVENT', $audit);
         self::assertStringContainsString('assignOpenEvent', $audit);
+        self::assertStringContainsString('openAssignDrawer({{ (int) $row[\'id\'] }})', $audit);
+        self::assertStringContainsString('data-assign-content-project-trigger', $audit);
         self::assertStringContainsString('x-content::assign-to-content-project-trigger', $editorActions);
         self::assertStringContainsString('source="article_editor"', $editorActions);
         self::assertStringContainsString(':article-ids="[(int) $record->id]"', $editorActions);

@@ -24,6 +24,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectGen
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectGenerationRecoveryService;
 use Omnichannel\Addons\ContentProjects\Services\RunEngine\ContentProjectRunEngine;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectWorkflowRunService;
+use Omnichannel\Addons\ContentProjects\Support\ContentProjectRunSettings;
 use App\Support\RuntimeLogger;
 use InvalidArgumentException;
 
@@ -124,12 +125,16 @@ final class RerunProjectItemsHandler extends AbstractPublishingHandler
             }
             $itemIds = $gate['eligible_ids'];
 
-            $settings = [
+            // Merge user launch settings, then FORCE orchestration keys (caller cannot override).
+            $launch = ContentProjectRunSettings::fromUserInput(
+                is_array($command->settings) ? $command->settings : [],
+            );
+            $settings = array_merge($launch->toArray(), [
                 'task_ids' => $itemIds,
                 'rerun' => true,
                 'rerun_scope' => 'full',
                 'use_php_engine' => true,
-            ];
+            ]);
 
             $run = $this->businessLock->withLock(
                 $this->businessLock->projectGenerate($projectId),

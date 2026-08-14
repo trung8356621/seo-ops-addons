@@ -15,6 +15,7 @@ use Omnichannel\Addons\Agent\Automation\Enums\ActionSideEffect;
 use Omnichannel\Addons\Agent\Automation\Support\ActionSupport;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\LocalArticleAssociationGuard;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectTaskUniqueWriter;
 use Illuminate\Support\Facades\DB;
 
@@ -73,6 +74,19 @@ final class CreateProjectTaskAction implements BusinessAction
         }
         $articleId = (int) ($input['article_id'] ?? 0);
         $siteId = (int) ($project->site_id ?? 0);
+        if ($articleId > 0) {
+            $localArticleId = LocalArticleAssociationGuard::resolveLocalArticleId(
+                $articleId,
+                $siteId > 0 ? $siteId : null,
+            );
+            if ($localArticleId === null) {
+                return ActionResult::failure(
+                    'article_not_found',
+                    "Local article [{$articleId}] not found for project site — refusing non-local article_id.",
+                );
+            }
+            $articleId = $localArticleId;
+        }
 
         $output = DB::connection($project->getConnectionName())->transaction(function () use (
             $project,

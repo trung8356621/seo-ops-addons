@@ -18,17 +18,21 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Safe Existing Article reconciliation for rewrite/improve Content Project items.
+ * Canonical Content Project ↔ local SeoArticle association reconciliation.
+ *
+ * Applies to CREATE / REWRITE / IMPROVE when:
+ * - article_id is null/0, or
+ * - article_id > 0 but local articles.id does not exist (stale / WP / external id).
  *
  * Priority (strongest first), no fuzzy title LIKE:
- * 1. task.article_id
- * 2. article_meta content_project_run.task_id
- * 3. run_item.article_id + output_snapshot.article_id
+ * 1. automation_origin (seo_project_task + task id)
+ * 2. run_item.article_id + output_snapshot.article_id
+ * 3. article_meta content_project_run.task_id
  * 4. prompt_result_links.project_task_id → article_id
- * 5. task_events article.linked payload
- * 6. exact wp_post_id + site_id
+ * 5. task_events article.linked / article.created payload
+ * 6. exact wp_post_id via wordpressLink + same site (incl. stale task.article_id as WP id)
  * 7. exact slug / wp_permalink + site_id
- * 8. exact title (=) + site_id — picker stores title in source_content
+ * 8. exact title (=) + site_id — final fallback only
  *
  * Persist only when exactly one unambiguous candidate and not owned by another active task.
  */
@@ -42,15 +46,12 @@ final class ContentProjectExistingArticleReconciler
     {
         $projectId = (int) $project->getKey();
         $siteId = (int) ($project->site_id ?? 0);
+        $resolvedSiteId = $siteId > 0 ? $siteId : null;
 
         if ($tasks === null) {
             $tasks = SeoProjectTask::query()
                 ->where('project_id', $projectId)
                 ->whereNull('archived_at')
-                ->whereIn('type', SeoProjectTask::typesRequiringExistingArticle())
-                ->where(static function ($q): void {
-                    $q->whereNull('article_id')->orWhere('article_id', 0);
-                })
                 ->orderBy('id')
                 ->get();
         }
@@ -60,17 +61,28 @@ final class ContentProjectExistingArticleReconciler
             if (! $task instanceof SeoProjectTask) {
                 continue;
             }
-            $type = SeoProjectTask::normalizeType($task->type);
-            if (! in_array($type, SeoProjectTask::typesRequiringExistingArticle(), true)) {
+            if (! $this->needsAssociationRepair($task, $resolvedSiteId)) {
                 continue;
             }
-            if ((int) ($task->article_id ?? 0) > 0) {
-                continue;
-            }
-            $results[] = $this->reconcileTask($task, $siteId > 0 ? $siteId : null, persist: true);
+            $results[] = $this->reconcileTask($task, $resolvedSiteId, persist: true);
         }
 
         return $results;
+    }
+
+    /**
+     * True when article_id is empty or points at a non-local / wrong-site article.
+     */
+    public function needsAssociationRepair(SeoProjectTask $task, ?int $siteId = null): bool
+    {
+        $directId = (int) ($task->article_id ?? 0);
+        if ($directId <= 0) {
+            return true;
+        }
+
+        $resolvedSiteId = $this->resolveSiteId($task, $siteId);
+
+        return LocalArticleAssociationGuard::resolveLocalArticleId($directId, $resolvedSiteId) === null;
     }
 
     /**
@@ -122,39 +134,40 @@ final class ContentProjectExistingArticleReconciler
         ?int $siteId = null,
         bool $persist = true,
     ): ContentProjectExistingArticleReconcileResult {
-        $type = SeoProjectTask::normalizeType($task->type);
-        if (! in_array($type, SeoProjectTask::typesRequiringExistingArticle(), true)) {
-            return new ContentProjectExistingArticleReconcileResult(
-                status: ContentProjectExistingArticleReconcileResult::STATUS_NOT_REQUIRED,
-                reason: 'Item type does not require Existing Article.',
-            );
-        }
-
         $taskId = (int) $task->getKey();
         $resolvedSiteId = $this->resolveSiteId($task, $siteId);
+        $type = SeoProjectTask::normalizeType($task->type);
+        $requiresExisting = in_array($type, SeoProjectTask::typesRequiringExistingArticle(), true);
 
         $directId = (int) ($task->article_id ?? 0);
         if ($directId > 0) {
-            $article = SeoArticle::query()->find($directId);
-            if ($article instanceof SeoArticle) {
+            $localId = LocalArticleAssociationGuard::resolveLocalArticleId($directId, $resolvedSiteId);
+            if ($localId !== null) {
                 return new ContentProjectExistingArticleReconcileResult(
                     status: ContentProjectExistingArticleReconcileResult::STATUS_RESOLVED,
-                    articleId: $directId,
+                    articleId: $localId,
                     matchedBy: 'task.article_id',
-                    reason: 'Existing Article already linked.',
+                    reason: 'Local article already linked.',
                 );
             }
         }
 
         $candidate = $this->findUnambiguousCandidate($taskId, $resolvedSiteId, $task);
         if ($candidate['status'] !== 'ok' || $candidate['article_id'] === null) {
+            if (! $requiresExisting && $directId <= 0 && ($candidate['status'] ?? '') === 'missing') {
+                return new ContentProjectExistingArticleReconcileResult(
+                    status: ContentProjectExistingArticleReconcileResult::STATUS_NOT_REQUIRED,
+                    reason: 'Create item has no article association yet.',
+                );
+            }
+
             return new ContentProjectExistingArticleReconcileResult(
                 status: $candidate['status'] === 'ambiguous'
                     ? ContentProjectExistingArticleReconcileResult::STATUS_AMBIGUOUS
                     : ContentProjectExistingArticleReconcileResult::STATUS_MISSING,
                 articleId: null,
                 matchedBy: (string) ($candidate['matched_by'] ?? ''),
-                reason: (string) ($candidate['reason'] ?? 'No unambiguous Existing Article candidate.'),
+                reason: (string) ($candidate['reason'] ?? 'No unambiguous local article candidate.'),
             );
         }
 
@@ -189,18 +202,20 @@ final class ContentProjectExistingArticleReconciler
             );
         }
 
-        RuntimeLogger::info('content_project.existing_article_repaired', [
+        RuntimeLogger::info('content_project.article_association_repaired', [
             'task_id' => $taskId,
             'article_id' => $articleId,
+            'previous_article_id' => $directId > 0 ? $directId : null,
             'matched_by' => $candidate['matched_by'] ?? null,
             'site_id' => $resolvedSiteId,
+            'task_type' => $type,
         ]);
 
         return new ContentProjectExistingArticleReconcileResult(
             status: ContentProjectExistingArticleReconcileResult::STATUS_REPAIRED,
             articleId: $articleId,
             matchedBy: (string) ($candidate['matched_by'] ?? ''),
-            reason: 'Repaired missing Existing Article association.',
+            reason: 'Repaired Content Project ↔ local article association.',
             persisted: true,
         );
     }
@@ -297,16 +312,22 @@ final class ContentProjectExistingArticleReconciler
     {
         $ordered = [];
 
-        foreach ($this->candidatesFromContentProjectRunMeta($taskId, $siteId) as $row) {
+        foreach ($this->candidatesFromAutomationOrigin($taskId, $siteId) as $row) {
             $ordered[] = $row;
         }
         foreach ($this->candidatesFromRunItems($taskId, $siteId) as $row) {
+            $ordered[] = $row;
+        }
+        foreach ($this->candidatesFromContentProjectRunMeta($taskId, $siteId) as $row) {
             $ordered[] = $row;
         }
         foreach ($this->candidatesFromPromptLinks($taskId, $siteId) as $row) {
             $ordered[] = $row;
         }
         foreach ($this->candidatesFromTaskEvents($taskId, $siteId) as $row) {
+            $ordered[] = $row;
+        }
+        foreach ($this->candidatesFromStaleTaskArticleAsWpPostId($task, $siteId) as $row) {
             $ordered[] = $row;
         }
 
@@ -323,6 +344,76 @@ final class ContentProjectExistingArticleReconciler
         }
 
         return $ordered;
+    }
+
+    /**
+     * @return list<array{article_id: int, matched_by: string}>
+     */
+    private function candidatesFromAutomationOrigin(int $taskId, ?int $siteId): array
+    {
+        if ($taskId <= 0 || ! $this->tableExists('article_meta')) {
+            return [];
+        }
+
+        $typeHits = SeoArticle::query()
+            ->when($siteId !== null && $siteId > 0, static fn ($q) => $q->where('site_id', $siteId))
+            ->whereHas('articleMetas', static function ($query): void {
+                $query->where('meta_key', 'automation_origin_type')
+                    ->where('meta_value', 'seo_project_task');
+            })
+            ->whereHas('articleMetas', static function ($query) use ($taskId): void {
+                $query->where('meta_key', 'automation_origin_id')
+                    ->where('meta_value', (string) $taskId);
+            })
+            ->orderByDesc('id')
+            ->limit(5)
+            ->pluck('id')
+            ->map(static fn (mixed $id): int => (int) $id)
+            ->all();
+
+        $out = [];
+        foreach ($typeHits as $articleId) {
+            if ($articleId <= 0 || ! $this->articleMatchesSite($articleId, $siteId)) {
+                continue;
+            }
+            $out[] = ['article_id' => $articleId, 'matched_by' => 'automation_origin.seo_project_task'];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Stale task.article_id that is actually a WordPress post id for this site.
+     *
+     * @return list<array{article_id: int, matched_by: string}>
+     */
+    private function candidatesFromStaleTaskArticleAsWpPostId(SeoProjectTask $task, ?int $siteId): array
+    {
+        $maybeWpPostId = (int) ($task->article_id ?? 0);
+        if ($maybeWpPostId <= 0 || $siteId === null || $siteId <= 0) {
+            return [];
+        }
+
+        // Only when the raw id is NOT a local article (already filtered by reconcileTask),
+        // treat it as a possible WP post id.
+        if (LocalArticleAssociationGuard::isLocalArticleId($maybeWpPostId, null)) {
+            return [];
+        }
+
+        $matches = SeoArticle::query()
+            ->where('site_id', $siteId)
+            ->whereWpPostId($maybeWpPostId)
+            ->limit(3)
+            ->pluck('id')
+            ->map(static fn (mixed $id): int => (int) $id)
+            ->all();
+
+        $out = [];
+        foreach ($matches as $articleId) {
+            $out[] = ['article_id' => $articleId, 'matched_by' => 'exact.wp_post_id'];
+        }
+
+        return $out;
     }
 
     private function resolveSiteId(SeoProjectTask $task, ?int $siteId): ?int
@@ -684,9 +775,10 @@ final class ContentProjectExistingArticleReconciler
     private function persistAssociation(SeoProjectTask $task, int $articleId): bool
     {
         $taskId = (int) $task->getKey();
+        $previousId = (int) ($task->article_id ?? 0);
 
         try {
-            DB::connection('omi_seo_ai')->transaction(function () use ($taskId, $articleId): void {
+            DB::connection('omi_seo_ai')->transaction(function () use ($taskId, $articleId, $previousId): void {
                 $conflict = SeoProjectTask::query()
                     ->where('article_id', $articleId)
                     ->whereKeyNot($taskId)
@@ -712,6 +804,23 @@ final class ContentProjectExistingArticleReconciler
                     $payload['connected_at'] = now();
                 }
                 SeoProjectTask::query()->whereKey($taskId)->update($payload);
+
+                // Heal current/latest run-item mirror only — do not rewrite historical rows indiscriminately.
+                $latestItem = SeoProjectRunItem::query()
+                    ->where('task_id', $taskId)
+                    ->orderByDesc('id')
+                    ->lockForUpdate()
+                    ->first();
+                if ($latestItem instanceof SeoProjectRunItem) {
+                    $itemArticleId = (int) ($latestItem->article_id ?? 0);
+                    $itemNeedsHeal = $itemArticleId <= 0
+                        || $itemArticleId === $previousId
+                        || LocalArticleAssociationGuard::resolveLocalArticleId($itemArticleId) === null;
+                    if ($itemNeedsHeal && $itemArticleId !== $articleId) {
+                        $latestItem->article_id = $articleId;
+                        $latestItem->save();
+                    }
+                }
             });
         } catch (\Throwable $e) {
             RuntimeLogger::warning('content_project.existing_article_repair_failed', [

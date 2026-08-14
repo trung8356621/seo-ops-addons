@@ -2890,6 +2890,8 @@ return [
         'run_settings_heading' => 'Run settings',
         'run_settings_generate_post_images' => 'Tự động tạo ảnh cho bài viết',
         'run_settings_generate_post_images_help' => 'Tự động tạo ảnh từ nội dung các phần trong bài viết. Có thể bỏ qua để hoàn thành bài nhanh hơn và thêm ảnh thủ công sau.',
+        'ops_generate_post_images' => 'Tự động tạo ảnh Typography sau khi tạo nội dung',
+        'ops_generate_post_images_help' => 'Áp dụng cho lần Generate/Rerun tiếp theo, cả bulk và item lẻ.',
         'run_settings_start' => 'Start run',
         'run_settings_cancel' => 'Cancel',
         'run_sync_all' => 'Sync all',

@@ -76,6 +76,12 @@ final class ViewSeoProject extends Page
 
     public bool $settingsOpen = false;
 
+    /**
+     * Page-session launch flag for post-run typography/post images.
+     * Applies to subsequent Generate / Rerun on this View page only (not a user preference).
+     */
+    public bool $generatePostImages = false;
+
     public bool $executionDetailsOpen = false;
 
     public ?int $executionDetailsTaskId = null;
@@ -554,7 +560,10 @@ final class ViewSeoProject extends Page
                     'class' => 'pointer-events-none animate-pulse',
                 ])
                 ->visible(fn (): bool => $this->runningCount > 0),
-            SeoProjectResource::makeGeneratePendingItemsAction($project),
+            SeoProjectResource::makeGeneratePendingItemsAction(
+                $project,
+                fn (): array => ['generate_post_images' => $this->generatePostImages],
+            ),
             Actions\Action::make('publishing_queue')
                 ->label(__('seo-content-ai::filament.projects.publishing_queue'))
                 ->icon('heroicon-o-queue-list')
@@ -665,7 +674,10 @@ final class ViewSeoProject extends Page
                                 ->send();
                         }
                     }),
-                SeoProjectResource::makeDevTestGeneratePendingItemsAction($project),
+                SeoProjectResource::makeDevTestGeneratePendingItemsAction(
+                    $project,
+                    fn (): array => ['generate_post_images' => $this->generatePostImages],
+                ),
             ])
                 ->label('More')
                 ->icon('heroicon-m-ellipsis-vertical')
@@ -1341,6 +1353,7 @@ final class ViewSeoProject extends Page
                 (int) $project->id,
                 [$taskId],
                 SeoProjectRun::MODE_FULL,
+                ['generate_post_images' => $this->generatePostImages],
             ));
 
             return;
@@ -1750,6 +1763,7 @@ final class ViewSeoProject extends Page
                 [
                     'task_ids' => $eligible,
                     'use_php_engine' => true,
+                    'generate_post_images' => $this->generatePostImages,
                 ],
             );
             Notification::make()

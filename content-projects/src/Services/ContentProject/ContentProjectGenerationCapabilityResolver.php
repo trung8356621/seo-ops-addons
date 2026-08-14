@@ -74,7 +74,7 @@ final class ContentProjectGenerationCapabilityResolver
 
         $existingArticleId = $articleResult->isUsable()
             ? (int) $articleResult->articleId
-            : ((int) ($task->article_id ?? 0) > 0 ? (int) $task->article_id : null);
+            : null;
 
         $evaluation = $this->staleness->evaluateTask($task);
         if (

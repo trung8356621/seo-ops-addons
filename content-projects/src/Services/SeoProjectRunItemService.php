@@ -13,6 +13,7 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRunItem;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\LocalArticleAssociationGuard;
 use Omnichannel\Addons\ContentProjects\Support\ProjectRunIdempotencyKeyGenerator;
 use Omnichannel\Addons\ContentProjects\Support\ProjectRunItemLegacyJsonPresenter;
 use Illuminate\Database\QueryException;
@@ -608,6 +609,25 @@ final class SeoProjectRunItemService
                 'article_id' => null,
             ];
         }
+
+        $siteId = (int) ($task->site_id ?? 0);
+        if ($siteId <= 0) {
+            $task->loadMissing('project');
+            $siteId = (int) ($task->project?->site_id ?? 0);
+        }
+        $localArticleId = LocalArticleAssociationGuard::resolveLocalArticleId(
+            $articleId,
+            $siteId > 0 ? $siteId : null,
+        );
+        if ($localArticleId === null) {
+            return [
+                'ok' => false,
+                'error_code' => ContentProjectErrorCode::ArticleRelationMissing->value,
+                'message' => 'article_id không phải local articles.id — từ chối bind.',
+                'article_id' => null,
+            ];
+        }
+        $articleId = $localArticleId;
 
         try {
             return DB::connection('omi_seo_ai')->transaction(function () use (

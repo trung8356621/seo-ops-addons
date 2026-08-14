@@ -41,19 +41,23 @@
                 detail: Object.assign({}, payload, { request_id: rid }),
             }));
 
-            $wire.prepare(Object.assign({}, payload, { _request_id: rid }))
-                .then(() => {
-                    if (rid !== this.requestId) {
-                        return;
-                    }
-                    this.clientPreparing = false;
-                })
-                .catch(() => {
-                    if (rid !== this.requestId) {
-                        return;
-                    }
-                    this.clientPreparing = false;
-                });
+            try {
+                $wire.prepare(Object.assign({}, payload, { _request_id: rid }))
+                    .then(() => {
+                        if (rid !== this.requestId) {
+                            return;
+                        }
+                        this.clientPreparing = false;
+                    })
+                    .catch(() => {
+                        if (rid !== this.requestId) {
+                            return;
+                        }
+                        this.clientPreparing = false;
+                    });
+            } catch (e) {
+                this.clientPreparing = false;
+            }
         },
         hideShellLocal() {
             if (! this.shellOpen) {
@@ -65,12 +69,20 @@
             window.dispatchEvent(new CustomEvent(this.shellCloseEvent));
         },
         closeShell() {
-            if ($wire.submitting || $wire.quickCreateSubmitting) {
-                return;
+            try {
+                if ($wire.submitting || $wire.quickCreateSubmitting) {
+                    return;
+                }
+            } catch (e) {
+                // Livewire mid-morph after success/reset — still close the shell.
             }
             this.requestId += 1;
             this.hideShellLocal();
-            $wire.close();
+            try {
+                $wire.close();
+            } catch (e) {
+                // ignore detached component
+            }
         },
         init() {
             window.addEventListener(this.openEvent, (event) => this.openShell(event.detail || {}));
@@ -111,11 +123,9 @@
                             {{ AssignToContentProjectContract::label() }}
                         </h3>
                         <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                            <span x-show="clientPreparing || $wire.preparing" x-text="selectedHint"></span>
-                            <span
-                                x-show="! clientPreparing && ! $wire.preparing"
-                                wire:key="assign-selected-count-{{ $this->uiState['selected_count'] }}"
-                            >{{ $this->uiState['selected_count'] }}</span>
+                            {{-- Use Alpine clientPreparing only — $wire.preparing throws after Livewire morph/reset. --}}
+                            <span x-show="clientPreparing" x-text="selectedHint"></span>
+                            <span x-show="! clientPreparing">{{ $this->uiState['selected_count'] }}</span>
                             {{ __('seo-content-ai::filament.articles_optimal.bulk_selected_suffix') }}
                         </p>
                     </div>
@@ -124,12 +134,12 @@
                         icon="heroicon-o-x-mark"
                         color="gray"
                         x-on:click="closeShell()"
-                        :tooltip="__('seo-content-ai::filament.articles_optimal.sidebar_collapse')"
+                        tooltip="{{ __('seo-content-ai::filament.articles_optimal.sidebar_collapse') }}"
                     />
                 </div>
 
                 <div class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
-                    <div x-show="clientPreparing || $wire.preparing" x-cloak class="space-y-3">
+                    <div x-show="clientPreparing" x-cloak class="space-y-3">
                         <div class="space-y-3 animate-pulse">
                             <div class="h-10 rounded-lg bg-gray-200 dark:bg-gray-800"></div>
                             <div class="h-10 rounded-lg bg-gray-200 dark:bg-gray-800"></div>
@@ -146,7 +156,7 @@
                     </div>
 
                     <div
-                        x-show="! clientPreparing && ! $wire.preparing"
+                        x-show="! clientPreparing"
                         x-cloak
                         class="flex min-h-0 flex-1 flex-col gap-4"
                     >
@@ -249,7 +259,7 @@
                                         icon="heroicon-o-plus"
                                         color="gray"
                                         wire:click="$set('quickCreateOpen', true)"
-                                        :tooltip="__('seo-content-ai::filament.article_list.quick_create_content_project')"
+                                        tooltip="{{ __('seo-content-ai::filament.article_list.quick_create_content_project') }}"
                                     />
                                 @endif
                             </div>
@@ -377,7 +387,7 @@
 
                 <div
                     class="border-t border-gray-200 px-4 py-3 dark:border-white/10"
-                    x-show="! clientPreparing && ! $wire.preparing"
+                    x-show="! clientPreparing"
                     x-cloak
                 >
                     <x-filament::button
@@ -388,7 +398,6 @@
                         wire:loading.attr="disabled"
                         wire:target="submit"
                         :disabled="! $this->uiState['can_submit']"
-                        x-bind:disabled="clientPreparing || $wire.preparing || ! $wire.uiState?.can_submit"
                     >
                         <span wire:loading.remove wire:target="submit">
                             {{ __('seo-content-ai::filament.article_list.assign') }}

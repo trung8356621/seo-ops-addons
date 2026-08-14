@@ -33,8 +33,8 @@ final class AssignToContentProjectDrawerRoutingTest extends TestCase
         $auditBlade = (string) file_get_contents(
             ProjectRoot::addonsPath().'/seo-content-ai-compat/resources/views/filament/pages/articles-optimal.blade.php'
         );
-        self::assertStringContainsString("'ignore_monthly_capacity' => true", $auditBlade);
         self::assertStringContainsString('ignore_monthly_capacity: true', $auditBlade);
+        self::assertStringContainsString('openAssignDrawer', $auditBlade);
     }
 
     public function test_article_title_and_keyword_overrides_reach_form_data_payload(): void

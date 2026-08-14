@@ -410,8 +410,10 @@ final class ContentProjectGenerationCapabilityReconcileTest extends TestCase
         self::assertStringContainsString('run_item.article_id', $src);
         self::assertStringContainsString('run_item.output_snapshot.article_id', $src);
         self::assertStringContainsString('task_event.article_id', $src);
+        self::assertStringContainsString('automation_origin.seo_project_task', $src);
         self::assertStringContainsString('Multiple candidate articles — refuse to guess', $src);
         self::assertStringContainsString('function diagnose', $src);
+        self::assertStringContainsString('function needsAssociationRepair', $src);
     }
 
     public function test_task_input_resolver_uses_reconciler_not_title_like_for_rewrite(): void

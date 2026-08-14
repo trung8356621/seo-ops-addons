@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\Agent\Automation\Support;
 
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\LocalArticleAssociationGuard;
 
 /**
  * Source-identity idempotency cho article.create — không dedup theo title.
@@ -52,12 +53,11 @@ final class ArticleCreateOriginResolver
                 }
             }
 
-            // Crash recovery: task.article_id trống nhưng origin meta đã ghi.
             $metaArticleId = $this->findByOriginMeta($originType, $originId, $siteId);
             if ($metaArticleId !== null) {
                 $article = SeoArticle::query()->find($metaArticleId);
                 if ($article instanceof SeoArticle) {
-                    if ($task instanceof SeoProjectTask && (int) ($task->article_id ?? 0) <= 0) {
+                    if ($task instanceof SeoProjectTask) {
                         $this->attachToProjectTaskIfNeeded($originId, $metaArticleId);
                     }
 
@@ -118,8 +118,8 @@ final class ArticleCreateOriginResolver
 
         $existing = (int) ($task->article_id ?? 0);
         if ($existing > 0 && $existing !== $articleId) {
-            // Stale missing article_id (backup restore) — cho phép gắn bài mới.
-            $existingStillAlive = SeoArticle::query()->whereKey($existing)->exists();
+            // Stale missing / non-local article_id (WP post id, restore) — allow rebind.
+            $existingStillAlive = LocalArticleAssociationGuard::isLocalArticleId($existing);
             if ($existingStillAlive) {
                 return;
             }

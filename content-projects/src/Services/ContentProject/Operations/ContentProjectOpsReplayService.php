@@ -131,6 +131,7 @@ final class ContentProjectOpsReplayService
                 projectRef: (string) ($payload['projectRef'] ?? $payload['project_ref'] ?? ''),
                 itemRefs: $this->normalizeItemRefs($payload),
                 mode: (string) ($payload['mode'] ?? 'full'),
+                settings: is_array($payload['settings'] ?? null) ? $payload['settings'] : [],
             ),
             ScheduleProjectItemsCommand::class => new ScheduleProjectItemsCommand(
                 projectRef: (string) ($payload['projectRef'] ?? $payload['project_ref'] ?? ''),

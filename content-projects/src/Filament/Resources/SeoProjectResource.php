@@ -1426,8 +1426,14 @@ class SeoProjectResource extends SeoPanelResource
         return static::createProjectWorkflowRun($project, $mode, $settings);
     }
 
-    public static function makeGeneratePendingItemsAction(SeoProject $project): \Filament\Actions\Action
-    {
+    /**
+     * @param  (\Closure(): array<string, mixed>)|null  $launchSettings
+     *         Optional page-level launch settings resolver (e.g. generate_post_images from ViewSeoProject).
+     */
+    public static function makeGeneratePendingItemsAction(
+        SeoProject $project,
+        ?\Closure $launchSettings = null,
+    ): \Filament\Actions\Action {
         return \Filament\Actions\Action::make('generate_pending_items')
             ->label(__('seo-content-ai::filament.projects.generate_working_items'))
             ->icon('heroicon-o-play')
@@ -1440,10 +1446,6 @@ class SeoProjectResource extends SeoPanelResource
             ->modalHeading(__('seo-content-ai::filament.projects.generate_pending_preview_heading'))
             ->modalDescription(fn () => static::generatePendingPreviewHtml($project))
             ->form([
-                Forms\Components\Checkbox::make('generate_post_images')
-                    ->label(__('seo-content-ai::filament.projects.run_settings_generate_post_images'))
-                    ->helperText(__('seo-content-ai::filament.projects.run_settings_generate_post_images_help'))
-                    ->default(false),
                 Forms\Components\Checkbox::make('technical_confirm_full_rerun')
                     ->label(__('seo-content-ai::filament.projects.generate_pending_technical_confirm'))
                     ->helperText(__('seo-content-ai::filament.projects.generate_pending_technical_confirm_help'))
@@ -1455,7 +1457,7 @@ class SeoProjectResource extends SeoPanelResource
                     })
                     ->default(false),
             ])
-            ->action(function (array $data) use ($project): void {
+            ->action(function (array $data) use ($project, $launchSettings): void {
                 try {
                     $preview = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectItemGenerationClassifier::class)
                         ->preview($project);
@@ -1486,11 +1488,13 @@ class SeoProjectResource extends SeoPanelResource
                         $taskIds = $preview->runnableTaskIds();
                     }
 
+                    $extra = is_callable($launchSettings) ? (array) $launchSettings() : [];
+
                     static::startGeneratePendingItems(
                         $project,
                         SeoProjectRun::MODE_FULL,
                         [
-                            'generate_post_images' => (bool) ($data['generate_post_images'] ?? false),
+                            'generate_post_images' => (bool) ($extra['generate_post_images'] ?? false),
                             'use_php_engine' => true,
                             'task_ids' => $taskIds,
                             'technical_confirm_full_rerun' => (bool) ($data['technical_confirm_full_rerun'] ?? false),
@@ -1551,7 +1555,13 @@ class SeoProjectResource extends SeoPanelResource
         return new HtmlString($html);
     }
 
-    public static function makeDevTestGeneratePendingItemsAction(SeoProject $project): \Filament\Actions\Action
+    /**
+     * @param  (\Closure(): array<string, mixed>)|null  $launchSettings
+     */
+    public static function makeDevTestGeneratePendingItemsAction(
+        SeoProject $project,
+        ?\Closure $launchSettings = null,
+    ): \Filament\Actions\Action
     {
         return \Filament\Actions\Action::make('test_generate_pending_items')
             ->label(__('seo-content-ai::filament.projects.test_run_workflow'))
@@ -1567,19 +1577,15 @@ class SeoProjectResource extends SeoPanelResource
                 $project,
                 SeoProjectWorkflowRunService::TEST_RUN_LIMIT,
             ))
-            ->form([
-                Forms\Components\Checkbox::make('generate_post_images')
-                    ->label(__('seo-content-ai::filament.projects.run_settings_generate_post_images'))
-                    ->helperText(__('seo-content-ai::filament.projects.run_settings_generate_post_images_help'))
-                    ->default(false),
-            ])
-            ->action(function (array $data) use ($project): void {
+            ->requiresConfirmation()
+            ->action(function () use ($project, $launchSettings): void {
                 try {
+                    $extra = is_callable($launchSettings) ? (array) $launchSettings() : [];
                     static::startGeneratePendingItems(
                         $project,
                         SeoProjectRun::MODE_TEST,
                         [
-                            'generate_post_images' => (bool) ($data['generate_post_images'] ?? false),
+                            'generate_post_images' => (bool) ($extra['generate_post_images'] ?? false),
                             'use_php_engine' => true,
                         ],
                     );

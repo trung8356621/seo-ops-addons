@@ -13,6 +13,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Contr
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectBusinessLock;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectPreviewToken;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectTenantGuard;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\LocalArticleAssociationGuard;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemIdentity;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -92,15 +93,24 @@ final class AddContentProjectItemsHandler extends AbstractPublishingHandler
                         isset($row['title']) ? (string) $row['title'] : (isset($row['post_title']) ? (string) $row['post_title'] : null),
                     );
 
+                    $projectSiteId = (int) ($project->site_id ?? 0);
+                    $rawArticleId = isset($row['article_id']) ? (int) $row['article_id'] : 0;
+                    $localArticleId = $rawArticleId > 0
+                        ? LocalArticleAssociationGuard::resolveLocalArticleId(
+                            $rawArticleId,
+                            $projectSiteId > 0 ? $projectSiteId : null,
+                        )
+                        : null;
+
                     $task = SeoProjectTask::query()->create([
                         'project_id' => (int) $project->getKey(),
-                        'site_id' => (int) ($project->site_id ?? 0),
+                        'site_id' => $projectSiteId,
                         'type' => $type,
                         'post_type' => (string) ($row['post_type'] ?? SeoProjectTask::POST_TYPE_ARTICLE),
                         'keyword' => $keyword !== '' ? $keyword : null,
                         'title' => $title !== '' ? $title : null,
                         'status' => SeoProjectTask::STATUS_PENDING,
-                        'article_id' => isset($row['article_id']) ? (int) $row['article_id'] : null,
+                        'article_id' => $localArticleId,
                         'target_date' => $row['target_date'] ?? now()->toDateString(),
                     ]);
                     $ids[] = (int) $task->getKey();

@@ -205,7 +205,17 @@ class AssignToContentProjectDrawer extends Component
 
     public function submit(): void
     {
-        if ($this->submitting || $this->preparing) {
+        if ($this->submitting) {
+            return;
+        }
+
+        if ($this->preparing) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.articles_optimal.assign_failed'))
+                ->body(__('seo-content-ai::filament.rank_group.loading'))
+                ->warning()
+                ->send();
+
             return;
         }
 
@@ -351,11 +361,9 @@ class AssignToContentProjectDrawer extends Component
             $missing = $articles->filter(static function (SeoArticle $article) use ($analyzer): bool {
                 return trim((string) ($analyzer->resolveFocusKeywordForArticle($article) ?? '')) === '';
             });
-            $this->needsFocusKeyword = $missing->count() === 1;
+            // Shared override applies to every selected article missing a focus keyword.
+            $this->needsFocusKeyword = $missing->count() >= 1;
             $this->showFocusKeyword = $this->needsFocusKeyword;
-            if ($missing->count() > 1) {
-                $this->errorMessage = __('seo-content-ai::filament.articles_optimal.assign_missing_keyword_bulk');
-            }
         }
 
         if (SeoAccessControl::isContentManager()) {
@@ -590,10 +598,6 @@ class AssignToContentProjectDrawer extends Component
 
     private function submitArticle(): void
     {
-        if ($this->errorMessage !== null && $this->needsFocusKeyword === false) {
-            return;
-        }
-
         $projectId = (int) ($this->projectId ?? 0);
         if ($projectId <= 0 || ! SeoProject::query()->whereKey($projectId)->exists()) {
             $this->errorMessage = __('seo-content-ai::filament.articles_optimal.assign_no_project');
@@ -608,6 +612,13 @@ class AssignToContentProjectDrawer extends Component
 
         $articles = $this->loadArticles($this->articleIds);
         if ($articles->isEmpty()) {
+            $this->errorMessage = __('seo-content-ai::filament.keyword.workspace_article_not_found');
+            Notification::make()
+                ->title(__('seo-content-ai::filament.articles_optimal.assign_failed'))
+                ->body($this->errorMessage)
+                ->warning()
+                ->send();
+
             return;
         }
 

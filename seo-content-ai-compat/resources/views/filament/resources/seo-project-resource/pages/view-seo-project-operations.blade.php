@@ -669,6 +669,25 @@
                 </button>
             </div>
             <x-seo-content-ai::content-project-filter-toolbar variant="content_project" :content-manager="$cmOps" />
+            @if ($cmOps && \Omnichannel\Addons\Seo\Support\SeoAccessControl::canManageContentProjectWorkflow())
+                <div class="mt-3 rounded-lg border border-gray-200 bg-white px-3 py-2 dark:border-white/10 dark:bg-gray-900/40">
+                    <label class="flex cursor-pointer items-start gap-2">
+                        <input
+                            type="checkbox"
+                            wire:model.live="generatePostImages"
+                            class="mt-0.5 rounded border-gray-300 text-primary-600 shadow-sm focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-800"
+                        />
+                        <span class="min-w-0">
+                            <span class="block text-sm font-medium text-gray-800 dark:text-gray-100">
+                                {{ __('seo-content-ai::filament.projects.ops_generate_post_images') }}
+                            </span>
+                            <span class="mt-0.5 block text-xs text-gray-500 dark:text-gray-400">
+                                {{ __('seo-content-ai::filament.projects.ops_generate_post_images_help') }}
+                            </span>
+                        </span>
+                    </label>
+                </div>
+            @endif
             @if ($onNeedsReviewFilter)
                 <div class="mt-2 flex flex-wrap items-center gap-2">
                     <button

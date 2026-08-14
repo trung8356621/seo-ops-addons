@@ -14,7 +14,7 @@ use Illuminate\Database\Query\Builder as QueryBuilder;
  * Archived Projects Vault list presentation helpers.
  *
  * Vault "Total" uses archived completed_articles (not raw item/total_articles).
- * Index summary aggregates live Article timestamps via historical archive items.
+ * Index summary aggregates live seo_article_profiles timestamps via historical archive items.
  *
  * @phpstan-type IndexSummary array{
  *     total: int,
@@ -46,27 +46,29 @@ final class ContentProjectArchiveVaultListPresenter
         $archivesTable = $query->getModel()->getTable();
         $itemsTable = (new SeoProjectArchiveItem)->getTable();
         $articlesTable = (new SeoArticle)->getTable();
+        // indexed_at lives on seo_article_profiles (dropped from articles).
+        $profilesTable = 'seo_article_profiles';
 
         $query->select("{$archivesTable}.*");
 
         $query->selectSub(
-            self::archiveArticlesJoinSubquery($itemsTable, $articlesTable, $archivesTable)
+            self::archiveArticlesJoinSubquery($itemsTable, $articlesTable, $archivesTable, $profilesTable)
                 ->selectRaw("COUNT(DISTINCT {$articlesTable}.id)")
-                ->whereNotNull("{$articlesTable}.indexed_at"),
+                ->whereNotNull("{$profilesTable}.indexed_at"),
             'indexed_articles_count',
         );
 
         $query->selectSub(
-            self::archiveArticlesJoinSubquery($itemsTable, $articlesTable, $archivesTable)
+            self::archiveArticlesJoinSubquery($itemsTable, $articlesTable, $archivesTable, $profilesTable)
                 ->selectRaw("COUNT(DISTINCT {$articlesTable}.id)")
-                ->whereNotNull("{$articlesTable}.previous_indexed_at"),
+                ->whereNotNull("{$profilesTable}.previous_indexed_at"),
             'reindexed_articles_count',
         );
 
         $query->selectSub(
-            self::archiveArticlesJoinSubquery($itemsTable, $articlesTable, $archivesTable)
-                ->selectRaw("MAX({$articlesTable}.indexed_at)")
-                ->whereNotNull("{$articlesTable}.indexed_at"),
+            self::archiveArticlesJoinSubquery($itemsTable, $articlesTable, $archivesTable, $profilesTable)
+                ->selectRaw("MAX({$profilesTable}.indexed_at)")
+                ->whereNotNull("{$profilesTable}.indexed_at"),
             'latest_indexed_at',
         );
 
@@ -134,11 +136,13 @@ final class ContentProjectArchiveVaultListPresenter
         string $itemsTable,
         string $articlesTable,
         string $archivesTable,
+        string $profilesTable,
     ): QueryBuilder {
         return SeoProjectArchiveItem::query()
             ->getQuery()
             ->from($itemsTable)
             ->join($articlesTable, "{$articlesTable}.id", '=', "{$itemsTable}.article_id")
+            ->leftJoin($profilesTable, "{$profilesTable}.article_id", '=', "{$articlesTable}.id")
             ->whereColumn("{$itemsTable}.seo_project_archive_id", "{$archivesTable}.id")
             ->whereNotNull("{$itemsTable}.article_id")
             // Raw join bypasses SeoArticle SoftDeletes; keep parity with preview article load.

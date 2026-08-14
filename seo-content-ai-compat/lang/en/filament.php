@@ -2917,6 +2917,8 @@ return [
         'run_settings_heading' => 'Run settings',
         'run_settings_generate_post_images' => 'Automatically generate images for posts',
         'run_settings_generate_post_images_help' => 'Automatically generate images from section content. Skip to finish faster and add images manually later.',
+        'ops_generate_post_images' => 'Automatically generate Typography images after content is created',
+        'ops_generate_post_images_help' => 'Applies to the next Generate/Rerun launch, both bulk and single-item actions.',
         'run_settings_start' => 'Start run',
         'run_settings_cancel' => 'Cancel',
         'run_sync_all' => 'Sync all',

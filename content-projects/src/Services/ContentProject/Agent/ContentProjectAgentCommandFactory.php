@@ -99,6 +99,7 @@ final class ContentProjectAgentCommandFactory
                 $this->projectRef($input),
                 $this->itemRefs($input),
                 (string) ($input['mode'] ?? 'full'),
+                is_array($input['settings'] ?? null) ? $input['settings'] : [],
             ),
             'content_project.resume_failed_step' => new ResumeProjectItemFromFailedStepCommand(
                 $this->projectRef($input),

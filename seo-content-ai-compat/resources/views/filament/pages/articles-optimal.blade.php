@@ -74,7 +74,7 @@
         assignableSelectedIds() {
             return this.selectedArticleIds
                 .map(Number)
-                .filter((id) => id > 0 && !! this.articleFocusMap[id]);
+                .filter((id) => id > 0);
         },
         hasSelectedMissingKeyword() {
             return this.selectedArticleIds
@@ -104,7 +104,7 @@
             }
             const needsFocus = articleId
                 ? ! this.articleFocusMap[Number(articleId)]
-                : false;
+                : this.hasSelectedMissingKeyword();
             window.dispatchEvent(new CustomEvent(this.assignOpenEvent, {
                 detail: {
                     mode: 'article',
@@ -135,11 +135,6 @@
         },
         runAssignSelected() {
             this.bulkMenuOpen = false;
-            if (this.hasSelectedMissingKeyword()) {
-                this.$wire.notifyAssignBlockedMissingKeyword();
-
-                return;
-            }
             if (this.assignableSelectedIds().length === 0) {
                 return;
             }
@@ -365,7 +360,6 @@
                                 type="button"
                                 class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-200 dark:hover:bg-white/5"
                                 x-on:click="runAssignSelected()"
-                                x-bind:title="hasSelectedMissingKeyword() ? @js(__('seo-content-ai::filament.articles_optimal.assign_missing_keyword_bulk')) : ''"
                             >
                                 <x-filament::icon icon="heroicon-o-folder-plus" class="h-4 w-4 shrink-0 text-warning-600" />
                                 {{ \Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectContract::label() }}
@@ -462,21 +456,15 @@
                                         <div class="flex flex-wrap gap-2">
                                             <x-filament::icon-button tag="a" href="{{ $row['edit_url'] }}" icon="heroicon-o-pencil-square" size="sm" color="gray" tooltip="{{ __('seo-content-ai::filament.articles_optimal.action_edit') }}" label="{{ __('seo-content-ai::filament.articles_optimal.action_open_article') }}" />
                                             <x-filament::icon-button icon="heroicon-o-eye-slash" size="sm" color="warning" x-on:click="runSkipRow({{ (int) $row['id'] }})" tooltip="{{ __('seo-content-ai::filament.articles_optimal.action_skip_audit') }}" />
-                                            <x-content::assign-to-content-project-trigger
-                                                mode="article"
-                                                source="seo_audit"
-                                                :article-ids="[(int) $row['id']]"
-                                                :site-ids="$selectedSiteId > 0 ? [$selectedSiteId] : []"
-                                                :defaults="['type' => 'rewrite']"
-                                                :options="[
-                                                    'ignore_monthly_capacity' => true,
-                                                    'detect_missing_focus_keyword' => true,
-                                                    'show_focus_keyword' => empty($row['has_focus_keyword']),
-                                                    'show_quick_create' => false,
-                                                    'show_article_fields' => true,
-                                                    'show_keyword_override' => false,
-                                                    'show_title_override' => false,
-                                                ]"
+                                            <x-filament::icon-button
+                                                type="button"
+                                                icon="{{ \Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectContract::ICON }}"
+                                                size="sm"
+                                                color="{{ \Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectContract::COLOR }}"
+                                                tooltip="{{ \Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectContract::label() }}"
+                                                label="{{ \Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectContract::label() }}"
+                                                data-assign-content-project-trigger
+                                                x-on:click="openAssignDrawer({{ (int) $row['id'] }})"
                                             />
                                         </div>
                                     </td>

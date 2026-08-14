@@ -245,7 +245,14 @@ export function SharedMediaPicker({
     }, [selectedItems, selectedKeys, tabStates, uiScopeKey]);
 
     const fetchRemote = useCallback(async (apiTab, tabId, nextPage, nextSearch, { skipCache = false } = {}) => {
-        if (!id) return;
+        if (!id) {
+            patchTabState(tabId, {
+                loading: false,
+                error: 'missing_article_id',
+                images: [],
+            });
+            return;
+        }
         const key = cacheKey(id, tabId, nextPage, nextSearch);
         const cached = readCachedMedia(key);
         const fresh = cached && (Date.now() - cached.loadedAt) <= MEDIA_PICKER_CACHE_TTL_MS;
@@ -260,7 +267,13 @@ export function SharedMediaPicker({
             try {
                 await mediaPickerInFlight.get(key);
             } catch {
-                // ignore
+                // ignore — primary request owns error state
+            }
+            const settled = readCachedMedia(key);
+            if (settled) {
+                applyCachedToTab(tabId, settled);
+            } else {
+                patchTabState(tabId, { loading: false });
             }
             return;
         }
@@ -389,19 +402,27 @@ export function SharedMediaPicker({
             });
         };
 
+        let settled = false;
         const promise = new Promise((resolve) => {
-            window.addEventListener('seo-editor-images-catalog', (event) => {
-                onCatalog(event);
+            const finish = () => {
+                if (settled) return;
+                settled = true;
                 resolve();
-            }, { once: true });
+            };
+            const onEvent = (event) => {
+                onCatalog(event);
+                finish();
+            };
+            window.addEventListener('seo-editor-images-catalog', onEvent, { once: true });
             window.dispatchEvent(new CustomEvent('seo-request-editor-images-catalog'));
+            window.setTimeout(() => {
+                window.removeEventListener('seo-editor-images-catalog', onEvent);
+                mediaPickerInFlight.delete(key);
+                patchTabState(tabId, { loading: false });
+                finish();
+            }, 2500);
         });
         mediaPickerInFlight.set(key, promise);
-        window.setTimeout(() => {
-            window.removeEventListener('seo-editor-images-catalog', onCatalog);
-            mediaPickerInFlight.delete(key);
-            patchTabState(tabId, { loading: false });
-        }, 2500);
     }, [applyCachedToTab, id, patchTabState]);
 
     const loadTab = useCallback((nextTab, nextPage, nextSearch, options = {}) => {

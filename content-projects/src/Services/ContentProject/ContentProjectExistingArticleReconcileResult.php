@@ -5,7 +5,8 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject;
 
 /**
- * Result of safe Existing Article reconciliation for rewrite/improve items.
+ * Result of Content Project ↔ local SeoArticle association reconciliation
+ * (CREATE / REWRITE / IMPROVE; missing or stale article_id).
  */
 final class ContentProjectExistingArticleReconcileResult
 {

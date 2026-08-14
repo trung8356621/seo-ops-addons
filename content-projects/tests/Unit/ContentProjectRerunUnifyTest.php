@@ -176,8 +176,9 @@ final class ContentProjectRerunUnifyTest extends TestCase
 
     public function test_command_shapes(): void
     {
-        $full = new RerunProjectItemsCommand(1, [2, 3], 'full');
+        $full = new RerunProjectItemsCommand(1, [2, 3], 'full', ['generate_post_images' => true]);
         self::assertSame('content_project.rerun', $full->name());
+        self::assertTrue((bool) ($full->settings['generate_post_images'] ?? false));
 
         $step = new RerunProjectItemStepCommand(
             1,

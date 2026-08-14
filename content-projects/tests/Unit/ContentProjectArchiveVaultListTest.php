@@ -100,11 +100,14 @@ final class ContentProjectArchiveVaultListTest extends TestCase
         self::assertStringContainsString('reindexed_articles_count', $source);
         self::assertStringContainsString('latest_indexed_at', $source);
         self::assertStringContainsString('seo_project_archive_id', $source);
+        self::assertStringContainsString('seo_article_profiles', $source);
         self::assertStringContainsString('indexed_at', $source);
         self::assertStringContainsString('previous_indexed_at', $source);
         self::assertStringContainsString('archiveArticlesJoinSubquery', $source);
         self::assertStringContainsString('COUNT(DISTINCT', $source);
         self::assertStringContainsString('deleted_at', $source);
+        self::assertStringNotContainsString('articles.indexed_at', $source);
+        self::assertStringNotContainsString('articles.previous_indexed_at', $source);
         self::assertStringNotContainsString("where('title'", $source);
     }
 
