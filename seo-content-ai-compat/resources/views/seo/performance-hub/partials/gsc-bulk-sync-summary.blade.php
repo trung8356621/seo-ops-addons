@@ -50,7 +50,7 @@
                             <td>{{ $row['property_url'] ?? '—' }}</td>
                             <td>{{ __('seo-content-ai::filament.performance_hub.mapping_status_'.($row['mapping_status'] ?? 'unknown')) }}</td>
                             <td>{{ __('seo-content-ai::filament.performance_hub.sync_status_'.($row['sync_status'] ?? 'unknown')) }}</td>
-                            <td>{{ $row['last_synced_at'] ?? '—' }}</td>
+                            <td>{{ ! empty($row['last_synced_at']) ? (\Omnichannel\Addons\Content\Support\SystemDateTime::formatDateTime($row['last_synced_at']) ?? $row['last_synced_at']) : '—' }}</td>
                             <td class="performance-hub-actions">
                                 @if (($row['sync_status'] ?? '') === 'failed')
                                     <button type="button" wire:click="retryGscSyncForSite({{ (int) ($row['site_id'] ?? 0) }})" wire:loading.attr="disabled" wire:target="retryGscSyncForSite" class="performance-hub-link-btn">

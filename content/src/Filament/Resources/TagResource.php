@@ -34,6 +34,8 @@ class TagResource extends SeoPanelResource
 
     protected static ?int $navigationSort = 4;
 
+    protected static bool $shouldRegisterNavigation = false;
+
     public static function canViewAny(): bool
     {
         return SeoAccessControl::canAccessPlannerFeatures();

@@ -33,7 +33,12 @@ final readonly class CapabilityManifestData
 
         $capabilities = [];
         $rawCaps = is_array($payload['capabilities'] ?? null) ? $payload['capabilities'] : [];
-        foreach (SiteSyncSchema::CAPABILITY_KEYS as $key) {
+        $keys = array_values(array_unique(array_merge(
+            SiteSyncSchema::CAPABILITY_KEYS,
+            SiteSyncSchema::LOCAL_ENGINE_CAPABILITY_KEYS,
+            array_keys($rawCaps),
+        )));
+        foreach ($keys as $key) {
             $entry = is_array($rawCaps[$key] ?? null) ? $rawCaps[$key] : [];
             $capabilities[$key] = [
                 'available' => (bool) ($entry['available'] ?? false),
@@ -56,6 +61,21 @@ final readonly class CapabilityManifestData
     public function isAvailable(string $capability): bool
     {
         return (bool) ($this->capabilities[$capability]['available'] ?? false);
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function localEngineGaps(): array
+    {
+        $missing = [];
+        foreach (SiteSyncSchema::LOCAL_ENGINE_CAPABILITY_KEYS as $key) {
+            if (! $this->isAvailable($key)) {
+                $missing[] = $key;
+            }
+        }
+
+        return $missing;
     }
 
     public function provider(string $capability): ?string

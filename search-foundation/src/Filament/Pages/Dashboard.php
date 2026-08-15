@@ -31,6 +31,7 @@ class Dashboard extends BaseDashboard
     /** @var array<string, mixed> */
     protected $listeners = [
         'seoGlobalSiteChanged' => '$refresh',
+        'domain-context-changed' => '$refresh',
     ];
 
     public function mount(): void

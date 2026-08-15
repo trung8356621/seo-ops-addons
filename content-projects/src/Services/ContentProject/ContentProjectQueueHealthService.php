@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject;
 
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\OperationalStatusFormatter;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\OperationalStatusParser;
 use Omnichannel\Addons\Seo\Support\SeoConnectionContext;
 use App\Models\SeoDatabaseConnection;
 use Illuminate\Support\Facades\Cache;
@@ -149,10 +151,10 @@ final class ContentProjectQueueHealthService
             $scanNoProgress ??= $this->cacheString(self::CACHE_SCAN_NO_PROGRESS);
         }
 
-        $minutesAgo = $this->minutesSinceIsoPrefix($lastScanner ?? $lastRun);
-        $successMinutesAgo = $this->minutesSinceIsoPrefix($lastSuccess);
-        $publisherMinutesAgo = $this->minutesSinceIsoPrefix($lastPublisher);
-        $bootstrapFailMinutesAgo = $this->minutesSinceIsoPrefix($lastBootstrapFailure);
+        $minutesAgo = $this->minutesSince($lastScanner ?? $lastRun);
+        $successMinutesAgo = $this->minutesSince($lastSuccess);
+        $publisherMinutesAgo = $this->minutesSince($lastPublisher);
+        $bootstrapFailMinutesAgo = $this->minutesSince($lastBootstrapFailure);
 
         $overdueScheduled = 0;
         $overdueRetry = 0;
@@ -188,25 +190,26 @@ final class ContentProjectQueueHealthService
 
         $connectionBootstrapOk = ! $recentBootstrapFailure;
 
+        $statusFormatter = new OperationalStatusFormatter();
         if ($recentBootstrapFailure) {
             $status = 'connection_failed';
-            $label = 'Publishing connection failed';
+            $label = $statusFormatter->runnerLabel('connection_failed');
         } elseif (! $schedulerHeartbeat) {
             $status = 'stopped';
-            $label = 'Runner stopped — scanner heartbeat stale';
+            $label = $statusFormatter->runnerLabel('stopped');
         } elseif ($hasOverdue) {
             $status = 'degraded';
-            $label = $this->buildOverdueLabel($dueTotal, $overdueScheduled, $overdueRetry, $noProgressReason, $noProgressCounts);
+            $label = $statusFormatter->overdueLabel($dueTotal, $overdueScheduled, $overdueRetry, $noProgressReason, $noProgressCounts);
             $runnerHealthy = false;
         } elseif ($runnerHealthy) {
             $status = 'healthy';
-            $label = 'Runner healthy';
+            $label = $statusFormatter->runnerLabel('healthy');
         } elseif ($schedulerHeartbeat) {
             $status = 'degraded';
-            $label = 'Scheduler heartbeat only — no successful publish processing';
+            $label = $statusFormatter->runnerLabel('degraded');
         } else {
             $status = 'stale';
-            $label = 'Runner stale / unavailable';
+            $label = $statusFormatter->runnerLabel('stale');
         }
 
         return [
@@ -298,45 +301,6 @@ final class ContentProjectQueueHealthService
         );
     }
 
-    /**
-     * @param  array<string, int>  $skipReasonCounts
-     */
-    private function buildOverdueLabel(
-        int $dueTotal,
-        int $overdueScheduled,
-        int $overdueRetry,
-        ?string $dominantReason,
-        array $skipReasonCounts,
-    ): string {
-        if ($dominantReason !== null && $dominantReason !== '' && $dueTotal > 0) {
-            $reasonLabel = match ($dominantReason) {
-                'active_publish', 'active_lease' => 'đang xuất bản',
-                'stale_claim' => 'stale claim',
-                'awaiting_worker' => 'đang chờ worker',
-                'idempotent_replay', 'stale_operation' => 'stale operation',
-                'lock_busy' => 'lock bận',
-                'invalid_status' => 'status không hợp lệ',
-                'dispatch_failed' => 'dispatch thất bại',
-                default => $dominantReason,
-            };
-            $blocked = (int) ($skipReasonCounts[$dominantReason] ?? $dueTotal);
-
-            return sprintf(
-                '%d bài quá hạn chưa được xử lý — %d bị chặn bởi %s.',
-                $dueTotal,
-                $blocked,
-                $reasonLabel,
-            );
-        }
-
-        return sprintf(
-            '%d bài quá hạn chưa được xử lý (%d scheduled + %d retry).',
-            $dueTotal,
-            $overdueScheduled,
-            $overdueRetry,
-        );
-    }
-
     public function rememberSuccess(int $count = 1, ?int $connectionId = null): void
     {
         $payload = now()->toIso8601String().'|count='.$count;
@@ -399,16 +363,15 @@ final class ContentProjectQueueHealthService
         return $value;
     }
 
-    private function minutesSinceIsoPrefix(?string $value): ?int
+    private function minutesSince(?string $value): ?int
     {
-        if ($value === null || $value === '') {
+        $occurredAt = OperationalStatusParser::occurredAt($value);
+        if ($occurredAt === null) {
             return null;
         }
 
-        $iso = explode('|', $value, 2)[0];
-
         try {
-            return (int) abs(now()->diffInMinutes(\Carbon\Carbon::parse($iso)));
+            return (int) abs(now()->diffInMinutes($occurredAt));
         } catch (\Throwable) {
             return null;
         }

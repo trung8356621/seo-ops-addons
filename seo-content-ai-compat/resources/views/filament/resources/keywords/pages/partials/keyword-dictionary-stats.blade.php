@@ -17,12 +17,6 @@
             'tone' => 'success',
             'icon' => 'heroicon-o-check-circle',
         ],
-        'needs_optimization' => [
-            'label' => __('seo-content-ai::filament.keyword.stat_needs_optimization'),
-            'value' => $stats['needs_optimization'] ?? 0,
-            'tone' => 'warning',
-            'icon' => 'heroicon-o-exclamation-triangle',
-        ],
         'errors' => [
             'label' => __('seo-content-ai::filament.keyword.stat_errors'),
             'value' => $stats['errors'] ?? 0,

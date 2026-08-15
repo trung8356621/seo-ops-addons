@@ -32,7 +32,7 @@ import {
     prepareEditorExitAfterSyncEnqueue,
     syncArticleToWordPressViaApi,
 } from './utils/articleEditorApi';
-import { seoArticleApiFetch } from '@seo-addon/utils/seoArticleApi.js';
+import { loadArticleEditorSeoLazy } from './utils/articleEditorSeoLazy';
 import {
     beginExplicitEditorSave,
     endExplicitEditorSave,
@@ -1292,13 +1292,12 @@ function mountArticleEditorPage() {
     }
 
     const livewireId = String(window.__SEO_EDIT_ARTICLE_LIVEWIRE_ID__ ?? '');
-    // One React root per DOM node — skip identical remount for same Livewire page id.
-    if (
-        rootElement.__seoArticleReactRoot
-        && rootElement.__seoMountedLivewireId === livewireId
-        && livewireId !== ''
-    ) {
-        return;
+    // One React root per DOM node. Empty Livewire id still counts as "already mounted"
+    // so Filament livewire:navigated on first paint cannot abort in-flight lazy GETs.
+    if (rootElement.__seoArticleReactRoot) {
+        if (livewireId === '' || rootElement.__seoMountedLivewireId === livewireId) {
+            return;
+        }
     }
 
     // Phase 3: cleanup idle timers/fetches from previous navigate before remount.
@@ -1496,8 +1495,10 @@ function mountArticleEditorPage() {
             bootstrap.lazyEndpoints?.settings
             || `/api/seo/articles/${articleId}/editor/settings`;
 
-        const idleController = new AbortController();
-        pageCleanups.push(() => idleController.abort());
+        let idleCancelled = false;
+        pageCleanups.push(() => {
+            idleCancelled = true;
+        });
 
         const schedule = typeof requestIdleCallback === 'function'
             ? (cb) => {
@@ -1514,16 +1515,17 @@ function mountArticleEditorPage() {
             };
 
         schedule(() => {
-            if (idleController.signal.aborted) {
+            if (idleCancelled) {
                 return;
             }
             void (async () => {
                 try {
-                    const [seoRes, settingsRes] = await Promise.all([
-                        seoArticleApiFetch(seoSummaryUrl, { signal: idleController.signal }),
-                        seoArticleApiFetch(settingsUrl, { signal: idleController.signal }),
-                    ]);
-                    if (idleController.signal.aborted) {
+                    const [seoRes, settingsRes] = await loadArticleEditorSeoLazy({
+                        articleId,
+                        seoSummaryUrl,
+                        settingsUrl,
+                    });
+                    if (idleCancelled) {
                         return;
                     }
                     if (settingsRes.response.ok && settingsRes.data?.success !== false) {
@@ -1566,8 +1568,15 @@ registerFilamentHeaderActionsPersistence();
 if (!window.__seoArticleEditorNavigatedBound) {
     window.__seoArticleEditorNavigatedBound = true;
     document.addEventListener('livewire:navigated', () => {
-        // Force remount on navigate — clear same-id guard so new DOM gets a fresh root.
         const rootElement = document.getElementById('seo-article-editor-root');
+        const livewireId = String(window.__SEO_EDIT_ARTICLE_LIVEWIRE_ID__ ?? '');
+        // Same Filament edit page often fires navigated after first paint — do not remount.
+        if (
+            rootElement?.__seoArticleReactRoot
+            && (livewireId === '' || rootElement.__seoMountedLivewireId === livewireId)
+        ) {
+            return;
+        }
         if (rootElement) {
             rootElement.__seoMountedLivewireId = null;
         }

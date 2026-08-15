@@ -13,6 +13,10 @@ final class SiteSyncSchema
 
     public const MIN_BRIDGE_VERSION = '1.0.64';
 
+    public const FIELDS_METADATA = 'metadata';
+
+    public const FIELDS_FULL = 'full';
+
     public const MODE_SNAPSHOT = 'snapshot';
 
     public const MODE_DELTA = 'delta';
@@ -61,6 +65,18 @@ final class SiteSyncSchema
     ];
 
     /** @var list<string> */
+    public const LOCAL_ENGINE_CAPABILITY_KEYS = [
+        'content_manifest',
+        'metadata_only_articles',
+        'heartbeat',
+        'cache_purge',
+        'link_health_batch',
+        'broken_links_v2',
+        'link_graph',
+        'operation_idempotency',
+    ];
+
+    /** @var list<string> */
     public const ORCHESTRATOR_STEPS = [
         'detect_capability',
         'request_snapshot_delta',
@@ -68,8 +84,6 @@ final class SiteSyncSchema
         'sync_url_catalog',
         'sync_provider_keywords',
         'missing_capability_fallback',
-        'validate_changed_links',
-        'score_missing_articles',
         'finalize',
     ];
 

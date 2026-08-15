@@ -275,6 +275,7 @@ final class ContentProjectCommandBusRegistrar
             \Omnichannel\Addons\SiteSync\Services\Application\Commands\DiscoverSiteCommand::class => \Omnichannel\Addons\SiteSync\Services\Application\Handlers\SiteSyncCommandHandler::class,
             \Omnichannel\Addons\SiteSync\Services\Application\Commands\SyncSiteKeywordsCommand::class => \Omnichannel\Addons\SiteSync\Services\Application\Handlers\SiteSyncCommandHandler::class,
             \Omnichannel\Addons\SiteSync\Services\Application\Commands\SyncSiteLinksCommand::class => \Omnichannel\Addons\SiteSync\Services\Application\Handlers\SiteSyncCommandHandler::class,
+            \Omnichannel\Addons\SiteSync\Services\Application\Commands\RunLinkHealthCommand::class => \Omnichannel\Addons\SiteSync\Services\Application\Handlers\SiteSyncCommandHandler::class,
             \Omnichannel\Addons\SiteSync\Services\Application\Commands\DiscoverSiteContactsCommand::class => \Omnichannel\Addons\SiteSync\Services\Application\Handlers\SiteSyncCommandHandler::class,
             \Omnichannel\Addons\SiteSync\Services\Application\Commands\RefreshSiteSnapshotCommand::class => \Omnichannel\Addons\SiteSync\Services\Application\Handlers\SiteSyncCommandHandler::class,
             \Omnichannel\Addons\SiteSync\Services\Application\Commands\ResumeSiteSyncCommand::class => \Omnichannel\Addons\SiteSync\Services\Application\Handlers\SiteSyncCommandHandler::class,

@@ -24,10 +24,12 @@ use App\Support\RuntimeLogger;
 use Filament\Actions;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\Page;
+use Omnichannel\Addons\Seo\Livewire\Concerns\RefreshesOnDomainContextChanged;
 use Filament\Support\Enums\MaxWidth;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Builder;
+use Livewire\Attributes\On;
 use Livewire\WithPagination;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -36,6 +38,7 @@ use Throwable;
 final class ContentProjectArchive extends Page
 {
     use WithPagination;
+    use RefreshesOnDomainContextChanged;
 
     protected static string $resource = SeoProjectResource::class;
 
@@ -88,9 +91,27 @@ final class ContentProjectArchive extends Page
 
         abort_unless(SeoAccessControl::canViewProjectArchives(), 403);
 
+        $this->applyDomainContextScope();
+    }
+
+    #[On('domain-context-changed')]
+    #[On('seoGlobalSiteChanged')]
+    public function onDomainContextChanged(mixed $domain = null, mixed $siteId = null): void
+    {
+        $this->applyDomainContextScope();
+        $this->resetPage();
+    }
+
+    private function applyDomainContextScope(): void
+    {
         $globalSiteId = SeoAccessControl::globalSiteId();
         if ($globalSiteId !== null && $globalSiteId > 0) {
-            abort_unless(SeoAccessControl::canAccessSite($globalSiteId), 403);
+            if (! SeoAccessControl::canAccessSite($globalSiteId)) {
+                $this->siteId = 0;
+                $this->scopedSiteIds = SeoAccessControl::accessibleSiteIds();
+
+                return;
+            }
 
             $this->siteId = $globalSiteId;
             $this->scopedSiteIds = [$globalSiteId];

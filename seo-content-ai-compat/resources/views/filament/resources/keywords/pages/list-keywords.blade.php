@@ -34,6 +34,9 @@
                 @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-dictionary-header')
             @endif
             @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-dictionary-stats')
+            @if ($this->getKeywordWorkspaceMode() !== 'focus')
+                @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-classification-summary')
+            @endif
         @elseif ($subheading = $this->getSubheading())
             <p class="text-sm text-gray-500 dark:text-gray-400">{{ $subheading }}</p>
         @endif

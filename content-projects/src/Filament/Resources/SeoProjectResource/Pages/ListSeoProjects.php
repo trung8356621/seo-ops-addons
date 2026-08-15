@@ -12,9 +12,12 @@ use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Filament\Actions;
 use Filament\Resources\Pages\ListRecords;
 use Illuminate\Database\Eloquent\Builder;
+use Omnichannel\Addons\Seo\Livewire\Concerns\RefreshesOnDomainContextChanged;
 
 class ListSeoProjects extends ListRecords
 {
+    use RefreshesOnDomainContextChanged;
+
     protected static string $resource = SeoProjectResource::class;
 
     protected static string $view = 'seo-content-ai::filament.resources.seo-project-resource.pages.list-seo-projects';

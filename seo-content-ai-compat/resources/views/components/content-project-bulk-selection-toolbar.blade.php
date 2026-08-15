@@ -77,6 +77,15 @@
                             wire:click="bulkRetryPublish"
                             @click="publishOpen = false"
                         >Thử lại ngay</button>
+                        <button
+                            type="button"
+                            role="menuitem"
+                            class="block w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-800"
+                            wire:click="bulkReobserveWordPressStatus"
+                            wire:loading.attr="disabled"
+                            wire:target="bulkReobserveWordPressStatus"
+                            @click="publishOpen = false"
+                        >Kiểm tra lại trạng thái</button>
                     </div>
                 </div>
 

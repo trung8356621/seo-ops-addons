@@ -32,14 +32,5 @@
         "agent.workspace",
         "social.publish",
         "commerce.product"
-    ],
-    "external_plugins": [
-        {
-            "slug": "omi-seo-ai-bridge",
-            "label": "TVH SEO AI Bridge",
-            "platform": "wordpress",
-            "package_prefix": "omi-seo-ai-bridge",
-            "metadata_option_key": "wp_plugin_bridge_info"
-        }
     ]
 }

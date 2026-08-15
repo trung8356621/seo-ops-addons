@@ -28,10 +28,7 @@ final class WordPressSiteSyncClient
         }
 
         try {
-            $response = Http::timeout(30)
-                ->acceptJson()
-                ->withToken($auth['token'])
-                ->get($auth['base'].'/wp-json/omi-seo-ai/v1/capabilities');
+            $response = $this->getWpRest($auth['base'], $auth['token'], '/omi-seo-ai/v1/capabilities', 30);
 
             if (! $response->successful()) {
                 return [
@@ -64,6 +61,103 @@ final class WordPressSiteSyncClient
                 'error' => $e->getMessage(),
             ]);
 
+            return ['success' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * Lightweight liveness — no analysis.
+     *
+     * @return array{success: bool, message: string, heartbeat?: array<string, mixed>}
+     */
+    public function fetchHeartbeat(Site $site): array
+    {
+        $auth = $this->authContext($site);
+        if ($auth['error'] !== null) {
+            return ['success' => false, 'message' => $auth['error']];
+        }
+
+        try {
+            $response = $this->getWpRest($auth['base'], $auth['token'], '/omi-seo-ai/v1/heartbeat', 8);
+
+            if (! $response->successful()) {
+                return ['success' => false, 'message' => 'heartbeat HTTP '.$response->status()];
+            }
+
+            $json = $response->json();
+            if (! is_array($json) || ($json['status'] ?? '') !== 'ok') {
+                return ['success' => false, 'message' => 'heartbeat payload invalid'];
+            }
+
+            return ['success' => true, 'message' => 'ok', 'heartbeat' => $json];
+        } catch (Throwable $e) {
+            return ['success' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * @return array{success: bool, message: string, batch?: array<string, mixed>}
+     */
+    public function fetchLinkHealthBatch(Site $site, int $cursor, int $limit = 8): array
+    {
+        $auth = $this->authContext($site);
+        if ($auth['error'] !== null) {
+            return ['success' => false, 'message' => $auth['error']];
+        }
+
+        try {
+            $response = Http::timeout(45)
+                ->acceptJson()
+                ->withToken($auth['token'])
+                ->post($auth['base'].'/wp-json/omi-seo-ai/v1/link-health/batch', [
+                    'cursor' => max(0, $cursor),
+                    'limit' => max(1, min(25, $limit)),
+                ]);
+
+            if (! $response->successful()) {
+                return ['success' => false, 'message' => 'link-health HTTP '.$response->status()];
+            }
+
+            $json = $response->json();
+            $batch = is_array($json['batch'] ?? null) ? $json['batch'] : [];
+
+            return ['success' => true, 'message' => 'ok', 'batch' => $batch];
+        } catch (Throwable $e) {
+            return ['success' => false, 'message' => $e->getMessage()];
+        }
+    }
+
+    /**
+     * @return array{success: bool, message: string, batch?: array<string, mixed>}
+     */
+    public function fetchLinkAnalysisBatch(Site $site, int $cursor, int $limit = 12): array
+    {
+        $auth = $this->authContext($site);
+        if ($auth['error'] !== null) {
+            return ['success' => false, 'message' => $auth['error']];
+        }
+
+        try {
+            $response = Http::timeout(45)
+                ->acceptJson()
+                ->withToken($auth['token'])
+                ->post($auth['base'].'/wp-json/omi-seo-ai/v1/link-analysis/batch', [
+                    'cursor' => max(0, $cursor),
+                    'limit' => max(1, min(50, $limit)),
+                ]);
+
+            if (! $response->successful()) {
+                return ['success' => false, 'message' => 'link-analysis HTTP '.$response->status()];
+            }
+
+            $json = $response->json();
+            $batch = is_array($json['batch'] ?? null) ? $json['batch'] : null;
+            if (! is_array($batch)) {
+                return ['success' => false, 'message' => 'link-analysis payload invalid'];
+            }
+
+            return ['success' => true, 'message' => 'ok', 'batch' => $batch];
+        } catch (Throwable $e) {
             return ['success' => false, 'message' => $e->getMessage()];
         }
     }
@@ -332,6 +426,25 @@ final class WordPressSiteSyncClient
         } catch (Throwable $e) {
             return ['success' => false, 'message' => $e->getMessage()];
         }
+    }
+
+    /**
+     * Pretty permalinks first; on 404 retry index.php?rest_route= (hosts without /wp-json rewrite).
+     *
+     * @return \Illuminate\Http\Client\Response
+     */
+    private function getWpRest(string $base, string $token, string $route, int $timeout): mixed
+    {
+        $http = Http::timeout($timeout)->acceptJson()->withToken($token);
+        $response = $http->get($base.'/wp-json'.$route);
+        if ($response->status() !== 404) {
+            return $response;
+        }
+
+        return Http::timeout($timeout)
+            ->acceptJson()
+            ->withToken($token)
+            ->get($base.'/', ['rest_route' => $route]);
     }
 
     /**

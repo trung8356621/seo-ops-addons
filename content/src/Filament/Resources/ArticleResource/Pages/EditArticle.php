@@ -2582,6 +2582,24 @@ class EditArticle extends SeoEditRecord
         $this->dispatch('flush-article-faqs');
     }
 
+    public function reconcileObservedWordPressState(): void
+    {
+        $record = $this->record;
+        if (! $record instanceof SeoArticle) {
+            return;
+        }
+
+        $result = app(\Omnichannel\Addons\Publishing\Services\Publishing\ObservedWordPressStatusReconcileAction::class)
+            ->forArticle($record);
+        $record->unsetRelation('wordpressLink');
+        $record->load('wordpressLink');
+        Notification::make()
+            ->title('Kiểm tra lại trạng thái')
+            ->body((string) ($result['message'] ?? 'Đã lưu observed WordPress state.'))
+            ->success()
+            ->send();
+    }
+
     public function requestSyncToWordPress(): void
     {
         abort_if(SeoAccessControl::isContentManager(), 403);

@@ -1,0 +1,49 @@
+.mcp-intelligence-page .fi-header { display: none; }
+.mcp-report { padding: 0.25rem 0 1.5rem; }
+.mcp-report__header { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem; align-items: flex-end; }
+.mcp-report__title { font-size: 1.25rem; font-weight: 700; color: rgb(17 24 39); }
+.mcp-report__meta { margin-top: 0.25rem; font-size: 0.875rem; color: rgb(107 114 128); }
+.mcp-report__controls { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.mcp-btn { border: 1px solid rgb(229 231 235); border-radius: 0.5rem; background: #fff; padding: 0.4rem 0.75rem; font-size: 0.8125rem; font-weight: 600; }
+.mcp-btn--primary { background: rgb(124 58 237); border-color: rgb(124 58 237); color: #fff; }
+.mcp-menu { position: absolute; right: 0; z-index: 20; margin-top: 0.25rem; min-width: 12rem; border: 1px solid rgb(229 231 235); border-radius: 0.5rem; background: #fff; padding: 0.25rem; }
+.mcp-menu button { display: block; width: 100%; text-align: left; padding: 0.4rem 0.6rem; font-size: 0.8125rem; }
+.mcp-status-strip { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.75rem; }
+@media (max-width: 900px) { .mcp-status-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.mcp-status, .mcp-card, .mcp-metric { border: 1px solid rgb(229 231 235); border-radius: 0.75rem; background: #fff; padding: 0.85rem 1rem; }
+.mcp-status { display: flex; flex-wrap: wrap; gap: 0.35rem 0.5rem; align-items: center; font-size: 0.8125rem; }
+.mcp-status__label { font-weight: 700; color: rgb(75 85 99); }
+.mcp-status__muted { color: rgb(107 114 128); }
+.mcp-dot { width: 0.5rem; height: 0.5rem; border-radius: 9999px; display: inline-block; }
+.mcp-tone-current { background: rgb(16 185 129); color: rgb(6 95 70); }
+.mcp-dot.mcp-tone-current { background: rgb(16 185 129); }
+.mcp-tone-stale { background: rgb(245 158 11); color: rgb(146 64 14); }
+.mcp-dot.mcp-tone-stale { background: rgb(245 158 11); }
+.mcp-tone-failed { background: rgb(239 68 68); color: rgb(153 27 27); }
+.mcp-dot.mcp-tone-failed { background: rgb(239 68 68); }
+.mcp-tone-missing { background: rgb(156 163 175); color: rgb(55 65 81); }
+.mcp-dot.mcp-tone-missing { background: rgb(156 163 175); }
+.mcp-badge { border-radius: 9999px; padding: 0.1rem 0.5rem; font-size: 0.75rem; font-weight: 700; }
+.mcp-metrics { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 0.75rem; }
+@media (max-width: 1100px) { .mcp-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+.mcp-metric span { display: block; font-size: 0.75rem; color: rgb(107 114 128); }
+.mcp-metric strong { display: block; margin-top: 0.35rem; font-size: 1.15rem; }
+.mcp-grid-2 { display: grid; gap: 0.75rem; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.mcp-grid-3 { display: grid; gap: 0.75rem; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+@media (max-width: 900px) { .mcp-grid-2, .mcp-grid-3 { grid-template-columns: minmax(0, 1fr); } }
+.mcp-card__head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.75rem; }
+.mcp-card h2, .mcp-h2 { font-size: 0.95rem; font-weight: 700; margin-bottom: 0.75rem; }
+.mcp-dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem 1rem; font-size: 0.875rem; }
+.mcp-dl dt { color: rgb(107 114 128); }
+.mcp-dl dd { font-weight: 600; }
+.mcp-sub { margin: 0.75rem 0 0.35rem; font-size: 0.75rem; font-weight: 700; color: rgb(107 114 128); }
+.mcp-chips, .mcp-actions { display: flex; flex-wrap: wrap; gap: 0.4rem; }
+.mcp-chips span, .mcp-chip-mod { background: rgb(243 244 246); border-radius: 9999px; padding: 0.15rem 0.55rem; font-size: 0.75rem; }
+.mcp-list { display: grid; gap: 0.4rem; font-size: 0.875rem; }
+.mcp-actions { display: grid; gap: 0.55rem; }
+.mcp-actions li { display: flex; gap: 0.5rem; align-items: center; font-size: 0.875rem; }
+.mcp-link { font-size: 0.8125rem; font-weight: 600; color: rgb(109 40 217); }
+.mcp-empty, .mcp-banner { border-radius: 0.75rem; padding: 0.85rem 1rem; font-size: 0.875rem; }
+.mcp-banner--warn { background: rgb(255 251 235); color: rgb(146 64 14); border: 1px solid rgb(253 230 138); }
+.mcp-json { overflow: auto; max-height: 28rem; border-radius: 0.75rem; background: rgb(3 7 18); color: rgb(229 231 235); padding: 0.75rem; font-size: 0.75rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; user-select: text; }
+[x-cloak] { display: none !important; }

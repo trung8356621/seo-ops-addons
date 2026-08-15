@@ -98,9 +98,9 @@
             @endif
             <span class="text-gray-600 dark:text-gray-300">
                 @if ($health['runner_last_ran_minutes_ago'] !== null)
-                    Last ran {{ (int) $health['runner_last_ran_minutes_ago'] }} min ago
+                    {{ __('seo-content-ai::filament.projects.health_last_ran_minutes', ['minutes' => (int) $health['runner_last_ran_minutes_ago']]) }}
                 @else
-                    Runner chưa chạy
+                    {{ __('seo-content-ai::filament.projects.health_runner_never') }}
                 @endif
             </span>
             @if ($recoverableStuck > 0)

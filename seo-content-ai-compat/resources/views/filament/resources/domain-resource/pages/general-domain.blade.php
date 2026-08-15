@@ -14,7 +14,7 @@
     $editDomainUrl = DomainResource::getUrl('edit', ['record' => $site]);
     $keywordsTabUrl = $this->getInternalLinkTabUrl('keywords');
     $linksTabUrl = $this->getInternalLinkTabUrl('links');
-    $wpPluginOverview = $this->getWpPluginReleaseOverview();
+    $wpPluginStatus = $this->getWpPluginBridgeStatus();
 
     $scoreSegments = collect($distribution['segments'] ?? [])
         ->map(function (array $segment): array {
@@ -50,7 +50,7 @@
 @endphp
 
 {{-- Livewire 3 yêu cầu MỘT phần tử gốc - bọc toàn bộ view trong div này. --}}
-<div @if($incrementalSyncRunning || $metadataSyncRunning || $keywordResyncRunning || ($siteSyncV2Running ?? false) || ($siteSyncV2Stuck ?? false)) wire:poll.5s="refreshSyncProgress" @endif>
+<div @if($incrementalSyncRunning || $metadataSyncRunning || $keywordResyncRunning || ($siteSyncV2Running ?? false) || ($siteSyncV2Stuck ?? false)) wire:poll.3s="refreshSyncProgress" @endif>
     @if(is_readable($overviewCss))
         <style>{!! file_get_contents($overviewCss) !!}</style>
     @endif
@@ -96,9 +96,13 @@
                         ])
                     </div>
 
-                    @include('seo-content-ai::filament.resources.domain-resource.pages.partials.wp-plugin-download-compact', [
-                        'overview' => $wpPluginOverview,
-                    ])
+                    <div class="seo-api-key-layout__aside items-start content-start">
+                        @include('seo-content-ai::filament.resources.domain-resource.pages.partials.wp-plugin-bridge-status', [
+                            'status' => $wpPluginStatus,
+                            'site' => $site,
+                        ])
+                        @include('seo-content-ai::filament.resources.domain-resource.pages.partials.site-health-card')
+                    </div>
                 </div>
 
                 @if($this->showPasswordPrompt)

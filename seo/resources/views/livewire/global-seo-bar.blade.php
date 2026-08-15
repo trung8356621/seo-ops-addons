@@ -1,16 +1,28 @@
-<div class="flex items-center gap-3 mr-4">
+<div
+    class="flex items-center gap-3 mr-4"
+    data-seo-domain-context-bar
+    data-domain-key="{{ $domainKey }}"
+>
     @if ($isAdminViewer ?? false)
         <div class="rounded-lg border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
             {{ __('seo-content-ai::filament.global_bar.admin_view_only') }}
         </div>
     @endif
     @if ($showDomainPicker ?? true)
-        <div class="flex items-center gap-1.5">
+        <div
+            class="flex items-center gap-1.5"
+            wire:loading.class="opacity-60"
+            wire:target="domainKey"
+        >
             <span class="text-[11px] font-bold text-gray-500 dark:text-gray-400 uppercase tracking-wider">{{ __('seo-content-ai::filament.global_bar.domain') }}</span>
-            <x-select wire:model.live="globalSiteId" size="sm">
-                <option value="">{{ __('seo-content-ai::filament.global_bar.all_domains') }}</option>
+            <x-select
+                wire:model.live="domainKey"
+                size="sm"
+                x-on:change="window.SeoDomainContext && window.SeoDomainContext.select($event.target.value)"
+            >
+                <option value="all">{{ __('seo-content-ai::filament.global_bar.all_domains') }}</option>
                 @foreach($sites as $site)
-                    <option value="{{ $site->id }}">{{ $site->name ?? $site->domain }}</option>
+                    <option value="{{ $domainKeys[$site->id] ?? $site->domain }}">{{ $site->name ?? $site->domain }}</option>
                 @endforeach
             </x-select>
         </div>

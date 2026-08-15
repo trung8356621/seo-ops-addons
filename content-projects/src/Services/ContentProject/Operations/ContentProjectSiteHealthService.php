@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\Operations;
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectPublishQueueStatus;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\SiteSync\Models\SeoLinkHealthRun;
 use Omnichannel\Addons\SiteSync\Models\SeoSiteCapability;
 use Omnichannel\Addons\SiteSync\Models\SeoSiteSyncRun;
 use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncSchema;
@@ -132,6 +133,12 @@ final class ContentProjectSiteHealthService
             'sync_finished_at' => $evidence['sync_finished_at'],
             'capabilities_loaded' => $evidence['capabilities_loaded'],
             'snapshot_received' => $evidence['snapshot_received'],
+            'last_heartbeat_at' => $evidence['last_heartbeat_at'],
+            'heartbeat_status' => $evidence['heartbeat_status'],
+            'capability_gaps' => $evidence['capability_gaps'],
+            'link_health_status' => $evidence['link_health_status'],
+            'link_health_last_finished_at' => $evidence['link_health_last_finished_at'],
+            'link_health_broken_candidates' => $evidence['link_health_broken_candidates'],
             'health' => $health,
             'message' => $wp['reason'],
             'evidence' => [
@@ -267,11 +274,60 @@ final class ContentProjectSiteHealthService
             }
         }
 
+        $lastHeartbeatAt = null;
+        $heartbeatStatus = null;
+        if ($site instanceof Site) {
+            $rawHeartbeat = $site->getMeta('seo_wp_heartbeat');
+            if (is_string($rawHeartbeat) && $rawHeartbeat !== '') {
+                $decodedHb = json_decode($rawHeartbeat, true);
+                if (is_array($decodedHb)) {
+                    $heartbeatStatus = (string) ($decodedHb['status'] ?? 'ok');
+                    $lastHeartbeatAt = isset($decodedHb['observed_at'])
+                        ? (string) $decodedHb['observed_at']
+                        : null;
+                    $sources[] = 'site_metas.seo_wp_heartbeat';
+                    if ($pluginVersion === null && ! empty($decodedHb['plugin_version'])) {
+                        $pluginVersion = (string) $decodedHb['plugin_version'];
+                    }
+                }
+            }
+        }
+
+        $capabilityGaps = [];
+        if ($capabilitiesLoaded) {
+            $capRow = SeoSiteCapability::query()->where('site_id', $siteId)->first();
+            if ($capRow instanceof SeoSiteCapability && is_array($capRow->manifest)) {
+                try {
+                    $manifest = \Omnichannel\Addons\SiteSync\Services\Contracts\CapabilityManifestData::fromArray($capRow->manifest);
+                    $capabilityGaps = $manifest->localEngineGaps();
+                } catch (Throwable) {
+                    $capabilityGaps = [];
+                }
+            }
+        }
+
+        $linkHealthStatus = null;
+        $linkHealthFinishedAt = null;
+        $linkHealthBroken = null;
+        if (SiteSyncInfrastructure::tablesReady() && SiteSyncInfrastructure::hasTable('seo_link_health_runs')) {
+            $lh = SeoLinkHealthRun::query()
+                ->where('site_id', $siteId)
+                ->orderByDesc('id')
+                ->first();
+            if ($lh instanceof SeoLinkHealthRun) {
+                $linkHealthStatus = (string) $lh->status;
+                $linkHealthFinishedAt = $lh->finished_at?->toIso8601String();
+                $linkHealthBroken = (int) $lh->broken_candidates;
+                $sources[] = 'seo_link_health_runs';
+            }
+        }
+
         $checkedAt = $this->maxTimestamp([
             $handshakeCheckedAt,
             $pluginInfoFetchedAt,
             $capabilityDetectedAt,
             $syncFinished,
+            $lastHeartbeatAt,
         ]);
 
         return [
@@ -290,6 +346,12 @@ final class ContentProjectSiteHealthService
             'plugin_info_fetched_at' => $pluginInfoFetchedAt,
             'has_token' => $hasToken,
             'capability_detected_at' => $capabilityDetectedAt,
+            'last_heartbeat_at' => $lastHeartbeatAt,
+            'heartbeat_status' => $heartbeatStatus,
+            'capability_gaps' => $capabilityGaps,
+            'link_health_status' => $linkHealthStatus,
+            'link_health_last_finished_at' => $linkHealthFinishedAt,
+            'link_health_broken_candidates' => $linkHealthBroken,
             'sources' => array_values(array_unique($sources)),
         ];
     }

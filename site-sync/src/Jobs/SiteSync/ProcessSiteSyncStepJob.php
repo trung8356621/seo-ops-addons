@@ -29,6 +29,10 @@ final class ProcessSiteSyncStepJob implements ShouldQueue
 
     public function handle(SiteSyncStepRunner $runner): void
     {
+        \App\Support\RuntimeLogger::warning('site_sync.job_tick', [
+            'run_id' => $this->runId,
+            'job' => 'ProcessSiteSyncStepJob',
+        ]);
         $runner->runNext($this->runId, true);
     }
 }

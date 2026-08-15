@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Seo;
 
 use App\Core\Capability\CapabilityRegistry;
+use Omnichannel\Addons\Seo\Support\DomainContextResolver;
 use Illuminate\Support\ServiceProvider;
 
 /**
@@ -17,7 +18,17 @@ final class SeoServiceProvider extends ServiceProvider
 
     public function register(): void
     {
+        $this->app->singleton(DomainContextResolver::class);
         $this->registerCapabilities();
+        $this->app->singleton(
+            \Omnichannel\Addons\Seo\Services\MonthlyMcp\MonthlyMcpSourceRegistry::class,
+            static function ($app): \Omnichannel\Addons\Seo\Services\MonthlyMcp\MonthlyMcpSourceRegistry {
+                return new \Omnichannel\Addons\Seo\Services\MonthlyMcp\MonthlyMcpSourceRegistry([
+                    $app->make(\Omnichannel\Addons\Seo\Services\MonthlyMcp\Sources\SiteMonthlyMcpSource::class),
+                    $app->make(\Omnichannel\Addons\Seo\Services\MonthlyMcp\Sources\KeywordMonthlyMcpSource::class),
+                ]);
+            },
+        );
     }
 
     public function boot(): void

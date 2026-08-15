@@ -5,9 +5,10 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\Operations;
 
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectQueueHealthService;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\OperationalStatusFormatter;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\OperationalStatusParser;
 use App\Models\ApiConnection;
 use App\Models\Site;
-use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -137,21 +138,19 @@ final class ContentProjectOpsHealthService
     private function checkQueue(): array
     {
         $health = $this->scopedQueueHealth();
-        $lastRun = $health['last_worker_run'];
-        $ok = false;
-
-        if (is_string($lastRun) && $lastRun !== '') {
-            try {
-                $ok = Carbon::parse($lastRun)->greaterThan(now()->subMinutes(10));
-            } catch (\Throwable) {
-                $ok = false;
-            }
-        }
+        $lastRun = $health['last_worker_run'] ?? null;
+        $occurredAt = OperationalStatusParser::occurredAt(is_string($lastRun) ? $lastRun : null);
+        $ok = $occurredAt !== null && $occurredAt->greaterThan(now()->subMinutes(10));
+        $formatter = new OperationalStatusFormatter();
+        $display = $formatter->formatWorker(is_string($lastRun) ? $lastRun : null);
 
         return [
             'key' => 'queue',
             'ok' => $ok,
-            'message' => $ok ? 'queue heartbeat fresh' : 'queue heartbeat stale or unknown',
+            'message' => $ok
+                ? $formatter->formatTimestamp($occurredAt) ?? $display['text']
+                : $display['text'],
+            'detail' => is_string($lastRun) ? $lastRun : null,
         ];
     }
 
@@ -161,21 +160,17 @@ final class ContentProjectOpsHealthService
     private function checkWorker(): array
     {
         $health = $this->scopedQueueHealth();
-        $lastRun = $health['last_worker_run'];
-        $ok = false;
-
-        if (is_string($lastRun) && $lastRun !== '') {
-            try {
-                $ok = Carbon::parse($lastRun)->greaterThan(now()->subMinutes(10));
-            } catch (\Throwable) {
-                $ok = false;
-            }
-        }
+        $lastRun = $health['last_worker_run'] ?? null;
+        $occurredAt = OperationalStatusParser::occurredAt(is_string($lastRun) ? $lastRun : null);
+        $ok = $occurredAt !== null && $occurredAt->greaterThan(now()->subMinutes(10));
+        $formatter = new OperationalStatusFormatter();
+        $display = $formatter->formatWorker(is_string($lastRun) ? $lastRun : null);
 
         return [
             'key' => 'worker',
             'ok' => $ok,
-            'message' => $lastRun ? 'last_run='.$lastRun : 'no worker heartbeat',
+            'message' => $display['text'],
+            'detail' => is_string($lastRun) ? $lastRun : null,
         ];
     }
 
@@ -279,12 +274,15 @@ final class ContentProjectOpsHealthService
     private function checkScheduler(): array
     {
         $health = $this->scopedQueueHealth();
-        $lastRun = $health['last_worker_run'];
+        $lastRun = $health['last_worker_run'] ?? null;
+        $formatter = new OperationalStatusFormatter();
+        $display = $formatter->formatWorker(is_string($lastRun) ? $lastRun : null);
 
         return [
             'key' => 'scheduler',
-            'ok' => is_string($lastRun) && $lastRun !== '',
-            'message' => $lastRun ?? 'no worker heartbeat',
+            'ok' => ! $display['empty'],
+            'message' => $display['text'],
+            'detail' => is_string($lastRun) ? $lastRun : null,
         ];
     }
 

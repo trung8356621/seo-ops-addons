@@ -30,13 +30,12 @@ use Omnichannel\Addons\SiteSync\Services\Orchestration\SiteSyncFeatureFlags;
 use Omnichannel\Addons\SiteSync\Services\Presentation\SiteSyncSourceLabelPresenter;
 use Omnichannel\Addons\SiteSync\Services\Presentation\SiteSyncStatusPresenter;
 use Omnichannel\Addons\WordPress\Services\SyncDomainContentService;
+use Omnichannel\Addons\WordPress\Services\WordPressPluginUpdateService;
 use Omnichannel\Addons\SearchFoundation\Support\IncrementalDomainSyncCache;
 use Omnichannel\Addons\SearchFoundation\Support\KeywordDomainResyncCache;
 use Omnichannel\Addons\SearchFoundation\Support\MetadataDomainSyncCache;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Models\Site;
-use App\Services\ExternalPlugin\ExternalPluginRegistry;
-use App\Services\ExternalPlugin\WordPressPluginReleaseService;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\Concerns\InteractsWithRecord;
@@ -145,10 +144,30 @@ class GeneralDomain extends Page
 
     public bool $siteSyncV2Stuck = false;
 
+    /** @var list<array{key: string, label: string, status: string, order: int}> */
+    public array $siteSyncV2Steps = [];
+
+    /** @var list<array<string, mixed>> */
+    public array $siteSyncV2Substeps = [];
+
+    public ?int $siteSyncV2Percentage = null;
+
+    public ?string $siteSyncV2ElapsedLabel = null;
+
+    public ?string $siteSyncV2LastActivityLabel = null;
+
+    public ?string $siteSyncV2RetryLabel = null;
+
     /** @var array<string, mixed>|null */
     public ?array $siteSyncBootstrapPreview = null;
 
     public bool $siteSyncNeedsBootstrap = false;
+
+    public string $wpPluginPhase = 'idle';
+
+    public ?string $wpPluginFlash = null;
+
+    public bool $wpPluginConfirmOpen = false;
 
     public function mount(int|string $record): void
     {
@@ -257,6 +276,14 @@ class GeneralDomain extends Page
                 ? (string) $status['last_progress_at']
                 : null;
             $this->siteSyncV2Stuck = (bool) ($status['stuck'] ?? false);
+            $this->siteSyncV2Steps = is_array($status['steps'] ?? null) ? $status['steps'] : [];
+            $this->siteSyncV2Substeps = is_array($status['substeps'] ?? null) ? $status['substeps'] : [];
+            $this->siteSyncV2Percentage = isset($status['percentage']) && $status['percentage'] !== null
+                ? (int) $status['percentage']
+                : null;
+            $this->siteSyncV2ElapsedLabel = isset($status['elapsed_label']) ? (string) $status['elapsed_label'] : null;
+            $this->siteSyncV2LastActivityLabel = isset($status['last_activity_label']) ? (string) $status['last_activity_label'] : null;
+            $this->siteSyncV2RetryLabel = isset($status['retry_label']) ? (string) $status['retry_label'] : null;
 
             if ($wasRunning && ! $this->siteSyncV2Running && $this->siteSyncV2Status === 'completed') {
                 $this->dispatch('domain-sync-completed');
@@ -792,19 +819,81 @@ class GeneralDomain extends Page
     /**
      * @return array<string, mixed>
      */
-    public function getWpPluginReleaseOverview(): array
+    public function getWpPluginBridgeStatus(): array
     {
-        try {
-            $manifest = app(ExternalPluginRegistry::class)->resolveOrFail('omi-seo-ai-bridge');
+        return app(WordPressPluginUpdateService::class)->status($this->getSite());
+    }
 
-            return WordPressPluginReleaseService::forManifest($manifest)->overview();
-        } catch (\Throwable) {
-            return [
-                'has_packages' => false,
-                'latest' => null,
-                'metadata' => [],
-            ];
+    public function checkWpPluginVersion(): void
+    {
+        $this->wpPluginPhase = 'checking';
+        $this->wpPluginFlash = null;
+        $result = app(WordPressPluginUpdateService::class)->check($this->getSite());
+        $this->wpPluginPhase = 'idle';
+        $this->wpPluginFlash = (string) ($result['message'] ?? '');
+        if (($result['ok'] ?? false) !== true) {
+            Notification::make()
+                ->title($this->wpPluginFlash !== '' ? $this->wpPluginFlash : 'Không thể kiểm tra phiên bản mới.')
+                ->danger()
+                ->send();
         }
+        $this->getSite()->unsetRelation('metas');
+        $this->getSite()->load('metas');
+    }
+
+    public function installWpPlugin(): void
+    {
+        $this->wpPluginConfirmOpen = false;
+        $this->wpPluginPhase = 'updating';
+        $this->wpPluginFlash = 'Đang cập nhật plugin...';
+        $result = app(WordPressPluginUpdateService::class)->update($this->getSite());
+        $this->wpPluginPhase = 'idle';
+        $this->wpPluginFlash = (string) ($result['message'] ?? '');
+        if (($result['ok'] ?? false) !== true) {
+            Notification::make()
+                ->title($this->wpPluginFlash !== '' ? $this->wpPluginFlash : 'Cập nhật plugin thất bại.')
+                ->danger()
+                ->send();
+        }
+        $this->getSite()->unsetRelation('metas');
+        $this->getSite()->load('metas');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function getSiteHealthCard(): array
+    {
+        return app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Operations\SiteHealthCardPresenter::class)
+            ->forSite($this->getSite());
+    }
+
+    public function reconcileSiteWordPressState(): void
+    {
+        $result = app(\Omnichannel\Addons\SiteSync\Services\Heartbeat\WordPressHeartbeatPollService::class)
+            ->poll($this->getSite());
+        $this->getSite()->unsetRelation('metas');
+        $this->getSite()->load('metas');
+        $ok = (bool) ($result['ok'] ?? false);
+        $notification = Notification::make()
+            ->title('Kiểm tra lại trạng thái')
+            ->body((string) ($result['message'] ?? ($ok ? 'Đã cập nhật heartbeat.' : 'WordPress offline/degraded')));
+        if ($ok) {
+            $notification->success()->send();
+        } else {
+            $notification->warning()->send();
+        }
+    }
+
+    public function startLinkAnalysis(): void
+    {
+        $run = app(\Omnichannel\Addons\SiteSync\Services\LinkAnalysis\LinkAnalysisRunService::class)
+            ->start($this->getSite());
+        Notification::make()
+            ->title('Phân tích lại')
+            ->body('Đã xếp hàng Link Analysis #'.$run->id)
+            ->success()
+            ->send();
     }
 
     /**

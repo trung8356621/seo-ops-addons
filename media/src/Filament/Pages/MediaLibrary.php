@@ -20,6 +20,7 @@ use App\Models\Site;
 use Filament\Navigation\NavigationItem;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
+use Omnichannel\Addons\Seo\Livewire\Concerns\RefreshesOnDomainContextChanged;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Str;
 use Livewire\Attributes\On;
@@ -27,6 +28,8 @@ use Livewire\Attributes\Url;
 
 class MediaLibrary extends Page
 {
+    use RefreshesOnDomainContextChanged;
+
     protected static ?string $navigationIcon = 'heroicon-o-photo';
 
     protected static ?string $navigationLabel = 'Media library';
@@ -281,6 +284,20 @@ class MediaLibrary extends Page
             }
         }
 
+        $this->normalizeFilters();
+        $this->loadImages();
+    }
+
+    #[On('domain-context-changed')]
+    #[On('seoGlobalSiteChanged')]
+    public function onDomainContextChanged(mixed $domain = null, mixed $siteId = null): void
+    {
+        $globalSiteId = SeoAccessControl::globalSiteId();
+        if ($globalSiteId !== null) {
+            $this->siteId = $globalSiteId;
+        }
+
+        $this->page = 1;
         $this->normalizeFilters();
         $this->loadImages();
     }

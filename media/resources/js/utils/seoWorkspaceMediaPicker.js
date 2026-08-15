@@ -34,11 +34,13 @@ export function createSeoWorkspaceMediaPicker(config = {}) {
 
             window.addEventListener('seo-open-workspace-media-picker', this._onOpen);
             window.addEventListener('seoGlobalSiteChanged', this._onSiteChanged);
+            window.addEventListener('domain-context-changed', this._onSiteChanged);
         },
 
         destroy() {
             window.removeEventListener('seo-open-workspace-media-picker', this._onOpen);
             window.removeEventListener('seoGlobalSiteChanged', this._onSiteChanged);
+            window.removeEventListener('domain-context-changed', this._onSiteChanged);
         },
 
         openPicker(detail = {}) {

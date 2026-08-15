@@ -1,33 +1,17 @@
 @php
     /** @var \Omnichannel\Addons\SearchFoundation\Models\Keyword $record */
-    use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
     use Omnichannel\Addons\SearchFoundation\Support\KeywordLinkDetailPanelPresenter;
+    use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordClassificationVisibility;
+    use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTagResolver;
 
     $presenter = app(KeywordLinkDetailPanelPresenter::class);
+    $resolver = app(KeywordTagResolver::class);
     $linkItems = $presenter->buildItems($record);
     $linkedArticles = collect($presenter->buildLinkedSourceArticles($record));
     $internalLinks = collect($linkItems)->values();
-    $clusterLabel = $record->parent_id
-        ? (string) ($record->parent?->phrase ?? '—')
-        : (((int) ($record->children_count ?? 0) > 0)
-            ? __('seo-content-ai::filament.keyword.type_pillar_short')
-            : '—');
-    $statusKey = KeywordResource::resolveDictionaryStatusKey($record);
-    $statusLabel = KeywordResource::resolveDictionaryStatusLabel($statusKey);
-    $statusClass = KeywordResource::resolveDictionaryStatusBadgeClass($statusKey);
-    $typeLabel = KeywordResource::keywordTypeShortLabel((string) $record->type);
-    $typeClass = match (KeywordResource::keywordTypeBadgeColor((string) $record->type)) {
-        'success' => 'ws-badge--type-normal',
-        'info' => 'ws-badge--type-cluster',
-        default => 'ws-badge--type-gray',
-    };
-    if ((int) ($record->children_count ?? 0) > 0 && $record->parent_id === null) {
-        $typeLabel = __('seo-content-ai::filament.keyword.type_pillar_short');
-        $typeClass = 'ws-badge--type-pillar';
-    } elseif ($record->parent_id !== null) {
-        $typeLabel = __('seo-content-ai::filament.keyword.type_cluster_short');
-        $typeClass = 'ws-badge--type-cluster';
-    }
+    $clusterLabel = $resolver->clusterLabel($record);
+    $classification = $record->seoClassification;
+    $kind = KeywordClassificationVisibility::resolveKind($classification);
     $siteDomain = $record->linkMaps->first()?->sourceArticle?->site?->domain
         ?? $record->mainArticles->first()?->site?->domain
         ?? '—';
@@ -36,34 +20,25 @@
 <div class="keyword-dictionary-drawer">
     <p class="keyword-dictionary-drawer__domain">{{ $siteDomain }}</p>
 
-    <div class="keyword-dictionary-drawer__badges">
-        <span @class(['ws-badge', 'ws-badge--status', $statusClass])>
-            @if ($statusKey === 'active')
-                <x-filament::icon icon="heroicon-m-check-circle" class="h-3.5 w-3.5" />
-            @elseif ($statusKey === 'needs_optimization')
-                <x-filament::icon icon="heroicon-m-exclamation-triangle" class="h-3.5 w-3.5" />
-            @else
-                <x-filament::icon icon="heroicon-m-x-circle" class="h-3.5 w-3.5" />
-            @endif
-            {{ $statusLabel }}
-        </span>
-
-        <span @class(['ws-badge', $typeClass])>{{ $typeLabel }}</span>
-    </div>
+    <section class="keyword-dictionary-drawer__section">
+        <div class="keyword-dictionary-drawer__section-head">
+            <h3 class="keyword-dictionary-drawer__section-title">
+                {{ __('seo-content-ai::filament.keyword.operational_tags') }}
+            </h3>
+        </div>
+        <div class="flex flex-wrap gap-1">
+            @forelse ($resolver->displayTags($record) as $tag)
+                <span class="{{ $tag['badge_class'] }}">{{ $tag['label'] }}</span>
+            @empty
+                <span class="text-[12px] text-gray-400">—</span>
+            @endforelse
+        </div>
+    </section>
 
     <div class="keyword-dictionary-drawer__mini-stats">
         <div class="keyword-dictionary-drawer__mini-stat">
             <span class="keyword-dictionary-drawer__mini-stat-label">{{ __('seo-content-ai::filament.keyword.cluster_label') }}</span>
             <span class="keyword-dictionary-drawer__mini-stat-value">{{ $clusterLabel }}</span>
-        </div>
-        <div class="keyword-dictionary-drawer__mini-stat">
-            <span class="keyword-dictionary-drawer__mini-stat-label">{{ __('seo-content-ai::filament.keyword.tags') }}</span>
-            <span class="keyword-dictionary-drawer__mini-stat-value">
-                @php
-                    $tagLabels = KeywordResource::resolveTagLabelsForKeyword($record);
-                @endphp
-                {{ $tagLabels === [] ? '—' : implode(', ', $tagLabels) }}
-            </span>
         </div>
         <div class="keyword-dictionary-drawer__mini-stat">
             <span class="keyword-dictionary-drawer__mini-stat-label">{{ __('seo-content-ai::filament.keyword.linked_articles') }}</span>
@@ -74,6 +49,55 @@
             <span class="keyword-dictionary-drawer__mini-stat-value">{{ number_format((int) ($record->site_links_count ?? 0)) }}</span>
         </div>
     </div>
+
+    <section class="keyword-dictionary-drawer__section">
+        <div class="keyword-dictionary-drawer__section-head">
+            <h3 class="keyword-dictionary-drawer__section-title">
+                {{ __('seo-content-ai::filament.keyword.technical_details') }}
+            </h3>
+        </div>
+        <div class="keyword-dictionary-drawer__mini-stats">
+            <div class="keyword-dictionary-drawer__mini-stat">
+                <span class="keyword-dictionary-drawer__mini-stat-label">{{ __('seo-content-ai::filament.keyword.classification') }}</span>
+                <span class="keyword-dictionary-drawer__mini-stat-value">{{ KeywordClassificationVisibility::label($kind) }}</span>
+            </div>
+            <div class="keyword-dictionary-drawer__mini-stat">
+                <span class="keyword-dictionary-drawer__mini-stat-label">{{ __('seo-content-ai::filament.keyword.confidence') }}</span>
+                <span class="keyword-dictionary-drawer__mini-stat-value">
+                    @php $pct = KeywordClassificationVisibility::confidencePercent($classification); @endphp
+                    {{ $pct === null ? '—' : $pct.'%' }}
+                </span>
+            </div>
+            <div class="keyword-dictionary-drawer__mini-stat">
+                <span class="keyword-dictionary-drawer__mini-stat-label">{{ __('seo-content-ai::filament.keyword.advanced_intent') }}</span>
+                <span class="keyword-dictionary-drawer__mini-stat-value">{{ (string) ($classification?->seo_intent ?: '—') }}</span>
+            </div>
+            <div class="keyword-dictionary-drawer__mini-stat">
+                <span class="keyword-dictionary-drawer__mini-stat-label">{{ __('seo-content-ai::filament.keyword.seo_usable') }}</span>
+                <span class="keyword-dictionary-drawer__mini-stat-value">
+                    {{ KeywordClassificationVisibility::isSeoKeyword($classification)
+                        ? __('seo-content-ai::filament.keyword.filter_yes')
+                        : __('seo-content-ai::filament.keyword.filter_no') }}
+                </span>
+            </div>
+            <div class="keyword-dictionary-drawer__mini-stat">
+                <span class="keyword-dictionary-drawer__mini-stat-label">{{ __('seo-content-ai::filament.keyword.anchor_candidate') }}</span>
+                <span class="keyword-dictionary-drawer__mini-stat-value">
+                    {{ KeywordClassificationVisibility::isAnchorCandidate($classification)
+                        ? __('seo-content-ai::filament.keyword.filter_yes')
+                        : __('seo-content-ai::filament.keyword.filter_no') }}
+                </span>
+            </div>
+            <div class="keyword-dictionary-drawer__mini-stat">
+                <span class="keyword-dictionary-drawer__mini-stat-label">{{ __('seo-content-ai::filament.keyword.advanced_source') }}</span>
+                <span class="keyword-dictionary-drawer__mini-stat-value">{{ (string) ($classification?->source_kind ?: '—') }}</span>
+            </div>
+            <div class="keyword-dictionary-drawer__mini-stat">
+                <span class="keyword-dictionary-drawer__mini-stat-label">{{ __('seo-content-ai::filament.keyword.legacy_type') }}</span>
+                <span class="keyword-dictionary-drawer__mini-stat-value">{{ (string) ($record->type ?: '—') }}</span>
+            </div>
+        </div>
+    </section>
 
     <section class="keyword-dictionary-drawer__section">
         <div class="keyword-dictionary-drawer__section-head">

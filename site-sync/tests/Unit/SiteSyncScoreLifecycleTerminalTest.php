@@ -38,7 +38,7 @@ final class SiteSyncScoreLifecycleTerminalTest extends TestCase
             '/\$isDeferredContinuation[\s\S]*?OwnedByOtherWorker[\s\S]*?return;/',
             $src,
         );
-        self::assertStringContainsString('! \$isDeferredContinuation', $src);
+        self::assertStringContainsString('!$isDeferredContinuation', $src);
         self::assertSame('owned_by_other_worker', SiteSyncStepClaimResult::OwnedByOtherWorker->value);
     }
 
@@ -71,7 +71,7 @@ final class SiteSyncScoreLifecycleTerminalTest extends TestCase
         self::assertStringContainsString('isRunStuck', $src);
         self::assertStringContainsString('phase_label', $src);
         self::assertStringContainsString('last_progress_at', $src);
-        self::assertStringContainsString('! \$isTerminal', $src);
+        self::assertStringContainsString('cancellable', $src);
     }
 
     public function test_scoring_context_covers_partial_and_drain_waiting_finalize(): void
@@ -99,7 +99,7 @@ final class SiteSyncScoreLifecycleTerminalTest extends TestCase
             [],
             false,
         );
-        self::assertStringContainsString('score_missing_articles', $drained);
+        self::assertStringContainsString('chấm điểm SEO', $drained);
         self::assertStringContainsString('502', $drained);
 
         $preScore = $method->invoke(
@@ -126,13 +126,15 @@ final class SiteSyncScoreLifecycleTerminalTest extends TestCase
     public function test_domain_ui_hides_cancel_contract_via_cancellable_flag(): void
     {
         $blade = LegacyAddonPath::resolve('resources/views/filament/resources/domain-resource/pages/partials/domain-sync-actions.blade.php');
-        $src = (string) file_get_contents($blade);
+        $progress = LegacyAddonPath::resolve('resources/views/filament/resources/domain-resource/pages/partials/site-sync-progress.blade.php');
+        $src = (string) file_get_contents($blade)."\n".(string) file_get_contents($progress);
 
         self::assertStringContainsString('siteSyncV2Cancellable', $src);
-        self::assertStringContainsString('Hủy đồng bộ', $src);
+        self::assertStringContainsString('site_sync_cancel', $src);
         self::assertStringContainsString('siteSyncV2Stuck', $src);
-        self::assertStringContainsString('Bước hiện tại', $src);
-        self::assertStringContainsString('Tiến trình gần nhất', $src);
+        self::assertStringContainsString('site_sync_substeps', $src);
+        self::assertStringContainsString('site_sync_check_status', $src);
+        self::assertStringContainsString('site-sync-progress', $src);
     }
 
     public function test_general_domain_shows_scoring_pending_processing_without_forbidden_keys(): void

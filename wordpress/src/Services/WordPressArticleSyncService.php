@@ -138,6 +138,8 @@ final class WordPressArticleSyncService
                 '_teamvia_article_id' => (int) $article->id,
                 'teamvia_sync_key' => $syncKey,
                 '_teamvia_sync_key' => $syncKey,
+                'operation_id' => $syncKey,
+                'publish_operation_key' => $syncKey,
             ];
             if (is_array($editorPayload)) {
                 foreach (['post_content', 'faqs', 'seo', 'category_ids'] as $field) {

@@ -64,12 +64,16 @@ final class ArticleWpEditRedirectController extends Controller
             SeoAccessControl::setGlobalSiteId($siteId);
         }
 
-        return redirect()->to(
-            ArticleResource::panelUrl(
-                'edit',
-                SeoConnectionContext::mergePanelRouteParameters(['record' => $article->id]),
-            ),
+        $url = ArticleResource::panelUrl(
+            'edit',
+            SeoConnectionContext::mergePanelRouteParameters(['record' => $article->id]),
         );
+        $domainKey = strtolower(trim((string) ($site->domain ?? '')));
+        if ($domainKey !== '') {
+            $url .= (str_contains($url, '?') ? '&' : '?').http_build_query(['domain' => $domainKey]);
+        }
+
+        return redirect()->to($url);
     }
 
     private function canEditArticle(SeoArticle $article): bool

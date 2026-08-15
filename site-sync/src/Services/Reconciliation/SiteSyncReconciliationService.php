@@ -88,7 +88,6 @@ final class SiteSyncReconciliationService
                         'sync_url_catalog',
                         'sync_provider_keywords',
                         'missing_capability_fallback',
-                        'validate_changed_links',
                         'finalize',
                     ],
                     'meta' => ['reconcile_changed_ids' => $drift['changed_ids']],

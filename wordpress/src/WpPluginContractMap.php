@@ -37,7 +37,8 @@ final class WpPluginContractMap
             'Laravel POST /api/seo-wp-bridge/snapshot-callback' => 'site-sync.v2',
             'Laravel POST /api/seo-wp-bridge/delta-event' => 'site-sync.v2',
             'Laravel GET /api/seo-wp-bridge/ping' => 'wordpress.bridge',
-            'Plugin update /api/seo/plugin/update-check' => 'wordpress.bridge',
+            'WP REST POST /plugin-update/check' => 'wordpress.bridge',
+            'WP REST POST /plugin-update/install' => 'wordpress.bridge',
         ];
     }
 }

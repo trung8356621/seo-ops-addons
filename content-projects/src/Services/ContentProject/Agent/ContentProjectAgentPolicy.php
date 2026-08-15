@@ -159,6 +159,14 @@ final class ContentProjectAgentPolicy
             return 'content-project:read';
         }
 
+        if (str_starts_with($capability, 'domain.run_analysis')) {
+            return 'content-project:write';
+        }
+
+        if (str_starts_with($capability, 'domain.')) {
+            return 'content-project:read';
+        }
+
         if (str_starts_with($capability, 'gsc_intelligence.')) {
             return 'content-project:write';
         }

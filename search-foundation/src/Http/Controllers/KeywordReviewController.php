@@ -29,25 +29,10 @@ final class KeywordReviewController extends Controller
 
     public function reasons(Request $request): JsonResponse
     {
-        abort_unless(SeoAccessControl::canReviewKeywords(), 403);
-
-        $workspaceId = SeoAccessControl::accountSiteOwnerId();
-        $this->reasonService->ensureDefaultReasons($workspaceId, (int) ($request->user()?->id ?? 0));
-
-        $reasons = $this->reasonService->activeReasonsForWorkspace($workspaceId)
-            ->map(static fn ($reason): array => [
-                'id' => (int) $reason->id,
-                'name' => (string) $reason->name,
-                'default_severity' => (string) $reason->default_severity,
-                'description' => $reason->description,
-            ])
-            ->values()
-            ->all();
-
         return response()->json([
             'success' => true,
-            'reasons' => $reasons,
-            'can_override_severity' => SeoAccessControl::canOverrideKeywordReviewSeverity(),
+            'reasons' => [],
+            'can_override_severity' => false,
         ]);
     }
 
@@ -115,7 +100,8 @@ final class KeywordReviewController extends Controller
                 }
             }
 
-            $severity = KeywordReviewStatus::from((string) $request->input('severity'));
+            $severity = KeywordReviewStatus::tryFrom((string) $request->input('severity', KeywordReviewStatus::Danger->value))
+                ?? KeywordReviewStatus::Danger;
             $source = KeywordReviewSource::tryFrom((string) $request->input('source', ''))
                 ?? KeywordReviewSource::ArticleSuggestion;
 
@@ -137,6 +123,46 @@ final class KeywordReviewController extends Controller
 
             return response()->json([
                 'success' => true,
+                'keyword' => $this->serializeKeyword($result['keyword']),
+            ]);
+        } catch (Throwable $exception) {
+            RuntimeLogger::report($exception);
+
+            return response()->json([
+                'success' => false,
+                'message' => $exception->getMessage(),
+            ], 422);
+        }
+    }
+
+    public function toggleError(Request $request, Keyword $keyword): JsonResponse
+    {
+        abort_unless(SeoAccessControl::canReviewKeywords(), 403);
+
+        try {
+            $this->reviewService->assertKeywordAccessible($keyword);
+
+            $articleId = $request->integer('article_id');
+            if ($articleId > 0) {
+                $article = SeoArticle::query()->find($articleId);
+                if ($article instanceof SeoArticle) {
+                    $this->reviewService->assertArticleAccessible($article);
+                }
+            }
+
+            $source = KeywordReviewSource::tryFrom((string) $request->input('source', ''))
+                ?? KeywordReviewSource::ArticleSuggestion;
+
+            $result = $this->reviewService->toggleManualError(
+                $keyword,
+                (int) ($request->user()?->id ?? 0),
+                $source,
+                $articleId > 0 ? $articleId : null,
+            );
+
+            return response()->json([
+                'success' => true,
+                'manual_error' => (bool) $result['manual_error'],
                 'keyword' => $this->serializeKeyword($result['keyword']),
             ]);
         } catch (Throwable $exception) {
@@ -190,9 +216,12 @@ final class KeywordReviewController extends Controller
         return [
             'id' => (int) $keyword->id,
             'phrase' => (string) $keyword->phrase,
-            'review_status' => (string) $keyword->review_status,
-            'review_reason' => $keyword->reviewReason?->name ?? $keyword->review_note,
-            'review_note' => $keyword->review_note,
+            'review_status' => $keyword->isManualError()
+                ? KeywordReviewStatus::Danger->value
+                : KeywordReviewStatus::Active->value,
+            'manual_error' => $keyword->isManualError(),
+            'review_reason' => null,
+            'review_note' => null,
             'reviewed_at' => optional($keyword->reviewed_at)?->toIso8601String(),
         ];
     }

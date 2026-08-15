@@ -128,7 +128,7 @@
                                     </span>
                                     <span class="seo-history-card__meta">
                                         <span class="seo-history-card__time">
-                                            {{ ($result->finished_at ?? $result->created_at)?->timezone(config('app.timezone'))->format('d/m/Y H:i') }}
+                                            {{ \Omnichannel\Addons\Content\Support\SystemDateTime::formatDateTime($result->finished_at ?? $result->created_at) ?? '—' }}
                                         </span>
                                         <span class="seo-history-card__badge seo-history-card__badge--{{ $statusClass }}">
                                         @if ($status === 'completed')

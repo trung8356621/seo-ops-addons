@@ -33,6 +33,7 @@ use Omnichannel\Addons\ContentProjects\Services\SeoProjectWorkflowRunService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemIdentity;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\Seo\Support\SeoConnectionContext;
+use Omnichannel\Addons\Content\Support\SystemDateTime;
 use App\Models\Site;
 use App\Models\User;
 use App\Support\RuntimeLogger;
@@ -1332,15 +1333,7 @@ class SeoProjectResource extends SeoPanelResource
 
     public static function formatTaskTimestamp(mixed $value): string
     {
-        if ($value === null || $value === '') {
-            return '—';
-        }
-
-        try {
-            return Carbon::parse((string) $value)->format('d/m/Y H:i');
-        } catch (\Throwable) {
-            return '—';
-        }
+        return SystemDateTime::formatDateTime($value) ?? '—';
     }
 
     /**

@@ -130,11 +130,25 @@ final class ContentProjectMcpToolCatalog
             $this->readTool('gsc_intelligence.get_operation', 'Get GSC sync operation by operation_ref.', ['operation_ref']),
 
             // SEO Audit — site-level read (same query surface as Articles Optimal).
-            $this->readTool(
-                'seo_audit.list',
-                'List articles needing SEO audit work for the current site context. Read-only. Optional post_type filter (empty/all = all types). Does not require project_ref.',
-                ['site_ref'],
-            ),
+            $this->readTool('seo_audit.list', 'List articles needing SEO audit work for the current site context. Read-only. Optional post_type filter (empty/all = all types). Does not require project_ref.', ['site_ref']),
+            $this->readTool('domain.seo_brief', 'Prepared SEO brief from snapshots. No realtime crawl.', ['site_ref']),
+            $this->readTool('domain.keyword_overview', 'Aggregate keyword classification counts. No raw dump.', ['site_ref']),
+            $this->readTool('domain.keyword_landscape', 'Compressed keyword topic map: core/weak/saturated.', ['site_ref']),
+            $this->readTool('domain.keyword_gaps', 'Cluster-level keyword gaps and recommended actions.', ['site_ref']),
+            $this->readTool('domain.keyword_cluster_detail', 'Drill-down one cluster with representative variants only.', ['site_ref']),
+            $this->readTool('domain.keyword_generation_context', 'Compact AI generation context with hard budget.', ['site_ref']),
+            $this->readTool('domain.keyword_opportunities', 'Prepared keyword opportunities or unavailable/stale.', ['site_ref']),
+            $this->readTool('domain.keyword_cannibalization', 'Prepared keyword cannibalization or unavailable/stale.', ['site_ref']),
+            $this->readTool('domain.keyword_near_top', 'Keywords near top positions when rank data is reliable.', ['site_ref']),
+            $this->readTool('domain.rewrite_candidates', 'Prepared rewrite candidates (no full-site AI).', ['site_ref']),
+            $this->readTool('domain.content_opportunities', 'Prepared content opportunities from snapshots.', ['site_ref']),
+            $this->readTool('domain.internal_link_opportunities', 'Prepared WP local internal-link opportunities.', ['site_ref']),
+            $this->readTool('domain.orphan_pages', 'Prepared orphan page counts from WP local index.', ['site_ref']),
+            $this->readTool('domain.broken_links', 'Prepared broken-link counts from Link Health snapshot.', ['site_ref']),
+            $this->readTool('domain.indexability', 'Indexability summary from typed SEO snapshots.', ['site_ref']),
+            $this->readTool('domain.action_plan', 'Deterministic action plan from open SEO findings.', ['site_ref']),
+            $this->readTool('domain.monthly_intelligence', 'Stored monthly MCP report AI context. Does not rebuild source modules.', ['site_ref']),
+            $this->readTool('domain.run_analysis', 'Dispatch link_health, link_opportunities, or keyword_refresh. Does not wait.', ['site_ref']),
         ];
     }
 
@@ -215,6 +229,7 @@ final class ContentProjectMcpToolCatalog
             'mapping_ref',
             'aggregate_ref',
             'opportunity_ref',
+            'period',
             'selected_items',
         ] as $field) {
             $properties[$field] = ['type' => 'string'];

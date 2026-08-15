@@ -467,6 +467,36 @@ final class PublishingQueueHub extends SeoPanelPage
         });
     }
 
+    public function bulkReobserveWordPressStatus(): void
+    {
+        $ids = $this->selectedItemIds();
+        if ($ids === []) {
+            Notification::make()->title('Chọn ít nhất một bài.')->warning()->send();
+
+            return;
+        }
+
+        $action = app(\Omnichannel\Addons\Publishing\Services\Publishing\ObservedWordPressStatusReconcileAction::class);
+        $ok = 0;
+        foreach ($ids as $taskId) {
+            $task = SeoProjectTask::query()->find((int) $taskId);
+            if (! $task instanceof SeoProjectTask) {
+                continue;
+            }
+            $result = $action->forTask($task);
+            if (($result['ok'] ?? false) === true) {
+                $ok++;
+            }
+        }
+
+        Notification::make()
+            ->title('Kiểm tra lại trạng thái')
+            ->body('Đã đối soát '.$ok.'/'.count($ids).' bài với WordPress (không reload).')
+            ->success()
+            ->send();
+        $this->refreshQueueHealth();
+    }
+
     public function bulkCancelPublish(): void
     {
         $this->withProjectFromItems($this->selectedItemIds(), function (): void {

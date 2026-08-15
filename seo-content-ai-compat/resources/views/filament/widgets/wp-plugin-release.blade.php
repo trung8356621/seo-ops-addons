@@ -59,11 +59,9 @@
                                         size="sm"
                                         color="{{ ($row['status'] ?? '') === 'needs_update' ? 'primary' : 'gray' }}"
                                         :href="$row['settings_url'] ?? '#'"
-                                        target="_blank"
-                                        rel="noopener noreferrer"
                                         icon="heroicon-o-arrow-top-right-on-square"
                                     >
-                                        {{ $row['action_label'] ?? __('seo-content-ai::filament.wp_plugin.action_check_on_wp') }}
+                                        {{ $row['action_label'] ?? __('seo-content-ai::filament.wp_plugin.action_open_site_health') }}
                                     </x-filament::button>
                                 </td>
                             </tr>

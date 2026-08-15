@@ -23,6 +23,7 @@ class AllDomainsProjectsWidget extends Widget
     /** @var array<string, mixed> */
     protected $listeners = [
         'seoGlobalSiteChanged' => '$refresh',
+        'domain-context-changed' => '$refresh',
     ];
 
     public static function canView(): bool

@@ -38,6 +38,7 @@ use Omnichannel\Addons\Seo\Http\Middleware\SeoAuthenticate;
 use Omnichannel\Addons\Seo\Http\Middleware\SeoPlannerPermissionMiddleware;
 use Omnichannel\Addons\SearchFoundation\Http\Middleware\SetDynamicSeoDatabase;
 use Omnichannel\Addons\AiPrompt\Services\PromptMediaStorageService;
+use Omnichannel\Addons\Seo\Support\DomainContextResolver;
 use Omnichannel\Addons\SearchFoundation\Services\SeoDatabaseConnectionService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\Seo\Support\SeoConnectionContext;
@@ -78,6 +79,7 @@ class SeoPanelProvider extends PanelProvider
 
         // Shared persistTarget for usingTargetMedia() across PromptRunner / GeminiMediaGenerationService.
         $this->app->singleton(PromptMediaStorageService::class);
+        $this->app->singleton(DomainContextResolver::class);
     }
 
     public function boot(): void
@@ -187,6 +189,23 @@ class SeoPanelProvider extends PanelProvider
                     return new HtmlString('');
                 }
 
+                if (! SeoAccessControl::shouldShowGlobalSeoBar()) {
+                    return new HtmlString('');
+                }
+
+                return new HtmlString(
+                    view('seo::hooks.domain-context-assets')->render()
+                );
+            },
+        );
+
+        FilamentView::registerRenderHook(
+            PanelsRenderHook::BODY_END,
+            function (): HtmlString {
+                if (! auth()->check() || ! request()->is('seo', 'seo/*')) {
+                    return new HtmlString('');
+                }
+
                 return new HtmlString(
                     \Illuminate\Support\Facades\Blade::render('@livewire(\'assign-to-content-project-drawer\')')
                 );
@@ -244,6 +263,19 @@ class SeoPanelProvider extends PanelProvider
 
                 return new HtmlString(
                     view('seo-content-ai::filament.hooks.seo-sidebar-footer')->render()
+                );
+            },
+        );
+
+        FilamentView::registerRenderHook(
+            PanelsRenderHook::HEAD_END,
+            function (): HtmlString {
+                if (filament()->getCurrentPanel()?->getId() !== 'seo' && ! request()->is('seo', 'seo/*')) {
+                    return new HtmlString('');
+                }
+
+                return new HtmlString(
+                    view('seo-content-ai::filament.hooks.seo-sidebar-collapsed')->render()
                 );
             },
         );
@@ -551,6 +583,9 @@ class SeoPanelProvider extends PanelProvider
                 Route::post('/{keyword}/review', [KeywordReviewController::class, 'review'])
                     ->whereNumber('keyword')
                     ->name('seo.keywords.review');
+                Route::post('/{keyword}/toggle-error', [KeywordReviewController::class, 'toggleError'])
+                    ->whereNumber('keyword')
+                    ->name('seo.keywords.toggle-error');
                 Route::post('/{keyword}/restore', [KeywordReviewController::class, 'restore'])
                     ->whereNumber('keyword')
                     ->name('seo.keywords.restore');

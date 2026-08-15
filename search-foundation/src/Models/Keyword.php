@@ -9,6 +9,8 @@ use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
 use Omnichannel\Addons\SearchIntelligence\Enums\KeywordReviewStatus;
 use Omnichannel\Addons\SearchIntelligence\Models\KeywordReviewHistory;
 use Omnichannel\Addons\SearchIntelligence\Models\KeywordReviewReason;
+use Omnichannel\Addons\SearchIntelligence\Models\KeywordRuleGroupMember;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordClassification;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapStatus;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordMetaRepository;
 use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
@@ -19,6 +21,7 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Keyword extends Model
 {
@@ -205,6 +208,16 @@ class Keyword extends Model
         return $this->hasMany(self::class, 'parent_id');
     }
 
+    public function seoClassification(): HasOne
+    {
+        return $this->hasOne(SeoKeywordClassification::class, 'keyword_id');
+    }
+
+    public function ruleGroupMemberships(): HasMany
+    {
+        return $this->hasMany(KeywordRuleGroupMember::class, 'keyword_id');
+    }
+
     public function linkMaps(): HasMany
     {
         return $this->hasMany(SeoLinkMap::class, 'keyword_id');
@@ -263,6 +276,22 @@ class Keyword extends Model
      */
     public function getTagIdsList(): array
     {
+        if ($this->relationLoaded('metas')) {
+            $raw = $this->metaValue(KeywordMetaKey::Tags->value);
+            if ($raw === null || $raw === '') {
+                return [];
+            }
+            $decoded = json_decode($raw, true);
+            if (! is_array($decoded)) {
+                return [];
+            }
+
+            return array_values(array_filter(
+                array_map(static fn (mixed $id): int => (int) $id, $decoded),
+                static fn (int $id): bool => $id > 0,
+            ));
+        }
+
         return app(KeywordMetaRepository::class)->getTagIds((int) $this->id);
     }
 
@@ -271,16 +300,12 @@ class Keyword extends Model
      */
     public function getQualityFlagsList(): array
     {
-        $status = KeywordReviewStatus::tryFrom((string) ($this->review_status ?? ''));
-        if ($status === KeywordReviewStatus::Warning) {
-            return ['warning'];
-        }
+        return $this->isManualError() ? ['danger'] : [];
+    }
 
-        if ($status === KeywordReviewStatus::Danger) {
-            return ['danger'];
-        }
-
-        return [];
+    public function isManualError(): bool
+    {
+        return $this->reviewStatusEnum()->isManualError();
     }
 
     public function reviewStatusEnum(): KeywordReviewStatus
@@ -423,21 +448,17 @@ class Keyword extends Model
     {
         $flags = array_values(array_filter(
             array_map(static fn (mixed $flag): string => trim((string) $flag), $flags),
-            static fn (string $flag): bool => in_array($flag, ['danger', 'warning'], true),
+            static fn (string $flag): bool => in_array($flag, ['danger', 'warning', 'error'], true),
         ));
 
         if ($flags === []) {
             return $query;
         }
 
-        $statuses = array_map(
-            static fn (string $flag): string => $flag === 'danger'
-                ? KeywordReviewStatus::Danger->value
-                : KeywordReviewStatus::Warning->value,
-            $flags,
-        );
-
-        return $query->whereIn('review_status', array_values(array_unique($statuses)));
+        return $query->whereIn('review_status', [
+            KeywordReviewStatus::Danger->value,
+            KeywordReviewStatus::Warning->value,
+        ]);
     }
 
     /**

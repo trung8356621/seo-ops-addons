@@ -28,6 +28,7 @@ use Omnichannel\Addons\SiteSync\Services\Application\Commands\RequeueSiteSyncInb
 use Omnichannel\Addons\SiteSync\Services\Application\Commands\ResumeSiteSyncCommand;
 use Omnichannel\Addons\SiteSync\Services\Application\Commands\RetryFailedSeoScoresCommand;
 use Omnichannel\Addons\SiteSync\Services\Application\Commands\RetrySiteSyncStepCommand;
+use Omnichannel\Addons\SiteSync\Services\Application\Commands\RunLinkHealthCommand;
 use Omnichannel\Addons\SiteSync\Services\Application\Commands\RunSiteSyncCommand;
 use Omnichannel\Addons\SiteSync\Services\Application\Commands\SyncSiteKeywordsCommand;
 use Omnichannel\Addons\SiteSync\Services\Application\Commands\SyncSiteLinksCommand;
@@ -112,17 +113,8 @@ final class SiteSyncCommandHandler implements ContentProjectCommandHandler
                 'trigger_source' => 'agent',
                 'triggered_by' => $actor->actorId,
             ]),
-            $command instanceof SyncSiteLinksCommand => $this->run($command->siteId, [
-                'steps' => [
-                    'detect_capability',
-                    'request_snapshot_delta',
-                    'sync_url_catalog',
-                    'validate_changed_links',
-                    'finalize',
-                ],
-                'trigger_source' => 'agent',
-                'triggered_by' => $actor->actorId,
-            ]),
+            $command instanceof SyncSiteLinksCommand => $this->startLinkHealth($command->siteId),
+            $command instanceof RunLinkHealthCommand => $this->startLinkHealth($command->siteId),
             $command instanceof DiscoverSiteContactsCommand => $this->run($command->siteId, [
                 'steps' => ['detect_capability', 'sync_site_profile', 'finalize'],
                 'trigger_source' => 'agent',
@@ -158,6 +150,26 @@ final class SiteSyncCommandHandler implements ContentProjectCommandHandler
         $preview = $this->bootstrap()->preview($site);
 
         return ContentProjectActionResult::ok('site.preview_bootstrap_ok', 'Bootstrap preview', metadata: $preview);
+    }
+
+    private function startLinkHealth(int $siteId): ContentProjectActionResult
+    {
+        $site = Site::query()->find($siteId);
+        if ($site === null) {
+            return ContentProjectActionResult::fail('site.not_found', 'Site not found.');
+        }
+
+        $run = app(\Omnichannel\Addons\SiteSync\Services\LinkHealth\LinkHealthRunService::class)->start($site);
+
+        return ContentProjectActionResult::ok(
+            'site.link_health_queued',
+            'Link health run queued.',
+            metadata: [
+                'run_id' => (int) $run->id,
+                'status' => (string) $run->status,
+                'site_id' => (int) $site->id,
+            ],
+        );
     }
 
     private function doBootstrap(BootstrapSiteSyncCommand $command, ActorContext $actor): ContentProjectActionResult

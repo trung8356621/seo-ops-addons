@@ -482,6 +482,15 @@ final class SeoAccessControl
         return ! self::isContentManager() && self::globalSiteId() !== null;
     }
 
+    public static function domainContext(): DomainContext
+    {
+        if (self::isContentManager()) {
+            return DomainContext::all();
+        }
+
+        return app(DomainContextResolver::class)->current();
+    }
+
     public static function accountOwnerId(): ?int
     {
         if (self::isSeoPanelAdminViewer()) {
@@ -501,36 +510,13 @@ final class SeoAccessControl
 
     public static function globalSiteId(): ?int
     {
-        if (self::isContentManager()) {
-            return null;
-        }
-
-        $cookieSiteId = request()->cookie(self::GLOBAL_SITE_COOKIE);
-        $siteId = $cookieSiteId !== null && $cookieSiteId !== ''
-            ? $cookieSiteId
-            : session('seo_global_site_id');
-
-        if ($siteId === null || $siteId === '') {
-            return null;
-        }
-
-        $siteId = (int) $siteId;
-
-        if ((int) session('seo_global_site_id', -1) !== $siteId) {
-            session(['seo_global_site_id' => $siteId]);
-        }
-
-        if ($siteId <= 0) {
-            return null;
-        }
-
-        return $siteId;
+        return self::domainContext()->siteId;
     }
 
     public static function hasGlobalSiteSelection(): bool
     {
-        return request()->cookie(self::GLOBAL_SITE_COOKIE) !== null
-            || session()->has('seo_global_site_id');
+        return app(DomainContextResolver::class)->hasExplicitRequestKey()
+            || ! self::domainContext()->isAllDomains;
     }
 
     public static function hasGlobalSiteScope(): bool
@@ -541,32 +527,31 @@ final class SeoAccessControl
     public static function setGlobalSiteId(?int $siteId): void
     {
         $previousSiteId = self::globalSiteId();
-        $storedSiteId = $siteId !== null && $siteId > 0 ? $siteId : 0;
-        $nextSiteId = $storedSiteId > 0 ? $storedSiteId : null;
+        $next = app(DomainContextResolver::class)->contextForAccessibleSiteId($siteId);
 
-        if ($previousSiteId !== $nextSiteId) {
+        if ($previousSiteId !== $next->siteId) {
             self::clearGlobalContentProjectSelection();
         }
 
-        session(['seo_global_site_id' => $storedSiteId]);
-        Cookie::queue(cookie(
-            self::GLOBAL_SITE_COOKIE,
-            (string) $storedSiteId,
-            self::GLOBAL_SITE_COOKIE_MINUTES,
-            '/',
-            null,
-            request()->isSecure(),
-            true,
-            false,
-            'lax',
-        ));
+        app(DomainContextResolver::class)->bind($next);
+        self::forgetLegacyGlobalSitePersistence();
     }
 
     public static function clearGlobalSiteSelection(): void
     {
+        app(DomainContextResolver::class)->bind(DomainContext::all());
+        self::forgetLegacyGlobalSitePersistence();
+        self::clearGlobalContentProjectSelection();
+    }
+
+    /**
+     * Drop legacy PHP session + cookie that used to own the Global Domain Selector.
+     * Browser sessionStorage / localStorage / ?domain= are the source of truth now.
+     */
+    public static function forgetLegacyGlobalSitePersistence(): void
+    {
         session()->forget('seo_global_site_id');
         Cookie::queue(Cookie::forget(self::GLOBAL_SITE_COOKIE, '/'));
-        self::clearGlobalContentProjectSelection();
     }
 
     public static function canUseGlobalContentProjectPicker(): bool

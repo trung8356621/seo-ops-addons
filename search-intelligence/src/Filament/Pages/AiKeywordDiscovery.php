@@ -31,7 +31,7 @@ final class AiKeywordDiscovery extends SeoPanelPage
 
     protected static string $view = 'seo-content-ai::seo.ai-keyword-discovery';
 
-    protected static bool $shouldRegisterNavigation = true;
+    protected static bool $shouldRegisterNavigation = false;
 
     public function boot(
         AiKeywordDiscoveryService $discovery,
@@ -48,7 +48,7 @@ final class AiKeywordDiscovery extends SeoPanelPage
 
     public static function shouldRegisterNavigation(array $parameters = []): bool
     {
-        return SeoAccessControl::canAccessPlannerFeatures();
+        return false;
     }
 
     public static function getNavigationLabel(): string

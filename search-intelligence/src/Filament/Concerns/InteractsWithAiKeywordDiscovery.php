@@ -63,11 +63,51 @@ trait InteractsWithAiKeywordDiscovery
         $this->selectedSuggestionIds = [];
 
         try {
+            $siteId = (int) ($this->resolveAiDiscoverySiteId() ?? 0);
+            $context = '';
+            $existing = [];
+            if ($siteId > 0) {
+                $classification = app(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClassificationService::class);
+                $builder = app(\Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordGenerationContextBuilder::class);
+                $landscape = $classification->landscape($siteId);
+                $packed = $builder->build($landscape, ['site' => (string) $siteId, 'max_topics' => 50, 'max_exclusions' => 150]);
+                $context = $builder->toPromptBlock($packed);
+                foreach ($classification->classificationRows($siteId) as $row) {
+                    if (! ($row['is_seo_keyword'] ?? false)) {
+                        continue;
+                    }
+                    $existing[] = [
+                        'normalized_text' => (string) ($row['normalized_text'] ?? ''),
+                        'folded_text' => (string) ($row['folded_text'] ?? ''),
+                        'cluster_key' => (string) ($row['cluster_key'] ?? ''),
+                        'seo_intent' => (string) ($row['seo_intent'] ?? ''),
+                    ];
+                }
+            }
+
             $this->suggestions = $this->discovery->discover(
                 $this->seedKeyword,
                 $this->searchIntent,
                 $this->targetRegion,
+                $context,
+                20,
             );
+
+            if ($existing !== []) {
+                $guard = new \Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordAiCandidateGuard();
+                $phrases = array_map(static fn (array $row): string => (string) ($row['keyword'] ?? ''), $this->suggestions);
+                $evaluated = $guard->evaluate($phrases, $existing);
+                $kept = [];
+                foreach ($this->suggestions as $i => $item) {
+                    $decision = $evaluated[$i]['decision'] ?? 'accept';
+                    if ($decision !== 'accept') {
+                        continue;
+                    }
+                    $item['cluster_key'] = $evaluated[$i]['cluster_key'] ?? null;
+                    $kept[] = $item;
+                }
+                $this->suggestions = $kept;
+            }
         } catch (\InvalidArgumentException|\Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException $exception) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.keyword.discovery_failed'))
@@ -212,6 +252,11 @@ trait InteractsWithAiKeywordDiscovery
             if (! $existing) {
                 $created++;
             }
+        }
+
+        if ($created > 0) {
+            app(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordIntelligenceScheduler::class)
+                ->onImportBatch($siteId, $created);
         }
 
         Notification::make()

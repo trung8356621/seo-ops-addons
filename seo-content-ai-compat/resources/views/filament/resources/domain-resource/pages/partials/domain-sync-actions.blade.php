@@ -48,7 +48,7 @@
                     >
                         <span wire:loading.remove wire:target="runForceFullSiteSyncAction">
                             @if ($siteSyncV2Running ?? false)
-                                Đang đồng bộ lại toàn bộ…
+                                {{ __('seo-content-ai::filament.domain.site_sync_running_button') }}
                             @else
                                 Đồng bộ lại toàn bộ website
                             @endif
@@ -71,7 +71,7 @@
                     >
                         <span wire:loading.remove wire:target="runSiteSyncV2Action,resumeSiteSyncV2Action">
                             @if ($siteSyncV2Running ?? false)
-                                Đang đồng bộ & kiểm tra…
+                                {{ __('seo-content-ai::filament.domain.site_sync_running_button') }}
                             @elseif ($useResume)
                                 Tiếp tục đồng bộ & kiểm tra
                             @else
@@ -88,105 +88,20 @@
                     <x-filament::button
                         type="button"
                         color="danger"
+                        outlined
+                        size="sm"
                         class="w-full justify-center"
                         wire:click="cancelSiteSyncV2Action"
                         wire:loading.attr="disabled"
                         wire:target="cancelSiteSyncV2Action"
                         wire:confirm="Hủy lần đồng bộ hiện tại? Dữ liệu đã đối soát thành công được giữ."
                     >
-                        Hủy đồng bộ
+                        <span wire:loading.remove wire:target="cancelSiteSyncV2Action">{{ __('seo-content-ai::filament.domain.site_sync_cancel') }}</span>
+                        <span wire:loading wire:target="cancelSiteSyncV2Action">{{ __('seo-content-ai::filament.domain.site_sync_canceling') }}</span>
                     </x-filament::button>
                 @endif
             </div>
-            <div class="space-y-1 text-sm text-gray-600 dark:text-gray-300">
-                <div @class([
-                    'text-danger-600 dark:text-danger-400 font-medium' => ($siteSyncV2Status ?? '') === 'failed',
-                ])>{{ $siteSyncV2StatusMessage ?: 'Đồng bộ thay đổi từ website và kiểm tra liên kết / từ khóa / điểm SEO.' }}</div>
-                @if (($siteSyncV2Status ?? '') === 'failed')
-                    <div class="text-xs text-danger-600 dark:text-danger-400">
-                        Run đã dừng ở bước lỗi. Nút «Tiếp tục» thử lại bước đó — không phải đang chạy.
-                    </div>
-                @endif
-                @if (!empty($siteSyncV2ModeLabel) && (($siteSyncV2Running ?? false) || ($siteSyncV2Stuck ?? false)))
-                    <div class="text-xs font-medium text-primary-700 dark:text-primary-300">Chế độ: {{ $siteSyncV2ModeLabel }}</div>
-                @endif
-                @if (!empty($siteSyncV2PhaseLabel) && (($siteSyncV2Running ?? false) || ($siteSyncV2Stuck ?? false) || ($siteSyncV2Status ?? '') === 'failed'))
-                    <div class="text-xs opacity-90">Bước hiện tại: {{ $siteSyncV2PhaseLabel }}</div>
-                @endif
-                @if (!empty($siteSyncV2LastProgressAt) && (($siteSyncV2Running ?? false) || ($siteSyncV2Stuck ?? false)))
-                    <div class="text-xs opacity-70">Tiến trình gần nhất: {{ $siteSyncV2LastProgressAt }}</div>
-                @endif
-                @if (($siteSyncV2Stuck ?? false))
-                    <div class="text-xs font-medium text-amber-700 dark:text-amber-300">
-                        Run kẹt — dùng «Tiếp tục» để reclaim theo policy hiện có (không watchdog mới).
-                    </div>
-                @endif
-                @if (($siteSyncV2Total ?? 0) > 0 && (($siteSyncV2Running ?? false) || ($siteSyncV2Stuck ?? false)))
-                    @php
-                        $ffCounters = $siteSyncV2Counters ?? [];
-                        $isForceProgress = !empty($siteSyncV2ModeLabel);
-                    @endphp
-                    @if ($isForceProgress)
-                        <div class="space-y-0.5 text-xs opacity-90">
-                            <div>Tổng cần kiểm tra: {{ number_format((int) ($ffCounters['total_to_check'] ?? $siteSyncV2Total)) }}</div>
-                            <div>Đã kiểm tra: {{ number_format((int) ($ffCounters['checked'] ?? $siteSyncV2Progress)) }}</div>
-                            <div>Có thay đổi: {{ number_format((int) ($ffCounters['updated'] ?? 0)) }}</div>
-                            <div>Không thay đổi: {{ number_format((int) ($ffCounters['unchanged'] ?? 0)) }}</div>
-                            <div>Thất bại: {{ number_format((int) ($ffCounters['failed'] ?? 0)) }}</div>
-                        </div>
-                    @else
-                        <div class="text-xs opacity-80">Tiến độ {{ $siteSyncV2Progress }}/{{ $siteSyncV2Total }}</div>
-                    @endif
-                @endif
-                @if (!empty($siteSyncV2SourceChips ?? []))
-                    <div class="mt-2 flex flex-wrap gap-2 text-xs">
-                        @foreach ($siteSyncV2SourceChips as $chip)
-                            <span class="rounded-md bg-gray-100 px-2 py-0.5 dark:bg-white/10">{{ $chip['label'] ?? '' }}</span>
-                        @endforeach
-                    </div>
-                @elseif (!empty($sources))
-                    <div class="mt-2 flex flex-wrap gap-2 text-xs">
-                        @if (!empty($sources['provider']))
-                            <span class="rounded-md bg-gray-100 px-2 py-0.5 dark:bg-white/10">Provider: {{ $sources['provider'] }}</span>
-                        @endif
-                    </div>
-                @endif
-                @if ($siteSyncNeedsBootstrap ?? false)
-                    <div class="text-xs text-amber-600 dark:text-amber-400">Site chưa bootstrap Site Sync V2 — lần bấm đầu sẽ xem preview rồi xác nhận.</div>
-                @endif
-                @if (!empty($siteSyncBootstrapPreview))
-                    <div
-                        class="mt-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs dark:border-amber-500/30 dark:bg-amber-500/10"
-                        x-data="{ open: true }"
-                        x-on:open-site-sync-bootstrap-preview.window="open = true"
-                        x-show="open"
-                    >
-                        <div class="font-medium">Xác nhận đồng bộ lần đầu</div>
-                        <div class="mt-1 opacity-90">
-                            ~{{ $siteSyncBootstrapPreview['articles_remote'] ?? 0 }} bài remote ·
-                            {{ $siteSyncBootstrapPreview['estimated_batches'] ?? '?' }} batch ·
-                            Provider: {{ $siteSyncBootstrapPreview['provider_label'] ?? 'Không phát hiện' }}
-                        </div>
-                        @foreach (($siteSyncBootstrapPreview['warnings'] ?? []) as $w)
-                            <div class="mt-1 text-amber-700 dark:text-amber-300">{{ $w }}</div>
-                        @endforeach
-                        <div class="mt-2 flex gap-2">
-                            <x-filament::button size="xs" color="success" wire:click="confirmSiteSyncBootstrapAction">
-                                Xác nhận bootstrap
-                            </x-filament::button>
-                            <x-filament::button size="xs" color="gray" wire:click="cancelSiteSyncBootstrapPreview" @click="open = false">
-                                Đóng
-                            </x-filament::button>
-                        </div>
-                    </div>
-                @endif
-                @foreach (($siteSyncV2Warnings ?? []) as $warning)
-                    <div class="text-xs text-amber-600 dark:text-amber-400">{{ $warning }}</div>
-                @endforeach
-                <div class="text-xs text-amber-700 dark:text-amber-300">
-                    Điểm SEO giữa các plugin dùng công thức khác nhau và không thể so sánh trực tiếp.
-                </div>
-            </div>
+            @include('seo-content-ai::filament.resources.domain-resource.pages.partials.site-sync-progress')
         </div>
     @endif
 

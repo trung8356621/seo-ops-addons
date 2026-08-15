@@ -9,6 +9,7 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectQueueHealthService;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\OperationalStatusParser;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -198,15 +199,8 @@ final class ContentProjectOpsDashboardService
         }
         $health = $this->queueHealth->snapshot(null, $connectionId);
         $lastRun = $health['last_worker_run'];
-        $alive = false;
-
-        if (is_string($lastRun) && $lastRun !== '') {
-            try {
-                $alive = Carbon::parse($lastRun)->greaterThan(now()->subMinutes(10));
-            } catch (\Throwable) {
-                $alive = false;
-            }
-        }
+        $occurredAt = OperationalStatusParser::occurredAt(is_string($lastRun) ? $lastRun : null);
+        $alive = $occurredAt !== null && $occurredAt->greaterThan(now()->subMinutes(10));
 
         return [
             'alive' => $alive,

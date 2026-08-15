@@ -81,6 +81,24 @@ final class ContentProjectAgentGateway
 
         // SEO Audit — site-level read (Articles Optimal query).
         'seo_audit.list',
+
+        'domain.seo_brief',
+        'domain.keyword_overview',
+        'domain.keyword_landscape',
+        'domain.keyword_gaps',
+        'domain.keyword_cluster_detail',
+        'domain.keyword_generation_context',
+        'domain.keyword_opportunities',
+        'domain.keyword_cannibalization',
+        'domain.keyword_near_top',
+        'domain.rewrite_candidates',
+        'domain.content_opportunities',
+        'domain.internal_link_opportunities',
+        'domain.orphan_pages',
+        'domain.broken_links',
+        'domain.indexability',
+        'domain.action_plan',
+        'domain.monthly_intelligence',
     ];
 
     public function __construct(
@@ -97,6 +115,7 @@ final class ContentProjectAgentGateway
         private readonly SerpIntelligenceReadService $serpReads,
         private readonly GscIntelligenceReadService $gscReads,
         private readonly \Omnichannel\Addons\Seo\Services\SeoAudit\Agent\SeoAuditAgentReadService $seoAuditReads,
+        private readonly \Omnichannel\Addons\Seo\Services\DomainSeoMcpService $domainSeoReads,
         private readonly CapabilityContextGuard $contextGuard = new CapabilityContextGuard,
     ) {}
 
@@ -193,6 +212,24 @@ final class ContentProjectAgentGateway
 
             return $this->withRequestMeta(
                 $this->executeRead($context, $capability, $input),
+                $context,
+            );
+        }
+
+        if ($capability === 'domain.run_analysis') {
+            if ($scopeFail = $this->policy->assertScopes($context->scopes, $capability)) {
+                return $this->withRequestMeta($scopeFail, $context);
+            }
+            $result = $this->domainSeoReads->execute((int) $siteId, $capability, $input);
+            if (! ($result['ok'] ?? false)) {
+                return $this->withRequestMeta(
+                    AgentCapabilityResult::fail('invalid_input', (string) ($result['message'] ?? 'Failed')),
+                    $context,
+                );
+            }
+
+            return $this->withRequestMeta(
+                AgentCapabilityResult::ok('agent.write_ok', 'Analysis queued.', $result['data'] ?? []),
                 $context,
             );
         }
@@ -365,10 +402,26 @@ final class ContentProjectAgentGateway
             'gsc_intelligence.get_operation' => $this->gscReads->getOperation($context, $input),
 
             'seo_audit.list' => $this->seoAuditReads->listArticles($context, $input),
-            default => throw new InvalidArgumentException('Unsupported read capability.'),
+            default => str_starts_with($capability, 'domain.')
+                ? $this->mapDomainSeo($context, $capability, $input)
+                : throw new InvalidArgumentException('Unsupported read capability.'),
         };
 
         return AgentCapabilityResult::ok('agent.read_ok', '', $data);
+    }
+
+    /**
+     * @param  array<string, mixed>  $input
+     * @return array<string, mixed>
+     */
+    private function mapDomainSeo(AgentExecutionContext $context, string $capability, array $input): array
+    {
+        $result = $this->domainSeoReads->execute((int) $context->resolvedSiteId, $capability, $input);
+        if (! ($result['ok'] ?? false)) {
+            throw new InvalidArgumentException((string) ($result['message'] ?? 'Domain SEO read failed.'));
+        }
+
+        return is_array($result['data'] ?? null) ? $result['data'] : [];
     }
 
     /**

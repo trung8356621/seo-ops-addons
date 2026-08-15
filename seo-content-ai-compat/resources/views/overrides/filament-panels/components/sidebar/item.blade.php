@@ -19,7 +19,55 @@
 @php
     $sidebarCollapsible = $sidebarCollapsible && filament()->isSidebarCollapsibleOnDesktop();
     $hasChildren = filled($childItems);
-    $childrenOpenByDefault = $active || $activeChildItems;
+    $parentIsActive = $active || $activeChildItems;
+    $childrenOpenByDefault = $parentIsActive;
+
+    $countNavLeaves = static function (iterable $navItems) use (&$countNavLeaves): int {
+        $total = 0;
+
+        foreach ($navItems as $navItem) {
+            $nested = $navItem->getChildItems();
+            if (filled($nested)) {
+                $total += $countNavLeaves($nested);
+                if (filled($navItem->getUrl())) {
+                    $total++;
+                }
+
+                continue;
+            }
+
+            if (filled($navItem->getUrl())) {
+                $total++;
+            }
+        }
+
+        return $total;
+    };
+
+    $firstNavUrl = static function (iterable $navItems) use (&$firstNavUrl): ?string {
+        foreach ($navItems as $navItem) {
+            if (filled($navItem->getUrl())) {
+                return $navItem->getUrl();
+            }
+
+            $nested = $navItem->getChildItems();
+            if (filled($nested)) {
+                $found = $firstNavUrl($nested);
+                if (filled($found)) {
+                    return $found;
+                }
+            }
+        }
+
+        return null;
+    };
+
+    $childLeafCount = $hasChildren ? $countNavLeaves($childItems) : 0;
+    $shouldFlyout = $sidebarCollapsible && $hasChildren && $childLeafCount >= 2;
+    $singleChildUrl = ($sidebarCollapsible && $hasChildren && $childLeafCount === 1)
+        ? ($firstNavUrl($childItems) ?: $url)
+        : $url;
+    $collapsedHref = $shouldFlyout ? $url : $singleChildUrl;
 @endphp
 
 <li
@@ -30,18 +78,24 @@
         $attributes->class([
             'fi-sidebar-item',
             // @deprecated `fi-sidebar-item-active` has been replaced by `fi-active`.
-            'fi-active fi-sidebar-item-active' => $active,
-            'flex flex-col gap-y-1' => $hasChildren || $active || $activeChildItems,
+            'fi-active fi-sidebar-item-active' => $parentIsActive,
+            'flex flex-col gap-y-1' => $hasChildren || $parentIsActive,
         ])
     }}
 >
-    <div @class([
-        'relative flex items-center gap-x-1',
-    ])>
+    <div
+        @if ($hasChildren && $sidebarCollapsible)
+            x-show="$store.sidebar.isOpen"
+            x-cloak
+        @endif
+        @class([
+            'relative flex items-center gap-x-1',
+        ])
+    >
         <a
             {{ \Filament\Support\generate_href_html($url, $shouldOpenUrlInNewTab) }}
             x-on:click="window.matchMedia(`(max-width: 1024px)`).matches && $store.sidebar.close()"
-            @if ($sidebarCollapsible)
+            @if ($sidebarCollapsible && ! $hasChildren)
                 x-data="{ tooltip: false }"
                 x-effect="
                     tooltip = $store.sidebar.isOpen
@@ -57,26 +111,22 @@
             @class([
                 'fi-sidebar-item-button relative flex min-w-0 flex-1 items-center justify-center gap-x-3 rounded-lg px-2 py-2 outline-none transition duration-75',
                 'hover:bg-gray-100 focus-visible:bg-gray-100 dark:hover:bg-white/5 dark:focus-visible:bg-white/5' => filled($url),
-                'bg-gray-100 dark:bg-white/5' => $active,
+                'bg-gray-100 dark:bg-white/5' => $parentIsActive,
             ])
         >
-            @if (filled($icon) && ((! $subGrouped) || $sidebarCollapsible))
+            @if (filled($icon) && ! $subGrouped)
                 <x-filament::icon
-                    :icon="($active && $activeIcon) ? $activeIcon : $icon"
-                    :x-show="($subGrouped && $sidebarCollapsible) ? '! $store.sidebar.isOpen' : false"
+                    :icon="($parentIsActive && $activeIcon) ? $activeIcon : $icon"
                     @class([
                         'fi-sidebar-item-icon h-6 w-6 shrink-0',
-                        'text-gray-400 dark:text-gray-500' => ! $active,
-                        'text-primary-600 dark:text-primary-400' => $active,
+                        'text-gray-400 dark:text-gray-500' => ! $parentIsActive,
+                        'text-primary-600 dark:text-primary-400' => $parentIsActive,
                     ])
                 />
             @endif
 
             @if ((blank($icon) && $grouped) || $subGrouped)
                 <div
-                    @if (filled($icon) && $subGrouped && $sidebarCollapsible)
-                        x-show="$store.sidebar.isOpen"
-                    @endif
                     class="fi-sidebar-item-grouped-border relative flex h-6 w-6 items-center justify-center"
                 >
                     @if (! $first)
@@ -94,8 +144,8 @@
                     <div
                         @class([
                             'relative h-1.5 w-1.5 rounded-full',
-                            'bg-gray-400 dark:bg-gray-500' => ! $active,
-                            'bg-primary-600 dark:bg-primary-400' => $active,
+                            'bg-gray-400 dark:bg-gray-500' => ! $parentIsActive,
+                            'bg-primary-600 dark:bg-primary-400' => $parentIsActive,
                         ])
                     ></div>
                 </div>
@@ -110,8 +160,8 @@
                 @endif
                 @class([
                     'fi-sidebar-item-label flex-1 truncate text-sm font-medium',
-                    'text-gray-700 dark:text-gray-200' => ! $active,
-                    'text-primary-600 dark:text-primary-400' => $active,
+                    'text-gray-700 dark:text-gray-200' => ! $parentIsActive,
+                    'text-primary-600 dark:text-primary-400' => $parentIsActive,
                 ])
             >
                 {{ $slot }}
@@ -157,11 +207,58 @@
         @endif
     </div>
 
+    @if ($shouldFlyout)
+        <x-filament-panels::sidebar.collapsed-flyout
+            :active-icon="$activeIcon"
+            :icon="$icon"
+            :items="$childItems"
+            :title="$slot"
+            :title-active="$parentIsActive"
+            :title-url="$url"
+        />
+    @elseif ($hasChildren && $sidebarCollapsible)
+        <a
+            {{ \Filament\Support\generate_href_html($collapsedHref, $shouldOpenUrlInNewTab) }}
+            x-show="! $store.sidebar.isOpen"
+            x-cloak
+            x-data="{ tooltip: false }"
+            x-effect="
+                tooltip = $store.sidebar.isOpen
+                    ? false
+                    : {
+                          content: @js($slot->toHtml()),
+                          placement: document.dir === 'rtl' ? 'left' : 'right',
+                          theme: $store.theme,
+                      }
+            "
+            x-tooltip.html="tooltip"
+            x-on:click="window.matchMedia(`(max-width: 1024px)`).matches && $store.sidebar.close()"
+            data-fi-sidebar-single-child-root
+            @class([
+                'fi-sidebar-item-button relative flex min-w-0 flex-1 items-center justify-center gap-x-3 rounded-lg px-2 py-2 outline-none transition duration-75',
+                'hover:bg-gray-100 focus-visible:bg-gray-100 dark:hover:bg-white/5 dark:focus-visible:bg-white/5' => filled($collapsedHref),
+                'bg-gray-100 dark:bg-white/5' => $parentIsActive,
+            ])
+        >
+            @if (filled($icon))
+                <x-filament::icon
+                    :icon="($parentIsActive && $activeIcon) ? $activeIcon : $icon"
+                    @class([
+                        'fi-sidebar-item-icon h-6 w-6 shrink-0',
+                        'text-gray-400 dark:text-gray-500' => ! $parentIsActive,
+                        'text-primary-600 dark:text-primary-400' => $parentIsActive,
+                    ])
+                />
+            @endif
+        </a>
+    @endif
+
     @if ($hasChildren)
         <ul
-            x-show="openChildren"
+            x-show="openChildren && $store.sidebar.isOpen"
             x-collapse
             class="fi-sidebar-sub-group-items flex flex-col gap-y-1"
+            data-fi-sidebar-inline-children
         >
             @foreach ($childItems as $childItem)
                 <x-filament-panels::sidebar.item
@@ -171,11 +268,13 @@
                     :badge="$childItem->getBadge()"
                     :badge-color="$childItem->getBadgeColor()"
                     :badge-tooltip="$childItem->getBadgeTooltip()"
+                    :child-items="$childItem->getChildItems()"
                     :first="$loop->first"
                     grouped
                     :icon="$childItem->getIcon()"
                     :last="$loop->last"
                     :should-open-url-in-new-tab="$childItem->shouldOpenUrlInNewTab()"
+                    :sidebar-collapsible="false"
                     sub-grouped
                     :url="$childItem->getUrl()"
                 >

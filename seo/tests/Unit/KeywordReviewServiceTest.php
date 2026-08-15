@@ -26,11 +26,6 @@ final class KeywordReviewServiceTest extends TestCase
     {
         $this->requireSeoDatabaseConnection();
 
-        $reasonService = app(KeywordReviewReasonService::class);
-        $reasonService->ensureDefaultReasons(1, 1);
-        $reason = KeywordReviewReason::query()->where('workspace_id', 1)->first();
-        $this->assertInstanceOf(KeywordReviewReason::class, $reason);
-
         $keyword = Keyword::query()->create([
             'phrase' => 'manual review keyword',
             'type' => Keyword::TYPE_NORMAL,
@@ -38,22 +33,70 @@ final class KeywordReviewServiceTest extends TestCase
 
         $result = app(KeywordReviewService::class)->submitReview(
             $keyword,
-            (int) $reason->id,
-            KeywordReviewStatus::Warning,
-            'Needs rewrite',
+            null,
+            KeywordReviewStatus::Danger,
+            null,
             null,
             1,
             KeywordReviewSource::ArticleSuggestion,
         );
 
         $fresh = $result['keyword'];
-        $this->assertSame(KeywordReviewStatus::Warning->value, (string) $fresh->review_status);
-        $this->assertSame((int) $reason->id, (int) $fresh->review_reason_id);
+        $this->assertSame(KeywordReviewStatus::Danger->value, (string) $fresh->review_status);
+        $this->assertTrue($fresh->isManualError());
         $this->assertDatabaseHas('keyword_review_histories', [
             'keyword_id' => (int) $keyword->id,
-            'to_status' => KeywordReviewStatus::Warning->value,
+            'to_status' => KeywordReviewStatus::Danger->value,
             'source' => KeywordReviewSource::ArticleSuggestion->value,
         ], 'omi_seo_ai');
+    }
+
+    public function test_warning_severity_is_coerced_to_error(): void
+    {
+        $this->requireSeoDatabaseConnection();
+
+        $keyword = Keyword::query()->create([
+            'phrase' => 'legacy warning keyword',
+            'type' => Keyword::TYPE_NORMAL,
+        ]);
+
+        $result = app(KeywordReviewService::class)->submitReview(
+            $keyword,
+            null,
+            KeywordReviewStatus::Warning,
+            'ignored note',
+            'ignored reason',
+            1,
+            KeywordReviewSource::ArticleSuggestion,
+        );
+
+        $this->assertSame(KeywordReviewStatus::Danger->value, (string) $result['keyword']->review_status);
+    }
+
+    public function test_toggle_manual_error_does_not_require_reason(): void
+    {
+        $this->requireSeoDatabaseConnection();
+
+        $keyword = Keyword::query()->create([
+            'phrase' => 'toggle error keyword',
+            'type' => Keyword::TYPE_NORMAL,
+        ]);
+
+        $on = app(KeywordReviewService::class)->toggleManualError(
+            $keyword,
+            1,
+            KeywordReviewSource::ArticleSuggestion,
+        );
+        $this->assertTrue($on['manual_error']);
+        $this->assertSame(KeywordReviewStatus::Danger->value, (string) $on['keyword']->review_status);
+
+        $off = app(KeywordReviewService::class)->toggleManualError(
+            $on['keyword'],
+            1,
+            KeywordReviewSource::ArticleSuggestion,
+        );
+        $this->assertFalse($off['manual_error']);
+        $this->assertSame(KeywordReviewStatus::Active->value, (string) $off['keyword']->review_status);
     }
 
     public function test_custom_reason_review_sets_note_without_reason_id(): void
@@ -81,11 +124,11 @@ final class KeywordReviewServiceTest extends TestCase
         $fresh = $result['keyword'];
         $this->assertSame(KeywordReviewStatus::Danger->value, (string) $fresh->review_status);
         $this->assertNull($fresh->review_reason_id);
-        $this->assertSame('Off-topic anchor text', (string) $fresh->review_note);
+        $this->assertNull($fresh->review_note);
         $this->assertDatabaseHas('keyword_review_histories', [
             'keyword_id' => (int) $keyword->id,
             'reason_id' => null,
-            'note' => 'Off-topic anchor text',
+            'note' => null,
             'to_status' => KeywordReviewStatus::Danger->value,
         ], 'omi_seo_ai');
     }
@@ -94,11 +137,6 @@ final class KeywordReviewServiceTest extends TestCase
     {
         $this->requireSeoDatabaseConnection();
 
-        $reasonService = app(KeywordReviewReasonService::class);
-        $reasonService->ensureDefaultReasons(1, 1);
-        $reason = KeywordReviewReason::query()->where('workspace_id', 1)->first();
-        $this->assertInstanceOf(KeywordReviewReason::class, $reason);
-
         $keyword = Keyword::query()->create([
             'phrase' => 'unlinked junk keyword',
             'type' => Keyword::TYPE_SUGGEST,
@@ -106,7 +144,7 @@ final class KeywordReviewServiceTest extends TestCase
 
         $result = app(KeywordReviewService::class)->submitReview(
             $keyword,
-            (int) $reason->id,
+            null,
             KeywordReviewStatus::Danger,
             null,
             null,
@@ -130,16 +168,10 @@ final class KeywordReviewServiceTest extends TestCase
     {
         $this->requireSeoDatabaseConnection();
 
-        $reasonService = app(KeywordReviewReasonService::class);
-        $reasonService->ensureDefaultReasons(1, 1);
-        $reason = KeywordReviewReason::query()->where('workspace_id', 1)->first();
-        $this->assertInstanceOf(KeywordReviewReason::class, $reason);
-
         $keyword = Keyword::query()->create([
             'phrase' => 'restore me',
             'type' => Keyword::TYPE_NORMAL,
             'review_status' => KeywordReviewStatus::Danger->value,
-            'review_reason_id' => (int) $reason->id,
             'reviewed_by' => 1,
             'reviewed_at' => now(),
         ]);
@@ -148,7 +180,7 @@ final class KeywordReviewServiceTest extends TestCase
             'keyword_id' => (int) $keyword->id,
             'from_status' => KeywordReviewStatus::Active->value,
             'to_status' => KeywordReviewStatus::Danger->value,
-            'reason_id' => (int) $reason->id,
+            'reason_id' => null,
             'severity' => KeywordReviewStatus::Danger->value,
             'source' => KeywordReviewSource::KeywordsTable->value,
             'reviewed_by' => 1,

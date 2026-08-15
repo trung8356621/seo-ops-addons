@@ -56,10 +56,7 @@ final class KeywordWorkspaceTwo extends Page
     public function mount(): void
     {
         $this->initializeKeywordWorkspaceSiteFilter();
-
-        if ($this->selectedKeywordId !== null && $this->selectedKeywordId <= 0) {
-            $this->selectedKeywordId = null;
-        }
+        $this->redirect($this->appendKeywordWorkspaceSiteToUrl(KeywordResource::getUrl('clusters')));
     }
 
     public static function canAccess(array $parameters = []): bool

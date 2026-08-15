@@ -38,7 +38,7 @@
                             <p class="seo-ai-models-panel__meta">
                                 {{ $aiModelsOverview['total_models'] ?? 0 }} model
                                 @if (filled($aiModelsOverview['last_synced_at'] ?? null))
-                                    · Last updated: {{ $aiModelsOverview['last_synced_at'] }}
+                                    · {{ __('seo-content-ai::filament.performance_hub.gsc_last_synced', ['time' => $aiModelsOverview['last_synced_at']]) }}
                                 @endif
                                 · Nhóm theo capability (Unknown không vào routing mặc định)
                             </p>

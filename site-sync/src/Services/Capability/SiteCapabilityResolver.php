@@ -58,6 +58,11 @@ final class SiteCapabilityResolver
         return $this->forSite($site)?->provider($capability);
     }
 
+    public function localEngineGaps(Site $site): array
+    {
+        return $this->forSite($site)?->localEngineGaps() ?? SiteSyncSchema::LOCAL_ENGINE_CAPABILITY_KEYS;
+    }
+
     /**
      * @return list<string>
      */

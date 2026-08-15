@@ -4,9 +4,10 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns;
 
+use Livewire\Attributes\On;
+use Livewire\Attributes\Url;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
-use Livewire\Attributes\Url;
 
 trait HasKeywordWorkspaceNavigation
 {
@@ -15,22 +16,17 @@ trait HasKeywordWorkspaceNavigation
 
     protected function initializeKeywordWorkspaceSiteFilter(): void
     {
-        SeoAccessControl::setGlobalSiteId(null);
-
-        if ($this->keywordWorkspaceSiteId !== null && $this->keywordWorkspaceSiteId <= 0) {
-            $this->keywordWorkspaceSiteId = null;
-        }
-
-        $legacySiteId = (int) request()->query('site', 0);
-        if ($this->keywordWorkspaceSiteId === null && $legacySiteId > 0) {
-            $this->keywordWorkspaceSiteId = $legacySiteId;
-        }
+        $this->syncKeywordWorkspaceSiteFromGlobal();
     }
 
-    public function updatedKeywordWorkspaceSiteId(): void
+    #[On('domain-context-changed')]
+    #[On('seoGlobalSiteChanged')]
+    public function onDomainContextChanged(mixed $domain = null, mixed $siteId = null): void
     {
-        if ($this->keywordWorkspaceSiteId !== null && $this->keywordWorkspaceSiteId <= 0) {
-            $this->keywordWorkspaceSiteId = null;
+        $this->syncKeywordWorkspaceSiteFromGlobal(is_numeric($siteId) ? (int) $siteId : null);
+
+        if (method_exists($this, 'resetPage')) {
+            $this->resetPage();
         }
 
         if (method_exists($this, 'onKeywordWorkspaceSiteFilterChanged')) {
@@ -40,7 +36,7 @@ trait HasKeywordWorkspaceNavigation
 
     public function shouldShowKeywordWorkspaceSiteFilter(): bool
     {
-        return count($this->getKeywordWorkspaceSiteFilterOptions()) > 1;
+        return false;
     }
 
     /**
@@ -53,6 +49,7 @@ trait HasKeywordWorkspaceNavigation
 
     public function resolveKeywordWorkspaceSiteId(): ?int
     {
+        $this->syncKeywordWorkspaceSiteFromGlobal();
         $siteId = $this->keywordWorkspaceSiteId;
 
         return ($siteId !== null && $siteId > 0) ? $siteId : null;
@@ -67,41 +64,43 @@ trait HasKeywordWorkspaceNavigation
             [
                 'key' => 'index',
                 'label' => __('seo-content-ai::filament.keyword.workspace_nav_dictionary'),
-                'url' => $this->appendKeywordWorkspaceSiteToUrl(KeywordResource::getUrl('index')),
+                'url' => KeywordResource::getUrl('index'),
             ],
             [
                 'key' => 'focus',
                 'label' => __('seo-content-ai::filament.keyword.workspace_nav_focus'),
-                'url' => $this->appendKeywordWorkspaceSiteToUrl(KeywordResource::getUrl('focus')),
+                'url' => KeywordResource::getUrl('focus'),
             ],
             [
                 'key' => 'anchor-audit',
                 'label' => __('seo-content-ai::filament.keyword.workspace_nav_anchor_audit'),
-                'url' => $this->appendKeywordWorkspaceSiteToUrl(KeywordResource::getUrl('anchor-audit')),
+                'url' => KeywordResource::getUrl('anchor-audit'),
             ],
             [
                 'key' => 'workspace-2',
                 'label' => __('seo-content-ai::filament.keyword.workspace_nav_two'),
-                'url' => $this->appendKeywordWorkspaceSiteToUrl(KeywordResource::getUrl('workspace-2')),
+                'url' => KeywordResource::getUrl('clusters'),
             ],
             [
                 'key' => 'cannibalization',
                 'label' => __('seo-content-ai::filament.keyword.cannibalization_nav'),
-                'url' => $this->appendKeywordWorkspaceSiteToUrl(KeywordResource::getUrl('cannibalization')),
+                'url' => KeywordResource::getUrl('cannibalization'),
             ],
         ];
     }
 
     protected function appendKeywordWorkspaceSiteToUrl(string $url): string
     {
-        $siteId = $this->resolveKeywordWorkspaceSiteId();
-        if ($siteId === null) {
-            return $url;
-        }
+        return $url;
+    }
 
-        $separator = str_contains($url, '?') ? '&' : '?';
+    private function syncKeywordWorkspaceSiteFromGlobal(?int $siteId = null): void
+    {
+        $resolved = $siteId !== null && $siteId > 0
+            ? $siteId
+            : SeoAccessControl::globalSiteId();
 
-        return $url.$separator.'site_id='.$siteId;
+        $this->keywordWorkspaceSiteId = ($resolved !== null && $resolved > 0) ? $resolved : null;
     }
 
     abstract protected function getActiveKeywordWorkspaceKey(): string;

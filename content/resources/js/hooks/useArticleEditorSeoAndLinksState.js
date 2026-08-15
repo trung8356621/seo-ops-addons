@@ -3,7 +3,7 @@ import { LINKS_RESCAN_REQUEST_EVENT, isAbortError } from '../utils/articleEditor
 import { filterSuggestedInternalLinks, isSpecialOrContactHref, mergeSuggestionCatalog } from '../utils/articleLinkSuggestionFilter';
 import { normalizeSeoSummary } from '../utils/articleEditorPayloadAdapters';
 import { seoActions, seoApi } from '@seo-addon/editor/domains/seo/state.js';
-import { seoArticleApiFetch } from '@seo-addon/utils/seoArticleApi.js';
+import { loadArticleEditorSeoLazy } from '../utils/articleEditorSeoLazy';
 import { t } from '../utils/i18n';
 import { useEffect, useRef, useState } from 'react';
 import { useSeoEditor } from '@seo-addon/editor/domains/seo/useSeoEditor.js';
@@ -101,10 +101,9 @@ export default function useArticleEditorSeoAndLinksState({ activeHeavyModuleRef,
         return () => window.removeEventListener('seo-editor-seo-summary-loaded', onSeoSummary);
     }, []);
 
-    // SEO Assistant: fetch summary when panel active if not yet loaded; always terminate loading.
+    // SEO Assistant: reuse page-level lazy GET. Do not AbortSignal — remount must not cancel.
     useEffect(() => {
         if (!seoPanelActive || !articleId) {
-            seoSummaryAbortRef.current?.abort();
             setSeoSummaryLoading(false);
             return undefined;
         }
@@ -114,8 +113,7 @@ export default function useArticleEditorSeoAndLinksState({ activeHeavyModuleRef,
             return undefined;
         }
 
-        const controller = new AbortController();
-        seoSummaryAbortRef.current = controller;
+        let cancelled = false;
         setSeoSummaryLoading(true);
         setSeoSummaryError(null);
 
@@ -128,16 +126,13 @@ export default function useArticleEditorSeoAndLinksState({ activeHeavyModuleRef,
                 const settingsUrl =
                     window.__SEO_EDITOR_LAZY_ENDPOINTS__?.settings
                     || `/api/seo/articles/${articleId}/editor/settings`;
-                const [seoRes, settingsRes] = await Promise.all([
-                    seoArticleApiFetch(url, { signal: controller.signal }),
-                    seoArticleApiFetch(settingsUrl, { signal: controller.signal }),
-                ]);
-                if (controller.signal.aborted || activeHeavyModuleRef.current !== 'seo') {
+                const [seoRes] = await loadArticleEditorSeoLazy({
+                    articleId,
+                    seoSummaryUrl: url,
+                    settingsUrl,
+                });
+                if (cancelled || activeHeavyModuleRef.current !== 'seo') {
                     return;
-                }
-                if (settingsRes.response.ok && settingsRes.data?.success !== false) {
-                    const settingsData = settingsRes.data?.data ?? {};
-
                 }
                 if (!seoRes.response.ok || seoRes.data?.success === false) {
                     settled = true;
@@ -151,7 +146,7 @@ export default function useArticleEditorSeoAndLinksState({ activeHeavyModuleRef,
                     new CustomEvent('seo-editor-seo-summary-loaded', { detail: summary.raw }),
                 );
             } catch (error) {
-                if (isAbortError(error) || controller.signal.aborted) {
+                if (isAbortError(error) || cancelled) {
                     return;
                 }
                 if (activeHeavyModuleRef.current === 'seo') {
@@ -159,7 +154,7 @@ export default function useArticleEditorSeoAndLinksState({ activeHeavyModuleRef,
                     setSeoSummaryError(t('editor_seo_load_error'));
                 }
             } finally {
-                if (!controller.signal.aborted && activeHeavyModuleRef.current === 'seo') {
+                if (!cancelled && activeHeavyModuleRef.current === 'seo') {
                     setSeoSummaryLoading(false);
                     if (!settled && !seoSummaryLoadedRef.current) {
                         setSeoSummaryError(t('editor_seo_load_error'));
@@ -169,12 +164,9 @@ export default function useArticleEditorSeoAndLinksState({ activeHeavyModuleRef,
         })();
 
         return () => {
-            controller.abort();
-            if (seoSummaryAbortRef.current === controller) {
-                seoSummaryAbortRef.current = null;
-            }
+            cancelled = true;
         };
-    }, [seoPanelActive, articleId, analysis]);
+    }, [seoPanelActive, articleId]);
 
     const [extractedLinks, setExtractedLinks] = useState(() => {
         const source = initialSeo?.extracted_links ?? { internal: [], external: [] };

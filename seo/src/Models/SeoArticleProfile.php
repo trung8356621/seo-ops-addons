@@ -23,6 +23,10 @@ final class SeoArticleProfile extends Model
         'external_link_count' => 'integer',
         'indexed_at' => 'datetime',
         'previous_indexed_at' => 'datetime',
+        'is_indexable' => 'boolean',
+        'is_followable' => 'boolean',
+        'raw_meta' => 'array',
+        'synced_at' => 'datetime',
     ];
 
     public function article(): BelongsTo

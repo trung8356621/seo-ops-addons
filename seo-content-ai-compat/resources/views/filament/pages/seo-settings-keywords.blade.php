@@ -31,66 +31,6 @@
                     </div>
                 </form>
 
-                @if ($this->canManageReviewReasons())
-                    <div class="mx-auto mt-10 max-w-3xl space-y-4">
-                        <x-filament::section
-                            :heading="__('seo-content-ai::filament.settings_keywords.review_reasons_title')"
-                            :description="__('seo-content-ai::filament.settings_keywords.review_reasons_description')"
-                        >
-                            <div class="space-y-3">
-                                @foreach ($reviewReasonRows as $index => $row)
-                                    <div class="rounded-lg border border-gray-200 p-4 dark:border-white/10" wire:key="review-reason-row-{{ $row['id'] ?? 0 }}-{{ $index }}">
-                                        <div class="grid gap-3 md:grid-cols-2">
-                                            <label class="text-sm">
-                                                <span class="mb-1 block font-medium">{{ __('seo-content-ai::filament.settings_keywords.review_reason_name') }}</span>
-                                                <input type="text" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5" wire:model.defer="reviewReasonRows.{{ $index }}.name">
-                                            </label>
-                                            <label class="text-sm">
-                                                <span class="mb-1 block font-medium">{{ __('seo-content-ai::filament.settings_keywords.review_reason_severity') }}</span>
-                                                <x-select wire:model.defer="reviewReasonRows.{{ $index }}.default_severity" class="w-full">
-                                                    <option value="warning">{{ __('seo-content-ai::filament.keyword.quality_flag_warning') }}</option>
-                                                    <option value="danger">{{ __('seo-content-ai::filament.keyword.quality_flag_danger') }}</option>
-                                                </x-select>
-                                            </label>
-                                            <label class="text-sm md:col-span-2">
-                                                <span class="mb-1 block font-medium">{{ __('seo-content-ai::filament.settings_keywords.review_reason_description') }}</span>
-                                                <textarea rows="2" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5" wire:model.defer="reviewReasonRows.{{ $index }}.description"></textarea>
-                                            </label>
-                                            <label class="inline-flex items-center gap-2 text-sm">
-                                                <input type="checkbox" wire:model.defer="reviewReasonRows.{{ $index }}.is_active">
-                                                <span>{{ __('seo-content-ai::filament.settings_keywords.review_reason_active') }}</span>
-                                            </label>
-                                            <label class="text-sm">
-                                                <span class="mb-1 block font-medium">{{ __('seo-content-ai::filament.settings_keywords.review_reason_sort') }}</span>
-                                                <input type="number" min="0" class="w-full rounded-lg border-gray-300 dark:border-white/10 dark:bg-white/5" wire:model.defer="reviewReasonRows.{{ $index }}.sort_order">
-                                            </label>
-                                        </div>
-                                        <div class="mt-3 flex items-center justify-between">
-                                            @if (! empty($row['is_used']))
-                                                <span class="text-xs text-amber-600">{{ __('seo-content-ai::filament.settings_keywords.review_reason_used_hint') }}</span>
-                                            @else
-                                                <span></span>
-                                            @endif
-                                            <button type="button" class="text-sm text-rose-600" wire:click="removeReviewReasonRow({{ $index }})" wire:loading.attr="disabled">
-                                                {{ __('seo-content-ai::filament.settings_keywords.review_reason_remove') }}
-                                            </button>
-                                        </div>
-                                    </div>
-                                @endforeach
-                            </div>
-
-                            <div class="mt-4 flex flex-wrap gap-3">
-                                <x-filament::button type="button" color="gray" wire:click="addReviewReasonRow">
-                                    {{ __('seo-content-ai::filament.settings_keywords.review_reason_add') }}
-                                </x-filament::button>
-                                <x-filament::button type="button" wire:click="saveReviewReasons" wire:loading.attr="disabled" wire:target="saveReviewReasons">
-                                    {{ __('seo-content-ai::filament.settings_keywords.review_reasons_save') }}
-                                </x-filament::button>
-                            </div>
-                        </x-filament::section>
-                    </div>
-                @endif
-
                 @if (is_array($debugReport))
                     <div class="mx-auto mt-8 max-w-3xl space-y-4">
                         <x-filament::section

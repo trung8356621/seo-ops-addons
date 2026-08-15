@@ -138,7 +138,7 @@ final class AiKeywordDiscoveryService
         $countLabel = (string) $count;
         $siteBlock = trim($siteMcpContext);
         $siteSection = $siteBlock !== ''
-            ? "Site MCP Keyword Context (use for business fit; do not invent unrelated niches):\n{$siteBlock}\n\n"
+            ? "Compact keyword landscape (use this instead of any full keyword list):\n{$siteBlock}\n\n"
             : '';
 
         return <<<PROMPT
@@ -146,16 +146,21 @@ final class AiKeywordDiscoveryService
 Preferred search intent focus: {$intentLabel}
 Target region / market: {$regionLabel}
 
-Act as a senior SEO strategist. Suggest exactly {$countLabel} long-tail keyword opportunities closely related to the seed.
+Act as a senior SEO strategist. Suggest exactly {$countLabel} NEW long-tail keyword opportunities.
+
+Rules:
+- Generate only new SEO opportunities for weak/missing topics or intents.
+- Do not generate paraphrases of existing canonical keywords.
+- Do not expand saturated clusters.
+- Avoid full sentences, descriptive marketing copy, brand slogans, and URL/domain strings.
+- Avoid near-duplicates of existing_canonicals / exclude_patterns in the landscape context.
 
 Return ONLY a valid JSON array (no markdown prose). Each object MUST use these keys:
 - keyword (string)
 - intent (informational|commercial|transactional)
 - difficulty (easy|medium|hard) — AI-estimated competition, not numeric KD
 - title_idea (string) — compelling SEO article title in the target market language
-- relevancy_reason (string) — 1-2 concise sentences explaining why this keyword fits the seed and intent
-
-Prioritize realistic phrases people search in the target region. Avoid duplicate or near-duplicate keywords.
+- relevancy_reason (string) — 1-2 concise sentences explaining why this keyword fits a gap, not a paraphrase
 PROMPT;
     }
 

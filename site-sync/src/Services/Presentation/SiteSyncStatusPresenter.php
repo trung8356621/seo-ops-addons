@@ -15,6 +15,9 @@ use Omnichannel\Addons\SiteSync\Services\Capability\SiteCapabilityResolver;
 use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncSchema;
 use Omnichannel\Addons\SiteSync\Services\Orchestration\SiteSyncCutoverReadinessService;
 use Omnichannel\Addons\SiteSync\Services\Orchestration\SiteSyncFeatureFlags;
+use Omnichannel\Addons\SiteSync\Services\Progress\SiteSyncProgressCopy;
+use Omnichannel\Addons\SiteSync\Services\Progress\SiteSyncProgressTracker;
+use Omnichannel\Addons\SiteSync\Services\Progress\SiteSyncStepCatalog;
 use Omnichannel\Addons\SiteSync\Services\Support\SiteSyncInfrastructure;
 use App\Models\Site;
 use App\Support\RuntimeLogger;
@@ -123,23 +126,39 @@ final class SiteSyncStatusPresenter
         $forceFull = (string) $run->mode === SiteSyncSchema::MODE_FORCE_FULL;
         $checked = (int) ($counters['checked'] ?? $counters['fetched'] ?? 0);
         $totalToCheck = (int) ($counters['total_to_check'] ?? 0);
-        if ($forceFull && $totalToCheck > 0) {
-            $progress = $checked;
-            $progressTotal = $totalToCheck;
-        } else {
-            $progress = $done;
-            $progressTotal = $total;
-        }
-
         $errorMessage = trim((string) ($run->error_message ?? ''));
         $meta = is_array($run->meta) ? $run->meta : [];
-        $scoringProgress = $this->safeScoringProgress((int) $site->id);
         $runStatus = (string) $run->status;
         $currentStep = (string) ($run->current_step ?? '');
         $lastProgressAt = (string) ($meta['last_progress_at'] ?? optional($run->updated_at)?->toIso8601String() ?? '');
+        $taskProgress = (new SiteSyncProgressTracker())->read($run);
+        if ($taskProgress->current === null && $checked > 0) {
+            $taskProgress = $taskProgress->merge([
+                'current' => $checked,
+                'total' => $totalToCheck > 0 ? $totalToCheck : null,
+                'phase' => $currentStep !== '' ? $currentStep : $taskProgress->phase,
+                'step' => SiteSyncStepCatalog::order($currentStep !== '' ? $currentStep : (string) $taskProgress->phase),
+                'total_steps' => SiteSyncStepCatalog::totalSteps(),
+                'status' => $runStatus,
+                'metrics' => [
+                    'changed' => (int) ($counters['updated'] ?? 0),
+                    'unchanged' => (int) ($counters['unchanged'] ?? 0),
+                    'failed' => (int) ($counters['failed'] ?? 0),
+                ],
+            ], $lastProgressAt !== '' ? $lastProgressAt : null);
+        }
+        if ($forceFull && $totalToCheck > 0) {
+            $progress = $taskProgress->current ?? $checked;
+            $progressTotal = $taskProgress->total ?? $totalToCheck;
+        } else {
+            $progress = $taskProgress->current ?? $done;
+            $progressTotal = $taskProgress->total ?? $total;
+        }
+
+        $scoringProgress = $this->safeScoringProgress((int) $site->id);
         $stuck = $this->isRunStuck($runStatus, $lastProgressAt, $meta);
         if ($stuck) {
-            $warnings[] = 'Run đồng bộ không còn heartbeat tiến trình — bấm «Tiếp tục» để reclaim/resume theo policy hiện có.';
+            $warnings[] = 'Tác vụ có vẻ không có tiến triển';
         }
         $scoringContext = $this->scoringContextMessage(
             $runStatus,
@@ -151,6 +170,27 @@ final class SiteSyncStatusPresenter
 
         $isTerminal = in_array($runStatus, ['completed', 'completed_with_warnings', 'canceled', 'cancelled'], true);
         $isActive = in_array($runStatus, ['pending', 'running'], true);
+        $phaseLabel = SiteSyncStepCatalog::label($currentStep);
+        $activeStep = $steps->firstWhere('status', 'running');
+        $attempt = $activeStep !== null ? (int) ($activeStep->attempt_count ?? 0) : $taskProgress->attempt;
+        $startedAt = optional($run->started_at)?->toIso8601String() ?? $taskProgress->startedAt;
+        $elapsedLabel = SiteSyncProgressCopy::elapsedLabel($startedAt);
+        $lastActivityLabel = SiteSyncProgressCopy::lastActivityLabel($lastProgressAt);
+        $retryLabel = SiteSyncProgressCopy::retryLabel($attempt, 3);
+        $stepTimeline = SiteSyncStepCatalog::timeline($steps);
+        $headline = $stuck
+            ? 'Tác vụ có vẻ không có tiến triển'
+            : $this->buildMessage(
+                $runStatus,
+                $counters,
+                $warnings,
+                $sources,
+                $forceFull,
+                $errorMessage,
+                $taskProgress,
+                $phaseLabel,
+                $elapsedLabel,
+            );
 
         return [
             'running' => $isActive && ! $stuck,
@@ -161,27 +201,27 @@ final class SiteSyncStatusPresenter
             'mode' => (string) $run->mode,
             'mode_label' => $forceFull ? 'Đồng bộ lại toàn bộ website' : null,
             'error_message' => $errorMessage !== '' ? $errorMessage : null,
-            'message' => $stuck
-                ? 'Đồng bộ bị kẹt (không còn tiến trình). Bấm «Tiếp tục đồng bộ & kiểm tra» để resume.'
-                : $this->buildMessage(
-                    $runStatus,
-                    $counters,
-                    $warnings,
-                    $sources,
-                    $forceFull,
-                    $errorMessage,
-                ),
+            'message' => $headline,
             'scoring_context' => $scoringContext,
             'scoring_progress' => $scoringProgress,
             'progress' => $progress,
             'total' => $progressTotal,
+            'percentage' => $taskProgress->percentage(),
             'phase' => $currentStep,
-            'phase_label' => $this->phaseLabel($currentStep),
+            'phase_label' => $phaseLabel,
             'public_ref' => (string) $run->public_ref,
             'run_id' => (int) $run->id,
             'last_progress_at' => $lastProgressAt !== ''
                 ? (SystemDateTime::formatDateTime($lastProgressAt) ?? $lastProgressAt)
                 : null,
+            'last_activity_label' => $lastActivityLabel,
+            'elapsed_label' => $elapsedLabel,
+            'retry_label' => $retryLabel,
+            'started_at' => $startedAt,
+            'last_activity_at' => $lastProgressAt !== '' ? $lastProgressAt : null,
+            'task_progress' => $taskProgress->toArray(),
+            'steps' => $stepTimeline,
+            'substeps' => $taskProgress->substeps,
             'counters' => $counters,
             'warnings' => array_values(array_unique($warnings)),
             'capability_sources' => $sources,
@@ -191,7 +231,7 @@ final class SiteSyncStatusPresenter
                 'manual_links' => $manualLinks,
             ],
             'cutover' => $this->safeCutover($site),
-            'last_synced_at' => optional($run->finished_at ?? $run->updated_at)?->toIso8601String(),
+            'last_synced_at' => SystemDateTime::formatDateTime($run->finished_at ?? $run->updated_at),
         ];
     }
 
@@ -397,7 +437,7 @@ final class SiteSyncStatusPresenter
             // Step còn mở nhưng queue đã drain — chờ finalize/terminal của orchestrator.
             if ($currentStep === 'score_missing_articles') {
                 return sprintf(
-                    'SEO scoring: %s / %s · đang hoàn tất bước score_missing_articles',
+                    'SEO scoring: %s / %s · đang hoàn tất chấm điểm SEO',
                     number_format($completed),
                     number_format($total),
                 );
@@ -447,20 +487,14 @@ final class SiteSyncStatusPresenter
 
     private function phaseLabel(string $stepKey): string
     {
-        return match ($stepKey) {
-            'detect_capability' => 'Phát hiện capability',
-            'request_snapshot_delta' => 'Snapshot / delta',
-            'sync_site_profile' => 'Đồng bộ site profile',
-            'sync_url_catalog' => 'Đồng bộ URL catalog',
-            'sync_provider_keywords' => 'Đồng bộ provider keywords',
-            'missing_capability_fallback' => 'Fallback thiếu capability',
-            'validate_changed_links' => 'Kiểm tra link thay đổi',
-            'score_missing_articles' => 'Chấm SEO thiếu / stale',
-            'finalize' => 'Hoàn tất',
-            default => $stepKey !== '' ? $stepKey : '—',
-        };
+        return SiteSyncStepCatalog::label($stepKey);
     }
 
+    /**
+     * @param  array<string, mixed>  $counters
+     * @param  list<string>  $warnings
+     * @param  array<string, mixed>  $sources
+     */
     private function buildMessage(
         string $status,
         array $counters,
@@ -468,42 +502,38 @@ final class SiteSyncStatusPresenter
         array $sources,
         bool $forceFull = false,
         string $errorMessage = '',
+        ?\App\Core\Operations\LongRunningProgress $taskProgress = null,
+        string $phaseLabel = '',
+        ?string $elapsedLabel = null,
     ): string {
         if ($status === 'failed') {
-            $prefix = $forceFull
-                ? 'Đồng bộ lại toàn bộ thất bại'
-                : 'Đồng bộ thất bại';
+            $prefix = $forceFull ? 'Đồng bộ thất bại' : 'Đồng bộ thất bại';
             $detail = $errorMessage !== '' ? $errorMessage : 'Lỗi không rõ — xem log site_sync.step_failed.';
-
-            return $prefix.': '.$detail.' Bấm «Tiếp tục» để thử lại bước lỗi.';
-        }
-
-        if ($forceFull && ($status === 'running' || $status === 'pending')) {
-            $total = (int) ($counters['total_to_check'] ?? 0);
-            $checked = (int) ($counters['checked'] ?? $counters['fetched'] ?? 0);
-            $updated = (int) ($counters['updated'] ?? 0);
-            $unchanged = (int) ($counters['unchanged'] ?? 0);
-            $failed = (int) ($counters['failed'] ?? 0);
-
-            if ($total === 0 && $checked === 0) {
-                return 'Đang kiểm tra dữ liệu WordPress…';
+            $step = $phaseLabel !== '' ? $phaseLabel : 'Không rõ';
+            $processed = '';
+            if ($taskProgress !== null && $taskProgress->current !== null) {
+                $processed = ' Đã xử lý: '.number_format($taskProgress->current);
+                if ($taskProgress->total !== null && $taskProgress->total > 0) {
+                    $processed .= ' / '.number_format($taskProgress->total);
+                }
+                $processed .= '.';
             }
 
-            return sprintf(
-                'Chế độ: Đồng bộ lại toàn bộ website · Tổng cần kiểm tra: %s · Đã kiểm tra: %s · Có thay đổi: %s · Không thay đổi: %s · Thất bại: %s',
-                number_format($total),
-                number_format($checked),
-                number_format($updated),
-                number_format($unchanged),
-                number_format($failed),
-            );
+            return $prefix.'. Bước: '.$step.'.'.$processed.' Lý do: '.$detail;
         }
 
         if ($status === 'running' || $status === 'pending') {
-            return 'Đang đồng bộ & kiểm tra website…';
+            if ($taskProgress !== null) {
+                return SiteSyncProgressCopy::runningHeadline(
+                    $taskProgress,
+                    $phaseLabel !== '' ? $phaseLabel : 'Đồng bộ',
+                );
+            }
+
+            return 'Đang đồng bộ website';
         }
         if ($status === 'canceled' || $status === 'cancelled') {
-            return 'Đã hủy đồng bộ. Dữ liệu đã cập nhật vẫn được giữ.';
+            return 'Đã hủy';
         }
 
         $parts = [];
@@ -560,6 +590,9 @@ final class SiteSyncStatusPresenter
                 ? ($status === 'completed_with_warnings' ? 'Đồng bộ hoàn tất (có cảnh báo).' : 'Đồng bộ hoàn tất.')
                 : $status
         );
+        if ($elapsedLabel !== null && in_array($status, ['completed', 'completed_with_warnings'], true)) {
+            $msg .= ' · '.$elapsedLabel;
+        }
         if ($warnings !== []) {
             $msg .= ' · '.count($warnings).' cảnh báo';
         }

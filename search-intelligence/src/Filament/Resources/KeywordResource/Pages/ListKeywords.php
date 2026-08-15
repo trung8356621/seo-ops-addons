@@ -9,20 +9,21 @@ use Omnichannel\Addons\SearchIntelligence\Enums\KeywordReviewStatus;
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\HasKeywordWorkspaceNavigation;
-use Omnichannel\Addons\Content\Filament\Resources\TagResource;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
 use Omnichannel\Addons\Seo\Services\DomainOverviewService;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordPersistenceService;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordReviewService;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClassificationService;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordClassificationVisibility;
+use App\Core\Operations\LongRunningProgress;
 use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectActionFactory;
 use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectContract;
 use Omnichannel\Addons\Seo\Support\CtaKeywordBlacklistFilter;
 use Omnichannel\Addons\SearchFoundation\Support\InternalAnchorKeywordFilter;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Filament\Actions;
-use Filament\Actions\Action;
 use Filament\Forms;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
@@ -51,6 +52,9 @@ class ListKeywords extends ListRecords
 
     /** @var list<int> */
     public array $expandedParentIds = [];
+
+    #[Url(as: 'cluster')]
+    public ?string $clusterKeyFilter = null;
 
     public ?int $selectedKeywordId = null;
 
@@ -322,65 +326,6 @@ class ListKeywords extends ListRecords
             ->actions($this->listPageTableActions());
     }
 
-    public function filterTagsAction(): Action
-    {
-        return Action::make('filterTags')
-            ->label(__('seo-content-ai::filament.keyword.tags_filter_heading'))
-            ->modalHeading(__('seo-content-ai::filament.keyword.tags_filter_heading'))
-            ->modalDescription(__('seo-content-ai::filament.keyword.tags_filter_description'))
-            ->modalSubmitActionLabel(__('seo-content-ai::filament.keyword.tags_filter_apply'))
-            ->modalWidth('lg')
-            ->form([
-                Forms\Components\Select::make('include_tag_ids')
-                    ->label(__('seo-content-ai::filament.keyword.include_tags'))
-                    ->options(fn (): array => KeywordResource::tagFilterOptions())
-                    ->multiple()
-                    ->searchable()
-                    ->preload()
-                    ->native(false),
-                Forms\Components\Select::make('exclude_tag_ids')
-                    ->label(__('seo-content-ai::filament.keyword.exclude_tags'))
-                    ->options(fn (): array => KeywordResource::tagFilterOptions())
-                    ->multiple()
-                    ->searchable()
-                    ->preload()
-                    ->native(false),
-            ])
-            ->fillForm(function (): array {
-                $scope = is_array($this->tableFilters['tags_scope'] ?? null)
-                    ? $this->tableFilters['tags_scope']
-                    : [];
-
-                return [
-                    'include_tag_ids' => $scope['include_tag_ids'] ?? [],
-                    'exclude_tag_ids' => $scope['exclude_tag_ids'] ?? [],
-                ];
-            })
-            ->action(function (array $data): void {
-                $includeIds = collect($data['include_tag_ids'] ?? [])
-                    ->filter(static fn (mixed $id): bool => is_numeric($id))
-                    ->map(static fn (mixed $id): int => (int) $id)
-                    ->filter(static fn (int $id): bool => $id > 0)
-                    ->values()
-                    ->all();
-
-                $excludeIds = collect($data['exclude_tag_ids'] ?? [])
-                    ->filter(static fn (mixed $id): bool => is_numeric($id))
-                    ->map(static fn (mixed $id): int => (int) $id)
-                    ->filter(static fn (int $id): bool => $id > 0)
-                    ->values()
-                    ->all();
-
-                $this->tableFilters['tags_scope'] = [
-                    'include_tag_ids' => $includeIds,
-                    'exclude_tag_ids' => $excludeIds,
-                    'tags_filter_display' => null,
-                ];
-
-                $this->updatedTableFilters();
-            });
-    }
-
     public function getHeading(): string|\Illuminate\Contracts\Support\Htmlable
     {
         if ($this->parentId !== null && $this->parentId > 0) {
@@ -391,7 +336,7 @@ class ListKeywords extends ListRecords
     }
 
     /**
-     * @return array{total: int, active: int, needs_optimization: int, errors: int}
+     * @return array{total: int, active: int, errors: int}
      */
     public function getDictionaryStats(): array
     {
@@ -401,7 +346,6 @@ class ListKeywords extends ListRecords
             return [
                 'total' => 0,
                 'active' => 0,
-                'needs_optimization' => 0,
                 'errors' => 0,
             ];
         }
@@ -421,18 +365,65 @@ class ListKeywords extends ListRecords
                         static fn (Builder $mapQuery): Builder => $mapQuery->whereNotNull('source_article_id'),
                     );
             })->where('review_status', KeywordReviewStatus::Active->value)->count(),
-            'needs_optimization' => (clone $reviewScopeQuery)
-                ->where('review_status', KeywordReviewStatus::Warning->value)
-                ->count(),
             'errors' => (clone $reviewScopeQuery)
-                ->where('review_status', KeywordReviewStatus::Danger->value)
+                ->whereIn('review_status', [
+                    KeywordReviewStatus::Danger->value,
+                    KeywordReviewStatus::Warning->value,
+                ])
                 ->count(),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function getClassificationSummary(): array
+    {
+        return KeywordClassificationVisibility::summarize($this->resolveKeywordWorkspaceSiteId());
+    }
+
+    /**
+     * @return array{visible: bool, running: bool, label: string, counts: string}|null
+     */
+    public function getKeywordIntelligenceProgress(): ?array
+    {
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        if ($siteId <= 0) {
+            return null;
+        }
+
+        $progress = app(KeywordClassificationService::class)->readProgress($siteId);
+        if (! $progress instanceof LongRunningProgress) {
+            return null;
+        }
+
+        $running = in_array($progress->status, ['queued', 'running'], true);
+        if (! $running) {
+            return null;
+        }
+
+        $current = (int) $progress->current;
+        $total = max(1, (int) $progress->total);
+        $pct = (int) round(($current / $total) * 100);
+
+        return [
+            'visible' => true,
+            'running' => true,
+            'label' => __('seo-content-ai::filament.keyword.classification_running'),
+            'counts' => __('seo-content-ai::filament.keyword.classification_progress_counts', [
+                'current' => number_format($current),
+                'total' => number_format($total),
+                'pct' => $pct,
+            ]),
         ];
     }
 
     public function applyDictionaryStatFilter(string $statKey): void
     {
-        $allowed = ['total', 'active', 'needs_optimization', 'errors'];
+        $allowed = ['total', 'active', 'errors'];
+        if ($statKey === 'needs_optimization') {
+            $statKey = 'errors';
+        }
         if (! in_array($statKey, $allowed, true)) {
             return;
         }
@@ -598,8 +589,8 @@ class ListKeywords extends ListRecords
     protected function dictionaryListingRequiresLinkedScope(): bool
     {
         return ! in_array((string) ($this->dictionaryStatFilter ?? ''), [
-            'needs_optimization',
             'errors',
+            'needs_optimization',
         ], true);
     }
 
@@ -673,10 +664,12 @@ class ListKeywords extends ListRecords
         $statKey = $this->dictionaryStatFilter;
 
         if ($statKey === null || $statKey === '' || $statKey === 'total') {
+            $query = $this->applyClusterKeyScope($query);
+
             return $query;
         }
 
-        return match ($statKey) {
+        $query = match ($statKey) {
             'active' => $query->where(function (Builder $builder): void {
                 $builder
                     ->whereHas('mainArticles')
@@ -685,10 +678,35 @@ class ListKeywords extends ListRecords
                         static fn (Builder $mapQuery): Builder => $mapQuery->whereNotNull('source_article_id'),
                     );
             }),
-            'needs_optimization' => $query->where('review_status', KeywordReviewStatus::Warning->value),
-            'errors' => $query->where('review_status', KeywordReviewStatus::Danger->value),
+            'errors', 'needs_optimization' => $query->whereIn('review_status', [
+                KeywordReviewStatus::Danger->value,
+                KeywordReviewStatus::Warning->value,
+            ]),
             default => $query,
         };
+
+        return $this->applyClusterKeyScope($query);
+    }
+
+    protected function applyClusterKeyScope(Builder $query): Builder
+    {
+        $key = trim((string) ($this->clusterKeyFilter ?? ''));
+        if ($key === '') {
+            return $query;
+        }
+        if ($key === '_none') {
+            return $query->where(function (Builder $outer): void {
+                $outer->whereDoesntHave('seoClassification')
+                    ->orWhereHas('seoClassification', static function (Builder $classification): void {
+                        $classification->whereNull('cluster_key')->orWhere('cluster_key', '');
+                    });
+            });
+        }
+
+        return $query->whereHas(
+            'seoClassification',
+            static fn (Builder $classification): Builder => $classification->where('cluster_key', $key),
+        );
     }
 
     protected function getHeaderActions(): array
@@ -702,12 +720,6 @@ class ListKeywords extends ListRecords
                 ->color('gray')
                 ->url(KeywordResource::buildRootKeywordsUrl());
         }
-
-        $actions[] = Actions\Action::make('manage_tags')
-            ->label(__('seo-content-ai::filament.keyword.manage_tags'))
-            ->icon('heroicon-o-tag')
-            ->color('gray')
-            ->url(TagResource::getUrl('index'));
 
         $actions[] = Actions\Action::make('add_keywords')
             ->label(__('seo-content-ai::filament.keyword.add_keyword'))

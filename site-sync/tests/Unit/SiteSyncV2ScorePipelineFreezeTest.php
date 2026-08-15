@@ -22,16 +22,12 @@ use ReflectionClass;
 
 final class SiteSyncV2ScorePipelineFreezeTest extends TestCase
 {
-    public function test_orchestrator_includes_score_missing_before_finalize(): void
+    public function test_orchestrator_does_not_block_on_score_missing(): void
     {
         $steps = SiteSyncSchema::ORCHESTRATOR_STEPS;
-        self::assertContains('score_missing_articles', $steps);
+        self::assertNotContains('score_missing_articles', $steps);
         self::assertSame('finalize', $steps[array_key_last($steps)]);
-        self::assertLessThan(
-            array_search('finalize', $steps, true),
-            array_search('score_missing_articles', $steps, true),
-        );
-        self::assertCount(9, $steps);
+        self::assertCount(7, $steps);
     }
 
     public function test_step_runner_has_score_missing_method(): void
@@ -45,15 +41,15 @@ final class SiteSyncV2ScorePipelineFreezeTest extends TestCase
         self::assertStringContainsString('completed_with_warnings', $src);
     }
 
-    public function test_wordpress_sync_import_scores_each_item_with_php_engine(): void
+    public function test_wordpress_sync_import_does_not_score_metadata_only_items(): void
     {
         $src = (string) file_get_contents((new ReflectionClass(SyncDomainContentService::class))->getFileName());
 
         self::assertStringContainsString('scoreSyncedItemWithPhp', $src);
         self::assertStringContainsString('analyzeFromSyncItem', $src);
-        self::assertStringContainsString('markCompleted', $src);
+        self::assertStringContainsString('if ($forceOverwrite) {', $src);
         self::assertMatchesRegularExpression(
-            '/syncSeoMetaFromWordPress\(\$article, \$item\);[\s\S]*?scoreSyncedItemWithPhp\(\$article, \$item\);/',
+            '/syncSeoMetaFromWordPress\(\$article, \$item\);[\s\S]*?if \(\$forceOverwrite\) \{[\s\S]*?scoreSyncedItemWithPhp\(\$article, \$item\);/',
             $src,
         );
     }
@@ -134,6 +130,6 @@ final class SiteSyncV2ScorePipelineFreezeTest extends TestCase
     public function test_architecture_freeze_step_count_updated(): void
     {
         // Companion to SiteSyncV2ArchitectureFreezeTest — keep single source of truth here after +1 step.
-        self::assertContains('score_missing_articles', SiteSyncSchema::ORCHESTRATOR_STEPS);
+        self::assertNotContains('score_missing_articles', SiteSyncSchema::ORCHESTRATOR_STEPS);
     }
 }

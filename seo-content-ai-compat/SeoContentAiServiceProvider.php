@@ -668,6 +668,11 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
                 \Omnichannel\Addons\Publishing\Console\ReconcilePublishingQueueTasksCommand::class,
                 AuditSeoDatabaseConnectionsCommand::class,
                 \Omnichannel\Addons\SiteSync\Console\RunSiteSyncCommand::class,
+                \Omnichannel\Addons\SiteSync\Console\RunLinkHealthCommand::class,
+                \Omnichannel\Addons\SiteSync\Console\RunLinkAnalysisCommand::class,
+                \Omnichannel\Addons\SiteSync\Console\PollWordPressHeartbeatCommand::class,
+                \Omnichannel\Addons\SearchIntelligence\Console\ClassifyKeywordsCommand::class,
+                \Omnichannel\Addons\SearchIntelligence\Console\KeywordIntelligenceReportCommand::class,
                 \Omnichannel\Addons\SiteSync\Console\ReconcileSiteSyncCommand::class,
                 \Omnichannel\Addons\SiteSync\Console\BackfillSiteSyncV2Command::class,
                 \Omnichannel\Addons\Seo\Console\BackfillSiteManualLinksCommand::class,
@@ -821,6 +826,17 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
                     ->hourly()
                     ->name($siteSyncReconcileName)
                     ->withoutOverlapping(50);
+            }
+
+            $heartbeatName = 'seo-content-ai:wp-heartbeat-poll';
+            $heartbeatRegistered = collect($schedule->events())
+                ->contains(static fn ($event): bool => $event->description === $heartbeatName);
+            if (! $heartbeatRegistered) {
+                $schedule
+                    ->command(\Omnichannel\Addons\SiteSync\Console\PollWordPressHeartbeatCommand::class, ['--limit' => 40])
+                    ->everyThirtyMinutes()
+                    ->name($heartbeatName)
+                    ->withoutOverlapping(25);
             }
 
             // Three automation owners — distinct tables, must not claim same occurrence:

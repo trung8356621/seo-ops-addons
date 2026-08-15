@@ -12,7 +12,7 @@
             <span class="performance-hub-connection-card__meta">{{ $gsc['property_url'] }}</span>
         @endif
         @if (! empty($gsc['last_synced_at']))
-            <span class="performance-hub-connection-card__meta">{{ __('seo-content-ai::filament.performance_hub.gsc_last_synced', ['time' => $gsc['last_synced_at']]) }}</span>
+            <span class="performance-hub-connection-card__meta">{{ __('seo-content-ai::filament.performance_hub.gsc_last_synced', ['time' => \Omnichannel\Addons\Content\Support\SystemDateTime::formatDateTime($gsc['last_synced_at']) ?? $gsc['last_synced_at']]) }}</span>
         @elseif (($gsc['configured'] ?? false) === true && ($gsc['has_snapshot'] ?? false) !== true)
             <span class="performance-hub-connection-card__meta performance-hub-connection-card__meta--warn">{{ __('seo-content-ai::filament.performance_hub.gsc_snapshot_missing') }}</span>
         @endif

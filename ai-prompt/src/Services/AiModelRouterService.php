@@ -15,6 +15,7 @@ use Omnichannel\Addons\Media\Support\ImageCapabilityResolver;
 use Omnichannel\Addons\Media\Support\ImageToolType;
 use Omnichannel\Addons\Seo\Support\RenderingPreference;
 use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
+use Omnichannel\Addons\Content\Support\SystemDateTime;
 use App\Models\ApiConnection;
 use Illuminate\Support\Facades\Http;
 use Throwable;
@@ -719,7 +720,7 @@ final class AiModelRouterService
         return [
             'connections' => $rows,
             'total_models' => $total,
-            'last_synced_at' => $latestSync?->timezone(config('app.timezone'))->format('d/m/Y H:i'),
+            'last_synced_at' => $latestSync !== null ? SystemDateTime::formatDateTime($latestSync) : null,
             'capability_groups' => ImageCapability::displayGroups(),
         ];
     }

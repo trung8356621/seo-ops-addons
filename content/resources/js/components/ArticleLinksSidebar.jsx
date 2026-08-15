@@ -1,9 +1,9 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ChevronDown, ChevronRight, Copy, Link2, Loader2, OctagonAlert, Phone, RotateCcw, Settings2, Trash2, TriangleAlert } from 'lucide-react';
+import { ChevronDown, ChevronRight, Copy, Link2, Loader2, OctagonAlert, Phone, RotateCcw, Settings2, Trash2 } from 'lucide-react';
 import { useDebouncedCallback } from '../hooks/useDebouncedCallback';
 import { t } from '../utils/i18n';
 import ArticleAssistantWidget from '@ai-prompt-addon/components/ArticleAssistantWidget.jsx';
-import KeywordReviewPopover from '@seo-addon/components/KeywordReviewPopover.jsx';
+import { ensureKeywordForReview, toggleKeywordManualError } from '@seo-addon/utils/keywordReviewApi.js';
 import {
     ctaDisplayLabel,
     formatCtaHref,
@@ -26,7 +26,6 @@ import {
     saveExcludedLinkSuggestions,
 } from '../utils/articleExcludedLinkSuggestionsStorage';
 import { csrfToken, seoArticleApiFetch } from '@seo-addon/utils/seoArticleApi.js';
-import { ensureKeywordForReview } from '@seo-addon/utils/keywordReviewApi.js';
 import {
     normalizeLinksPayload,
     readCoreArticleIdentity,
@@ -379,7 +378,7 @@ function patchSuggestionAnchorInList(list, item, nextText) {
 }
 
 /**
- * @param {{ items: Array<ExtractedLink|FaqLinkItem>, title: string, activeKey: string, target: 'editor'|'faq', variant?: 'default'|'suggestion', suggestionKind?: 'internal'|'external', hideTitle?: boolean, interactive?: boolean, hiddenRowKeys?: Set<string>, reviewLoadingKey?: string, reviewPopoverItemKey?: string, onKeywordClick: Function, onInsertSuggestion?: Function, onUpdateSuggestionAnchor?: Function, onCopyKeyword?: Function, onRemoveInternalLink?: Function, onReviewWarning?: Function, onReviewDanger?: Function }} props
+ * @param {{ items: Array<ExtractedLink|FaqLinkItem>, title: string, activeKey: string, target: 'editor'|'faq', variant?: 'default'|'suggestion', suggestionKind?: 'internal'|'external', hideTitle?: boolean, interactive?: boolean, hiddenRowKeys?: Set<string>, reviewLoadingKey?: string, errorKeywordIds?: Set<number>, onKeywordClick: Function, onInsertSuggestion?: Function, onUpdateSuggestionAnchor?: Function, onCopyKeyword?: Function, onRemoveInternalLink?: Function, onToggleError?: Function }} props
  */
 function KeywordList({
     items,
@@ -392,14 +391,13 @@ function KeywordList({
     interactive = true,
     hiddenRowKeys,
     reviewLoadingKey = '',
-    reviewPopoverItemKey = '',
+    errorKeywordIds,
     onKeywordClick,
     onInsertSuggestion,
     onUpdateSuggestionAnchor,
     onCopyKeyword,
     onRemoveInternalLink,
-    onReviewWarning,
-    onReviewDanger,
+    onToggleError,
     isContentSuggestionRow = () => false,
 }) {
     const [editingKey, setEditingKey] = useState('');
@@ -520,18 +518,19 @@ function KeywordList({
 
                     const isRowHiding = hiddenRowKeys?.has(itemKey) === true;
                     const isReviewLoading = reviewLoadingKey === itemKey;
-                    const isReviewOpen = reviewPopoverItemKey === itemKey;
+                    const keywordId = Number(item?.keyword_id ?? 0);
+                    const isErrorOn = keywordId > 0 && errorKeywordIds?.has(keywordId) === true;
                     const isContentRow = variant === 'suggestion' && isContentSuggestionRow(item);
                     const showReviewActions =
                         variant === 'suggestion'
                         && !isContentRow
-                        && (onReviewWarning || onReviewDanger);
+                        && typeof onToggleError === 'function';
 
                     return (
                         <li
                             key={itemKey}
                             data-keyword-row-key={itemKey}
-                            className={`wp-article-links-keyword-row${isRowHiding ? ' is-row-hiding' : ''}${isReviewLoading ? ' is-review-loading' : ''}${isReviewOpen ? ' is-review-open' : ''}${isContentRow ? ' is-content-suggestion' : ''}`}
+                            className={`wp-article-links-keyword-row${isRowHiding ? ' is-row-hiding' : ''}${isReviewLoading ? ' is-review-loading' : ''}${isErrorOn ? ' is-error-on' : ''}${isContentRow ? ' is-content-suggestion' : ''}`}
                             aria-hidden={isRowHiding}
                         >
                             {interactive && isEditing ? (
@@ -656,50 +655,25 @@ function KeywordList({
                                 </button>
                             ) : null}
                             {showReviewActions ? (
-                                <>
-                                    {onReviewWarning ? (
-                                        <button
-                                            type="button"
-                                            className="wp-article-links-review-btn is-warning"
-                                            aria-label={t('keyword_review_warning_button_label', { label })}
-                                            title={t('keyword_review_warning_button_title')}
-                                            disabled={isReviewLoading || isEditing}
-                                            onMouseDown={(e) => e.preventDefault()}
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                const rowEl = e.currentTarget.closest('.wp-article-links-keyword-row');
-                                                onReviewWarning(item, index, itemKey, rowEl);
-                                            }}
-                                        >
-                                            {isReviewLoading ? (
-                                                <Loader2 size={13} className="is-spinning" aria-hidden />
-                                            ) : (
-                                                <TriangleAlert size={13} aria-hidden />
-                                            )}
-                                        </button>
-                                    ) : null}
-                                    {onReviewDanger ? (
-                                        <button
-                                            type="button"
-                                            className="wp-article-links-review-btn is-danger"
-                                            aria-label={t('keyword_review_danger_button_label', { label })}
-                                            title={t('keyword_review_danger_button_title')}
-                                            disabled={isReviewLoading || isEditing}
-                                            onMouseDown={(e) => e.preventDefault()}
-                                            onClick={(e) => {
-                                                e.stopPropagation();
-                                                const rowEl = e.currentTarget.closest('.wp-article-links-keyword-row');
-                                                onReviewDanger(item, index, itemKey, rowEl);
-                                            }}
-                                        >
-                                            {isReviewLoading ? (
-                                                <Loader2 size={13} className="is-spinning" aria-hidden />
-                                            ) : (
-                                                <OctagonAlert size={13} aria-hidden />
-                                            )}
-                                        </button>
-                                    ) : null}
-                                </>
+                                <button
+                                    type="button"
+                                    className={`wp-article-links-review-btn is-danger${isErrorOn ? ' is-on' : ''}`}
+                                    aria-label={t('keyword_review_error_button_label', { label })}
+                                    title={t('keyword_review_error_button_title')}
+                                    aria-pressed={isErrorOn}
+                                    disabled={isReviewLoading || isEditing}
+                                    onMouseDown={(e) => e.preventDefault()}
+                                    onClick={(e) => {
+                                        e.stopPropagation();
+                                        onToggleError(item, index, itemKey);
+                                    }}
+                                >
+                                    {isReviewLoading ? (
+                                        <Loader2 size={13} className="is-spinning" aria-hidden />
+                                    ) : (
+                                        <OctagonAlert size={13} aria-hidden />
+                                    )}
+                                </button>
                             ) : null}
                             {variant === 'default' && target === 'editor' && onRemoveInternalLink ? (
                                 <button
@@ -736,15 +710,14 @@ function InternalLinksSection({
     suggestionsHasResults = false,
     suggestionsExhausted = false,
     reviewLoadingKey = '',
-    reviewPopoverItemKey = '',
+    errorKeywordIds,
     onKeywordClick,
     onSuggestionClick,
     onInsertSuggestion,
     onUpdateSuggestionAnchor,
     onCopyKeyword,
     onRemoveInternalLink,
-    onReviewWarning,
-    onReviewDanger,
+    onToggleError,
     isContentSuggestionRow = () => false,
 }) {
     const showSuggestions = internal.length < 10 && suggestedInternal.length > 0;
@@ -810,13 +783,12 @@ function InternalLinksSection({
                             hideTitle
                             hiddenRowKeys={hiddenRowKeys}
                             reviewLoadingKey={reviewLoadingKey}
-                            reviewPopoverItemKey={reviewPopoverItemKey}
+                            errorKeywordIds={errorKeywordIds}
                             onKeywordClick={onSuggestionClick}
                             onInsertSuggestion={onInsertSuggestion}
                             onUpdateSuggestionAnchor={onUpdateSuggestionAnchor}
                             onCopyKeyword={onCopyKeyword}
-                            onReviewWarning={onReviewWarning}
-                            onReviewDanger={onReviewDanger}
+                            onToggleError={onToggleError}
                             isContentSuggestionRow={isContentSuggestionRow}
                         />
                     ) : (
@@ -912,9 +884,8 @@ export default function ArticleLinksSidebar({
     initialCtaQuickTemplates = null,
 }) {
     const articleMetaRef = useRef(readArticleMetaIds(articleIdProp, siteIdProp));
-    const [reviewPopover, setReviewPopover] = useState(null);
     const [reviewLoadingKey, setReviewLoadingKey] = useState('');
-    const [reviewedKeywordIds, setReviewedKeywordIds] = useState(() => new Set());
+    const [errorKeywordIds, setErrorKeywordIds] = useState(() => new Set());
     const editorSeoBootstrap = useRef(readEditorSeoBootstrap());
     const suggestionBootstrap = useRef(readSuggestionCatalogBootstrap());
     const siteDomainRef = useRef(suggestionBootstrap.current.siteDomain);
@@ -1277,9 +1248,9 @@ export default function ArticleLinksSidebar({
         });
     };
 
-    const openReviewPopover = async (item, itemKey, severity, anchorEl) => {
+    const togglePhraseError = async (item, itemKey) => {
         const text = String(item?.text ?? '').trim();
-        if (text === '' || !(anchorEl instanceof HTMLElement)) {
+        if (text === '') {
             return;
         }
 
@@ -1292,7 +1263,7 @@ export default function ArticleLinksSidebar({
                         detail: {
                             title: t('keyword_review_missing_keyword_title'),
                             body: t('keyword_review_missing_keyword_body'),
-                            status: 'warning',
+                            status: 'danger',
                         },
                     }),
                 );
@@ -1330,76 +1301,53 @@ export default function ArticleLinksSidebar({
                         },
                     }),
                 );
-                return;
-            } finally {
                 setReviewLoadingKey('');
+                return;
             }
         }
 
         if (keywordId <= 0) {
+            setReviewLoadingKey('');
             window.dispatchEvent(
                 new CustomEvent('seo-article-editor-notify', {
                     detail: {
                         title: t('keyword_review_missing_keyword_title'),
                         body: t('keyword_review_missing_keyword_body'),
-                        status: 'warning',
+                        status: 'danger',
                     },
                 }),
             );
             return;
         }
 
-        setReviewPopover({
-            itemKey,
-            keywordId,
-            text,
-            severity,
-            anchorEl,
-        });
-    };
-
-    const focusNextSuggestionAfter = (currentItemKey) => {
-        window.requestAnimationFrame(() => {
-            const currentRow = document.querySelector(`[data-keyword-row-key="${currentItemKey}"]`);
-            if (!(currentRow instanceof HTMLElement)) {
-                return;
-            }
-
-            let sibling = currentRow.nextElementSibling;
-            while (sibling instanceof HTMLElement) {
-                if (sibling.matches('.wp-article-links-keyword-row')) {
-                    const button = sibling.querySelector('.wp-article-links-keyword');
-                    if (button instanceof HTMLElement) {
-                        button.focus();
-                        return;
-                    }
-                }
-
-                sibling = sibling.nextElementSibling;
-            }
-        });
-    };
-
-    const handleReviewSubmitted = ({ keywordId, itemKey, text }) => {
-        if (keywordId > 0) {
-            setReviewedKeywordIds((prev) => {
+        setReviewLoadingKey(itemKey);
+        try {
+            const result = await toggleKeywordManualError(keywordId, {
+                article_id: articleMetaRef.current.articleId,
+                source: 'article_suggestion',
+            });
+            setErrorKeywordIds((prev) => {
                 const next = new Set(prev);
-                next.add(keywordId);
+                if (result.manual_error) {
+                    next.add(keywordId);
+                } else {
+                    next.delete(keywordId);
+                }
                 return next;
             });
+        } catch (error) {
+            window.dispatchEvent(
+                new CustomEvent('seo-article-editor-notify', {
+                    detail: {
+                        title: t('keyword_review_error_failed_title'),
+                        body: String(error?.message ?? t('keyword_review_error_failed_body')),
+                        status: 'danger',
+                    },
+                }),
+            );
+        } finally {
+            setReviewLoadingKey('');
         }
-
-        window.dispatchEvent(
-            new CustomEvent('seo-article-editor-notify', {
-                detail: {
-                    title: t('keyword_review_submitted_title'),
-                    body: t('keyword_review_submitted_body', { label: String(text ?? '').trim() }),
-                    status: 'success',
-                },
-            }),
-        );
-
-        focusNextSuggestionAfter(itemKey);
     };
 
     const clearExcludedSuggestions = () => {
@@ -1719,14 +1667,9 @@ export default function ArticleLinksSidebar({
         }
 
         return stableSuggestionsRef.current.filter((item) => {
-            const keywordId = Number(item?.keyword_id ?? 0);
-            if (keywordId > 0 && reviewedKeywordIds.has(keywordId)) {
-                return false;
-            }
-
             return !isSuggestionExcluded(String(item?.text ?? ''), excludedSuggestionLabels);
         });
-    }, [internal, external, excludedSuggestionLabels, reviewedKeywordIds, articlePlainText, catalogVersion, anchorEditTick]);
+    }, [internal, external, excludedSuggestionLabels, articlePlainText, catalogVersion, anchorEditTick]);
 
     const suggestedInternalRef = useRef(suggestedInternal);
     suggestedInternalRef.current = suggestedInternal;
@@ -1765,14 +1708,9 @@ export default function ArticleLinksSidebar({
                 return false;
             }
 
-            const keywordId = Number(item?.keyword_id ?? 0);
-            if (keywordId > 0 && reviewedKeywordIds.has(keywordId)) {
-                return false;
-            }
-
             return !isSuggestionExcluded(String(item?.text ?? ''), excludedSuggestionLabels);
         });
-    }, [internal, external, excludedSuggestionLabels, reviewedKeywordIds, articlePlainText, catalogVersion, anchorEditTick]);
+    }, [internal, external, excludedSuggestionLabels, articlePlainText, catalogVersion, anchorEditTick]);
 
     const scrollToContentSuggestion = (item, index, itemKey) => {
         setActiveKey(itemKey);
@@ -2120,13 +2058,8 @@ export default function ArticleLinksSidebar({
                         onInsertSuggestion={insertSuggestedLink}
                         onUpdateSuggestionAnchor={updateSuggestionAnchor}
                         reviewLoadingKey={reviewLoadingKey}
-                        reviewPopoverItemKey={reviewPopover?.itemKey ?? ''}
-                        onReviewWarning={(item, _index, itemKey, anchorEl) =>
-                            openReviewPopover(item, itemKey, 'warning', anchorEl)
-                        }
-                        onReviewDanger={(item, _index, itemKey, anchorEl) =>
-                            openReviewPopover(item, itemKey, 'danger', anchorEl)
-                        }
+                        errorKeywordIds={errorKeywordIds}
+                        onToggleError={(item, _index, itemKey) => togglePhraseError(item, itemKey)}
                         isContentSuggestionRow={isContentSuggestion}
                     />
                 </LinkAssistantSection>
@@ -2170,7 +2103,7 @@ export default function ArticleLinksSidebar({
                                 hideTitle
                                 hiddenRowKeys={hiddenRowKeys}
                                 reviewLoadingKey={reviewLoadingKey}
-                                reviewPopoverItemKey={reviewPopover?.itemKey ?? ''}
+                                errorKeywordIds={errorKeywordIds}
                                 onKeywordClick={(item, index, itemKey) =>
                                     scrollToKeyword(item, 'external', index, itemKey, {
                                         searchPlainText: true,
@@ -2179,12 +2112,7 @@ export default function ArticleLinksSidebar({
                                 onInsertSuggestion={insertSuggestedLink}
                                 onUpdateSuggestionAnchor={updateSuggestionAnchor}
                                 onCopyKeyword={copyKeyword}
-                                onReviewWarning={(item, _index, itemKey, anchorEl) =>
-                                    openReviewPopover(item, itemKey, 'warning', anchorEl)
-                                }
-                                onReviewDanger={(item, _index, itemKey, anchorEl) =>
-                                    openReviewPopover(item, itemKey, 'danger', anchorEl)
-                                }
+                                onToggleError={(item, _index, itemKey) => togglePhraseError(item, itemKey)}
                             />
                         ) : null}
                     </div>
@@ -2265,14 +2193,6 @@ export default function ArticleLinksSidebar({
                 </LinkAssistantSection>
                 ) : null}
             </div>
-            <KeywordReviewPopover
-                state={reviewPopover}
-                articleId={articleMetaRef.current.articleId}
-                onClose={() => setReviewPopover(null)}
-                onSubmitted={handleReviewSubmitted}
-                onError={() => {}}
-                onLoadingChange={setReviewLoadingKey}
-            />
         </ArticleAssistantWidget>
     );
 }

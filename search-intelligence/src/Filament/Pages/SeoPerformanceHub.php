@@ -47,7 +47,7 @@ final class SeoPerformanceHub extends SeoPanelPage
 
     protected static string $view = 'seo-content-ai::seo.performance-hub';
 
-    protected static bool $shouldRegisterNavigation = true;
+    protected static bool $shouldRegisterNavigation = false;
 
     #[Url(as: 'source')]
     public string $dataSource = '';
@@ -215,7 +215,7 @@ final class SeoPerformanceHub extends SeoPanelPage
 
     public static function shouldRegisterNavigation(array $parameters = []): bool
     {
-        return SeoAccessControl::canAccessPlannerFeatures();
+        return false;
     }
 
     public static function getNavigationLabel(): string

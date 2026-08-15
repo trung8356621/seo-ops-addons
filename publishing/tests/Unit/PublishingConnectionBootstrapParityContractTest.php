@@ -91,8 +91,8 @@ final class PublishingConnectionBootstrapParityContractTest extends TestCase
 
         self::assertStringContainsString('CACHE_LAST_BOOTSTRAP_FAILURE', $health);
         self::assertStringContainsString('rememberBootstrapFailure', $health);
-        self::assertStringContainsString('Publishing connection failed', $health);
-        self::assertStringContainsString('$recentSuccess && ! $recentBootstrapFailure', $health);
+        self::assertStringContainsString("runnerLabel('connection_failed')", $health);
+        self::assertStringContainsString('$schedulerHeartbeat && ! $recentBootstrapFailure', $health);
         self::assertStringContainsString('scopedKey', $health);
         self::assertStringContainsString('health_connection_id', $health);
     }

@@ -85,9 +85,19 @@ final class SystemDateTime
         return self::preset() === SeoDateTimeSettingsService::PRESET_EN ? 'g:i A' : 'H:i';
     }
 
+    public static function phpTimePreciseFormat(): string
+    {
+        return self::preset() === SeoDateTimeSettingsService::PRESET_EN ? 'g:i:s A' : 'H:i:s';
+    }
+
     public static function phpDateTimeFormat(): string
     {
         return self::phpDateFormat().' '.self::phpTimeFormat();
+    }
+
+    public static function phpDateTimePreciseFormat(): string
+    {
+        return self::phpDateFormat().' '.self::phpTimePreciseFormat();
     }
 
     public static function firstDayOfWeek(): int
@@ -224,6 +234,16 @@ final class SystemDateTime
         }
 
         return $local->format(self::phpDateTimeFormat());
+    }
+
+    public static function formatDateTimePrecise(mixed $value): ?string
+    {
+        $local = self::toSystemTimezone($value);
+        if ($local === null) {
+            return null;
+        }
+
+        return $local->format(self::phpDateTimePreciseFormat());
     }
 
     /**

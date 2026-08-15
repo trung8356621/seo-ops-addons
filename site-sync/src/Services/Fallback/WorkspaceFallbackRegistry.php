@@ -36,9 +36,12 @@ final class WorkspaceFallbackRegistry
         $missing = $this->capabilities->missingCapabilities($site);
 
         if (in_array('http_404', $missing, true)) {
-            $result = $this->runHttp404Checker($site);
-            $warnings[] = '404 Source: Workspace (capability http_404 missing)';
-            $metrics['http_404'] = $result;
+            $warnings[] = 'Link health: capability http_404 missing — chạy LinkHealthRun riêng, không HEAD trong Site Sync.';
+            $metrics['http_404'] = [
+                'source' => SiteSyncSchema::SOURCE_WORKSPACE,
+                'skipped' => true,
+                'deferred_to' => 'link_health_run',
+            ];
         } else {
             $metrics['http_404'] = [
                 'source' => $this->capabilities->provider($site, 'http_404') ?? 'provider',
@@ -53,8 +56,8 @@ final class WorkspaceFallbackRegistry
         }
 
         if (in_array('internal_link', $missing, true)) {
-            $warnings[] = 'Link health: Workspace validate_changed_links will audit (internal_link missing)';
-            $metrics['internal_link'] = ['fallback' => 'validate_changed_links'];
+            $warnings[] = 'Link health: capability internal_link missing — dùng LinkHealthRun, không block Site Sync.';
+            $metrics['internal_link'] = ['fallback' => 'link_health_run'];
         }
 
         if (in_array('redirect', $missing, true)) {

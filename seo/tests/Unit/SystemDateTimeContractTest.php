@@ -34,6 +34,13 @@ final class SystemDateTimeContractTest extends TestCase
         self::assertSame('03/08/2026 14:35', $formatted);
     }
 
+    public function test_utc_to_system_timezone_precise_vietnamese_format(): void
+    {
+        $formatted = SystemDateTime::formatDateTimePrecise('2026-08-03T07:35:04Z');
+
+        self::assertSame('03/08/2026 14:35:04', $formatted);
+    }
+
     public function test_english_preset_format(): void
     {
         SystemDateTime::useConfig([

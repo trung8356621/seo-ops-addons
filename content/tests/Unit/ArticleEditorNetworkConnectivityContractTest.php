@@ -131,6 +131,25 @@ final class ArticleEditorNetworkConnectivityContractTest extends TestCase
         self::assertStringContainsString('KhÃ´ng thá»ƒ lÆ°u khi Ä‘ang máº¥t káº¿t ná»‘i.', $shell);
     }
 
+    public function test_seo_summary_settings_lazy_load_is_shared_and_not_aborted(): void
+    {
+        $lazy = $this->js('utils/articleEditorSeoLazy.js');
+        $boot = $this->js('article-editor.jsx');
+        $hook = $this->js('hooks/useArticleEditorSeoAndLinksState.js');
+
+        self::assertStringContainsString('loadArticleEditorSeoLazy', $lazy);
+        self::assertStringContainsString('seoArticleApiFetch(seoSummaryUrl)', $lazy);
+        self::assertStringNotContainsString('signal', $lazy);
+
+        self::assertStringContainsString('loadArticleEditorSeoLazy', $boot);
+        self::assertStringContainsString('do not remount', $boot);
+        self::assertStringNotContainsString('idleController.abort()', $boot);
+
+        self::assertStringContainsString('loadArticleEditorSeoLazy', $hook);
+        self::assertStringNotContainsString('controller.abort()', $hook);
+        self::assertStringNotContainsString('[seoPanelActive, articleId, analysis]', $hook);
+    }
+
     public function test_no_offline_queue_or_new_storage_in_network_files(): void
     {
         $files = [

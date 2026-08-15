@@ -342,15 +342,15 @@ final class SeoAuditKeywordFlagService
             return [
                 'id' => (int) $keyword->id,
                 'phrase' => (string) $keyword->phrase,
-                'review_status' => (string) $keyword->review_status,
-                'reason' => $keyword->reviewReason?->name,
-                'note' => $keyword->review_note,
+                'review_status' => $keyword->isManualError() ? 'danger' : 'active',
+                'reason' => null,
+                'note' => null,
             ];
         })->values()->all();
 
         return [
-            'warning_count' => $keywords->where('review_status', KeywordReviewStatus::Warning->value)->count(),
-            'danger_count' => $keywords->where('review_status', KeywordReviewStatus::Danger->value)->count(),
+            'warning_count' => 0,
+            'danger_count' => $keywords->count(),
             'items' => $items,
         ];
     }

@@ -17,6 +17,7 @@ use Omnichannel\Addons\Content\Support\ArticleFeaturedImageResolver;
 use Omnichannel\Addons\Content\Support\ArticleListDiagnostics;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordFocusAttach;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\Seo\Livewire\Concerns\RefreshesOnDomainContextChanged;
 use App\Support\RuntimeLogger;
 use Filament\Actions;
 use Filament\Forms;
@@ -32,6 +33,8 @@ use Livewire\Attributes\Url;
 
 class ListArticles extends ListRecords
 {
+    use RefreshesOnDomainContextChanged;
+
     public const TAB_POSTS = 'posts';
 
     public const TAB_CATEGORIES = 'categories';

@@ -6,9 +6,12 @@ namespace Omnichannel\Addons\Seo\Livewire;
 
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\SearchFoundation\Services\SeoDatabaseConnectionService;
+use Omnichannel\Addons\Seo\Support\DomainContext;
+use Omnichannel\Addons\Seo\Support\DomainContextResolver;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\Seo\Support\SeoConnectionContext;
 use App\Models\Site;
+use App\Support\RuntimeLogger;
 use Illuminate\Database\Eloquent\Builder;
 use Livewire\Component;
 
@@ -16,17 +19,20 @@ class GlobalSeoBar extends Component
 {
     public ?int $globalSiteId = null;
 
+    public string $domainKey = DomainContext::ALL_KEY;
+
     public ?int $globalContentProjectId = null;
 
     public string $simulatedRole = '';
 
     public function mount(): void
     {
+        SeoAccessControl::forgetLegacyGlobalSitePersistence();
+
         if ($this->shouldForceAllDomainsScope()) {
-            SeoAccessControl::setGlobalSiteId(null);
-            $this->globalSiteId = null;
+            $this->applyContext(DomainContext::all());
         } else {
-            $this->restoreGlobalSiteFromStorage();
+            $this->applyContext(app(DomainContextResolver::class)->current());
         }
 
         $actualRole = SeoAccessControl::actualRole();
@@ -40,29 +46,21 @@ class GlobalSeoBar extends Component
         $this->bootstrapDatabaseForCurrentSite();
     }
 
-    public function updatedGlobalSiteId($value): void
+    public function updatedDomainKey($value): void
     {
-        $siteId = filled($value) ? (int) $value : null;
-        if ($siteId !== null && $siteId <= 0) {
-            $siteId = null;
+        $context = app(DomainContextResolver::class)->resolveKey(is_string($value) ? $value : null);
+
+        if (
+            ! $context->isAllDomains
+            && ($context->siteId === null || ! $this->resolveSitesQuery()->whereKey($context->siteId)->exists())
+        ) {
+            $context = DomainContext::all();
         }
 
-        if ($siteId !== null && ! $this->resolveSitesQuery()->whereKey($siteId)->exists()) {
-            $this->globalSiteId = SeoAccessControl::globalSiteId();
-            $this->syncGlobalContentProjectSelection();
-
-            return;
-        }
-
-        $this->globalSiteId = $siteId;
-        SeoAccessControl::setGlobalSiteId($siteId);
-        $this->bootstrapDatabaseForSite($siteId);
+        $previousKey = $this->domainKey;
+        $this->applyContext($context);
         $this->syncGlobalContentProjectSelection();
-        session()->save();
-
-        $this->dispatch('seoGlobalSiteChanged', siteId: $siteId);
-
-        $this->redirect($this->resolveReturnUrl(), navigate: false);
+        $this->dispatchDomainContextChanged($context, $previousKey);
     }
 
     public function updatedGlobalContentProjectId($value): void
@@ -131,14 +129,42 @@ class GlobalSeoBar extends Component
             $this->globalContentProjectId = null;
         }
 
+        $sites = $this->resolveSitesQuery()->get();
+        $resolver = app(DomainContextResolver::class);
+
         return view('seo::livewire.global-seo-bar', [
-            'sites' => $this->resolveSitesQuery()->get(),
+            'sites' => $sites,
+            'domainKeys' => $sites
+                ->mapWithKeys(fn (Site $site): array => [(int) $site->getKey() => $resolver->domainKeyForSite($site)])
+                ->all(),
             'roleOptions' => $roleOptions,
             'showDomainPicker' => SeoAccessControl::shouldShowGlobalSitePicker(),
             'showContentProjectPicker' => $showContentProjectPicker && SeoAccessControl::shouldShowGlobalSitePicker(),
             'contentProjectOptions' => $contentProjectOptions,
             'isAdminViewer' => SeoAccessControl::isSeoPanelReadOnly(),
         ]);
+    }
+
+    private function applyContext(DomainContext $context): void
+    {
+        app(DomainContextResolver::class)->bind($context);
+        $this->domainKey = $context->domainKey;
+        $this->globalSiteId = $context->siteId;
+        $this->bootstrapDatabaseForSite($context->siteId);
+    }
+
+    private function dispatchDomainContextChanged(DomainContext $context, string $previousKey): void
+    {
+        if (config('app.debug')) {
+            RuntimeLogger::debug('domain_context_changed', [
+                'from' => DomainContext::normalizeKey($previousKey),
+                'to' => $context->domainKey,
+                'page' => request()->path(),
+            ]);
+        }
+
+        $this->dispatch('domain-context-changed', domain: $context->domainKey, siteId: $context->siteId);
+        $this->dispatch('seoGlobalSiteChanged', siteId: $context->siteId);
     }
 
     private function resolveSitesQuery(): Builder
@@ -155,28 +181,6 @@ class GlobalSeoBar extends Component
     private function shouldForceAllDomainsScope(): bool
     {
         return request()->routeIs('filament.seo.resources.keywords.*');
-    }
-
-    private function restoreGlobalSiteFromStorage(): void
-    {
-        $hasStoredSelection = SeoAccessControl::hasGlobalSiteSelection();
-        $this->globalSiteId = SeoAccessControl::globalSiteId();
-
-        if (
-            $this->globalSiteId !== null
-            && ! $this->resolveSitesQuery()->whereKey($this->globalSiteId)->exists()
-        ) {
-            SeoAccessControl::clearGlobalSiteSelection();
-            $this->globalSiteId = null;
-            $hasStoredSelection = false;
-        }
-
-        if ($this->globalSiteId === null && ! $hasStoredSelection) {
-            $this->globalSiteId = $this->resolveSitesQuery()->value('id');
-            if ($this->globalSiteId !== null) {
-                SeoAccessControl::setGlobalSiteId($this->globalSiteId);
-            }
-        }
     }
 
     private function syncGlobalContentProjectSelection(): void
@@ -203,8 +207,7 @@ class GlobalSeoBar extends Component
 
     private function bootstrapDatabaseForCurrentSite(): void
     {
-        $siteId = $this->globalSiteId ?? SeoAccessControl::globalSiteId();
-        $this->bootstrapDatabaseForSite($siteId);
+        $this->bootstrapDatabaseForSite($this->globalSiteId);
     }
 
     private function bootstrapDatabaseForSite(?int $siteId): void

@@ -96,10 +96,26 @@
                 <x-filament::section>
                     <x-slot name="heading">Queue Worker</x-slot>
                     <dl class="space-y-2 text-sm">
-                        <div class="flex justify-between"><span class="text-gray-500">Alive</span><span class="font-semibold {{ !empty($worker['alive']) ? 'text-success-600' : 'text-danger-600' }}">{{ !empty($worker['alive']) ? 'yes' : 'no' }}</span></div>
-                        <div class="flex justify-between gap-2"><span class="text-gray-500">Heartbeat</span><span class="truncate text-xs">{{ $worker['last_worker_run'] ?? '—' }}</span></div>
-                        <div class="flex justify-between gap-2"><span class="text-gray-500">Last success</span><span class="truncate text-xs">{{ $worker['last_success'] ?? '—' }}</span></div>
-                        <div class="flex justify-between gap-2"><span class="text-gray-500">Last failure</span><span class="truncate text-xs">{{ $worker['last_failure'] ?? '—' }}</span></div>
+                        @php
+                            $opsStatus = new \Omnichannel\Addons\ContentProjects\Support\ContentProject\OperationalStatusFormatter();
+                            $workerBeat = $opsStatus->formatWorker($worker['last_worker_run'] ?? null);
+                            $workerSuccess = $opsStatus->formatSuccess($worker['last_success'] ?? null);
+                            $workerFailure = $opsStatus->formatFailure($worker['last_failure'] ?? null);
+                        @endphp
+                        <div class="flex justify-between"><span class="text-gray-500">{{ __('seo-content-ai::filament.ops.alive') }}</span><span class="font-semibold {{ !empty($worker['alive']) ? 'text-success-600' : 'text-danger-600' }}">{{ !empty($worker['alive']) ? __('seo-content-ai::filament.ops.alive_yes') : __('seo-content-ai::filament.ops.alive_no') }}</span></div>
+                        <div class="flex justify-between gap-2"><span class="text-gray-500">{{ __('seo-content-ai::filament.ops.heartbeat') }}</span><span class="truncate text-xs" title="{{ $workerBeat['tooltip'] ?? '' }}">{{ $workerBeat['text'] }}</span></div>
+                        <div class="flex justify-between gap-2"><span class="text-gray-500">{{ __('seo-content-ai::filament.ops.last_success') }}</span><span class="truncate text-xs text-success-700 dark:text-success-400" title="{{ $workerSuccess['tooltip'] ?? '' }}">{{ $workerSuccess['text'] }}</span></div>
+                        <div class="flex justify-between gap-2"><span class="text-gray-500">{{ __('seo-content-ai::filament.ops.last_failure') }}</span><span class="truncate text-xs text-danger-700 dark:text-danger-400" title="{{ $workerFailure['tooltip'] ?? '' }}">{{ $workerFailure['text'] }}</span></div>
+                        @if (!empty($worker['last_worker_run']) || !empty($worker['last_success']) || !empty($worker['last_failure']))
+                            <details class="pt-1 text-xs text-gray-400">
+                                <summary class="cursor-pointer">{{ __('seo-content-ai::filament.ops.technical_details') }}</summary>
+                                <pre class="mt-1 overflow-x-auto whitespace-pre-wrap break-all font-mono">{{ trim(implode("\n", array_filter([
+                                    isset($worker['last_worker_run']) ? 'last_worker_run='.$worker['last_worker_run'] : null,
+                                    isset($worker['last_success']) ? 'last_success='.$worker['last_success'] : null,
+                                    isset($worker['last_failure']) ? 'last_failure='.$worker['last_failure'] : null,
+                                ]))) }}</pre>
+                            </details>
+                        @endif
                     </dl>
                 </x-filament::section>
             </div>
@@ -370,7 +386,7 @@
                                 <tr class="border-t border-gray-100 dark:border-gray-800">
                                     <td class="py-1 font-mono text-xs">{{ $err['result_code'] }}</td>
                                     <td>{{ $err['count'] }}</td>
-                                    <td class="text-xs">{{ $err['last_seen'] ?? '—' }}</td>
+                                    <td class="text-xs">{{ $err['last_seen'] ? (\Omnichannel\Addons\Content\Support\SystemDateTime::formatDateTime($err['last_seen']) ?? $err['last_seen']) : '—' }}</td>
                                     <td class="font-mono text-xs">{{ $err['sample_project_ref'] ?? '—' }}</td>
                                 </tr>
                             @empty
@@ -394,6 +410,12 @@
                             </span>
                         </div>
                         <p class="mt-1 text-xs text-gray-500">{{ $check['message'] ?? '' }}</p>
+                        @if (!empty($check['detail']))
+                            <details class="mt-1 text-xs text-gray-400">
+                                <summary class="cursor-pointer">{{ __('seo-content-ai::filament.ops.technical_details') }}</summary>
+                                <pre class="mt-1 overflow-x-auto whitespace-pre-wrap break-all font-mono">{{ $check['detail'] }}</pre>
+                            </details>
+                        @endif
                         @if (isset($check['latency_ms']))
                             <p class="mt-1 text-xs text-gray-400">{{ $check['latency_ms'] }} ms</p>
                         @endif
@@ -419,14 +441,14 @@
                         <tbody>
                             @forelse ($siteHealth as $site)
                                 <tr class="border-t border-gray-100 dark:border-gray-800">
-                                    <td class="py-1">#{{ $site['site_id'] }}</td>
+                                    <td class="py-1">{{ $site['domain'] ?? $site['name'] ?? ('#'.$site['site_id']) }}</td>
                                     <td>{{ $site['waiting_articles'] }}</td>
                                     <td>{{ $site['publishing'] }}</td>
                                     <td>{{ $site['publish_failed'] }}</td>
                                     <td>{{ $site['wp_reachable'] }}</td>
                                     <td>{{ $site['token_ok'] }}</td>
-                                    <td class="text-xs">{{ $site['last_publish'] ?? '—' }}</td>
-                                    <td class="text-xs">{{ $site['last_sync'] ?? '—' }}</td>
+                                    <td class="text-xs" title="{{ $site['last_publish'] ?? '' }}">{{ $site['last_publish'] ? (\Omnichannel\Addons\Content\Support\SystemDateTime::formatDateTime($site['last_publish']) ?? $site['last_publish']) : '—' }}</td>
+                                    <td class="text-xs" title="{{ $site['last_sync'] ?? '' }}">{{ $site['last_sync'] ? (\Omnichannel\Addons\Content\Support\SystemDateTime::formatDateTime($site['last_sync']) ?? $site['last_sync']) : '—' }}</td>
                                 </tr>
                             @empty
                                 <tr><td colspan="8" class="py-4 text-gray-500">{{ __('seo-content-ai::filament.ops.empty') }}</td></tr>

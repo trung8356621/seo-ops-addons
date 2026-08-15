@@ -6,8 +6,8 @@ namespace Omnichannel\Addons\Media\Services;
 
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\Media\Models\SeoMedia;
+use Omnichannel\Addons\Content\Support\SystemDateTime;
 use App\Models\Site;
-use Illuminate\Support\Carbon;
 
 final class AiImageProcessingService
 {
@@ -154,12 +154,8 @@ final class AiImageProcessingService
             'editor_block_id' => filled($media->editor_block_id) ? (string) $media->editor_block_id : null,
             'article_id' => $articleId,
             'article_edit_url' => $articleEditUrl,
-            'created_at' => $media->created_at instanceof Carbon
-                ? $media->created_at->format('Y-m-d H:i')
-                : null,
-            'updated_at' => $media->updated_at instanceof Carbon
-                ? $media->updated_at->format('Y-m-d H:i')
-                : null,
+            'created_at' => SystemDateTime::formatDateTime($media->created_at),
+            'updated_at' => SystemDateTime::formatDateTime($media->updated_at),
             'is_placeholder' => $status === 'processing' || str_contains((string) ($media->url ?? ''), 'placeholder-loading'),
         ];
     }

@@ -123,7 +123,7 @@ final class PublishingPipelineE2EContractTest extends TestCase
     {
         $health = $this->src(ContentProjectQueueHealthService::class);
         self::assertStringContainsString('rememberScanNoProgress', $health);
-        self::assertStringContainsString('bài quá hạn chưa được xử lý', $health);
+        self::assertStringContainsString('overdueLabel', $health);
         self::assertStringContainsString('dominant_reason', $health);
     }
 

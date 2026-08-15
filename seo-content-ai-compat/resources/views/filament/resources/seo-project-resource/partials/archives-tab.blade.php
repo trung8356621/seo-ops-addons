@@ -33,7 +33,7 @@
                     >
                         <div class="min-w-0 space-y-1">
                             <p class="text-sm font-semibold text-gray-950 dark:text-white">
-                                {{ $batch->created_at?->format('d/m/Y H:i') }}
+                                {{ \Omnichannel\Addons\Content\Support\SystemDateTime::formatDateTime($batch->created_at) ?? '—' }}
                             </p>
                             <p class="text-xs text-gray-500 dark:text-gray-400">
                                 {{ __('seo-content-ai::filament.projects.archive_batch_meta', [
@@ -89,7 +89,7 @@
                                                     {{ $article->status }}
                                                 </td>
                                                 <td class="px-4 py-2 text-gray-600 dark:text-gray-300">
-                                                    {{ $article->created_at?->format('d/m/Y H:i') ?? '—' }}
+                                                    {{ \Omnichannel\Addons\Content\Support\SystemDateTime::formatDateTime($article->created_at) ?? '—' }}
                                                 </td>
                                                 <td class="px-4 py-2 text-right">
                                                     <a

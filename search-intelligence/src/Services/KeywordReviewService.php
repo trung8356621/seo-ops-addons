@@ -8,7 +8,6 @@ use Omnichannel\Addons\SearchIntelligence\Enums\KeywordReviewSource;
 use Omnichannel\Addons\SearchIntelligence\Enums\KeywordReviewStatus;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Models\KeywordReviewHistory;
-use Omnichannel\Addons\SearchIntelligence\Models\KeywordReviewReason;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
@@ -24,15 +23,58 @@ final class KeywordReviewService
     ) {}
 
     /**
-     * @return array{warning: int, danger: int}
+     * @return array{warning: int, danger: int, error: int}
      */
     public function reviewStatusCounts(?Builder $baseQuery = null): array
     {
         $query = $baseQuery instanceof Builder ? clone $baseQuery : Keyword::query();
+        $error = (clone $query)->whereIn('review_status', [
+            KeywordReviewStatus::Danger->value,
+            KeywordReviewStatus::Warning->value,
+        ])->count();
 
         return [
-            'warning' => (clone $query)->where('review_status', KeywordReviewStatus::Warning->value)->count(),
-            'danger' => (clone $query)->where('review_status', KeywordReviewStatus::Danger->value)->count(),
+            'warning' => 0,
+            'danger' => $error,
+            'error' => $error,
+        ];
+    }
+
+    /**
+     * @return array{keyword: Keyword, manual_error: bool, history_id?: int}
+     */
+    public function toggleManualError(
+        Keyword $keyword,
+        int $reviewedBy,
+        KeywordReviewSource $source,
+        ?int $articleId = null,
+    ): array {
+        if ($keyword->isManualError()) {
+            $restored = $this->restoreKeyword($keyword, $reviewedBy, $source);
+
+            return [
+                'keyword' => $restored,
+                'manual_error' => false,
+            ];
+        }
+
+        $result = $this->submitReview(
+            $keyword,
+            null,
+            KeywordReviewStatus::Danger,
+            null,
+            null,
+            $reviewedBy,
+            $source,
+            $articleId,
+            true,
+            true,
+        );
+
+        return [
+            'keyword' => $result['keyword'],
+            'manual_error' => true,
+            'history_id' => $result['history_id'],
         ];
     }
 
@@ -58,25 +100,12 @@ final class KeywordReviewService
             throw new InvalidArgumentException('reviewed_by is required.');
         }
 
-        if ($severity === KeywordReviewStatus::Active) {
-            throw new InvalidArgumentException(__('seo-content-ai::filament.keyword_review.invalid_severity'));
+        if ($severity === KeywordReviewStatus::Warning) {
+            $severity = KeywordReviewStatus::Danger;
         }
 
-        $reason = null;
-        if ($reasonId !== null && $reasonId > 0) {
-            $reason = $this->reasonService->findAccessibleReason($reasonId);
-            if (! $reason instanceof KeywordReviewReason || ! $reason->is_active) {
-                throw new RuntimeException(__('seo-content-ai::filament.keyword_review.reason_not_found'));
-            }
-
-            if (! $lockRequestedSeverity && ! $allowSeverityOverride) {
-                $severity = $reason->defaultSeverityEnum();
-            }
-        } else {
-            $customReasonText = $this->nullableTrim($customReasonText);
-            if ($customReasonText === null) {
-                throw new InvalidArgumentException(__('seo-content-ai::filament.keyword_review.reason_required'));
-            }
+        if ($severity === KeywordReviewStatus::Active) {
+            throw new InvalidArgumentException(__('seo-content-ai::filament.keyword_review.invalid_severity'));
         }
 
         if ($articleId !== null && $articleId > 0 && $source !== KeywordReviewSource::ArticleSuggestion) {
@@ -85,10 +114,7 @@ final class KeywordReviewService
 
         return DB::connection('omi_seo_ai')->transaction(function () use (
             $keyword,
-            $reason,
             $severity,
-            $note,
-            $customReasonText,
             $reviewedBy,
             $source,
             $articleId,
@@ -96,14 +122,10 @@ final class KeywordReviewService
             $fromStatus = KeywordReviewStatus::tryFrom((string) $keyword->review_status)
                 ?? KeywordReviewStatus::Active;
 
-            $resolvedNote = $reason instanceof KeywordReviewReason
-                ? $this->nullableTrim($note)
-                : $this->nullableTrim($customReasonText);
-
             $keyword->forceFill([
                 'review_status' => $severity->value,
-                'review_reason_id' => $reason instanceof KeywordReviewReason ? (int) $reason->id : null,
-                'review_note' => $resolvedNote,
+                'review_reason_id' => null,
+                'review_note' => null,
                 'reviewed_by' => $reviewedBy,
                 'reviewed_at' => now(),
             ])->save();
@@ -113,9 +135,9 @@ final class KeywordReviewService
                 'article_id' => $articleId !== null && $articleId > 0 ? $articleId : null,
                 'from_status' => $fromStatus->value,
                 'to_status' => $severity->value,
-                'reason_id' => $reason instanceof KeywordReviewReason ? (int) $reason->id : null,
+                'reason_id' => null,
                 'severity' => $severity->value,
-                'note' => $resolvedNote,
+                'note' => null,
                 'source' => $source->value,
                 'reviewed_by' => $reviewedBy,
                 'created_at' => now(),

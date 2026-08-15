@@ -22,6 +22,8 @@ final class WordpressArticleLink extends Model
         'site_id' => 'integer',
         'last_synced_at' => 'datetime',
         'external_modified_at' => 'datetime',
+        'observed_modified_at' => 'datetime',
+        'observed_at' => 'datetime',
     ];
 
     public function article(): BelongsTo

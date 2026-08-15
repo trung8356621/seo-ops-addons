@@ -11170,6 +11170,12 @@ section[data-seo-section-id].is-outline-jump-highlight {
     color: #b91c1c;
 }
 
+.wp-article-links-review-btn.is-danger.is-on {
+    background: #b91c1c;
+    border-color: #991b1b;
+    color: #fff;
+}
+
 .wp-article-links-review-btn.is-danger:hover:not(:disabled) {
     background: #fee2e2;
     border-color: #f87171;

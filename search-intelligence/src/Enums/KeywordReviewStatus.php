@@ -20,6 +20,11 @@ enum KeywordReviewStatus: string
 
     public function isNegative(): bool
     {
+        return $this->isManualError();
+    }
+
+    public function isManualError(): bool
+    {
         return $this === self::Warning || $this === self::Danger;
     }
 }

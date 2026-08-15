@@ -22,7 +22,7 @@ final class SiteSyncV2ArchitectureFreezeTest extends TestCase
     {
         self::assertSame('site_sync.v1', SiteSyncSchema::VERSION);
         self::assertSame('1.0.64', SiteSyncSchema::MIN_BRIDGE_VERSION);
-        self::assertCount(9, SiteSyncSchema::ORCHESTRATOR_STEPS);
+        self::assertCount(7, SiteSyncSchema::ORCHESTRATOR_STEPS);
     }
 
     public function test_capability_manifest_requires_schema(): void
@@ -79,9 +79,9 @@ final class SiteSyncV2ArchitectureFreezeTest extends TestCase
             'sync_url_catalog',
             'sync_provider_keywords',
             'missing_capability_fallback',
-            'validate_changed_links',
-            'score_missing_articles',
             'finalize',
         ], SiteSyncSchema::ORCHESTRATOR_STEPS);
+        self::assertNotContains('validate_changed_links', SiteSyncSchema::ORCHESTRATOR_STEPS);
+        self::assertNotContains('score_missing_articles', SiteSyncSchema::ORCHESTRATOR_STEPS);
     }
 }

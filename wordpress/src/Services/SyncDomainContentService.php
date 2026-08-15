@@ -1389,14 +1389,16 @@ class SyncDomainContentService
 
         $this->syncWordPressPostMeta($article, $item, $forceOverwrite);
         $this->syncSchemaAndWooCommerceMeta($article, $item);
-        app(ArticlePostImagesService::class)->importFromSyncItem($article, $item);
+        if ($forceOverwrite) {
+            app(ArticlePostImagesService::class)->importFromSyncItem($article, $item);
+        }
 
         $postImages = $item['post_images'] ?? null;
         if ($forceOverwrite && (! is_array($postImages) || $postImages === [])) {
             app(ArticlePostImagesService::class)->persistForArticle($article, []);
         }
 
-        if (! $hasLocalBody) {
+        if (! $hasLocalBody && $forceOverwrite) {
             app(ArticleFaqWordPressImportService::class)->importFromWordPressSyncItem($article, $item);
         }
 
@@ -1423,7 +1425,10 @@ class SyncDomainContentService
 
         $this->syncSeoMetaFromWordPress($article, $item);
         $this->syncFocusKeyword($site, $userId, $article, $item);
-        $this->scoreSyncedItemWithPhp($article, $item);
+        if ($forceOverwrite) {
+            $this->scoreSyncedItemWithPhp($article, $item);
+        }
+        app(\Omnichannel\Addons\Seo\Services\ArticleSeoSnapshotService::class)->persistFromSyncItem($article, $item);
         app(WordPressArticleSyncService::class)->applyMultilingualFromSyncPayload($article, $site, $item);
 
         $syncFlags->clearAll($article);
@@ -1479,8 +1484,9 @@ class SyncDomainContentService
         $type = $this->normalizeType((string) ($item['type'] ?? 'article'));
         $isTaxonomy = in_array($type, ['category', 'product_category'], true);
         $content = $this->resolveSyncItemContent($item);
+        $shouldPersistBody = $forceOverwrite || $isTaxonomy;
 
-        if ($forceOverwrite || $isTaxonomy || $content !== '') {
+        if ($shouldPersistBody && ($forceOverwrite || $isTaxonomy || $content !== '')) {
             $article->articleMetas()->updateOrCreate(
                 ['meta_key' => 'wp_post_content'],
                 ['meta_value' => $content],

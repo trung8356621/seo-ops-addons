@@ -65,43 +65,31 @@ export async function ensureKeywordForReview(payload) {
 
 /**
  * @param {number} keywordId
- * @param {{
- *   reason_id?: number|null,
- *   custom_reason_text?: string|null,
- *   severity: string,
- *   note?: string|null,
- *   article_id?: number|null,
- *   source?: string
- * }} payload
+ * @param {{ article_id?: number|null, source?: string }} [payload]
+ * @returns {Promise<{ id: number, phrase: string, manual_error: boolean, review_status: string }>}
  */
-export async function submitKeywordReview(keywordId, payload) {
-    const body = {
-        severity: payload.severity,
-        article_id: payload.article_id ?? null,
-        source: payload.source ?? 'article_suggestion',
-    };
-
-    if (payload.reason_id != null && Number(payload.reason_id) > 0) {
-        body.reason_id = Number(payload.reason_id);
-    } else if (payload.custom_reason_text != null && String(payload.custom_reason_text).trim() !== '') {
-        body.custom_reason_text = String(payload.custom_reason_text).trim();
-    }
-
-    if (payload.note != null && String(payload.note).trim() !== '') {
-        body.note = String(payload.note).trim();
-    }
-
-    const { response, data } = await seoArticleApiFetch(`/api/seo/keywords/${keywordId}/review`, {
+export async function toggleKeywordManualError(keywordId, payload = {}) {
+    const { response, data } = await seoArticleApiFetch(`/api/seo/keywords/${keywordId}/toggle-error`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+            article_id: payload.article_id ?? null,
+            source: payload.source ?? 'article_suggestion',
+        }),
     });
 
     if (!response.ok || data?.success !== true) {
-        throw new Error(data?.message ?? 'Unable to submit keyword review.');
+        throw new Error(data?.message ?? 'Unable to toggle keyword error.');
     }
 
-    return data.keyword ?? null;
+    const keyword = data.keyword ?? {};
+
+    return {
+        id: Number(keyword.id ?? keywordId),
+        phrase: String(keyword.phrase ?? ''),
+        manual_error: Boolean(data.manual_error ?? keyword.manual_error),
+        review_status: String(keyword.review_status ?? ''),
+    };
 }
 
 /**

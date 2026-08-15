@@ -5,15 +5,13 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\WordPress\Services;
 
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource;
 use App\Models\Site;
-use App\Services\ExternalPlugin\ExternalPluginRegistry;
-use App\Services\ExternalPlugin\WordPressPluginReleaseService;
 use Illuminate\Database\Eloquent\Builder;
 
 final class WordPressPluginDomainsOverviewService
 {
     public function __construct(
-        private readonly ExternalPluginRegistry $pluginRegistry,
         private readonly WordPressSiteInfoService $siteInfoService,
     ) {}
 
@@ -46,14 +44,15 @@ final class WordPressPluginDomainsOverviewService
             }
 
             $installedVersion = $this->resolveInstalledVersion($site);
-            $status = $this->resolveUpdateStatus($installedVersion, $latestVersion);
+            $siteLatest = $this->resolveSiteLatestVersion($site);
+            $status = $this->resolveUpdateStatus($installedVersion, $siteLatest ?? $latestVersion);
 
             $rows[] = [
                 'id' => (int) $site->getKey(),
                 'domain' => (string) $site->domain,
                 'installed_version' => $installedVersion,
                 'installed_label' => $installedVersion ?? '—',
-                'latest_version' => $latestVersion,
+                'latest_version' => $siteLatest ?? $latestVersion,
                 'status' => $status,
                 'status_label' => $this->statusLabel($status),
                 'status_color' => $this->statusColor($status),
@@ -71,39 +70,62 @@ final class WordPressPluginDomainsOverviewService
 
     private function resolveLatestPublishedVersion(): ?string
     {
-        $releaseService = $this->releaseService();
-        $overview = $releaseService->overview();
-        $latest = trim((string) ($overview['latest']['version'] ?? ''));
-        if ($latest !== '' && $releaseService->isValidVersion($latest)) {
-            return $latest;
+        $latest = null;
+        foreach ($this->visibleSitesQuery()->get() as $site) {
+            if (! $site instanceof Site) {
+                continue;
+            }
+            $candidate = $this->resolveSiteLatestVersion($site);
+            if ($candidate === null) {
+                continue;
+            }
+            if ($latest === null || version_compare($candidate, $latest, '>')) {
+                $latest = $candidate;
+            }
         }
 
-        $published = trim((string) ($overview['metadata']['version'] ?? ''));
-        if ($published !== '' && $releaseService->isValidVersion($published)) {
-            return $published;
-        }
-
-        return null;
+        return $latest;
     }
 
-    private function releaseService(): WordPressPluginReleaseService
+    private function resolveSiteLatestVersion(Site $site): ?string
     {
-        $manifest = $this->pluginRegistry->resolveOrFail('omi-seo-ai-bridge');
+        $update = $this->pluginUpdateMeta($site);
+        $latest = trim((string) ($update['latest_version'] ?? ''));
 
-        return WordPressPluginReleaseService::forManifest($manifest);
+        return $this->isValidVersion($latest) ? $latest : null;
     }
 
     private function resolveInstalledVersion(Site $site): ?string
     {
-        $releaseService = $this->releaseService();
+        $update = $this->pluginUpdateMeta($site);
+        $version = trim((string) ($update['installed_version'] ?? ''));
+        if ($this->isValidVersion($version)) {
+            return $version;
+        }
+
         $siteInfo = $this->siteInfoService->getStoredSiteInfo($site);
         $version = trim((string) ($siteInfo['bridge_version'] ?? ''));
 
-        if ($version === '' || ! $releaseService->isValidVersion($version)) {
-            return null;
-        }
+        return $this->isValidVersion($version) ? $version : null;
+    }
 
-        return $version;
+    /**
+     * @return array<string, mixed>
+     */
+    private function pluginUpdateMeta(Site $site): array
+    {
+        $raw = trim((string) ($site->getMeta(WordPressPluginUpdateService::META_KEY) ?? ''));
+        if ($raw === '') {
+            return [];
+        }
+        $decoded = json_decode($raw, true);
+
+        return is_array($decoded) ? $decoded : [];
+    }
+
+    private function isValidVersion(string $version): bool
+    {
+        return $version !== '' && preg_match('/^\d+\.\d+(\.\d+)?$/', $version) === 1;
     }
 
     private function resolveUpdateStatus(?string $installedVersion, ?string $latestVersion): string
@@ -144,20 +166,19 @@ final class WordPressPluginDomainsOverviewService
     private function actionLabel(string $status): string
     {
         return match ($status) {
-            'needs_update' => __('seo-content-ai::filament.wp_plugin.action_update_on_wp'),
-            'up_to_date' => __('seo-content-ai::filament.wp_plugin.action_open_wp_settings'),
-            default => __('seo-content-ai::filament.wp_plugin.action_check_on_wp'),
+            'needs_update' => __('seo-content-ai::filament.wp_plugin.action_open_site_health'),
+            'up_to_date' => __('seo-content-ai::filament.wp_plugin.action_open_site_health'),
+            default => __('seo-content-ai::filament.wp_plugin.action_open_site_health'),
         };
     }
 
     private function buildWpPluginSettingsUrl(Site $site): string
     {
-        $base = $this->buildSiteBaseUrl($site);
-        if ($base === '') {
+        try {
+            return DomainResource::getUrl('general', ['record' => $site]);
+        } catch (\Throwable) {
             return '#';
         }
-
-        return $base.'/wp-admin/admin.php?page=omi-seo-ai&view=settings';
     }
 
     private function buildSiteBaseUrl(Site $site): string
@@ -181,7 +202,7 @@ final class WordPressPluginDomainsOverviewService
      */
     private function visibleSitesQuery(): Builder
     {
-        $query = Site::query()->orderBy('domain');
+        $query = Site::query()->with('metas')->orderBy('domain');
 
         if (SeoAccessControl::shouldScopeToAccountOwner()) {
             $ownerId = SeoAccessControl::accountOwnerId() ?? (int) auth()->id();

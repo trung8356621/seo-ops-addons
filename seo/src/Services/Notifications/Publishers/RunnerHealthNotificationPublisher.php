@@ -8,6 +8,7 @@ use Omnichannel\Addons\Agent\Automation\BusinessHook\Models\AutomationSchedulerH
 use Omnichannel\Addons\Seo\Enums\NotificationSeverity;
 use Omnichannel\Addons\Seo\Enums\OperationalNotificationEventCode;
 use Omnichannel\Addons\SiteSync\Models\SeoSiteSyncHeartbeat;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\OperationalStatusParser;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectQueueHealthService;
 use Omnichannel\Addons\Seo\Services\Notifications\OperationalNotificationDeepLinks;
 use Omnichannel\Addons\Seo\Services\Notifications\OperationalNotificationRecipientResolver;
@@ -170,11 +171,9 @@ final class RunnerHealthNotificationPublisher
             return null;
         }
 
-        try {
-            return Carbon::parse($raw);
-        } catch (\Throwable) {
-            return null;
-        }
+        $occurredAt = OperationalStatusParser::occurredAt($raw);
+
+        return $occurredAt;
     }
 
     private function automationBeat(string $name): ?Carbon
