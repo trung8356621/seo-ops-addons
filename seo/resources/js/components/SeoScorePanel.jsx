@@ -126,12 +126,16 @@ export default function SeoScorePanel({
             ) : null}
 
             {stale && !analyzing && !analyzeError ? (
+                <p className="seo-assistant-score__stale-hint">{t('editor_seo_stale')}</p>
+            ) : null}
+
+            {!analyzing ? (
                 <button
                     type="button"
                     className="seo-assistant-score__stale-hint"
                     onClick={onAnalyzeClick}
                 >
-                    {t('editor_seo_stale')}
+                    {t('editor_seo_update_score')}
                 </button>
             ) : null}
 

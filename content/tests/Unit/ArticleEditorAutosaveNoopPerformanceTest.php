@@ -83,15 +83,18 @@ final class ArticleEditorAutosaveNoopPerformanceTest extends TestCase
 
     public function test_client_skips_unchanged_autosave_without_clearing_retry(): void
     {
-        $editor = (string) file_get_contents(
-            ProjectRoot::addonsPath().'/content/resources/js/components/SeoArticleEditor.jsx',
+        $queue = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/hooks/useArticleEditorSaveQueue.js',
         );
-        self::assertStringContainsString('serverAutosaveNeedsRetryRef', $editor);
-        self::assertStringContainsString('lastAutosaveHashRef', $editor);
-        self::assertStringContainsString('currentBodyHash === ackBodyHash', $editor);
-        self::assertStringContainsString('serverAutosaveNeedsRetryRef.current = true', $editor);
-        self::assertStringContainsString("payload.save_mode = 'autosave'", $editor);
-        self::assertStringContainsString('client_document_hash', $editor);
+        $network = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/hooks/useArticleEditorSessionNetwork.js',
+        );
+        self::assertStringContainsString('serverAutosaveNeedsRetryRef', $queue);
+        self::assertStringContainsString('lastAutosaveHashRef', $queue);
+        self::assertStringContainsString('currentBodyHash !== ackBodyHash', $network);
+        self::assertStringContainsString('serverAutosaveNeedsRetryRef.current = true', $queue);
+        self::assertStringContainsString("payload.save_mode = 'autosave'", $queue);
+        self::assertStringContainsString('client_document_hash', $queue);
     }
 
     public function test_stable_document_hash_helper_exists(): void

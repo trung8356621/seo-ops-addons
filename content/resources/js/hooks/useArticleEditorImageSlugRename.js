@@ -1117,13 +1117,6 @@ export default function useArticleEditorImageSlugRename({ articleId, articleTitl
                     if (nextVersion > 0) {
                         window.__SEO_EDITOR_DOCUMENT_VERSION__ = nextVersion;
                         window.__seoEditorSessionClient?.setDocumentVersion?.(nextVersion);
-                        try {
-                            const livewireId = String(window.__SEO_EDIT_ARTICLE_LIVEWIRE_ID__ ?? '');
-                            const component = livewireId && window.Livewire?.find?.(livewireId);
-                            component?.set?.('expectedDocumentVersion', nextVersion);
-                        } catch {
-                            // ignore
-                        }
                     }
                     if (payload?.editor_document_hash) {
                         window.__SEO_EDITOR_DOCUMENT_HASH__ = String(payload.editor_document_hash);

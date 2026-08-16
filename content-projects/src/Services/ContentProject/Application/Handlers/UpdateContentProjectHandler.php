@@ -67,6 +67,21 @@ final class UpdateContentProjectHandler extends AbstractPublishingHandler
                 );
             }
 
+            if (array_key_exists('site_id', $allowed)) {
+                $nextSiteId = (int) ($allowed['site_id'] ?? 0);
+                $currentSiteId = (int) ($project->site_id ?? 0);
+                if ($currentSiteId > 0 && $nextSiteId > 0 && $nextSiteId !== $currentSiteId
+                    && $project->hasLinkedOrGeneratedArticles()
+                ) {
+                    return ContentProjectActionResult::fail(
+                        ContentProjectActionCodes::VALIDATION_FAILED,
+                        (string) __('seo-content-ai::filament.projects.domain_change_blocked_linked_articles'),
+                        $projectId,
+                        metadata: ['reason' => 'site_change_blocked_linked_articles'],
+                    );
+                }
+            }
+
             $project->update($allowed);
 
             return ContentProjectActionResult::ok(

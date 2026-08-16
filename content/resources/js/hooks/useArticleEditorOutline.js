@@ -28,7 +28,7 @@ import { useCallback, useEffect, useRef } from 'react';
  * useArticleEditorOutline - extracted from SeoArticleEditor.jsx (Task 7 mechanical
  * extraction). Mechanical move - no behavior change.
  */
-export default function useArticleEditorOutline({ activeBlockId, articleId, articleTitle, blockEditorsRef, blockFlushRef, blocksRef, canGenerateFeaturedSnippet, collapseSectionsExcept, commitActiveBlock, editorSections, featuredSnippetGenerating, featuredSnippetPreviewHtml, featuredSnippetTargetRef, focusImageBlock, focusKeyword, focusedOutlineHeadingRef, outlineAppendDoneRef, outlineAppendInflightRef, outlineFingerprintRef, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, outlineHeadingIdsByKeyRef, outlineRailRef, scheduleIdleSeoAnalysis, sectionByBlockId, sectionHeadingBlockIds, setActiveBlockId, setBlocks, setClientOutline, setCollapsedSectionIds, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptOpen, setGlobalEditor, setImagesTabJumpTarget, setInsertMenu, setOutlineHasSavedHeadings, setOutlineHeadingKeys, setOutlineTreeSync, setSectionTitleEditRequest, syncOutlineFocusFromBlock, tempMergeRef }) {
+export default function useArticleEditorOutline({ activeBlockId, articleId, articleTitle, blockEditorsRef, blockFlushRef, blocksRef, canGenerateFeaturedSnippet, collapseSectionsExcept, commitActiveBlock, editorSections, featuredSnippetGenerating, featuredSnippetPreviewHtml, featuredSnippetTargetRef, focusImageBlock, focusKeyword, focusedOutlineHeadingRef, outlineAppendDoneRef, outlineAppendInflightRef, outlineFingerprintRef, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, outlineHeadingIdsByKeyRef, outlineRailRef, markSeoStale, sectionByBlockId, sectionHeadingBlockIds, setActiveBlockId, setBlocks, setClientOutline, setCollapsedSectionIds, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptOpen, setGlobalEditor, setImagesTabJumpTarget, setInsertMenu, setOutlineHasSavedHeadings, setOutlineHeadingKeys, setOutlineTreeSync, setSectionTitleEditRequest, syncOutlineFocusFromBlock, tempMergeRef }) {
     const resolveBlockIdForOutlineHeadingId = useCallback(
         (headingId) =>
             resolveBlockIdFromOutlineHeadingId(headingId, outlineHeadingIdsByBlockIdRef.current),
@@ -937,9 +937,9 @@ export default function useArticleEditorOutline({ activeBlockId, articleId, arti
         ).finally(() => {
             setFeaturedSnippetGenerating(false);
             setFeaturedSnippetPreviewHtml('');
-            scheduleIdleSeoAnalysis();
+            markSeoStale();
         });
-    }, [featuredSnippetPreviewHtml, insertFeaturedSnippetAsNewSectionAfter, scheduleIdleSeoAnalysis]);
+    }, [featuredSnippetPreviewHtml, insertFeaturedSnippetAsNewSectionAfter, markSeoStale]);
 
     const requestGenerateFeaturedSnippetAfterSection = useCallback(
         async (section) => {

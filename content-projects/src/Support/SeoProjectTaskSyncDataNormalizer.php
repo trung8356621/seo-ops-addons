@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\ContentProjects\Support;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemIdentity;
+use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Illuminate\Validation\ValidationException;
 
 class SeoProjectTaskSyncDataNormalizer
@@ -22,7 +23,7 @@ class SeoProjectTaskSyncDataNormalizer
     public function normalize(SeoProject $project, array $tasksData, ?int $defaultSiteId = null): array
     {
         $projectId = (int) $project->id;
-        $siteDefault = $defaultSiteId ?? ($project->site_id !== null ? (int) $project->site_id : null);
+        $canonicalSiteId = $this->canonicalSiteId($project, $defaultSiteId);
         $allowedSiteIds = $this->allowedSiteIds();
         $out = [];
 
@@ -62,10 +63,10 @@ class SeoProjectTaskSyncDataNormalizer
                 continue;
             }
 
-            $siteId = (int) ($row['site_id'] ?? 0);
-            if ($siteId <= 0) {
-                $siteId = (int) ($siteDefault ?? 0);
-            }
+            // Project.site_id is the ownership source of truth. Ignore stale
+            // tasks_data[*].site_id — the edit repeater no longer exposes a
+            // per-item domain selector, so leftover hidden values must not win.
+            $siteId = $canonicalSiteId;
 
             if ($siteId <= 0 || ! in_array($siteId, $allowedSiteIds, true)) {
                 throw ValidationException::withMessages([
@@ -137,6 +138,23 @@ class SeoProjectTaskSyncDataNormalizer
         }
 
         return $out;
+    }
+
+    /**
+     * Canonical site for project-item sync.
+     *
+     * Persisted project.site_id always wins. Compatibility helpers that run
+     * without a persisted project may pass defaultSiteId (create-form site).
+     * Row-level site_id is never authoritative.
+     */
+    public function canonicalSiteId(SeoProject $project, ?int $defaultSiteId = null): int
+    {
+        $fromProject = $project->site_id !== null ? (int) $project->site_id : 0;
+        if ($fromProject > 0) {
+            return $fromProject;
+        }
+
+        return (int) ($defaultSiteId ?? 0);
     }
 
     /**

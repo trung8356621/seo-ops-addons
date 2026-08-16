@@ -89,16 +89,19 @@ final class ArticleEditorStabilizationFaqSeoLinksTest extends TestCase
         self::assertStringNotContainsString('payloadForArticle', $body);
     }
 
-    public function test_seo_idle_auto_analysis_policy(): void
+    public function test_seo_idle_marks_stale_without_auto_analysis(): void
     {
-        $source = $this->js('components/SeoArticleEditor.jsx');
+        $hook = $this->js('hooks/useArticleEditorSeoAnalysis.js');
+        $editor = $this->js('components/SeoArticleEditor.jsx');
 
-        self::assertStringContainsString("id: 'seo-idle-analyze'", $source);
-        // Phase 2B: local analysis debounce 250ms (was 4000 idle-only).
-        self::assertStringContainsString('debounceMs: 250', $source);
-        self::assertStringContainsString('scheduleIdleSeoAnalysis', $source);
-        self::assertStringNotContainsString('debounceMs: 150', $source);
-        self::assertStringContainsString('editor_seo_analyzing', $source);
+        self::assertStringContainsString('markSeoStale', $hook);
+        self::assertStringContainsString('void runPhpSeoPreview()', $hook);
+        self::assertStringNotContainsString("id: 'seo-idle-analyze'", $hook);
+        self::assertStringNotContainsString('scheduleIdleSeoAnalysis', $hook);
+        self::assertStringNotContainsString('scheduleIdleSeoAnalysis', $editor);
+        self::assertStringContainsString('requestAnalyze', $editor);
+        self::assertStringContainsString('onAnalyzeClick: requestAnalyze', $editor);
+        self::assertStringContainsString('editor_seo_analyzing', $editor);
     }
 
     public function test_seo_violation_action_map_exists(): void

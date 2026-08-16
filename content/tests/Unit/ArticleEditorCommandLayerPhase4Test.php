@@ -64,7 +64,7 @@ final class ArticleEditorCommandLayerPhase4Test extends TestCase
         self::assertStringContainsString("DOCUMENT_CHANGED_EVENT = 'article-editor-document-changed'", $source);
         self::assertStringContainsString('emitDocumentChanged', $source);
         self::assertStringContainsString('scheduleAutosave', $source);
-        self::assertStringContainsString('requestAnalyze', $source);
+        self::assertStringContainsString('markSeoStale', $source);
         self::assertStringContainsString('commitActiveBlock', $source);
     }
 

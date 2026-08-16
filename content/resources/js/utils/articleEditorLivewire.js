@@ -13,6 +13,43 @@ function resolveEditArticleWireId() {
     return nested?.getAttribute('wire:id') ?? null;
 }
 
+/**
+ * Copy session tokens into the Livewire JS snapshot without a network round-trip.
+ * Livewire.set(prop, value) (live=true) hydrates the full EditArticle component.
+ */
+export function applyEditorSessionTokensLocally(component) {
+    if (!component) {
+        return;
+    }
+
+    const client = typeof window !== 'undefined' ? window.__seoEditorSessionClient : null;
+    const sessionId = client?.sessionId
+        || (typeof window !== 'undefined' ? window.__SEO_EDITOR_SESSION_ID__ : null)
+        || null;
+    const version = Number(
+        client?.documentVersion
+        ?? (typeof window !== 'undefined' ? window.__SEO_EDITOR_DOCUMENT_VERSION__ : 0)
+        ?? 0,
+    ) || null;
+
+    const setter = typeof component.set === 'function'
+        ? component.set.bind(component)
+        : (typeof component.$set === 'function' ? component.$set.bind(component) : null);
+    if (!setter) {
+        return;
+    }
+
+    const currentId = component.get?.('editorSessionId') ?? component.editorSessionId ?? null;
+    const currentVer = component.get?.('expectedDocumentVersion') ?? component.expectedDocumentVersion ?? null;
+
+    if (String(currentId || '') !== String(sessionId || '')) {
+        setter('editorSessionId', sessionId, false);
+    }
+    if (Number(currentVer || 0) !== Number(version || 0)) {
+        setter('expectedDocumentVersion', version, false);
+    }
+}
+
 export { saveArticleViaApi, syncArticleToWordPressViaApi } from './articleEditorApi.js';
 
 export function callEditArticleLivewire(method, ...args) {
@@ -29,6 +66,8 @@ export function callEditArticleLivewire(method, ...args) {
     if (!component?.call) {
         return Promise.reject(new Error('Edit article Livewire component not callable'));
     }
+
+    applyEditorSessionTokensLocally(component);
 
     return component.call(method, ...args);
 }
@@ -47,6 +86,8 @@ export function mountEditArticleAction(actionName, argumentsPayload = {}) {
     if (!component?.call) {
         return Promise.reject(new Error('Edit article Livewire component not callable'));
     }
+
+    applyEditorSessionTokensLocally(component);
 
     return component.call('mountAction', actionName, argumentsPayload);
 }

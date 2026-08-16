@@ -306,7 +306,20 @@ class SeoProjectResource extends SeoPanelResource
                         ->required()
                         ->native(false)
                         ->live()
-                        ->disabled(fn (?SeoProject $record): bool => $record instanceof SeoProject && $record->isArchive())
+                        ->disabled(function (?SeoProject $record): bool {
+                            if (! $record instanceof SeoProject) {
+                                return false;
+                            }
+
+                            return $record->isArchive() || $record->hasLinkedOrGeneratedArticles();
+                        })
+                        ->helperText(function (?SeoProject $record): ?string {
+                            if ($record instanceof SeoProject && $record->hasLinkedOrGeneratedArticles()) {
+                                return (string) __('seo-content-ai::filament.projects.domain_locked_linked_articles');
+                            }
+
+                            return null;
+                        })
                         ->dehydrated()
                         ->dehydrateStateUsing(fn (mixed $state): ?int => $state !== null && $state !== ''
                             ? (int) $state
@@ -1209,14 +1222,29 @@ class SeoProjectResource extends SeoPanelResource
      * @param  array<string, mixed>  $data
      * @return array<string, mixed>
      */
-    public static function normalizeProjectSiteId(array $data): array
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    public static function normalizeProjectSiteId(array $data, ?SeoProject $record = null): array
     {
-        // Nếu form chưa có site_id (trường hợp ẩn cũ), fallback về global site
-        if (empty($data['site_id'])) {
-            $globalSiteId = SeoAccessControl::globalSiteId();
-            if ($globalSiteId !== null) {
-                $data['site_id'] = $globalSiteId;
-            }
+        if (! empty($data['site_id'])) {
+            $data['site_id'] = (int) $data['site_id'];
+
+            return $data;
+        }
+
+        // Existing project: never fall back to global Domain Context — that is UI only.
+        if ($record instanceof SeoProject && (int) ($record->site_id ?? 0) > 0) {
+            $data['site_id'] = (int) $record->site_id;
+
+            return $data;
+        }
+
+        // Create form only: fill from the selected topbar domain when the field is empty.
+        $globalSiteId = SeoAccessControl::globalSiteId();
+        if ($globalSiteId !== null) {
+            $data['site_id'] = $globalSiteId;
         }
 
         return $data;
@@ -1889,7 +1917,8 @@ class SeoProjectResource extends SeoPanelResource
             }
         }
 
-        return SeoAccessControl::globalSiteId();
+        // Domain Context / ?domain=all is UI-only and must not pick cross-site articles.
+        return null;
     }
 
     /**

@@ -9,7 +9,7 @@ import { useCallback, useEffect } from 'react';
  * useArticleEditorBlockContentCommands - extracted from SeoArticleEditor.jsx (Task 7 mechanical
  * extraction). Mechanical move - no behavior change.
  */
-export default function useArticleEditorBlockContentCommands({ activeBlockIdRef, articleId, blockEditorsRef, blockFlushRef, documentVersion, editorHostActionsRef, editorSettings, globalEditorRef, initialEditorDocumentHash, initialPostType, perfDebug, reconcileImagesTabWithBlocks, requestAnalyzeRef, scheduleAutosaveRef, sessionReadOnly, setBlocks, setRuntimeContextRevision, structureMutationRef, tempMergeRef }) {
+export default function useArticleEditorBlockContentCommands({ activeBlockIdRef, articleId, blockEditorsRef, blockFlushRef, documentVersion, editorHostActionsRef, editorSettings, globalEditorRef, initialEditorDocumentHash, initialPostType, perfDebug, reconcileImagesTabWithBlocks, markSeoStaleRef, scheduleAutosaveRef, sessionReadOnly, setBlocks, setRuntimeContextRevision, structureMutationRef, tempMergeRef }) {
     const updateBlockContent = useCallback((id, newContent, imageData) => {
         if (!canMutateEditor()) {
             return;
@@ -120,7 +120,8 @@ export default function useArticleEditorBlockContentCommands({ activeBlockIdRef,
                 window.dispatchEvent(new CustomEvent('seo-article-editor-notify', { detail }));
             },
             scheduleAutosave: () => scheduleAutosaveRef.current?.(),
-            requestAnalyze: () => requestAnalyzeRef.current?.(),
+            requestAnalyze: () => markSeoStaleRef.current?.(),
+            markSeoStale: () => markSeoStaleRef.current?.(),
             commitActiveBlock: () => commitActiveBlock(),
             onStructureMutation: (name, payload) => structureMutationRef.current?.(name, payload) ?? false,
             actions: {

@@ -20,7 +20,7 @@ import { useEffect } from 'react';
  * useArticleEditorExternalEventsBridge - extracted from SeoArticleEditor.jsx (Task 7 mechanical
  * extraction). Mechanical move - no behavior change.
  */
-export default function useArticleEditorExternalEventsBridge({ activeBlockId, activeBlockIdRef, analyzedBlocksRef, applyCompletedMediaToPlaceholder, applyCompletedMediaToProductGallery, applySeoAnalysisResult, articleId, articleTitle, assertNoLocalSlugFixBeforeWpSync, assertWritableDocumentNotWhitespaceCorrupted, blockEditorsRef, blockFlushRef, blockOutsideClickGuardUntilRef, blocks, blocksRef, clearAwaitingClientImagePlaceholders, clearMediaPolling, clearOutlineFocus, clearTempMerge, connectionHashRef, dismissedEditorImageMediaIdsRef, editorHostActionsRef, findImageBlockByMediaId, generateImageTargetRef, getExportHtml, globalEditor, initialPostImages, insertImageAfterBlock, insertVideoAfterBlock, isDismissedEditorImageMedia, lastSeoAnalysisRef, mediaPollTimersRef, networkRecovering, networkUnavailable, outlineHasSavedHeadings, panelFaqsRef, patchImageInBlocks, pendingAiMediaRef, placeProcessingImagePlaceholder, postImagesRef, publishEditorImagesCatalogRef, reconcileImagesTabWithBlocks, requestAnalyze, requestGenerateArticleImage, resolveAiRefBlockId, resolveArticleFaqsSnapshot, runLocalSeoAnalysis, saveStatus, scheduleAutosave, scheduleIdleSeoAnalysis, sectionByBlockId, seoDomain, seoMetaRef, setActiveBlockId, setArticleType, setBlocks, setFaqCount, setGlobalEditor, setImagesReloadKey, setInsertMenu, setPanelFaqs, setSaveStatus, setSavedSeoScore, setSeoStale, setSupportsProductGallery, skipNextAutosave, startMediaStatusPolling, supplementalImagesRef, tempMerge, tempMergeRef, updateBlockContent }) {
+export default function useArticleEditorExternalEventsBridge({ activeBlockId, activeBlockIdRef, analyzedBlocksRef, applyCompletedMediaToPlaceholder, applyCompletedMediaToProductGallery, applySeoAnalysisResult, articleId, articleTitle, assertNoLocalSlugFixBeforeWpSync, assertWritableDocumentNotWhitespaceCorrupted, blockEditorsRef, blockFlushRef, blockOutsideClickGuardUntilRef, blocks, blocksRef, clearAwaitingClientImagePlaceholders, clearMediaPolling, clearOutlineFocus, clearTempMerge, connectionHashRef, dismissedEditorImageMediaIdsRef, editorHostActionsRef, findImageBlockByMediaId, generateImageTargetRef, getExportHtml, globalEditor, initialPostImages, insertImageAfterBlock, insertVideoAfterBlock, isDismissedEditorImageMedia, lastSeoAnalysisRef, mediaPollTimersRef, networkRecovering, networkUnavailable, outlineHasSavedHeadings, panelFaqsRef, patchImageInBlocks, pendingAiMediaRef, placeProcessingImagePlaceholder, postImagesRef, publishEditorImagesCatalogRef, reconcileImagesTabWithBlocks, requestAnalyze, requestGenerateArticleImage, resolveAiRefBlockId, resolveArticleFaqsSnapshot, runLocalSeoAnalysis, saveStatus, scheduleAutosave, markSeoStale, sectionByBlockId, seoDomain, seoMetaRef, setActiveBlockId, setArticleType, setBlocks, setFaqCount, setGlobalEditor, setImagesReloadKey, setInsertMenu, setPanelFaqs, setSaveStatus, setSavedSeoScore, setSeoStale, setSupportsProductGallery, skipNextAutosave, startMediaStatusPolling, supplementalImagesRef, tempMerge, tempMergeRef, updateBlockContent }) {
     useEffect(() => {
         const applyExtractedFaqsToEditor = (detail = {}) => {
             const html = stripLeadingH1FromHtml(detail?.editorHtml ?? detail?.editor_html ?? '');
@@ -73,7 +73,7 @@ export default function useArticleEditorExternalEventsBridge({ activeBlockId, ac
                     ? event.detail
                     : {};
             const target = detail.target ?? 'save';
-            runLocalSeoAnalysis();
+            markSeoStale();
             window.dispatchEvent(
                 new CustomEvent('editor-html-collected', {
                     detail: {
@@ -137,7 +137,7 @@ export default function useArticleEditorExternalEventsBridge({ activeBlockId, ac
                 panelFaqsRef.current = fromExtract;
                 setPanelFaqs(fromExtract);
                 setFaqCount(fromExtract.length);
-                scheduleIdleSeoAnalysis();
+                markSeoStale();
             }
         };
 
@@ -150,7 +150,7 @@ export default function useArticleEditorExternalEventsBridge({ activeBlockId, ac
             panelFaqsRef.current = rows;
             setPanelFaqs(rows);
             setFaqCount(rows.length);
-            scheduleIdleSeoAnalysis();
+            markSeoStale();
         };
 
         window.addEventListener('article-faqs-extracted', syncPanelFaqs);
@@ -161,7 +161,7 @@ export default function useArticleEditorExternalEventsBridge({ activeBlockId, ac
             seoDomain.patch({
                 focusKeyword: String(keyword ?? ''),
             });
-            requestAnalyze();
+            markSeoStale();
         };
 
         const handleGoogleSerpPreviewUpdated = (event) => {
@@ -173,7 +173,7 @@ export default function useArticleEditorExternalEventsBridge({ activeBlockId, ac
                     preview?.description ?? seoMetaRef.current.metaDescription ?? '',
                 ).trim(),
             };
-            requestAnalyze();
+            markSeoStale();
         };
 
         const handleEditorSlugUpdated = (event) => {
@@ -186,7 +186,7 @@ export default function useArticleEditorExternalEventsBridge({ activeBlockId, ac
                 ...seoMetaRef.current,
                 slug,
             };
-            requestAnalyze();
+            markSeoStale();
         };
 
         const handlePublishPostTypeChanged = (event) => {
@@ -199,25 +199,22 @@ export default function useArticleEditorExternalEventsBridge({ activeBlockId, ac
             const nextSupportsGallery = normalized === 'product' || normalized === 'e-commerce';
             setArticleType(nextType);
             setSupportsProductGallery(nextSupportsGallery);
-            requestAnalyze();
+            markSeoStale();
         };
 
         const handleServerAnalyzeResult = (event) => {
             const result = event?.detail?.result;
-            if (result && typeof result === 'object') {
-                if (!Object.prototype.hasOwnProperty.call(result, 'violations')) {
-                    requestAnalyze();
-                    return;
-                }
-                applySeoAnalysisResult(result, 'saved');
-                const score = Number(result.total_score ?? result.score ?? result.seo_score);
-                if (Number.isFinite(score)) {
-                    setSavedSeoScore(score);
-                }
-                setSeoStale(false);
+            if (!result || typeof result !== 'object') {
                 return;
             }
-            requestAnalyze();
+            if (!Object.prototype.hasOwnProperty.call(result, 'violations')) {
+                return;
+            }
+            applySeoAnalysisResult(result, 'saved');
+            const score = Number(result.total_score ?? result.score ?? result.seo_score);
+            if (Number.isFinite(score)) {
+                setSavedSeoScore(score);
+            }
         };
 
         window.addEventListener('seo-focus-keyword-updated', handleFocusKeywordUpdated);
@@ -826,7 +823,7 @@ export default function useArticleEditorExternalEventsBridge({ activeBlockId, ac
         insertImageAfterBlock,
         insertVideoAfterBlock,
         requestAnalyze,
-        scheduleIdleSeoAnalysis,
+        markSeoStale,
         runLocalSeoAnalysis,
         scheduleAutosave,
         startMediaStatusPolling,
@@ -853,7 +850,7 @@ export default function useArticleEditorExternalEventsBridge({ activeBlockId, ac
             clearTempMerge();
             setActiveBlockId(null);
             setGlobalEditor(null);
-            runLocalSeoAnalysis();
+            markSeoStale();
 
             const faqRows = resolveArticleFaqsSnapshot();
             const faqCollectorOpen = typeof window.__seoCollectArticleFaqs === 'function';
@@ -900,7 +897,7 @@ export default function useArticleEditorExternalEventsBridge({ activeBlockId, ac
         getExportHtml,
         assertNoLocalSlugFixBeforeWpSync,
         resolveArticleFaqsSnapshot,
-        runLocalSeoAnalysis,
+        markSeoStale,
     ]);
 
     useEffect(() => {
@@ -911,10 +908,10 @@ export default function useArticleEditorExternalEventsBridge({ activeBlockId, ac
             return;
         }
         if (blocks !== analyzedBlocksRef.current) {
-            scheduleIdleSeoAnalysis();
+            markSeoStale();
         }
         scheduleAutosave();
-    }, [blocks, scheduleAutosave, scheduleIdleSeoAnalysis]);
+    }, [blocks, scheduleAutosave, markSeoStale]);
 
     useEffect(() => {
         const onGenerateImage = (event) => {

@@ -156,14 +156,30 @@ export class EditorSessionClient {
         this.onStateChange = typeof options.onStateChange === 'function' ? options.onStateChange : null;
         this.destroyed = false;
         this.recovering = false;
+        this._heartbeatInFlight = false;
+        this._lastEmitted = null;
         this._visibilityHandler = null;
         this.bindVisibility();
     }
 
     emit() {
-        if (this.onStateChange) {
-            this.onStateChange(this.snapshot());
+        if (!this.onStateChange) {
+            return;
         }
+        const snap = this.snapshot();
+        const prev = this._lastEmitted;
+        if (
+            prev
+            && prev.sessionId === snap.sessionId
+            && prev.documentVersion === snap.documentVersion
+            && prev.lockStatus === snap.lockStatus
+            && prev.readOnly === snap.readOnly
+            && prev.offline === snap.offline
+        ) {
+            return;
+        }
+        this._lastEmitted = snap;
+        this.onStateChange(snap);
     }
 
     snapshot() {
@@ -349,6 +365,10 @@ export class EditorSessionClient {
         if (this.destroyed || this.readOnly || !this.sessionId) {
             return;
         }
+        if (this._heartbeatInFlight) {
+            return;
+        }
+        this._heartbeatInFlight = true;
 
         try {
             const { response, data } = await seoArticleApiFetch(
@@ -374,6 +394,8 @@ export class EditorSessionClient {
             // Network blip: keep sessionId, retry on next interval (do not permanent-skip).
             this.offline = true;
             this.emit();
+        } finally {
+            this._heartbeatInFlight = false;
         }
     }
 

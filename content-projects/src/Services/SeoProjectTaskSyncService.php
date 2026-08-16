@@ -765,7 +765,6 @@ final class SeoProjectTaskSyncService
             ->get()
             ->map(fn (SeoProjectTask $task): array => [
                 'id' => (int) $task->id,
-                'site_id' => $task->site_id !== null ? (int) $task->site_id : null,
                 'type' => SeoProjectTask::normalizeType($task->type),
                 'source_content' => $task->source_content,
                 'keyword' => in_array(SeoProjectTask::normalizeType($task->type), [

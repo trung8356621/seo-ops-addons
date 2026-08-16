@@ -610,10 +610,10 @@ final class SeoProjectRunItemService
             ];
         }
 
-        $siteId = (int) ($task->site_id ?? 0);
+        $task->loadMissing('project');
+        $siteId = (int) ($task->project?->site_id ?? 0);
         if ($siteId <= 0) {
-            $task->loadMissing('project');
-            $siteId = (int) ($task->project?->site_id ?? 0);
+            $siteId = (int) ($task->site_id ?? 0);
         }
         $localArticleId = LocalArticleAssociationGuard::resolveLocalArticleId(
             $articleId,

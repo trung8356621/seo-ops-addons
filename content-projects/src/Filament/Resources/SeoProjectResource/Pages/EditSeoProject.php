@@ -23,6 +23,7 @@ use Carbon\Carbon;
 use Filament\Actions;
 use Filament\Notifications\Notification;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Validation\ValidationException;
 use RuntimeException;
 
 class EditSeoProject extends SeoEditRecord
@@ -75,7 +76,7 @@ class EditSeoProject extends SeoEditRecord
         /** @var SeoProject $record */
         $record = $this->getRecord();
 
-        $data = SeoProjectResource::normalizeProjectSiteId($data);
+        $data = SeoProjectResource::normalizeProjectSiteId($data, $record);
 
         $tasksData = $data['tasks_data'] ?? [];
         unset($data['unassigned_staff_ids'], $data['assign_from_unassigned']);

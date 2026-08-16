@@ -9,6 +9,7 @@ use Omnichannel\Addons\Agent\Automation\Data\ActionResult;
 use Omnichannel\Addons\Agent\Automation\Runtime\ActionRunner;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\LocalArticleAssociationGuard;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectArticleOwnerSyncService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
@@ -28,6 +29,19 @@ final class ProjectTaskCallerBridge
     public function attachArticle(SeoProjectTask $task, int $articleId, ?int $actorId = null, ?int $siteId = null): void
     {
         $taskId = (int) $task->id;
+        $task->loadMissing('project');
+        $canonicalSiteId = (int) ($task->project?->site_id ?? 0);
+        if ($canonicalSiteId <= 0) {
+            $canonicalSiteId = (int) ($siteId ?? $task->site_id ?? 0);
+        }
+        if ($canonicalSiteId <= 0
+            || LocalArticleAssociationGuard::resolveLocalArticleId($articleId, $canonicalSiteId) === null
+        ) {
+            throw new \InvalidArgumentException(
+                'Article must belong to the same site as this project.',
+            );
+        }
+        $siteId = $canonicalSiteId > 0 ? $canonicalSiteId : $siteId;
         $alreadyAttached = (int) ($task->article_id ?? 0) === $articleId && $articleId > 0;
         $correlationId = Str::uuid()->toString();
         $normalizer = $this->parityNormalizer;

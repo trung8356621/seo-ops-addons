@@ -102,17 +102,22 @@ final class ArticleEditorAnalysisOwnershipPhase2bTest extends TestCase
         $editor = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content/resources/js/components/SeoArticleEditor.jsx',
         );
-        self::assertStringContainsString('composeImmediateArticleAnalysis', $editor);
-        self::assertStringContainsString('debounceMs: 250', $editor);
-        self::assertStringContainsString('externalFacts', $editor);
+        $analysis = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/hooks/useArticleEditorSeoAnalysis.js',
+        );
+        self::assertStringContainsString('composeImmediateArticleAnalysis', $analysis);
+        self::assertStringContainsString('externalFacts', $analysis);
         self::assertStringContainsString("count_source === 'media_snapshot'", $editor);
-        self::assertStringContainsString('recompute local immediate analysis', $editor);
+        self::assertStringContainsString('markSeoStale', $analysis);
+        self::assertStringNotContainsString("id: 'seo-idle-analyze'", $analysis);
 
         $i18n = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content/resources/js/utils/i18n.js',
         );
-        self::assertStringContainsString('Refresh external facts', $i18n);
-        self::assertStringContainsString('LÃ m má»›i fact mÃ¡y chá»§', $i18n);
+        self::assertStringContainsString('SEO score needs update', $i18n);
+        self::assertStringContainsString('Điểm SEO cần cập nhật', $i18n);
+        self::assertStringContainsString('Update SEO score', $i18n);
+        self::assertStringContainsString('Cập nhật điểm SEO', $i18n);
     }
 
     public function test_image_ratio_recommendation_math_contract(): void

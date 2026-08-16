@@ -115,8 +115,8 @@ export function emitDocumentChanged(context, detail) {
     if (typeof context.commitActiveBlock === 'function') {
         context.commitActiveBlock();
     }
-    if (typeof context.requestAnalyze === 'function') {
-        context.requestAnalyze();
+    if (typeof context.markSeoStale === 'function') {
+        context.markSeoStale();
     }
     if (typeof context.scheduleAutosave === 'function') {
         context.scheduleAutosave();

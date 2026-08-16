@@ -2562,6 +2562,8 @@ return [
         'article_items' => 'Article items',
         'domain' => 'Domain',
         'domain_required' => 'Select a domain for this content project.',
+        'domain_locked_linked_articles' => 'Domain cannot be changed after articles are linked. Use the repair-site-links command if site links drifted.',
+        'domain_change_blocked_linked_articles' => 'Cannot change this project domain because articles are already linked. Project domain is the source of truth; articles are never moved across sites.',
         'article_type' => 'Article type',
         'title_of_article_to_rewrite' => 'Title of article to rewrite',
         'keyword' => 'Keyword',

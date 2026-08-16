@@ -693,6 +693,7 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
                 \Omnichannel\Addons\Media\Console\InstallDefaultProductGalleryPromptsCommand::class,
                 \Omnichannel\Addons\Media\Console\ProductGalleryCanaryFixtureCommand::class,
                 \Omnichannel\Addons\ContentProjects\Console\RepairContentProjectCommand::class,
+                \Omnichannel\Addons\ContentProjects\Console\RepairContentProjectSiteLinksCommand::class,
                 \Omnichannel\Addons\ContentProjects\Console\RepairLegacyContentProjectGenerationCommand::class,
                 \Omnichannel\Addons\ContentProjects\Console\CleanupContentProjectAgentSessionsCommand::class,
                 \Omnichannel\Addons\ContentProjects\Console\CleanupContentProjectAgentPlansCommand::class,

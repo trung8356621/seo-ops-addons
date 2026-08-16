@@ -794,15 +794,8 @@ function ArticleEditorWithSession(props) {
         setSessionReasonCode(reasonCode || client.lockStatus || null);
         setSessionReady(true);
         editorMountedRef.current = writable;
-
-        try {
-            const livewireId = String(window.__SEO_EDIT_ARTICLE_LIVEWIRE_ID__ ?? '');
-            const component = livewireId && window.Livewire?.find?.(livewireId);
-            component?.set?.('editorSessionId', client.sessionId || null);
-            component?.set?.('expectedDocumentVersion', client.documentVersion || null);
-        } catch {
-            // ignore
-        }
+        // Keep session tokens in EditorSessionClient / window globals.
+        // Do not mirror them onto Livewire — that hydrates the entire EditArticle snapshot (~180KB).
     }, [articleId]);
 
     const runAcquire = React.useCallback(async () => {
@@ -845,14 +838,7 @@ function ArticleEditorWithSession(props) {
                 setLockInfo(snap.lockInfo);
                 setSessionStatus(status);
                 setSessionReasonCode(snap.lockStatus || null);
-                try {
-                    const livewireId = String(window.__SEO_EDIT_ARTICLE_LIVEWIRE_ID__ ?? '');
-                    const component = livewireId && window.Livewire?.find?.(livewireId);
-                    component?.set?.('editorSessionId', snap.sessionId || null);
-                    component?.set?.('expectedDocumentVersion', snap.documentVersion || null);
-                } catch {
-                    // ignore
-                }
+                // Do not Livewire.set session tokens on heartbeat/state snapshots.
             },
         });
         clientRef.current = client;

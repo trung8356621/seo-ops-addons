@@ -25,6 +25,7 @@ use Omnichannel\Addons\ContentProjects\Enums\WorkflowExecutionRole;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\AiPrompt\Models\SeoTask;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\LocalArticleAssociationGuard;
 use Omnichannel\Addons\ContentProjects\Services\WorkflowRoles\WorkflowExecutionRoleResolver;
 use Omnichannel\Addons\ContentProjects\Services\WorkflowRoles\WorkflowExecutionSnapshotBuilder;
 use Omnichannel\Addons\Content\Support\ArticleWritingExecutionContext;
@@ -677,9 +678,15 @@ final class CreateArticlesFromTaskService
         if ($task instanceof SeoProjectTask) {
             $existingId = (int) ($task->article_id ?? 0);
             if ($existingId > 0) {
-                $existing = SeoArticle::query()->find($existingId);
-                if ($existing instanceof SeoArticle) {
-                    return $context->withArticle($existing);
+                $localId = LocalArticleAssociationGuard::resolveLocalArticleId(
+                    $existingId,
+                    $siteId > 0 ? $siteId : null,
+                );
+                if ($localId !== null) {
+                    $existing = SeoArticle::query()->find($localId);
+                    if ($existing instanceof SeoArticle) {
+                        return $context->withArticle($existing);
+                    }
                 }
             }
         }

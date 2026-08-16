@@ -217,42 +217,9 @@ export default function useArticleEditorSeoAnalysis({ articleId, articleTitle, a
 
     requestAnalyzeRef.current = requestAnalyze;
 
-    const scheduleIdleSeoAnalysis = useCallback(() => {
-        const scheduler = utilitySchedulerRef.current;
-        if (!scheduler) {
-            return;
-        }
+    const markSeoStale = useCallback(() => {
         setSeoStale(true);
-        setSeoAnalyzeError(null);
-        scheduler.schedule({
-            id: 'seo-idle-analyze',
-            debounceMs: 600,
-            priority: 'normal',
-            run: ({ version, signal }) => {
-                if (signal.aborted || version !== scheduler.getVersion()) {
-                    return;
-                }
-                if (blocksRef.current === analyzedBlocksRef.current) {
-                    setSeoStale(false);
-                    return;
-                }
-                try {
-                    setAnalyzing(true);
-                    setSeoAnalyzeError(null);
-                    runLocalSeoAnalysis();
-                    if (signal.aborted || version !== scheduler.getVersion()) {
-                        return;
-                    }
-                    analyzedBlocksRef.current = blocksRef.current;
-                    setSeoStale(false);
-                    void runPhpSeoPreview();
-                } catch (error) {
-                    setAnalyzing(false);
-                    setSeoAnalyzeError(error?.message ?? 'seo_analyze_failed');
-                }
-            },
-        });
-    }, [runLocalSeoAnalysis, runPhpSeoPreview]);
+    }, []);
 
     useEffect(() => {
         const onMediaSnapshotAnalyze = (event) => {
@@ -261,13 +228,13 @@ export default function useArticleEditorSeoAnalysis({ articleId, articleTitle, a
             if (aid > 0 && aid !== Number(articleId)) {
                 return;
             }
-            scheduleIdleSeoAnalysis();
+            markSeoStale();
         };
         window.addEventListener('article-editor-media-snapshot-changed', onMediaSnapshotAnalyze);
         return () => {
             window.removeEventListener('article-editor-media-snapshot-changed', onMediaSnapshotAnalyze);
         };
-    }, [articleId, scheduleIdleSeoAnalysis]);
+    }, [articleId, markSeoStale]);
 
     const openFaqModule = useCallback((options = {}) => {
         if (options?.autoGenerate) {
@@ -327,5 +294,5 @@ export default function useArticleEditorSeoAnalysis({ articleId, articleTitle, a
         }
     }, [canGenerateFaq, openFaqModule, openFeaturedSnippetPrompt]);
 
-    return { analyzedBlocksRef, applySeoAnalysisResult, createFaqFromShortcode, handleSeoViolationAction, openFaqModule, requestAnalyze, resolveArticleFaqsSnapshot, runLocalSeoAnalysis, scheduleIdleSeoAnalysis, seoStale, setSeoStale };
+    return { analyzedBlocksRef, applySeoAnalysisResult, createFaqFromShortcode, handleSeoViolationAction, markSeoStale, openFaqModule, requestAnalyze, resolveArticleFaqsSnapshot, runLocalSeoAnalysis, seoStale, setSeoStale };
 }

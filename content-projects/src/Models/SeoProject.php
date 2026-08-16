@@ -117,6 +117,19 @@ class SeoProject extends Model
         return (string) ($this->kind ?? self::KIND_MONTHLY) === self::KIND_ARCHIVE;
     }
 
+    /**
+     * True when any active item is already linked to a local article.
+     * Changing project.site_id in that state would silently corrupt ownership.
+     */
+    public function hasLinkedOrGeneratedArticles(): bool
+    {
+        return $this->tasks()
+            ->whereNull('archived_at')
+            ->whereNotNull('article_id')
+            ->where('article_id', '>', 0)
+            ->exists();
+    }
+
     public function activeArticleCount(): int
     {
         if ($this->relationLoaded('tasks')) {

@@ -13,6 +13,7 @@ use Omnichannel\Addons\Agent\Automation\Enums\ActionSelectability;
 use Omnichannel\Addons\Agent\Automation\Enums\ActionSideEffect;
 use Omnichannel\Addons\Agent\Automation\Support\ActionSupport;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\LocalArticleAssociationGuard;
 use Illuminate\Support\Facades\DB;
 
 final class AttachArticleToProjectTaskAction implements BusinessAction
@@ -54,6 +55,17 @@ final class AttachArticleToProjectTaskAction implements BusinessAction
 
         if (ActionSupport::findArticle($articleId) === null) {
             return ActionResult::failure('article_not_found', "Article [{$articleId}] not found.");
+        }
+
+        $task->loadMissing('project');
+        $canonicalSiteId = (int) ($task->project?->site_id ?? $task->site_id ?? 0);
+        if ($canonicalSiteId <= 0
+            || LocalArticleAssociationGuard::resolveLocalArticleId($articleId, $canonicalSiteId) === null
+        ) {
+            return ActionResult::failure(
+                'article_wrong_site',
+                'Article must belong to the same site as this project.',
+            );
         }
 
         DB::connection($task->getConnectionName())->transaction(function () use ($task, $taskId, $articleId): void {

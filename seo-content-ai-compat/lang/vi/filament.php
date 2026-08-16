@@ -2535,6 +2535,8 @@ return [
         'article_items' => 'Hạng mục bài viết',
         'domain' => 'Tên miền',
         'domain_required' => 'Chọn tên miền cho dự án nội dung.',
+        'domain_locked_linked_articles' => 'Không đổi tên miền khi dự án đã gắn bài viết. Dùng lệnh repair-site-links nếu dữ liệu lệch site.',
+        'domain_change_blocked_linked_articles' => 'Không thể đổi tên miền dự án vì đã có bài viết được gắn. Tên miền dự án là nguồn sự thật; không được chuyển bài sang site khác.',
         'article_type' => 'Loại bài',
         'title_of_article_to_rewrite' => 'Tiêu đề bài cần sửa',
         'keyword' => 'Từ khóa',
