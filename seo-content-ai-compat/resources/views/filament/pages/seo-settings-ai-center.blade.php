@@ -100,7 +100,11 @@
                                     <option value="{{ $key }}">{{ $label }}</option>
                                 @endforeach
                             </select>
-                            <x-filament::button wire:click="openModelPicker" size="sm">
+                            <x-filament::button
+                                type="button"
+                                size="sm"
+                                @click="await $wire.openModelPickerForArea(activeCapability)"
+                            >
                                 <span x-text="addModelsLabel"></span>
                             </x-filament::button>
                         </div>
@@ -192,29 +196,32 @@
                                             </label>
                                         </div>
                                         <div class="seo-ai-profile__body" x-show="editingProfile !== @js($card['key'])">
-                                            <template x-if="draftMode(@js($card['key']), @js($card['selection_mode'])) === 'automatic'">
-                                                <div>
-                                                    <p class="seo-ai-muted">{{ __('seo-content-ai::filament.ai_center.automatic_help_'.$group) }}</p>
-                                                    <p class="seo-ai-muted">{{ __('seo-content-ai::filament.ai_center.eligible_count', ['count' => $card['eligible_count']]) }}</p>
-                                                    <button type="button" class="seo-ai-link" @click="setTab('models'); setArea('{{ $group }}')">{{ __('seo-content-ai::filament.ai_center.manage_priority_'.$group) }}</button>
-                                                </div>
-                                            </template>
-                                            <div x-show="draftMode(@js($card['key']), @js($card['selection_mode'])) === 'custom'">
+                                            <div class="seo-ai-profile__summary" x-show="draftMode(@js($card['key']), @js($card['selection_mode'])) === 'custom'">
                                                 @if ($card['family_labels'] === [])
                                                     <span class="seo-ai-muted">{{ __('seo-content-ai::filament.ai_center.no_models') }}</span>
                                                 @else
-                                                    @foreach ($card['family_labels'] as $execKey => $opt)
-                                                        @php($chip = is_array($opt) ? $opt : ['full_label' => (string) $opt, 'short_code' => '', 'badge_variant' => 'badge-1', 'model_name' => (string) $opt])
-                                                        <span class="seo-ai-chip" x-show="draftSelected(@js($card['key']), @js(array_values($card['family_keys']))).includes(@js($execKey))">
-                                                            @if (filled($chip['short_code'] ?? null))
-                                                                <span class="seo-ai-code seo-ai-code--{{ $chip['badge_variant'] ?? 'badge-1' }}">{{ $chip['short_code'] }}</span>
-                                                            @endif
-                                                            {{ $chip['model_name'] ?? $chip['full_label'] }}
-                                                        </span>
-                                                    @endforeach
+                                                    <div class="seo-ai-chip-row">
+                                                        @foreach ($card['family_labels'] as $execKey => $opt)
+                                                            @php($chip = is_array($opt) ? $opt : ['full_label' => (string) $opt, 'short_code' => '', 'badge_variant' => 'badge-1', 'model_name' => (string) $opt])
+                                                            <span class="seo-ai-chip" x-show="draftSelected(@js($card['key']), @js(array_values($card['family_keys']))).includes(@js($execKey))">
+                                                                @if (filled($chip['short_code'] ?? null))
+                                                                    <span class="seo-ai-code seo-ai-code--{{ $chip['badge_variant'] ?? 'badge-1' }}">{{ $chip['short_code'] }}</span>
+                                                                @endif
+                                                                {{ $chip['model_name'] ?? $chip['full_label'] }}
+                                                            </span>
+                                                        @endforeach
+                                                    </div>
                                                 @endif
                                             </div>
-                                            <button type="button" class="seo-ai-link" @click="startEdit(@js($card['key']), @js($card['selection_mode']), @js($card['enabled']), @js(array_values($card['family_keys'])))">{{ __('seo-content-ai::filament.ai_center.edit') }}</button>
+                                            <button
+                                                type="button"
+                                                class="seo-ai-icon-btn"
+                                                @click="startEdit(@js($card['key']), @js($card['selection_mode']), @js($card['enabled']), @js(array_values($card['family_keys'])))"
+                                                title="{{ __('seo-content-ai::filament.ai_center.edit') }}"
+                                                aria-label="{{ __('seo-content-ai::filament.ai_center.edit') }}"
+                                            >
+                                                <x-filament::icon icon="heroicon-o-pencil-square" class="h-4 w-4" />
+                                            </button>
                                         </div>
                                         <div class="seo-ai-profile__edit" x-show="editingProfile === @js($card['key'])" x-cloak>
                                             <p class="seo-ai-profile__label">{{ __('seo-content-ai::filament.ai_center.model_selection') }}</p>
@@ -228,11 +235,7 @@
                                                     {{ __('seo-content-ai::filament.ai_center.selection_custom') }}
                                                 </label>
                                             </div>
-                                            <div x-show="draftMode(@js($card['key']), @js($card['selection_mode'])) === 'automatic'">
-                                                <p class="seo-ai-muted">{{ __('seo-content-ai::filament.ai_center.automatic_help_'.$group) }}</p>
-                                                <button type="button" class="seo-ai-link" @click="setTab('models'); setArea('{{ $group }}')">{{ __('seo-content-ai::filament.ai_center.manage_priority_'.$group) }}</button>
-                                            </div>
-                                            <div x-show="draftMode(@js($card['key']), @js($card['selection_mode'])) === 'custom'">
+                                            <div class="seo-ai-allowed" x-show="draftMode(@js($card['key']), @js($card['selection_mode'])) === 'custom'">
                                                 <p class="seo-ai-profile__label">{{ __('seo-content-ai::filament.ai_center.allowed_models') }}</p>
                                                 <div class="seo-ai-chip-row">
                                                     @foreach ($card['family_options'] as $familyKey => $familyOpt)
@@ -287,25 +290,67 @@
 
         @if ($pickerOpen)
             @php($picker = $this->pickerState())
-            <div class="seo-capability-matrix-overlay" wire:click.self="closeModelPicker">
+            <div class="seo-capability-matrix-overlay" wire:key="ai-center-model-picker">
+                <div class="seo-capability-matrix-backdrop" wire:click="closeModelPicker" aria-hidden="true"></div>
                 <div class="seo-ai-modal seo-ai-modal--wide" role="dialog" aria-modal="true">
                     <h2>{{ __('seo-content-ai::filament.ai_center.add_area_title.'.$modelArea) }}</h2>
                     <div class="seo-ai-toolbar">
-                        <input type="search" wire:model.live.debounce.300ms="pickerSearch" placeholder="{{ __('seo-content-ai::filament.ai_center.search_models') }}" />
-                        <select wire:model.live="pickerProvider">
+                        <div class="seo-ai-toolbar__search">
+                            <input
+                                type="search"
+                                wire:model.live.debounce.300ms="pickerSearch"
+                                placeholder="{{ __('seo-content-ai::filament.ai_center.search_models') }}"
+                            />
+                            <span
+                                class="seo-ai-toolbar__spinner"
+                                wire:loading
+                                wire:target="pickerSearch,pickerProvider,pickerStatus,pickerPrevPage,pickerNextPage"
+                                aria-hidden="true"
+                            ></span>
+                        </div>
+                        <select wire:model.live="pickerProvider" wire:loading.attr="disabled" wire:target="pickerSearch,pickerProvider,pickerStatus">
                             <option value="all">{{ __('seo-content-ai::filament.ai_center.filter_provider') }}</option>
                             @foreach ($this->aiProviderFilterOptions() as $key => $label)
                                 <option value="{{ $key }}">{{ $label }}</option>
                             @endforeach
                         </select>
-                        <select wire:model.live="pickerStatus">
+                        <select wire:model.live="pickerStatus" wire:loading.attr="disabled" wire:target="pickerSearch,pickerProvider,pickerStatus">
                             <option value="available">{{ __('seo-content-ai::filament.ai_center.status_available') }}</option>
-                            @if ($modelTechnical)
-                                <option value="unknown">{{ __('seo-content-ai::filament.ai_center.status_unknown') }}</option>
-                            @endif
+                            <option value="unknown">{{ __('seo-content-ai::filament.ai_center.status_unknown') }}</option>
                         </select>
                     </div>
-                    <div class="seo-ai-picker-table-wrap">
+                    @php($pickerEnabled = $this->pickerEnabledRows())
+                    <div class="seo-ai-picker-added" wire:key="picker-added-{{ $modelArea }}-{{ count($pickerEnabled) }}">
+                        <div class="seo-ai-picker-added__label">
+                            {{ __('seo-content-ai::filament.ai_center.picker_added_label') }}
+                            <span class="seo-ai-muted">{{ count($pickerEnabled) }}</span>
+                        </div>
+                        <div class="seo-ai-picker-added__chips">
+                            @forelse ($pickerEnabled as $enabledRow)
+                                <span class="seo-ai-chip seo-ai-chip--added" wire:key="picker-added-{{ $enabledRow['identity'] ?? ($enabledRow['ids'][0] ?? '') }}">
+                                    @if (! empty($enabledRow['short_code']))
+                                        <span class="seo-ai-code seo-ai-code--{{ $enabledRow['badge_variant'] ?? 'badge-1' }}">{{ $enabledRow['short_code'] }}</span>
+                                    @endif
+                                    {{ $enabledRow['model_name'] ?? $enabledRow['label'] }}
+                                </span>
+                            @empty
+                                <span class="seo-ai-muted">{{ __('seo-content-ai::filament.ai_center.picker_added_empty') }}</span>
+                            @endforelse
+                        </div>
+                    </div>
+                    <div
+                        class="seo-ai-picker-table-wrap"
+                        wire:loading.class="is-loading"
+                        wire:target="pickerSearch,pickerProvider,pickerStatus,pickerPrevPage,pickerNextPage,addAvailableModels"
+                    >
+                        <div
+                            class="seo-ai-picker-loading"
+                            wire:loading.style="display:flex"
+                            wire:target="pickerSearch,pickerProvider,pickerStatus,pickerPrevPage,pickerNextPage,addAvailableModels"
+                        >
+                            <span class="seo-ai-toolbar__spinner" aria-hidden="true"></span>
+                            <span>{{ __('seo-content-ai::filament.ai_center.picker_loading') }}</span>
+                        </div>
                         <table class="seo-ai-models-table w-full text-sm">
                             <thead>
                                 <tr>
@@ -315,8 +360,17 @@
                                 </tr>
                             </thead>
                             <tbody>
+                                @php($enabledIdSet = [])
+                                @foreach ($pickerEnabled as $enabledRow)
+                                    @foreach (($enabledRow['ids'] ?? []) as $enabledId)
+                                        @php($enabledIdSet[(int) $enabledId] = true)
+                                    @endforeach
+                                @endforeach
                                 @forelse ($picker['rows'] as $row)
-                                    <tr wire:key="pick-{{ $row['identity'] ?? $row['family_key'] }}">
+                                    @php($pickerIds = array_values(array_map('intval', $row['ids'] ?? [])))
+                                    @php($primaryId = (int) ($pickerIds[0] ?? 0))
+                                    @php($alreadyAdded = $primaryId > 0 && isset($enabledIdSet[$primaryId]))
+                                    <tr wire:key="pick-{{ $row['identity'] ?? $primaryId }}" @class(['is-added' => $alreadyAdded])>
                                         <td>
                                             @if (! empty($row['short_code']))
                                                 <span class="seo-ai-code seo-ai-code--{{ $row['badge_variant'] ?? 'badge-1' }}">{{ $row['short_code'] }}</span>
@@ -325,14 +379,37 @@
                                         </td>
                                         <td>{{ $row['source'] ?? $row['provider'] }}</td>
                                         <td>
-                                            <x-filament::button size="sm" wire:click="addAvailableModels(@js($row['ids']))">
-                                                {{ __('seo-content-ai::filament.ai_center.add_model') }}
-                                            </x-filament::button>
+                                            @if ($alreadyAdded)
+                                                <span class="seo-ai-picker-added-badge">{{ __('seo-content-ai::filament.ai_center.picker_row_added') }}</span>
+                                            @else
+                                                <button
+                                                    type="button"
+                                                    class="seo-ai-picker-add"
+                                                    wire:click="addAvailableModels({{ $primaryId }})"
+                                                    wire:loading.attr="disabled"
+                                                    wire:target="addAvailableModels({{ $primaryId }})"
+                                                    @disabled($primaryId <= 0)
+                                                >
+                                                    <span wire:loading.remove wire:target="addAvailableModels({{ $primaryId }})">
+                                                        {{ __('seo-content-ai::filament.ai_center.add_model') }}
+                                                    </span>
+                                                    <span wire:loading.style="display:inline-flex" wire:target="addAvailableModels({{ $primaryId }})" class="items-center gap-1" style="display:none">
+                                                        <span class="seo-ai-toolbar__spinner" aria-hidden="true"></span>
+                                                        {{ __('seo-content-ai::filament.common.saving') }}
+                                                    </span>
+                                                </button>
+                                            @endif
                                         </td>
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="3" class="seo-ai-muted">{{ __('seo-content-ai::filament.ai_center.no_models') }}</td>
+                                        <td colspan="3" class="seo-ai-muted">
+                                            @if (($picker['status'] ?? 'available') === 'available')
+                                                {{ __('seo-content-ai::filament.ai_center.picker_empty_available') }}
+                                            @else
+                                                {{ __('seo-content-ai::filament.ai_center.no_models') }}
+                                            @endif
+                                        </td>
                                     </tr>
                                 @endforelse
                             </tbody>
@@ -353,7 +430,8 @@
         @endif
 
         @if ($showImportModal)
-            <div class="seo-capability-matrix-overlay" wire:click.self="closeImportModal">
+            <div class="seo-capability-matrix-overlay" wire:key="ai-center-import-modal">
+                <div class="seo-capability-matrix-backdrop" wire:click="closeImportModal" aria-hidden="true"></div>
                 <div class="seo-ai-modal" role="dialog" aria-modal="true">
                     <h2>{{ __('seo-content-ai::filament.ai_center.import_modal_title') }}</h2>
                     <p class="seo-ai-section-help">{{ __('seo-content-ai::filament.ai_center.import_template_help') }}</p>

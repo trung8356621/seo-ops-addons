@@ -312,6 +312,16 @@ final class AiModelPriorityService
     }
 
     /**
+     * True only when capabilities.omi_areas.{area}.enabled was written explicitly.
+     */
+    public function isExplicitlyAreaEnabled(SeoAiModel $model, AiModelArea $area): bool
+    {
+        $stored = $this->areaBag($model)[$area->value] ?? null;
+
+        return is_array($stored) && array_key_exists('enabled', $stored) && (bool) $stored['enabled'];
+    }
+
+    /**
      * @param  list<int>  $orderedModelIds
      */
     public function reorderCapabilityModels(int $userId, AiModelArea $area, array $orderedModelIds): void
@@ -429,7 +439,14 @@ final class AiModelPriorityService
                 if (! $this->isAreaEnabled($model, $area, $connection)) {
                     continue;
                 }
-                if (! $this->supportsArea($connection, (string) $model->raw_model_name, $area)) {
+                $stored = $this->areaBag($model)[$area->value] ?? null;
+                $explicitlyEnabled = is_array($stored) && array_key_exists('enabled', $stored) && (bool) $stored['enabled'];
+                if (! $explicitlyEnabled && ! $this->supportsArea($connection, (string) $model->raw_model_name, $area)) {
+                    continue;
+                }
+                // Unknown models must be explicitly opted into an area (Add from picker).
+                $family = (new AiModelFamilyCatalog())->familyForModelId((string) $model->raw_model_name);
+                if ($family === null && ! $explicitlyEnabled) {
                     continue;
                 }
                 $out[] = $model;

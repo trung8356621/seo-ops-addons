@@ -99,24 +99,46 @@ final class ModelCapabilityRegistry
         }
 
         if (str_starts_with($normalized, 'google/')) {
-            return $this->fromGeminiRegistry(
-                ApiConnectionProviders::GEMINI,
-                substr($model, strlen('google/')),
-            );
+            $suffix = substr($model, strlen('google/'));
+            $caps = $this->fromGeminiRegistry(ApiConnectionProviders::GEMINI, $suffix);
+            if ($caps === null || $caps === []) {
+                $family = (new AiModelFamilyCatalog())->familyForModelId($model);
+                if ($family !== null && $family->modality === 'text') {
+                    return [
+                        AiModelCapability::TextGenerate->value,
+                        AiModelCapability::TextReasoning->value,
+                        AiModelCapability::StructuredOutput->value,
+                        AiModelCapability::ToolCall->value,
+                    ];
+                }
+
+                return $caps ?? [];
+            }
+            // OpenRouter Gemini text models may be selected for Reasoning Text profiles.
+            if (in_array(AiModelCapability::TextGenerate->value, $caps, true)
+                && ! in_array(AiModelCapability::ImageGenerate->value, $caps, true)
+                && ! in_array(AiModelCapability::VideoGenerate->value, $caps, true)
+                && ! in_array(AiModelCapability::TextReasoning->value, $caps, true)) {
+                $caps[] = AiModelCapability::TextReasoning->value;
+            }
+
+            return array_values(array_unique($caps));
         }
 
-        if (str_starts_with($normalized, 'deepseek/')) {
-            $suffix = substr($model, strlen('deepseek/'));
+        if (str_starts_with($normalized, 'openai/')
+            || str_starts_with($normalized, 'qwen/')
+            || str_starts_with($normalized, 'anthropic/')
+            || str_starts_with($normalized, 'deepseek/')) {
+            if (str_contains($normalized, 'image') || str_contains($normalized, 'video')) {
+                return [];
+            }
 
-            return BuiltInModelCapabilityCatalog::forProviderModel(ApiConnectionProviders::DEEPSEEK, $suffix)
-                ?? $this->providerTextOnlyPolicy(ApiConnectionProviders::DEEPSEEK, $suffix);
-        }
-
-        if (str_starts_with($normalized, 'anthropic/')) {
-            $suffix = substr($model, strlen('anthropic/'));
-
-            return BuiltInModelCapabilityCatalog::forProviderModel(ApiConnectionProviders::CLAUDE, $suffix)
-                ?? $this->fromGeminiRegistry(ApiConnectionProviders::CLAUDE, $suffix);
+            return [
+                AiModelCapability::TextGenerate->value,
+                AiModelCapability::TextReasoning->value,
+                AiModelCapability::StructuredOutput->value,
+                AiModelCapability::ToolCall->value,
+            ];
         }
 
         $family = (new AiModelFamilyCatalog())->familyForModelId($model);
@@ -129,6 +151,7 @@ final class ModelCapabilityRegistry
             'video' => [AiModelCapability::VideoGenerate->value],
             default => [
                 AiModelCapability::TextGenerate->value,
+                AiModelCapability::TextReasoning->value,
                 AiModelCapability::StructuredOutput->value,
             ],
         };

@@ -600,6 +600,12 @@ class SeoSettingsAiCenter extends Page
             && ! $this->modelTechnical;
     }
 
+    public function openModelPickerForArea(string $area): void
+    {
+        $this->setModelArea($area);
+        $this->openModelPicker();
+    }
+
     public function openModelPicker(?int $connectionId = null): void
     {
         $this->assertManager();
@@ -610,6 +616,23 @@ class SeoSettingsAiCenter extends Page
         $this->pickerType = 'all';
         $this->pickerStatus = 'available';
         $this->pickerPage = 1;
+
+        $available = app(AiCenterModelPresenter::class)->availablePage(
+            (int) auth()->id(),
+            $this->pickerConnectionId,
+            [
+                'search' => '',
+                'type' => 'all',
+                'status' => 'available',
+                'provider' => 'all',
+                'area' => $this->modelArea,
+            ],
+            1,
+            1,
+        );
+        if ((int) ($available['total'] ?? 0) === 0) {
+            $this->pickerStatus = 'unknown';
+        }
     }
 
     public function closeModelPicker(): void
@@ -635,12 +658,33 @@ class SeoSettingsAiCenter extends Page
     }
 
     /**
-     * @return array{rows: list<array<string, mixed>>, total: int, page: int, per_page: int, last_page: int, connection_name: string}
+     * @return list<array<string, mixed>>
+     */
+    public function pickerEnabledRows(): array
+    {
+        return app(AiModelInventory::class)->enabledRows(
+            (int) auth()->id(),
+            AiModelArea::tryFromMixed($this->modelArea),
+            [],
+        );
+    }
+
+    /**
+     * @return array{rows: list<array<string, mixed>>, total: int, page: int, per_page: int, last_page: int, connection_name: string, area: string, status: string}
      */
     public function pickerState(): array
     {
         if (! $this->pickerOpen) {
-            return ['rows' => [], 'total' => 0, 'page' => 1, 'per_page' => 50, 'last_page' => 1, 'connection_name' => '', 'area' => $this->modelArea];
+            return [
+                'rows' => [],
+                'total' => 0,
+                'page' => 1,
+                'per_page' => 50,
+                'last_page' => 1,
+                'connection_name' => '',
+                'area' => $this->modelArea,
+                'status' => $this->pickerStatus,
+            ];
         }
         $page = app(AiCenterModelPresenter::class)->availablePage(
             (int) auth()->id(),
@@ -657,23 +701,76 @@ class SeoSettingsAiCenter extends Page
         );
         $page['connection_name'] = '';
         $page['area'] = $this->modelArea;
+        $page['status'] = $this->pickerStatus;
 
         return $page;
     }
 
     /**
-     * @param  list<int>  $ids
+     * @param  list<int|string>|int|string  $ids
      */
-    public function addAvailableModels(array $ids, AiCenterModelPresenter $presenter): void
+    public function addAvailableModels(array|int|string $ids = []): void
     {
         $this->assertManager();
-        $presenter->setHidden((int) auth()->id(), $ids, false);
-        app(AiModelPriorityService::class)->appendToArea(
-            (int) auth()->id(),
-            AiModelArea::tryFromMixed($this->modelArea),
-            $ids,
-        );
-        $this->bustInventoryCache();
+        if (is_int($ids)) {
+            $ids = [$ids];
+        } elseif (is_string($ids)) {
+            $ids = preg_split('/\s*,\s*/', trim($ids)) ?: [];
+        }
+        $normalized = array_values(array_unique(array_filter(
+            array_map(static fn (mixed $id): int => (int) $id, $ids),
+            static fn (int $id): bool => $id > 0,
+        )));
+        if ($normalized === []) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.ai_center.add_model_failed'))
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        try {
+            $userId = (int) auth()->id();
+            $area = AiModelArea::tryFromMixed($this->modelArea);
+            $priorities = app(AiModelPriorityService::class);
+            $presenter = app(AiCenterModelPresenter::class);
+            $presenter->setHidden($userId, $normalized, false);
+            $priorities->appendToArea($userId, $area, $normalized);
+            $this->bustInventoryCache();
+
+            $confirmed = 0;
+            foreach ($normalized as $id) {
+                $model = \Omnichannel\Addons\AiPrompt\Models\SeoAiModel::query()->with('apiConnection')->find($id);
+                $connection = $model?->apiConnection;
+                if ($model !== null
+                    && $connection !== null
+                    && $priorities->isAreaEnabled($model, $area, $connection)) {
+                    $confirmed++;
+                }
+            }
+            if ($confirmed === 0) {
+                Notification::make()
+                    ->title(__('seo-content-ai::filament.ai_center.add_model_failed'))
+                    ->body(__('seo-content-ai::filament.ai_center.add_model_not_owned'))
+                    ->danger()
+                    ->send();
+
+                return;
+            }
+
+            Notification::make()
+                ->title(__('seo-content-ai::filament.ai_center.add_model_success'))
+                ->success()
+                ->send();
+        } catch (\Throwable $exception) {
+            report($exception);
+            Notification::make()
+                ->title(__('seo-content-ai::filament.ai_center.add_model_failed'))
+                ->body($exception->getMessage())
+                ->danger()
+                ->send();
+        }
     }
 
     public function pickerPrevPage(): void

@@ -97,18 +97,25 @@ final class AiCenterModelPresenter
         $technical = (bool) ($filters['technical'] ?? false);
         $rows = [];
         foreach ($this->familyInventory($userId, enabledOnly: false) as $row) {
-            if (($row['unknown'] ?? false) === true && ! $technical) {
-                continue;
-            }
             $connection = $this->connectionById($userId, (int) ($row['connection_id'] ?? 0));
             $model = $this->firstModel($row);
             if ($connection === null || $model === null) {
                 continue;
             }
-            if (! $this->priorities->isAreaEnabled($model, $area, $connection)) {
+            $unknown = (bool) ($row['unknown'] ?? false);
+            $enabled = $this->priorities->isAreaEnabled($model, $area, $connection);
+            // Unknown inventory is opt-in: only show after an explicit Add (omi_areas flag),
+            // unless Technical models is on.
+            if ($unknown && ! $technical && ! $this->priorities->isExplicitlyAreaEnabled($model, $area)) {
                 continue;
             }
-            if (! $this->rowSupportsArea($connection, $row, $area)) {
+            if (! $enabled) {
+                continue;
+            }
+            if (! $unknown && ! $this->rowSupportsArea($connection, $row, $area)) {
+                continue;
+            }
+            if ($unknown && ! $this->unknownRowMatchesArea($connection, $row, $area)) {
                 continue;
             }
             if ($provider !== '' && $provider !== 'all' && (string) $row['provider_key'] !== $provider) {
@@ -280,13 +287,18 @@ final class AiCenterModelPresenter
                 continue;
             }
             $unknown = (bool) ($row['unknown'] ?? false);
-            $inArea = $this->priorities->isAreaEnabled($model, $area, $connection);
+            $inArea = $unknown
+                ? $this->priorities->isExplicitlyAreaEnabled($model, $area)
+                : $this->priorities->isAreaEnabled($model, $area, $connection);
             if ($status === 'available') {
                 if ($inArea || $unknown || ! $this->rowSupportsArea($connection, $row, $area)) {
                     continue;
                 }
             } elseif ($status === 'unknown') {
-                if (! $unknown) {
+                if (! $unknown || $inArea) {
+                    continue;
+                }
+                if (! $this->unknownRowMatchesArea($connection, $row, $area)) {
                     continue;
                 }
             } elseif ($status === 'disabled') {
@@ -587,6 +599,41 @@ final class AiCenterModelPresenter
             AiModelArea::Text => in_array($family->modality, ['text', 'multimodal'], true),
             AiModelArea::Image => in_array($family->modality, ['image', 'multimodal'], true),
             AiModelArea::Video => in_array($family->modality, ['video', 'multimodal'], true),
+        };
+    }
+
+    /**
+     * Unknown inventory has no family; keep area-relevant rows via capabilities or name hints.
+     *
+     * @param  array<string, mixed>  $row
+     */
+    private function unknownRowMatchesArea(ApiConnection $connection, array $row, AiModelArea $area): bool
+    {
+        if ($this->rowSupportsArea($connection, $row, $area)) {
+            return true;
+        }
+
+        $hay = mb_strtolower((string) ($row['label'] ?? '').' '.(string) ($row['family_key'] ?? ''));
+        foreach ($row['releases'] ?? [] as $release) {
+            if (is_array($release)) {
+                $hay .= ' '.mb_strtolower((string) ($release['raw'] ?? '').' '.(string) ($release['label'] ?? ''));
+            }
+        }
+
+        $hintsImage = str_contains($hay, 'image')
+            || str_contains($hay, 'imagen')
+            || str_contains($hay, 'flux')
+            || str_contains($hay, 'dall-e')
+            || str_contains($hay, 'stable-diffusion');
+        $hintsVideo = str_contains($hay, 'video')
+            || str_contains($hay, 'veo')
+            || str_contains($hay, 'kling')
+            || str_contains($hay, 'runway');
+
+        return match ($area) {
+            AiModelArea::Image => $hintsImage,
+            AiModelArea::Video => $hintsVideo,
+            default => ! $hintsImage && ! $hintsVideo,
         };
     }
 

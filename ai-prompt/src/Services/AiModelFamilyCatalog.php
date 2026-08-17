@@ -26,20 +26,46 @@ final class AiModelFamilyCatalog
         return [
             new AiModelFamily('deepseek.chat', 'DeepSeek Chat', ApiConnectionProviders::DEEPSEEK, 'text', ['deepseek-chat'], 1, 2, 3),
             new AiModelFamily('deepseek.reasoner', 'DeepSeek Reasoner', ApiConnectionProviders::DEEPSEEK, 'text', ['deepseek-reasoner'], 2, 3, 2),
+            new AiModelFamily('deepseek.v32', 'DeepSeek V3.2', ApiConnectionProviders::DEEPSEEK, 'text', [
+                'deepseek-v3.2',
+                'deepseek/deepseek-v3.2',
+            ], 1, 2, 3),
+            new AiModelFamily('openai.gpt54', 'GPT-5.4', 'openai', 'text', [
+                'gpt-5.4',
+                'openai/gpt-5.4',
+            ], 3, 3, 1),
+            new AiModelFamily('openai.gpt54_mini', 'GPT-5.4 Mini', 'openai', 'text', [
+                'gpt-5.4-mini',
+                'openai/gpt-5.4-mini',
+            ], 2, 2, 2),
+            new AiModelFamily('openai.gpt54_nano', 'GPT-5.4 Nano', 'openai', 'text', [
+                'gpt-5.4-nano',
+                'openai/gpt-5.4-nano',
+            ], 1, 1, 3),
+            new AiModelFamily('qwen.flash', 'Qwen 3.6 Flash', 'qwen', 'text', [
+                'qwen3.6-flash',
+                'qwen/qwen3.6-flash',
+            ], 1, 2, 3),
             new AiModelFamily('gemini.flash', 'Gemini Flash', ApiConnectionProviders::GEMINI, 'text', [
                 'gemini-3-flash-preview',
                 'gemini-3.5-flash-preview',
+                'gemini-3.5-flash',
                 'gemini-3.1-flash-lite-preview',
                 'gemini-3.1-flash-lite',
             ], 1, 2, 3),
+            new AiModelFamily('gemini.flash_lite', 'Gemini Flash Lite', ApiConnectionProviders::GEMINI, 'text', [
+                'gemini-3.5-flash-lite',
+            ], 1, 1, 3),
             new AiModelFamily('gemini.pro', 'Gemini Pro', ApiConnectionProviders::GEMINI, 'text', [
                 'gemini-3.1-pro-preview',
             ], 3, 3, 1),
             new AiModelFamily('claude.haiku', 'Claude Haiku', ApiConnectionProviders::CLAUDE, 'text', [
+                'claude-haiku-4.5',
                 'claude-3-5-haiku-20241022',
                 'claude-3-haiku-20240307',
             ], 1, 1, 3),
             new AiModelFamily('claude.sonnet', 'Claude Sonnet', ApiConnectionProviders::CLAUDE, 'text', [
+                'claude-sonnet-4.6',
                 'claude-sonnet-4-20250514',
                 'claude-3-5-sonnet-20240620',
             ], 2, 2, 2),

@@ -412,7 +412,7 @@
 .seo-capability-matrix-overlay {
     position: fixed;
     inset: 0;
-    z-index: 60;
+    z-index: 80;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -1362,17 +1362,32 @@
 .seo-ai-profile__edit {
     display: flex;
     flex-wrap: wrap;
-    align-items: center;
+    align-items: flex-start;
     gap: 0.4rem;
     margin-top: 0.55rem;
 }
 
+.seo-ai-profile__summary {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
 .seo-ai-profile__label {
+    display: block;
     width: 100%;
-    margin: 0.35rem 0 0 !important;
+    margin: 0.35rem 0 0.25rem !important;
     font-size: 0.75rem;
     font-weight: 600;
     color: rgb(var(--gray-700)) !important;
+}
+
+.seo-ai-allowed {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.35rem;
+    width: 100%;
+    margin-top: 0.35rem;
 }
 
 .seo-ai-chip {
@@ -1400,6 +1415,25 @@
     display: flex;
     flex-wrap: wrap;
     gap: 0.35rem;
+    width: 100%;
+}
+
+.seo-ai-icon-btn {
+    margin-left: auto;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 2rem;
+    height: 2rem;
+    border: 1px solid rgb(var(--gray-300));
+    border-radius: 0.5rem;
+    background: #fff;
+    color: rgb(var(--gray-700));
+}
+
+.seo-ai-icon-btn:hover {
+    border-color: #16a34a;
+    color: #15803d;
 }
 
 .seo-ai-link {
@@ -1436,10 +1470,13 @@
 }
 
 .seo-ai-modal {
+    position: relative;
+    z-index: 1;
     width: min(36rem, 100%);
     padding: 1.25rem;
     border-radius: 0.75rem;
     background: #fff;
+    box-shadow: 0 20px 45px rgba(15, 23, 42, 0.18);
 }
 
 .seo-ai-modal--wide {
@@ -1448,10 +1485,134 @@
     overflow: auto;
 }
 
+.seo-ai-picker-added {
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+    margin-top: 0.75rem;
+    padding: 0.65rem 0.75rem;
+    border: 1px solid rgb(var(--gray-200));
+    border-radius: 0.65rem;
+    background: rgb(var(--gray-50));
+}
+
+.seo-ai-picker-added__label {
+    display: flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: rgb(var(--gray-700));
+}
+
+.seo-ai-picker-added__chips {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    max-height: 5.5rem;
+    overflow: auto;
+}
+
+.seo-ai-chip--added {
+    border-color: #86efac;
+    background: #f0fdf4;
+    color: #166534;
+}
+
 .seo-ai-picker-table-wrap {
+    position: relative;
     max-height: 22rem;
     overflow: auto;
     margin-top: 0.75rem;
+}
+
+.seo-ai-picker-table-wrap.is-loading {
+    pointer-events: none;
+    opacity: 0.55;
+}
+
+.seo-ai-picker-loading {
+    display: none;
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    background: rgba(255, 255, 255, 0.72);
+    font-size: 0.875rem;
+    color: rgb(var(--gray-700));
+}
+
+.seo-ai-toolbar__search {
+    position: relative;
+    flex: 1 1 12rem;
+    min-width: 10rem;
+}
+
+.seo-ai-toolbar__search input {
+    width: 100%;
+    padding-right: 2rem;
+}
+
+.seo-ai-toolbar__spinner {
+    display: inline-block;
+    width: 1rem;
+    height: 1rem;
+    border: 2px solid rgb(var(--gray-300));
+    border-top-color: #16a34a;
+    border-radius: 9999px;
+    animation: seo-ai-spin 0.7s linear infinite;
+}
+
+.seo-ai-toolbar__search .seo-ai-toolbar__spinner {
+    position: absolute;
+    right: 0.65rem;
+    top: 50%;
+    margin-top: -0.5rem;
+}
+
+.seo-ai-picker-add {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    min-width: 4.5rem;
+    padding: 0.35rem 0.75rem;
+    border-radius: 0.5rem;
+    border: 0;
+    background: #16a34a;
+    color: #fff;
+    font-size: 0.8125rem;
+    font-weight: 600;
+}
+
+.seo-ai-picker-add:disabled {
+    opacity: 0.55;
+    cursor: wait;
+}
+
+.seo-ai-picker-added-badge {
+    display: inline-flex;
+    align-items: center;
+    min-width: 4.5rem;
+    justify-content: center;
+    padding: 0.35rem 0.75rem;
+    border-radius: 0.5rem;
+    background: #dcfce7;
+    color: #166534;
+    font-size: 0.8125rem;
+    font-weight: 600;
+}
+
+.seo-ai-models-table tr.is-added td {
+    background: #f8fafc;
+}
+
+@keyframes seo-ai-spin {
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 .seo-ai-picker-pager {

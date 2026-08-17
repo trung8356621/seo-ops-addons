@@ -24,9 +24,14 @@ final class AiRoutingUxTest extends TestCase
         $this->assertStringContainsString('value="economy"', $view);
         $this->assertStringContainsString('value="quality_first"', $view);
         $this->assertStringContainsString('strategy_short', $view);
-        $this->assertStringContainsString('manage_priority_', $view);
-        $this->assertStringContainsString('automatic_help_', $view);
         $this->assertStringContainsString('seoAiSortableList', $view);
+        $this->assertStringNotContainsString('manage_priority_', $view);
+        $this->assertStringNotContainsString('automatic_help_', $view);
+        $this->assertStringContainsString('heroicon-o-pencil-square', $view);
+        $this->assertStringContainsString('seo-capability-matrix-backdrop', $view);
+        $this->assertStringContainsString('picker_empty_available', $view);
+        $this->assertStringContainsString('picker_added_label', $view);
+        $this->assertStringContainsString('pickerEnabledRows', $page);
         $this->assertStringContainsString('reorderCapabilityModels', $view);
         $this->assertStringContainsString('toggleFamily', $view);
         $this->assertStringContainsString('seoAiCenter', $view);
