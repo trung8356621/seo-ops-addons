@@ -82,6 +82,7 @@
             wire:click="resumeFromFailedStep({{ $tid }})"
             wire:target="resumeFromFailedStep({{ $tid }})"
             wire:loading.attr="disabled"
+            @click="$dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'generation' })"
             class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-primary-600 ring-1 ring-gray-200 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-primary-400 dark:ring-gray-700 dark:hover:bg-gray-800"
             aria-label="{{ __('seo-content-ai::filament.projects.item_action_resume_failed_step') }}"
             title="{{ __('seo-content-ai::filament.projects.item_action_resume_failed_step') }}"
@@ -119,6 +120,7 @@
                 wire:click="createOrRerunOne({{ $tid }})"
                 wire:target="createOrRerunOne({{ $tid }})"
                 wire:loading.attr="disabled"
+                @click="$dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'generation' })"
             @endif
             class="inline-flex h-8 w-8 items-center justify-center rounded-lg text-success-600 ring-1 ring-gray-200 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:text-success-400 dark:ring-gray-700 dark:hover:bg-gray-800"
             aria-label="{{ $createOrRerunLabel }}"
@@ -229,7 +231,7 @@
                             @click="open = false; $dispatch('open-missing-article-confirm', { taskId: {{ $tid }}, title: @js($title), previousId: {{ (int) ($row['article_id'] ?? 0) }} })"
                         @else
                             wire:click="createOrRerunOne({{ $tid }})"
-                            @click="open = false"
+                            @click="open = false; $dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'generation' })"
                         @endif
                         class="{{ $itemClass }}"
                         title="{{ $menuCreateOrRerunLabel }}"
@@ -239,7 +241,7 @@
                     </button>
                 @endif
                 @if ($a['resume_generation'])
-                    <button role="menuitem" type="button" wire:click="resumeFromFailedStep({{ $tid }})" @click="open = false" class="{{ $itemClass }}" title="{{ __('seo-content-ai::filament.projects.item_action_resume_failed_step') }}">
+                    <button role="menuitem" type="button" wire:click="resumeFromFailedStep({{ $tid }})" @click="open = false; $dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'generation' })" class="{{ $itemClass }}" title="{{ __('seo-content-ai::filament.projects.item_action_resume_failed_step') }}">
                         <x-filament::icon icon="heroicon-o-arrow-uturn-left" class="cp-ops-menu__icon" />
                         <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_resume_failed_step') }}</span>
                     </button>
@@ -257,13 +259,13 @@
                     </button>
                 @endif
                 @if ($a['regen_outline'])
-                    <button role="menuitem" type="button" wire:click="regenOutline({{ $tid }})" wire:confirm="{{ __('seo-content-ai::filament.projects.item_action_regen_outline_confirm') }}" @click="open = false" class="{{ $itemClass }}" title="{{ __('seo-content-ai::filament.projects.item_action_regen_outline') }}">
+                    <button role="menuitem" type="button" wire:click="regenOutline({{ $tid }})" wire:confirm="{{ __('seo-content-ai::filament.projects.item_action_regen_outline_confirm') }}" @click="open = false; $dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'generation' })" class="{{ $itemClass }}" title="{{ __('seo-content-ai::filament.projects.item_action_regen_outline') }}">
                         <x-filament::icon icon="heroicon-o-document-text" class="cp-ops-menu__icon" />
                         <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_regen_outline') }}</span>
                     </button>
                 @endif
                 @if ($a['regen_article'])
-                    <button role="menuitem" type="button" wire:click="regenArticle({{ $tid }})" wire:confirm="{{ __('seo-content-ai::filament.projects.item_action_regen_article_confirm') }}" @click="open = false" class="{{ $itemClass }}" title="{{ __('seo-content-ai::filament.projects.item_action_regen_article') }}">
+                    <button role="menuitem" type="button" wire:click="regenArticle({{ $tid }})" wire:confirm="{{ __('seo-content-ai::filament.projects.item_action_regen_article_confirm') }}" @click="open = false; $dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'generation' })" class="{{ $itemClass }}" title="{{ __('seo-content-ai::filament.projects.item_action_regen_article') }}">
                         <x-filament::icon icon="heroicon-o-pencil-square" class="cp-ops-menu__icon" />
                         <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_regen_article') }}</span>
                     </button>
@@ -289,7 +291,7 @@
                     </button>
                 @endif
                 @if ($a['approve'])
-                    <button role="menuitem" type="button" wire:click="approveOne({{ $tid }})" @click="open = false" class="{{ $itemClass }}" title="Approve">
+                    <button role="menuitem" type="button" wire:click="approveOne({{ $tid }})" @click="open = false; $dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'other' })" class="{{ $itemClass }}" title="Approve">
                         <x-filament::icon icon="heroicon-o-check-badge" class="cp-ops-menu__icon" />
                         <span class="cp-ops-menu__label">Approve</span>
                     </button>
@@ -307,7 +309,7 @@
                         @if (! empty($a['send_to_publishing_queue_warn_cm']))
                             wire:confirm="{{ __('seo-content-ai::filament.projects.send_to_publishing_queue_confirm_needs_review') }}"
                         @endif
-                        @click="open = false"
+                        @click="open = false; $dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'other' })"
                         class="{{ $itemClass }}"
                         title="{{ __('seo-content-ai::filament.projects.send_to_publishing_queue') }}"
                     >

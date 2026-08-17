@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Tests\Unit;
 
 use Omnichannel\Addons\Content\Enums\ArticleReviewStatus;
+use Omnichannel\Addons\ContentProjects\Enums\ContentProjectItemAction;
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectItemErrorSource;
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectItemGenerationState;
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectItemPublishState;
@@ -116,8 +117,68 @@ final class ContentProjectItemStateResolverTest extends TestCase
             'publish_queue_status' => 'published',
             'publish_published_at' => '2026-07-01 12:00:00',
         ]);
-        $state = $this->resolver->resolve($task);
+        $state = $this->resolver->resolve($task, null, [
+            'observed_post_status' => 'publish',
+        ]);
         self::assertSame(ContentProjectLifecyclePhase::Published, $state->lifecycleState);
+        self::assertTrue($state->hasPublishedRevision);
+    }
+
+    public function test_returned_queue_stamp_without_observed_is_not_published(): void
+    {
+        $article = $this->article(['review_status' => ArticleReviewStatus::Approved->value]);
+        $state = $this->resolver->resolve(
+            $this->task([
+                'status' => 'completed',
+                'publish_queue_status' => 'none',
+                'publish_published_at' => '2026-07-01 12:00:00',
+            ], $article),
+            $article,
+        );
+        self::assertSame(ContentProjectLifecyclePhase::Approved, $state->lifecycleState);
+        self::assertFalse($state->hasPublishedRevision);
+        self::assertContains(ContentProjectItemAction::Rerun, $state->availableActions);
+    }
+
+    public function test_queue_published_without_stamp_is_not_published(): void
+    {
+        $article = $this->article(['review_status' => ArticleReviewStatus::Approved->value]);
+        $state = $this->resolver->resolve(
+            $this->task(['status' => 'completed', 'publish_queue_status' => 'published'], $article),
+            $article,
+        );
+        self::assertSame(ContentProjectLifecyclePhase::Approved, $state->lifecycleState);
+        self::assertFalse($state->hasPublishedRevision);
+        self::assertContains(ContentProjectItemAction::Rerun, $state->availableActions);
+    }
+
+    public function test_observed_draft_overrides_publish_stamp(): void
+    {
+        $article = $this->article(['review_status' => ArticleReviewStatus::Approved->value]);
+        $state = $this->resolver->resolve(
+            $this->task([
+                'status' => 'completed',
+                'publish_queue_status' => 'published',
+                'publish_published_at' => '2026-07-01 12:00:00',
+            ], $article),
+            $article,
+            ['observed_post_status' => 'draft'],
+        );
+        self::assertSame(ContentProjectLifecyclePhase::Approved, $state->lifecycleState);
+        self::assertFalse($state->hasPublishedRevision);
+    }
+
+    public function test_observed_publish_keeps_published_during_generation(): void
+    {
+        $task = $this->task([
+            'status' => 'writing',
+            'publish_queue_status' => 'none',
+        ]);
+        $state = $this->resolver->resolve($task, null, [
+            'observed_post_status' => 'publish',
+        ]);
+        self::assertSame(ContentProjectLifecyclePhase::Published, $state->lifecycleState);
+        self::assertSame(ContentProjectItemGenerationState::Writing, $state->generationState);
         self::assertTrue($state->hasPublishedRevision);
     }
 
@@ -128,7 +189,9 @@ final class ContentProjectItemStateResolverTest extends TestCase
             'publish_published_at' => '2026-07-01 12:00:00',
             'publish_queue_status' => 'published',
         ]);
-        $state = $this->resolver->resolve($task);
+        $state = $this->resolver->resolve($task, null, [
+            'observed_post_status' => 'publish',
+        ]);
         self::assertSame(ContentProjectLifecyclePhase::Published, $state->lifecycleState);
         self::assertSame(ContentProjectItemGenerationState::Writing, $state->generationState);
     }
@@ -144,6 +207,7 @@ final class ContentProjectItemStateResolverTest extends TestCase
         $state = $this->resolver->resolve($task, null, [
             'run_item_error' => 'AI timeout',
             'stale_generation' => true,
+            'observed_post_status' => 'publish',
         ]);
         self::assertSame(ContentProjectLifecyclePhase::Published, $state->lifecycleState);
         self::assertSame(ContentProjectItemErrorSource::Generation, $state->currentErrorSource);

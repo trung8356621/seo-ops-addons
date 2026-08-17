@@ -5,8 +5,10 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers;
 
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
-use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectPublishedDefinition;
+use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectPublishedEvidence;
 use Omnichannel\Addons\Publishing\Support\PublishingQueue\PublishingQueueHandoffEligibility;
+use Omnichannel\Addons\WordPress\Services\ArticleWordPressSyncFlagService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ActorContext;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SendToPublishingQueueCommand;
@@ -35,6 +37,7 @@ final class SendToPublishingQueueHandler extends AbstractPublishingHandler
         private readonly ContentProjectPublishingQueueService $queueService,
         private readonly PublishDueItemService $dueItemService,
         private readonly ContentPublishingStrategyResolver $strategyResolver = new ContentPublishingStrategyResolver,
+        private readonly ArticleWordPressSyncFlagService $syncFlags = new ArticleWordPressSyncFlagService,
     ) {
         parent::__construct($tenantGuard, $businessLock, $previewToken);
     }
@@ -71,14 +74,18 @@ final class SendToPublishingQueueHandler extends AbstractPublishingHandler
                 ->where('project_id', $projectId)
                 ->whereIn('id', $itemIds)
                 ->whereNull('archived_at')
+                ->with(['article.wordpressLink', 'article.articleMetas'])
                 ->get();
 
             $eligible = [];
             $warnings = [];
             foreach ($tasks as $task) {
+                $article = $task->relationLoaded('article') ? $task->article : null;
+                $seoArticle = $article instanceof SeoArticle ? $article : null;
                 $row = [
                     'article_id' => (int) ($task->article_id ?? 0),
                     'publishing_queued_at' => $task->publishing_queued_at?->toIso8601String(),
+                    'in_publishing_queue' => $task->publishing_queued_at !== null,
                     'generation_status' => (string) ($task->status ?? ''),
                     'execution_status' => '',
                     'generation_completed_at' => $task->completed_at?->toIso8601String(),
@@ -87,14 +94,14 @@ final class SendToPublishingQueueHandler extends AbstractPublishingHandler
                     'lifecycle' => '',
                     'queue_status' => (string) ($task->publish_queue_status ?? 'none'),
                     'publish_published_at' => $task->publish_published_at?->toIso8601String(),
+                    'observed_post_status' => ContentProjectPublishedEvidence::resolveObservedPostStatus($seoArticle),
+                    'has_unpublished_changes' => $seoArticle instanceof SeoArticle
+                        && $this->syncFlags->hasUnpublishedChanges($seoArticle),
                     'is_genuinely_running' => in_array((string) $task->status, [
                         SeoProjectTask::STATUS_WRITING,
                         SeoProjectTask::STATUS_PROCESSING,
                     ], true),
                 ];
-                if (ContentProjectPublishedDefinition::matches($row)) {
-                    continue;
-                }
                 if (! PublishingQueueHandoffEligibility::canSend($row)) {
                     continue;
                 }

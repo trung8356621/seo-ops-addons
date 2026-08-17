@@ -16,6 +16,7 @@ use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectFail
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectInReviewReportingDefinition;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectLifecycle;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectOpsStateClassifier;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectPublishedEvidence;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectRecentlyCompletedDefinition;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectScheduledDefinition;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectStatusBadgePresenter;
@@ -90,7 +91,13 @@ final class ContentProjectItemOperationsReadModel
             ->planned()
             ->inContentProjectWorkingSet()
             ->with([
-                'article.articleMetas' => static fn ($q) => $q->where('meta_key', 'wp_featured_image_url'),
+                'article.articleMetas' => static fn ($q) => $q->whereIn('meta_key', [
+                    'wp_featured_image_url',
+                    ArticleWordPressSyncFlagService::META_LOCAL_EDIT_PENDING,
+                    ArticleWordPressSyncFlagService::META_LOCAL_CONTENT_HASH,
+                    ArticleWordPressSyncFlagService::META_PUBLISHED_CONTENT_HASH,
+                ]),
+                'article.wordpressLink',
             ])
             ->orderBy('id')
             ->get();
@@ -366,6 +373,12 @@ final class ContentProjectItemOperationsReadModel
             $queueStatus = 'none';
         }
 
+        $observedPostStatus = ContentProjectPublishedEvidence::resolveObservedPostStatus(
+            $article instanceof SeoArticle ? $article : null,
+        );
+        $hasUnpublishedChanges = $article instanceof SeoArticle
+            && $this->syncFlags->hasUnpublishedChanges($article);
+
         $lastActivityCarbon = $this->resolveLastActivity($task, $article, $exec);
         $isGenuineRunning = (string) ($task->status ?? '') === SeoProjectTask::STATUS_WRITING
             && ! $isStaleGeneration
@@ -450,6 +463,8 @@ final class ContentProjectItemOperationsReadModel
             'scheduled_raw' => $task->scheduled_publish_at?->toIso8601String(),
             'queue_status' => $queueStatus,
             'publish_published_at' => $task->publish_published_at?->toIso8601String(),
+            'observed_post_status' => $observedPostStatus,
+            'has_unpublished_changes' => $hasUnpublishedChanges,
             'has_published_revision' => $state->hasPublishedRevision,
             'is_generation_stale' => $isStaleGeneration,
             'can_generate' => in_array(ContentProjectItemAction::Generate, $state->availableActions, true)
@@ -567,8 +582,8 @@ final class ContentProjectItemOperationsReadModel
             'workflow_badge' => $workflowBadge,
             'reporting_badge' => $reportingBadge,
             'queue_badge' => $queueBadge,
-            'has_unpublished_changes' => $article instanceof SeoArticle
-                && $this->syncFlags->hasUnpublishedChanges($article),
+            'has_unpublished_changes' => $hasUnpublishedChanges,
+            'observed_post_status' => $observedPostStatus,
             'in_publishing_queue' => $rowBase['in_publishing_queue'],
             'can_send_to_publishing_queue' => PublishingQueueHandoffEligibility::canSend($rowBase),
         ];

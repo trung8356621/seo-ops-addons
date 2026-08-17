@@ -131,9 +131,21 @@ final class RerunProjectItemsHandler extends AbstractPublishingHandler
                 ? $this->eligibility->validateFreshCreate($project, $itemIds)
                 : $this->eligibility->validateFull($project, $itemIds);
             if (! $gate['ok']) {
+                $rejectMessage = $gate['message'];
+                $code = ContentProjectActionCodes::VALIDATION_FAILED;
+                if (str_contains($rejectMessage, 'publishing is processing')
+                    || str_contains($rejectMessage, 'Publish queue is active')
+                ) {
+                    $code = ContentProjectActionCodes::PUBLISHING_ALREADY_PROCESSING;
+                } elseif (str_contains($rejectMessage, 'Active conflicting execution')
+                    || str_contains($rejectMessage, 'Generation is running')
+                ) {
+                    $code = ContentProjectActionCodes::OPERATION_ALREADY_PROCESSING;
+                }
+
                 return ContentProjectActionResult::fail(
-                    ContentProjectActionCodes::VALIDATION_FAILED,
-                    $gate['message'],
+                    $code,
+                    $rejectMessage,
                     $projectId,
                     metadata: ['rejected' => $gate['rejected']],
                 );
@@ -208,6 +220,8 @@ final class RerunProjectItemsHandler extends AbstractPublishingHandler
                 'run_id' => (int) $run->getKey(),
                 'task_ids' => $itemIds,
             ]);
+
+            SeoProjectTask::query()->whereIn('id', $itemIds)->update(['updated_at' => now()]);
 
             return ContentProjectActionResult::ok(
                 ContentProjectActionCodes::ITEMS_GENERATE_REQUESTED,

@@ -191,6 +191,18 @@ final class ArticleEditorInlineWhitespaceRoundTripRegressionTest extends TestCas
         $editor = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content/resources/js/components/SeoArticleEditor.jsx',
         );
+        $blockEditor = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/components/ActiveBlockEditor.jsx',
+        );
+        $saveQueue = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/hooks/useArticleEditorSaveQueue.js',
+        );
+        $bootstrap = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/hooks/useArticleEditorBootstrap.js',
+        );
+        $events = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/hooks/useArticleEditorExternalEventsBridge.js',
+        );
         $docJs = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content/resources/js/utils/articleEditorDocument.js',
         );
@@ -202,15 +214,16 @@ final class ArticleEditorInlineWhitespaceRoundTripRegressionTest extends TestCas
         self::assertStringContainsString('countGluedInlineMarkBoundaries', $guard);
         self::assertStringContainsString("preserveWhitespace: 'full'", $guard);
         self::assertStringContainsString('TIPTAP_HTML_PARSE_OPTIONS', $editor);
-        self::assertStringContainsString('parseOptions: TIPTAP_HTML_PARSE_OPTIONS', $editor);
-        self::assertStringContainsString('acceptUpdatesRef', $editor);
+        self::assertStringContainsString('parseOptions: TIPTAP_HTML_PARSE_OPTIONS', $blockEditor);
+        self::assertStringContainsString('acceptUpdatesRef', $blockEditor);
         self::assertStringContainsString('INLINE_WHITESPACE_CORRUPTION_CODE', $editor);
         self::assertStringContainsString('assertWritableDocumentNotWhitespaceCorrupted', $editor);
-        self::assertStringContainsString('__seoCollectEditorHeavyBundle', $editor);
-        self::assertStringContainsString('__seoAssertEditorWhitespaceSafe', $editor);
+        self::assertStringContainsString('__seoCollectEditorHeavyBundle', $events);
+        self::assertStringContainsString('__seoAssertEditorWhitespaceSafe', $events);
         self::assertStringContainsString('__seoAssertEditorWhitespaceSafe', $shell);
         self::assertStringContainsString('hasInlineWhitespaceCorruption', $docJs);
-        self::assertStringContainsString('skipNextAutosave.current = true', $editor);
+        self::assertStringContainsString('skipNextAutosave.current = true', $bootstrap);
+        self::assertStringContainsString('persistLocalRecoverySnapshot', $saveQueue);
     }
 
     public function test_ingest_keeps_whitespace_only_text_nodes_inline(): void

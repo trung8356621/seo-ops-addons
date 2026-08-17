@@ -157,7 +157,7 @@ final class ArticleEditorFalseVersionConflictRegressionTest extends TestCase
 
     public function test_slug_fix_does_not_poison_content_hash_with_tiptap_export(): void
     {
-        $editor = $this->js('components/SeoArticleEditor.jsx');
+        $editor = $this->js('hooks/useArticleEditorImageSlugRename.js');
         self::assertStringContainsString('Do not replace ACK content_hash with TipTap export hash', $editor);
         self::assertStringContainsString('Keep server content_hash from slug-fix ACK', $editor);
         self::assertStringNotContainsString(
@@ -178,10 +178,10 @@ final class ArticleEditorFalseVersionConflictRegressionTest extends TestCase
 
     public function test_local_draft_restore_does_not_overwrite_document_version(): void
     {
-        $editor = $this->js('components/SeoArticleEditor.jsx');
-        $restorePos = strpos($editor, "decision === 'restore_local'");
+        $bootstrap = $this->js('hooks/useArticleEditorBootstrap.js');
+        $restorePos = strpos($bootstrap, "decision === 'restore_local'");
         self::assertNotFalse($restorePos);
-        $slice = substr($editor, $restorePos, 900);
+        $slice = substr($bootstrap, $restorePos, 1800);
         self::assertStringNotContainsString('__SEO_EDITOR_DOCUMENT_VERSION__ =', $slice);
         self::assertStringNotContainsString('setDocumentVersion', $slice);
         self::assertStringContainsString('setBlocks(restoredBlocks)', $slice);
@@ -214,9 +214,9 @@ final class ArticleEditorFalseVersionConflictRegressionTest extends TestCase
 
     public function test_autosave_uses_apply_editor_document_ack(): void
     {
-        $editor = $this->js('components/SeoArticleEditor.jsx');
-        self::assertStringContainsString('applyEditorDocumentAck(result)', $editor);
-        self::assertStringContainsString("payload.save_mode = 'autosave'", $editor);
+        $queue = $this->js('hooks/useArticleEditorSaveQueue.js');
+        self::assertStringContainsString('applyEditorDocumentAck(result)', $queue);
+        self::assertStringContainsString("payload.save_mode = 'autosave'", $queue);
     }
 
     /**

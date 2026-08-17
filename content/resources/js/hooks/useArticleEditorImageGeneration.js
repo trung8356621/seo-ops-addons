@@ -346,7 +346,8 @@ export default function useArticleEditorImageGeneration({ activeBlockIdRef, arti
             }
 
             commitActiveBlock();
-
+            setArticleAutosaveLock('image-insert', true);
+            try {
             const image = withDefaultImageInsertAlign({
                 src: url,
                 alt: '',
@@ -387,6 +388,9 @@ export default function useArticleEditorImageGeneration({ activeBlockIdRef, arti
             setGlobalEditor(null);
             setImagesReloadKey((k) => k + 1);
             return newBlock.id;
+            } finally {
+                queueMicrotask(() => setArticleAutosaveLock('image-insert', false));
+            }
         },
         [commitActiveBlock, isIntroBlockId, notifyIntroNoImages, updateBlocksWithoutHistory],
     );

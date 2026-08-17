@@ -703,11 +703,10 @@ final class SeoProjectWorkflowRunService
                     if (! $bind['ok']) {
                         $errorCode = ContentProjectErrorCode::tryFrom((string) $bind['error_code'])
                             ?? ContentProjectErrorCode::ArticleRelationConflict;
-                        if (! $preservePublished) {
-                            $this->markTaskFailed($task, (int) ($task->article_id ?? 0) ?: null);
-                        } else {
+                        if ($preservePublished) {
                             $this->restorePublishedLifecycle($task, $publishedSnapshot, $revision);
                         }
+                        $this->markTaskFailed($task, (int) ($task->article_id ?? 0) ?: null);
                         $this->runItemService->markFailed(
                             $runItem,
                             $errorCode,
@@ -738,9 +737,9 @@ final class SeoProjectWorkflowRunService
 
                 if ($preservePublished) {
                     $this->restorePublishedLifecycle($task, $publishedSnapshot, null);
-                } else {
-                    $this->markTaskCompleted($task, $articleId > 0 ? $articleId : (int) ($task->article_id ?? 0));
+                    $this->markPublishedRerunDirty($task, $articleId > 0 ? $articleId : (int) ($task->article_id ?? 0));
                 }
+                $this->markTaskCompleted($task, $articleId > 0 ? $articleId : (int) ($task->article_id ?? 0));
 
                 $this->runItemService->markSuccess(
                     $runItem,
@@ -810,9 +809,8 @@ final class SeoProjectWorkflowRunService
 
             if ($preservePublished) {
                 $this->restorePublishedLifecycle($task, $publishedSnapshot, $revision);
-            } else {
-                $this->markTaskFailed($task, $failedArticleId > 0 ? $failedArticleId : null);
             }
+            $this->markTaskFailed($task, $failedArticleId > 0 ? $failedArticleId : null);
             $failedStep = is_array($result['failed_step'] ?? null) ? $result['failed_step'] : null;
             $error = $this->errorFormatter->fromWorkflowFailure((string) $result['message'], $failedStep);
 
@@ -879,9 +877,8 @@ final class SeoProjectWorkflowRunService
             $keptArticleId = (int) ($task->article_id ?? 0);
             if ($preservePublished) {
                 $this->restorePublishedLifecycle($task, $publishedSnapshot, $revision);
-            } else {
-                $this->markTaskFailed($task, $keptArticleId > 0 ? $keptArticleId : null);
             }
+            $this->markTaskFailed($task, $keptArticleId > 0 ? $keptArticleId : null);
             $error = $this->errorFormatter->fromThrowable($exception);
             $this->runItemService->markFailed(
                 $runItem,
@@ -1345,6 +1342,9 @@ final class SeoProjectWorkflowRunService
     }
 
     /**
+     * Keep WordPress publish evidence after rerun. Never restore generation task_status —
+     * that made Published+Pending look like a silent no-op.
+     *
      * @param  array{task_status: string, publish_queue_status: string, publish_published_at: mixed}|null  $snapshot
      */
     private function restorePublishedLifecycle(
@@ -1364,12 +1364,31 @@ final class SeoProjectWorkflowRunService
             return;
         }
 
+        $publishedAt = $snapshot['publish_published_at'] ?? null;
+        if ($publishedAt === null || $publishedAt === '') {
+            return;
+        }
+
         SeoProjectTask::query()->whereKey((int) $task->id)->update([
-            'status' => $snapshot['task_status'],
-            'publish_queue_status' => $snapshot['publish_queue_status'],
-            'publish_published_at' => $snapshot['publish_published_at'],
+            'publish_published_at' => $publishedAt,
         ]);
         $task->refresh();
+    }
+
+    private function markPublishedRerunDirty(SeoProjectTask $task, int $articleId): void
+    {
+        unset($task);
+        if ($articleId <= 0) {
+            return;
+        }
+
+        $article = SeoArticle::query()->find($articleId);
+        if (! $article instanceof SeoArticle) {
+            return;
+        }
+
+        app(\Omnichannel\Addons\WordPress\Services\ArticleWordPressSyncFlagService::class)
+            ->markLocalEditPending($article);
     }
 
     private function markTaskFailed(SeoProjectTask $task, ?int $articleId = null): void

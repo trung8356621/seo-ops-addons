@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers;
 
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
+use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ActorContext;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RerunProjectItemStepCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectActionCodes;
@@ -90,9 +91,21 @@ final class RerunProjectItemStepHandler extends AbstractPublishingHandler
                 $command->includeDownstream,
             );
             if (! $gate['ok']) {
+                $rejectMessage = $gate['message'];
+                $code = ContentProjectActionCodes::VALIDATION_FAILED;
+                if (str_contains($rejectMessage, 'publishing is processing')
+                    || str_contains($rejectMessage, 'Publish queue is active')
+                ) {
+                    $code = ContentProjectActionCodes::PUBLISHING_ALREADY_PROCESSING;
+                } elseif (str_contains($rejectMessage, 'Active conflicting execution')
+                    || str_contains($rejectMessage, 'Generation is running')
+                ) {
+                    $code = ContentProjectActionCodes::OPERATION_ALREADY_PROCESSING;
+                }
+
                 return ContentProjectActionResult::fail(
-                    ContentProjectActionCodes::VALIDATION_FAILED,
-                    $gate['message'],
+                    $code,
+                    $rejectMessage,
                     $projectId,
                     metadata: [
                         'rejected' => $gate['rejected'],
@@ -176,6 +189,8 @@ final class RerunProjectItemStepHandler extends AbstractPublishingHandler
                 'rerun_from_step' => $command->fromStep->value,
                 'include_downstream' => $command->includeDownstream,
             ]);
+
+            SeoProjectTask::query()->whereIn('id', $itemIds)->update(['updated_at' => now()]);
 
             return ContentProjectActionResult::ok(
                 ContentProjectActionCodes::ITEMS_GENERATE_REQUESTED,

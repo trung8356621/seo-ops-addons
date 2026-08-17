@@ -38,6 +38,8 @@ final class ContentProjectPublishingQueueBoundaryContractTest extends TestCase
         self::assertStringContainsString('ContentProjectPublishQueueStatus::None->value', $src);
         self::assertStringContainsString('acceptHandoff', $src);
         self::assertStringContainsString('returnToContentProject', $src);
+        self::assertStringContainsString('ContentProjectPublishedEvidence', $src);
+        self::assertStringContainsString("\$attrs['publish_published_at'] = null", $src);
     }
 
     public function test_handoff_commands_registered(): void
@@ -121,6 +123,24 @@ final class ContentProjectPublishingQueueBoundaryContractTest extends TestCase
         self::assertFalse(PublishingQueueHandoffEligibility::canSend([
             'article_id' => 9,
             'publishing_queued_at' => '2026-08-01T00:00:00+00:00',
+            'generation_status' => 'completed',
+            'execution_status' => 'success',
+            'generation_completed_at' => '2026-08-01T10:00:00+00:00',
+        ]));
+        self::assertFalse(PublishingQueueHandoffEligibility::canSend([
+            'article_id' => 9,
+            'lifecycle' => 'published',
+            'observed_post_status' => 'publish',
+            'has_unpublished_changes' => false,
+            'generation_status' => 'completed',
+            'execution_status' => 'success',
+            'generation_completed_at' => '2026-08-01T10:00:00+00:00',
+        ]));
+        self::assertTrue(PublishingQueueHandoffEligibility::canSend([
+            'article_id' => 9,
+            'lifecycle' => 'published',
+            'observed_post_status' => 'publish',
+            'has_unpublished_changes' => true,
             'generation_status' => 'completed',
             'execution_status' => 'success',
             'generation_completed_at' => '2026-08-01T10:00:00+00:00',

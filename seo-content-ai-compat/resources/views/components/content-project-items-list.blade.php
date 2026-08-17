@@ -69,7 +69,13 @@
                             @endif
                         </div>
                         <div class="cp-ops-mobile-card__meta">
-                            {{ $row['last_activity'] ?? '' }}
+                            <span x-show="typeof isRowProcessing === 'function' && isRowProcessing({{ $tid }})" x-cloak class="inline-flex items-center gap-1.5">
+                                <svg class="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+                                {{ __('seo-content-ai::filament.projects.publishing_queue_pending_processing') }}
+                            </span>
+                            <span x-show="typeof isRowProcessing !== 'function' || ! isRowProcessing({{ $tid }})">
+                                {{ $row['last_activity'] ?? '' }}
+                            </span>
                         </div>
                     </div>
                     @if ($isPublishingQueue)
@@ -190,7 +196,17 @@
                                 </td>
                             @else
                                 <td>
-                                    <div class="flex flex-col items-start gap-1">
+                                    <div
+                                        x-show="typeof isRowProcessing === 'function' && isRowProcessing({{ $tid }}) && rowProcessingKind({{ $tid }}) === 'generation'"
+                                        x-cloak
+                                        class="flex flex-col items-start gap-1"
+                                    >
+                                        <x-seo-content-ai::content-project-status-badge :badge="\Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectStatusBadgePresenter::generation('writing', 'running')" />
+                                    </div>
+                                    <div
+                                        x-show="typeof isRowProcessing !== 'function' || ! isRowProcessing({{ $tid }}) || rowProcessingKind({{ $tid }}) !== 'generation'"
+                                        class="flex flex-col items-start gap-1"
+                                    >
                                         <x-seo-content-ai::content-project-status-badge :badge="$row['generation_badge']" />
                                     </div>
                                     @if (! empty($row['current_step']) && in_array($row['generation_badge']['key'] ?? '', ['running', 'failed'], true))
@@ -206,6 +222,15 @@
                                 </td>
                             @endif
                             <td class="cp-ops-muted" title="{{ $row['last_activity_full'] ?? '' }}">
+                                <span
+                                    x-show="typeof isRowProcessing === 'function' && isRowProcessing({{ $tid }})"
+                                    x-cloak
+                                    class="inline-flex items-center gap-1.5"
+                                >
+                                    <svg class="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+                                    {{ __('seo-content-ai::filament.projects.publishing_queue_pending_processing') }}
+                                </span>
+                                <span x-show="(typeof isRowProcessing !== 'function' || ! isRowProcessing({{ $tid }}))">
                                 @if ($rowPending && $rowPendingPhase === 'updating')
                                     <span class="inline-flex items-center gap-1.5">
                                         <svg class="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
@@ -216,6 +241,7 @@
                                 @else
                                     {{ $row['last_activity'] ?? '' }}
                                 @endif
+                                </span>
                             </td>
                             <td>
                                 @if ($isPublishingQueue)

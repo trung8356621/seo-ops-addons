@@ -29,7 +29,7 @@ export default function useArticleEditorSessionNetwork({ articleId, getExportHtm
         const tokens = getEditorConflictTokens();
         const ackBodyHash = String(tokens.expected_content_hash || '').trim();
         const status = saveStatusRef.current;
-        const dirtyUi = status === 'pending' || status === 'saving';
+        const dirtyUi = status === 'pending' || status === 'saving' || status === 'blocked' || status === 'conflict' || status === 'failed';
         const dirtyFlags = serverAutosaveDirtyRef.current || serverAutosaveNeedsRetryRef.current;
         const contentDirty = currentBodyHash !== '' && ackBodyHash !== '' && currentBodyHash !== ackBodyHash;
         if (!dirtyUi && !dirtyFlags && !contentDirty) {

@@ -234,14 +234,18 @@ final class ContentProjectRoleWorkflowContractTest extends TestCase
             'can_generate' => false,
             'can_regen' => false,
             'is_improve' => false,
+            'article_id' => 9,
             'article_edit_url' => '/seo/articles/1/edit',
             'is_scheduled' => false,
             'has_unpublished_changes' => true,
             'generation_status' => 'completed',
+            'generation_completed_at' => '2026-08-01T10:00:00+00:00',
+            'execution_status' => 'success',
         ]);
 
         self::assertFalse($flags['schedule']);
         self::assertFalse($flags['publish_now']);
+        self::assertTrue($flags['send_to_publishing_queue']);
     }
 
     public function test_presenter_schedule_from_review_and_approved(): void

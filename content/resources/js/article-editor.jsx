@@ -230,7 +230,7 @@ window.__seoExecuteHeavyArticleAction = async function executeHeavyArticleAction
             && window.__seoAssertEditorWhitespaceSafe(html) === false
         ) {
             throw new Error(
-                'Khoảng trắng quanh in đậm/nghiêng/link bị hỏng — Save bị chặn. Reload hoặc khôi phục draft đúng.',
+                'Không thể lưu lên server vì dữ liệu editor chưa hợp lệ. Các thay đổi đã được giữ tạm trên trình duyệt.',
             );
         }
 

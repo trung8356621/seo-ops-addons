@@ -51,6 +51,7 @@
             cardPulse: {},
             exitingRows: {},
             removedItemIds: {},
+            processingRows: {},
             claimBusy: {},
             lazyBusy: false,
             summaryRequestId: 0,
@@ -335,6 +336,7 @@
                 this.exitingRows = {};
                 this.removedItemIds = {};
                 this.claimBusy = {};
+                this.processingRows = {};
                 this.counterAnimating = {};
                 this.cardPulse = {};
             },
@@ -344,6 +346,24 @@
                 if (this.removedItemIds?.[id]) return false;
                 if (this.exitingRows?.[id]?.removed) return false;
                 return true;
+            },
+            beginRowProcessing(tid, kind) {
+                const id = Number(tid || 0);
+                if (id <= 0) return;
+                this.processingRows = { ...(this.processingRows || {}), [id]: String(kind || 'generation') };
+            },
+            clearRowProcessing(tid) {
+                const id = Number(tid || 0);
+                if (id <= 0) return;
+                const next = { ...(this.processingRows || {}) };
+                delete next[id];
+                this.processingRows = next;
+            },
+            isRowProcessing(tid) {
+                return !!this.processingRows?.[Number(tid || 0)];
+            },
+            rowProcessingKind(tid) {
+                return this.processingRows?.[Number(tid || 0)] || null;
             },
             markRowRemoved(tid) {
                 const id = Number(tid || 0);
@@ -531,7 +551,7 @@
                 const taskIds = Array.isArray(detail?.taskIds) ? detail.taskIds : [];
                 const deltas = detail?.deltas || this.transitionMap[action] || {};
                 const baseOperationId = String(detail?.operationId || ('cp-op-' + this.nowMs()));
-                const shouldExit = ['retry', 'approve', 'approve_from_needs_review', 'approve_self_edit', 'schedule', 'schedule_from_needs_review', 'schedule_from_review', 'mark_viewed', 'content_manager_handoff', 'debug_published_to_scheduled', 'debug_published_to_approved', 'debug_scheduled_to_approved', 'debug_approved_to_scheduled', 'debug_approved_to_published', 'debug_scheduled_to_published'].includes(action);
+                const shouldExit = ['approve', 'approve_from_needs_review', 'approve_self_edit', 'schedule', 'schedule_from_needs_review', 'schedule_from_review', 'mark_viewed', 'content_manager_handoff', 'debug_published_to_scheduled', 'debug_published_to_approved', 'debug_scheduled_to_approved', 'debug_approved_to_scheduled', 'debug_approved_to_published', 'debug_scheduled_to_published'].includes(action);
                 const ids = [];
 
                 for (const rawId of taskIds) {
@@ -582,6 +602,8 @@
             },
         }"
         x-on:cp-ops-client-reset-optimistic.window="resetOptimistic()"
+        x-on:cp-ops-row-processing.window="beginRowProcessing(($event.detail || {}).taskId, ($event.detail || {}).kind)"
+        x-on:cp-ops-row-processing-clear.window="clearRowProcessing(($event.detail || {}).taskId)"
         x-on:cp-ops-item-transition.window="handleItemTransition($event.detail || {})"
         x-on:cp-ops-debug-lifecycle.window="openDebugLifecycle($event.detail || {})"
         x-on:cp-ops-debug-lifecycle-bulk.window="openDebugBulk($event.detail || {})"

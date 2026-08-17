@@ -65,10 +65,16 @@ final class ContentProjectItemStateResolver
         $queue = ContentProjectPublishQueueStatus::tryFrom((string) ($task->publish_queue_status ?? 'none'))
             ?? ContentProjectPublishQueueStatus::None;
         $latestPublishAttemptFailed = $queue === ContentProjectPublishQueueStatus::Failed;
-        $publish = $this->resolvePublish($task, $article instanceof SeoArticle ? $article : null);
-        $hasPublished = $publish === ContentProjectItemPublishState::Published
-            || $this->hasFilledAttr($task, 'publish_published_at')
-            || $this->articleLooksPublished($article instanceof SeoArticle ? $article : null);
+        $hasPublished = ContentProjectPublishedEvidence::fromTaskAndArticle(
+            $task,
+            $article instanceof SeoArticle ? $article : null,
+            $hints,
+        );
+        $publish = $this->resolvePublish(
+            $task,
+            $article instanceof SeoArticle ? $article : null,
+            $hasPublished,
+        );
 
         $generation = $this->resolveGeneration($task, $hints);
         $execution = $this->resolveExecution(
@@ -171,15 +177,16 @@ final class ContentProjectItemStateResolver
         };
     }
 
-    private function resolvePublish(SeoProjectTask $task, ?SeoArticle $article): ContentProjectItemPublishState
-    {
+    private function resolvePublish(
+        SeoProjectTask $task,
+        ?SeoArticle $article,
+        bool $hasPublished,
+    ): ContentProjectItemPublishState {
+        unset($article);
         $queue = ContentProjectPublishQueueStatus::tryFrom((string) ($task->publish_queue_status ?? 'none'))
             ?? ContentProjectPublishQueueStatus::None;
 
-        if ($queue === ContentProjectPublishQueueStatus::Published
-            || $this->hasFilledAttr($task, 'publish_published_at')
-            || $this->articleLooksPublished($article)
-        ) {
+        if ($hasPublished) {
             return ContentProjectItemPublishState::Published;
         }
 
@@ -417,17 +424,6 @@ final class ContentProjectItemStateResolver
         }
 
         return null;
-    }
-
-    /**
-     * Editor article.status=published is local draft field — NOT WordPress publish success.
-     * Lifecycle Published must come from task publish_published_at / queue published only.
-     */
-    private function articleLooksPublished(?SeoArticle $article): bool
-    {
-        unset($article);
-
-        return false;
     }
 
     /**

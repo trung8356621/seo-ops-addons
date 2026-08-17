@@ -1,4 +1,5 @@
 ﻿import { csrfToken, seoArticleApiFetch } from '@seo-addon/utils/seoArticleApi.js';
+import { shouldClearLocalRecoveryAfterSave } from './articleEditorSaveGuard.js';
 import {
     clearDraft,
     hashContent,
@@ -975,14 +976,26 @@ export function finishArticleSaveFromApi(result, context = {}) {
         if (articleId) {
             window.__seoCancelArticleDraftAutosave?.();
             const siteId = Number(context.siteId ?? window.__SEO_ARTICLE_SITE_ID__ ?? 0) || 0;
-            clearDraft(articleId, connectionHash, { siteId });
-            writeSyncedLocalSnapshot(articleId, connectionHash, {
-                content: savedHtml,
-                site_id: siteId,
-                base_updated_at: nextUpdatedAt || null,
-                base_content_hash: savedContentHash,
-                version: savedContentHash,
-            });
+            const currentHtml = typeof window.__seoExportEditorHtml === 'function'
+                ? String(window.__seoExportEditorHtml() ?? '')
+                : String(savedHtml);
+            if (!shouldClearLocalRecoveryAfterSave({
+                currentHtml,
+                savedHtml,
+                savedContentHash,
+            })) {
+                window.__seoFlushArticleRecoveryDraft?.();
+            } else {
+                clearDraft(articleId, connectionHash, { siteId });
+                writeSyncedLocalSnapshot(articleId, connectionHash, {
+                    content: savedHtml,
+                    site_id: siteId,
+                    base_updated_at: nextUpdatedAt || null,
+                    base_content_hash: savedContentHash,
+                    version: savedContentHash,
+                    autosave_error: null,
+                });
+            }
         }
     }
 

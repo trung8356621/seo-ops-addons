@@ -148,7 +148,7 @@ final class ArticleEditorStickyHeaderHelpTest extends TestCase
     public function test_save_status_dispatched_to_sticky_header(): void
     {
         $editor = (string) file_get_contents(
-            $this->addonPath('resources/js/components/SeoArticleEditor.jsx'),
+            $this->addonPath('resources/js/hooks/useArticleEditorExternalEventsBridge.js'),
         );
         $bridge = (string) file_get_contents(
             $this->addonPath('resources/js/utils/articleEditorStickyHeader.js'),

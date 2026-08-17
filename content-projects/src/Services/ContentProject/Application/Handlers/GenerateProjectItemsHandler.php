@@ -189,6 +189,8 @@ final class GenerateProjectItemsHandler extends AbstractPublishingHandler
                 'task_ids' => $itemIds,
             ]);
 
+            SeoProjectTask::query()->whereIn('id', $itemIds)->update(['updated_at' => now()]);
+
             return ContentProjectActionResult::ok(
                 ContentProjectActionCodes::ITEMS_GENERATE_REQUESTED,
                 'Generate pending started for '.count($itemIds).' item(s).',

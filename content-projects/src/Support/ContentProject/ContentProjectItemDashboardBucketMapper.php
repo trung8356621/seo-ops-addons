@@ -75,6 +75,7 @@ final class ContentProjectItemDashboardBucketMapper
      *     publish_queue_status?: string|null,
      *     publish_published_at?: mixed,
      *     scheduled_publish_at?: mixed,
+     *     observed_post_status?: string|null,
      *     article_status?: string|null,
      *     review_status?: string|null
      * }  $row
@@ -88,8 +89,13 @@ final class ContentProjectItemDashboardBucketMapper
         }
 
         $queue = (string) ($row['publish_queue_status'] ?? 'none');
-        $published = (($row['publish_published_at'] ?? null) !== null && ($row['publish_published_at'] ?? '') !== '')
-            || $queue === 'published';
+        $published = ContentProjectPublishedEvidence::fromRow([
+            'observed_post_status' => $row['observed_post_status'] ?? null,
+            'publish_published_at' => $row['publish_published_at'] ?? null,
+            'queue_status' => $queue,
+            'publishing_queued_at' => $row['publishing_queued_at'] ?? null,
+            'in_publishing_queue' => $row['in_publishing_queue'] ?? false,
+        ]);
 
         if ($published) {
             return ContentProjectItemDashboardBucket::Published;

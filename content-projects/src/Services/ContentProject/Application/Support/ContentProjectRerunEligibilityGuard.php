@@ -21,6 +21,7 @@ use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExec
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemActionGuard;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemIdentity;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectLifecycle;
+use Omnichannel\Addons\Publishing\Services\Publishing\PublishingActiveProcessing;
 
 /**
  * Pre-mutation eligibility for full / step rerun. Fail → no run, no jobs, no status change.
@@ -34,6 +35,7 @@ final class ContentProjectRerunEligibilityGuard
         private readonly ArticleGenerationInputResolver $generationInput,
         private readonly ContentProjectExecutionStalenessPolicy $staleness,
         private readonly ContentProjectItemActionGuard $actionGuard = new ContentProjectItemActionGuard,
+        private readonly PublishingActiveProcessing $activeProcessing = new PublishingActiveProcessing,
     ) {}
 
     /**
@@ -149,6 +151,10 @@ final class ContentProjectRerunEligibilityGuard
         $phase = $this->lifecycle->resolvePhase($task);
         if ($phase === ContentProjectLifecyclePhase::Archived) {
             return 'Archived lifecycle — rerun blocked.';
+        }
+
+        if ($this->activeProcessing->isActivelyPublishing($task)) {
+            return 'Cannot rerun while publishing is processing.';
         }
 
         if ($this->hasConflictingActiveExecution((int) $project->id, (int) $task->id)) {

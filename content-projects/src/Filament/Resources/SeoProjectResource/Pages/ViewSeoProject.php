@@ -1875,7 +1875,7 @@ final class ViewSeoProject extends Page
 
         $action = $this->resolveCounterActionForCommand($command, $result);
         $taskIds = $this->resolveTaskIdsForCommand($command);
-        if ($action !== null && $taskIds !== []) {
+        if ($this->shouldOptimisticRowExit($action) && $action !== null && $taskIds !== []) {
             $operationId = 'cp-op-'.bin2hex(random_bytes(8));
             $this->dispatch(
                 'cp-ops-item-transition',
@@ -1890,6 +1890,30 @@ final class ViewSeoProject extends Page
         }
 
         $this->invalidateOpsCache();
+    }
+
+    private function shouldOptimisticRowExit(?string $action): bool
+    {
+        if ($action === null || $action === '') {
+            return false;
+        }
+
+        return in_array($action, [
+            ContentProjectOpsCounterTransitionMap::ACTION_APPROVE,
+            ContentProjectOpsCounterTransitionMap::ACTION_APPROVE_FROM_NEEDS_REVIEW,
+            ContentProjectOpsCounterTransitionMap::ACTION_APPROVE_SELF_EDIT,
+            ContentProjectOpsCounterTransitionMap::ACTION_SCHEDULE,
+            ContentProjectOpsCounterTransitionMap::ACTION_SCHEDULE_FROM_NEEDS_REVIEW,
+            ContentProjectOpsCounterTransitionMap::ACTION_SCHEDULE_FROM_REVIEW,
+            ContentProjectOpsCounterTransitionMap::ACTION_MARK_VIEWED,
+            ContentProjectOpsCounterTransitionMap::ACTION_CONTENT_MANAGER_HANDOFF,
+            ContentProjectOpsCounterTransitionMap::ACTION_DEBUG_PUBLISHED_TO_SCHEDULED,
+            ContentProjectOpsCounterTransitionMap::ACTION_DEBUG_PUBLISHED_TO_APPROVED,
+            ContentProjectOpsCounterTransitionMap::ACTION_DEBUG_SCHEDULED_TO_APPROVED,
+            ContentProjectOpsCounterTransitionMap::ACTION_DEBUG_APPROVED_TO_SCHEDULED,
+            ContentProjectOpsCounterTransitionMap::ACTION_DEBUG_APPROVED_TO_PUBLISHED,
+            ContentProjectOpsCounterTransitionMap::ACTION_DEBUG_SCHEDULED_TO_PUBLISHED,
+        ], true);
     }
 
     private function resolveCounterActionForCommand(object $command, mixed $result = null): ?string

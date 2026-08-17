@@ -48,7 +48,7 @@ final class ArticleEditorSaveLockRegressionTest extends TestCase
     public function test_client_write_queue_prioritizes_explicit_over_autosave(): void
     {
         $queue = $this->readAddon('resources/js/utils/articleEditorSaveQueue.js');
-        $editor = $this->readAddon('resources/js/components/SeoArticleEditor.jsx');
+        $saveHook = $this->readAddon('resources/js/hooks/useArticleEditorSaveQueue.js');
         $shell = $this->readAddon('resources/js/article-editor.jsx');
 
         self::assertStringContainsString("autosave: 1", $queue);
@@ -57,9 +57,9 @@ final class ArticleEditorSaveLockRegressionTest extends TestCase
         self::assertStringContainsString('beginExplicitEditorSave', $queue);
         self::assertStringContainsString('shouldSuppressServerAutosave', $queue);
         self::assertStringContainsString('article_write_busy', $queue);
-        self::assertStringContainsString("priority: 'autosave'", $editor);
+        self::assertStringContainsString("priority: 'autosave'", $saveHook);
         self::assertStringContainsString("priority: 'explicit'", $shell);
-        self::assertStringContainsString('shouldSuppressServerAutosave', $editor);
+        self::assertStringContainsString('shouldSuppressServerAutosave', $saveHook);
     }
 
     public function test_persist_failure_surfaces_write_busy_code(): void

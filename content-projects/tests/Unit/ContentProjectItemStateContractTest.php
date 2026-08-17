@@ -13,6 +13,7 @@ use Omnichannel\Addons\ContentProjects\Enums\ContentProjectItemGenerationState;
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectItemPublishState;
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectItemReviewState;
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectLifecyclePhase;
+use Omnichannel\Addons\WordPress\Models\WordpressArticleLink;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\ApproveProjectItemsHandler;
@@ -69,6 +70,7 @@ final class ContentProjectItemStateContractTest extends TestCase
                 'actions' => [
                     ContentProjectItemAction::Archive,
                     ContentProjectItemAction::Generate,
+                    ContentProjectItemAction::Rerun,
                     ContentProjectItemAction::StartReview,
                 ],
             ],
@@ -216,7 +218,12 @@ final class ContentProjectItemStateContractTest extends TestCase
             ],
         ];
         yield 'published' => [
-            ['status' => 'completed', 'publish_queue_status' => 'published', 'publish_published_at' => '2026-07-01 12:00:00'],
+            [
+                'status' => 'completed',
+                'publish_queue_status' => 'published',
+                'publish_published_at' => '2026-07-01 12:00:00',
+                'hints' => ['observed_post_status' => 'publish'],
+            ],
             [
                 'lifecycle' => ContentProjectLifecyclePhase::Published,
                 'publish' => ContentProjectItemPublishState::Published,
@@ -228,7 +235,12 @@ final class ContentProjectItemStateContractTest extends TestCase
             ],
         ];
         yield 'published_rerun_writing' => [
-            ['status' => 'writing', 'publish_queue_status' => 'published', 'publish_published_at' => '2026-07-01 12:00:00'],
+            [
+                'status' => 'writing',
+                'publish_queue_status' => 'published',
+                'publish_published_at' => '2026-07-01 12:00:00',
+                'hints' => ['observed_post_status' => 'publish'],
+            ],
             [
                 'lifecycle' => ContentProjectLifecyclePhase::Published,
                 'generation' => ContentProjectItemGenerationState::Writing,
@@ -241,7 +253,12 @@ final class ContentProjectItemStateContractTest extends TestCase
                 'status' => 'failed',
                 'publish_queue_status' => 'published',
                 'publish_published_at' => '2026-07-01 12:00:00',
-                'hints' => ['run_item_error' => 'AI timeout', 'stale_generation' => true, 'latest_attempt_source' => 'generation'],
+                'hints' => [
+                    'run_item_error' => 'AI timeout',
+                    'stale_generation' => true,
+                    'latest_attempt_source' => 'generation',
+                    'observed_post_status' => 'publish',
+                ],
             ],
             [
                 'lifecycle' => ContentProjectLifecyclePhase::Published,
@@ -256,7 +273,10 @@ final class ContentProjectItemStateContractTest extends TestCase
                 'publish_queue_status' => 'failed',
                 'publish_published_at' => '2026-07-01 12:00:00',
                 'last_publish_error' => 'retry 502',
-                'hints' => ['latest_attempt_source' => 'publish'],
+                'hints' => [
+                    'latest_attempt_source' => 'publish',
+                    'observed_post_status' => 'publish',
+                ],
             ],
             [
                 'lifecycle' => ContentProjectLifecyclePhase::Published,
@@ -363,6 +383,7 @@ final class ContentProjectItemStateContractTest extends TestCase
                 'status' => 'writing',
                 'publish_queue_status' => 'published',
                 'publish_published_at' => '2026-07-01 12:00:00',
+                'hints' => ['observed_post_status' => 'publish'],
             ],
             [
                 'lifecycle' => ContentProjectLifecyclePhase::Published,
@@ -376,6 +397,7 @@ final class ContentProjectItemStateContractTest extends TestCase
                 'publish_published_at' => '2026-07-01 12:00:00',
                 'last_publish_error' => 'retry fail',
                 'article' => ['status' => 'published', 'review_status' => 'approved'],
+                'hints' => ['observed_post_status' => 'publish'],
             ],
             [
                 'lifecycle' => ContentProjectLifecyclePhase::Published,
@@ -406,6 +428,27 @@ final class ContentProjectItemStateContractTest extends TestCase
                 'bucket' => ContentProjectItemDashboardBucket::Archived,
             ],
         ];
+        yield 'queue_stamp_without_wp_live_is_not_published' => [
+            [
+                'status' => 'completed',
+                'publish_queue_status' => 'published',
+                'publish_published_at' => '2026-07-01 12:00:00',
+                'article' => ['review_status' => 'approved'],
+                'hints' => ['observed_post_status' => 'draft'],
+            ],
+            [
+                'lifecycle' => ContentProjectLifecyclePhase::Approved,
+                'review' => ContentProjectItemReviewState::Approved,
+                'publish' => ContentProjectItemPublishState::None,
+                'bucket' => ContentProjectItemDashboardBucket::Approved,
+                'actions' => [
+                    ContentProjectItemAction::Archive,
+                    ContentProjectItemAction::Rerun,
+                    ContentProjectItemAction::Schedule,
+                    ContentProjectItemAction::PublishNow,
+                ],
+            ],
+        ];
     }
 
     /**
@@ -421,6 +464,14 @@ final class ContentProjectItemStateContractTest extends TestCase
         unset($input['article']);
 
         $article = $articleAttrs !== null ? $this->article($articleAttrs) : null;
+        if (isset($hints['observed_post_status'])) {
+            $article ??= $this->article([]);
+            $link = new WordpressArticleLink;
+            $link->setRawAttributes([
+                'observed_post_status' => (string) $hints['observed_post_status'],
+            ], true);
+            $article->setRelation('wordpressLink', $link);
+        }
         $task = $this->task($input, $article);
         $state = $this->resolver->resolve($task, $article, $hints);
 
@@ -482,6 +533,7 @@ final class ContentProjectItemStateContractTest extends TestCase
             'publish_queue_status' => $input['publish_queue_status'] ?? null,
             'publish_published_at' => $input['publish_published_at'] ?? null,
             'scheduled_publish_at' => $input['scheduled_publish_at'] ?? null,
+            'observed_post_status' => $hints['observed_post_status'] ?? null,
             'article_status' => $articleAttrs['status'] ?? null,
             'review_status' => $articleAttrs['review_status'] ?? null,
         ];
@@ -561,6 +613,7 @@ final class ContentProjectItemStateContractTest extends TestCase
         $state = $this->resolver->resolve($task, null, [
             'run_item_status' => 'success',
             'latest_attempt_source' => '',
+            'observed_post_status' => 'publish',
         ]);
         self::assertSame(ContentProjectLifecyclePhase::Published, $state->lifecycleState);
         self::assertSame(ContentProjectItemErrorSource::None, $state->currentErrorSource);

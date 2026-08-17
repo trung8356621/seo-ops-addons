@@ -149,9 +149,23 @@ final class ContentProjectOpsSsotContractTest extends TestCase
             'lifecycle' => 'published',
             'queue_status' => 'none',
         ]));
-        self::assertTrue(ContentProjectPublishedDefinition::matches([
+        self::assertFalse(ContentProjectPublishedDefinition::matches([
             'lifecycle' => 'review',
             'queue_status' => 'published',
+        ]));
+        self::assertFalse(ContentProjectPublishedDefinition::matches([
+            'lifecycle' => 'review',
+            'queue_status' => 'none',
+            'publish_published_at' => '2026-08-02T00:00:00+00:00',
+        ]));
+        self::assertFalse(ContentProjectPublishedDefinition::matches([
+            'lifecycle' => 'review',
+            'queue_status' => 'published',
+            'publish_published_at' => '2026-08-02T00:00:00+00:00',
+            'observed_post_status' => 'draft',
+        ]));
+        self::assertTrue(ContentProjectPublishedDefinition::matches([
+            'observed_post_status' => 'publish',
         ]));
     }
 

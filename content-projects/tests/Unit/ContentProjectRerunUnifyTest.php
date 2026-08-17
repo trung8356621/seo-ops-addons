@@ -134,6 +134,8 @@ final class ContentProjectRerunUnifyTest extends TestCase
         self::assertStringContainsString('runRerunFromStepForContext', $workflow);
         self::assertStringContainsString('restorePublishedLifecycle', $workflow);
         self::assertStringContainsString('isPublishedLifecycle', $workflow);
+        self::assertStringContainsString('markPublishedRerunDirty', $workflow);
+        self::assertStringNotContainsString("'status' => \$snapshot['task_status']", $workflow);
 
         $create = $this->source(CreateArticlesFromTaskService::class);
         self::assertStringContainsString('function runRerunFromStepForContext', $create);

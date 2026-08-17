@@ -18,8 +18,12 @@ final class ContentProjectPublishedDefinition
      * @param  array{
      *     lifecycle?: string|null,
      *     queue_status?: string|null,
+     *     publish_queue_status?: string|null,
      *     publish_published_at?: string|null,
      *     has_published_revision?: bool,
+     *     observed_post_status?: string|null,
+     *     publishing_queued_at?: string|null,
+     *     in_publishing_queue?: bool,
      * }  $row
      */
     public static function matches(array $row): bool
@@ -33,11 +37,6 @@ final class ContentProjectPublishedDefinition
             return true;
         }
 
-        $queue = strtolower(trim((string) ($row['queue_status'] ?? '')));
-        if ($queue === 'published') {
-            return true;
-        }
-
-        return trim((string) ($row['publish_published_at'] ?? '')) !== '';
+        return ContentProjectPublishedEvidence::fromRow($row);
     }
 }

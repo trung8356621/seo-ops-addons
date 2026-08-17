@@ -10,6 +10,7 @@ use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectPubl
 
 /**
  * Send to Publishing Queue — content complete, not in queue, not blocked by active generation.
+ * Published is not terminal: Published + unpublished_changes may be queued again.
  * Needs Review / In Review reporting are equivalent (not required).
  * Approved not required.
  */
@@ -23,7 +24,13 @@ final class PublishingQueueHandoffEligibility
         if (! empty($row['publishing_queued_at']) || ! empty($row['in_publishing_queue'])) {
             return false;
         }
-        if (ContentProjectPublishedDefinition::matches($row)) {
+
+        $queue = strtolower(trim((string) ($row['queue_status'] ?? $row['publish_queue_status'] ?? 'none')));
+        if (in_array($queue, ['processing', 'queued_for_delivery'], true)) {
+            return false;
+        }
+
+        if (ContentProjectPublishedDefinition::matches($row) && empty($row['has_unpublished_changes'])) {
             return false;
         }
         if (ContentProjectPendingOpsDefinition::matches($row) || ! empty($row['is_genuinely_running'])) {

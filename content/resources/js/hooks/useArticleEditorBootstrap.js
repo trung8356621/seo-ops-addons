@@ -176,8 +176,23 @@ export default function useArticleEditorBootstrap({ analyzedBlocksRef, articleId
         const preferServerOverGluedDraft = Boolean(draft)
             && decision === 'restore_local'
             && draftGlue > serverGlue;
+        const sameRevisionContinuation = Boolean(draft)
+            && (
+                (
+                    String(draft.base_content_hash ?? '').trim() !== ''
+                    && String(draft.base_content_hash).trim() === String(serverContentHash)
+                )
+                || (
+                    String(draft.base_document_version ?? '').trim() !== ''
+                    && String(window.__SEO_EDITOR_DOCUMENT_VERSION__ ?? '') !== ''
+                    && String(draft.base_document_version) === String(window.__SEO_EDITOR_DOCUMENT_VERSION__)
+                )
+            );
+        const shouldPromptRestore = Boolean(draft)
+            && (decision === 'restore_local' || canManualChoose)
+            && !hardReadonly;
 
-        if (decision === 'restore_local' && draft && !preferServerOverGluedDraft) {
+        if (decision === 'restore_local' && draft && (!preferServerOverGluedDraft || sameRevisionContinuation)) {
             const draftRepair = repairGluedInlineMarkBoundaryWhitespaceWithReport(draftContentRaw);
             if (draftRepair.repaired) {
                 window.dispatchEvent(new CustomEvent('seo-article-editor-notify', {
@@ -204,20 +219,12 @@ export default function useArticleEditorBootstrap({ analyzedBlocksRef, articleId
                     },
                 }),
             );
+            setDraftRestoreOffer(canManualChoose ? { draft, serverBlocks } : null);
+            setDraftChoiceModalOpen(false);
         } else {
             setBlocks(serverBlocks);
             cancelLocalDraftSave();
             window.__seoCancelArticleDraftAutosave?.();
-            // Keep a glued draft only when it is healthier than server; otherwise clear so F5 recovers.
-            if (!draft || draftGlue >= serverGlue) {
-                clearDraft(articleId, connHash, scope);
-            }
-            writeSyncedLocalSnapshot(articleId, connHash, withDraftSite({
-                content: exportBlocksToHtml(serverBlocks),
-                base_updated_at: expectedUpdatedAt || null,
-                base_content_hash: serverContentHash,
-                version: serverContentHash,
-            }));
 
             const analyzedContentHash = String(initialSeo?.analyzed_content_hash ?? '').trim();
             setSeoStale(
@@ -225,14 +232,24 @@ export default function useArticleEditorBootstrap({ analyzedBlocksRef, articleId
                 && serverBodyHash !== ''
                 && analyzedContentHash !== serverBodyHash,
             );
-        }
 
-        if (canManualChoose && draft && !preferServerOverGluedDraft) {
-            setDraftRestoreOffer({ draft, serverBlocks });
-            setDraftChoiceModalOpen(false);
-        } else {
-            setDraftRestoreOffer(null);
-            setDraftChoiceModalOpen(false);
+            if (shouldPromptRestore) {
+                // Keep dirty recovery — never silently discard unsaved work on F5.
+                setDraftRestoreOffer({ draft, serverBlocks });
+                setDraftChoiceModalOpen(true);
+            } else {
+                if (!draft || draftGlue >= serverGlue) {
+                    clearDraft(articleId, connHash, scope);
+                }
+                writeSyncedLocalSnapshot(articleId, connHash, withDraftSite({
+                    content: exportBlocksToHtml(serverBlocks),
+                    base_updated_at: expectedUpdatedAt || null,
+                    base_content_hash: serverContentHash,
+                    version: serverContentHash,
+                }));
+                setDraftRestoreOffer(null);
+                setDraftChoiceModalOpen(false);
+            }
         }
 
         setActiveBlockId(null);

@@ -17,7 +17,9 @@ use Omnichannel\Addons\Publishing\Services\Publishing\ContentPublishingStrategyR
 use Omnichannel\Addons\Publishing\Services\Publishing\PublishingActiveProcessing;
 use Omnichannel\Addons\Publishing\Services\Publishing\PublishingProcessingMarkerClearer;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemActionGuard;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectPublishedEvidence;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectPublishTransitionGuard;
+use Omnichannel\Addons\WordPress\Support\ObservedWordPressPostStatus;
 use App\Support\RuntimeLogger;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
@@ -288,6 +290,7 @@ final class ContentProjectPublishingQueueService
 
     /**
      * Return to Content Project working set (clears queue handoff; does not unpublish WP).
+     * Fake queue "published" stamps are cleared unless WordPress observed evidence is live.
      *
      * @param  list<int>  $taskIds
      */
@@ -299,13 +302,45 @@ final class ContentProjectPublishingQueueService
             return 0;
         }
 
-        return $this->batchUpdate($project, $ids, [
-            'publishing_queued_at' => null,
-            'publishing_queued_by' => null,
-            'scheduled_publish_at' => null,
-            'publish_queue_status' => ContentProjectPublishQueueStatus::None->value,
-            'last_publish_error' => null,
-        ], onlyStatuses: null, onlyWherePublishingQueued: true);
+        $tasks = SeoProjectTask::query()
+            ->where('project_id', (int) $project->getKey())
+            ->whereIn('id', $ids)
+            ->whereNull('archived_at')
+            ->whereNotNull('publishing_queued_at')
+            ->with(['article.wordpressLink'])
+            ->get();
+
+        $affected = 0;
+        foreach ($tasks as $task) {
+            if (! $task instanceof SeoProjectTask) {
+                continue;
+            }
+
+            $attrs = $this->scheduleResetAttributes([
+                'publishing_queued_at' => null,
+                'publishing_queued_by' => null,
+                'scheduled_publish_at' => null,
+                'publish_queue_status' => ContentProjectPublishQueueStatus::None->value,
+            ]);
+
+            $article = $task->relationLoaded('article') ? $task->article : null;
+            $observed = ContentProjectPublishedEvidence::resolveObservedPostStatus(
+                $article instanceof SeoArticle ? $article : null,
+            );
+            // Keep stamp only when WordPress is actually live. Queue membership must
+            // not be treated as publish evidence — this check runs before queue fields clear.
+            if ($observed === null || ! ObservedWordPressPostStatus::isLiveOnSite($observed)) {
+                $attrs['publish_published_at'] = null;
+            }
+
+            $updated = (int) SeoProjectTask::query()
+                ->whereKey((int) $task->getKey())
+                ->update($attrs);
+            $affected += $updated;
+            $this->markerClearer()->applySideEffects($task->fresh() ?? $task, 'return_to_content_project');
+        }
+
+        return $affected;
     }
 
     /**

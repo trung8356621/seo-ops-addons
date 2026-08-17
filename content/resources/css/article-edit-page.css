@@ -198,8 +198,13 @@ body.article-editor-page .fi-page-content {
 
 .seo-article-editor-sticky-header__save-status[data-status="saving"],
 .seo-article-editor-sticky-header__save-status[data-status="pending"],
-.seo-article-editor-sticky-header__save-status[data-status="recovering"] {
+.seo-article-editor-sticky-header__save-status[data-status="recovering"],
+.seo-article-editor-sticky-header__save-status[data-status="blocked"] {
     color: #b45309;
+}
+
+.seo-article-editor-sticky-header__save-status[data-status="blocked"] {
+    max-width: min(22rem, 46vw);
 }
 
 .seo-article-editor-sticky-header__save-status[data-status="conflict"],

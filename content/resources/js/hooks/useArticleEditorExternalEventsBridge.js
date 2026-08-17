@@ -861,6 +861,7 @@ export default function useArticleEditorExternalEventsBridge({ activeBlockId, ac
                     : null;
 
             const exportHtml = getExportHtml();
+            window.__seoFlushArticleRecoveryDraft?.();
             if (!assertWritableDocumentNotWhitespaceCorrupted(exportHtml)) {
                 const err = new Error(t('editor_inline_whitespace_corruption_body'));
                 err.code = INLINE_WHITESPACE_CORRUPTION_CODE;
@@ -940,11 +941,17 @@ export default function useArticleEditorExternalEventsBridge({ activeBlockId, ac
             ? t('editor_network_offline_unsaved')
             : networkRecovering
               ? t('editor_network_reconnected_saving')
-              : saveStatus === 'saving'
-                ? t('editor_saving_draft')
-                : saveStatus === 'pending'
-                  ? t('editor_draft_pending')
-                  : t('editor_draft_saved_local');
+              : saveStatus === 'blocked'
+                ? t('editor_save_blocked_local')
+                : saveStatus === 'conflict'
+                  ? t('editor_save_revision_conflict')
+                  : saveStatus === 'failed'
+                    ? t('editor_save_failed')
+                    : saveStatus === 'saving'
+                      ? t('editor_saving_draft')
+                      : saveStatus === 'pending'
+                        ? t('editor_draft_pending')
+                        : t('editor_draft_saved_local');
 
     useEffect(() => {
         window.dispatchEvent(

@@ -374,7 +374,20 @@ export function loadDraft(articleId, connectionHash, options = {}) {
             ?? localStorage.getItem(legacyUserlessKey)
             ?? localStorage.getItem(legacyKey);
         if (raw) {
-            const data = JSON.parse(raw);
+            let data;
+            try {
+                data = JSON.parse(raw);
+            } catch {
+                [key, legacyUserlessKey, legacyKey].forEach((storageKey) => {
+                    try {
+                        localStorage.removeItem(storageKey);
+                    } catch {
+                        // ignore quota / private mode
+                    }
+                });
+
+                return null;
+            }
             if (data && typeof data === 'object' && Number(data.schema_version) >= 2) {
                 const draftSiteId = Math.max(0, Number(data.site_id ?? 0) || 0);
                 if (siteId > 0 && draftSiteId > 0 && draftSiteId !== siteId) {
@@ -382,6 +395,11 @@ export function loadDraft(articleId, connectionHash, options = {}) {
                 }
                 const draftUserId = Math.max(0, Number(data.user_id ?? 0) || 0);
                 if (userId > 0 && draftUserId > 0 && draftUserId !== userId) {
+                    return null;
+                }
+                const draftArticleId = Number(data.article_id ?? articleId);
+                if (Number(articleId) > 0 && Number.isFinite(draftArticleId) && draftArticleId > 0
+                    && draftArticleId !== Number(articleId)) {
                     return null;
                 }
 
@@ -521,6 +539,9 @@ export function saveDraft(articleId, connectionHash, payload) {
     const synced = payload?.synced != null
         ? Boolean(payload.synced)
         : (dirtyFields.length === 0 && (contentUnchangedFromExisting ? Boolean(existing?.synced) : false));
+    if (synced) {
+        payload = { ...payload, autosave_error: null };
+    }
 
     const sessionClient = window.__seoEditorSessionClient;
     const draft = {
@@ -555,6 +576,8 @@ export function saveDraft(articleId, connectionHash, payload) {
         content_hash: contentHash,
         normalized_hash: normalizedHash,
         dirty_fields: dirtyFields,
+        dirty: dirtyFields.length > 0,
+        autosave_error: payload?.autosave_error ?? existing?.autosave_error ?? null,
     };
 
     try {
