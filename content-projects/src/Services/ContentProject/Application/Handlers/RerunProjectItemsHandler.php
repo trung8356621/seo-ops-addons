@@ -77,6 +77,8 @@ final class RerunProjectItemsHandler extends AbstractPublishingHandler
                 );
             }
 
+            $forceFreshCreate = (bool) ($command->settings['fresh_create'] ?? false);
+
             foreach ($itemIds as $itemId) {
                 $task = SeoProjectTask::query()->find((int) $itemId);
                 if ($task instanceof SeoProjectTask) {
@@ -91,7 +93,19 @@ final class RerunProjectItemsHandler extends AbstractPublishingHandler
                         'recover_stale' => false,
                         'persist_article_repair' => true,
                     ]);
-                    if (
+                    if ($forceFreshCreate) {
+                        if ($capability->action === ContentProjectGenerationRecoveryDecision::ACTION_ACTIVE) {
+                            return ContentProjectActionResult::fail(
+                                ContentProjectActionCodes::OPERATION_ALREADY_PROCESSING,
+                                'Bài viết đang được tạo.',
+                                $projectId,
+                                metadata: [
+                                    'item_id' => (int) $itemId,
+                                    'generation_recovery_action' => $capability->action,
+                                ],
+                            );
+                        }
+                    } elseif (
                         ! in_array($capability->action, [
                             ContentProjectGenerationRecoveryDecision::ACTION_RERUN,
                             ContentProjectGenerationRecoveryDecision::ACTION_GENERATE,
@@ -113,8 +127,9 @@ final class RerunProjectItemsHandler extends AbstractPublishingHandler
                 }
             }
 
-            // Validate BEFORE startRun / prepareRunQueue / engine.
-            $gate = $this->eligibility->validateFull($project, $itemIds);
+            $gate = $forceFreshCreate
+                ? $this->eligibility->validateFreshCreate($project, $itemIds)
+                : $this->eligibility->validateFull($project, $itemIds);
             if (! $gate['ok']) {
                 return ContentProjectActionResult::fail(
                     ContentProjectActionCodes::VALIDATION_FAILED,

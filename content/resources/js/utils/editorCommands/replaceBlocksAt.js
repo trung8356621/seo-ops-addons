@@ -11,6 +11,7 @@
  *   replacements?: Array<string|{content?: string}>,
  *   contents?: string[],
  *   preserveSourceId?: boolean,
+ *   focusIndex?: number|null,
  *   createBlock?: () => object,
  * }} payload
  * @returns {{
@@ -50,8 +51,12 @@ export function applyReplaceBlocksAt(blocks, payload = {}) {
     const preserveSourceId = payload.preserveSourceId !== false;
     const createBlock = typeof payload.createBlock === 'function' ? payload.createBlock : null;
     const epoch = Date.now();
+    const focusIndexRaw = payload.focusIndex == null ? 0 : Number(payload.focusIndex);
+    const preserveAt = preserveSourceId && Number.isFinite(focusIndexRaw) && focusIndexRaw >= 0
+        ? Math.min(Math.floor(focusIndexRaw), htmls.length - 1)
+        : 0;
     const created = htmls.map((html, index) => {
-        if (preserveSourceId && index === 0) {
+        if (preserveSourceId && index === preserveAt) {
             return {
                 ...source,
                 content: html,

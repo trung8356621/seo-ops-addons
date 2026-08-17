@@ -242,6 +242,12 @@ final class PromptHookFormSchema
         ) {
             $set('tools', ImageToolType::Default->value);
         }
+
+        if (($definition->model->capability ?? 'text') === 'image'
+            && ! ImageToolType::fromMixed($get('tools') ?? 'default')->isImagePipeline()
+        ) {
+            $set('tools', ImageToolType::Image->value);
+        }
     }
 
     private static function resolveDefinition(string $hookKey, string $version): ?PromptHookDefinition

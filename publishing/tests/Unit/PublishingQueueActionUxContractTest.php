@@ -22,7 +22,8 @@ final class PublishingQueueActionUxContractTest extends TestCase
         self::assertTrue($a['publish_now']);
         self::assertFalse($a['retry_now']);
         self::assertTrue($a['schedule']);
-        self::assertTrue($a['remove_from_queue']);
+        self::assertTrue($a['return_to_content_project']);
+        self::assertFalse($a['remove_from_queue']);
         self::assertFalse($a['show_recover_banner']);
         self::assertFalse($a['publish_now'] && $a['retry_now']);
     }
@@ -123,6 +124,7 @@ final class PublishingQueueActionUxContractTest extends TestCase
         self::assertFalse($a['retry_now']);
         self::assertFalse($a['schedule']);
         self::assertFalse($a['show_recover_banner']);
+        self::assertTrue($a['return_to_content_project']);
     }
 
     public function test_user_facing_labels_have_no_technical_jargon(): void

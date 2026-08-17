@@ -89,6 +89,21 @@ final class ContentProjectMissingArticleRecreateTest extends TestCase
         self::assertStringContainsString('function confirmRecreateMissingArticle', $page);
         self::assertStringContainsString('ContentProjectStaleArticleLinkService', $page);
         self::assertStringContainsString('openMissingArticleConfirm', $page);
+        self::assertStringContainsString("'fresh_create' => true", $page);
+        self::assertStringContainsString('RerunProjectItemsCommand', $page);
+        self::assertStringNotContainsString('executeCreateOrRerun($project, $fresh', $page);
+
+        $handler = (string) file_get_contents(
+            (new ReflectionClass(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\RerunProjectItemsHandler::class))->getFileName(),
+        );
+        self::assertStringContainsString("settings['fresh_create']", $handler);
+        self::assertStringContainsString('validateFreshCreate', $handler);
+
+        $guard = (string) file_get_contents(
+            (new ReflectionClass(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectRerunEligibilityGuard::class))->getFileName(),
+        );
+        self::assertStringContainsString('function validateFreshCreate', $guard);
+        self::assertStringContainsString('skipActionGuard: true', $guard);
 
         $menu = (string) file_get_contents(
             LegacyAddonPath::resolve('resources/views/components/content-project-item-actions-menu.blade.php'),
@@ -102,6 +117,9 @@ final class ContentProjectMissingArticleRecreateTest extends TestCase
         self::assertStringContainsString('openMissingArticleConfirmModal', $ops);
         self::assertStringContainsString('confirmMissingArticleRecreate', $ops);
         self::assertStringContainsString('missing_article_confirm_create', $ops);
+        self::assertStringContainsString('x-teleport="body"', $ops);
+        self::assertStringContainsString('cp-ops-dialog-overlay', $ops);
+        self::assertStringContainsString('cp-ops-dialog', $ops);
 
         $vi = (string) file_get_contents(LegacyAddonPath::resolve('lang/vi/filament.php'));
         $en = (string) file_get_contents(LegacyAddonPath::resolve('lang/en/filament.php'));

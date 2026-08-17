@@ -1,0 +1,54 @@
+{
+  "spec_version": "0.1",
+  "key": "article.featured_image.generate",
+  "version": "0.1.0",
+  "name": "Create news thumbnail",
+  "description": "Generate a news/article thumbnail using the bound image Prompt and the normal featured-image pipeline.",
+  "enabled": true,
+  "status": "experimental",
+  "settings_visible": true,
+  "category": "media",
+  "model": {
+    "provider": "prompt_connection",
+    "name": "configured",
+    "capability": "image",
+    "structured_output": false,
+    "settings": {}
+  },
+  "locale": { "mode": "site", "fallback": "vi" },
+  "input_schema": {
+    "title": { "type": "string", "required": true, "nullable": false, "max_length": 500, "label": "Article title" }
+  },
+  "output_schema": {
+    "type": "text",
+    "normalize": ["trim"],
+    "validation": {}
+  },
+  "template": {
+    "source": "legacy_prompt_content"
+  },
+  "presentation": {
+    "description": "Create a short thumbnail prompt for the current article. Image model/provider/options come from the normal article thumbnail pipeline — not from this Hook.",
+    "default_instructions": [
+      "Keep the Prompt short; the image pipeline supplies model, size, and provider.",
+      "Use {{title}} for the current article title.",
+      "Do not invent a separate image model or extra image settings for this Hook."
+    ],
+    "output_format": [
+      "Image output from the selected Prompt's image tool (tools=image) using the existing featured/thumbnail pipeline."
+    ],
+    "notes": [
+      "Operators may edit the Prompt Markdown in Prompt settings.",
+      "Automation can select this Prompt on an article.image.generate / featured-image workflow step.",
+      "This Hook does not add a dedicated image-settings card."
+    ],
+    "variables": [
+      { "key": "title", "required": true }
+    ]
+  },
+  "retry": { "max": 0 },
+  "logging": { "store_full_prompt": false, "redact_sensitive": true },
+  "side_effects": [],
+  "strict_template_variables": false,
+  "metadata": { "ownership": "settings_binding" }
+}

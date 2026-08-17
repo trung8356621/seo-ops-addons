@@ -2935,7 +2935,7 @@ return [
         'item_action_select_existing_article' => 'Liên kết bài có sẵn',
         'missing_article_confirm_title' => 'Bài viết đã bị mất',
         'missing_article_confirm_body' => 'Bài đã gen trước đó không còn trong hệ thống (có thể do backup thiếu). Bạn có muốn tạo bài mới và chạy lại từ đầu không?',
-        'missing_article_confirm_hint' => 'Chọn «Tạo bài mới» sẽ gỡ liên kết bài cũ và chạy lại toàn bộ quy trình (dàn ý + viết bài).',
+        'missing_article_confirm_hint' => 'Chọn «Tạo bài mới» sẽ gỡ liên kết bài cũ và chạy lại ngay dàn ý + viết bài — không cần bấm thêm nút.',
         'missing_article_confirm_cancel' => 'Không',
         'missing_article_confirm_create' => 'Tạo bài mới',
         'missing_article_recreate_started' => 'Đã gỡ bài mất — đang chạy lại từ đầu',

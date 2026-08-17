@@ -2962,7 +2962,7 @@ return [
         'item_action_select_existing_article' => 'Link existing article',
         'missing_article_confirm_title' => 'Article is missing',
         'missing_article_confirm_body' => 'The previously generated article is no longer in the system (possibly lost from a backup). Create a new article and restart from the beginning?',
-        'missing_article_confirm_hint' => '«Create new article» clears the broken link and re-runs the full pipeline (outline + writing).',
+        'missing_article_confirm_hint' => '«Create new article» clears the broken link and immediately re-runs outline + writing. No extra button.',
         'missing_article_confirm_cancel' => 'No',
         'missing_article_confirm_create' => 'Create new article',
         'missing_article_recreate_started' => 'Broken article link cleared — restarting from the beginning',

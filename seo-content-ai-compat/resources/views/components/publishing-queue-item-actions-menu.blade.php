@@ -166,21 +166,14 @@
                     @endif
 
                     @if (! empty($a['remove_from_queue']))
-                        @if (($a['state'] ?? '') === 'unscheduled')
-                            <button role="menuitem" type="button" wire:click="returnOne({{ $tid }})" wire:confirm="Bỏ bài khỏi Publishing Queue?" @click="open = false" class="{{ $dangerClass }}">
-                                <x-filament::icon icon="heroicon-o-x-mark" class="cp-ops-menu__icon" />
-                                <span class="cp-ops-menu__label">Bỏ khỏi Publishing Queue</span>
-                            </button>
-                        @else
-                            <button role="menuitem" type="button" wire:click="cancelPublishOne({{ $tid }})" wire:confirm="Bỏ bài khỏi Publishing Queue?" @click="open = false" class="{{ $dangerClass }}">
-                                <x-filament::icon icon="heroicon-o-x-mark" class="cp-ops-menu__icon" />
-                                <span class="cp-ops-menu__label">Bỏ khỏi Publishing Queue</span>
-                            </button>
-                        @endif
+                        <button role="menuitem" type="button" wire:click="cancelPublishOne({{ $tid }})" wire:confirm="Bỏ bài khỏi Publishing Queue?" @click="open = false" class="{{ $dangerClass }}">
+                            <x-filament::icon icon="heroicon-o-x-mark" class="cp-ops-menu__icon" />
+                            <span class="cp-ops-menu__label">Bỏ khỏi Publishing Queue</span>
+                        </button>
                     @endif
 
                     @if (! empty($a['return_to_content_project']))
-                        <button role="menuitem" type="button" wire:click="returnOne({{ $tid }})" wire:confirm="Trả về Content Project?" @click="open = false" class="{{ $itemClass }}">
+                        <button role="menuitem" type="button" wire:click="returnOne({{ $tid }})" wire:confirm="Trả về Content Project? Bài trên WordPress (nếu đã xuất bản) không bị gỡ." @click="open = false" class="{{ $itemClass }}">
                             <x-filament::icon icon="heroicon-o-arrow-uturn-left" class="cp-ops-menu__icon" />
                             <span class="cp-ops-menu__label">Trả về Content Project</span>
                         </button>

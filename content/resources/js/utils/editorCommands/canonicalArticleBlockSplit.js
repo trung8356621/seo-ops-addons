@@ -280,7 +280,12 @@ export function stripLeadingTitleSeparatorHtml(html) {
 }
 
 function finishPlan(mode, beforeHtml, middleHtml, afterHtml, meta) {
-    const contents = [beforeHtml, middleHtml, afterHtml].filter((html) => html && !isBlankHtml(html));
+    const parts = [
+        { key: 'before', html: beforeHtml },
+        { key: 'middle', html: middleHtml },
+        { key: 'after', html: afterHtml },
+    ].filter((part) => part.html && !isBlankHtml(part.html));
+    const contents = parts.map((part) => part.html);
     if (contents.length === 0) {
         return fail('empty_result', meta);
     }
@@ -288,14 +293,19 @@ function finishPlan(mode, beforeHtml, middleHtml, afterHtml, meta) {
         return fail('no_change', meta);
     }
 
+    const beforeIndex = parts.findIndex((part) => part.key === 'before');
+    const afterIndex = parts.findIndex((part) => part.key === 'after');
+
+    // Stay on the original paragraph remainder — never jump to the extracted slice.
     let focusIndex = contents.length - 1;
     if (mode === 'heading') {
-        const headingIndex = beforeHtml && !isBlankHtml(beforeHtml) ? 1 : 0;
-        focusIndex = afterHtml && !isBlankHtml(afterHtml) ? headingIndex + 1 : null;
-    } else if (mode === 'paragraph') {
-        focusIndex = beforeHtml && !isBlankHtml(beforeHtml) ? 1 : 0;
+        focusIndex = afterIndex >= 0 ? afterIndex : null;
+    } else if (afterIndex >= 0) {
+        focusIndex = afterIndex;
+    } else if (beforeIndex >= 0) {
+        focusIndex = beforeIndex;
     } else {
-        focusIndex = beforeHtml && !isBlankHtml(beforeHtml) ? 1 : 0;
+        focusIndex = 0;
     }
 
     return {
@@ -359,9 +369,27 @@ export function planCanonicalArticleBlockSplit(state, options = {}) {
         meta.textBefore = beforeHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
         meta.textAfter = afterHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
         meta.separatorStripped = stripped;
-        const middleHtml = mode === 'heading'
-            ? headingHtml(options.level, meta.selectedText)
-            : serializeDocRange(doc, from, to);
+        let middleHtml;
+        if (mode === 'heading') {
+            middleHtml = headingHtml(options.level, meta.selectedText);
+        } else if (
+            parent
+            && isSplittableTextblock(parent)
+            && state.schema?.nodes?.paragraph
+            && textblockDepth($from) === depth
+            && textblockDepth(selection.$to) === depth
+            && selection.$to.before(depth) === $from.before(depth)
+        ) {
+            // Extract plain <p> — never re-wrap selection in <ul><li> via doc.cut().
+            const parentStart = $from.start(depth);
+            const selected = parent.content.cut(
+                Math.max(0, from - parentStart),
+                Math.min(parent.content.size, to - parentStart),
+            );
+            middleHtml = paragraphHtmlFromInline(state.schema, selected);
+        } else {
+            middleHtml = serializeDocRange(doc, from, to);
+        }
         if (mode === 'heading' && String(meta.selectedText ?? '').replace(/\s+/g, ' ').trim() === '') {
             return fail('empty_heading', meta);
         }

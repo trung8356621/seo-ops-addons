@@ -623,5 +623,61 @@
                 justify-content: center;
             }
         }
+
+        /* Content Project dialogs — teleport to body; padding + z-index owned here
+           so Filament page stacking / overflow cannot clip or flush text to edges. */
+        .cp-ops-dialog-overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 200;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 1.5rem;
+            box-sizing: border-box;
+            background: rgb(3 7 18 / 0.55);
+            backdrop-filter: blur(2px);
+        }
+        .cp-ops-dialog {
+            width: 100%;
+            max-width: 36rem;
+            max-height: min(85vh, 42rem);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            box-sizing: border-box;
+            border-radius: 1rem;
+            border: 1px solid rgb(229 231 235);
+            background: #fff;
+            box-shadow: 0 25px 50px -12px rgb(0 0 0 / 0.35);
+        }
+        .dark .cp-ops-dialog {
+            border-color: rgb(55 65 81);
+            background: rgb(17 24 39);
+        }
+        .cp-ops-dialog--sm { max-width: 28rem; }
+        .cp-ops-dialog__header,
+        .cp-ops-dialog__body {
+            padding: 1.5rem 1.5rem 1rem;
+            box-sizing: border-box;
+        }
+        .cp-ops-dialog__body { padding-top: 0; }
+        .cp-ops-dialog__footer {
+            padding: 1rem 1.5rem;
+            box-sizing: border-box;
+            border-top: 1px solid rgb(243 244 246);
+            background: rgb(249 250 251);
+        }
+        .dark .cp-ops-dialog__footer {
+            border-top-color: rgb(31 41 55);
+            background: rgb(17 24 39 / 0.6);
+        }
+        .cp-ops-dialog__scroll {
+            min-height: 0;
+            flex: 1 1 auto;
+            overflow-y: auto;
+            padding: 0.75rem 1.5rem 1rem;
+            box-sizing: border-box;
+        }
     </style>
 @endonce

@@ -48,6 +48,20 @@ describe('applyReplaceBlocksAt host mutation', () => {
         assert.equal(result.blocks.filter((item) => item.id === 'src').length, 1);
     });
 
+    it('preserves source id on the focused remainder block', () => {
+        let n = 0;
+        const result = applyReplaceBlocksAt([block('src', '<p>AAA BBB CCC</p>')], {
+            sourceBlockId: 'src',
+            replacements: ['<p>AAA</p>', '<p>BBB</p>', '<p>CCC</p>'],
+            focusIndex: 2,
+            createBlock: () => block(`new_${n++}`, ''),
+        });
+        assert.equal(result.ok, true);
+        assert.deepEqual(result.createdIds, ['new_0', 'new_1', 'src']);
+        assert.equal(result.blocks[2].id, 'src');
+        assert.equal(result.blocks[2].content, '<p>CCC</p>');
+    });
+
     it('cursor-middle two-body replacement keeps one preserved id', () => {
         let n = 0;
         const result = applyReplaceBlocksAt([block('src', '<p>ABCDEF</p>')], {

@@ -46,6 +46,18 @@ final class ContentProjectRerunEligibilityGuard
     }
 
     /**
+     * Missing-article recreate: full rerun after clearing stale article_id.
+     * Skips Rerun action-guard (Draft+completed generation would otherwise be rejected).
+     *
+     * @param  list<int>  $itemIds
+     * @return array{ok: bool, message: string, eligible_ids: list<int>, rejected: list<array{task_id: int, reason: string}>}
+     */
+    public function validateFreshCreate(SeoProject $project, array $itemIds): array
+    {
+        return $this->validateItems($project, $itemIds, null, false, skipActionGuard: true);
+    }
+
+    /**
      * @param  list<int>  $itemIds
      * @return array{ok: bool, message: string, eligible_ids: list<int>, rejected: list<array{task_id: int, reason: string}>}
      */
@@ -67,6 +79,7 @@ final class ContentProjectRerunEligibilityGuard
         array $itemIds,
         ?ContentProjectRerunFromStep $fromStep,
         bool $includeDownstream,
+        bool $skipActionGuard = false,
     ): array {
         $eligible = [];
         $rejected = [];
@@ -83,7 +96,7 @@ final class ContentProjectRerunEligibilityGuard
                 continue;
             }
 
-            $reason = $this->rejectReason($project, $task, $fromStep, $includeDownstream);
+            $reason = $this->rejectReason($project, $task, $fromStep, $includeDownstream, $skipActionGuard);
             if ($reason !== null) {
                 $rejected[] = ['task_id' => (int) $task->id, 'reason' => $reason];
 
@@ -119,6 +132,7 @@ final class ContentProjectRerunEligibilityGuard
         SeoProjectTask $task,
         ?ContentProjectRerunFromStep $fromStep,
         bool $includeDownstream,
+        bool $skipActionGuard = false,
     ): ?string {
         if ($task->archived_at !== null || (string) $task->status === SeoProjectTask::STATUS_ARCHIVED) {
             return 'Archived item cannot be rerun.';
@@ -141,10 +155,12 @@ final class ContentProjectRerunEligibilityGuard
             return 'Active conflicting execution — rerun blocked until current run finishes.';
         }
 
-        try {
-            $this->actionGuard->assertCan(ContentProjectItemAction::Rerun, $task);
-        } catch (\RuntimeException $e) {
-            return $e->getMessage();
+        if (! $skipActionGuard) {
+            try {
+                $this->actionGuard->assertCan(ContentProjectItemAction::Rerun, $task);
+            } catch (\RuntimeException $e) {
+                return $e->getMessage();
+            }
         }
 
         $type = SeoProjectTask::normalizeType($task->type);

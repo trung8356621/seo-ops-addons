@@ -4,8 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers;
 
+use Omnichannel\Addons\ContentProjects\Enums\ContentProjectPublishQueueStatus;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
-use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectPublishedDefinition;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ActorContext;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ReturnToContentProjectCommand;
@@ -19,7 +19,8 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectPub
 use InvalidArgumentException;
 
 /**
- * Publishing Queue → Content Project working set. Blocked after Published.
+ * Publishing Queue → Content Project working set.
+ * Published items may return (undo accidental handoff) — does not unpublish WordPress.
  */
 final class ReturnToContentProjectHandler extends AbstractPublishingHandler
 {
@@ -69,12 +70,11 @@ final class ReturnToContentProjectHandler extends AbstractPublishingHandler
 
             $eligible = [];
             foreach ($tasks as $task) {
-                $row = [
-                    'lifecycle' => '',
-                    'queue_status' => (string) ($task->publish_queue_status ?? 'none'),
-                    'publish_published_at' => $task->publish_published_at?->toIso8601String(),
-                ];
-                if (ContentProjectPublishedDefinition::matches($row)) {
+                $queue = strtolower(trim((string) ($task->publish_queue_status ?? 'none')));
+                if (in_array($queue, [
+                    ContentProjectPublishQueueStatus::Processing->value,
+                    ContentProjectPublishQueueStatus::QueuedForDelivery->value,
+                ], true)) {
                     continue;
                 }
                 $eligible[] = (int) $task->getKey();
@@ -83,7 +83,7 @@ final class ReturnToContentProjectHandler extends AbstractPublishingHandler
             if ($eligible === []) {
                 return ContentProjectActionResult::fail(
                     ContentProjectActionCodes::VALIDATION_FAILED,
-                    'No returnable items (Published cannot return via this action).',
+                    'No returnable items (đang xuất bản không thể trả về).',
                     $projectId,
                 );
             }

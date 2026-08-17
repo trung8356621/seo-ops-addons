@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 // Composition root: register built-in modules BEFORE SeoArticleEditor/runtime singleton.
 import './editor/modules';
 import { registerDomainSaveOwners, unregisterDomainSaveOwners } from './editor/domains';
+import { clearStaleEditorAssetReloadFlag } from './editor/runtime/staleEditorAssets';
 import SeoArticleEditor from './components/SeoArticleEditor';
 import WordPressMediaRenameModal from '@wordpress-addon/components/WordPressMediaRenameModal.jsx';
 import '../css/article-editor.css';
@@ -1276,6 +1277,8 @@ function mountArticleEditorPage() {
     if (!rootElement) {
         return;
     }
+
+    clearStaleEditorAssetReloadFlag();
 
     const livewireId = String(window.__SEO_EDIT_ARTICLE_LIVEWIRE_ID__ ?? '');
     // One React root per DOM node. Empty Livewire id still counts as "already mounted"

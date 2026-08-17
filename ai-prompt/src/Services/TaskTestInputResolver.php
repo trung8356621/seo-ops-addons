@@ -135,6 +135,23 @@ final class TaskTestInputResolver
         $siteId = (int) ($task->site_id ?? 0);
         $postType = SeoProjectTask::normalizePostType($task->post_type);
 
+        if ($cleanRestart) {
+            return $this->stampProjectTaskOrigin(
+                $this->resolveCreateArticleForCleanRestart(
+                    $task,
+                    $scopeArticles,
+                    $keyword,
+                    $title,
+                    $secondaryDescription,
+                    $galleryDescription,
+                    $loaiSanPham,
+                    $siteId,
+                    $postType,
+                ),
+                $task,
+            );
+        }
+
         return $this->stampProjectTaskOrigin(
             $this->withOptionalPromptInputs(
                 $this->withProductPromptVariables(
@@ -221,7 +238,106 @@ final class TaskTestInputResolver
     }
 
     /**
-     * @param  null|callable(Builder): void  $scopeArticles
+     * CREATE «Run again» / full rerun: keep the linked article row, force AI from task keyword.
+     * Must not resolve-by-title (stale generated title) or reuse outline/body.
+     *
+     * @param  null|callable(\Illuminate\Database\Eloquent\Builder): void  $scopeArticles
+     */
+    private function resolveCreateArticleForCleanRestart(
+        SeoProjectTask $task,
+        ?callable $scopeArticles,
+        string $keyword,
+        string $title,
+        string $secondaryDescription,
+        string $galleryDescription,
+        string $loaiSanPham,
+        int $siteId,
+        string $postType,
+    ): TaskTestContext {
+        $this->articleScope = $scopeArticles;
+
+        try {
+            $articleId = (int) ($task->article_id ?? 0);
+            $article = $articleId > 0 ? $this->articlesQuery()->find($articleId) : null;
+
+            if ($article instanceof SeoArticle) {
+                $article->loadMissing(['articleMetas', 'site']);
+                $context = $this->contextFromArticle($article, 'id')
+                    ->withProjectTaskType(SeoProjectTask::TYPE_CREATE)
+                    ->withArticle($article, true, 'id');
+            } else {
+                $context = $this->applyProjectPostType(
+                    $this->contextForNewArticleOnSite(
+                        $title,
+                        $keyword,
+                        $siteId,
+                        $postType,
+                        $scopeArticles,
+                        copyMissingTitleKeyword: false,
+                    )->withProjectTaskType(SeoProjectTask::TYPE_CREATE),
+                    $postType,
+                );
+            }
+
+            $variables = $context->variables;
+            $variables['rerun_scope'] = 'full';
+            $variables['force_ai_regenerate'] = 'true';
+            unset(
+                $variables['article_writing_raw_input'],
+                $variables['article_writing_formatted'],
+                $variables['article_generation_source'],
+                $variables['outline_id'],
+                $variables['outline_version'],
+                $variables['outline_source'],
+                $variables['outline_marker_found'],
+                $variables['writing_instructions_marker_found'],
+                $variables['artifact_version'],
+                $variables['artifact_hash'],
+            );
+
+            $taskSiteId = (int) ($task->site_id ?? 0);
+            if ($context->siteId === null && $taskSiteId > 0) {
+                $context = $context->withSiteId($taskSiteId);
+            }
+
+            $context = $this->withOptionalPromptInputs(
+                $this->withProductPromptVariables(
+                    $this->applyProjectPostType(
+                        $context->withVariables($variables),
+                        $postType,
+                    ),
+                    $galleryDescription,
+                    $loaiSanPham,
+                ),
+                $keyword,
+                $title,
+                $secondaryDescription,
+            );
+
+            $variables = $context->variables;
+            $keywordNorm = ContentProjectItemIdentity::normalize($keyword);
+            if ($keywordNorm !== '') {
+                $variables['focus_keyword'] = $keywordNorm;
+                $variables['keyword'] = $keywordNorm;
+                $variables['topic'] = $keywordNorm;
+                $explicitTitle = ContentProjectItemIdentity::normalize($title);
+                $articleTitle = ContentProjectItemIdentity::normalize(
+                    $context->article?->title !== null ? (string) $context->article->title : null,
+                );
+                if ($explicitTitle === '' || ($articleTitle !== '' && $explicitTitle === $articleTitle)) {
+                    $variables['post_title'] = $keywordNorm;
+                    $variables['title'] = $keywordNorm;
+                }
+            }
+
+            return $context->withVariables($variables);
+        } finally {
+            $this->articleScope = null;
+        }
+    }
+
+    /**
+     * @param  null|callable(\Illuminate\Database\Eloquent\Builder): void  $scopeArticles
      */
     private function resolveExistingArticleRewrite(
         SeoProjectTask $task,

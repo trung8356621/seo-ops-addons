@@ -359,11 +359,14 @@ final class CreateArticlesFromTaskService
         }
 
         try {
-            if ($projectType === SeoProjectTask::TYPE_REWRITE) {
-                if ((string) ($context->variables['rerun_scope'] ?? '') === 'full') {
-                    return $this->runOutlineThenArticleForContext($context, $resolvedSiteId);
-                }
+            if ((string) ($context->variables['rerun_scope'] ?? '') === 'full') {
+                return $this->runOutlineThenArticleForContext(
+                    $this->withForcedAiRegenerate($context, 'outline'),
+                    $resolvedSiteId,
+                );
+            }
 
+            if ($projectType === SeoProjectTask::TYPE_REWRITE) {
                 // «Tạo lại bài từ dàn ý» — content node only, không chạy lại outline.
                 return $this->runArticleWritingForContext(
                     $context,

@@ -232,6 +232,48 @@ describe('splitParagraphAtCursor / changeCurrentBlockType', () => {
         assert.equal(blockTexts(next)[0].level, 3);
         assert.equal(blockTexts(next)[0].text, 'Herschel Supply Co.');
     });
+
+    it('lifts heading out of listItem instead of nesting (schema paragraph block*)', () => {
+        const listSchema = new Schema({
+            nodes: {
+                doc: { content: 'block+' },
+                paragraph: { group: 'block', content: 'inline*' },
+                heading: {
+                    group: 'block',
+                    content: 'inline*',
+                    attrs: { level: { default: 2 }, outlineVisible: { default: true } },
+                },
+                bulletList: { group: 'block', content: 'listItem+' },
+                listItem: { content: 'paragraph block*', defining: true },
+                text: { group: 'inline' },
+            },
+            marks: { bold: {} },
+        });
+        const bold = listSchema.marks.bold.create();
+        const paragraphNode = listSchema.nodes.paragraph.create(null, [
+            listSchema.text('Herschel Supply Co', [bold]),
+            listSchema.text(' – mô tả'),
+        ]);
+        const doc = listSchema.nodes.doc.create(null, [
+            listSchema.nodes.bulletList.create(null, [
+                listSchema.nodes.listItem.create(null, [paragraphNode]),
+            ]),
+        ]);
+        let from = 3;
+        doc.descendants((node, pos) => {
+            if (node.isText && node.text === 'Herschel Supply Co') {
+                from = pos;
+            }
+        });
+        const base = EditorState.create({ schema: listSchema, doc });
+        const state = base.apply(base.tr.setSelection(TextSelection.create(doc, from)));
+        const next = apply(state, changeCurrentBlockType, { nodeType: 'heading', level: 3 });
+        assert.equal(next.doc.childCount, 1);
+        assert.equal(next.doc.firstChild.type.name, 'heading');
+        assert.equal(next.doc.firstChild.attrs.level, 3);
+        assert.match(next.doc.firstChild.textContent, /Herschel Supply Co/);
+        next.doc.check();
+    });
 });
 
 describe('outline heading mutations', () => {

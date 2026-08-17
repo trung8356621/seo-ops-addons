@@ -109,18 +109,20 @@ final class PublishingQueueItemActionsPresenter
         $cancelPendingDelivery = $isAwaiting;
 
         $removeFromQueue = ! $activelyPublishing && in_array($state, [
-            PublishingQueueStateClassifier::UNSCHEDULED,
             PublishingQueueStateClassifier::FAILED,
             PublishingQueueStateClassifier::RETRY_WAIT,
             PublishingQueueStateClassifier::NEEDS_ATTENTION,
         ], true);
 
-        // Avoid duplicate "Bỏ khỏi" / "Trả về" for unscheduled — one leave-queue action.
-        $returnToContentProject = in_array($state, [
+        // Unscheduled + published: one leave-queue action = return to Content Project
+        // (undo accidental handoff). Never while an active publisher is in-flight.
+        $returnToContentProject = ! $activelyPublishing && ! $isAwaiting && ! $isPublishing && in_array($state, [
+            PublishingQueueStateClassifier::UNSCHEDULED,
             PublishingQueueStateClassifier::SCHEDULED,
             PublishingQueueStateClassifier::FAILED,
             PublishingQueueStateClassifier::RETRY_WAIT,
             PublishingQueueStateClassifier::NEEDS_ATTENTION,
+            PublishingQueueStateClassifier::PUBLISHED,
         ], true);
 
         $viewError = in_array($state, [

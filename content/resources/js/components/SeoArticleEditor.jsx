@@ -1,6 +1,7 @@
 ﻿import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import BlockFormatToolbar from './BlockFormatToolbar';
+import { BlockInsertBar, BlockInsertMenuBar } from './BlockInsertMenu';
 import BlockEditorResizeHandle, { useBlockEditorHeight } from './BlockEditorResizeHandle';
 import { EditorInspectorBubbleHost } from '../editor/host/EditorInspectorBubbleHost';
 import ArticleHtmlInspectorModal from './ArticleHtmlInspectorModal';
@@ -42,8 +43,10 @@ import {
 } from '../utils/editorInsertionContext';
 import {
     bindEditorCommandHost,
+    executeEditorCommand,
     unbindEditorCommandHost,
 } from '../utils/editorCommands';
+import { withinSectionMoveAvailability } from '../utils/articleEditorBlockReorder';
 
 import { collectContentImagesFromArticle } from '@media-addon/utils/contentImageCounter.js';
 import {
@@ -1858,7 +1861,37 @@ export default function SeoArticleEditor({
                                                         return null;
                                                     }
 
+                                                    const isOutlineLockedHeadingBlock =
+                                                        outlineHasSavedHeadings &&
+                                                        blockHasOutlineHeading(block) &&
+                                                        !sectionHeadingBlockIds.has(block.id);
                                                     const isActive = activeBlockId === block.id;
+                                                    const showInsert = isActive && !tempMerge;
+                                                    const showMoveButtons = showInsert && !isOutlineLockedHeadingBlock;
+                                                    const canMovePrevSection = sectionIndex > 0;
+                                                    const canMoveNextSection = sectionIndex < editorSections.length - 1;
+                                                    const editorWritable = !sessionReadOnly
+                                                        && !window.__SEO_EDITOR_READ_ONLY__
+                                                        && canMutateEditor();
+                                                    const withinMove = withinSectionMoveAvailability(visibleBlockIds, block.id);
+                                                    const canMoveUpWithinSection = editorWritable && withinMove.canMoveUp;
+                                                    const canMoveDownWithinSection = editorWritable && withinMove.canMoveDown;
+                                                    const handleMovePrevSection = () => moveBlockToSection(block.id, 'prev');
+                                                    const handleMoveNextSection = () => moveBlockToSection(block.id, 'next');
+                                                    const handleMoveUpWithinSection = () => {
+                                                        executeEditorCommand('move_block_within_section', {
+                                                            sectionId: section.id,
+                                                            blockId: block.id,
+                                                            direction: 'up',
+                                                        }, { notifyOnFailure: false });
+                                                    };
+                                                    const handleMoveDownWithinSection = () => {
+                                                        executeEditorCommand('move_block_within_section', {
+                                                            sectionId: section.id,
+                                                            blockId: block.id,
+                                                            direction: 'down',
+                                                        }, { notifyOnFailure: false });
+                                                    };
                                                     const jumpTarget = outlineJumpTarget?.blockId === block.id
                                                         ? outlineJumpTarget
                                                         : null;
@@ -1869,6 +1902,39 @@ export default function SeoArticleEditor({
                                                             data-seo-block-id={block.id}
                                                             className={`seo-editor-block-slot ${isActive ? 'is-active' : ''}`}
                                                         >
+                                                            {showInsert ? (
+                                                                <>
+                                                                    <BlockInsertBar
+                                                                        position="before"
+                                                                        open={
+                                                                            insertMenu?.blockId === block.id &&
+                                                                            insertMenu?.position === 'before'
+                                                                        }
+                                                                        onToggle={() => toggleInsertMenu(block.id, 'before')}
+                                                                        showMoveButtons={showMoveButtons}
+                                                                        canMovePrevSection={canMovePrevSection}
+                                                                        canMoveNextSection={canMoveNextSection}
+                                                                        canMoveUpWithinSection={canMoveUpWithinSection}
+                                                                        canMoveDownWithinSection={canMoveDownWithinSection}
+                                                                        onMovePrevSection={handleMovePrevSection}
+                                                                        onMoveNextSection={handleMoveNextSection}
+                                                                        onMoveUpWithinSection={handleMoveUpWithinSection}
+                                                                        onMoveDownWithinSection={handleMoveDownWithinSection}
+                                                                    />
+                                                                    {insertMenu?.blockId === block.id &&
+                                                                    insertMenu?.position === 'before' ? (
+                                                                        <BlockInsertMenuBar
+                                                                            faqShortcodeDisabled={articleHasFaqShortcode(blocks)}
+                                                                            imageInsertDisabled={section.isIntro}
+                                                                            onClose={() => setInsertMenu(null)}
+                                                                            onInsert={(type) =>
+                                                                                insertBlockRelative(block.id, 'before', type)
+                                                                            }
+                                                                        />
+                                                                    ) : null}
+                                                                </>
+                                                            ) : null}
+
                                                             <BlockEditor
                                                                 block={block}
                                                                 sectionId={section.id}
@@ -1925,6 +1991,39 @@ export default function SeoArticleEditor({
                                                                 focusHeadingIndex={jumpTarget?.headingIndex ?? null}
                                                                 focusHeadingToken={jumpTarget?.token ?? 0}
                                                             />
+
+                                                            {showInsert ? (
+                                                                <>
+                                                                    <BlockInsertBar
+                                                                        position="after"
+                                                                        open={
+                                                                            insertMenu?.blockId === block.id &&
+                                                                            insertMenu?.position === 'after'
+                                                                        }
+                                                                        onToggle={() => toggleInsertMenu(block.id, 'after')}
+                                                                        showMoveButtons={showMoveButtons}
+                                                                        canMovePrevSection={canMovePrevSection}
+                                                                        canMoveNextSection={canMoveNextSection}
+                                                                        canMoveUpWithinSection={canMoveUpWithinSection}
+                                                                        canMoveDownWithinSection={canMoveDownWithinSection}
+                                                                        onMovePrevSection={handleMovePrevSection}
+                                                                        onMoveNextSection={handleMoveNextSection}
+                                                                        onMoveUpWithinSection={handleMoveUpWithinSection}
+                                                                        onMoveDownWithinSection={handleMoveDownWithinSection}
+                                                                    />
+                                                                    {insertMenu?.blockId === block.id &&
+                                                                    insertMenu?.position === 'after' ? (
+                                                                        <BlockInsertMenuBar
+                                                                            faqShortcodeDisabled={articleHasFaqShortcode(blocks)}
+                                                                            imageInsertDisabled={section.isIntro}
+                                                                            onClose={() => setInsertMenu(null)}
+                                                                            onInsert={(type) =>
+                                                                                insertBlockRelative(block.id, 'after', type)
+                                                                            }
+                                                                        />
+                                                                    ) : null}
+                                                                </>
+                                                            ) : null}
                                                         </div>
                                                     );
                                                 })}
@@ -1999,6 +2098,7 @@ export default function SeoArticleEditor({
                 {mediaPickerRoot ? (
                     <SharedMediaPicker
                         articleId={articleId}
+                        siteId={siteId}
                         rootEl={mediaPickerRoot}
                         wordpressAvailable={Boolean(editorSettings?.wordpress_connected ?? true)}
                         articleDomain={siteDomainRef.current || siteDomain}

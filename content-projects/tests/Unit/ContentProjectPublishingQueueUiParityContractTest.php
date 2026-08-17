@@ -110,7 +110,8 @@ final class ContentProjectPublishingQueueUiParityContractTest extends TestCase
         ]);
         self::assertTrue($unscheduled['schedule']);
         self::assertTrue($unscheduled['publish_now']);
-        self::assertTrue($unscheduled['remove_from_queue']);
+        self::assertTrue($unscheduled['return_to_content_project']);
+        self::assertFalse($unscheduled['remove_from_queue']);
         self::assertFalse($unscheduled['retry_publish']);
         self::assertFalse($unscheduled['publish_now'] && $unscheduled['retry_now']);
 
@@ -130,6 +131,7 @@ final class ContentProjectPublishingQueueUiParityContractTest extends TestCase
             'wp_permalink' => 'https://example.com/hello/',
         ]);
         self::assertTrue($published['view_on_wordpress']);
+        self::assertTrue($published['return_to_content_project']);
         self::assertFalse($published['schedule']);
     }
 }

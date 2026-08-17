@@ -17,6 +17,11 @@ export { EDITOR_RUNTIME_SLOTS, isKnownEditorRuntimeSlot } from './editorRuntimeS
 export { EditorRuntimeSlot } from './EditorRuntimeSlot';
 export { EditorModuleErrorBoundary } from './EditorModuleErrorBoundary';
 export {
+    clearStaleEditorAssetReloadFlag,
+    isEditorChunkLoadError,
+    reloadForStaleEditorAssetsOnce,
+} from './staleEditorAssets';
+export {
     selectEnabledModules,
     selectSidebarEntries,
     selectSlotItems,

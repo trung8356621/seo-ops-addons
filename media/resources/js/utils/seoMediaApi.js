@@ -675,8 +675,38 @@ export async function updateSeoMediaMeta(items) {
     return data;
 }
 
+export function isEditorTypingTarget(target) {
+    return Boolean(
+        target?.closest?.(
+            'input, textarea, select, [contenteditable="true"], [contenteditable=""], .ProseMirror',
+        ),
+    );
+}
+
+function clipboardHasPlainText(clipboard) {
+    return String(clipboard?.getData?.('text/plain') ?? '').trim() !== '';
+}
+
+function clipboardImageFile(clipboard) {
+    const items = clipboard?.items;
+    if (!items?.length) {
+        return null;
+    }
+
+    for (const item of items) {
+        if (item.type.indexOf('image') === 0) {
+            const file = item.getAsFile();
+            if (file) {
+                return file;
+            }
+        }
+    }
+
+    return null;
+}
+
 /**
- * Xử lý paste ảnh từ clipboard (dùng cho Tiptap và khối ảnh trống).
+ * Xử lý paste ảnh từ clipboard (dùng cho Tiptap, khối ảnh trống, featured picker).
  * @returns {boolean} true nếu đã xử lý (cần preventDefault ở caller nếu sync)
  */
 export function processClipboardImagePaste(event, options = {}) {
@@ -688,10 +718,19 @@ export function processClipboardImagePaste(event, options = {}) {
         onError,
         notifyOnSuccess = false,
         notifyOnError = true,
+        preferTextPasteInInputs = false,
     } = options;
 
     const clipboard = event.clipboardData;
-    const items = clipboard?.items;
+    if (!clipboard) {
+        return false;
+    }
+
+    if (preferTextPasteInInputs && isEditorTypingTarget(event.target) && clipboardHasPlainText(clipboard)) {
+        return false;
+    }
+
+    const items = clipboard.items;
     if (!items?.length) {
         return false;
     }
@@ -710,16 +749,7 @@ export function processClipboardImagePaste(event, options = {}) {
         return true;
     }
 
-    let imageFile = null;
-    for (const item of items) {
-        if (item.type.indexOf('image') === 0) {
-            imageFile = item.getAsFile();
-            if (imageFile) {
-                break;
-            }
-        }
-    }
-
+    const imageFile = clipboardImageFile(clipboard);
     if (!imageFile) {
         return false;
     }

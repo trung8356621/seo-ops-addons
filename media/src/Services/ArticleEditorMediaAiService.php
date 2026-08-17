@@ -646,6 +646,7 @@ final class ArticleEditorMediaAiService
         $variables = array_merge(
             [
                 'post_title' => $postTitle,
+                'title' => $postTitle,
                 'post_content' => Str::limit($bodyPlain, 3000),
                 'focus_keyword' => $focusKeyword,
                 'selected_text' => $promptSelectionText,
@@ -729,6 +730,20 @@ final class ArticleEditorMediaAiService
             }
 
             $filtered[$name] = $value;
+        }
+
+        if (in_array('title', $allowedNames, true) && ! isset($filtered['title'])) {
+            $title = $this->compactVariableValue((string) ($variables['title'] ?? $variables['post_title'] ?? ''));
+            if ($title !== '') {
+                $filtered['title'] = $title;
+            }
+        }
+
+        if (in_array('post_title', $allowedNames, true) && ! isset($filtered['post_title'])) {
+            $postTitle = $this->compactVariableValue((string) ($variables['post_title'] ?? $variables['title'] ?? ''));
+            if ($postTitle !== '') {
+                $filtered['post_title'] = $postTitle;
+            }
         }
 
         if (isset($filtered[PromptLoaiSanPhamVariable::NAME])) {

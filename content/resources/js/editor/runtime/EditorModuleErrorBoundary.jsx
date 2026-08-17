@@ -1,4 +1,8 @@
 import React from 'react';
+import {
+    isEditorChunkLoadError,
+    reloadForStaleEditorAssetsOnce,
+} from './staleEditorAssets';
 
 /**
  * Isolate module slot render failures from TipTap core.
@@ -6,11 +10,11 @@ import React from 'react';
 export class EditorModuleErrorBoundary extends React.Component {
     constructor(props) {
         super(props);
-        this.state = { hasError: false, error: null };
+        this.state = { hasError: false, error: null, reloading: false };
     }
 
     static getDerivedStateFromError(error) {
-        return { hasError: true, error };
+        return { hasError: true, error, reloading: false };
     }
 
     componentDidCatch(error, info) {
@@ -21,10 +25,22 @@ export class EditorModuleErrorBoundary extends React.Component {
             error,
             info?.componentStack,
         );
+
+        // Stale Vite chunk after rebuild — React.lazy keeps the failed promise; Retry alone cannot recover.
+        if (isEditorChunkLoadError(error) && reloadForStaleEditorAssetsOnce()) {
+            this.setState({ reloading: true });
+        }
     }
 
     handleRetry = () => {
-        this.setState({ hasError: false, error: null });
+        if (isEditorChunkLoadError(this.state.error)) {
+            if (typeof window !== 'undefined') {
+                window.location.reload();
+            }
+            return;
+        }
+
+        this.setState({ hasError: false, error: null, reloading: false });
         if (typeof this.props.onRetry === 'function') {
             this.props.onRetry();
         }
@@ -37,21 +53,30 @@ export class EditorModuleErrorBoundary extends React.Component {
                     error: this.state.error,
                     retry: this.handleRetry,
                     moduleId: this.props.moduleId,
+                    reloading: this.state.reloading,
+                    isChunkLoadError: isEditorChunkLoadError(this.state.error),
                 });
             }
+
+            const chunkMiss = isEditorChunkLoadError(this.state.error);
+
             return (
                 <div className="rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100">
                     <div className="font-medium">
-                        Module error
-                        {this.props.moduleId ? `: ${this.props.moduleId}` : ''}
+                        {this.state.reloading || chunkMiss
+                            ? 'Editor assets outdated — reloading…'
+                            : 'Module error'}
+                        {!chunkMiss && this.props.moduleId ? `: ${this.props.moduleId}` : ''}
                     </div>
-                    <button
-                        type="button"
-                        className="mt-1 underline"
-                        onClick={this.handleRetry}
-                    >
-                        Retry
-                    </button>
+                    {!this.state.reloading ? (
+                        <button
+                            type="button"
+                            className="mt-1 underline"
+                            onClick={this.handleRetry}
+                        >
+                            {chunkMiss ? 'Reload page' : 'Retry'}
+                        </button>
+                    ) : null}
                 </div>
             );
         }

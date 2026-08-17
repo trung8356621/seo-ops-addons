@@ -248,7 +248,7 @@ describe('canonical article block split', () => {
         assert.equal(state.doc, before);
     });
 
-    it('paragraph split plan focuses the selected body block', () => {
+    it('paragraph split plan keeps focus on the remainder, not the extracted slice', () => {
         const state = selectIn(
             EditorState.create({
                 schema,
@@ -259,7 +259,52 @@ describe('canonical article block split', () => {
         const plan = planCanonicalArticleBlockSplit(state, { mode: 'paragraph' });
         assert.equal(plan.ok, true);
         assert.deepEqual(plan.contents, ['<p>AAA </p>', '<p>BBB</p>', '<p> CCC</p>']);
-        assert.equal(plan.focusIndex, 1);
+        assert.equal(plan.focusIndex, 2);
+    });
+
+    it('extract p inside list yields a plain paragraph, not a nested list item', () => {
+        const listSchema = new Schema({
+            nodes: {
+                doc: { content: 'block+' },
+                paragraph: { group: 'block', content: 'inline*', toDOM: () => ['p', 0] },
+                heading: {
+                    group: 'block',
+                    content: 'inline*',
+                    attrs: { level: { default: 2 } },
+                    toDOM: (node) => [`h${node.attrs.level}`, 0],
+                },
+                bulletList: { group: 'block', content: 'listItem+', toDOM: () => ['ul', 0] },
+                listItem: { content: 'paragraph block*', defining: true, toDOM: () => ['li', 0] },
+                text: { group: 'inline' },
+            },
+            marks: { bold: { toDOM: () => ['strong', 0] } },
+        });
+        const bold = listSchema.marks.bold.create();
+        const doc = listSchema.nodes.doc.create(null, [
+            listSchema.nodes.bulletList.create(null, [
+                listSchema.nodes.listItem.create(null, [
+                    listSchema.nodes.paragraph.create(null, [
+                        listSchema.text('Herschel Supply Co', [bold]),
+                        listSchema.text(' – mô tả'),
+                    ]),
+                ]),
+            ]),
+        ]);
+        let from;
+        let to;
+        doc.descendants((node, pos) => {
+            if (node.isText && node.text === 'Herschel Supply Co') {
+                from = pos;
+                to = pos + node.nodeSize;
+            }
+        });
+        const base = EditorState.create({ schema: listSchema, doc });
+        const state = base.apply(base.tr.setSelection(TextSelection.create(doc, from, to)));
+        const plan = planCanonicalArticleBlockSplit(state, { mode: 'paragraph' });
+        assert.equal(plan.ok, true, JSON.stringify(plan));
+        assert.match(plan.contents[0], /^<p><strong>Herschel Supply Co<\/strong><\/p>$/);
+        assert.equal(plan.contents[0].includes('<ul>'), false);
+        assert.match(plan.contents.join('\n'), /<ul>/);
     });
 
     it('cursor plan is a no-op at the start of a paragraph', () => {

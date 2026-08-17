@@ -1,5 +1,8 @@
 import { stripEditorTransientMarkup } from './articleEditorTransientMarkup';
 import { normalizeInlineLinks } from './inlineLinkNormalizer';
+import { liftHeadingsOutOfListItems } from './listItemHeadingSanitize.js';
+
+export { liftHeadingsOutOfListItems } from './listItemHeadingSanitize.js';
 
 const HEADING_TAG_RE = /^h([1-6])$/i;
 const BLOCK_WRAPPER_TAGS = new Set(['p', 'div']);
@@ -169,7 +172,8 @@ function rebuildStandaloneHeadingHtml(originalHtml, innerHtml, level) {
  * TipTap cần một paragraph sau heading để đặt con trỏ; chỉ dùng khi hydrate editor, không lưu state.
  */
 export function ensureTiptapHeadingCursorParagraph(html) {
-    const trimmed = (html || '').trim();
+    const lifted = liftHeadingsOutOfListItems(html);
+    const trimmed = (lifted || '').trim();
     if (!trimmed || leadingHeadingLevel(trimmed) === null) {
         return trimmed;
     }

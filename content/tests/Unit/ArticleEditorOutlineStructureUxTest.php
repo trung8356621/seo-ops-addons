@@ -92,13 +92,16 @@ final class ArticleEditorOutlineStructureUxTest extends TestCase
         self::assertStringContainsString('focusHeadingIndex', $blockEditor);
     }
 
-    public function test_floating_block_insert_bar_removed_from_editor_shell(): void
+    public function test_active_block_insert_bars_remain_in_editor_shell(): void
     {
         $editor = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content/resources/js/components/SeoArticleEditor.jsx',
         );
 
-        self::assertStringNotContainsString('BlockInsertBar', $editor);
+        self::assertStringContainsString('BlockInsertBar', $editor);
+        self::assertStringContainsString('BlockInsertMenuBar', $editor);
+        self::assertStringContainsString('position="before"', $editor);
+        self::assertStringContainsString('position="after"', $editor);
         self::assertStringContainsString('EditorContextMenu', (string) file_get_contents(
             ProjectRoot::addonsPath().'/content/resources/js/components/ActiveBlockEditor.jsx',
         ));

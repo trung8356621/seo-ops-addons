@@ -287,7 +287,7 @@ final class ContentProjectPublishingQueueService
     }
 
     /**
-     * Return to Content Project working set before Published.
+     * Return to Content Project working set (clears queue handoff; does not unpublish WP).
      *
      * @param  list<int>  $taskIds
      */

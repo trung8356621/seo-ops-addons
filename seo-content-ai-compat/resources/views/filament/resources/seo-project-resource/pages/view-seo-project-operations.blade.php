@@ -744,83 +744,88 @@
             </div>
         </div>
 
-        {{-- Missing article recreate modal — Alpine open first; confirm clears + reruns --}}
-        <div
-            x-show="missingArticleOpen"
-            x-cloak
-            x-transition.opacity.duration.150ms
-            class="fixed inset-0 z-[60] flex items-center justify-center bg-gray-950/50 p-4 backdrop-blur-[2px]"
-            @keydown.escape.window="if (missingArticleOpen) { closeMissingArticleConfirmModal() }"
-        >
+        {{-- Missing article recreate modal — teleport to body (z-index + padding) --}}
+        <template x-teleport="body">
             <div
                 x-show="missingArticleOpen"
-                x-transition:enter="ease-out duration-150"
-                x-transition:enter-start="opacity-0 translate-y-1 scale-[0.98]"
-                x-transition:enter-end="opacity-100 translate-y-0 scale-100"
-                class="w-full max-w-md overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl ring-1 ring-black/5 dark:border-gray-700 dark:bg-gray-900 dark:ring-white/10"
-                @click.outside="closeMissingArticleConfirmModal()"
+                x-cloak
+                x-transition.opacity.duration.150ms
+                class="cp-ops-dialog-overlay"
+                @keydown.escape.window="if (missingArticleOpen) { closeMissingArticleConfirmModal() }"
+                @click.self="closeMissingArticleConfirmModal()"
             >
-                <div class="px-5 pt-5 pb-3">
-                    <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">
-                        {{ __('seo-content-ai::filament.projects.missing_article_confirm_title') }}
-                    </h3>
-                    <p class="mt-2 text-sm text-gray-600 dark:text-gray-300">
-                        {{ __('seo-content-ai::filament.projects.missing_article_confirm_body') }}
-                    </p>
-                    <p class="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
-                        <span class="font-medium" x-text="missingArticleTitle"></span>
-                        <template x-if="missingArticlePreviousId > 0">
-                            <span class="ml-1 text-xs opacity-80">(ID <span x-text="missingArticlePreviousId"></span>)</span>
-                        </template>
-                    </p>
-                    <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                        {{ __('seo-content-ai::filament.projects.missing_article_confirm_hint') }}
-                    </p>
-                </div>
-                <div class="flex justify-end gap-2 border-t border-gray-100 bg-gray-50 px-5 py-3 dark:border-gray-800 dark:bg-gray-950/40">
-                    <button
-                        type="button"
-                        class="fi-btn fi-btn-color-gray fi-size-sm"
-                        @click="closeMissingArticleConfirmModal()"
-                        :disabled="missingArticleBusy"
-                    >
-                        {{ __('seo-content-ai::filament.projects.missing_article_confirm_cancel') }}
-                    </button>
-                    <button
-                        type="button"
-                        class="fi-btn fi-btn-color-primary fi-size-sm inline-flex items-center gap-1"
-                        @click="confirmMissingArticleRecreate()"
-                        :disabled="missingArticleBusy"
-                        :class="{ 'opacity-50 pointer-events-none': missingArticleBusy }"
-                    >
-                        <svg x-show="missingArticleBusy" class="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-                        </svg>
-                        <span>{{ __('seo-content-ai::filament.projects.missing_article_confirm_create') }}</span>
-                    </button>
+                <div
+                    x-show="missingArticleOpen"
+                    x-transition:enter="ease-out duration-150"
+                    x-transition:enter-start="opacity-0 translate-y-1 scale-[0.98]"
+                    x-transition:enter-end="opacity-100 translate-y-0 scale-100"
+                    class="cp-ops-dialog cp-ops-dialog--sm"
+                    @click.outside="closeMissingArticleConfirmModal()"
+                >
+                    <div class="cp-ops-dialog__header">
+                        <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">
+                            {{ __('seo-content-ai::filament.projects.missing_article_confirm_title') }}
+                        </h3>
+                        <p class="mt-2 text-sm text-gray-600 dark:text-gray-300">
+                            {{ __('seo-content-ai::filament.projects.missing_article_confirm_body') }}
+                        </p>
+                        <p class="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+                            <span class="font-medium" x-text="missingArticleTitle"></span>
+                            <template x-if="missingArticlePreviousId > 0">
+                                <span class="ml-1 text-xs opacity-80">(ID <span x-text="missingArticlePreviousId"></span>)</span>
+                            </template>
+                        </p>
+                        <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                            {{ __('seo-content-ai::filament.projects.missing_article_confirm_hint') }}
+                        </p>
+                    </div>
+                    <div class="cp-ops-dialog__footer flex justify-end gap-2">
+                        <button
+                            type="button"
+                            class="fi-btn fi-btn-color-gray fi-size-sm"
+                            @click="closeMissingArticleConfirmModal()"
+                            :disabled="missingArticleBusy"
+                        >
+                            {{ __('seo-content-ai::filament.projects.missing_article_confirm_cancel') }}
+                        </button>
+                        <button
+                            type="button"
+                            class="fi-btn fi-btn-color-primary fi-size-sm inline-flex items-center gap-1"
+                            @click="confirmMissingArticleRecreate()"
+                            :disabled="missingArticleBusy"
+                            :class="{ 'opacity-50 pointer-events-none': missingArticleBusy }"
+                        >
+                            <svg x-show="missingArticleBusy" class="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                            </svg>
+                            <span>{{ __('seo-content-ai::filament.projects.missing_article_confirm_create') }}</span>
+                        </button>
+                    </div>
                 </div>
             </div>
-        </div>
+        </template>
 
-        {{-- Select Existing Article modal — Alpine open first; Livewire search/attach --}}
+        {{-- Select Existing Article modal — teleport to body (z-index + padding) --}}
+        <template x-teleport="body">
         <div
             x-show="selectArticleOpen"
             x-cloak
             x-transition.opacity.duration.150ms
-            class="fixed inset-0 z-[60] flex items-center justify-center bg-gray-950/50 p-4 backdrop-blur-[2px]"
+            class="cp-ops-dialog-overlay"
             @keydown.escape.window="if (selectArticleOpen) { closeSelectExistingArticleModal() }"
+            @click.self="closeSelectExistingArticleModal()"
         >
             <div
                 x-show="selectArticleOpen"
                 x-transition:enter="ease-out duration-150"
                 x-transition:enter-start="opacity-0 translate-y-1 scale-[0.98]"
                 x-transition:enter-end="opacity-100 translate-y-0 scale-100"
-                class="flex max-h-[min(85vh,42rem)] w-full max-w-xl flex-col overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl ring-1 ring-black/5 dark:border-gray-700 dark:bg-gray-900 dark:ring-white/10"
+                class="cp-ops-dialog"
                 @click.outside="closeSelectExistingArticleModal()"
             >
                 {{-- Header --}}
-                <div class="shrink-0 bg-gradient-to-b from-gray-50 to-white px-5 pt-5 pb-4 dark:from-gray-800/80 dark:to-gray-900">
+                <div class="cp-ops-dialog__header shrink-0 bg-gradient-to-b from-gray-50 to-white dark:from-gray-800/80 dark:to-gray-900">
                     <div class="flex items-start gap-3">
                         <div class="mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-warning-50 text-warning-600 ring-1 ring-warning-200 dark:bg-warning-500/10 dark:text-warning-400 dark:ring-warning-500/30">
                             <x-filament::icon icon="heroicon-o-link" class="h-5 w-5" />
@@ -903,8 +908,8 @@
                 </div>
 
                 {{-- Results (scroll) --}}
-                <div class="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-white dark:bg-gray-900" style="max-height: 18rem;">
-                    <div x-show="selectArticleLocalLoading || $wire.selectExistingArticleLoading" class="space-y-2 p-4">
+                <div class="cp-ops-dialog__scroll overscroll-contain bg-white dark:bg-gray-900" style="max-height: 18rem;">
+                    <div x-show="selectArticleLocalLoading || $wire.selectExistingArticleLoading" class="space-y-2">
                         @foreach (range(1, 3) as $_)
                             <div class="rounded-xl border border-gray-100 p-3 dark:border-gray-800">
                                 <div class="h-4 w-3/4 animate-pulse rounded bg-gray-100 dark:bg-gray-800"></div>
@@ -916,7 +921,7 @@
                         @endforeach
                     </div>
 
-                    <div x-show="!selectArticleLocalLoading && !$wire.selectExistingArticleLoading" class="p-2">
+                    <div x-show="!selectArticleLocalLoading && !$wire.selectExistingArticleLoading">
                         @forelse ($this->selectExistingArticleResults as $hit)
                             @php
                                 $hitId = (int) ($hit['id'] ?? 0);
@@ -975,7 +980,7 @@
                 </div>
 
                 {{-- Footer --}}
-                <div class="shrink-0 border-t border-gray-100 bg-gray-50/80 px-5 py-3 dark:border-gray-800 dark:bg-gray-800/40">
+                <div class="cp-ops-dialog__footer shrink-0">
                     <p class="flex items-start gap-2 text-xs leading-snug text-gray-500 dark:text-gray-400">
                         <x-filament::icon icon="heroicon-m-information-circle" class="mt-px h-4 w-4 shrink-0 text-gray-400" />
                         <span>{{ __('seo-content-ai::filament.projects.select_existing_article_no_generate') }}</span>
@@ -983,6 +988,7 @@
                 </div>
             </div>
         </div>
+        </template>
 
         {{-- Loading skeleton --}}
         <div wire:loading.delay.shortest wire:target="applySummaryFilter,clearFilters,search,generationFilter,lifecycleFilter,workflowFilter,reportingFilter,queueFilter,scheduledFilter,failedOnly,failureTypeFilter,gotoPage,previousPage,nextPage" class="space-y-2">

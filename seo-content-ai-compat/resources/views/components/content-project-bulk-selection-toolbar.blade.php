@@ -148,7 +148,7 @@
                             role="menuitem"
                             class="block w-full px-3 py-2 text-left text-sm hover:bg-gray-50 dark:hover:bg-gray-800"
                             wire:click="bulkReturn"
-                            wire:confirm="Trả các bài đã chọn về Content Project?"
+                            wire:confirm="Trả các bài đã chọn về Content Project? Bài trên WordPress (nếu đã xuất bản) không bị gỡ."
                             @click="moreOpen = false"
                         >Trả về Content Project</button>
                     </div>

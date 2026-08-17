@@ -138,6 +138,13 @@ final class ContentProjectRerunUnifyTest extends TestCase
         $create = $this->source(CreateArticlesFromTaskService::class);
         self::assertStringContainsString('function runRerunFromStepForContext', $create);
         self::assertStringContainsString('runPublishWorkflowForContext($context, $siteId)', $create);
+        $fullPos = strpos($create, "variables['rerun_scope'] ?? ''");
+        self::assertNotFalse($fullPos);
+        $rewritePos = strpos($create, 'TYPE_REWRITE', $fullPos);
+        $outlinePos = strpos($create, 'runOutlineThenArticleForContext', $fullPos);
+        self::assertNotFalse($outlinePos);
+        self::assertTrue($rewritePos === false || $outlinePos < $rewritePos, 'CREATE full rerun must outline+article before rewrite-only branch');
+        self::assertStringContainsString('withForcedAiRegenerate', $create);
     }
 
     public function test_engine_dispatches_worker_once_with_optional_sync(): void

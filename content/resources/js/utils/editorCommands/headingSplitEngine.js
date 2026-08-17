@@ -28,6 +28,87 @@ export function isSplittableTextblock(node) {
 }
 
 /**
+ * @param {import('@tiptap/pm/model').ResolvedPos} $pos
+ * @returns {number}
+ */
+export function listItemDepth($pos) {
+    for (let depth = $pos.depth; depth > 0; depth -= 1) {
+        const name = String($pos.node(depth)?.type?.name ?? '');
+        if (name === 'listItem' || name === 'list_item') {
+            return depth;
+        }
+    }
+
+    return 0;
+}
+
+/**
+ * listItem content is `paragraph block*` — heading cannot be the first/only child.
+ * Lift the textblock out of the list (split the list around it) then convert.
+ *
+ * @param {import('@tiptap/pm/state').EditorState} state
+ * @param {(tr: import('@tiptap/pm/state').Transaction) => void} [dispatch]
+ * @param {{
+ *   textblockDepth: number,
+ *   listItemDepth: number,
+ *   type: import('@tiptap/pm/model').NodeType,
+ *   attrs: object,
+ * }} opts
+ * @returns {boolean}
+ */
+function liftListItemTextblockToType(state, dispatch, opts) {
+    const { selection } = state;
+    const $from = selection.$from;
+    const liDepth = opts.listItemDepth;
+    const listDepth = liDepth - 1;
+    if (listDepth < 1) {
+        return false;
+    }
+
+    const listNode = $from.node(listDepth);
+    const listName = String(listNode?.type?.name ?? '');
+    if (listName !== 'bulletList' && listName !== 'bullet_list'
+        && listName !== 'orderedList' && listName !== 'ordered_list') {
+        return false;
+    }
+
+    const listPos = $from.before(listDepth);
+    const liIndex = $from.index(listDepth);
+    const textblock = $from.node(opts.textblockDepth);
+    const converted = opts.type.create(
+        { ...textblock.attrs, ...opts.attrs },
+        textblock.content,
+    );
+
+    const beforeItems = [];
+    const afterItems = [];
+    listNode.forEach((child, _offset, index) => {
+        if (index < liIndex) {
+            beforeItems.push(child);
+        } else if (index > liIndex) {
+            afterItems.push(child);
+        }
+    });
+
+    const nodes = [];
+    if (beforeItems.length > 0) {
+        nodes.push(listNode.type.create(listNode.attrs, beforeItems));
+    }
+    nodes.push(converted);
+    if (afterItems.length > 0) {
+        nodes.push(listNode.type.create(listNode.attrs, afterItems));
+    }
+    if (nodes.length === 0) {
+        return false;
+    }
+
+    const tr = state.tr.replaceWith(listPos, listPos + listNode.nodeSize, nodes);
+    dispatch?.(tr.scrollIntoView());
+
+    return true;
+}
+
+/**
  * @param {import('@tiptap/pm/model').Node} doc
  * @param {(node: import('@tiptap/pm/model').Node, pos: number, index: number) => boolean|void} visitor
  * @returns {{ node: import('@tiptap/pm/model').Node, pos: number, index: number }|null}
@@ -148,6 +229,21 @@ export function splitSelectionToBlockType(state, dispatch, options = {}) {
         ? headingAttrs(schema, options.level ?? parent.attrs?.level ?? 3, options.attrs ?? {})
         : (options.attrs ?? {});
 
+    const liDepth = listItemDepth($from);
+    // listItem = `paragraph block*` — không được để heading dẫn đầu bên trong li.
+    // Partial selection: từ chối (caller canonical split). Whole block: lift ra ngoài list.
+    if (nodeTypeName === 'heading' && liDepth > 0) {
+        if (before.size > 0 || after.size > 0) {
+            return false;
+        }
+
+        return changeCurrentBlockType(state, dispatch, {
+            nodeType: 'heading',
+            level: options.level,
+            attrs: options.attrs,
+        });
+    }
+
     if (before.size === 0 && after.size === 0) {
         const tr = state.tr.setNodeMarkup(parentPos, type, {
             ...parent.attrs,
@@ -248,6 +344,16 @@ export function changeCurrentBlockType(state, dispatch, options = {}) {
         if (sameLevel) {
             return false;
         }
+    }
+
+    const liDepth = listItemDepth($from);
+    if (nodeTypeName === 'heading' && liDepth > 0) {
+        return liftListItemTextblockToType(state, dispatch, {
+            textblockDepth: depth,
+            listItemDepth: liDepth,
+            type,
+            attrs: nextAttrs,
+        });
     }
 
     const tr = state.tr.setNodeMarkup(parentPos, type, {
@@ -433,6 +539,8 @@ export function insertHeadingAfterSection(state, dispatch, payload) {
 
 export default {
     textblockDepth,
+    listItemDepth,
+    isSplittableTextblock,
     splitSelectionToBlockType,
     splitParagraphAtCursor,
     changeCurrentBlockType,

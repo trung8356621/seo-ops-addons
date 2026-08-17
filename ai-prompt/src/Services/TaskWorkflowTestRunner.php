@@ -2478,6 +2478,10 @@ final class TaskWorkflowTestRunner
         if (in_array($rerunFromStep, ['article', 'outline'], true)) {
             return false;
         }
+        $rerunScope = strtolower(trim((string) ($context->variables['rerun_scope'] ?? '')));
+        if ($rerunScope === 'full') {
+            return false;
+        }
 
         // Viết lại / có rewriteMode → luôn gọi AI lại (tránh OK giả vì reuse body/dàn ý cũ).
         if ($context->projectTaskType === SeoProjectTask::TYPE_REWRITE

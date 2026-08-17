@@ -1316,13 +1316,38 @@ final class ViewSeoProject extends Page
         app(ContentProjectStaleArticleLinkService::class)->clearForFreshCreate($task);
         $this->closeMissingArticleConfirm();
 
+        $result = app(ContentProjectCommandBus::class)->dispatch(
+            new RerunProjectItemsCommand(
+                (int) $project->id,
+                [$resolvedTaskId],
+                SeoProjectRun::MODE_FULL,
+                [
+                    'generate_post_images' => $this->generatePostImages,
+                    'fresh_create' => true,
+                ],
+            ),
+            ActorContext::user(
+                auth()->id() !== null ? (int) auth()->id() : null,
+                (int) ($project->site_id ?? 0) ?: null,
+            ),
+        );
+
+        if (! $result->success) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.run_failed'))
+                ->body($result->message)
+                ->danger()
+                ->send();
+
+            return;
+        }
+
         Notification::make()
             ->title(__('seo-content-ai::filament.projects.missing_article_recreate_started'))
             ->success()
             ->send();
 
-        $fresh = $task->fresh();
-        $this->executeCreateOrRerun($project, $fresh instanceof SeoProjectTask ? $fresh : $task);
+        $this->invalidateOpsCache();
     }
 
     private function executeCreateOrRerun(SeoProject $project, SeoProjectTask $task): void

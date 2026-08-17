@@ -655,6 +655,13 @@ final class SeoProjectWorkflowRunService
                 cleanRestart: $cleanRestart,
             );
 
+            if ($cleanRestart && $fromStep === null && (bool) ($runSettings['rerun'] ?? false)) {
+                $variables = $context->variables;
+                $variables['rerun_scope'] = 'full';
+                $variables['force_ai_regenerate'] = 'true';
+                $context = $context->withVariables($variables);
+            }
+
             Log::info('seo.project_run.task.start', [
                 'run_id' => (int) $run->id,
                 'task_id' => (int) $task->id,

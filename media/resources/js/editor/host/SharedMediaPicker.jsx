@@ -1,6 +1,6 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, RefreshCw, X } from 'lucide-react';
+import { Plus, RefreshCw, Link as LinkIcon, Upload, X } from 'lucide-react';
 import { EditorModuleErrorBoundary } from '@content-addon/editor/runtime/EditorModuleErrorBoundary.jsx';
 import {
     closeMediaPicker,
@@ -12,6 +12,14 @@ import { csrfToken, seoArticleApiFetch } from '@seo-addon/utils/seoArticleApi.js
 import { t } from '@content-addon/utils/i18n.js';
 import { canMutateEditor } from '@content-addon/utils/editorSessionState.js';
 import { getEditorCommandHost } from '@content-addon/utils/editorCommands/index.js';
+import {
+    importSeoMediaFromUrl,
+    processClipboardImagePaste,
+} from '../../utils/seoMediaApi';
+import {
+    LOCAL_MEDIA_FILE_ACCEPT,
+    uploadLocalMediaFiles,
+} from '../../utils/seoLocalMediaUpload';
 import {
     addCustomPickerTab,
     loadCustomPickerTabs,
@@ -179,8 +187,26 @@ function emptyTabState() {
 /**
  * Shared Media Picker — immediate tab switch + in-memory SWR cache.
  */
+function pickerItemFromUpload(data) {
+    const seoMediaId = Number(data?.id ?? data?.seo_media_id ?? data?.seoMediaId ?? 0) || 0;
+    const url = String(data?.url || data?.src || '').trim();
+
+    return {
+        url,
+        alt: String(data?.alt_text || data?.alt || data?.slug || '').trim(),
+        slug: String(data?.slug || '').trim(),
+        id: seoMediaId,
+        seo_media_id: seoMediaId,
+        wp_attachment_id: Number(data?.wp_attachment_id ?? data?.wpAttachmentId ?? 0) || 0,
+        source: 'local',
+        media_type: 'image',
+        asset_key: seoMediaId > 0 ? `local:${seoMediaId}` : '',
+    };
+}
+
 export function SharedMediaPicker({
     articleId = null,
+    siteId = null,
     rootEl = null,
     wordpressAvailable = true,
     articleDomain = '',
@@ -193,6 +219,9 @@ export function SharedMediaPicker({
     const [selectedItems, setSelectedItems] = useState({});
     const [confirming, setConfirming] = useState(false);
     const [customTabs, setCustomTabs] = useState([]);
+    const [ingestBusy, setIngestBusy] = useState(false);
+    const [importMode, setImportMode] = useState(false);
+    const [importUrl, setImportUrl] = useState('');
 
     const wasOpenRef = useRef(false);
     const requestSeqRef = useRef(0);
@@ -200,14 +229,26 @@ export function SharedMediaPicker({
     const tabRef = useRef(tab);
     const gridRef = useRef(null);
     const searchDebounceRef = useRef(null);
+    const fileInputRef = useRef(null);
+    const ingestBusyRef = useRef(false);
 
     const id = Number(articleId ?? getEditorCommandHost()?.articleId ?? 0) || 0;
+    const resolvedSiteId = Number(
+        siteId
+        ?? getEditorCommandHost()?.siteId
+        ?? window.__SEO_EDITOR_SITE_ID__
+        ?? 0,
+    ) || null;
     const domain = normalizeArticleDomain(articleDomain || window.__SEO_ARTICLE_DOMAIN__ || '');
     const uiScopeKey = cacheScope(id);
 
     useEffect(() => {
         tabRef.current = tab;
     }, [tab]);
+
+    useEffect(() => {
+        ingestBusyRef.current = ingestBusy;
+    }, [ingestBusy]);
 
     useEffect(() => {
         customTabsRef.current = customTabs;
@@ -475,6 +516,11 @@ export function SharedMediaPicker({
         setPicker(next);
 
         if (!becameOpen) {
+            if (!nowOpen) {
+                setImportMode(false);
+                setImportUrl('');
+                setIngestBusy(false);
+            }
             return;
         }
 
@@ -595,6 +641,134 @@ export function SharedMediaPicker({
             return nextKeys;
         });
     };
+
+    const ingestUploadedMedia = useCallback((data) => {
+        const image = pickerItemFromUpload(data);
+        if (!image.url) {
+            throw new Error(t('media_picker_upload_failed_body'));
+        }
+
+        invalidateMediaCache({ articleId: id, source: 'local' });
+        setTab('local');
+        tabRef.current = 'local';
+        setImportMode(false);
+        setImportUrl('');
+        setTabStates((prev) => {
+            const current = prev.local || emptyTabState();
+            return {
+                ...prev,
+                local: {
+                    ...current,
+                    images: dedupePickerImages([image, ...(current.images || [])]),
+                    loading: false,
+                    error: '',
+                },
+            };
+        });
+        toggleSelect(image);
+    }, [id, multi, readOnly]);
+
+    const notifyPickerError = useCallback((title, error) => {
+        window.dispatchEvent(
+            new CustomEvent('seo-article-editor-notify', {
+                detail: {
+                    title,
+                    body: error?.message || t('media_picker_upload_failed_body'),
+                    status: 'danger',
+                },
+            }),
+        );
+    }, []);
+
+    const handleUploadFiles = useCallback(async (fileList) => {
+        if (readOnly || ingestBusyRef.current) return;
+        const files = Array.from(fileList ?? []);
+        if (files.length === 0) return;
+
+        setIngestBusy(true);
+        try {
+            const uploaded = await uploadLocalMediaFiles(files, {
+                articleId: id || null,
+                siteId: resolvedSiteId,
+                source: 'library',
+            });
+            const last = uploaded[uploaded.length - 1];
+            if (last) {
+                ingestUploadedMedia(last);
+            }
+        } catch (error) {
+            notifyPickerError(t('media_picker_upload_failed'), error);
+        } finally {
+            setIngestBusy(false);
+            if (fileInputRef.current) {
+                fileInputRef.current.value = '';
+            }
+        }
+    }, [id, ingestUploadedMedia, notifyPickerError, readOnly, resolvedSiteId]);
+
+    const handleImportUrl = useCallback(async () => {
+        if (readOnly || ingestBusyRef.current) return;
+        const url = String(importUrl || '').trim();
+        if (!url) return;
+
+        setIngestBusy(true);
+        try {
+            const data = await importSeoMediaFromUrl(url, {
+                articleId: id || null,
+                siteId: resolvedSiteId,
+                randomFilename: true,
+            });
+            ingestUploadedMedia(data);
+        } catch (error) {
+            notifyPickerError(t('image_import_failed'), error);
+        } finally {
+            setIngestBusy(false);
+        }
+    }, [id, importUrl, ingestUploadedMedia, notifyPickerError, readOnly, resolvedSiteId]);
+
+    useEffect(() => {
+        if (!picker?.open || readOnly) {
+            return undefined;
+        }
+
+        const onPaste = (event) => {
+            if (ingestBusyRef.current) {
+                if (event.clipboardData?.items) {
+                    for (const item of event.clipboardData.items) {
+                        if (item.type.indexOf('image') === 0) {
+                            event.preventDefault();
+                            break;
+                        }
+                    }
+                }
+                return;
+            }
+
+            const handled = processClipboardImagePaste(event, {
+                articleId: id || null,
+                siteId: resolvedSiteId,
+                source: 'clipboard',
+                preferTextPasteInInputs: true,
+                notifyOnSuccess: false,
+                onUploaded: (data) => {
+                    setIngestBusy(false);
+                    try {
+                        ingestUploadedMedia(data);
+                    } catch (error) {
+                        notifyPickerError(t('media_picker_upload_failed'), error);
+                    }
+                },
+                onError: () => setIngestBusy(false),
+            });
+
+            if (handled) {
+                setIngestBusy(true);
+            }
+        };
+
+        window.addEventListener('paste', onPaste);
+        return () => window.removeEventListener('paste', onPaste);
+    }, [id, ingestUploadedMedia, notifyPickerError, picker?.open, readOnly, resolvedSiteId]);
 
     const onConfirm = async () => {
         if (readOnly || selectedKeys.length === 0 || confirming) return;
@@ -718,6 +892,38 @@ export function SharedMediaPicker({
                     </div>
                     <div className="seo-shared-media-picker__toolbar">
                         <input
+                            ref={fileInputRef}
+                            type="file"
+                            accept={LOCAL_MEDIA_FILE_ACCEPT}
+                            className="seo-shared-media-picker__file"
+                            disabled={readOnly || ingestBusy}
+                            onChange={(event) => {
+                                void handleUploadFiles(event.target.files);
+                            }}
+                        />
+                        <button
+                            type="button"
+                            className="seo-shared-media-picker__btn"
+                            disabled={readOnly || ingestBusy}
+                            onClick={() => fileInputRef.current?.click()}
+                            title={t('media_picker_upload')}
+                            data-media-picker-upload="1"
+                        >
+                            <Upload size={14} aria-hidden />
+                            <span>{ingestBusy ? t('media_picker_uploading') : t('media_picker_upload')}</span>
+                        </button>
+                        <button
+                            type="button"
+                            className={`seo-shared-media-picker__btn${importMode ? ' is-open' : ''}`}
+                            disabled={readOnly || ingestBusy}
+                            onClick={() => setImportMode((open) => !open)}
+                            title={t('media_picker_from_url')}
+                            data-media-picker-import-url="1"
+                        >
+                            <LinkIcon size={14} aria-hidden />
+                            <span>{t('media_picker_from_url')}</span>
+                        </button>
+                        <input
                             type="search"
                             className="seo-shared-media-picker__search"
                             placeholder={t('media_picker_search')}
@@ -751,6 +957,37 @@ export function SharedMediaPicker({
                             <RefreshCw size={14} aria-hidden />
                         </button>
                     </div>
+                    {importMode ? (
+                        <div className="seo-shared-media-picker__url-row">
+                            <input
+                                type="url"
+                                className="seo-shared-media-picker__search"
+                                placeholder={t('media_picker_url_placeholder')}
+                                value={importUrl}
+                                disabled={ingestBusy}
+                                onChange={(event) => setImportUrl(event.target.value)}
+                                onKeyDown={(event) => {
+                                    if (event.key === 'Enter') {
+                                        event.preventDefault();
+                                        void handleImportUrl();
+                                    }
+                                }}
+                            />
+                            <button
+                                type="button"
+                                className="seo-shared-media-picker__btn is-primary"
+                                disabled={readOnly || ingestBusy || !String(importUrl || '').trim()}
+                                onClick={() => void handleImportUrl()}
+                            >
+                                {ingestBusy ? t('media_picker_uploading') : t('media_picker_import')}
+                            </button>
+                        </div>
+                    ) : null}
+                    {ingestBusy ? (
+                        <p className="seo-shared-media-picker__hint" aria-live="polite">
+                            {t('media_picker_uploading')}
+                        </p>
+                    ) : null}
                     {activeCustom?.keyword ? (
                         <p className="seo-shared-media-picker__hint">{activeCustom.keyword}</p>
                     ) : null}

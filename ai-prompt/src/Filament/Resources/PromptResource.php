@@ -653,6 +653,7 @@ class PromptResource extends SeoPanelResource
         return [
             'input' => 'Input from connected edge (SEO Flow)',
             'post_title' => 'Article title',
+            'title' => 'Article title',
             'post_content' => 'Article content',
             'focus_keyword' => 'Focus keyword',
             'post_excerpt' => 'Excerpt',

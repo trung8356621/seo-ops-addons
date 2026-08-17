@@ -425,6 +425,7 @@ export default function useArticleEditorInsertAndSections({ activeBlockId, activ
                 sourceBlockId,
                 replacements: payload.replacements ?? payload.contents,
                 preserveSourceId: payload.preserveSourceId !== false,
+                focusIndex: payload.focusIndex,
                 createBlock: createEmptyTextBlock,
             });
             if (!applied.ok) {
@@ -452,6 +453,11 @@ export default function useArticleEditorInsertAndSections({ activeBlockId, activ
             const focusBlock = Number.isFinite(focusIndex) && focusIndex >= 0
                 ? created[focusIndex] ?? created[created.length - 1] ?? null
                 : created.find((block) => !/^<h[2-4]\b/i.test(String(block.content ?? ''))) ?? created[0];
+            const focusPos = Number.isFinite(focusIndex)
+                && focusIndex === 0
+                && created.length > 1
+                ? 'end'
+                : 'start';
 
             blockFlushRef.current = null;
             blockEditorsRef.current.delete(sourceBlockId);
@@ -467,7 +473,7 @@ export default function useArticleEditorInsertAndSections({ activeBlockId, activ
                     window.requestAnimationFrame(() => {
                         const editor = blockEditorsRef.current.get(focusBlock?.id);
                         try {
-                            editor?.commands?.focus?.('start');
+                            editor?.commands?.focus?.(focusPos);
                         } catch {
                             // remount may still be pending
                         }

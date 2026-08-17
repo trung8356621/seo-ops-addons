@@ -37,6 +37,7 @@ final class PromptOwnershipModelTest extends TestCase
         self::assertContains('article.content.translate', $keys);
         self::assertContains('article.faq.generate', $keys);
         self::assertContains('article.featured_snippet.generate', $keys);
+        self::assertContains('article.featured_image.generate', $keys);
         self::assertContains('article.outline.generate', $keys);
         self::assertContains('keyword.discovery.structured', $keys);
         self::assertContains('article.content.improve', $keys);
@@ -139,6 +140,7 @@ final class PromptOwnershipModelTest extends TestCase
             'article.content.translate',
             'article.comment.generate',
             'product.gallery.generate',
+            'article.featured_image.generate',
         ] as $hookKey) {
             $view = $service->forHook($hookKey);
             self::assertNotNull($view);

@@ -84,6 +84,18 @@ final class PromptHookFormSchemaTest extends TestCase
         ]);
     }
 
+    public function test_normalize_allows_image_tool_for_featured_image_hook(): void
+    {
+        $data = PromptHookFormSchema::normalizeForSave([
+            'hook_key' => 'article.featured_image.generate',
+            'tools' => ImageToolType::Image->value,
+            'hook_settings' => [],
+        ]);
+
+        self::assertSame('article.featured_image.generate', $data['hook_key']);
+        self::assertSame('0.1.0', $data['hook_version']);
+    }
+
     public function test_outline_normalize_saves_semver(): void
     {
         $data = PromptHookFormSchema::normalizeForSave([

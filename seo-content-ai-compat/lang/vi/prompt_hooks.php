@@ -222,6 +222,26 @@ PROMPT,
         ],
     ],
 
+    'article_featured_image_generate' => [
+        'label' => 'Create news thumbnail',
+        'description' => 'Tạo thumbnail bài viết từ tiêu đề hiện tại, dùng pipeline ảnh đại diện thông thường.',
+        'presentation' => [
+            'default_instructions' => [
+                'Giữ Prompt ngắn; model, kích thước và nhà cung cấp lấy từ pipeline thumbnail bài viết.',
+                'Dùng {{title}} cho tiêu đề bài viết hiện tại.',
+                'Không tạo model ảnh hay bộ settings ảnh riêng cho Hook này.',
+            ],
+            'output_format' => [
+                'Ảnh do image tool của Prompt đã chọn sinh ra theo pipeline featured/thumbnail hiện tại.',
+            ],
+            'notes' => [
+                'Operator có thể sửa Markdown Prompt trong Prompt settings.',
+                'Automation có thể chọn Prompt này ở bước article.image.generate / featured-image.',
+                'Hook này không thêm card settings ảnh riêng.',
+            ],
+        ],
+    ],
+
     'product_gallery_generate' => [
         'label' => 'Gallery sản phẩm',
         'description' => 'Tạo ảnh gallery sản phẩm theo Prompt image đã gắn.',

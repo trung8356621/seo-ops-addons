@@ -222,6 +222,26 @@ PROMPT,
         ],
     ],
 
+    'article_featured_image_generate' => [
+        'label' => 'Create news thumbnail',
+        'description' => 'Generate a news/article thumbnail from the current article title using the normal featured-image pipeline.',
+        'presentation' => [
+            'default_instructions' => [
+                'Keep the Prompt short; the image pipeline supplies model, size, and provider.',
+                'Use {{title}} for the current article title.',
+                'Do not invent a separate image model or extra image settings for this Hook.',
+            ],
+            'output_format' => [
+                'Image output from the selected Prompt\'s image tool using the existing featured/thumbnail pipeline.',
+            ],
+            'notes' => [
+                'Operators may edit the Prompt Markdown in Prompt settings.',
+                'Automation can select this Prompt on an article.image.generate / featured-image workflow step.',
+                'This Hook does not add a dedicated image-settings card.',
+            ],
+        ],
+    ],
+
     'product_gallery_generate' => [
         'label' => 'Product gallery',
         'description' => 'Generate product gallery images using the bound image Prompt.',

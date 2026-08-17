@@ -37,6 +37,25 @@ final class LegacyContentProjectGenerationCompatibilityTest extends TestCase
         self::assertStringContainsString("'article_writing_raw_input'", $chunk);
     }
 
+    public function test_create_clean_restart_forces_keyword_and_skips_title_lookup(): void
+    {
+        $source = (string) file_get_contents(ProjectRoot::addonsPath().'/ai-prompt/src/Services/TaskTestInputResolver.php');
+        self::assertStringContainsString('function resolveCreateArticleForCleanRestart', $source);
+        $start = strpos($source, 'private function resolveCreateArticleForCleanRestart');
+        self::assertNotFalse($start);
+        $end = strpos($source, 'private function resolveExistingArticleRewrite(', (int) $start);
+        self::assertNotFalse($end);
+        $chunk = substr($source, (int) $start, (int) $end - (int) $start);
+        self::assertStringContainsString("'rerun_scope'] = 'full'", $chunk);
+        self::assertStringContainsString("'force_ai_regenerate'] = 'true'", $chunk);
+        self::assertStringContainsString('withArticle($article, true, \'id\')', $chunk);
+        self::assertStringContainsString('focus_keyword', $chunk);
+        self::assertStringNotContainsString('findArticleByTitle', $chunk);
+
+        $runner = (string) file_get_contents(ProjectRoot::addonsPath().'/ai-prompt/src/Services/TaskWorkflowTestRunner.php');
+        self::assertStringContainsString("\$rerunScope === 'full'", $runner);
+    }
+
     public function test_repair_command_and_hydrator_are_registered(): void
     {
         self::assertTrue(class_exists(RepairLegacyContentProjectGenerationCommand::class));

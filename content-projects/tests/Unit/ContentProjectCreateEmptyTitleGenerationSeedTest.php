@@ -92,7 +92,7 @@ final class ContentProjectCreateEmptyTitleGenerationSeedTest extends TestCase
         );
         $start = strpos($src, 'private function withOptionalPromptInputs');
         self::assertNotFalse($start);
-        $end = strpos($src, 'private function resolveExistingArticleRewrite', (int) $start);
+        $end = strpos($src, 'private function resolveCreateArticleForCleanRestart', (int) $start);
         self::assertNotFalse($end);
         $chunk = substr($src, (int) $start, (int) $end - (int) $start);
 
@@ -221,6 +221,8 @@ final class ContentProjectCreateEmptyTitleGenerationSeedTest extends TestCase
             ProjectRoot::addonsPath().'/content-projects/src/Services/SeoProjectWorkflowRunService.php',
         );
         self::assertStringContainsString('resolveForProjectTask', $runSrc);
+        self::assertStringContainsString("'rerun_scope'] = 'full'", $runSrc);
+        self::assertStringContainsString("'force_ai_regenerate'] = 'true'", $runSrc);
 
         $createSrc = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content-projects/src/Services/CreateArticlesFromTaskService.php',
