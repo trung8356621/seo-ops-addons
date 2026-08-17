@@ -5,8 +5,14 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AiPrompt\Services;
 
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
+use Omnichannel\Addons\AiPrompt\Exceptions\AiRoutingException;
+use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext;
+use Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate;
 use Omnichannel\Addons\AiPrompt\Models\SeoAiModel;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
+use Omnichannel\Addons\AiPrompt\Services\Ai\DeepSeekChatClient;
+use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
+use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
 use Omnichannel\Addons\Seo\Support\AiModelCategory;
 use Omnichannel\Addons\Seo\Support\GeminiModelVersionPolicy;
 use Omnichannel\Addons\Seo\Support\GoogleAiModelRegistry;
@@ -23,6 +29,195 @@ use Throwable;
 final class AiModelRouterService
 {
     private const MAX_FAILOVER_ATTEMPTS = 8;
+
+    public function __construct(
+        private readonly ModelCapabilityRegistry $capabilityRegistry = new ModelCapabilityRegistry(),
+        private readonly ?AiRoutingTargetService $routingTargetService = null,
+        private readonly ?AiRoutingBootstrapService $routingBootstrapService = null,
+        private readonly ?DeepSeekChatClient $deepSeekClient = null,
+    ) {}
+
+    /**
+     * Canonical profile → candidate resolution. Prompt/Automation must use this.
+     */
+    public function resolve(string $profile, AiRoutingContext $context): RoutedAiCandidate
+    {
+        $candidates = $this->resolveAll($profile, $context);
+        if ($candidates === []) {
+            $parsed = AiExecutionProfile::tryFrom($profile);
+            $capability = $parsed?->requiredCapabilityKeys()[0] ?? 'text.generate';
+            throw AiRoutingException::noCandidate($profile, $capability);
+        }
+
+        return $candidates[0];
+    }
+
+    /**
+     * @return list<RoutedAiCandidate>
+     */
+    public function resolveAll(string $profile, AiRoutingContext $context): array
+    {
+        $parsed = AiExecutionProfile::tryFrom($profile);
+        if ($parsed === null) {
+            throw new AiRoutingException('Unknown routing profile: '.$profile);
+        }
+
+        $userId = $context->userId ?? (int) (auth()->id() ?? 0);
+        $targets = $this->targetsService();
+        $bootstrap = $this->bootstrapService();
+
+        if ($userId > 0 && $targets !== null && $bootstrap !== null) {
+            if ($targets->targetsFor($userId, $parsed->value) === []) {
+                $bootstrap->bootstrapForUser($userId);
+            }
+            $candidates = $targets->eligibleCandidates($userId, $parsed, $context);
+            if ($candidates !== []) {
+                return $candidates;
+            }
+        }
+
+        if ($context->allowLegacyFallback && $context->legacyConnection instanceof ApiConnection) {
+            $legacy = $this->legacyCompatibleCandidate($parsed, $context->legacyConnection);
+            if ($legacy !== null) {
+                return [$legacy];
+            }
+        }
+
+        return [];
+    }
+
+    /**
+     * Infrastructure fallback across profile candidates. Does not retry on "quality".
+     *
+     * @param  callable(RoutedAiCandidate): array{0: string, 1: array<string, mixed>|null}  $executor
+     * @return array{0: string, 1: array<string, mixed>|null, 2: RoutedAiCandidate, 3: int, 4: list<string>}
+     */
+    public function executeWithProfile(
+        string $profile,
+        AiRoutingContext $context,
+        callable $executor,
+    ): array {
+        $candidates = $this->resolveAll($profile, $context);
+        if ($candidates === []) {
+            $parsed = AiExecutionProfile::tryFrom($profile);
+            $capability = $parsed?->requiredCapabilityKeys()[0] ?? 'text.generate';
+            throw AiRoutingException::noCandidate($profile, $capability);
+        }
+
+        $fallbackCount = 0;
+        $reasons = [];
+        $lastException = null;
+
+        foreach ($candidates as $index => $candidate) {
+            try {
+                [$output, $usage] = $executor($candidate);
+
+                return [$output, $usage, $candidate, $fallbackCount, $reasons];
+            } catch (\Throwable $exception) {
+                $lastException = $exception;
+                if (! $this->isInfrastructureFailure($exception->getMessage())) {
+                    throw $exception instanceof PromptRunException
+                        ? $exception
+                        : new PromptRunException($exception->getMessage(), (int) $exception->getCode(), $exception);
+                }
+
+                $fallbackCount++;
+                $reasons[] = 'priority '.$candidate->priority.' '.$candidate->provider.'/'.$candidate->model.': '.$exception->getMessage();
+                logger()->warning('AI routing infrastructure fallback', [
+                    'profile' => $profile,
+                    'priority' => $candidate->priority,
+                    'provider' => $candidate->provider,
+                    'model' => $candidate->model,
+                    'error' => $exception->getMessage(),
+                    'next' => isset($candidates[$index + 1]),
+                ]);
+
+                if ($candidate->seoAiModelId !== null) {
+                    if ($this->isQuotaOrRateLimitError($exception->getMessage())) {
+                        $this->handleModelExhausted($candidate->seoAiModelId, $exception->getMessage());
+                    } elseif (GeminiModelVersionPolicy::isProviderUnavailableError($exception->getMessage())) {
+                        $this->markModelUnavailableForAutoRouting($candidate->seoAiModelId, $exception->getMessage());
+                    }
+                }
+            }
+        }
+
+        throw $lastException instanceof PromptRunException
+            ? $lastException
+            : new PromptRunException(
+                $lastException?->getMessage() ?? 'AI routing exhausted all candidates for profile '.$profile,
+            );
+    }
+
+    public function isInfrastructureFailure(string $message): bool
+    {
+        $lower = strtolower($message);
+
+        return $this->isQuotaOrRateLimitError($message)
+            || GeminiModelVersionPolicy::isProviderUnavailableError($message)
+            || str_contains($message, '429')
+            || str_contains($message, '500')
+            || str_contains($message, '502')
+            || str_contains($message, '503')
+            || str_contains($message, '504')
+            || str_contains($lower, 'timeout')
+            || str_contains($lower, 'timed out')
+            || str_contains($lower, 'connection')
+            || str_contains($lower, 'temporarily')
+            || str_contains($lower, 'unavailable')
+            || str_contains($lower, 'overloaded');
+    }
+
+    private function legacyCompatibleCandidate(AiExecutionProfile $profile, ApiConnection $connection): ?RoutedAiCandidate
+    {
+        if ((string) $connection->status !== 'active' || blank($connection->api_key)) {
+            return null;
+        }
+
+        $models = SeoAiModel::query()
+            ->where('api_connection_id', $connection->id)
+            ->where('status', SeoAiModel::STATUS_ACTIVE)
+            ->orderByDesc('priority')
+            ->get();
+
+        foreach ($models as $model) {
+            $key = (string) $model->raw_model_name;
+            if (! $this->capabilityRegistry->satisfiesAll($connection, $key, $profile->requiredCapabilityKeys())) {
+                continue;
+            }
+
+            return new RoutedAiCandidate(
+                profile: $profile->value,
+                connection: $connection,
+                provider: (string) $connection->provider,
+                model: $key,
+                capabilities: $this->capabilityRegistry->capabilitiesFor($connection, $key),
+                priority: 99,
+                seoAiModelId: (int) $model->id,
+                legacyFallback: true,
+            );
+        }
+
+        return null;
+    }
+
+    private function targetsService(): ?AiRoutingTargetService
+    {
+        if ($this->routingTargetService instanceof AiRoutingTargetService) {
+            return $this->routingTargetService;
+        }
+
+        return function_exists('app') ? app(AiRoutingTargetService::class) : null;
+    }
+
+    private function bootstrapService(): ?AiRoutingBootstrapService
+    {
+        if ($this->routingBootstrapService instanceof AiRoutingBootstrapService) {
+            return $this->routingBootstrapService;
+        }
+
+        return function_exists('app') ? app(AiRoutingBootstrapService::class) : null;
+    }
 
     /**
      * Đồng bộ model từ Google Generative Language API.
@@ -42,7 +237,8 @@ final class AiModelRouterService
             $response = Http::timeout(30)
                 ->acceptJson()
                 ->withQueryParameters(['key' => $connection->api_key])
-                ->get('https://generativelanguage.googleapis.com/v1beta/models');
+                ->get(app(\Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\ProviderConnectionResolver::class)
+                    ->httpBaseUrl($connection).'/v1beta/models');
 
             $seenRaw = [];
 
@@ -75,7 +271,7 @@ final class AiModelRouterService
                                 'api_connection_id' => $connectionId,
                                 'raw_model_name' => $rawName,
                             ],
-                            [
+                            $this->mergeSyncPayload($connectionId, $rawName, [
                                 'category' => $classified['category'],
                                 'display_name' => (string) ($model['displayName'] ?? $rawName),
                                 'priority' => $classified['priority'],
@@ -84,7 +280,7 @@ final class AiModelRouterService
                                     'supportedGenerationMethods' => $model['supportedGenerationMethods'] ?? [],
                                 ]),
                                 'last_error' => null,
-                            ],
+                            ]),
                         );
                     }
                 }
@@ -215,6 +411,8 @@ final class AiModelRouterService
         return match ($connection->provider) {
             'gemini' => $this->syncGeminiModels($connectionId),
             'claude' => $this->syncClaudeModels($connectionId),
+            ApiConnectionProviders::DEEPSEEK => $this->syncDeepSeekModels($connectionId),
+            ApiConnectionProviders::OPENROUTER => $this->syncOpenAiCompatibleModels($connectionId),
             default => false,
         };
     }
@@ -290,6 +488,7 @@ final class AiModelRouterService
                 RenderingPreference::QualityFirst => AiModelCategory::CLAUDE_OPUS,
                 RenderingPreference::Balanced => AiModelCategory::CLAUDE_SONNET,
             },
+            ApiConnectionProviders::DEEPSEEK => AiModelCategory::DEEPSEEK_CHAT,
             default => match ($preference) {
                 RenderingPreference::QualityFirst => AiModelCategory::GEMINI_PRO,
                 RenderingPreference::CostFirst,
@@ -530,6 +729,8 @@ final class AiModelRouterService
             AiModelCategory::CLAUDE_OPUS => 'claude-opus-4-20250514',
             AiModelCategory::CLAUDE_SONNET => 'claude-sonnet-4-20250514',
             AiModelCategory::CLAUDE_HAIKU => 'claude-3-5-haiku-20241022',
+            AiModelCategory::DEEPSEEK_CHAT => 'deepseek-chat',
+            AiModelCategory::DEEPSEEK_REASONER => 'deepseek-reasoner',
             default => '',
         };
     }
@@ -607,7 +808,7 @@ final class AiModelRouterService
                     'api_connection_id' => $connectionId,
                     'raw_model_name' => $raw,
                 ],
-                [
+                $this->mergeSyncPayload($connectionId, $raw, [
                     'category' => $category,
                     'display_name' => $label,
                     'priority' => $priority,
@@ -617,7 +818,7 @@ final class AiModelRouterService
                         'source' => 'catalog',
                     ]),
                     'last_error' => null,
-                ],
+                ]),
             );
 
             $seeded[] = $raw;
@@ -633,6 +834,33 @@ final class AiModelRouterService
     private function capabilitiesWithResolved(string $rawName, array $base): array
     {
         return (new ImageCapabilityResolver())->mergeResolvedIntoCapabilities($rawName, $base);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function mergeSyncPayload(int $connectionId, string $rawName, array $payload): array
+    {
+        $existing = SeoAiModel::query()
+            ->where('api_connection_id', $connectionId)
+            ->where('raw_model_name', $rawName)
+            ->first();
+        if (! $existing instanceof SeoAiModel) {
+            return $payload;
+        }
+        $payload['priority'] = (int) ($existing->priority ?: ($payload['priority'] ?? 100));
+        $incoming = is_array($payload['capabilities'] ?? null) ? $payload['capabilities'] : [];
+        $payload['capabilities'] = (new AiModelPriorityService())->copyAreas(
+            is_array($existing->capabilities) ? $existing->capabilities : [],
+            $incoming,
+        );
+        if (\Illuminate\Support\Facades\Schema::hasColumn('seo_ai_models', 'is_hidden')
+            && ! array_key_exists('is_hidden', $payload)) {
+            $payload['is_hidden'] = (bool) ($existing->getAttribute('is_hidden') ?? false);
+        }
+
+        return $payload;
     }
 
     /**
@@ -659,6 +887,8 @@ final class AiModelRouterService
         $latestSync = null;
 
         $resolver = new ImageCapabilityResolver();
+        $labels = new \Omnichannel\Addons\AiPrompt\Support\AiModelLabelPresenter();
+        $catalog = new AiModelFamilyCatalog();
         $adminEnabledUnknown = array_fill_keys(
             app(SeoCreateArticleSettingsService::class)->getAdminEnabledUnknownImageModels(),
             true,
@@ -681,6 +911,11 @@ final class AiModelRouterService
                 $group = ImageCapability::displayGroupForCapabilities($resolved);
                 $slug = GoogleAiModelRegistry::normalizeSlug((string) $model->raw_model_name);
                 $routing = GeminiModelVersionPolicy::routingDecision($slug, $capabilities);
+                $family = $catalog->familyForModelId((string) $model->raw_model_name);
+                $showNormal = $family !== null
+                    && $model->status === SeoAiModel::STATUS_ACTIVE
+                    && ($routing['routing_status'] ?? '') !== 'disabled'
+                    && $group !== 'unknown';
                 $row = [
                     'id' => $model->id,
                     'category' => $model->category,
@@ -688,7 +923,9 @@ final class AiModelRouterService
                     'capability_group' => $group,
                     'capabilities_resolved' => $resolved,
                     'raw_model_name' => $model->raw_model_name,
-                    'display_name' => $model->display_name,
+                    'display_name' => $labels->normal((string) $model->raw_model_name, (string) $model->display_name),
+                    'family_key' => $family?->familyKey,
+                    'show_in_normal' => $showNormal,
                     'priority' => $model->priority,
                     'status' => $model->status,
                     'routing_status' => $routing['routing_status'],
@@ -781,6 +1018,204 @@ final class AiModelRouterService
         }
 
         return ['ok' => $ok, 'failed' => $failed, 'messages' => $messages];
+    }
+
+    public function syncOpenAiCompatibleModels(int $connectionId): bool
+    {
+        $connection = ApiConnection::query()->find($connectionId);
+        if ($connection === null) {
+            return false;
+        }
+        $provider = (string) $connection->provider;
+        if (! in_array($provider, [ApiConnectionProviders::OPENROUTER, ApiConnectionProviders::DEEPSEEK], true)
+            && $provider !== 'openai_compatible') {
+            return false;
+        }
+        if (blank($connection->api_key)) {
+            return false;
+        }
+
+        try {
+            $adapter = function_exists('app')
+                ? app(\Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\OpenAiCompatibleProtocolAdapter::class)
+                : new \Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\OpenAiCompatibleProtocolAdapter();
+            $catalog = new AiModelFamilyCatalog();
+            $seenRaw = [];
+            foreach ($adapter->listModels($connection) as $row) {
+                $rawName = (string) ($row['id'] ?? '');
+                if ($rawName === '') {
+                    continue;
+                }
+                $seenRaw[] = $rawName;
+                $existing = SeoAiModel::query()
+                    ->where('api_connection_id', $connectionId)
+                    ->where('raw_model_name', $rawName)
+                    ->first();
+                $family = $catalog->familyForModelId($rawName);
+                $hidden = $existing instanceof SeoAiModel
+                    ? (bool) ($existing->getAttribute('is_hidden') ?? false)
+                    : true;
+                $category = $family !== null
+                    ? ($family->modality === 'image' ? AiModelCategory::IMAGEN_PRO : AiModelCategory::GEMINI_FLASH)
+                    : AiModelCategory::GEMINI_FLASH;
+                if (str_contains(strtolower($rawName), 'reason')) {
+                    $category = AiModelCategory::DEEPSEEK_REASONER;
+                }
+                $payload = $this->mergeSyncPayload($connectionId, $rawName, [
+                    'category' => $existing?->category ?: $category,
+                    'display_name' => (string) ($row['display_name'] ?? $rawName),
+                    'priority' => $existing?->priority ?: 100,
+                    'status' => $existing?->status ?: SeoAiModel::STATUS_ACTIVE,
+                    'capabilities' => [
+                        'source' => $provider,
+                        'language_suitability' => 'unknown',
+                        'provider_metadata' => is_array($row['metadata'] ?? null) ? $row['metadata'] : [],
+                        'resolved' => $this->capabilityRegistry->capabilitiesFor($connection, $rawName),
+                    ],
+                    'last_error' => null,
+                ]);
+                if (\Illuminate\Support\Facades\Schema::hasColumn('seo_ai_models', 'is_hidden')) {
+                    $payload['is_hidden'] = $hidden;
+                }
+                SeoAiModel::query()->updateOrCreate(
+                    [
+                        'api_connection_id' => $connectionId,
+                        'raw_model_name' => $rawName,
+                    ],
+                    $payload,
+                );
+            }
+            $seenRaw = array_values(array_unique($seenRaw));
+            if ($seenRaw === []) {
+                return false;
+            }
+            $this->deactivateMissingModels($connectionId, $seenRaw);
+
+            return true;
+        } catch (\Throwable $exception) {
+            logger()->error('syncOpenAiCompatibleModels failed', [
+                'connection_id' => $connectionId,
+                'message' => $exception->getMessage(),
+            ]);
+
+            return false;
+        }
+    }
+
+    public function syncDeepSeekModels(int $connectionId): bool
+    {
+        $connection = ApiConnection::query()->find($connectionId);
+        if ($connection === null || $connection->provider !== ApiConnectionProviders::DEEPSEEK) {
+            return false;
+        }
+
+        if (blank($connection->api_key)) {
+            return false;
+        }
+
+        $seenRaw = $this->seedDeepSeekCatalogModels($connectionId);
+        $client = $this->deepSeekClient ?? (function_exists('app') ? app(DeepSeekChatClient::class) : new DeepSeekChatClient());
+
+        try {
+            foreach ($client->listModels($connection) as $row) {
+                $rawName = (string) ($row['id'] ?? '');
+                if ($rawName === '') {
+                    continue;
+                }
+                $classified = $this->classifyDeepSeekModel($rawName);
+                if ($classified === null) {
+                    continue;
+                }
+                $seenRaw[] = $rawName;
+                SeoAiModel::query()->updateOrCreate(
+                    [
+                        'api_connection_id' => $connectionId,
+                        'raw_model_name' => $rawName,
+                    ],
+                    $this->mergeSyncPayload($connectionId, $rawName, [
+                        'category' => $classified['category'],
+                        'display_name' => (string) ($row['display_name'] ?? $rawName),
+                        'priority' => $classified['priority'],
+                        'status' => SeoAiModel::STATUS_ACTIVE,
+                        'capabilities' => [
+                            'source' => 'deepseek',
+                            'resolved' => $this->capabilityRegistry->capabilitiesFor($connection, $rawName),
+                        ],
+                        'last_error' => null,
+                    ]),
+                );
+            }
+        } catch (Throwable $exception) {
+            logger()->error('syncDeepSeekModels failed', [
+                'connection_id' => $connectionId,
+                'message' => $exception->getMessage(),
+            ]);
+        }
+
+        $seenRaw = array_values(array_unique($seenRaw));
+        if ($seenRaw === []) {
+            return false;
+        }
+
+        $this->deactivateMissingModels($connectionId, $seenRaw);
+
+        return true;
+    }
+
+    /**
+     * @return array{category: string, priority: int}|null
+     */
+    private function classifyDeepSeekModel(string $rawName): ?array
+    {
+        $lower = strtolower($rawName);
+        if (! str_starts_with($lower, 'deepseek')) {
+            return null;
+        }
+        if (str_contains($lower, 'image') || str_contains($lower, 'video')) {
+            return null;
+        }
+        if (str_contains($lower, 'reason')) {
+            return ['category' => AiModelCategory::DEEPSEEK_REASONER, 'priority' => 200];
+        }
+
+        return ['category' => AiModelCategory::DEEPSEEK_CHAT, 'priority' => 150];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function seedDeepSeekCatalogModels(int $connectionId): array
+    {
+        $catalog = [
+            ['deepseek-chat', 'DeepSeek Chat', AiModelCategory::DEEPSEEK_CHAT, 150],
+            ['deepseek-reasoner', 'DeepSeek Reasoner', AiModelCategory::DEEPSEEK_REASONER, 200],
+        ];
+        $seeded = [];
+        $connection = ApiConnection::query()->find($connectionId);
+        foreach ($catalog as [$raw, $label, $category, $priority]) {
+            SeoAiModel::query()->updateOrCreate(
+                [
+                    'api_connection_id' => $connectionId,
+                    'raw_model_name' => $raw,
+                ],
+                $this->mergeSyncPayload($connectionId, $raw, [
+                    'category' => $category,
+                    'display_name' => $label,
+                    'priority' => $priority,
+                    'status' => SeoAiModel::STATUS_ACTIVE,
+                    'capabilities' => [
+                        'source' => 'catalog',
+                        'resolved' => $connection instanceof ApiConnection
+                            ? $this->capabilityRegistry->capabilitiesFor($connection, $raw)
+                            : [],
+                    ],
+                    'last_error' => null,
+                ]),
+            );
+            $seeded[] = $raw;
+        }
+
+        return $seeded;
     }
 
     private function seedClaudeFallbackModels(int $connectionId): bool

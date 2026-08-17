@@ -32,7 +32,7 @@ final class ArticleEditorRuntimeRegressionLinksCtaPickerTest extends TestCase
 
     public function test_host_actions_accept_plain_detail_not_event(): void
     {
-        $editor = $this->readAddon('resources/js/components/SeoArticleEditor.jsx');
+        $editor = $this->readAddon('resources/js/hooks/useArticleEditorImageLifecycle.js');
 
         self::assertStringContainsString('insertSuggestedLinkAction', $editor);
         self::assertStringContainsString('insertCtaLinkAction', $editor);
@@ -106,8 +106,7 @@ final class ArticleEditorRuntimeRegressionLinksCtaPickerTest extends TestCase
 
         self::assertStringContainsString('actions.insertSuggestedLink(detail)', $links);
         self::assertStringContainsString('actions.insertCtaLink(detail)', $cta);
-        self::assertStringContainsString('executeEditorCommand', $this->readAddon('resources/js/components/SeoArticleEditor.jsx'));
-        self::assertStringContainsString("executeEditorCommand('insert_link'", $this->readAddon('resources/js/components/SeoArticleEditor.jsx'));
-        self::assertStringContainsString("executeEditorCommand(commandName", $this->readAddon('resources/js/components/SeoArticleEditor.jsx'));
+        self::assertStringContainsString("executeEditorCommand('insert_link'", $this->readAddon('resources/js/hooks/useArticleEditorLinksAndSnippets.js'));
+        self::assertStringContainsString("executeEditorCommand(commandName", $this->readAddon('resources/js/hooks/useArticleEditorLinksAndSnippets.js'));
     }
 }

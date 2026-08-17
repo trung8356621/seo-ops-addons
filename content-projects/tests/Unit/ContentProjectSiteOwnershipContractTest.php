@@ -136,9 +136,9 @@ final class ContentProjectSiteOwnershipContractTest extends TestCase
         self::assertStringContainsString("\$locked->article_id = null", $src);
         self::assertStringContainsString('Never mutates SeoArticle.site_id', $src);
         self::assertStringNotContainsString("->update(['site_id'", $src);
-        self::assertStringContainsString('reconcileTask($locked, $projectSiteId', $src);
-        self::assertStringContainsString('previewDetachAndReconcile', $src);
-        self::assertStringContainsString('persist: false', $src);
+        self::assertStringContainsString('auto_reconcile=NO', $src);
+        self::assertStringNotContainsString('previewDetachAndReconcile', $src);
+        self::assertStringNotContainsString('reconcileTask($locked, $projectSiteId', $src);
     }
 
     public function test_cross_site_article_cannot_be_attached(): void

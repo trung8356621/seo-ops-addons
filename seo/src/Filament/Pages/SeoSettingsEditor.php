@@ -42,7 +42,6 @@ class SeoSettingsEditor extends Page implements HasForms
                 SeoOverviewSettingsService::KEY_FAQ_CATCH_KEYWORDS => $overviewSettings->keywordsToTextarea(
                     $overviewRaw[SeoOverviewSettingsService::KEY_FAQ_CATCH_KEYWORDS],
                 ),
-                SeoOverviewSettingsService::KEY_OUTLINE_SKIP_WORDS => $overviewRaw[SeoOverviewSettingsService::KEY_OUTLINE_SKIP_WORDS],
             ],
         );
 
@@ -95,20 +94,6 @@ class SeoSettingsEditor extends Page implements HasForms
                             ->columnSpanFull()
                             ->helperText(__('seo-content-ai::filament.settings_overview.faq_keywords_hint')),
                     ]),
-                Forms\Components\Section::make('Dò trùng lặp Outline')
-                    ->description('Cấu hình bộ lọc khi dò heading trùng lặp giữa các bài viết trong site.')
-                    ->schema([
-                        Forms\Components\TagsInput::make(SeoOverviewSettingsService::KEY_OUTLINE_SKIP_WORDS)
-                            ->label('Các từ/tiêu đề bỏ qua khi dò trùng (Skip List)')
-                            ->placeholder('Nhập tiêu đề rồi nhấn Enter')
-                            ->columnSpanFull()
-                            ->helperText(
-                                'Nhập các tiêu đề cần bỏ qua. Hỗ trợ cú pháp SQL: '
-                                . "'So sánh%' (bắt đầu bằng), '%Kết luận' (kết thúc bằng), '%FAQ%' (chứa từ). "
-                                . "Nếu nhập text thường (ví dụ: 'Giới thiệu'), hệ thống tự động hiểu là '%Giới thiệu%'. "
-                                . 'Nhấn Enter để thêm.',
-                            ),
-                    ]),
             ])
             ->statePath('editorSettingsData');
     }
@@ -130,7 +115,6 @@ class SeoSettingsEditor extends Page implements HasForms
         $faqRaw = (string) ($data[SeoOverviewSettingsService::KEY_FAQ_CATCH_KEYWORDS] ?? '');
         $overviewSettings->saveSettings([
             SeoOverviewSettingsService::KEY_FAQ_CATCH_KEYWORDS => $overviewSettings->keywordsFromTextarea($faqRaw),
-            SeoOverviewSettingsService::KEY_OUTLINE_SKIP_WORDS => $data[SeoOverviewSettingsService::KEY_OUTLINE_SKIP_WORDS] ?? [],
         ]);
 
         Notification::make()

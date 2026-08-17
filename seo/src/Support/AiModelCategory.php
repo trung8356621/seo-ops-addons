@@ -21,6 +21,10 @@ final class AiModelCategory
 
     public const CLAUDE_HAIKU = 'claude_haiku';
 
+    public const DEEPSEEK_CHAT = 'deepseek_chat';
+
+    public const DEEPSEEK_REASONER = 'deepseek_reasoner';
+
     /**
      * @return array<string, string>
      */
@@ -33,6 +37,8 @@ final class AiModelCategory
             self::CLAUDE_OPUS => 'CLAUDE Opus (Chất lượng đỉnh cao)',
             self::CLAUDE_SONNET => 'CLAUDE Sonnet (Viết bài chuẩn SEO)',
             self::CLAUDE_HAIKU => 'CLAUDE Haiku (Nhanh & tiết kiệm)',
+            self::DEEPSEEK_CHAT => 'DeepSeek Chat (Long-form / fast text)',
+            self::DEEPSEEK_REASONER => 'DeepSeek Reasoner (Planning / analysis)',
         ];
     }
 
@@ -52,6 +58,10 @@ final class AiModelCategory
                 self::CLAUDE_OPUS => 'CLAUDE Opus (Chất lượng đỉnh cao)',
                 self::CLAUDE_HAIKU => 'CLAUDE Haiku (Nhanh & tiết kiệm)',
             ],
+            'deepseek' => [
+                self::DEEPSEEK_CHAT => 'DeepSeek Chat (Long-form / fast text)',
+                self::DEEPSEEK_REASONER => 'DeepSeek Reasoner (Planning / analysis)',
+            ],
             default => [],
         };
     }
@@ -65,6 +75,7 @@ final class AiModelCategory
     {
         return match ($provider) {
             'claude' => self::CLAUDE_SONNET,
+            'deepseek' => self::DEEPSEEK_CHAT,
             default => self::GEMINI_FLASH,
         };
     }
@@ -94,6 +105,7 @@ final class AiModelCategory
         return match ($provider) {
             'gemini' => in_array($category, [self::GEMINI_PRO, self::GEMINI_FLASH, self::IMAGEN_PRO], true),
             'claude' => in_array($category, [self::CLAUDE_OPUS, self::CLAUDE_SONNET, self::CLAUDE_HAIKU], true),
+            'deepseek' => in_array($category, [self::DEEPSEEK_CHAT, self::DEEPSEEK_REASONER], true),
             default => false,
         };
     }

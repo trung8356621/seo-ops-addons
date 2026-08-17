@@ -313,7 +313,9 @@ final class ContentProjectItemOperationsReadModel
         $articleId = (int) ($task->article_id ?? 0);
         $keyword = trim((string) ($task->keyword ?? ''));
         $title = trim((string) ($task->title ?? ''));
-        if ($title === '' && $article instanceof SeoArticle) {
+        if ($articleId <= 0 || ! ($article instanceof SeoArticle)) {
+            $title = '';
+        } elseif ($title === '') {
             $title = trim((string) ($article->title ?? ''));
         }
         $source = trim((string) ($task->source_content ?? ''));
@@ -322,6 +324,9 @@ final class ContentProjectItemOperationsReadModel
         }
 
         $primary = $title !== '' ? $title : ($keyword !== '' ? $keyword : '#'.$tid);
+        $articleEmptyLabel = $articleId <= 0 || ! ($article instanceof SeoArticle)
+            ? 'Chưa có bài viết'
+            : null;
 
         $thumbnailUrl = null;
         if ($article instanceof SeoArticle && $article->relationLoaded('articleMetas')) {
@@ -382,8 +387,14 @@ final class ContentProjectItemOperationsReadModel
             $generationRecoveryReason = $capability->reason;
             $resumableFromStep = $capability->resumableFromStep;
             $hasResumableCheckpoint = $capability->showResume();
-            if ($capability->existingArticleId !== null && $capability->existingArticleId > 0) {
-                $articleId = (int) $capability->existingArticleId;
+            $taskArticleId = (int) ($task->article_id ?? 0);
+            if (
+                $taskArticleId > 0
+                && $capability->existingArticleId !== null
+                && $capability->existingArticleId > 0
+                && (int) $capability->existingArticleId === $taskArticleId
+            ) {
+                $articleId = $taskArticleId;
                 if (! $article instanceof SeoArticle || (int) $article->id !== $articleId) {
                     $article = SeoArticle::query()->find($articleId);
                     if ($article instanceof SeoArticle) {
@@ -476,6 +487,7 @@ final class ContentProjectItemOperationsReadModel
                 default => 'new',
             },
             'primary_label' => $primary,
+            'article_empty_label' => $articleEmptyLabel,
             'thumbnail_url' => $thumbnailUrl,
             'has_featured_image' => $thumbnailUrl !== null,
             'keyword' => $keyword !== '' ? $keyword : '—',

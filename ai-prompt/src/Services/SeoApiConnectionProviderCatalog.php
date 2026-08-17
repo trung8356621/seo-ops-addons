@@ -48,6 +48,8 @@ class SeoApiConnectionProviderCatalog
         $this->definitions = [
             ApiConnectionProviders::GEMINI => $this->geminiDefinition(),
             ApiConnectionProviders::CLAUDE => $this->claudeDefinition(),
+            ApiConnectionProviders::DEEPSEEK => $this->deepseekDefinition(),
+            ApiConnectionProviders::OPENROUTER => $this->openrouterDefinition(),
             ApiConnectionProviders::GOOGLE_SEARCH_CONSOLE => $this->gscDefinition(),
             ApiConnectionProviders::DATAFORSEO => $this->dataForSeoDefinition(),
             ApiConnectionProviders::SERPAPI => $this->serpApiDefinition(),
@@ -291,6 +293,48 @@ class SeoApiConnectionProviderCatalog
             description: __('seo-content-ai::filament.api_connections.provider_claude_desc'),
             documentationUrl: 'https://console.anthropic.com/settings/keys',
             priority: 20,
+            settingsSupported: true,
+            performanceTabSupported: false,
+            supportedCapabilities: [],
+            implementedCapabilities: [],
+            dashboardSections: [],
+            dashboardActions: [],
+            requiredCredentials: ['api_key'],
+            bestFor: null,
+        );
+    }
+
+    private function deepseekDefinition(): SeoProviderDefinition
+    {
+        return new SeoProviderDefinition(
+            key: ApiConnectionProviders::DEEPSEEK,
+            label: __('seo-content-ai::filament.api_connections.provider_deepseek'),
+            connectionType: ApiConnectionType::Ai,
+            category: SeoProviderCategory::SeoSuite,
+            description: __('seo-content-ai::filament.api_connections.provider_deepseek_desc'),
+            documentationUrl: 'https://platform.deepseek.com/api_keys',
+            priority: 15,
+            settingsSupported: true,
+            performanceTabSupported: false,
+            supportedCapabilities: [],
+            implementedCapabilities: [],
+            dashboardSections: [],
+            dashboardActions: [],
+            requiredCredentials: ['api_key'],
+            bestFor: null,
+        );
+    }
+
+    private function openrouterDefinition(): SeoProviderDefinition
+    {
+        return new SeoProviderDefinition(
+            key: ApiConnectionProviders::OPENROUTER,
+            label: __('seo-content-ai::filament.api_connections.provider_openrouter'),
+            connectionType: ApiConnectionType::Ai,
+            category: SeoProviderCategory::SeoSuite,
+            description: __('seo-content-ai::filament.api_connections.provider_openrouter_desc'),
+            documentationUrl: 'https://openrouter.ai/keys',
+            priority: 16,
             settingsSupported: true,
             performanceTabSupported: false,
             supportedCapabilities: [],

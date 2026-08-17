@@ -113,11 +113,22 @@ final class ArticleEditorCommandLayerPhase4Test extends TestCase
 
         $editor = (string) file_get_contents($base.'/components/SeoArticleEditor.jsx');
         self::assertStringContainsString('bindEditorCommandHost', $editor);
-        self::assertStringContainsString("executeEditorCommand(commandName", $editor);
-        self::assertStringContainsString('insert_contact_cta', $editor);
+
+        $contextMenu = (string) file_get_contents($base.'/components/EditorContextMenu.jsx');
+        self::assertStringContainsString('executeEditorCommand', $contextMenu);
+        self::assertStringContainsString('CONTEXT_MENU_COMMANDS', $contextMenu);
+        self::assertStringContainsString('applyContextMenuSelection', $contextMenu);
+
+        $ctxController = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/utils/editorContextMenuController.js',
+        );
+        self::assertStringContainsString("name: 'split_selection_to_heading'", $ctxController);
 
         $ext = (string) file_get_contents($base.'/utils/editorExtensions.js');
         self::assertStringContainsString("executeEditorCommand('remove_link_keep_text'", $ext);
+        self::assertStringContainsString('split_selection_to_heading', $ext);
+        self::assertStringContainsString('data-outline-visible', $ext);
+        self::assertStringContainsString('data-omi-heading-id', $ext);
     }
 
     public function test_architecture_doc_exists(): void

@@ -57,12 +57,25 @@ import {
     moveBlockWithinSectionCommand,
     outlineJumpCommand,
     setTextSelectionCommand,
+    insertBlockRelativeCommand,
     splitBlockCommand,
 } from './structureCommands';
 import {
     applyDocumentFragmentCommand,
     replaceArticleDocumentCommand,
 } from './documentReplaceCommands';
+import {
+    changeCurrentBlockHeadingCommand,
+    changeHeadingLevelCommand,
+    deleteHeadingKeepContentCommand,
+    deleteHeadingWithContentCommand,
+    insertHeadingAfterCommand,
+    renameHeadingCommand,
+    setHeadingOutlineVisibleCommand,
+    splitParagraphAtCursorCommand,
+    splitSelectionToHeadingCommand,
+    splitSelectionToParagraphCommand,
+} from './headingStructureCommands';
 
 /**
  * @typedef {{
@@ -173,6 +186,17 @@ mut('move_block', moveBlockCommand);
 mut('move_block_within_section', moveBlockWithinSectionCommand);
 mut('move_block_to_adjacent_section', moveBlockToAdjacentSectionCommand);
 mut('split_block', splitBlockCommand);
+mut('split_selection_to_heading', splitSelectionToHeadingCommand);
+mut('split_selection_to_paragraph', splitSelectionToParagraphCommand);
+mut('split_paragraph_at_cursor', splitParagraphAtCursorCommand);
+mut('change_current_block_heading', changeCurrentBlockHeadingCommand);
+mut('rename_heading', renameHeadingCommand);
+mut('change_heading_level', changeHeadingLevelCommand);
+mut('delete_heading_keep_content', deleteHeadingKeepContentCommand);
+mut('delete_heading_with_content', deleteHeadingWithContentCommand);
+mut('set_heading_outline_visible', setHeadingOutlineVisibleCommand);
+mut('insert_heading_after', insertHeadingAfterCommand);
+mut('insert_block_relative', insertBlockRelativeCommand);
 nav('outline_jump', outlineJumpCommand);
 nav('set_text_selection', setTextSelectionCommand);
 

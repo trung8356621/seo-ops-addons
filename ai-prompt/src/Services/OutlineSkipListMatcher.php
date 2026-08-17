@@ -7,10 +7,10 @@ namespace Omnichannel\Addons\AiPrompt\Services;
 use Illuminate\Database\Eloquent\Builder;
 
 /**
- * Skip List cho dò trùng outline — hỗ trợ wildcard SQL (%).
+ * Wildcard matcher (SQL LIKE %/_) used by CTA keyword blacklist and related filters.
  *
- * Lớp 1 (PHP): so khớp wildcard UTF-8, không phân biệt hoa thường.
- * Lớp 2 (SQL): NOT LIKE — loại heading cũ trong DB khỏi kết quả FTS/exact.
+ * Historical name: also skipped headings during retired cross-article outline comparison.
+ * Do not reintroduce outline-vs-outline duplicate detection here.
  */
 final class OutlineSkipListMatcher
 {

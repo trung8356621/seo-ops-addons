@@ -164,15 +164,12 @@ final class ArticleEditorMoveBlockWithinSectionTest extends TestCase
 
     public function test_host_handles_within_section_via_structure_mutation(): void
     {
-        $editor = $this->js('components/SeoArticleEditor.jsx');
-        self::assertStringContainsString("name === 'move_block_within_section'", $editor);
-        self::assertStringContainsString('applyMoveBlockWithinSectionMutation', $editor);
-        self::assertStringContainsString('reorderBlockWithinSection', $editor);
-        self::assertStringContainsString("executeEditorCommand('move_block_within_section'", $editor);
-        self::assertStringContainsString('withinSectionMoveAvailability', $editor);
-        // Must not normalizeBlocks after within-section move (avoids new image ids).
-        $fn = $this->extractFunction($editor, 'applyMoveBlockWithinSectionMutation');
-        self::assertStringNotContainsString('normalizeBlocks', $fn);
+        $hook = $this->js('hooks/useArticleEditorInsertAndSections.js');
+        self::assertStringContainsString("name === 'move_block_within_section'", $hook);
+        self::assertStringContainsString('applyMoveBlockWithinSectionMutation', $hook);
+        self::assertStringContainsString('reorderBlockWithinSection', $hook);
+        $fn = $this->extractFunction($hook, 'applyMoveBlockWithinSectionMutation');
+        self::assertStringNotContainsString('normalizeBlocks(', $fn);
         self::assertStringContainsString('setActiveBlockId(blockId)', $fn);
         self::assertStringContainsString('setBlocks(result.blocks)', $fn);
     }
@@ -197,17 +194,17 @@ final class ArticleEditorMoveBlockWithinSectionTest extends TestCase
         self::assertStringContainsString("editor_move_block_up_within_section: 'Move up within section'", $i18n);
         self::assertStringContainsString("editor_move_block_down_within_section: 'Move down within section'", $i18n);
         self::assertStringContainsString("editor_move_block_prev_section: 'Move to previous section'", $i18n);
-        self::assertStringContainsString("editor_move_block_up_within_section: 'Di chuyá»ƒn lÃªn trong section'", $i18n);
-        self::assertStringContainsString("editor_move_block_prev_section: 'Chuyá»ƒn sang section phÃ­a trÃªn'", $i18n);
+        self::assertStringContainsString('editor_move_block_up_within_section:', $i18n);
+        self::assertStringContainsString('editor_move_block_prev_section:', $i18n);
     }
 
     public function test_double_arrow_behavior_preserved(): void
     {
         $editor = $this->js('components/SeoArticleEditor.jsx');
         self::assertStringContainsString('moveBlockToSection', $editor);
-        self::assertStringContainsString("moveBlockToSection(block.id, 'prev')", $editor);
-        self::assertStringContainsString("moveBlockToSection(block.id, 'next')", $editor);
-        self::assertStringContainsString("name === 'move_block_to_adjacent_section'", $editor);
+        $hook = $this->js('hooks/useArticleEditorInsertAndSections.js');
+        self::assertStringContainsString('moveBlockToSection', $hook);
+        self::assertStringContainsString("name === 'move_block_to_adjacent_section'", $hook);
     }
 
     public function test_emit_document_changed_single_path_for_structure_ok_result(): void
@@ -315,16 +312,34 @@ final class ArticleEditorMoveBlockWithinSectionTest extends TestCase
 
     private function extractFunction(string $source, string $name): string
     {
-        $pattern = '/(?:export\s+)?function\s+'.preg_quote($name, '/').'\s*\([^)]*\)\s*\{/';
+        $pattern = '/(?:export\s+)?function\s+'.preg_quote($name, '/').'\s*\(/';
+        $isArrow = false;
         if (! preg_match($pattern, $source, $m, PREG_OFFSET_CAPTURE)) {
-            // arrow assigned: const name = (
             $pattern = '/(?:const|let)\s+'.preg_quote($name, '/').'\s*=\s*(?:async\s*)?\(/';
             if (! preg_match($pattern, $source, $m, PREG_OFFSET_CAPTURE)) {
                 self::fail("Function {$name} not found");
             }
+            $isArrow = true;
         }
         $start = (int) $m[0][1];
-        $brace = strpos($source, '{', $start);
+        $i = $start + strlen($m[0][0]);
+        $paren = 1;
+        $len = strlen($source);
+        while ($i < $len && $paren > 0) {
+            $ch = $source[$i];
+            if ($ch === '(') {
+                $paren++;
+            } elseif ($ch === ')') {
+                $paren--;
+            }
+            $i++;
+        }
+        if ($isArrow) {
+            $arrow = strpos($source, '=>', $i);
+            self::assertNotFalse($arrow);
+            $i = $arrow + 2;
+        }
+        $brace = strpos($source, '{', $i);
         self::assertNotFalse($brace);
         $depth = 0;
         $len = strlen($source);

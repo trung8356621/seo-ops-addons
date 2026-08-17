@@ -4,16 +4,16 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Seo\Support;
 
-use Omnichannel\Addons\AiPrompt\Filament\Pages\SeoSettingsAiAdvanced;
+use Omnichannel\Addons\AiPrompt\Filament\Pages\SeoSettingsAiCenter;
+use Omnichannel\Addons\AiPrompt\Filament\Resources\AiConnectionResource;
+use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsConfigurationTransfer;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsDateTime;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsEditor;
 use Omnichannel\Addons\SearchIntelligence\Filament\Pages\SeoSettingsKeywords;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsOverview;
-use Omnichannel\Addons\AiPrompt\Filament\Pages\SeoSettingsPrompt;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsRecommendations;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsScoring;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsWorkflows;
-use Omnichannel\Addons\AiPrompt\Filament\Resources\AiConnectionResource;
 
 final class SeoSettingsMenu
 {
@@ -42,10 +42,10 @@ final class SeoSettingsMenu
                 'url' => SeoSettingsWorkflows::getUrl(),
             ],
             [
-                'id' => 'ai-advanced',
-                'label' => 'AI Advanced',
+                'id' => 'ai-center',
+                'label' => 'AI Center',
                 'icon' => 'heroicon-o-cpu-chip',
-                'url' => SeoSettingsAiAdvanced::getUrl(),
+                'url' => SeoSettingsAiCenter::getUrl(),
             ],
             [
                 'id' => 'editor',
@@ -66,12 +66,6 @@ final class SeoSettingsMenu
                 'url' => AiConnectionResource::getUrl(),
             ],
             [
-                'id' => 'prompt',
-                'label' => 'Prompt settings',
-                'icon' => 'heroicon-o-chat-bubble-left-ellipsis',
-                'url' => SeoSettingsPrompt::getUrl(),
-            ],
-            [
                 'id' => 'scoring',
                 'label' => 'SEO scoring',
                 'icon' => 'heroicon-o-chart-bar',
@@ -82,6 +76,12 @@ final class SeoSettingsMenu
                 'label' => 'Recommendations',
                 'icon' => 'heroicon-o-book-open',
                 'url' => SeoSettingsRecommendations::getUrl(),
+            ],
+            [
+                'id' => 'import-export',
+                'label' => 'Import / Export',
+                'icon' => 'heroicon-o-arrow-down-tray',
+                'url' => SeoSettingsConfigurationTransfer::getUrl(),
             ],
         ];
     }

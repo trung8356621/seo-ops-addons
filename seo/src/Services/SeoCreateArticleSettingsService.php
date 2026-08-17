@@ -107,6 +107,9 @@ final class SeoCreateArticleSettingsService implements \Omnichannel\Addons\Conte
     /** cost_first | balanced | quality_first — preference khách (AI Advanced). */
     public const KEY_RENDERING_PREFERENCE = 'rendering_preference';
 
+    /** economy | quality_first — global Automatic Routing strategy (text). */
+    public const KEY_DEFAULT_AI_USAGE_MODE = 'default_ai_usage_mode';
+
     /** list slug Unknown admin bật thủ công cho routing. */
     public const KEY_ADMIN_ENABLED_UNKNOWN_IMAGE_MODELS = 'admin_enabled_unknown_image_models';
 
@@ -227,6 +230,9 @@ final class SeoCreateArticleSettingsService implements \Omnichannel\Addons\Conte
             self::KEY_RENDERING_PREFERENCE => RenderingPreference::fromMixed(
                 $data[self::KEY_RENDERING_PREFERENCE] ?? null,
             )->value,
+            self::KEY_DEFAULT_AI_USAGE_MODE => $this->normalizeAiUsageMode(
+                $data[self::KEY_DEFAULT_AI_USAGE_MODE] ?? null,
+            ),
             self::KEY_ADMIN_ENABLED_UNKNOWN_IMAGE_MODELS => $this->normalizeSlugList(
                 $data[self::KEY_ADMIN_ENABLED_UNKNOWN_IMAGE_MODELS] ?? null,
             ),
@@ -372,6 +378,28 @@ final class SeoCreateArticleSettingsService implements \Omnichannel\Addons\Conte
         }
 
         return RenderingPreference::fromMixed($raw[self::KEY_RENDERING_PREFERENCE] ?? null);
+    }
+
+    public function getDefaultAiUsageMode(): string
+    {
+        return $this->getDefaultAiUsageModeOrNull() ?? 'economy';
+    }
+
+    public function getDefaultAiUsageModeOrNull(): ?string
+    {
+        $raw = WpOption::get(self::OPTION_KEY, []);
+        if (! is_array($raw) || ! array_key_exists(self::KEY_DEFAULT_AI_USAGE_MODE, $raw)) {
+            return null;
+        }
+
+        return $this->normalizeAiUsageMode($raw[self::KEY_DEFAULT_AI_USAGE_MODE] ?? null);
+    }
+
+    private function normalizeAiUsageMode(mixed $value): string
+    {
+        $normalized = strtolower(trim((string) $value));
+
+        return $normalized === 'quality_first' ? 'quality_first' : 'economy';
     }
 
     /**
@@ -1067,6 +1095,11 @@ final class SeoCreateArticleSettingsService implements \Omnichannel\Addons\Conte
                 $settings[self::KEY_RENDERING_PREFERENCE] ?? null,
             )->value;
         }
+        if (array_key_exists(self::KEY_DEFAULT_AI_USAGE_MODE, $settings)) {
+            $patch[self::KEY_DEFAULT_AI_USAGE_MODE] = $this->normalizeAiUsageMode(
+                $settings[self::KEY_DEFAULT_AI_USAGE_MODE] ?? null,
+            );
+        }
         if (array_key_exists(self::KEY_ADMIN_ENABLED_UNKNOWN_IMAGE_MODELS, $settings)) {
             $patch[self::KEY_ADMIN_ENABLED_UNKNOWN_IMAGE_MODELS] = $this->normalizeSlugList(
                 $settings[self::KEY_ADMIN_ENABLED_UNKNOWN_IMAGE_MODELS] ?? null,
@@ -1151,6 +1184,7 @@ final class SeoCreateArticleSettingsService implements \Omnichannel\Addons\Conte
             self::KEY_TYPOGRAPHY_MODEL_PRIORITY => self::defaultImageModelPriority(),
             self::KEY_VIDEO_MODEL_PRIORITY => self::defaultVideoModelPriority(),
             self::KEY_RENDERING_PREFERENCE => RenderingPreference::Balanced->value,
+            self::KEY_DEFAULT_AI_USAGE_MODE => 'economy',
             self::KEY_ADMIN_ENABLED_UNKNOWN_IMAGE_MODELS => [],
             self::KEY_TYPOGRAPHY_VALIDATION_ENABLED => true,
             self::KEY_TYPOGRAPHY_VALIDATION_LEVEL => TypographyValidationLevel::Balanced->value,

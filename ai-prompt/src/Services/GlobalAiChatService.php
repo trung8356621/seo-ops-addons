@@ -77,7 +77,7 @@ final class GlobalAiChatService
         $answer = match ($provider) {
             'gemini' => $this->callGemini($connection, $model, $message, $history, $imageData),
             'claude' => $this->callClaude($connection, $model, $message, $history, $imageData),
-            default => throw new PromptRunException('Nhà cung cấp AI không được hỗ trợ: '.$provider),
+            default => $this->callOpenAiCompatibleChat($connection, $model, $message, $imageData),
         };
 
         return [
@@ -202,7 +202,9 @@ final class GlobalAiChatService
         $contents[] = ['role' => 'user', 'parts' => $parts];
 
         $url = sprintf(
-            'https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent',
+            '%s/v1beta/models/%s:generateContent',
+            app(\Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\ProviderConnectionResolver::class)
+                ->httpBaseUrl($connection),
             rawurlencode((string) $model->raw_model_name),
         );
 
@@ -234,6 +236,30 @@ final class GlobalAiChatService
         }
 
         return trim($answer);
+    }
+
+    /**
+     * @param  array{mime: string, data: string}|null  $image
+     */
+    private function callOpenAiCompatibleChat(
+        ApiConnection $connection,
+        SeoAiModel $model,
+        string $message,
+        ?array $image,
+    ): string {
+        if ($image !== null) {
+            throw new PromptRunException('Nhà cung cấp này chưa hỗ trợ chat kèm ảnh.');
+        }
+
+        [$text] = app(\Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\OpenAiCompatibleProtocolAdapter::class)
+            ->generate($connection, self::SYSTEM_PROMPT."\n\n".$message, (string) $model->raw_model_name);
+
+        $text = trim((string) $text);
+        if ($text === '') {
+            throw new PromptRunException('AI không trả về nội dung.');
+        }
+
+        return $text;
     }
 
     /**

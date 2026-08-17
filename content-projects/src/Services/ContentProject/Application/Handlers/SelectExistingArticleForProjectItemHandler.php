@@ -90,10 +90,12 @@ final class SelectExistingArticleForProjectItemHandler extends AbstractPublishin
                     }
 
                     $type = SeoProjectTask::normalizeType($task->type);
-                    if (! in_array($type, SeoProjectTask::typesRequiringExistingArticle(), true)) {
+                    $allowsManualAttach = SeoProjectTask::isNewArticleType($type)
+                        || in_array($type, SeoProjectTask::typesRequiringExistingArticle(), true);
+                    if (! $allowsManualAttach) {
                         return ContentProjectActionResult::fail(
                             ContentProjectActionCodes::VALIDATION_FAILED,
-                            'Item type does not require Existing Article.',
+                            'Item type does not support linking an existing article.',
                             $projectId,
                             affectedItemIds: [$taskId],
                         );

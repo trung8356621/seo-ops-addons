@@ -150,7 +150,10 @@ final class SeoOverviewSettingsService
     }
 
     /**
-     * @return list<string> các từ/tiêu đề được phép trùng (đã lowercase)
+     * Legacy skip-list stored with overview settings. Unused by active outline workflow
+     * after cross-article heading comparison was retired. Kept so existing option JSON remains valid.
+     *
+     * @return list<string>
      */
     public function getOutlineSkipWords(): array
     {

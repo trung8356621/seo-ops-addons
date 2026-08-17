@@ -52,6 +52,8 @@ final class ArticleEditorPhase4ClientUtilitiesTest extends TestCase
         self::assertStringContainsString('export function buildClientOutlineTree', $outline);
         self::assertStringContainsString('h2, h3, h4', $outline);
         self::assertStringContainsString('client:', $outline);
+        self::assertStringContainsString('extractOutlineHeadingsFromHtml', $outline);
+        self::assertStringContainsString('heading_index', $outline);
 
         $scheduler = (string) file_get_contents($base.'/articleEditorUtilityScheduler.js');
         self::assertStringContainsString('cancelAll', $scheduler);

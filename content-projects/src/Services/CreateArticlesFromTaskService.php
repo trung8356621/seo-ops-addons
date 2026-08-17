@@ -26,6 +26,7 @@ use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\AiPrompt\Models\SeoTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\LocalArticleAssociationGuard;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectCreateGenerationGuard;
 use Omnichannel\Addons\ContentProjects\Services\WorkflowRoles\WorkflowExecutionRoleResolver;
 use Omnichannel\Addons\ContentProjects\Services\WorkflowRoles\WorkflowExecutionSnapshotBuilder;
 use Omnichannel\Addons\Content\Support\ArticleWritingExecutionContext;
@@ -247,6 +248,16 @@ final class CreateArticlesFromTaskService
             WorkflowExecutionRole::ArticleOutlineGenerate,
         );
         $context = $this->withForcedAiRegenerate($context, $fromStep->value);
+        try {
+            ContentProjectCreateGenerationGuard::assertBeforeAi($context, $resolvedSiteId);
+        } catch (\InvalidArgumentException $exception) {
+            return [
+                'success' => false,
+                'article_id' => $context->article?->id,
+                'steps' => [],
+                'message' => $exception->getMessage(),
+            ];
+        }
         $outlineStep = $this->workflowRunner->runSingleStep($task, $context, $outlineNodeId);
         $ok = ($outlineStep['status'] ?? '') !== 'failed';
 
@@ -337,6 +348,17 @@ final class CreateArticlesFromTaskService
         }
 
         try {
+            ContentProjectCreateGenerationGuard::assertBeforeAi($context, $resolvedSiteId);
+        } catch (\InvalidArgumentException $exception) {
+            return [
+                'success' => false,
+                'article_id' => $context->article?->id,
+                'steps' => [],
+                'message' => $exception->getMessage(),
+            ];
+        }
+
+        try {
             if ($projectType === SeoProjectTask::TYPE_REWRITE) {
                 if ((string) ($context->variables['rerun_scope'] ?? '') === 'full') {
                     return $this->runOutlineThenArticleForContext($context, $resolvedSiteId);
@@ -399,6 +421,24 @@ final class CreateArticlesFromTaskService
         );
         if ($keyword === '') {
             $keyword = 'rewrite';
+        }
+
+        $projectType = SeoProjectTask::normalizeType((string) ($context->projectTaskType ?? ''));
+        if (
+            $projectType === SeoProjectTask::TYPE_CREATE
+            && ! ($context->article instanceof SeoArticle)
+        ) {
+            $context = $this->ensureProjectTaskDraftArticle($context, $resolvedSiteId, $keyword);
+        }
+        try {
+            ContentProjectCreateGenerationGuard::assertBeforeAi($context, $resolvedSiteId);
+        } catch (\InvalidArgumentException $exception) {
+            return [
+                'success' => false,
+                'article_id' => $context->article?->id,
+                'steps' => [],
+                'message' => $exception->getMessage(),
+            ];
         }
 
         $outlineNodeId = $this->roleResolver->requireNodeId(
@@ -538,6 +578,17 @@ final class CreateArticlesFromTaskService
         }
 
         $variables = $context->variables;
+        try {
+            ContentProjectCreateGenerationGuard::assertBeforeAi($context, $resolvedSiteId);
+        } catch (\InvalidArgumentException $exception) {
+            return [
+                'success' => false,
+                'article_id' => $context->article?->id,
+                'steps' => [],
+                'message' => $exception->getMessage(),
+            ];
+        }
+
         $rawInput = trim((string) (
             $variables['article_writing_raw_input']
             ?? (! empty($variables['article_writing_formatted']) ? '' : ($variables['input'] ?? ''))
@@ -715,7 +766,15 @@ final class CreateArticlesFromTaskService
     ): SeoArticle {
         foreach ($steps as $step) {
             if (($step['type'] ?? '') === 'action' && is_numeric($step['article_id'] ?? null)) {
-                $article = SeoArticle::query()->find((int) $step['article_id']);
+                $stepArticleId = (int) $step['article_id'];
+                $localId = LocalArticleAssociationGuard::resolveLocalArticleId(
+                    $stepArticleId,
+                    $siteId > 0 ? $siteId : null,
+                );
+                if ($localId === null) {
+                    continue;
+                }
+                $article = SeoArticle::query()->find($localId);
                 if ($article instanceof SeoArticle) {
                     $this->ensureArticlePostType($article, $context);
 
@@ -780,12 +839,22 @@ final class CreateArticlesFromTaskService
             'steps_count' => count($steps),
         ];
 
-        $existingByOrigin = $this->originResolver->findExisting(
-            $originType,
-            $originId,
-            $siteId,
-            $postType,
-        );
+        $existingByOrigin = null;
+        $skipOriginReuse = false;
+        if ($originType === ArticleCreateOriginResolver::ORIGIN_SEO_PROJECT_TASK && $originId !== null) {
+            $originTask = SeoProjectTask::query()->find($originId);
+            if ($originTask instanceof SeoProjectTask && (int) ($originTask->article_id ?? 0) <= 0) {
+                $skipOriginReuse = true;
+            }
+        }
+        if (! $skipOriginReuse) {
+            $existingByOrigin = $this->originResolver->findExisting(
+                $originType,
+                $originId,
+                $siteId,
+                $postType,
+            );
+        }
 
         try {
             $normalized = $this->articleCreateBridge->run(

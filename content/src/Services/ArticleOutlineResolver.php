@@ -13,6 +13,9 @@ use Omnichannel\Addons\ContentProjects\Services\ArticleGenerationInputResolver;
  * Canonical outline meta (tab Dàn ý) = article_meta.seo_article_outline.
  * Persist / hasUsableOutline cho outline tab & dependency check.
  *
+ * Outline is article structure for writing/editing/generation.
+ * Duplicate-topic detection belongs to Keyword Intelligence / cluster / intent / Content Project planning.
+ *
  * Article {{input}} (rewrite / first-run / content retry) → ArticleGenerationInputResolver.
  */
 class ArticleOutlineResolver

@@ -6,6 +6,10 @@ namespace Omnichannel\Addons\AiPrompt;
 
 use App\Core\Capability\CapabilityRegistry;
 use Illuminate\Support\ServiceProvider;
+use Omnichannel\Addons\AiPrompt\Services\AiCenterModelPresenter;
+use Omnichannel\Addons\AiPrompt\Services\AiModelInventory;
+use Omnichannel\Addons\AiPrompt\Services\AiModelPriorityService;
+use Omnichannel\Addons\AiPrompt\Services\AiRoutingTargetService;
 
 /**
  * Peer addon skeleton: registers capabilities into Client Core.
@@ -18,6 +22,12 @@ final class AiPromptServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->registerCapabilities();
+        $this->app->scoped(AiModelPriorityService::class);
+        $this->app->scoped(AiRoutingTargetService::class);
+        $this->app->scoped(AiCenterModelPresenter::class);
+        $this->app->scoped(AiModelInventory::class);
+        $this->app->scoped(\Omnichannel\Addons\AiPrompt\Services\AiConnectionPresenter::class);
+        $this->app->scoped(\Omnichannel\Addons\AiPrompt\Services\AiExecutionTargetPresenter::class);
     }
 
     public function boot(): void

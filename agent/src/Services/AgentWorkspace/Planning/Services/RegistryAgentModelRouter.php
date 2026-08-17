@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Agent\Services\AgentWorkspace\Planning\Services;
 
+use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext;
 use Omnichannel\Addons\AiPrompt\Extension\Resolvers\AiProviderResolver;
 use Omnichannel\Addons\Agent\Services\AgentWorkspace\Planning\Contracts\AgentModelRouter;
 use Omnichannel\Addons\Agent\Services\AgentWorkspace\Planning\Data\AgentModelRoutingContext;
@@ -112,8 +113,28 @@ final class RegistryAgentModelRouter implements AgentModelRouter
                 }
             }
             if ($router instanceof AiModelRouterService) {
-                $category = $this->categoryForTask($context->taskType);
-                $active = $router->getActiveModel($connectionId, $category)
+                $profile = $this->categoryForTask($context->taskType);
+                try {
+                    $legacy = $connection;
+                    $routed = $router->resolve($profile, new AiRoutingContext(
+                        userId: (int) ($connection->user_id ?? 0),
+                        legacyConnection: $legacy,
+                        allowLegacyFallback: true,
+                    ));
+
+                    return [[
+                        'provider_key' => $routed->provider,
+                        'model' => $routed->model,
+                        'connection_id' => (int) $routed->connection->id,
+                        'context_limit_tokens' => $this->defaultContextLimit,
+                        'supports_structured_output' => in_array('structured_output', $routed->capabilities, true),
+                        'enabled' => true,
+                    ]];
+                } catch (Throwable) {
+                    // Fall through to connection-scoped model list.
+                }
+
+                $active = $router->getActiveModel($connectionId, $profile)
                     ?? $router->getActiveModel($connectionId, 'default');
                 if ($active !== null) {
                     $model = (string) ($active->raw_model_name ?? '');
@@ -217,8 +238,8 @@ final class RegistryAgentModelRouter implements AgentModelRouter
     {
         return match ($taskType) {
             'intent_classification', 'clarification', 'conversation_summary' => 'fast',
-            'plan_generation', 'plan_repair', 'assistant_answer' => 'default',
-            default => 'default',
+            'plan_generation', 'plan_repair', 'assistant_answer' => 'text.reasoning',
+            default => 'text.fast',
         };
     }
 }

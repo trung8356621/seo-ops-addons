@@ -93,7 +93,7 @@ export function clearFormattingCommand(context, payload = {}) {
             command: 'clear_formatting',
             context,
             historyPolicy: 'add',
-            build: (ed) => ed.chain().focus().clearNodes().unsetAllMarks().run(),
+            build: (ed) => ed.chain().focus().unsetAllMarks().run(),
         })
     ));
 }

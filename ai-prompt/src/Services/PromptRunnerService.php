@@ -5,11 +5,18 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AiPrompt\Services;
 
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
+use Omnichannel\Addons\AiPrompt\Exceptions\AiRoutingException;
+use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext;
+use Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate;
 use Omnichannel\Addons\AiPrompt\Extension\Resolvers\AiProviderResolver;
 use Omnichannel\Addons\AiPrompt\Models\PromptResult;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\Models\SeoPromptPart;
+use Omnichannel\Addons\AiPrompt\Services\Ai\DeepSeekChatClient;
 use Omnichannel\Addons\AiPrompt\Services\Ai\GeminiGenerateContentClient;
+use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
+use Omnichannel\Addons\AiPrompt\Support\AiUsageMode;
+use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
 use Omnichannel\Addons\Media\Services\MediaGenerationService;
 use Omnichannel\Addons\Media\Support\ImageToolType;
 use Omnichannel\Addons\AiPrompt\Support\PromptPostProcessing;
@@ -27,6 +34,8 @@ class PromptRunnerService
         private readonly AiModelsReadinessService $aiModelsReadiness,
         private readonly AiProviderResolver $aiProviderResolver,
         private readonly GeminiGenerateContentClient $geminiClient,
+        private readonly PromptExecutionProfileResolver $profileResolver,
+        private readonly DeepSeekChatClient $deepSeekClient,
     ) {}
 
     private const ROLE_HEADINGS = [
@@ -58,26 +67,17 @@ class PromptRunnerService
         $variables = app(PromptLanguageVariableService::class)->mergeInto($variables);
 
         $connection = $prompt->aiConnection;
-        if ($connection === null) {
-            throw new PromptRunException('Prompt chưa được gắn kết nối AI.');
-        }
-
-        if ($connection->status !== 'active') {
-            throw new PromptRunException('Kết nối AI đang tắt hoặc không khả dụng.');
-        }
-
-        if (blank($connection->api_key)) {
-            throw new PromptRunException('Kết nối AI chưa có API Key.');
-        }
-
-        $this->aiModelsReadiness->assertConnectionReady($connection);
-
         $toolType = $this->normalizeToolType($prompt);
         $imageTool = ImageToolType::fromMixed($toolType);
+        $profile = $this->profileResolver->resolve($prompt, (string) ($prompt->hook_key ?? ''), $toolType);
+
+        $routingContext = $this->routingContextForPrompt($prompt, $connection, $imageTool->isImagePipeline());
+        $candidate = $this->aiModelRouter->resolve($profile->value, $routingContext);
+        $connection = $candidate->connection;
 
         if ($imageTool->isImagePipeline() && $connection->provider !== 'gemini') {
             throw new PromptRunException(
-                'Prompt công cụ Hình ảnh yêu cầu kết nối Gemini (Imagen / Nano Banana), không dùng Claude.',
+                'Prompt công cụ Hình ảnh yêu cầu kết nối Gemini (Imagen / Nano Banana), không dùng Claude/DeepSeek.',
             );
         }
 
@@ -307,21 +307,15 @@ class PromptRunnerService
         $variables = app(PromptLanguageVariableService::class)->mergeInto($variables);
 
         $connection = $prompt->aiConnection;
-        if ($connection === null) {
-            throw new PromptRunException('Prompt chưa được gắn kết nối AI.');
-        }
-
-        if ($connection->status !== 'active') {
-            throw new PromptRunException('Kết nối AI đang tắt hoặc không khả dụng.');
-        }
-
-        if (blank($connection->api_key)) {
-            throw new PromptRunException('Kết nối AI chưa có API Key.');
-        }
-
-        $this->aiModelsReadiness->assertConnectionReady($connection);
-
         $toolType = $this->normalizeToolType($prompt);
+        $profile = $this->profileResolver->resolve($prompt, (string) ($prompt->hook_key ?? ''), $toolType);
+        $routingContext = $this->routingContextForPrompt(
+            $prompt,
+            $connection,
+            ImageToolType::fromMixed($toolType)->isImagePipeline(),
+        );
+        $candidate = $this->aiModelRouter->resolve($profile->value, $routingContext);
+        $connection = $candidate->connection;
 
         if (ImageToolType::fromMixed($toolType)->isImagePipeline() && $connection->provider !== 'gemini') {
             throw new PromptRunException(
@@ -406,9 +400,37 @@ class PromptRunnerService
         string $toolType,
         string $category,
     ): array {
-        // Image path: ImageRoutingStrategy only — không dùng AiModelCategory / category failover.
+        unset($category);
+        $profile = $this->profileResolver->resolve($prompt, (string) ($prompt->hook_key ?? ''), $toolType);
+        $context = $this->routingContextForPrompt(
+            $prompt,
+            $connection,
+            ImageToolType::fromMixed($toolType)->isImagePipeline(),
+        );
+
         if (ImageToolType::fromMixed($toolType)->isImagePipeline()) {
-            $media = $this->mediaGeneration->executeImage($connection, $prompt, $compiled, $variables);
+            $candidates = $this->aiModelRouter->resolveAll($profile->value, $context);
+            $gemini = null;
+            $modelsOverride = [];
+            foreach ($candidates as $candidate) {
+                if ($candidate->provider !== ApiConnectionProviders::GEMINI) {
+                    continue;
+                }
+                $gemini ??= $candidate;
+                $modelsOverride[] = $candidate->model;
+            }
+            if ($gemini === null) {
+                throw AiRoutingException::noCandidate($profile->value, 'image.generate');
+            }
+
+            $media = $this->mediaGeneration->executeImage(
+                $gemini->connection,
+                $prompt,
+                $compiled,
+                $variables,
+                $modelsOverride !== [] ? array_values(array_unique($modelsOverride)) : null,
+            );
+            $media['routing'] = $gemini->toLogContext();
 
             return [
                 $media['url'],
@@ -418,21 +440,28 @@ class PromptRunnerService
             ];
         }
 
-        [$output, $usage, $rawModel] = $this->aiModelRouter->executeWithFailover(
-            $connection,
-            $category,
-            fn (string $rawModelName, ?int $modelId): array => $this->callProvider(
-                $connection,
+        [$output, $usage, $candidate, $fallbackCount, $reasons] = $this->aiModelRouter->executeWithProfile(
+            $profile->value,
+            $context,
+            fn (RoutedAiCandidate $routed): array => $this->callProvider(
+                $routed->connection,
                 $prompt,
                 $compiled,
-                $rawModelName,
+                $routed->model,
                 $variables,
                 $isTaskMode,
                 $toolType,
+                $routed->options,
             ),
         );
 
-        return [$output, $usage, $rawModel];
+        $usage = is_array($usage) ? $usage : [];
+        $usage['routing'] = array_merge($candidate->toLogContext(), [
+            'fallback_count' => $fallbackCount,
+            'fallback_reasons' => $reasons,
+        ]);
+
+        return [$output, $usage, $candidate->model];
     }
 
     public function hasDependentSubTasks(SeoPrompt $prompt): bool
@@ -1182,6 +1211,7 @@ class PromptRunnerService
         array $variables,
         bool $isTaskMode,
         string $toolType = 'default',
+        array $options = [],
     ): array {
         if ($toolType === 'video') {
             throw new PromptRunException(
@@ -1199,13 +1229,18 @@ class PromptRunnerService
         try {
             $this->aiProviderResolver->assertTextReady((string) $connection->provider);
         } catch (RuntimeException $exception) {
-            throw new PromptRunException($exception->getMessage());
+            $meta = is_array($connection->metadata) ? $connection->metadata : [];
+            if (! is_array($meta['provider_template'] ?? null)) {
+                throw new PromptRunException($exception->getMessage());
+            }
         }
 
         return match ($connection->provider) {
-            'gemini' => $this->callGemini($connection, $compiled, $model),
-            'claude' => $this->callClaude($prompt, $variables, $model, $isTaskMode, $compiled),
-            default => throw new PromptRunException('Nhà cung cấp AI không được hỗ trợ: '.$connection->provider),
+            ApiConnectionProviders::GEMINI => $this->callGemini($connection, $compiled, $model),
+            ApiConnectionProviders::CLAUDE => $this->callClaude($prompt, $variables, $model, $isTaskMode, $compiled),
+            ApiConnectionProviders::DEEPSEEK => $this->deepSeekClient->generate($connection, $compiled, $model, $options),
+            default => app(\Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\OpenAiCompatibleProtocolAdapter::class)
+                ->generate($connection, $compiled, $model, $options),
         };
     }
 
@@ -1215,6 +1250,24 @@ class PromptRunnerService
     private function callGemini(ApiConnection $connection, string $prompt, string $model): array
     {
         return $this->geminiClient->generate($connection, $prompt, $model);
+    }
+
+    private function routingContextForPrompt(SeoPrompt $prompt, ?ApiConnection $connection, bool $isImagePipeline): AiRoutingContext
+    {
+        $settings = is_array($prompt->settings ?? null) ? $prompt->settings : [];
+        $familyKey = trim((string) ($settings['routing_family_key'] ?? ''));
+        $allowed = null;
+        if (! $isImagePipeline && $familyKey !== '' && $familyKey !== AiModelFamilyCatalog::AUTOMATIC) {
+            $allowed = [$familyKey];
+        }
+
+        return new AiRoutingContext(
+            userId: (int) (auth()->id() ?? $prompt->user_id ?? 0),
+            legacyConnection: $connection,
+            allowLegacyFallback: true,
+            usageModeOverride: $isImagePipeline ? null : AiUsageMode::tryFromMixed($settings['usage_mode'] ?? null),
+            allowedFamilyKeys: $allowed,
+        );
     }
 
     /**

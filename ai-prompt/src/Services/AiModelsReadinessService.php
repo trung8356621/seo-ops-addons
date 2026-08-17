@@ -40,8 +40,26 @@ final class AiModelsReadinessService
     public function isPromptReady(SeoPrompt $prompt): bool
     {
         $prompt->loadMissing('aiConnection');
+        if ($this->isConnectionReady($prompt->aiConnection)) {
+            return true;
+        }
 
-        return $this->isConnectionReady($prompt->aiConnection);
+        try {
+            $profile = app(PromptExecutionProfileResolver::class)
+                ->resolve($prompt, (string) ($prompt->hook_key ?? ''), (string) ($prompt->tools ?? 'default'));
+            app(AiModelRouterService::class)->resolve(
+                $profile->value,
+                new \Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext(
+                    userId: (int) (auth()->id() ?? $prompt->user_id ?? 0),
+                    legacyConnection: $prompt->aiConnection,
+                    allowLegacyFallback: true,
+                ),
+            );
+
+            return true;
+        } catch (\Throwable) {
+            return false;
+        }
     }
 
     public function assertConnectionReady(?ApiConnection $connection, ?string $connectionLabel = null): void

@@ -12,6 +12,8 @@ final class AiProvidersExtensionProvider implements ExtensionProvider
     public function __construct(
         private readonly GeminiAiTextProvider $gemini,
         private readonly ClaudeAiTextProvider $claude,
+        private readonly DeepSeekAiTextProvider $deepseek,
+        private readonly OpenRouterAiTextProvider $openrouter,
         private readonly AiProvidersHealthDriver $healthDriver,
     ) {}
 
@@ -24,6 +26,8 @@ final class AiProvidersExtensionProvider implements ExtensionProvider
     {
         $ctx->aiProviders()->registerText($this->gemini);
         $ctx->aiProviders()->registerText($this->claude);
+        $ctx->aiProviders()->registerText($this->deepseek);
+        $ctx->aiProviders()->registerText($this->openrouter);
         $ctx->aiProviders()->register($this->id(), $this->healthDriver);
     }
 

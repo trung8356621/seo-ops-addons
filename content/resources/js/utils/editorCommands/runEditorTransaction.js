@@ -111,11 +111,10 @@ export function emitDocumentChanged(context, detail) {
         window.dispatchEvent(new CustomEvent(DOCUMENT_CHANGED_EVENT, { detail: payload }));
     }
 
-    // Single fan-out: dirty / draft / analysis / autosave — host callbacks once.
-    if (typeof context.commitActiveBlock === 'function') {
+    if (detail.skipCommit !== true && typeof context.commitActiveBlock === 'function') {
         context.commitActiveBlock();
     }
-    if (typeof context.markSeoStale === 'function') {
+    if (detail.skipAnalyze !== true && typeof context.markSeoStale === 'function') {
         context.markSeoStale();
     }
     if (typeof context.scheduleAutosave === 'function') {

@@ -694,6 +694,8 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
                 \Omnichannel\Addons\Media\Console\ProductGalleryCanaryFixtureCommand::class,
                 \Omnichannel\Addons\ContentProjects\Console\RepairContentProjectCommand::class,
                 \Omnichannel\Addons\ContentProjects\Console\RepairContentProjectSiteLinksCommand::class,
+                \Omnichannel\Addons\ContentProjects\Console\DiagnoseContentProjectTaskHistoryCommand::class,
+                \Omnichannel\Addons\ContentProjects\Console\RecoverLegacyContentProjectTaskCommand::class,
                 \Omnichannel\Addons\ContentProjects\Console\RepairLegacyContentProjectGenerationCommand::class,
                 \Omnichannel\Addons\ContentProjects\Console\CleanupContentProjectAgentSessionsCommand::class,
                 \Omnichannel\Addons\ContentProjects\Console\CleanupContentProjectAgentPlansCommand::class,
@@ -1041,8 +1043,14 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
         $this->app->singleton(\Omnichannel\Addons\Agent\Extension\Resolvers\PipelineResolver::class);
         $this->app->singleton(\Omnichannel\Addons\AiPrompt\Services\Ai\GeminiGenerateContentClient::class);
         $this->app->singleton(\Omnichannel\Addons\AiPrompt\Services\Ai\ClaudeMessagesClient::class);
+        $this->app->singleton(\Omnichannel\Addons\AiPrompt\Services\Ai\DeepSeekChatClient::class);
+        $this->app->singleton(\Omnichannel\Addons\AiPrompt\Services\ModelCapabilityRegistry::class);
+        $this->app->singleton(\Omnichannel\Addons\AiPrompt\Services\PromptExecutionProfileResolver::class);
+        $this->app->singleton(\Omnichannel\Addons\AiPrompt\Services\AiRoutingTargetService::class);
+        $this->app->singleton(\Omnichannel\Addons\AiPrompt\Services\AiRoutingBootstrapService::class);
         $this->app->singleton(\Omnichannel\Addons\AiPrompt\Extension\Builtin\AiProviders\GeminiAiTextProvider::class);
         $this->app->singleton(\Omnichannel\Addons\AiPrompt\Extension\Builtin\AiProviders\ClaudeAiTextProvider::class);
+        $this->app->singleton(\Omnichannel\Addons\AiPrompt\Extension\Builtin\AiProviders\DeepSeekAiTextProvider::class);
         $this->app->singleton(\Omnichannel\Addons\AiPrompt\Extension\Builtin\AiProviders\AiProvidersHealthDriver::class);
         $this->app->singleton(\Omnichannel\Addons\AiPrompt\Extension\Builtin\AiProviders\AiProvidersExtensionProvider::class);
 

@@ -25,6 +25,7 @@ class SeoAiModel extends Model
         return [
             'priority' => 'integer',
             'capabilities' => 'array',
+            'is_hidden' => 'boolean',
         ];
     }
 

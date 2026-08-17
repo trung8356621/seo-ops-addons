@@ -91,6 +91,7 @@ final class MediaGenerationService
         SeoPrompt $prompt,
         string $compiled,
         array $variables,
+        ?array $modelsOverride = null,
     ): array {
         if ($connection->provider !== 'gemini') {
             throw new PromptRunException(
@@ -116,6 +117,7 @@ final class MediaGenerationService
             toolType: $toolType,
             productContext: $this->isProductImageContext($variables),
             inputLength: $compiledPromptLength,
+            modelsOverride: $modelsOverride,
         );
 
         $firstLine = trim(explode("\n", trim($result['url']), 2)[0] ?? '');

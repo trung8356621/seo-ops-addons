@@ -25,7 +25,7 @@ class EditSerpProviderApiConnection extends ResourcePage implements HasForms
 
     protected static string $resource = AiConnectionResource::class;
 
-    protected static ?string $slug = '{provider}/edit';
+    protected static ?string $slug = 'serp/{provider}/edit';
 
     protected static string $view = 'seo-content-ai::filament.pages.seo-settings-api-form';
 

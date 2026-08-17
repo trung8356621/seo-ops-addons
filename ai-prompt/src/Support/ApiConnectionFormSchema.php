@@ -27,11 +27,44 @@ final class ApiConnectionFormSchema
                 ->live()
                 ->required()
                 ->native(false)
+                ->afterStateUpdated(function (?string $state, ?string $old, Forms\Set $set, Get $get): void {
+                    $set('metadata.base_url', null);
+                    $set('metadata.base_url_override', null);
+                    $set('metadata.override_base_url', false);
+                    $newLabel = is_string($state) && $state !== '' ? ApiConnectionProviders::label($state) : '';
+                    $oldLabel = is_string($old) && $old !== '' ? ApiConnectionProviders::label($old) : '';
+                    $name = trim((string) $get('name'));
+                    if ($name === '' || $name === $oldLabel) {
+                        $set('name', $newLabel);
+                    }
+                    $currentCode = trim((string) $get('metadata.display_code'));
+                    $oldBuiltin = is_string($old) ? (\Omnichannel\Addons\AiPrompt\Support\AiConnectionShortCode::builtin($old) ?? '') : '';
+                    if ($currentCode === '' || $currentCode === $oldBuiltin) {
+                        $set(
+                            'metadata.display_code',
+                            is_string($state)
+                                ? (\Omnichannel\Addons\AiPrompt\Support\AiConnectionShortCode::builtin($state) ?? '')
+                                : '',
+                        );
+                    }
+                })
                 ->helperText(fn (Get $get): ?HtmlString => self::providerHelper($get('provider'))),
             Forms\Components\TextInput::make('name')
                 ->label(__('seo-content-ai::filament.ai_connection.name'))
                 ->required()
+                ->default(fn (): string => ApiConnectionProviders::label(ApiConnectionProviders::GEMINI))
                 ->maxLength(255),
+            Forms\Components\TextInput::make('metadata.display_code')
+                ->label(__('seo-content-ai::filament.ai_connection.display_code'))
+                ->helperText(__('seo-content-ai::filament.ai_connection.display_code_help'))
+                ->maxLength(8)
+                ->default(fn (): string => (string) (\Omnichannel\Addons\AiPrompt\Support\AiConnectionShortCode::builtin(ApiConnectionProviders::GEMINI) ?? ''))
+                ->visible(fn (Get $get): bool => ApiConnectionProviders::isAi($get('provider')))
+                ->dehydrated(fn (Get $get): bool => ApiConnectionProviders::isAi($get('provider')))
+                ->extraInputAttributes([
+                    'style' => 'text-transform: uppercase',
+                    'autocomplete' => 'off',
+                ]),
             Forms\Components\TextInput::make('api_key')
                 ->label(__('seo-content-ai::filament.ai_connection.api_key'))
                 ->password()
@@ -41,6 +74,68 @@ final class ApiConnectionFormSchema
                 ->dehydrated(fn (?string $state): bool => filled($state))
                 ->maxLength(65535)
                 ->helperText(__('seo-content-ai::filament.ai_connection.helper_sync')),
+            Forms\Components\Placeholder::make('transport_summary')
+                ->label(__('seo-content-ai::filament.ai_connection.transport'))
+                ->content(function (Get $get): HtmlString {
+                    $provider = (string) $get('provider');
+                    if (! self::isTemplateBacked($provider)) {
+                        return new HtmlString('');
+                    }
+                    try {
+                        $details = app(\Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\ProviderConnectionResolver::class)
+                            ->technicalDetails((int) auth()->id(), $provider);
+                    } catch (\Throwable) {
+                        return new HtmlString(e(__('seo-content-ai::filament.ai_connection.transport_missing')));
+                    }
+
+                    return new HtmlString(
+                        '<div class="text-sm">'
+                        .e($details['provider_name']).' API · '
+                        .e(__('seo-content-ai::filament.ai_connection.transport_auto'))
+                        .'</div>'
+                    );
+                })
+                ->visible(fn (Get $get): bool => self::isTemplateBacked((string) $get('provider'))),
+            Forms\Components\Section::make(__('seo-content-ai::filament.ai_connection.technical_details'))
+                ->collapsed()
+                ->visible(fn (Get $get): bool => self::isTemplateBacked((string) $get('provider')))
+                ->schema([
+                    Forms\Components\Placeholder::make('tech_protocol')
+                        ->label(__('seo-content-ai::filament.ai_connection.protocol'))
+                        ->content(fn (Get $get): string => self::technicalField($get, 'protocol')),
+                    Forms\Components\Placeholder::make('tech_base_url')
+                        ->label(__('seo-content-ai::filament.ai_connection.base_url'))
+                        ->content(fn (Get $get): string => self::technicalField($get, 'base_url')),
+                    Forms\Components\Placeholder::make('tech_models')
+                        ->label(__('seo-content-ai::filament.ai_connection.models_endpoint'))
+                        ->content(fn (Get $get): string => self::technicalField($get, 'models')),
+                    Forms\Components\Placeholder::make('tech_text')
+                        ->label(__('seo-content-ai::filament.ai_connection.text_endpoint'))
+                        ->content(fn (Get $get): string => self::technicalField($get, 'text')),
+                    Forms\Components\Placeholder::make('tech_source')
+                        ->label(__('seo-content-ai::filament.ai_connection.config_source'))
+                        ->content(fn (Get $get): string => self::sourceLabel($get)),
+                ]),
+            Forms\Components\Section::make(__('seo-content-ai::filament.ai_connection.advanced'))
+                ->collapsed()
+                ->visible(fn (Get $get): bool => self::allowsOverride((string) $get('provider')))
+                ->schema([
+                    Forms\Components\Toggle::make('metadata.override_base_url')
+                        ->label(__('seo-content-ai::filament.ai_connection.override_base_url'))
+                        ->live()
+                        ->dehydrated(),
+                    Forms\Components\TextInput::make('metadata.base_url_override')
+                        ->label(__('seo-content-ai::filament.ai_connection.base_url'))
+                        ->helperText(__('seo-content-ai::filament.ai_connection.override_warning'))
+                        ->autocomplete('off')
+                        ->extraInputAttributes([
+                            'autocomplete' => 'off',
+                            'data-1p-ignore' => 'true',
+                            'data-lpignore' => 'true',
+                        ])
+                        ->visible(fn (Get $get): bool => (bool) $get('metadata.override_base_url'))
+                        ->maxLength(255),
+                ]),
             Forms\Components\Select::make('status')
                 ->label(__('seo-content-ai::filament.ai_connection.status'))
                 ->options([
@@ -250,6 +345,57 @@ final class ApiConnectionFormSchema
         return $options;
     }
 
+    private static function isTemplateBacked(?string $provider): bool
+    {
+        if ($provider === null || $provider === '') {
+            return false;
+        }
+        if (ApiConnectionProviders::isExternal($provider) || ApiConnectionProviders::isSeo($provider)) {
+            return false;
+        }
+
+        return app(\Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\ProviderConnectionResolver::class)
+            ->hasTemplate((int) auth()->id(), $provider);
+    }
+
+    private static function allowsOverride(?string $provider): bool
+    {
+        if ($provider === null || $provider === '' || ! self::isTemplateBacked($provider)) {
+            return false;
+        }
+        try {
+            $details = app(\Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\ProviderConnectionResolver::class)
+                ->technicalDetails((int) auth()->id(), $provider);
+        } catch (\Throwable) {
+            return false;
+        }
+
+        return (bool) $details['allow_override'];
+    }
+
+    private static function technicalField(Get $get, string $key): string
+    {
+        try {
+            $details = app(\Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\ProviderConnectionResolver::class)
+                ->technicalDetails((int) auth()->id(), (string) $get('provider'));
+        } catch (\Throwable) {
+            return '—';
+        }
+
+        return (string) ($details[$key] ?? '—');
+    }
+
+    private static function sourceLabel(Get $get): string
+    {
+        $source = self::technicalField($get, 'source');
+        $schema = self::technicalField($get, 'schema_version');
+        $label = $source === \Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\ProviderConnectionResolver::SOURCE_IMPORTED
+            ? __('seo-content-ai::filament.ai_connection.source_imported')
+            : __('seo-content-ai::filament.ai_connection.source_builtin');
+
+        return $label.' · '.$schema;
+    }
+
     private static function providerHelper(?string $provider): ?HtmlString
     {
         return match ($provider) {
@@ -263,6 +409,18 @@ final class ApiConnectionFormSchema
                 '<a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener noreferrer" '
                 .'class="text-primary-600 hover:underline" style="color:#3b82f6;text-decoration:underline;font-weight:500;">'
                 .e('👉 How to get Claude API key from Anthropic Console')
+                .'</a>'
+            ),
+            ApiConnectionProviders::DEEPSEEK => new HtmlString(
+                '<a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer" '
+                .'class="text-primary-600 hover:underline" style="color:#3b82f6;text-decoration:underline;font-weight:500;">'
+                .e('👉 How to get DeepSeek API key')
+                .'</a>'
+            ),
+            ApiConnectionProviders::OPENROUTER => new HtmlString(
+                '<a href="https://openrouter.ai/keys" target="_blank" rel="noopener noreferrer" '
+                .'class="text-primary-600 hover:underline" style="color:#3b82f6;text-decoration:underline;font-weight:500;">'
+                .e('👉 How to get OpenRouter API key')
                 .'</a>'
             ),
             default => null,

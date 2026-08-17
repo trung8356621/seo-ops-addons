@@ -6,6 +6,15 @@ import {
     outlineHeadingFingerprint,
 } from '../utils/articleEditorClientOutline';
 import {
+    changeHeadingLevelInHtml,
+    deleteHeadingKeepContentInHtml,
+    deleteHeadingWithContentInHtml,
+    insertAfterHeadingSectionInHtml,
+    renameHeadingInHtml,
+    setOutlineVisibleInHtml,
+} from '../utils/articleEditorOutlineMutations';
+import { executeEditorCommand } from '../utils/editorCommands';
+import {
     buildEditorSections,
     createEmptySectionBlock,
     createEmptyTextBlock,
@@ -28,14 +37,56 @@ import { useCallback, useEffect, useRef } from 'react';
  * useArticleEditorOutline - extracted from SeoArticleEditor.jsx (Task 7 mechanical
  * extraction). Mechanical move - no behavior change.
  */
-export default function useArticleEditorOutline({ activeBlockId, articleId, articleTitle, blockEditorsRef, blockFlushRef, blocksRef, canGenerateFeaturedSnippet, collapseSectionsExcept, commitActiveBlock, editorSections, featuredSnippetGenerating, featuredSnippetPreviewHtml, featuredSnippetTargetRef, focusImageBlock, focusKeyword, focusedOutlineHeadingRef, outlineAppendDoneRef, outlineAppendInflightRef, outlineFingerprintRef, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, outlineHeadingIdsByKeyRef, outlineRailRef, markSeoStale, sectionByBlockId, sectionHeadingBlockIds, setActiveBlockId, setBlocks, setClientOutline, setCollapsedSectionIds, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptOpen, setGlobalEditor, setImagesTabJumpTarget, setInsertMenu, setOutlineHasSavedHeadings, setOutlineHeadingKeys, setOutlineTreeSync, setSectionTitleEditRequest, syncOutlineFocusFromBlock, tempMergeRef }) {
+export default function useArticleEditorOutline({ activeBlockId, activateBlock = null, articleId, articleTitle, blockEditorsRef, blockFlushRef, blocksRef, canGenerateFeaturedSnippet, collapseSectionsExcept, commitActiveBlock, editorSections, featuredSnippetGenerating, featuredSnippetPreviewHtml, featuredSnippetTargetRef, focusImageBlock, focusKeyword, focusedOutlineHeadingRef, outlineAppendDoneRef, outlineAppendInflightRef, outlineFingerprintRef, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, outlineHeadingIdsByKeyRef, outlineRailRef, markSeoStale, sectionByBlockId, sectionHeadingBlockIds, setActiveBlockId, setBlocks, setClientOutline, setCollapsedSectionIds, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptOpen, setGlobalEditor, setImagesTabJumpTarget, setInsertMenu, setOutlineHasSavedHeadings, setOutlineHeadingKeys, setOutlineJumpTarget = null, setOutlineTreeSync, setSectionTitleEditRequest, syncOutlineFocusFromBlock, tempMergeRef }) {
     const resolveBlockIdForOutlineHeadingId = useCallback(
         (headingId) =>
             resolveBlockIdFromOutlineHeadingId(headingId, outlineHeadingIdsByBlockIdRef.current),
         [],
     );
 
-    const applyOutlineHeadingText = useCallback(({ level, oldText, newText, headingId = null }) => {
+    const mutateOutlineHeading = useCallback((node, commandName, payload, htmlMutator) => {
+        const blockId = String(node?.block_id ?? '').trim()
+            || resolveBlockIdForOutlineHeadingId(node?.id);
+        const headingIndex = Number(node?.heading_index ?? 0);
+        if (!blockId) {
+            return false;
+        }
+
+        commitActiveBlock?.();
+        const editor = blockEditorsRef.current.get(blockId);
+        if (editor && !editor.isDestroyed) {
+            const result = executeEditorCommand(commandName, {
+                editor,
+                headingIndex,
+                ...payload,
+            }, { notifyOnFailure: false });
+            if (result?.ok && result.transaction_applied) {
+                outlineFingerprintRef.current = '';
+                return true;
+            }
+        }
+
+        if (typeof htmlMutator !== 'function') {
+            return false;
+        }
+
+        setBlocks((prev) => prev.map((block) => {
+            if (block.id !== blockId || block.type !== 'text') {
+                return block;
+            }
+            const nextHtml = htmlMutator(block.content || '', headingIndex);
+            if (nextHtml === block.content) {
+                return block;
+            }
+
+            return { ...block, content: nextHtml };
+        }));
+        outlineFingerprintRef.current = '';
+
+        return true;
+    }, [commitActiveBlock, resolveBlockIdForOutlineHeadingId]);
+
+    const applyOutlineHeadingText = useCallback(({ level, oldText, newText, headingId = null, headingIndex = null, blockId = null }) => {
         const targetLevel = Number(level) || 0;
         const target = truncateOutlineHeadingText(oldText);
         const replacement = truncateOutlineHeadingText(newText);
@@ -43,8 +94,20 @@ export default function useArticleEditorOutline({ activeBlockId, articleId, arti
             return;
         }
 
+        const mappedBlockId = String(blockId ?? '').trim() || resolveBlockIdForOutlineHeadingId(headingId);
+        const index = Number.isFinite(Number(headingIndex)) ? Number(headingIndex) : null;
+        const editor = mappedBlockId ? blockEditorsRef.current.get(mappedBlockId) : null;
+        if (editor && !editor.isDestroyed && index != null) {
+            executeEditorCommand('rename_heading', {
+                editor,
+                headingIndex: index,
+                text: replacement,
+            }, { notifyOnFailure: false });
+            outlineFingerprintRef.current = '';
+            return;
+        }
+
         const selector = targetLevel >= 2 && targetLevel <= 4 ? `h${targetLevel}` : 'h2, h3, h4';
-        const mappedBlockId = resolveBlockIdForOutlineHeadingId(headingId);
         const headingTag = targetLevel >= 2 && targetLevel <= 4 ? `h${targetLevel}` : 'h2';
         let replaced = false;
 
@@ -56,6 +119,14 @@ export default function useArticleEditorOutline({ activeBlockId, articleId, arti
 
                 if (mappedBlockId && block.id !== mappedBlockId) {
                     return block;
+                }
+
+                if (index != null) {
+                    const nextHtml = renameHeadingInHtml(block.content, index, replacement);
+                    if (nextHtml !== block.content) {
+                        replaced = true;
+                        return { ...block, content: nextHtml };
+                    }
                 }
 
                 const doc = new DOMParser().parseFromString(block.content, 'text/html');
@@ -301,8 +372,10 @@ export default function useArticleEditorOutline({ activeBlockId, articleId, arti
                 if (options.focusEdit === true) {
                     setOutlineTreeSync({
                         token: Date.now(),
-                        action: 'focus',
-                        headingId: clientHeadingId,
+                        action: 'focusNew',
+                        headingId: null,
+                        blockId: id,
+                        matchText: meta.headingText,
                         focusEdit: true,
                     });
                 }
@@ -314,7 +387,7 @@ export default function useArticleEditorOutline({ activeBlockId, articleId, arti
     );
 
     const syncOutlineForNewSectionBlock = useCallback(
-        (headingBlock, afterHeadingId = null) => {
+        (headingBlock, afterHeadingId = null, options = {}) => {
             if (!articleId || !headingBlock) {
                 return;
             }
@@ -326,7 +399,7 @@ export default function useArticleEditorOutline({ activeBlockId, articleId, arti
 
             void appendOutlineHeadingForBlock(headingBlock.id, meta, {
                 afterHeadingId,
-                focusEdit: false,
+                focusEdit: options.focusEdit === true,
             });
         },
         [appendOutlineHeadingForBlock, articleId],
@@ -360,7 +433,7 @@ export default function useArticleEditorOutline({ activeBlockId, articleId, arti
     }, []);
 
     const updateOutlineHeadingTitle = useCallback(
-        async ({ level, oldText, newText, headingId = null, headingHtml = null, blockId = null }) => {
+        async ({ level, oldText, newText, headingId = null, headingHtml = null, blockId = null, headingIndex = null }) => {
             const trimmed = truncateOutlineHeadingText(newText);
             const old = truncateOutlineHeadingText(oldText);
             if (trimmed === '' || trimmed === old) {
@@ -387,6 +460,8 @@ export default function useArticleEditorOutline({ activeBlockId, articleId, arti
                     oldText: old,
                     newText: trimmed,
                     headingId: effectiveHeadingId,
+                    headingIndex,
+                    blockId: resolvedBlockId,
                 });
             }
 
@@ -577,9 +652,10 @@ export default function useArticleEditorOutline({ activeBlockId, articleId, arti
 
             const fromBlockId = String(node?.block_id ?? '').trim();
             const clientId = String(node?.id ?? '');
+            const headingIndex = Number(node?.heading_index ?? 0);
             const blockId =
                 fromBlockId
-                || (clientId.startsWith('client:') ? clientId.slice('client:'.length) : '')
+                || (clientId.startsWith('client:') ? clientId.slice('client:'.length).split(':')[0] : '')
                 || findBlockIdForOutlineHeading(
                     blocksRef.current,
                     Number(node?.level ?? 0),
@@ -599,7 +675,7 @@ export default function useArticleEditorOutline({ activeBlockId, articleId, arti
                 return;
             }
 
-            if (sectionHeadingBlockIds.has(blockId)) {
+            if (sectionHeadingBlockIds.has(blockId) || sectionByBlockId.get(blockId)) {
                 const sectionId = sectionByBlockId.get(blockId);
                 if (sectionId) {
                     collapseSectionsExcept(sectionId);
@@ -610,13 +686,20 @@ export default function useArticleEditorOutline({ activeBlockId, articleId, arti
                         window.setTimeout(() => sectionEl?.classList.remove('is-outline-jump-highlight'), 2400);
                     });
                 }
-
-                return;
             }
 
-            focusImageBlock(blockId);
+            setOutlineJumpTarget?.({
+                blockId,
+                headingIndex: Number.isFinite(headingIndex) ? headingIndex : 0,
+                token: Date.now(),
+            });
+            if (typeof activateBlock === 'function') {
+                activateBlock(blockId);
+            } else {
+                focusImageBlock(blockId);
+            }
         },
-        [collapseSectionsExcept, focusImageBlock, sectionByBlockId, sectionHeadingBlockIds],
+        [activateBlock, collapseSectionsExcept, focusImageBlock, sectionByBlockId, sectionHeadingBlockIds, setOutlineJumpTarget],
     );
 
     useEffect(() => {
@@ -742,7 +825,7 @@ export default function useArticleEditorOutline({ activeBlockId, articleId, arti
             [sectionId]: false,
         }));
 
-        syncOutlineForNewSectionBlock(newSectionBlock, afterHeadingId);
+        syncOutlineForNewSectionBlock(newSectionBlock, afterHeadingId, { focusEdit: true });
         focusNewSectionHeader(sectionId);
     }, [
         commitActiveBlock,
@@ -784,7 +867,7 @@ export default function useArticleEditorOutline({ activeBlockId, articleId, arti
             }));
 
             const afterHeadingId = resolveOutlineHeadingIdForSection(section);
-            syncOutlineForNewSectionBlock(newSectionBlock, afterHeadingId);
+            syncOutlineForNewSectionBlock(newSectionBlock, afterHeadingId, { focusEdit: true });
             focusNewSectionHeader(sectionId);
         },
         [
@@ -1000,5 +1083,86 @@ export default function useArticleEditorOutline({ activeBlockId, articleId, arti
         [articleTitle, canGenerateFeaturedSnippet, featuredSnippetGenerating, focusKeyword],
     );
 
-    return { addSection, addSectionAfter, applyOutlineHeadingHtml, applyOutlineHeadingText, collapseAllSections, confirmFeaturedSnippetPromptInsert, focusOutlineFromSectionHeader, handleOutlineHeadingFromEditor, handleOutlineLoaded, insertFeaturedSnippetAsNewSectionAfter, jumpToOutlineHeading, requestGenerateFeaturedSnippetAfterSection, resolveHeadingInnerHtml, runFeaturedSnippetPromptGenerate, saveSectionTitleFromHeader, toggleSectionCollapse, updateOutlineHeadingTitle };
+    const changeOutlineHeadingLevel = useCallback((node, level) => {
+        mutateOutlineHeading(
+            node,
+            'change_heading_level',
+            { level },
+            (html, headingIndex) => changeHeadingLevelInHtml(html, headingIndex, level),
+        );
+    }, [mutateOutlineHeading]);
+
+    const deleteOutlineHeadingKeepContent = useCallback((node) => {
+        mutateOutlineHeading(
+            node,
+            'delete_heading_keep_content',
+            {},
+            deleteHeadingKeepContentInHtml,
+        );
+    }, [mutateOutlineHeading]);
+
+    const deleteOutlineHeadingWithContent = useCallback((node) => {
+        mutateOutlineHeading(
+            node,
+            'delete_heading_with_content',
+            {},
+            deleteHeadingWithContentInHtml,
+        );
+    }, [mutateOutlineHeading]);
+
+    const toggleOutlineHeadingVisible = useCallback((node, visible) => {
+        mutateOutlineHeading(
+            node,
+            'set_heading_outline_visible',
+            { visible },
+            (html, headingIndex) => setOutlineVisibleInHtml(html, headingIndex, visible),
+        );
+    }, [mutateOutlineHeading]);
+
+    const addOutlineNode = useCallback((node, kind) => {
+        if (kind === 'h2-below') {
+            const section = editorSections.find((item) => item.blockIds?.includes(String(node?.block_id ?? '')));
+            if (section) {
+                addSectionAfter(section);
+                return;
+            }
+            addSection();
+            return;
+        }
+
+        const text = kind === 'paragraph'
+            ? ''
+            : `${t('editor_new_section_heading')} ${String(Date.now()).slice(-4)}`;
+        const level = kind === 'h4-child' ? 4 : 3;
+        const ok = mutateOutlineHeading(
+            node,
+            'insert_heading_after',
+            {
+                level,
+                text: text || 'Heading',
+                insertParagraph: kind !== 'paragraph',
+                paragraphOnly: kind === 'paragraph',
+            },
+            (html, headingIndex) => insertAfterHeadingSectionInHtml(html, {
+                headingIndex,
+                level,
+                text,
+                paragraph: kind === 'paragraph',
+            }),
+        );
+
+        if (ok && kind !== 'paragraph') {
+            setOutlineTreeSync({
+                token: Date.now(),
+                action: 'focusNew',
+                headingId: null,
+                blockId: node?.block_id ?? null,
+                matchText: text,
+                parentHeadingId: node?.id ?? null,
+                focusEdit: true,
+            });
+        }
+    }, [addSection, addSectionAfter, editorSections, mutateOutlineHeading]);
+
+    return { addOutlineNode, addSection, addSectionAfter, applyOutlineHeadingHtml, applyOutlineHeadingText, changeOutlineHeadingLevel, collapseAllSections, confirmFeaturedSnippetPromptInsert, deleteOutlineHeadingKeepContent, deleteOutlineHeadingWithContent, focusOutlineFromSectionHeader, handleOutlineHeadingFromEditor, handleOutlineLoaded, insertFeaturedSnippetAsNewSectionAfter, jumpToOutlineHeading, requestGenerateFeaturedSnippetAfterSection, resolveHeadingInnerHtml, runFeaturedSnippetPromptGenerate, saveSectionTitleFromHeader, toggleOutlineHeadingVisible, toggleSectionCollapse, updateOutlineHeadingTitle };
 }

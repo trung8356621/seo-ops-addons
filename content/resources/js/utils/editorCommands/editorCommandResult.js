@@ -43,6 +43,8 @@ export const EDITOR_COMMAND_CODES = Object.freeze({
     BLOCK_ALREADY_FIRST: 'block_already_first',
     BLOCK_ALREADY_LAST: 'block_already_last',
     SECTION_MISMATCH: 'section_mismatch',
+    HOST_COMMAND_MISSING: 'host_command_missing',
+    UNSUPPORTED_SELECTION: 'unsupported_selection',
 });
 
 /**

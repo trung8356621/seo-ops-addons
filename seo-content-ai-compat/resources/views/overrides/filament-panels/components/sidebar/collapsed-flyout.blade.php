@@ -48,18 +48,18 @@
     teleport
     x-show="! $store.sidebar.isOpen"
     x-cloak
-    x-on:keydown.escape.window="close()"
+    x-init="$watch('$store.sidebar.isOpen', (open) => { if (open && typeof $refs.panel?.close === 'function') { $refs.panel.close() } })"
+    x-on:keydown.escape.window="typeof $refs.panel?.close === 'function' && $refs.panel.close()"
     x-on:click.window="
         const panel = $refs.panel
-        if (! panel) {
+        if (! panel || typeof panel.close !== 'function') {
             return
         }
         if ($el.contains($event.target) || panel.contains($event.target)) {
             return
         }
-        close()
+        panel.close()
     "
-    x-effect="if ($store.sidebar.isOpen) close()"
     data-fi-sidebar-collapsed-flyout
 >
     <x-slot name="trigger">
@@ -104,7 +104,7 @@
             @if (filled($titleUrl))
                 <a
                     {{ \Filament\Support\generate_href_html($titleUrl) }}
-                    x-on:click="close()"
+                    x-on:click="typeof $refs.panel?.close === 'function' && $refs.panel.close()"
                     @class([
                         'block text-sm font-semibold',
                         'text-primary-600 dark:text-primary-400' => $titleActive,
@@ -126,7 +126,7 @@
                     @if (filled($row['url']))
                         <a
                             {{ \Filament\Support\generate_href_html($row['url'], $row['newTab']) }}
-                            x-on:click="close()"
+                            x-on:click="typeof $refs.panel?.close === 'function' && $refs.panel.close()"
                             role="menuitem"
                             @class([
                                 'mt-1 block rounded-md px-2 py-1.5 text-xs font-medium',
@@ -151,7 +151,7 @@
 
                 <a
                     {{ \Filament\Support\generate_href_html($row['url'], $row['newTab']) }}
-                    x-on:click="close()"
+                    x-on:click="typeof $refs.panel?.close === 'function' && $refs.panel.close()"
                     role="menuitem"
                     @class([
                         'block rounded-md px-2 py-1.5 text-sm leading-5',

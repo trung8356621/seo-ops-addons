@@ -16,6 +16,8 @@ final class AiProvidersHealthDriver implements AiProviderDriver
     public function __construct(
         private readonly GeminiAiTextProvider $gemini,
         private readonly ClaudeAiTextProvider $claude,
+        private readonly DeepSeekAiTextProvider $deepseek,
+        private readonly OpenRouterAiTextProvider $openrouter,
     ) {}
 
     public function id(): string
@@ -25,7 +27,7 @@ final class AiProvidersHealthDriver implements AiProviderDriver
 
     public function label(): string
     {
-        return 'Built-in AI Providers (Gemini, Claude)';
+        return 'Built-in AI Providers (Gemini, Claude, DeepSeek, OpenRouter)';
     }
 
     public function supportsChat(): bool
@@ -57,10 +59,13 @@ final class AiProvidersHealthDriver implements AiProviderDriver
 
         $gemini = $this->gemini->health($context);
         $claude = $this->claude->health($context);
+        $deepseek = $this->deepseek->health($context);
+
+        $openrouter = $this->openrouter->health($context);
 
         return [
-            'ok' => $gemini->ok && $claude->ok,
-            'message' => trim('Gemini: '.$gemini->message.' | Claude: '.$claude->message),
+            'ok' => $gemini->ok && $claude->ok && $deepseek->ok && $openrouter->ok,
+            'message' => trim('Gemini: '.$gemini->message.' | Claude: '.$claude->message.' | DeepSeek: '.$deepseek->message.' | OpenRouter: '.$openrouter->message),
         ];
     }
 }

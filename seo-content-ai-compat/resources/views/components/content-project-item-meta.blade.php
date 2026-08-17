@@ -29,6 +29,11 @@
             {{ $primary }}
         @endif
     </div>
+    @if (! $url)
+        <div class="mt-0.5 text-[11px] font-medium text-gray-500 dark:text-gray-400">
+            {{ $row['article_empty_label'] ?? __('seo-content-ai::filament.projects.item_article_unlinked') }}
+        </div>
+    @endif
     <div class="mt-0.5 text-[11px] leading-snug text-gray-500 dark:text-gray-400">
         #{{ $tid }}
         @if ($articleId) · article {{ $articleId }} @endif

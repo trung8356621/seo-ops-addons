@@ -30,6 +30,7 @@ class Prompt extends Model
         'hook_settings' => 'array',
         'hook_version' => 'string',
         'is_active' => 'boolean',
+        'routing_mode' => 'string',
     ];
 
     public function user(): BelongsTo

@@ -8,8 +8,6 @@ use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Models\SeoArticleHeading;
 use Omnichannel\Addons\Content\Services\ArticleHeadingAiGenerateService;
 use Omnichannel\Addons\Content\Services\ArticleTocExtractionService;
-use Omnichannel\Addons\Seo\Services\HeadingDuplicateCheckerService;
-use Omnichannel\Addons\Seo\Services\HeadingDuplicateCheckService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\JsonResponse;
@@ -19,18 +17,16 @@ use Illuminate\Support\Str;
 use RuntimeException;
 
 /**
- * API Outline (TOC) cho React Editor:
- * - GET    /api/seo/articles/{article}/outline
- * - POST   /api/seo/articles/{article}/outline
- * - PUT    /api/seo/articles/{article}/outline/{heading}
- * - POST   /api/seo/articles/{article}/outline/{heading}/generate
+ * API Outline (TOC) cho React Editor.
+ *
+ * Outline = canonical article structure for writing/editing/generation.
+ * Cross-article duplicate-topic detection belongs to Keyword Intelligence /
+ * topic cluster / intent / Content Project planning — not this API.
  */
 class ArticleOutlineController extends Controller
 {
     public function __construct(
         private readonly ArticleTocExtractionService $tocExtraction,
-        private readonly HeadingDuplicateCheckService $duplicateCheck,
-        private readonly HeadingDuplicateCheckerService $duplicateChecker,
         private readonly ArticleHeadingAiGenerateService $aiGenerate,
     ) {}
 
@@ -87,30 +83,18 @@ class ArticleOutlineController extends Controller
     }
 
     /**
-     * Dò trùng toàn bộ dàn ý hiện tại với các bài khác trong site.
-     * Chỉ chạy khi user bấm nút "Dò trùng lặp" hoặc AI workflow gọi sau khi sinh outline.
+     * Legacy no-op. Cross-article outline comparison is retired.
+     * Kept so old clients/agents hitting this route do not trigger FULLTEXT scans.
      */
     public function checkDuplicates(SeoArticle $article): JsonResponse
     {
         abort_unless(SeoAccessControl::canAccessArticle($article), 403);
 
-        $headings = $article->headings()->get();
-
-        $result = $this->duplicateChecker->check(
-            $headings->mapWithKeys(
-                fn (SeoArticleHeading $row): array => [(int) $row->id => [
-                    'text' => (string) $row->heading_text,
-                    'level' => (int) $row->level,
-                ]],
-            )->all(),
-            (int) $article->site_id,
-            (int) $article->id,
-        );
-
         return response()->json([
             'success' => true,
-            'has_duplicate' => $result['is_duplicate'],
-            'duplicates' => $result['duplicates'],
+            'has_duplicate' => false,
+            'duplicates' => [],
+            'deprecated' => true,
         ]);
     }
 
@@ -237,25 +221,9 @@ class ArticleOutlineController extends Controller
             'heading_slug' => Str::slug($text),
         ]);
 
-        $duplicates = collect();
-        try {
-            $duplicates = $this->duplicateCheck
-                ->checkExactMatch($heading->heading_slug, (int) $article->site_id, (int) $article->id, (int) $heading->level)
-                ->map(fn (SeoArticleHeading $row): array => [
-                    'heading_id' => (int) $row->id,
-                    'article_id' => (int) $row->article_id,
-                    'article_title' => (string) ($row->article?->title ?? ''),
-                    'heading_text' => (string) $row->heading_text,
-                ])
-                ->values();
-        } catch (\Throwable) {
-            // Lưu heading đã thành công — dò trùng chỉ phụ, không làm fail request.
-        }
-
         return response()->json([
             'success' => true,
             'heading' => $this->headingToArray($heading),
-            'duplicates' => $duplicates,
         ]);
     }
 

@@ -4,14 +4,14 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Seo\Services;
 
+use Omnichannel\Addons\AiPrompt\Services\OutlineSkipListMatcher;
 use Omnichannel\Addons\Content\Models\SeoArticleHeading;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 
 /**
- * Dò trùng heading trong phạm vi 1 site:
- * - Exact match qua index `heading_slug`.
- * - Semantic match qua MySQL FULLTEXT (Natural Language Mode).
+ * @deprecated Cross-article heading similarity is retired.
+ * Kept for historical/debug callers only — active outline save/generate must not invoke this.
  */
 class HeadingDuplicateCheckService
 {

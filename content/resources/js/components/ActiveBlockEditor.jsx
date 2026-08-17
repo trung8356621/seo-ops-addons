@@ -31,6 +31,9 @@ import {
     getSelectionHtmlFromEditor,
     getSelectionTextFromEditor,
 } from '../utils/editorSelectionUtils';
+import EditorContextMenu from './EditorContextMenu';
+import { findHeadingByIndex } from '../utils/editorCommands/headingSplitEngine';
+import { captureEditorContextMenuSnapshot } from '../utils/editorContextMenuController';
 
 /**
  * Active (focused) TipTap block editor extracted from SeoArticleEditor.jsx
@@ -51,11 +54,14 @@ function ActiveBlockEditor({
     articleId,
     siteId,
     editable = true,
+    focusHeadingIndex = null,
+    focusHeadingToken = 0,
 }) {
     const [linkAnchor, setLinkAnchor] = useState(null);
     const [htmlInspectorOpen, setHtmlInspectorOpen] = useState(false);
     const [htmlInspectorSnapshot, setHtmlInspectorSnapshot] = useState('');
     const [blockStyleTick, setBlockStyleTick] = useState(0);
+    const [contextMenu, setContextMenu] = useState(null);
     const editorContainerRef = useRef(null);
     const sourceHtml = displayContent ?? block.content;
     const isHydratingRef = useRef(false);
@@ -321,6 +327,51 @@ function ActiveBlockEditor({
         return () => editor.view.dom.removeEventListener('click', onLinkClick, true);
     }, [editor]);
 
+    useEffect(() => {
+        if (!editor || editor.isDestroyed || focusHeadingIndex == null) {
+            return undefined;
+        }
+
+        const found = findHeadingByIndex(editor.state.doc, Number(focusHeadingIndex));
+        if (!found) {
+            return undefined;
+        }
+
+        const from = found.pos + 1;
+        const to = found.pos + found.node.nodeSize - 1;
+        editor.chain().focus().setTextSelection({ from, to }).run();
+        try {
+            const dom = editor.view.nodeDOM(found.pos);
+            const el = dom instanceof HTMLElement ? dom : dom?.parentElement;
+            el?.scrollIntoView?.({ behavior: 'smooth', block: 'center' });
+        } catch {
+            // ignore
+        }
+
+        return undefined;
+    }, [editor, focusHeadingIndex, focusHeadingToken]);
+
+    const handleContextMenu = useCallback((event) => {
+        if (!editor || editor.isDestroyed || !editable) {
+            return;
+        }
+        event.preventDefault();
+        event.stopPropagation();
+        const snapshot = captureEditorContextMenuSnapshot(editor, {
+            clientX: event.clientX,
+            clientY: event.clientY,
+            blockId: block.id,
+        });
+        if (!snapshot) {
+            return;
+        }
+        setContextMenu({
+            x: event.clientX,
+            y: event.clientY,
+            snapshot,
+        });
+    }, [block.id, editable, editor]);
+
     return (
         <div className="block-editor-active" ref={editorContainerRef}>
             <span className="block-editor-badge" data-style-tick={blockStyleTick}>
@@ -368,9 +419,23 @@ function ActiveBlockEditor({
                     setHtmlInspectorOpen(true);
                 }}
             />
-            <div className="seo-block-editor-body px-2 pb-2" style={{ minHeight }}>
+            <div
+                className="seo-block-editor-body px-2 pb-2"
+                style={{ minHeight }}
+                onContextMenu={handleContextMenu}
+            >
                 <EditorContent editor={editor} />
             </div>
+            <EditorContextMenu
+                editor={editor}
+                snapshot={contextMenu?.snapshot ?? null}
+                siteId={siteId}
+                articleId={articleId}
+                open={Boolean(contextMenu)}
+                x={contextMenu?.x ?? 0}
+                y={contextMenu?.y ?? 0}
+                onClose={() => setContextMenu(null)}
+            />
             <BlockEditorResizeHandle
                 minHeight={minHeight}
                 minH={minH}

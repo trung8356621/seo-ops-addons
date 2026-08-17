@@ -278,7 +278,7 @@ final class ContentProjectSmartGenerationActionTest extends TestCase
     public function test_handlers_and_planner_wire_canonical_path(): void
     {
         self::assertTrue(class_exists(ContentProjectItemGenerationLaunchPlanner::class));
-        self::assertSame('BÃ i viáº¿t Ä‘ang Ä‘Æ°á»£c táº¡o.', ContentProjectItemGenerationLaunchPlanner::ACTIVE_MESSAGE);
+        self::assertSame('Bài viết đang được tạo.', ContentProjectItemGenerationLaunchPlanner::ACTIVE_MESSAGE);
         self::assertSame('blocked_active', ContentProjectItemGenerationLaunchPlanner::ACTION_BLOCKED_ACTIVE);
         self::assertSame('generate', ContentProjectItemGenerationLaunchPlanner::ACTION_GENERATE);
         self::assertSame('rerun', ContentProjectItemGenerationLaunchPlanner::ACTION_RERUN);

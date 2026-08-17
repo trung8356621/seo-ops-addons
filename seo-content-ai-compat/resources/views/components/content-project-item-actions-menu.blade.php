@@ -92,7 +92,8 @@
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
             </svg>
         </button>
-    @elseif (! empty($a['select_existing_article']))
+    @elseif (! empty($a['select_existing_article']) || ! empty($a['create_or_rerun']))
+        @if (! empty($a['select_existing_article']))
         <button
             type="button"
             @click="$dispatch('open-select-existing-article', { taskId: {{ $tid }} })"
@@ -102,7 +103,8 @@
         >
             <x-filament::icon icon="heroicon-o-link" class="h-4 w-4" />
         </button>
-    @elseif (! empty($a['create_or_rerun']))
+        @endif
+        @if (! empty($a['create_or_rerun']))
         @php
             $createOrRerunLabel = (($a['create_or_rerun_label'] ?? 'create') === 'rerun')
                 ? __('seo-content-ai::filament.projects.item_action_smart_rerun')
@@ -132,6 +134,7 @@
                 </svg>
             @endif
         </button>
+        @endif
     @endif
 
     <div class="relative">

@@ -102,14 +102,64 @@ class PromptResource extends SeoPanelResource
                                             ->label(__('seo-content-ai::filament.prompt.description'))
                                             ->rows(2)
                                             ->columnSpanFull(),
+                                        Forms\Components\Select::make('settings.routing_family_key')
+                                            ->label(__('seo-content-ai::filament.ai_model_ux.model'))
+                                            ->options(function (Get $get): array {
+                                                $profile = app(\Omnichannel\Addons\AiPrompt\Services\PromptExecutionProfileResolver::class)
+                                                    ->resolve(
+                                                        null,
+                                                        (string) ($get('hook_key') ?? ''),
+                                                        (string) ($get('tools') ?? 'default'),
+                                                    );
+
+                                                return app(\Omnichannel\Addons\AiPrompt\Services\AiModelFamilyCatalog::class)
+                                                    ->optionMapForProfile($profile);
+                                            })
+                                            ->default(\Omnichannel\Addons\AiPrompt\Services\AiModelFamilyCatalog::AUTOMATIC)
+                                            ->native(false)
+                                            ->searchable(),
+                                        Forms\Components\Radio::make('settings.usage_mode')
+                                            ->label(__('seo-content-ai::filament.ai_model_ux.mode'))
+                                            ->options(fn (): array => \Omnichannel\Addons\AiPrompt\Support\AiUsageMode::selectOptions())
+                                            ->default(\Omnichannel\Addons\AiPrompt\Support\AiUsageMode::Economy->value)
+                                            ->inline(),
+                                        Forms\Components\Radio::make('routing_mode')
+                                            ->label(__('seo-content-ai::filament.prompt.ai_execution'))
+                                            ->options([
+                                                'auto' => __('seo-content-ai::filament.prompt.routing_auto'),
+                                                'override' => __('seo-content-ai::filament.prompt.routing_override'),
+                                            ])
+                                            ->default('auto')
+                                            ->inline()
+                                            ->live()
+                                            ->visible(fn (): bool => \Omnichannel\Addons\Seo\Support\SeoAccessControl::canAccessManagerFeatures()),
+                                        Forms\Components\Select::make('routing_profile_key')
+                                            ->label(__('seo-content-ai::filament.prompt.routing_profile'))
+                                            ->options(fn (): array => collect(\Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile::cases())
+                                                ->mapWithKeys(static fn ($profile): array => [$profile->value => $profile->displayName()])
+                                                ->all())
+                                            ->visible(fn (Get $get): bool => $get('routing_mode') === 'override'
+                                                && \Omnichannel\Addons\Seo\Support\SeoAccessControl::canAccessManagerFeatures())
+                                            ->native(false),
+                                        Forms\Components\Placeholder::make('resolved_routing')
+                                            ->label(__('seo-content-ai::filament.prompt.resolved_profile'))
+                                            ->visible(fn (): bool => \Omnichannel\Addons\Seo\Support\SeoAccessControl::canAccessManagerFeatures())
+                                            ->content(function (Get $get): string {
+                                                return PromptResource::resolvedRoutingSummary(
+                                                    (string) ($get('hook_key') ?? ''),
+                                                    (string) ($get('tools') ?? 'default'),
+                                                    (string) ($get('routing_mode') ?? 'auto'),
+                                                    (string) ($get('routing_profile_key') ?? ''),
+                                                );
+                                            }),
                                         Forms\Components\Select::make('ai_connection_id')
-                                            ->label(__('seo-content-ai::filament.prompt.ai_connection'))
+                                            ->label(__('seo-content-ai::filament.prompt.ai_connection_legacy'))
                                             ->options(fn (): array => self::aiConnectionOptions())
                                             ->searchable()
-                                            ->required()
-                                            ->live()
                                             ->native(false)
-                                            ->placeholder('Choose AI connection for this prompt'),
+                                            ->nullable()
+                                            ->visible(fn (): bool => \Omnichannel\Addons\Seo\Support\SeoAccessControl::canAccessManagerFeatures())
+                                            ->helperText(__('seo-content-ai::filament.prompt.ai_connection_legacy_hint')),
                                         Forms\Components\Radio::make('tools')
                                             ->label(__('seo-content-ai::filament.prompt.tool'))
                                             ->options(fn (): array => \Omnichannel\Addons\Media\Support\ImageToolType::promptSelectOptions())
@@ -404,6 +454,7 @@ class PromptResource extends SeoPanelResource
                 $providerName = match ($ai->provider) {
                     'gemini' => 'Gemini',
                     'claude' => 'Claude',
+                    'deepseek' => 'DeepSeek',
                     default => (string) $ai->provider,
                 };
 
@@ -412,6 +463,44 @@ class PromptResource extends SeoPanelResource
                 return [$ai->id => $label];
             })
             ->all();
+    }
+
+    public static function resolvedRoutingSummary(
+        string $hookKey,
+        string $toolType,
+        string $routingMode,
+        string $overrideProfile,
+    ): string {
+        $fake = new SeoPrompt();
+        $fake->hook_key = $hookKey !== '' ? $hookKey : null;
+        $fake->tools = $toolType;
+        $fake->routing_mode = $routingMode !== '' ? $routingMode : 'auto';
+        $fake->routing_profile_key = $overrideProfile !== '' ? $overrideProfile : null;
+
+        $profile = app(\Omnichannel\Addons\AiPrompt\Services\PromptExecutionProfileResolver::class)
+            ->resolve($fake, $hookKey !== '' ? $hookKey : null, $toolType);
+
+        $lines = [$profile->displayName()];
+        try {
+            $candidates = app(\Omnichannel\Addons\AiPrompt\Services\AiModelRouterService::class)->resolveAll(
+                $profile->value,
+                new \Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext(
+                    userId: (int) auth()->id(),
+                    allowLegacyFallback: false,
+                ),
+            );
+            $labels = new \Omnichannel\Addons\AiPrompt\Support\AiModelLabelPresenter();
+            foreach ($candidates as $index => $candidate) {
+                $lines[] = ($index + 1).'. '.$labels->normal($candidate->model);
+            }
+            if ($candidates === []) {
+                $lines[] = (string) __('seo-content-ai::filament.prompt.routing_empty');
+            }
+        } catch (\Throwable) {
+            $lines[] = (string) __('seo-content-ai::filament.prompt.routing_empty');
+        }
+
+        return implode("\n", $lines);
     }
 
     /**
@@ -655,9 +744,19 @@ class PromptResource extends SeoPanelResource
                         : 'gray')
                     ->searchable()
                     ->toggleable(),
+                Tables\Columns\TextColumn::make('routing_profile_key')
+                    ->label(__('seo-content-ai::filament.prompt.resolved_profile'))
+                    ->state(function (SeoPrompt $record): string {
+                        $profile = app(\Omnichannel\Addons\AiPrompt\Services\PromptExecutionProfileResolver::class)
+                            ->resolve($record);
+
+                        return $profile->displayName();
+                    })
+                    ->toggleable(),
                 Tables\Columns\TextColumn::make('aiConnection.name')
                     ->label(__('seo-content-ai::filament.prompt.ai_connection'))
-                    ->placeholder('—'),
+                    ->placeholder('—')
+                    ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('usage')
                     ->label(__('seo-content-ai::filament.prompt.usage'))
                     ->state(function (SeoPrompt $record): string {

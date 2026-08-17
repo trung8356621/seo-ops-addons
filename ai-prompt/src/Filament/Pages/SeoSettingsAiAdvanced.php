@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AiPrompt\Filament\Pages;
 
 use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
-use Omnichannel\Addons\Media\Services\SeoImageModelPriorityOptionsService;
 use Omnichannel\Addons\Seo\Support\GoogleAiModelRegistry;
 use Omnichannel\Addons\Media\Support\ImageModelInputLengthPolicy;
 use Omnichannel\Addons\Seo\Support\RenderingPreference;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\Content\Support\TypographyValidationLevel;
+use Omnichannel\Addons\AiPrompt\Services\AiModelFamilyCatalog;
+use Omnichannel\Addons\AiPrompt\Services\ImageFamilySelectionAdapter;
+use Omnichannel\Addons\AiPrompt\Support\AiUsageMode;
 use Omnichannel\Addons\AiPrompt\Support\VisionValidationModelRouter;
 use Filament\Forms;
 use Filament\Forms\Concerns\InteractsWithForms;
@@ -41,6 +43,17 @@ class SeoSettingsAiAdvanced extends Page implements HasForms
     public function mount(SeoCreateArticleSettingsService $settings): void
     {
         $this->settingsData = $settings->getSettings();
+        $adapter = new ImageFamilySelectionAdapter();
+        $preference = RenderingPreference::fromMixed($this->settingsData[SeoCreateArticleSettingsService::KEY_RENDERING_PREFERENCE] ?? null);
+        $generalSlugs = $this->slugList($this->settingsData[SeoCreateArticleSettingsService::KEY_IMAGE_MODEL_PRIORITY] ?? []);
+        $typoSlugs = $this->slugList($this->settingsData[SeoCreateArticleSettingsService::KEY_TYPOGRAPHY_MODEL_PRIORITY] ?? []);
+        $this->settingsData['general_image_families'] = $adapter->familiesFromSlugs($generalSlugs) ?: [AiModelFamilyCatalog::AUTOMATIC];
+        $this->settingsData['typography_image_families'] = $adapter->familiesFromSlugs($typoSlugs) ?: [AiModelFamilyCatalog::AUTOMATIC];
+        $this->settingsData['image_usage_mode'] = match ($preference) {
+            RenderingPreference::CostFirst => AiUsageMode::Economy->value,
+            RenderingPreference::QualityFirst => AiUsageMode::QualityFirst->value,
+            default => null,
+        };
         $this->form->fill($this->settingsData);
     }
 
@@ -48,23 +61,48 @@ class SeoSettingsAiAdvanced extends Page implements HasForms
     {
         return $form
             ->schema([
-                Forms\Components\Section::make(__('seo-content-ai::filament.settings_ai_advanced.rendering_preference_section'))
-                    ->description(__('seo-content-ai::filament.settings_ai_advanced.rendering_preference_description'))
+                Forms\Components\Section::make(__('seo-content-ai::filament.settings_ai_advanced.model_priority_section'))
                     ->schema([
-                        Forms\Components\Radio::make(SeoCreateArticleSettingsService::KEY_RENDERING_PREFERENCE)
-                            ->label(__('seo-content-ai::filament.settings_ai_advanced.rendering_preference'))
-                            ->options(fn (): array => RenderingPreference::selectOptions())
-                            ->default(RenderingPreference::Balanced->value)
+                        Forms\Components\CheckboxList::make('general_image_families')
+                            ->label(__('seo-content-ai::filament.settings_ai_advanced.general_image_priority'))
+                            ->options(fn (): array => $this->imageFamilyOptions())
+                            ->columns(2),
+                        Forms\Components\CheckboxList::make('typography_image_families')
+                            ->label(__('seo-content-ai::filament.settings_ai_advanced.typography_image_priority'))
+                            ->options(fn (): array => $this->imageFamilyOptions())
+                            ->columns(2),
+                        Forms\Components\Radio::make('image_usage_mode')
+                            ->label(__('seo-content-ai::filament.ai_model_ux.mode'))
+                            ->options(AiUsageMode::selectOptions())
                             ->inline()
-                            ->helperText(__('seo-content-ai::filament.settings_ai_advanced.rendering_preference_hint')),
+                            ->nullable(),
+                        Forms\Components\Repeater::make(SeoCreateArticleSettingsService::KEY_VIDEO_MODEL_PRIORITY)
+                            ->label(__('seo-content-ai::filament.settings_ai_advanced.video_model_priority'))
+                            ->schema([
+                                Forms\Components\Select::make('slug')
+                                    ->label(__('seo-content-ai::filament.ai_model_ux.model'))
+                                    ->options(fn (): array => $this->videoFamilyLabels())
+                                    ->searchable()
+                                    ->required()
+                                    ->native(false),
+                            ])
+                            ->addActionLabel(__('seo-content-ai::filament.settings_ai_advanced.add_video_model'))
+                            ->reorderable()
+                            ->collapsible()
+                            ->itemLabel(function (array $state): ?string {
+                                $slug = trim((string) ($state['slug'] ?? ''));
+
+                                return $slug !== ''
+                                    ? ($this->videoFamilyLabels()[$slug] ?? $slug)
+                                    : __('seo-content-ai::filament.settings_workflows.new_image_model');
+                            }),
                     ]),
 
-                Forms\Components\Section::make(__('seo-content-ai::filament.settings_ai_advanced.model_priority_section'))
-                    ->description(__('seo-content-ai::filament.settings_ai_advanced.model_priority_description'))
+                Forms\Components\Section::make(__('seo-content-ai::filament.ai_model_ux.technical_details'))
+                    ->collapsed()
                     ->schema([
                         Forms\Components\Placeholder::make('image_model_priority_rules')
                             ->label(__('seo-content-ai::filament.settings_workflows.image_model_priority_rules'))
-                            ->helperText(__('seo-content-ai::filament.settings_workflows.image_model_priority_rules_note'))
                             ->content(function (): HtmlString {
                                 $rows = ImageModelInputLengthPolicy::routingTableRows();
                                 $html = '<div class="overflow-x-auto"><table class="w-full text-sm border border-gray-200 dark:border-gray-700 rounded-lg overflow-hidden">'
@@ -88,39 +126,7 @@ class SeoSettingsAiAdvanced extends Page implements HasForms
 
                                 return new HtmlString($html);
                             }),
-                        $this->imagePriorityRepeater(
-                            SeoCreateArticleSettingsService::KEY_IMAGE_MODEL_PRIORITY,
-                            __('seo-content-ai::filament.settings_ai_advanced.general_image_priority'),
-                            __('seo-content-ai::filament.settings_ai_advanced.general_image_priority_hint'),
-                        ),
-                        $this->imagePriorityRepeater(
-                            SeoCreateArticleSettingsService::KEY_TYPOGRAPHY_MODEL_PRIORITY,
-                            __('seo-content-ai::filament.settings_ai_advanced.typography_image_priority'),
-                            __('seo-content-ai::filament.settings_ai_advanced.typography_image_priority_hint'),
-                        ),
-                        Forms\Components\Repeater::make(SeoCreateArticleSettingsService::KEY_VIDEO_MODEL_PRIORITY)
-                            ->label(__('seo-content-ai::filament.settings_ai_advanced.video_model_priority'))
-                            ->helperText(__('seo-content-ai::filament.settings_ai_advanced.video_model_priority_hint'))
-                            ->schema([
-                                Forms\Components\Select::make('slug')
-                                    ->label(__('seo-content-ai::filament.settings_workflows.image_model_slug'))
-                                    ->options(fn (): array => GoogleAiModelRegistry::videoSelectOptions())
-                                    ->searchable()
-                                    ->required()
-                                    ->native(false),
-                            ])
-                            ->addActionLabel(__('seo-content-ai::filament.settings_ai_advanced.add_video_model'))
-                            ->reorderable()
-                            ->collapsible()
-                            ->itemLabel(function (array $state): ?string {
-                                $slug = trim((string) ($state['slug'] ?? ''));
-
-                                return $slug !== ''
-                                    ? (GoogleAiModelRegistry::videoSelectOptions()[$slug] ?? $slug)
-                                    : __('seo-content-ai::filament.settings_workflows.new_image_model');
-                            }),
-                    ])
-                    ->collapsible(),
+                    ]),
 
                 Forms\Components\Section::make(__('seo-content-ai::filament.settings_ai_advanced.validation_section'))
                     ->description(__('seo-content-ai::filament.settings_ai_advanced.validation_description'))
@@ -157,35 +163,60 @@ class SeoSettingsAiAdvanced extends Page implements HasForms
                             ->label(__('seo-content-ai::filament.settings_ai_advanced.typography_allow_general_fallback'))
                             ->helperText(__('seo-content-ai::filament.settings_ai_advanced.typography_allow_general_fallback_hint')),
                     ])
-                    ->collapsible(),
+                    ->collapsible()
+                    ->collapsed(),
             ])
             ->statePath('settingsData');
     }
 
-    private function imagePriorityRepeater(string $key, string $label, string $helper): Forms\Components\Repeater
+    /**
+     * @return array<string, string>
+     */
+    private function imageFamilyOptions(): array
     {
-        return Forms\Components\Repeater::make($key)
-            ->label($label)
-            ->helperText($helper)
-            ->schema([
-                Forms\Components\Select::make('slug')
-                    ->label(__('seo-content-ai::filament.settings_workflows.image_model_slug'))
-                    ->options(fn (SeoImageModelPriorityOptionsService $options): array => $options->imageModelSelectOptions())
-                    ->searchable()
-                    ->required()
-                    ->native(false),
-            ])
-            ->addActionLabel(__('seo-content-ai::filament.settings_workflows.add_image_model'))
-            ->reorderable()
-            ->collapsible()
-            ->itemLabel(function (array $state, SeoImageModelPriorityOptionsService $options): ?string {
-                $slug = trim((string) ($state['slug'] ?? ''));
-                if ($slug === '') {
-                    return __('seo-content-ai::filament.settings_workflows.new_image_model');
-                }
+        $catalog = new AiModelFamilyCatalog();
+        $options = [];
+        foreach ($catalog->all() as $family) {
+            if ($family->modality === 'image') {
+                $options[$family->familyKey] = $family->displayName;
+            }
+        }
 
-                return $options->labelForSlug($slug) ?? $slug;
-            });
+        return $options;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private function videoFamilyLabels(): array
+    {
+        $presenter = new \Omnichannel\Addons\AiPrompt\Support\AiModelLabelPresenter();
+        $options = [];
+        foreach (GoogleAiModelRegistry::videoSelectOptions() as $slug => $label) {
+            $options[$slug] = $presenter->normal((string) $slug, (string) $label);
+        }
+
+        return $options;
+    }
+
+    /**
+     * @param  list<array{slug?: string}>|list<string>  $stored
+     * @return list<string>
+     */
+    private function slugList(mixed $stored): array
+    {
+        $out = [];
+        if (! is_array($stored)) {
+            return $out;
+        }
+        foreach ($stored as $item) {
+            $slug = is_string($item) ? $item : (string) (is_array($item) ? ($item['slug'] ?? '') : '');
+            if (trim($slug) !== '') {
+                $out[] = trim($slug);
+            }
+        }
+
+        return $out;
     }
 
     /**
@@ -205,11 +236,23 @@ class SeoSettingsAiAdvanced extends Page implements HasForms
     public function saveSettings(SeoCreateArticleSettingsService $settings): void
     {
         $data = $this->form->getState();
+        $adapter = new ImageFamilySelectionAdapter();
+        $mode = AiUsageMode::tryFromMixed($data['image_usage_mode'] ?? null);
+        $existingGeneral = $settings->getImageModelPriority();
+        $existingTypo = $settings->getTypographyModelPriority();
+        $generalFamilies = array_map(static fn (mixed $key): string => (string) $key, (array) ($data['general_image_families'] ?? []));
+        $typoFamilies = array_map(static fn (mixed $key): string => (string) $key, (array) ($data['typography_image_families'] ?? []));
 
-        $settings->saveSettings([
-            SeoCreateArticleSettingsService::KEY_RENDERING_PREFERENCE => $data[SeoCreateArticleSettingsService::KEY_RENDERING_PREFERENCE] ?? null,
-            SeoCreateArticleSettingsService::KEY_IMAGE_MODEL_PRIORITY => $data[SeoCreateArticleSettingsService::KEY_IMAGE_MODEL_PRIORITY] ?? null,
-            SeoCreateArticleSettingsService::KEY_TYPOGRAPHY_MODEL_PRIORITY => $data[SeoCreateArticleSettingsService::KEY_TYPOGRAPHY_MODEL_PRIORITY] ?? null,
+        $generalSlugs = $mode instanceof AiUsageMode
+            ? $adapter->expandByMode($generalFamilies, $mode)
+            : $adapter->expandPreservingOrder($generalFamilies, $existingGeneral);
+        $typoSlugs = $mode instanceof AiUsageMode
+            ? $adapter->expandByMode($typoFamilies, $mode)
+            : $adapter->expandPreservingOrder($typoFamilies, $existingTypo);
+
+        $patch = [
+            SeoCreateArticleSettingsService::KEY_IMAGE_MODEL_PRIORITY => $generalSlugs,
+            SeoCreateArticleSettingsService::KEY_TYPOGRAPHY_MODEL_PRIORITY => $typoSlugs,
             SeoCreateArticleSettingsService::KEY_VIDEO_MODEL_PRIORITY => $data[SeoCreateArticleSettingsService::KEY_VIDEO_MODEL_PRIORITY] ?? null,
             SeoCreateArticleSettingsService::KEY_TYPOGRAPHY_VALIDATION_ENABLED => $data[SeoCreateArticleSettingsService::KEY_TYPOGRAPHY_VALIDATION_ENABLED] ?? true,
             SeoCreateArticleSettingsService::KEY_TYPOGRAPHY_VALIDATION_LEVEL => $data[SeoCreateArticleSettingsService::KEY_TYPOGRAPHY_VALIDATION_LEVEL] ?? null,
@@ -217,7 +260,14 @@ class SeoSettingsAiAdvanced extends Page implements HasForms
             SeoCreateArticleSettingsService::KEY_TYPOGRAPHY_MAX_CANDIDATES => $data[SeoCreateArticleSettingsService::KEY_TYPOGRAPHY_MAX_CANDIDATES] ?? null,
             SeoCreateArticleSettingsService::KEY_TYPOGRAPHY_PASS_THRESHOLD => $data[SeoCreateArticleSettingsService::KEY_TYPOGRAPHY_PASS_THRESHOLD] ?? null,
             SeoCreateArticleSettingsService::KEY_TYPOGRAPHY_ALLOW_GENERAL_IMAGE_FALLBACK => $data[SeoCreateArticleSettingsService::KEY_TYPOGRAPHY_ALLOW_GENERAL_IMAGE_FALLBACK] ?? false,
-        ]);
+        ];
+        if ($mode instanceof AiUsageMode) {
+            $patch[SeoCreateArticleSettingsService::KEY_RENDERING_PREFERENCE] = $mode === AiUsageMode::Economy
+                ? RenderingPreference::CostFirst->value
+                : RenderingPreference::QualityFirst->value;
+        }
+
+        $settings->saveSettings($patch);
 
         Notification::make()
             ->title(__('seo-content-ai::filament.settings_ai_advanced.saved'))

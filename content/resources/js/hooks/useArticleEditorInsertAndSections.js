@@ -12,6 +12,7 @@ import {
     outlineApiRequest,
     outlineHeadingKey,
 } from '../utils/contentDocumentHelpers';
+import { applyReplaceBlocksAt } from '../utils/editorCommands/replaceBlocksAt';
 import { extractOutlineHeadingFromBlock, normalizeOutlineHeadingText } from '../utils/articleEditorClientOutline';
 import { normalizeBlocks } from '@media-addon/utils/blockImageUtils.js';
 import { persistBlockHtmlFromEditor } from '../utils/editorHtmlUtils';
@@ -23,7 +24,7 @@ import { useCallback, useEffect } from 'react';
  * useArticleEditorInsertAndSections - extracted from SeoArticleEditor.jsx (Task 7 mechanical
  * extraction). Mechanical move - no behavior change.
  */
-export default function useArticleEditorInsertAndSections({ activeBlockId, activeBlockIdRef, applyCompletedMediaToPlaceholder, articleId, blockEditorsRef, blockFlushRef, blocks, blocksRef, commitActiveBlock, deleteBlock, dismissedEditorImageMediaIdsRef, editorSections, notifyIntroNoImages, outlineAppendDoneRef, outlineAppendInflightRef, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, patchImageInBlocks, pendingAiMediaRef, sectionHeadingBlockIds, setActiveBlockId, setBlocks, setGlobalEditor, setInsertMenu, setOutlineHeadingKeys, setOutlineTreeSync, setTempMerge, startMediaStatusPolling, structureMutationRef, tempMergeRef }) {
+export default function useArticleEditorInsertAndSections({ activeBlockId, activeBlockIdRef, applyCompletedMediaToPlaceholder, articleId, blockEditorsRef, blockFlushRef, blocks, blocksRef, commitActiveBlock, deleteBlock, dismissedEditorImageMediaIdsRef, editorSections, insertBlockRelative = null, notifyIntroNoImages, outlineAppendDoneRef, outlineAppendInflightRef, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, patchImageInBlocks, pendingAiMediaRef, sectionHeadingBlockIds, setActiveBlockId, setBlocks, setGlobalEditor, setInsertMenu, setOutlineHeadingKeys, setOutlineTreeSync, setTempMerge, startMediaStatusPolling, structureMutationRef, tempMergeRef }) {
     useEffect(() => {
         if (!articleId) {
             return undefined;
@@ -400,6 +401,96 @@ export default function useArticleEditorInsertAndSections({ activeBlockId, activ
             }
             moveBlockToSection(payload.blockId, direction);
             return true;
+        }
+        if (name === 'insert_block_relative' && typeof insertBlockRelative === 'function') {
+            insertBlockRelative(
+                payload.blockId,
+                payload.position === 'before' ? 'before' : 'after',
+                payload.type || 'text',
+            );
+            return true;
+        }
+        if (name === 'replace_blocks_at') {
+            if (tempMergeRef.current) {
+                return {
+                    ok: false,
+                    code: EDITOR_COMMAND_CODES.NO_CHANGE,
+                    document_changed: false,
+                    meta: { reason: 'temp_merge' },
+                };
+            }
+            const sourceBlockId = String(payload.sourceBlockId ?? payload.blockId ?? '').trim();
+            const beforeIds = blocksRef.current.map((block) => block.id);
+            const applied = applyReplaceBlocksAt(blocksRef.current, {
+                sourceBlockId,
+                replacements: payload.replacements ?? payload.contents,
+                preserveSourceId: payload.preserveSourceId !== false,
+                createBlock: createEmptyTextBlock,
+            });
+            if (!applied.ok) {
+                return {
+                    ok: false,
+                    code: applied.reason === 'source_missing'
+                        ? EDITOR_COMMAND_CODES.TARGET_MISSING
+                        : EDITOR_COMMAND_CODES.NO_CHANGE,
+                    document_changed: false,
+                    transaction_applied: false,
+                    meta: {
+                        reason: applied.reason,
+                        sourceBlockId,
+                        before: beforeIds,
+                        after: beforeIds,
+                    },
+                };
+            }
+
+            const focusIndex = payload.focusIndex == null ? null : Number(payload.focusIndex);
+            const created = applied.blocks.slice(
+                applied.sourceIndex,
+                applied.sourceIndex + applied.createdIds.length,
+            );
+            const focusBlock = Number.isFinite(focusIndex) && focusIndex >= 0
+                ? created[focusIndex] ?? created[created.length - 1] ?? null
+                : created.find((block) => !/^<h[2-4]\b/i.test(String(block.content ?? ''))) ?? created[0];
+
+            blockFlushRef.current = null;
+            blockEditorsRef.current.delete(sourceBlockId);
+            setGlobalEditor(null);
+            setInsertMenu(null);
+            setBlocks(applied.blocks);
+            blocksRef.current = applied.blocks;
+            activeBlockIdRef.current = focusBlock?.id ?? null;
+            setActiveBlockId(focusBlock?.id ?? null);
+
+            if (typeof window !== 'undefined') {
+                window.requestAnimationFrame(() => {
+                    window.requestAnimationFrame(() => {
+                        const editor = blockEditorsRef.current.get(focusBlock?.id);
+                        try {
+                            editor?.commands?.focus?.('start');
+                        } catch {
+                            // remount may still be pending
+                        }
+                    });
+                });
+            }
+
+            return {
+                ok: true,
+                code: EDITOR_COMMAND_CODES.UPDATED,
+                document_changed: true,
+                transaction_applied: true,
+                meta: {
+                    reason: null,
+                    sourceBlockId,
+                    createdIds: applied.createdIds,
+                    focusBlockId: focusBlock?.id ?? null,
+                    beforeCount: applied.beforeCount,
+                    afterCount: applied.afterCount,
+                    before: beforeIds,
+                    after: applied.blocks.map((block) => block.id),
+                },
+            };
         }
         return false;
     };

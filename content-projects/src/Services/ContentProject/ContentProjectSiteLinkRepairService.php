@@ -24,10 +24,6 @@ final class ContentProjectSiteLinkRepairService
 
     public const STATUS_NEEDS_ATTENTION = 'needs_attention';
 
-    public function __construct(
-        private readonly ContentProjectExistingArticleReconciler $reconciler,
-    ) {}
-
     /**
      * Pure policy: never move an article across sites.
      *
@@ -57,7 +53,7 @@ final class ContentProjectSiteLinkRepairService
                     'set task.site_id = project.site_id',
                     'detach task.article_id (do not move SeoArticle.site_id)',
                     'clear latest run-item mirror if it has the same invalid article_id',
-                    'reconcile exact same-site candidate only; otherwise leave unlinked',
+                    'leave unlinked — no auto-reconcile',
                 ],
             ];
         }
@@ -191,7 +187,8 @@ final class ContentProjectSiteLinkRepairService
                 if ($apply) {
                     $row = $this->applyDecision($project, $task, $latest, $decision['decision'], $row);
                 } elseif ($decision['decision'] === self::DECISION_DETACH_AND_RECONCILE) {
-                    $row = $this->previewDetachAndReconcile($task, $projectSiteId, $row);
+                    $row['unresolved'] = true;
+                    $row['proposed'][] = 'leave unlinked; auto_reconcile=NO; create_article=NO; manual_action_required=YES';
                 }
                 $mismatches[] = $row;
             }
@@ -210,41 +207,6 @@ final class ContentProjectSiteLinkRepairService
             'mismatches' => $mismatches,
             'apply' => $apply,
         ];
-    }
-
-    /**
-     * Dry-run only: ask the reconciler whether an unambiguous same-site article
-     * would be relinked after detaching the invalid association. No DB writes.
-     *
-     * @param  array<string, mixed>  $row
-     * @return array<string, mixed>
-     */
-    private function previewDetachAndReconcile(SeoProjectTask $task, int $projectSiteId, array $row): array
-    {
-        $preview = $task->replicate();
-        $preview->id = (int) $task->id;
-        $preview->exists = true;
-        $preview->article_id = null;
-        $preview->site_id = $projectSiteId;
-        if ($task->relationLoaded('project')) {
-            $preview->setRelation('project', $task->project);
-        }
-
-        $result = $this->reconciler->reconcileTask($preview, $projectSiteId, persist: false);
-        if ($result->articleId !== null && $result->articleId > 0
-            && in_array($result->status, [
-                ContentProjectExistingArticleReconcileResult::STATUS_REPAIRED,
-                ContentProjectExistingArticleReconcileResult::STATUS_RESOLVED,
-            ], true)
-        ) {
-            $row['relinked_article_id'] = $result->articleId;
-            $row['proposed'][] = 'would relink article_id='.$result->articleId.' via '.$result->matchedBy;
-        } else {
-            $row['unresolved'] = true;
-            $row['proposed'][] = 'would leave unlinked:'.($result->reason ?? $result->status);
-        }
-
-        return $row;
     }
 
     /**
@@ -311,20 +273,10 @@ final class ContentProjectSiteLinkRepairService
             }
 
             $locked->refresh();
-            $result = $this->reconciler->reconcileTask($locked, $projectSiteId, persist: true);
-            if ($result->articleId !== null && $result->articleId > 0
-                && in_array($result->status, [
-                    ContentProjectExistingArticleReconcileResult::STATUS_REPAIRED,
-                    ContentProjectExistingArticleReconcileResult::STATUS_RESOLVED,
-                ], true)
-            ) {
-                $row['relinked_article_id'] = $result->articleId;
-                $applied[] = 'relinked article_id='.$result->articleId.' via '.$result->matchedBy;
-            } else {
-                $row['unresolved'] = true;
-                $row['decision'] = self::STATUS_NEEDS_ATTENTION;
-                $applied[] = 'left_unlinked:'.($result->reason ?? $result->status);
-            }
+            $row['unresolved'] = true;
+            $row['decision'] = self::STATUS_NEEDS_ATTENTION;
+            $applied[] = 'left_unlinked:'.ContentProjectManualArticleResolution::MANUAL_ACTION;
+            $applied[] = 'auto_reconcile=NO';
 
             $row['article_id'] = (int) ($locked->fresh()?->article_id ?? 0) ?: null;
             $row['task_site_id'] = $projectSiteId;

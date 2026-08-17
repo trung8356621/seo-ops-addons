@@ -1,7 +1,6 @@
 ﻿import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import BlockFormatToolbar from './BlockFormatToolbar';
-import { BlockInsertBar, BlockInsertMenuBar } from './BlockInsertMenu';
 import BlockEditorResizeHandle, { useBlockEditorHeight } from './BlockEditorResizeHandle';
 import { EditorInspectorBubbleHost } from '../editor/host/EditorInspectorBubbleHost';
 import ArticleHtmlInspectorModal from './ArticleHtmlInspectorModal';
@@ -44,13 +43,7 @@ import {
 import {
     bindEditorCommandHost,
     unbindEditorCommandHost,
-    executeEditorCommand,
 } from '../utils/editorCommands';
-import {
-    reorderBlockWithinSection,
-    withinSectionMoveAvailability,
-} from '../utils/articleEditorBlockReorder';
-import { EDITOR_COMMAND_CODES } from '../utils/editorCommands/editorCommandResult';
 
 import { collectContentImagesFromArticle } from '@media-addon/utils/contentImageCounter.js';
 import {
@@ -659,7 +652,7 @@ export default function SeoArticleEditor({
         };
     }, [activeHeavyModule, articleId]);
 
-        const { analyzing, canGenerateFaq, canGenerateFeaturedSnippet, canGenerateOutlineHeading, canQuickCreateReviews, clientOutline, collapsedSectionIds, editorSearchMatchCount, faqCount, featuredHealthSnapshot, featuredSnippetGenerating, featuredSnippetPreviewHtml, featuredSnippetPromptContext, featuredSnippetPromptOpen, featuredSnippetTargetRef, generateImageModalInitialCustom, generateImageModalOpen, generateImageModalPrompt, generateImageModalTarget, generateImageTargetRef, generateQuickPostReviews, imageRenameBusy, imageRenameBusyCount, imagesReloadKey, imagesTabJumpTarget, insertMenu, isProductPost, outlineAppendDoneRef, outlineAppendInflightRef, outlineFingerprintRef, outlineHasSavedHeadings, outlineHeadingCommand, outlineHeadingIdsByBlockIdRef, outlineHeadingIdsByKeyRef, outlineHeadingKeys, outlineTreeSync, panelFaqs, panelFaqsRef, pendingFaqGenerateRef, pendingLocalRenameQueueRef, pendingLocalRenameResultsRef, pendingQuickFixKeywordRef, pendingWpRenameRequestRef, postImagesRef, productGalleryItems, publishEditorImagesCatalogRef, quickCreateReviewsConfigUrl, quickFixSlugAllBusy, quickReplaceFind, quickReplaceValue, refreshVirtualReviews, reviewsLoadWarning, reviewsLoading, saveStatus, sectionTitleEditRequest, seoAnalyzeError, seoPanelActive, setAnalyzing, setClientOutline, setCollapsedSectionIds, setEditorSearchMatchCount, setFaqCount, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptContext, setFeaturedSnippetPromptOpen, setGenerateImageModalInitialCustom, setGenerateImageModalOpen, setGenerateImageModalPrompt, setGenerateImageModalTarget, setImageRenameBusy, setImageRenameBusyCount, setImagesReloadKey, setImagesTabJumpTarget, setInsertMenu, setOutlineHasSavedHeadings, setOutlineHeadingCommand, setOutlineHeadingKeys, setOutlineTreeSync, setPanelFaqs, setQuickFixSlugAllBusy, setQuickReplaceFind, setQuickReplaceValue, setSaveStatus, setSectionTitleEditRequest, setSeoAnalyzeError, showConfigureReviewsLink, showReviewsTab, slugRenameManagedByBatchRef, supplementalImages, supplementalImagesRef, utilitySchedulerRef, virtualReviews } = useArticleEditorCoreState({ activeHeavyModule, activeHeavyModuleRef, articleId, blocks, blocksRef, editorSettings, initialFaqs, initialPostImages, initialProductGallery, initialSupplementalImages, initialVirtualReviews, perfDebug, reviewsAbortRef, setAssistantPortalRoots, setMediaPickerRoot, supportsProductGallery });
+        const { analyzing, canGenerateFaq, canGenerateFeaturedSnippet, canGenerateOutlineHeading, canQuickCreateReviews, clientOutline, collapsedSectionIds, editorSearchMatchCount, faqCount, featuredHealthSnapshot, featuredSnippetGenerating, featuredSnippetPreviewHtml, featuredSnippetPromptContext, featuredSnippetPromptOpen, featuredSnippetTargetRef, generateImageModalInitialCustom, generateImageModalOpen, generateImageModalPrompt, generateImageModalTarget, generateImageTargetRef, generateQuickPostReviews, imageRenameBusy, imageRenameBusyCount, imagesReloadKey, imagesTabJumpTarget, insertMenu, isProductPost, outlineAppendDoneRef, outlineAppendInflightRef, outlineFingerprintRef, outlineHasSavedHeadings, outlineHeadingCommand, outlineHeadingIdsByBlockIdRef, outlineHeadingIdsByKeyRef, outlineHeadingKeys, outlineJumpTarget, outlineTreeSync, panelFaqs, panelFaqsRef, pendingFaqGenerateRef, pendingLocalRenameQueueRef, pendingLocalRenameResultsRef, pendingQuickFixKeywordRef, pendingWpRenameRequestRef, postImagesRef, productGalleryItems, publishEditorImagesCatalogRef, quickCreateReviewsConfigUrl, quickFixSlugAllBusy, quickReplaceFind, quickReplaceValue, refreshVirtualReviews, reviewsLoadWarning, reviewsLoading, saveStatus, sectionTitleEditRequest, seoAnalyzeError, seoPanelActive, setAnalyzing, setClientOutline, setCollapsedSectionIds, setEditorSearchMatchCount, setFaqCount, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptContext, setFeaturedSnippetPromptOpen, setGenerateImageModalInitialCustom, setGenerateImageModalOpen, setGenerateImageModalPrompt, setGenerateImageModalTarget, setImageRenameBusy, setImageRenameBusyCount, setImagesReloadKey, setImagesTabJumpTarget, setInsertMenu, setOutlineHasSavedHeadings, setOutlineHeadingCommand, setOutlineHeadingKeys, setOutlineJumpTarget, setOutlineTreeSync, setPanelFaqs, setQuickFixSlugAllBusy, setQuickReplaceFind, setQuickReplaceValue, setSaveStatus, setSectionTitleEditRequest, setSeoAnalyzeError, showConfigureReviewsLink, showReviewsTab, slugRenameManagedByBatchRef, supplementalImages, supplementalImagesRef, utilitySchedulerRef, virtualReviews } = useArticleEditorCoreState({ activeHeavyModule, activeHeavyModuleRef, articleId, blocks, blocksRef, editorSettings, initialFaqs, initialPostImages, initialProductGallery, initialSupplementalImages, initialVirtualReviews, perfDebug, reviewsAbortRef, setAssistantPortalRoots, setMediaPickerRoot, supportsProductGallery });
 
     const parseGalleryItems = useCallback((items) => normalizeProductAlbumList(items), []);
 
@@ -1287,12 +1280,12 @@ export default function SeoArticleEditor({
         const { applyCompletedMediaToPlaceholder, applyCompletedMediaToProductGallery, clearAwaitingClientImagePlaceholders, findImageBlockByMediaId, insertImageAfterBlock, placeProcessingImagePlaceholder, requestGenerateArticleImage, resolveAiRefBlockId, startMediaStatusPolling } = useArticleEditorImageGeneration({ activeBlockIdRef, articleId, blocks, blocksRef, clearMediaPolling, commitActiveBlock, connectionHashRef, dismissedEditorImageMediaIdsRef, generateImageInFlightRef, getExportHtml, isDismissedEditorImageMedia, isIntroBlockId, mediaPollTimersRef, notifyIntroNoImages, patchImageInBlocks, pendingAiMediaRef, requestGenerateArticleImageRef, resumedArticleAiJobsRef, scheduleAutosave, setActiveBlockId, setBlocks, setGlobalEditor, setImagesReloadKey, setSaveStatus, tempMergeRef, updateBlocksWithoutHistory });
 
     // �ang c�n placeholder spin � reconcile d?nh k? (poll miss / m?t pending map).
-        const { deleteSection, handleOutlineDeleteHeading, handleOutlineMoveHeading, insertVideoAfterBlock, moveBlockToSection, startTempMerge, toggleInsertMenu } = useArticleEditorInsertAndSections({ activeBlockId, activeBlockIdRef, applyCompletedMediaToPlaceholder, articleId, blockEditorsRef, blockFlushRef, blocks, blocksRef, commitActiveBlock, deleteBlock, dismissedEditorImageMediaIdsRef, editorSections, notifyIntroNoImages, outlineAppendDoneRef, outlineAppendInflightRef, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, patchImageInBlocks, pendingAiMediaRef, sectionHeadingBlockIds, setActiveBlockId, setBlocks, setGlobalEditor, setInsertMenu, setOutlineHeadingKeys, setOutlineTreeSync, setTempMerge, startMediaStatusPolling, structureMutationRef, tempMergeRef });
+        const { deleteSection, handleOutlineDeleteHeading, handleOutlineMoveHeading, insertVideoAfterBlock, moveBlockToSection, startTempMerge, toggleInsertMenu } = useArticleEditorInsertAndSections({ activeBlockId, activeBlockIdRef, applyCompletedMediaToPlaceholder, articleId, blockEditorsRef, blockFlushRef, blocks, blocksRef, commitActiveBlock, deleteBlock, dismissedEditorImageMediaIdsRef, editorSections, insertBlockRelative, notifyIntroNoImages, outlineAppendDoneRef, outlineAppendInflightRef, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, patchImageInBlocks, pendingAiMediaRef, sectionHeadingBlockIds, setActiveBlockId, setBlocks, setGlobalEditor, setInsertMenu, setOutlineHeadingKeys, setOutlineTreeSync, setTempMerge, startMediaStatusPolling, structureMutationRef, tempMergeRef });
 
         const { mergedDisplay, saveLabel } = useArticleEditorExternalEventsBridge({ activeBlockId, activeBlockIdRef, analyzedBlocksRef, applyCompletedMediaToPlaceholder, applyCompletedMediaToProductGallery, applySeoAnalysisResult, articleId, articleTitle, assertNoLocalSlugFixBeforeWpSync, assertWritableDocumentNotWhitespaceCorrupted, blockEditorsRef, blockFlushRef, blockOutsideClickGuardUntilRef, blocks, blocksRef, clearAwaitingClientImagePlaceholders, clearMediaPolling, clearOutlineFocus, clearTempMerge, connectionHashRef, dismissedEditorImageMediaIdsRef, editorHostActionsRef, findImageBlockByMediaId, generateImageTargetRef, getExportHtml, globalEditor, initialPostImages, insertImageAfterBlock, insertVideoAfterBlock, isDismissedEditorImageMedia, lastSeoAnalysisRef, mediaPollTimersRef, networkRecovering, networkUnavailable, outlineHasSavedHeadings, panelFaqsRef, patchImageInBlocks, pendingAiMediaRef, placeProcessingImagePlaceholder, postImagesRef, publishEditorImagesCatalogRef, reconcileImagesTabWithBlocks, requestAnalyze, requestGenerateArticleImage, resolveAiRefBlockId, resolveArticleFaqsSnapshot, runLocalSeoAnalysis, saveStatus, scheduleAutosave, markSeoStale, sectionByBlockId, seoDomain, seoMetaRef, setActiveBlockId, setArticleType, setBlocks, setFaqCount, setGlobalEditor, setImagesReloadKey, setInsertMenu, setPanelFaqs, setSaveStatus, setSavedSeoScore, setSeoStale, setSupportsProductGallery, skipNextAutosave, startMediaStatusPolling, supplementalImagesRef, tempMerge, tempMergeRef, updateBlockContent });
 
     // Sync text heading t? tab Outline v? block tuong ?ng trong editor ch�nh.
-        const { addSection, addSectionAfter, applyOutlineHeadingHtml, applyOutlineHeadingText, collapseAllSections, confirmFeaturedSnippetPromptInsert, focusOutlineFromSectionHeader, handleOutlineHeadingFromEditor, handleOutlineLoaded, insertFeaturedSnippetAsNewSectionAfter, jumpToOutlineHeading, requestGenerateFeaturedSnippetAfterSection, resolveHeadingInnerHtml, runFeaturedSnippetPromptGenerate, saveSectionTitleFromHeader, toggleSectionCollapse, updateOutlineHeadingTitle } = useArticleEditorOutline({ activeBlockId, articleId, articleTitle, blockEditorsRef, blockFlushRef, blocksRef, canGenerateFeaturedSnippet, collapseSectionsExcept, commitActiveBlock, editorSections, featuredSnippetGenerating, featuredSnippetPreviewHtml, featuredSnippetTargetRef, focusImageBlock, focusKeyword, focusedOutlineHeadingRef, outlineAppendDoneRef, outlineAppendInflightRef, outlineFingerprintRef, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, outlineHeadingIdsByKeyRef, outlineRailRef, markSeoStale, sectionByBlockId, sectionHeadingBlockIds, setActiveBlockId, setBlocks, setClientOutline, setCollapsedSectionIds, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptOpen, setGlobalEditor, setImagesTabJumpTarget, setInsertMenu, setOutlineHasSavedHeadings, setOutlineHeadingKeys, setOutlineTreeSync, setSectionTitleEditRequest, syncOutlineFocusFromBlock, tempMergeRef });
+        const { addOutlineNode, addSection, addSectionAfter, applyOutlineHeadingHtml, applyOutlineHeadingText, changeOutlineHeadingLevel, collapseAllSections, confirmFeaturedSnippetPromptInsert, deleteOutlineHeadingKeepContent, deleteOutlineHeadingWithContent, focusOutlineFromSectionHeader, handleOutlineHeadingFromEditor, handleOutlineLoaded, insertFeaturedSnippetAsNewSectionAfter, jumpToOutlineHeading, requestGenerateFeaturedSnippetAfterSection, resolveHeadingInnerHtml, runFeaturedSnippetPromptGenerate, saveSectionTitleFromHeader, toggleOutlineHeadingVisible, toggleSectionCollapse, updateOutlineHeadingTitle } = useArticleEditorOutline({ activeBlockId, activateBlock, articleId, articleTitle, blockEditorsRef, blockFlushRef, blocksRef, canGenerateFeaturedSnippet, collapseSectionsExcept, commitActiveBlock, editorSections, featuredSnippetGenerating, featuredSnippetPreviewHtml, featuredSnippetTargetRef, focusImageBlock, focusKeyword, focusedOutlineHeadingRef, outlineAppendDoneRef, outlineAppendInflightRef, outlineFingerprintRef, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, outlineHeadingIdsByKeyRef, outlineRailRef, markSeoStale, sectionByBlockId, sectionHeadingBlockIds, setActiveBlockId, setBlocks, setClientOutline, setCollapsedSectionIds, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptOpen, setGlobalEditor, setImagesTabJumpTarget, setInsertMenu, setOutlineHasSavedHeadings, setOutlineHeadingKeys, setOutlineJumpTarget, setOutlineTreeSync, setSectionTitleEditRequest, syncOutlineFocusFromBlock, tempMergeRef });
 
         const { handleEditorSearchAction } = useArticleEditorSearch({ blockById, clearTempMerge, commitActiveBlock, editorSections, featuredSnippetTargetRef, insertFeaturedSnippetAsNewSectionAfter, publishEditorImagesCatalogRef, quickReplaceFind, quickReplaceValue, setBlocks, setCollapsedSectionIds, setEditorSearchMatchCount, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setImagesReloadKey, tempMergeRef });
 
@@ -1532,6 +1525,11 @@ export default function SeoArticleEditor({
                             onOutlineMoveHeading={handleOutlineMoveHeading}
                             onOutlineDeleteHeading={handleOutlineDeleteHeading}
                             onOutlineAddSection={addSection}
+                            onOutlineAddNode={addOutlineNode}
+                            onOutlineChangeLevel={changeOutlineHeadingLevel}
+                            onOutlineDeleteKeepContent={deleteOutlineHeadingKeepContent}
+                            onOutlineDeleteWithContent={deleteOutlineHeadingWithContent}
+                            onOutlineToggleVisible={toggleOutlineHeadingVisible}
                             onNotify={(payload) => {
                                 window.dispatchEvent(
                                     new CustomEvent('seo-article-editor-notify', { detail: payload }),
@@ -1860,77 +1858,17 @@ export default function SeoArticleEditor({
                                                         return null;
                                                     }
 
-                                                    const isOutlineLockedHeadingBlock =
-                                                        outlineHasSavedHeadings &&
-                                                        blockHasOutlineHeading(block) &&
-                                                        !sectionHeadingBlockIds.has(block.id);
                                                     const isActive = activeBlockId === block.id;
-                                                    const showInsert = isActive && !tempMerge;
-                                                    const showMoveButtons = showInsert && !isOutlineLockedHeadingBlock;
-                                                    const canMovePrevSection = sectionIndex > 0;
-                                                    const canMoveNextSection = sectionIndex < editorSections.length - 1;
-                                                    const editorWritable = !sessionReadOnly
-                                                        && !window.__SEO_EDITOR_READ_ONLY__
-                                                        && canMutateEditor();
-                                                    const withinMove = withinSectionMoveAvailability(visibleBlockIds, block.id);
-                                                    const canMoveUpWithinSection = editorWritable && withinMove.canMoveUp;
-                                                    const canMoveDownWithinSection = editorWritable && withinMove.canMoveDown;
-                                                    const handleMovePrevSection = () => moveBlockToSection(block.id, 'prev');
-                                                    const handleMoveNextSection = () => moveBlockToSection(block.id, 'next');
-                                                    const handleMoveUpWithinSection = () => {
-                                                        executeEditorCommand('move_block_within_section', {
-                                                            sectionId: section.id,
-                                                            blockId: block.id,
-                                                            direction: 'up',
-                                                        }, { notifyOnFailure: false });
-                                                    };
-                                                    const handleMoveDownWithinSection = () => {
-                                                        executeEditorCommand('move_block_within_section', {
-                                                            sectionId: section.id,
-                                                            blockId: block.id,
-                                                            direction: 'down',
-                                                        }, { notifyOnFailure: false });
-                                                    };
+                                                    const jumpTarget = outlineJumpTarget?.blockId === block.id
+                                                        ? outlineJumpTarget
+                                                        : null;
 
                                                     return (
                                                         <div
-                                                            key={block.id}
+                                                            key={`${block.id}-${block.editorEpoch ?? '0'}`}
                                                             data-seo-block-id={block.id}
                                                             className={`seo-editor-block-slot ${isActive ? 'is-active' : ''}`}
                                                         >
-                                                            {showInsert ? (
-                                                                <>
-                                                                    <BlockInsertBar
-                                                                        position="before"
-                                                                        open={
-                                                                            insertMenu?.blockId === block.id &&
-                                                                            insertMenu?.position === 'before'
-                                                                        }
-                                                                        onToggle={() => toggleInsertMenu(block.id, 'before')}
-                                                                        showMoveButtons={showMoveButtons}
-                                                                        canMovePrevSection={canMovePrevSection}
-                                                                        canMoveNextSection={canMoveNextSection}
-                                                                        canMoveUpWithinSection={canMoveUpWithinSection}
-                                                                        canMoveDownWithinSection={canMoveDownWithinSection}
-                                                                        onMovePrevSection={handleMovePrevSection}
-                                                                        onMoveNextSection={handleMoveNextSection}
-                                                                        onMoveUpWithinSection={handleMoveUpWithinSection}
-                                                                        onMoveDownWithinSection={handleMoveDownWithinSection}
-                                                                    />
-                                                                    {insertMenu?.blockId === block.id &&
-                                                                    insertMenu?.position === 'before' ? (
-                                                                        <BlockInsertMenuBar
-                                                                            faqShortcodeDisabled={articleHasFaqShortcode(blocks)}
-                                                                            imageInsertDisabled={section.isIntro}
-                                                                            onClose={() => setInsertMenu(null)}
-                                                                            onInsert={(type) =>
-                                                                                insertBlockRelative(block.id, 'before', type)
-                                                                            }
-                                                                        />
-                                                                    ) : null}
-                                                                </>
-                                                            ) : null}
-
                                                             <BlockEditor
                                                                 block={block}
                                                                 sectionId={section.id}
@@ -1977,51 +1915,16 @@ export default function SeoArticleEditor({
                                                                 canGenerateFaq={canGenerateFaq}
                                                                 onEditFaq={openFaqModule}
                                                                 onCreateFaq={createFaqFromShortcode}
-                                                                outlineHeadingsLocked={
-                                                                    sectionHeadingBlockIds.has(block.id) ||
-                                                                    (outlineHasSavedHeadings &&
-                                                                        blockHasOutlineHeading(block))
-                                                                }
+                                                                outlineHeadingsLocked={false}
                                                                 isSectionHeadingBlock={sectionHeadingBlockIds.has(block.id)}
                                                                 onOutlineHeadingCommand={handleOutlineHeadingFromEditor}
                                                                 onArmOutsideClickGuard={armBlockOutsideClickGuard}
                                                                 onDelete={() => deleteBlock(block.id)}
                                                                 canDeleteBlock={blocks.length > 1}
                                                                 editable={!sessionReadOnly && !window.__SEO_EDITOR_READ_ONLY__}
+                                                                focusHeadingIndex={jumpTarget?.headingIndex ?? null}
+                                                                focusHeadingToken={jumpTarget?.token ?? 0}
                                                             />
-
-                                                            {showInsert ? (
-                                                                <>
-                                                                    <BlockInsertBar
-                                                                        position="after"
-                                                                        open={
-                                                                            insertMenu?.blockId === block.id &&
-                                                                            insertMenu?.position === 'after'
-                                                                        }
-                                                                        onToggle={() => toggleInsertMenu(block.id, 'after')}
-                                                                        showMoveButtons={showMoveButtons}
-                                                                        canMovePrevSection={canMovePrevSection}
-                                                                        canMoveNextSection={canMoveNextSection}
-                                                                        canMoveUpWithinSection={canMoveUpWithinSection}
-                                                                        canMoveDownWithinSection={canMoveDownWithinSection}
-                                                                        onMovePrevSection={handleMovePrevSection}
-                                                                        onMoveNextSection={handleMoveNextSection}
-                                                                        onMoveUpWithinSection={handleMoveUpWithinSection}
-                                                                        onMoveDownWithinSection={handleMoveDownWithinSection}
-                                                                    />
-                                                                    {insertMenu?.blockId === block.id &&
-                                                                    insertMenu?.position === 'after' ? (
-                                                                        <BlockInsertMenuBar
-                                                                            faqShortcodeDisabled={articleHasFaqShortcode(blocks)}
-                                                                            imageInsertDisabled={section.isIntro}
-                                                                            onClose={() => setInsertMenu(null)}
-                                                                            onInsert={(type) =>
-                                                                                insertBlockRelative(block.id, 'after', type)
-                                                                            }
-                                                                        />
-                                                                    ) : null}
-                                                                </>
-                                                            ) : null}
                                                         </div>
                                                     );
                                                 })}

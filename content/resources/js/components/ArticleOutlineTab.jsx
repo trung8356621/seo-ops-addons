@@ -1,15 +1,29 @@
 ﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Check, ChevronDown, ChevronUp, Copy, Loader2, Pencil, Plus, RefreshCw, ShieldAlert, Sparkles, Trash2 } from 'lucide-react';
+import { AlertTriangle, Check, Copy, Loader2, MoreHorizontal, Pencil, Plus } from 'lucide-react';
 import { csrfToken, seoArticleApiHeaders } from '@seo-addon/utils/seoArticleApi.js';
 import { isPersistedOutlineHeadingId } from '../utils/contentDocumentHelpers';
+import { findLocalDuplicateHeadingKeys, localDuplicateHeadingKey } from '../utils/articleEditorClientOutline';
 import { t } from '../utils/i18n';
 
 const outlineUrl = (articleId) => `/api/seo/articles/${articleId}/outline`;
 const outlineRefreshUrl = (articleId) => `/api/seo/articles/${articleId}/outline/refresh`;
-const checkDuplicatesUrl = (articleId) => `/api/seo/articles/${articleId}/outline/check-duplicates`;
 const headingUrl = (articleId, headingId) => `/api/seo/articles/${articleId}/outline/${headingId}`;
 const generateUrl = (articleId, headingId) =>
     `/api/seo/articles/${articleId}/outline/${headingId}/generate`;
+
+function findOutlineNodeByPredicate(nodes, predicate) {
+    for (const node of nodes ?? []) {
+        if (predicate(node)) {
+            return node;
+        }
+        const child = findOutlineNodeByPredicate(node.children, predicate);
+        if (child) {
+            return child;
+        }
+    }
+
+    return null;
+}
 
 function extractOutlineApiErrorMessage(data, response) {
     if (response.status === 419) {
@@ -245,14 +259,18 @@ function HeadingBlock({
     onMoveUp,
     onMoveDown,
     onDelete,
+    onAddNode = null,
+    onChangeLevel = null,
+    onDeleteKeepContent = null,
+    onDeleteWithContent = null,
+    onToggleVisible = null,
     canMoveUp = false,
     canMoveDown = false,
     canDelete = false,
     canGenerateOutlineHeading = false,
     resolveHeadingInnerHtml = null,
     busyHeadingId,
-    duplicateInfo = null,
-    onSelectDuplicate,
+    isLocalDuplicate = false,
 }) {
     const [editing, setEditing] = useState(false);
     const [htmlEditMode, setHtmlEditMode] = useState(false);
@@ -262,6 +280,8 @@ function HeadingBlock({
     const clickTimerRef = useRef(null);
     const copyTimerRef = useRef(null);
     const [copied, setCopied] = useState(false);
+    const [menuOpen, setMenuOpen] = useState(false);
+    const [addOpen, setAddOpen] = useState(false);
     const isBusy = busyHeadingId === node.id;
     const isHeadingFocused = activeHeadingId === node.id;
 
@@ -408,7 +428,6 @@ function HeadingBlock({
                 `seo-outline-block--h${node.level}`,
                 isHeadingFocused ? 'is-heading-focused' : '',
                 isBusy ? 'is-busy' : '',
-                duplicateInfo ? 'is-duplicate' : '',
             ]
                 .filter(Boolean)
                 .join(' ')}
@@ -433,6 +452,9 @@ function HeadingBlock({
                     clickTimerRef.current = null;
                 }
                 onSelectGroup(groupId, node.id);
+                if (!isBusy) {
+                    startEditing();
+                }
             }}
         >
             <div className="seo-outline-block__main">
@@ -485,117 +507,132 @@ function HeadingBlock({
                     </span>
                 )}
                 {!editing ? (
-                    <button
-                        type="button"
-                        className="seo-outline-block__copy-btn"
-                        title={copied ? t('outline_copied') : t('outline_copy_heading')}
-                        aria-label={copied ? t('outline_copied_heading') : t('outline_copy_heading')}
-                        onClick={handleCopyHeading}
-                    >
-                        {copied ? (
-                            <Check size={14} strokeWidth={1.75} />
-                        ) : (
-                            <Copy size={14} strokeWidth={1.75} />
-                        )}
-                    </button>
-                ) : null}
-            </div>
-            {duplicateInfo && !editing ? (
-                <button
-                    type="button"
-                    className="seo-outline-block__duplicate-warn"
-                    title={`Trùng "${duplicateInfo.matched_heading}" trong bài "${duplicateInfo.matched_article_title}" — click để xem dàn ý bài này`}
-                    onClick={(e) => {
-                        e.stopPropagation();
-                        onSelectDuplicate?.(duplicateInfo);
-                    }}
-                >
-                    <AlertTriangle size={13} strokeWidth={1.75} />
-                    Trùng với bài #{duplicateInfo.matched_article_id}
-                    {duplicateInfo.match_type === 'semantic' ? ' (đồng nghĩa)' : ''}
-                </button>
-            ) : null}
-            {!editing && (isHeadingFocused || isBusy) ? (
-                <div className="seo-outline-block__actions-row">
-                    <button
-                        type="button"
-                        className="seo-outline-block__action-btn"
-                        disabled={!canMoveUp || isBusy}
-                        title={t('outline_move_up')}
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            if (canMoveUp && !isBusy) {
-                                onMoveUp?.(node);
-                            }
-                        }}
-                    >
-                        <ChevronUp size={14} strokeWidth={1.75} />
-                    </button>
-                    <button
-                        type="button"
-                        className="seo-outline-block__action-btn"
-                        disabled={!canMoveDown || isBusy}
-                        title={t('outline_move_down')}
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            if (canMoveDown && !isBusy) {
-                                onMoveDown?.(node);
-                            }
-                        }}
-                    >
-                        <ChevronDown size={14} strokeWidth={1.75} />
-                    </button>
-                    <button
-                        type="button"
-                        className="seo-outline-block__action-btn"
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            if (!isBusy) {
-                                startEditing();
-                            }
-                        }}
-                    >
-                        <span className="seo-outline-block__action-label">{t('outline_edit_manual')}</span>
-                        <Pencil size={14} strokeWidth={1.75} />
-                    </button>
-                    {canGenerateOutlineHeading ? (
+                    <>
+                        {isLocalDuplicate ? (
+                            <span className="seo-outline-block__local-dup" title={t('outline_local_duplicate')}>
+                                <AlertTriangle size={12} strokeWidth={1.75} />
+                            </span>
+                        ) : null}
                         <button
                             type="button"
-                            className="seo-outline-block__action-btn seo-outline-block__action-btn--ai"
-                            disabled={isBusy}
+                            className="seo-outline-block__copy-btn"
+                            title={copied ? t('outline_copied') : t('outline_copy_heading')}
+                            aria-label={copied ? t('outline_copied_heading') : t('outline_copy_heading')}
+                            onClick={handleCopyHeading}
+                        >
+                            {copied ? (
+                                <Check size={14} strokeWidth={1.75} />
+                            ) : (
+                                <Copy size={14} strokeWidth={1.75} />
+                            )}
+                        </button>
+                        <button
+                            type="button"
+                            className="seo-outline-block__hover-btn"
+                            title={t('outline_edit_manual')}
                             onClick={(e) => {
                                 e.stopPropagation();
                                 if (!isBusy) {
-                                    onGenerate(node);
+                                    startEditing();
                                 }
                             }}
                         >
-                            <span className="seo-outline-block__action-label">
-                                {isBusy ? t('outline_ai_gen_busy') : t('outline_ai_gen')}
-                            </span>
-                            {isBusy ? (
-                                <Loader2 size={14} strokeWidth={1.75} className="seo-outline-spin" />
-                            ) : (
-                                <Sparkles size={14} strokeWidth={1.75} />
-                            )}
+                            <Pencil size={13} strokeWidth={1.75} />
                         </button>
-                    ) : null}
-                    <button
-                        type="button"
-                        className="seo-outline-block__action-btn seo-outline-block__action-btn--danger"
-                        disabled={!canDelete || isBusy}
-                        title={t('outline_delete_heading')}
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            if (canDelete && !isBusy) {
-                                onDelete?.(node);
-                            }
-                        }}
-                    >
-                        <Trash2 size={14} strokeWidth={1.75} />
-                    </button>
-                </div>
-            ) : null}
+                        <div className="seo-outline-block__hover-wrap">
+                            <button
+                                type="button"
+                                className="seo-outline-block__hover-btn"
+                                title={t('outline_add_heading')}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setAddOpen((open) => !open);
+                                    setMenuOpen(false);
+                                }}
+                            >
+                                <Plus size={13} strokeWidth={1.75} />
+                            </button>
+                            {addOpen ? (
+                                <div className="seo-outline-block__menu" onClick={(e) => e.stopPropagation()}>
+                                    {node.level <= 2 ? (
+                                        <button type="button" onClick={() => { setAddOpen(false); onAddNode?.(node, 'h2-below'); }}>
+                                            {t('outline_add_h2_below')}
+                                        </button>
+                                    ) : null}
+                                    {node.level <= 3 ? (
+                                        <button type="button" onClick={() => { setAddOpen(false); onAddNode?.(node, 'h3-child'); }}>
+                                            {t('outline_add_h3_child')}
+                                        </button>
+                                    ) : null}
+                                    <button type="button" onClick={() => { setAddOpen(false); onAddNode?.(node, 'paragraph'); }}>
+                                        {t('outline_add_paragraph')}
+                                    </button>
+                                </div>
+                            ) : null}
+                        </div>
+                        <div className="seo-outline-block__hover-wrap">
+                            <button
+                                type="button"
+                                className="seo-outline-block__hover-btn"
+                                title={t('outline_more_actions')}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    setMenuOpen((open) => !open);
+                                    setAddOpen(false);
+                                }}
+                            >
+                                <MoreHorizontal size={13} strokeWidth={1.75} />
+                            </button>
+                            {menuOpen ? (
+                                <div className="seo-outline-block__menu" onClick={(e) => e.stopPropagation()}>
+                                    {node.level !== 2 ? (
+                                        <button type="button" onClick={() => { setMenuOpen(false); onChangeLevel?.(node, 2); }}>
+                                            {t('outline_change_h2')}
+                                        </button>
+                                    ) : null}
+                                    {node.level !== 3 ? (
+                                        <button type="button" onClick={() => { setMenuOpen(false); onChangeLevel?.(node, 3); }}>
+                                            {t('outline_change_h3')}
+                                        </button>
+                                    ) : null}
+                                    {node.level !== 4 ? (
+                                        <button type="button" onClick={() => { setMenuOpen(false); onChangeLevel?.(node, 4); }}>
+                                            {t('outline_change_h4')}
+                                        </button>
+                                    ) : null}
+                                    <button type="button" onClick={() => { setMenuOpen(false); onToggleVisible?.(node, false); }}>
+                                        {t('outline_hide_from_outline')}
+                                    </button>
+                                    <button type="button" onClick={() => { setMenuOpen(false); onDeleteKeepContent?.(node); }}>
+                                        {t('outline_delete_keep_content')}
+                                    </button>
+                                    <button
+                                        type="button"
+                                        className="is-danger"
+                                        onClick={() => {
+                                            setMenuOpen(false);
+                                            if (node.level <= 2) {
+                                                onDelete?.(node);
+                                                return;
+                                            }
+                                            if (window.confirm(t('outline_delete_with_content_confirm', { heading: node.heading_text }))) {
+                                                onDeleteWithContent?.(node);
+                                            }
+                                        }}
+                                    >
+                                        {t('outline_delete_with_content')}
+                                    </button>
+                                    {canGenerateOutlineHeading ? (
+                                        <button type="button" disabled={isBusy} onClick={() => { setMenuOpen(false); onGenerate(node); }}>
+                                            {t('outline_ai_gen')}
+                                        </button>
+                                    ) : null}
+                                </div>
+                            ) : null}
+                        </div>
+                    </>
+                ) : null}
+            </div>
         </div>
     );
 }
@@ -615,11 +652,15 @@ function OutlineTree({
     onGenerate,
     onMoveHeading,
     onDeleteHeading,
+    onAddNode = null,
+    onChangeLevel = null,
+    onDeleteKeepContent = null,
+    onDeleteWithContent = null,
+    onToggleVisible = null,
     canGenerateOutlineHeading = false,
     resolveHeadingInnerHtml = null,
     busyHeadingId,
-    duplicateByHeadingId = null,
-    onSelectDuplicate,
+    localDuplicateKeys = null,
 }) {
     return (
         <>
@@ -658,14 +699,18 @@ function OutlineTree({
                             onMoveUp={(headingNode) => onMoveHeading?.(headingNode, 'prev')}
                             onMoveDown={(headingNode) => onMoveHeading?.(headingNode, 'next')}
                             onDelete={onDeleteHeading}
+                            onAddNode={onAddNode}
+                            onChangeLevel={onChangeLevel}
+                            onDeleteKeepContent={onDeleteKeepContent}
+                            onDeleteWithContent={onDeleteWithContent}
+                            onToggleVisible={onToggleVisible}
                             canMoveUp={canMoveUp}
                             canMoveDown={canMoveDown}
                             canDelete
                             canGenerateOutlineHeading={canGenerateOutlineHeading}
                             resolveHeadingInnerHtml={resolveHeadingInnerHtml}
                             busyHeadingId={busyHeadingId}
-                            duplicateInfo={duplicateByHeadingId?.get(node.id) ?? null}
-                            onSelectDuplicate={onSelectDuplicate}
+                            isLocalDuplicate={Boolean(localDuplicateKeys?.has(localDuplicateHeadingKey(node.heading_text)))}
                         />
                         {hasChildren && (
                             <div className="seo-outline-children">
@@ -683,11 +728,15 @@ function OutlineTree({
                                     onGenerate={onGenerate}
                                     onMoveHeading={onMoveHeading}
                                     onDeleteHeading={onDeleteHeading}
+                                    onAddNode={onAddNode}
+                                    onChangeLevel={onChangeLevel}
+                                    onDeleteKeepContent={onDeleteKeepContent}
+                                    onDeleteWithContent={onDeleteWithContent}
+                                    onToggleVisible={onToggleVisible}
                                     canGenerateOutlineHeading={canGenerateOutlineHeading}
                                     resolveHeadingInnerHtml={resolveHeadingInnerHtml}
                                     busyHeadingId={busyHeadingId}
-                                    duplicateByHeadingId={duplicateByHeadingId}
-                                    onSelectDuplicate={onSelectDuplicate}
+                                    localDuplicateKeys={localDuplicateKeys}
                                 />
                             </div>
                         )}
@@ -699,60 +748,8 @@ function OutlineTree({
 }
 
 /**
- * Cây outline chỉ đọc — hiển thị dàn ý của bài viết bị trùng (cột phải).
- * `activeHeadingId`: heading bị trùng -> highlight; các heading khác bị làm mờ.
- */
-function ReadOnlyOutlineTree({ nodes, activeHeadingId = null }) {
-    return (
-        <>
-            {nodes.map((node) => {
-                const isMatched = activeHeadingId !== null && node.id === activeHeadingId;
-                const isDimmed = activeHeadingId !== null && !isMatched;
-
-                return (
-                    <div
-                        key={node.id}
-                        className={[
-                            'seo-outline-group',
-                            node.level <= 2 ? 'seo-outline-group--root' : '',
-                        ]
-                            .filter(Boolean)
-                            .join(' ')}
-                    >
-                        <div
-                            data-readonly-heading-id={node.id}
-                            className={[
-                                'seo-outline-block',
-                                `seo-outline-block--h${node.level}`,
-                                'seo-outline-block--readonly',
-                                isMatched ? 'is-matched' : '',
-                                isDimmed ? 'is-dimmed' : '',
-                            ]
-                                .filter(Boolean)
-                                .join(' ')}
-                        >
-                            <div className="seo-outline-block__main">
-                                <span className="seo-outline-block__level">H{node.level}</span>
-                                <span className="seo-outline-block__text">{node.heading_text}</span>
-                            </div>
-                        </div>
-                        {Array.isArray(node.children) && node.children.length > 0 ? (
-                            <div className="seo-outline-children">
-                                <ReadOnlyOutlineTree
-                                    nodes={node.children}
-                                    activeHeadingId={activeHeadingId}
-                                />
-                            </div>
-                        ) : null}
-                    </div>
-                );
-            })}
-        </>
-    );
-}
-
-/**
- * Tab "Outline / Dàn ý" — quản lý TOC bóc tách từ bài viết.
+ * Tab "Outline / Dàn ý" — canonical article structure for writing/editing/generation.
+ * Cross-article duplicate detection is not part of this tab.
  */
 export default function ArticleOutlineTab({
     articleId,
@@ -768,6 +765,11 @@ export default function ArticleOutlineTab({
     onOutlineMoveHeading,
     onOutlineDeleteHeading,
     onOutlineAddSection,
+    onOutlineAddNode = null,
+    onOutlineChangeLevel = null,
+    onOutlineDeleteKeepContent = null,
+    onOutlineDeleteWithContent = null,
+    onOutlineToggleVisible = null,
     onNotify,
     onRequestEditorHtml = null,
     /** Phase 4: prefer ProseMirror/blocks-derived outline; skip GET /outline on mount. */
@@ -782,33 +784,10 @@ export default function ArticleOutlineTab({
     const [activeHeadingId, setActiveHeadingId] = useState(null);
     const [editingHeadingId, setEditingHeadingId] = useState(null);
     const [busyHeadingId, setBusyHeadingId] = useState(null);
-    const [isDuplicateModeActive, setIsDuplicateModeActive] = useState(false);
-    const [duplicates, setDuplicates] = useState([]);
-    const [isLoadingCheck, setIsLoadingCheck] = useState(false);
-    const [selectedDuplicateArticleId, setSelectedDuplicateArticleId] = useState(null);
-    const [activeMatchedHeadingId, setActiveMatchedHeadingId] = useState(null);
-    const [compareTree, setCompareTree] = useState([]);
-    const [compareArticleTitle, setCompareArticleTitle] = useState('');
-    const [compareLoading, setCompareLoading] = useState(false);
-    const [compareError, setCompareError] = useState('');
+    const [overflowOpen, setOverflowOpen] = useState(false);
+    const pendingFocusRef = useRef(null);
 
-    const showDuplicateSplit = isDuplicateModeActive && duplicates.length > 0;
-
-    /** Map heading id (bài hiện tại) -> thông tin trùng để highlight block. */
-    const duplicateByHeadingId = useMemo(() => {
-        if (!isDuplicateModeActive) {
-            return null;
-        }
-
-        const map = new Map();
-        for (const dup of duplicates) {
-            const key = Number(dup.original_key);
-            if (Number.isFinite(key) && !map.has(key)) {
-                map.set(key, dup);
-            }
-        }
-        return map;
-    }, [duplicates, isDuplicateModeActive]);
+    const localDuplicateKeys = useMemo(() => findLocalDuplicateHeadingKeys(tree), [tree]);
 
     const handleSelectGroup = useCallback((groupId, headingId = null) => {
         setActiveGroupId(groupId);
@@ -864,14 +843,6 @@ export default function ArticleOutlineTab({
 
         setLoading(true);
         setError('');
-        // Outline đổi -> thoát chế độ dò trùng.
-        setIsDuplicateModeActive(false);
-        setDuplicates([]);
-        setSelectedDuplicateArticleId(null);
-        setActiveMatchedHeadingId(null);
-        setCompareTree([]);
-        setCompareArticleTitle('');
-        setCompareError('');
         try {
             let data;
             if (reextract) {
@@ -917,113 +888,46 @@ export default function ArticleOutlineTab({
         setTree(clientOutline);
     }, [preferClientSource, clientOutline]);
 
-    const exitDuplicateMode = useCallback(() => {
-        setIsDuplicateModeActive(false);
-        setDuplicates([]);
-        setSelectedDuplicateArticleId(null);
-        setActiveMatchedHeadingId(null);
-        setCompareTree([]);
-        setCompareArticleTitle('');
-        setCompareError('');
-    }, []);
-
-    /** Toggle bật/tắt chế độ dò trùng lặp. */
-    const handleToggleDuplicateMode = useCallback(async () => {
-        if (isDuplicateModeActive) {
-            exitDuplicateMode();
-            return;
+    const applyPendingOutlineFocus = useCallback((nodes) => {
+        const pending = pendingFocusRef.current;
+        if (!pending || !Array.isArray(nodes) || nodes.length === 0) {
+            return false;
         }
 
-        setIsDuplicateModeActive(true);
-        setIsLoadingCheck(true);
-        try {
-            const data = await requestJson(checkDuplicatesUrl(articleId), {
-                method: 'POST',
-                body: JSON.stringify({}),
-            });
-
-            const found = Array.isArray(data.duplicates) ? data.duplicates : [];
-            setDuplicates(found);
-            setSelectedDuplicateArticleId(null);
-            setActiveMatchedHeadingId(null);
-            setCompareTree([]);
-            setCompareArticleTitle('');
-            setCompareError('');
-
-            if (found.length > 0) {
-                notify(
-                    t('outline_duplicates_panel_title'),
-                    t('outline_duplicates_found', { count: found.length }),
-                    'warning',
-                );
-            } else {
-                notify(t('outline_duplicates_panel_title'), t('outline_duplicates_none'), 'success');
+        const matchText = String(pending.matchText ?? '').replace(/\s+/g, ' ').trim();
+        const found = findOutlineNodeByPredicate(nodes, (node) => {
+            if (pending.headingId != null && String(node.id) === String(pending.headingId)) {
+                return true;
             }
-        } catch (e) {
-            exitDuplicateMode();
-            notify(t('outline_duplicates_panel_title'), e.message || t('outline_duplicates_failed'), 'danger');
-        } finally {
-            setIsLoadingCheck(false);
-        }
-    }, [articleId, exitDuplicateMode, isDuplicateModeActive, notify]);
+            if (matchText === '' || pending.blockId == null) {
+                return false;
+            }
 
-    /** Click cảnh báo đỏ ở cột trái -> nạp dàn ý bài bị trùng + highlight heading trùng. */
-    const handleSelectDuplicate = useCallback((duplicateInfo) => {
-        const id = Number(duplicateInfo?.matched_article_id);
-        if (id <= 0) {
-            return;
+            return String(node.block_id ?? '') === String(pending.blockId)
+                && String(node.heading_text ?? '').replace(/\s+/g, ' ').trim() === matchText
+                && String(node.id) !== String(pending.parentHeadingId ?? '');
+        });
+        if (!found) {
+            return false;
         }
 
-        setSelectedDuplicateArticleId(id);
-        const matchedHeadingId = Number(duplicateInfo?.matched_heading_id);
-        setActiveMatchedHeadingId(matchedHeadingId > 0 ? matchedHeadingId : null);
+        pendingFocusRef.current = null;
+        setActiveHeadingId(found.id);
+        setActiveGroupId(found.id);
+        window.requestAnimationFrame(() => {
+            const el = document.querySelector(`[data-outline-heading-id="${found.id}"]`);
+            el?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            if (pending.focusEdit) {
+                setEditingHeadingId(found.id);
+            }
+        });
+
+        return true;
     }, []);
 
-    // Fetch outline (read-only) của bài bị trùng được chọn.
     useEffect(() => {
-        if (!selectedDuplicateArticleId) {
-            return;
-        }
-
-        let cancelled = false;
-        setCompareLoading(true);
-        setCompareError('');
-        requestJson(outlineUrl(selectedDuplicateArticleId))
-            .then((data) => {
-                if (cancelled) return;
-                setCompareTree(Array.isArray(data.outline) ? data.outline : []);
-                setCompareArticleTitle(String(data.article?.title ?? ''));
-            })
-            .catch((e) => {
-                if (cancelled) return;
-                setCompareTree([]);
-                setCompareArticleTitle('');
-                setCompareError(e.message || t('outline_compare_load_failed'));
-            })
-            .finally(() => {
-                if (!cancelled) {
-                    setCompareLoading(false);
-                }
-            });
-
-        return () => {
-            cancelled = true;
-        };
-    }, [selectedDuplicateArticleId]);
-
-    // Scroll heading bị trùng (cột phải) vào vùng nhìn thấy sau khi tree render.
-    useEffect(() => {
-        if (!activeMatchedHeadingId || compareTree.length === 0) {
-            return;
-        }
-
-        window.requestAnimationFrame(() => {
-            const el = document.querySelector(
-                `[data-readonly-heading-id="${activeMatchedHeadingId}"]`,
-            );
-            el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        });
-    }, [activeMatchedHeadingId, compareTree]);
+        applyPendingOutlineFocus(tree);
+    }, [applyPendingOutlineFocus, tree]);
 
     useEffect(() => {
         if (!headingCommand?.token) {
@@ -1075,6 +979,18 @@ export default function ArticleOutlineTab({
 
     useEffect(() => {
         if (!outlineTreeSync?.token) {
+            return;
+        }
+
+        if (outlineTreeSync.action === 'focus' || outlineTreeSync.action === 'focusNew') {
+            pendingFocusRef.current = {
+                headingId: outlineTreeSync.headingId ?? null,
+                matchText: outlineTreeSync.matchText ?? '',
+                blockId: outlineTreeSync.blockId ?? null,
+                parentHeadingId: outlineTreeSync.parentHeadingId ?? null,
+                focusEdit: outlineTreeSync.focusEdit === true,
+            };
+            applyPendingOutlineFocus(tree);
             return;
         }
 
@@ -1214,6 +1130,10 @@ export default function ArticleOutlineTab({
         outlineTreeSync?.tempHeadingId,
         outlineTreeSync?.focusEdit,
         outlineTreeSync?.newText,
+        outlineTreeSync?.matchText,
+        outlineTreeSync?.blockId,
+        outlineTreeSync?.parentHeadingId,
+        applyPendingOutlineFocus,
     ]);
 
     const handleEditingHeadingEnd = useCallback(() => {
@@ -1228,6 +1148,8 @@ export default function ArticleOutlineTab({
                 oldText: node.heading_text,
                 newText,
                 headingId: node.id,
+                headingIndex: node.heading_index,
+                blockId: node.block_id ?? null,
             });
         },
         [onHeadingTextChange],
@@ -1247,6 +1169,7 @@ export default function ArticleOutlineTab({
                     newText: trimmed,
                     headingId: node.id,
                     blockId: node.block_id ?? null,
+                    headingIndex: node.heading_index ?? null,
                 });
 
                 if (result?.ok === false) {
@@ -1254,14 +1177,7 @@ export default function ArticleOutlineTab({
                     return;
                 }
 
-                const duplicates = Array.isArray(result?.data?.duplicates) ? result.data.duplicates : [];
-                if (duplicates.length > 0) {
-                    notify(
-                        t('outline_heading_duplicate_title'),
-                        t('outline_heading_duplicate_warn', { count: duplicates.length, title: duplicates[0].article_title }),
-                        'warning',
-                    );
-                } else if (isPersistedOutlineHeadingId(node.id)) {
+                if (isPersistedOutlineHeadingId(node.id)) {
                     notify(t('outline_notify_title'), t('outline_heading_saved'), 'success');
                 }
 
@@ -1270,21 +1186,11 @@ export default function ArticleOutlineTab({
 
             applyHeadingPatch(node, trimmed);
             try {
-                const data = await requestJson(headingUrl(articleId, node.id), {
+                await requestJson(headingUrl(articleId, node.id), {
                     method: 'PUT',
                     body: JSON.stringify({ heading_text: trimmed }),
                 });
-
-                const duplicates = Array.isArray(data.duplicates) ? data.duplicates : [];
-                if (duplicates.length > 0) {
-                    notify(
-                        t('outline_heading_duplicate_title'),
-                        t('outline_heading_duplicate_warn', { count: duplicates.length, title: duplicates[0].article_title }),
-                        'warning',
-                    );
-                } else {
-                    notify(t('outline_notify_title'), t('outline_heading_saved'), 'success');
-                }
+                notify(t('outline_notify_title'), t('outline_heading_saved'), 'success');
             } catch (e) {
                 notify(t('outline_notify_title'), e.message || t('outline_heading_save_failed'), 'danger');
             }
@@ -1314,14 +1220,7 @@ export default function ArticleOutlineTab({
                     return;
                 }
 
-                const duplicates = Array.isArray(result?.data?.duplicates) ? result.data.duplicates : [];
-                if (duplicates.length > 0) {
-                    notify(
-                        t('outline_heading_duplicate_title'),
-                        t('outline_heading_duplicate_warn', { count: duplicates.length, title: duplicates[0].article_title }),
-                        'warning',
-                    );
-                } else if (isPersistedOutlineHeadingId(node.id)) {
+                if (isPersistedOutlineHeadingId(node.id)) {
                     notify(t('outline_notify_title'), t('outline_heading_html_saved'), 'success');
                 }
 
@@ -1338,21 +1237,11 @@ export default function ArticleOutlineTab({
             });
 
             try {
-                const data = await requestJson(headingUrl(articleId, node.id), {
+                await requestJson(headingUrl(articleId, node.id), {
                     method: 'PUT',
                     body: JSON.stringify({ heading_text: newText }),
                 });
-
-                const duplicates = Array.isArray(data.duplicates) ? data.duplicates : [];
-                if (duplicates.length > 0) {
-                    notify(
-                        t('outline_heading_duplicate_title'),
-                        t('outline_heading_duplicate_warn', { count: duplicates.length, title: duplicates[0].article_title }),
-                        'warning',
-                    );
-                } else {
-                    notify(t('outline_notify_title'), t('outline_heading_html_saved'), 'success');
-                }
+                notify(t('outline_notify_title'), t('outline_heading_html_saved'), 'success');
             } catch (e) {
                 notify(t('outline_notify_title'), e.message || t('outline_heading_save_failed'), 'danger');
             }
@@ -1414,7 +1303,7 @@ export default function ArticleOutlineTab({
                         <button
                             type="button"
                             className="seo-outline-reload seo-outline-add-section-btn"
-                            title={t('outline_add_section_title')}
+                            title={t('outline_add_h2')}
                             disabled={loading}
                             onClick={(e) => {
                                 e.stopPropagation();
@@ -1422,61 +1311,37 @@ export default function ArticleOutlineTab({
                             }}
                         >
                             <Plus size={15} strokeWidth={1.75} />
-                            {t('outline_add_section')}
+                            {t('outline_add_h2')}
                         </button>
                     ) : null}
-                    <button
-                        type="button"
-                        className="seo-outline-reload"
-                        title={t('outline_reload_title')}
-                        disabled={loading}
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            void loadOutline({ reextract: true });
-                        }}
-                    >
-                        <RefreshCw
-                            size={15}
-                            strokeWidth={1.75}
-                            className={loading ? 'seo-outline-spin' : ''}
-                        />
-                        {t('outline_reload')}
-                    </button>
-                    <button
-                        type="button"
-                        className={[
-                            'seo-outline-reload',
-                            'seo-outline-check-btn',
-                            isDuplicateModeActive ? 'is-active' : '',
-                        ]
-                            .filter(Boolean)
-                            .join(' ')}
-                        title={
-                            isDuplicateModeActive
-                                ? t('outline_exit_duplicates_title')
-                                : t('outline_check_duplicates_title')
-                        }
-                        disabled={
-                            loading ||
-                            isLoadingCheck ||
-                            (tree.length === 0 && !isDuplicateModeActive)
-                        }
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            void handleToggleDuplicateMode();
-                        }}
-                    >
-                        {isLoadingCheck ? (
-                            <Loader2 size={15} strokeWidth={1.75} className="seo-outline-spin" />
-                        ) : (
-                            <ShieldAlert size={15} strokeWidth={1.75} />
-                        )}
-                        {isLoadingCheck
-                            ? t('outline_checking')
-                            : isDuplicateModeActive
-                              ? t('outline_exit_duplicates')
-                              : t('outline_check_duplicates')}
-                    </button>
+                    <div className="seo-outline-overflow">
+                        <button
+                            type="button"
+                            className="seo-outline-reload"
+                            title={t('outline_more_actions')}
+                            disabled={loading}
+                            onClick={(e) => {
+                                e.stopPropagation();
+                                setOverflowOpen((open) => !open);
+                            }}
+                        >
+                            <MoreHorizontal size={15} strokeWidth={1.75} />
+                        </button>
+                        {overflowOpen ? (
+                            <div className="seo-outline-block__menu seo-outline-overflow__menu" onClick={(e) => e.stopPropagation()}>
+                                <button
+                                    type="button"
+                                    disabled={loading}
+                                    onClick={() => {
+                                        setOverflowOpen(false);
+                                        void loadOutline({ reextract: true });
+                                    }}
+                                >
+                                    {t('outline_rebuild_from_document')}
+                                </button>
+                            </div>
+                        ) : null}
+                    </div>
                 </div>
             </div>
 
@@ -1489,77 +1354,6 @@ export default function ArticleOutlineTab({
             ) : tree.length === 0 ? (
                 <div className="seo-outline-empty">
                     {t('outline_empty')}
-                </div>
-            ) : showDuplicateSplit ? (
-                <div className="seo-outline-split">
-                    <div className="seo-outline-split__col">
-                        <div className="seo-outline-split__head seo-outline-split__head--current">
-                            <AlertTriangle size={14} strokeWidth={1.75} />
-                            {t('outline_duplicates_current', { count: duplicates.length })}
-                        </div>
-                        <div className="seo-outline-tree">
-                            <OutlineTree
-                                nodes={tree}
-                                activeGroupId={activeGroupId}
-                                activeHeadingId={activeHeadingId}
-                                editingHeadingId={editingHeadingId}
-                                onEditingHeadingEnd={handleEditingHeadingEnd}
-                                onSelectGroup={handleSelectGroup}
-                                onJumpToEditor={handleJumpToEditor}
-                                onSaveText={handleSaveText}
-                                onSaveHtml={handleSaveHtml}
-                                onGenerate={handleGenerate}
-                                onMoveHeading={handleMoveHeading}
-                                onDeleteHeading={handleDeleteHeading}
-                                canGenerateOutlineHeading={canGenerateOutlineHeading}
-                                resolveHeadingInnerHtml={resolveHeadingInnerHtml}
-                                busyHeadingId={busyHeadingId}
-                                duplicateByHeadingId={duplicateByHeadingId}
-                                onSelectDuplicate={handleSelectDuplicate}
-                            />
-                        </div>
-                    </div>
-
-                    <div
-                        className="seo-outline-split__col seo-outline-split__col--readonly"
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        {!selectedDuplicateArticleId ? (
-                            <div className="seo-outline-split__placeholder">
-                                <ShieldAlert size={22} strokeWidth={1.5} />
-                                {t('outline_compare_placeholder')}
-                            </div>
-                        ) : (
-                            <>
-                                <div className="seo-outline-split__head">
-                                    {t('outline_compare_head', { id: selectedDuplicateArticleId })}
-                                </div>
-                                {compareArticleTitle !== '' ? (
-                                    <h3 className="seo-outline-split__article-title">
-                                        {t('outline_compare_article', { title: compareArticleTitle })}
-                                    </h3>
-                                ) : null}
-                                {compareLoading ? (
-                                    <div className="seo-outline-empty">
-                                        <Loader2 size={16} className="seo-outline-spin" /> {t('outline_loading')}
-                                    </div>
-                                ) : compareError !== '' ? (
-                                    <div className="seo-outline-empty seo-outline-empty--error">
-                                        {compareError}
-                                    </div>
-                                ) : compareTree.length === 0 ? (
-                                    <div className="seo-outline-empty">{t('outline_compare_empty')}</div>
-                                ) : (
-                                    <div className="seo-outline-tree">
-                                        <ReadOnlyOutlineTree
-                                            nodes={compareTree}
-                                            activeHeadingId={activeMatchedHeadingId}
-                                        />
-                                    </div>
-                                )}
-                            </>
-                        )}
-                    </div>
                 </div>
             ) : (
                 <div className="seo-outline-tree">
@@ -1576,9 +1370,15 @@ export default function ArticleOutlineTab({
                         onGenerate={handleGenerate}
                         onMoveHeading={handleMoveHeading}
                         onDeleteHeading={handleDeleteHeading}
+                        onAddNode={onOutlineAddNode}
+                        onChangeLevel={onOutlineChangeLevel}
+                        onDeleteKeepContent={onOutlineDeleteKeepContent}
+                        onDeleteWithContent={onOutlineDeleteWithContent}
+                        onToggleVisible={onOutlineToggleVisible}
                         canGenerateOutlineHeading={canGenerateOutlineHeading}
                         resolveHeadingInnerHtml={resolveHeadingInnerHtml}
                         busyHeadingId={busyHeadingId}
+                        localDuplicateKeys={localDuplicateKeys}
                     />
                 </div>
             )}

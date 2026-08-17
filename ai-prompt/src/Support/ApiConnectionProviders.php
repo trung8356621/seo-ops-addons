@@ -13,6 +13,10 @@ final class ApiConnectionProviders
 
     public const CLAUDE = 'claude';
 
+    public const DEEPSEEK = 'deepseek';
+
+    public const OPENROUTER = 'openrouter';
+
     public const GOOGLE_SEARCH_CONSOLE = 'google_search_console';
 
     public const DATAFORSEO = 'dataforseo';
@@ -101,5 +105,10 @@ final class ApiConnectionProviders
     public static function isExtendedProvider(?string $provider): bool
     {
         return in_array($provider, [self::KEYWORDS_EVERYWHERE, self::SE_RANKING], true);
+    }
+
+    public static function isAggregator(?string $provider): bool
+    {
+        return in_array($provider, [self::OPENROUTER, 'openai_compatible'], true);
     }
 }

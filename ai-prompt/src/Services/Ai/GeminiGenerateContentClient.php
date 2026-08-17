@@ -8,6 +8,7 @@ use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\Seo\Support\GeminiModelCatalog;
 use App\Models\ApiConnection;
 use Illuminate\Support\Facades\Http;
+use Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\ProviderConnectionResolver;
 
 /**
  * Real Gemini `generateContent` HTTP client. Extracted from PromptRunnerService so it can
@@ -73,7 +74,8 @@ final class GeminiGenerateContentClient
         string $apiVersion,
     ): array {
         $url = sprintf(
-            'https://generativelanguage.googleapis.com/%s/models/%s:generateContent',
+            '%s/%s/models/%s:generateContent',
+            $this->httpBaseUrl($connection),
             $apiVersion,
             rawurlencode($model),
         );
@@ -119,6 +121,11 @@ final class GeminiGenerateContentClient
         $usage = $response->json('usageMetadata');
 
         return [$text, is_array($usage) ? $usage : null];
+    }
+
+    private function httpBaseUrl(ApiConnection $connection): string
+    {
+        return app(ProviderConnectionResolver::class)->httpBaseUrl($connection);
     }
 
     private function truncateError(string $message): string

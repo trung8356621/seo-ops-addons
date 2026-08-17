@@ -108,4 +108,27 @@ final class AiConnectionResourceEditUrlTest extends TestCase
         $this->assertIsString($url);
         $this->assertStringContainsString('/seo/'.self::CONNECTION_HASH.'/settings/api/12/edit', $url);
     }
+
+    public function test_deepseek_connection_edit_url_uses_numeric_record_route(): void
+    {
+        $record = new ApiConnection([
+            'provider' => ApiConnectionProviders::DEEPSEEK,
+            'name' => 'deepseek',
+        ]);
+        $record->id = 2;
+        $record->exists = true;
+
+        $url = AiConnectionResource::resolveEditUrl($record);
+
+        $this->assertIsString($url);
+        $this->assertStringContainsString('/seo/'.self::CONNECTION_HASH.'/settings/api/2/edit', $url);
+        $this->assertStringNotContainsString('/serp/', $url);
+    }
+
+    public function test_serp_edit_url_does_not_collide_with_numeric_ai_edit(): void
+    {
+        $url = AiConnectionResource::externalEditUrl(ApiConnectionProviders::SERPER);
+
+        $this->assertStringContainsString('/settings/api/serp/serper/edit', $url);
+    }
 }

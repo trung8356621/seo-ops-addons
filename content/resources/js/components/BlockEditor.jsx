@@ -1,12 +1,11 @@
 ﻿import React from 'react';
 import ImageBlockEditor from '@media-addon/components/ImageBlockEditor.jsx';
-import { isFaqPlaceholderHtml } from '../utils/editorHtmlUtils';
-import { blockHasOutlineHeading } from '../utils/contentDocumentHelpers';
+import { isCanonicalLockedHeadingHtml, isFaqPlaceholderHtml } from '../utils/editorHtmlUtils';
+import OutlineLockedHeadingBlock from './OutlineLockedHeadingBlock';
 import { Trash2 } from 'lucide-react';
 import { t } from '../utils/i18n';
 import FaqAccordionPreview from './FaqAccordionPreview';
 import ActiveBlockEditor from './ActiveBlockEditor';
-import OutlineLockedHeadingBlock from './OutlineLockedHeadingBlock';
 
 /**
  * Block dispatcher (image / FAQ shortcode / outline-locked heading / text)
@@ -44,10 +43,11 @@ function BlockEditor({
     isSectionHeadingBlock = false,
     onOutlineHeadingCommand,
     onArmOutsideClickGuard,
+    focusHeadingIndex = null,
+    focusHeadingToken = 0,
 }) {
     const blockHtml = displayContent ?? block.content;
     const isFaqShortcodeBlock = block.type === 'text' && isFaqPlaceholderHtml(blockHtml);
-    const isOutlineHeadingLocked = outlineHeadingsLocked && blockHasOutlineHeading(block);
 
     if (block.type === 'image') {
         return (
@@ -88,6 +88,17 @@ function BlockEditor({
 
     if (isHiddenInMerge) {
         return null;
+    }
+
+    if (isCanonicalLockedHeadingHtml(blockHtml)) {
+        return (
+            <OutlineLockedHeadingBlock
+                block={{ ...block, content: blockHtml }}
+                isSectionHeading={false}
+                onActivate={onActivate}
+                onOutlineHeadingCommand={onOutlineHeadingCommand}
+            />
+        );
     }
 
     if (isFaqShortcodeBlock) {
@@ -145,17 +156,6 @@ function BlockEditor({
         );
     }
 
-    if (isOutlineHeadingLocked) {
-        return (
-            <OutlineLockedHeadingBlock
-                block={block}
-                isSectionHeading={isSectionHeadingBlock}
-                onActivate={onActivate}
-                onOutlineHeadingCommand={onOutlineHeadingCommand}
-            />
-        );
-    }
-
     if (!isActive) {
         return (
             <div
@@ -187,7 +187,7 @@ function BlockEditor({
 
     return (
         <ActiveBlockEditor
-            key={`${block.id}-${suppressBlockUpdate ? 'merge' : 'edit'}`}
+            key={`${block.id}-${block.editorEpoch ?? '0'}-${suppressBlockUpdate ? 'merge' : 'edit'}`}
             block={block}
             sectionId={sectionId}
             displayContent={displayContent}
@@ -201,6 +201,8 @@ function BlockEditor({
             articleId={articleId}
             siteId={siteId}
             editable={editable}
+            focusHeadingIndex={focusHeadingIndex}
+            focusHeadingToken={focusHeadingToken}
         />
     );
 }

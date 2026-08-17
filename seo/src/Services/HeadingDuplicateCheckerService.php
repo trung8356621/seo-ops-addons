@@ -4,19 +4,16 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Seo\Services;
 
+use Omnichannel\Addons\AiPrompt\Services\OutlineSkipListMatcher;
 use Omnichannel\Addons\Content\Models\SeoArticleHeading;
 use Illuminate\Support\Str;
 
 /**
- * Dò trùng lặp cho cả một dàn ý (batch) ngay sau khi AI sinh outline:
- * 0. Heading nằm trong Skip List (settings `outline_skip_words`) -> bỏ qua ngay.
- * 1. Exact match qua `heading_slug` (gom 1 query whereIn cho toàn bộ dàn ý),
- *    chỉ so với heading CÙNG LEVEL (H2 vs H2, H3 vs H3...).
- * 2. Heading nào không trùng exact thì chạy tiếp MySQL FULLTEXT
- *    (Natural Language Mode, cùng level) với ngưỡng score, sau đó double-check
- *    bằng word overlap (PHP) để loại các ca chỉ trùng 1-2 từ phổ biến.
+ * @deprecated Outline-vs-outline duplicate detection is retired.
+ * Duplicate-topic / cannibalization belongs to Keyword Intelligence, topic cluster,
+ * intent, and Content Project planning. Outline is article structure only.
  *
- * Không gọi API AI ở bước này.
+ * Kept as inert historical implementation — do not call from active runtime paths.
  */
 class HeadingDuplicateCheckerService
 {

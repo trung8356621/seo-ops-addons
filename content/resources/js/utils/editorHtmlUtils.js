@@ -97,6 +97,16 @@ export function standaloneHeadingLevel(html) {
 }
 
 /**
+ * Canonical locked heading block: one H2–H4 (optional empty TipTap trailing <p>).
+ * Not a raw heading nested inside a body editor.
+ */
+export function isCanonicalLockedHeadingHtml(html) {
+    const level = standaloneHeadingLevel(html);
+
+    return level != null && level >= 2 && level <= 4;
+}
+
+/**
  * Section heading block: heading đầu tiên (thường h2), có thể kèm <p></p> phía sau cho TipTap.
  *
  * @returns {number|null}

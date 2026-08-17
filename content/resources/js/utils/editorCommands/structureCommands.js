@@ -6,7 +6,7 @@ import { EDITOR_COMMAND_CODES, failCommand, okCommand } from './editorCommandRes
 import { emitDocumentChanged } from './runEditorTransaction';
 import { resolveTargetEditor } from './resolveTargetEditor';
 
-function runHostStructure(context, name, payload) {
+export function runHostStructure(context, name, payload) {
     if (typeof context.onStructureMutation !== 'function') {
         return failCommand(name, EDITOR_COMMAND_CODES.NOT_READY, {
             message_key: 'editor_command.editor_not_ready',
@@ -14,11 +14,19 @@ function runHostStructure(context, name, payload) {
     }
     const result = context.onStructureMutation(name, payload);
     if (result === false || result == null) {
-        return failCommand(name, EDITOR_COMMAND_CODES.NO_CHANGE);
+        return failCommand(name, EDITOR_COMMAND_CODES.NO_CHANGE, {
+            message_key: 'editor_command.host_command_missing',
+            meta: { host: name },
+        });
     }
     if (result && typeof result === 'object' && Object.prototype.hasOwnProperty.call(result, 'ok')) {
         if (result.ok && result.document_changed) {
-            emitDocumentChanged(context, { command: name, editor_id: payload.blockId ?? null });
+            emitDocumentChanged(context, {
+                command: name,
+                editor_id: payload.sourceBlockId ?? payload.blockId ?? null,
+                skipCommit: payload.skipCommit === true || name === 'replace_blocks_at',
+                skipAnalyze: payload.skipAnalyze === true || name === 'replace_blocks_at',
+            });
         }
         return result;
     }
@@ -108,6 +116,17 @@ export function splitBlockCommand(context, payload = {}) {
     return runHostStructure(context, 'split_block', payload);
 }
 
+export function insertBlockRelativeCommand(context, payload = {}) {
+    const blockId = String(payload.blockId ?? payload.id ?? '').trim();
+    const type = String(payload.type ?? 'text').trim() || 'text';
+    const position = String(payload.position ?? 'after').trim() === 'before' ? 'before' : 'after';
+    if (!blockId) {
+        return failCommand('insert_block_relative', EDITOR_COMMAND_CODES.TARGET_MISSING);
+    }
+
+    return runHostStructure(context, 'insert_block_relative', { ...payload, blockId, type, position });
+}
+
 /** Navigation only — no document mutation. */
 export function outlineJumpCommand(context, payload = {}) {
     const headingId = String(payload.headingId ?? payload.id ?? '').trim();
@@ -155,6 +174,7 @@ export default {
     moveBlockWithinSectionCommand,
     moveBlockToAdjacentSectionCommand,
     splitBlockCommand,
+    insertBlockRelativeCommand,
     outlineJumpCommand,
     setTextSelectionCommand,
 };

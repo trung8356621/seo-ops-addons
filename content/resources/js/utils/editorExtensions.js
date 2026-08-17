@@ -1,4 +1,5 @@
 import StarterKit from '@tiptap/starter-kit';
+import { Extension } from '@tiptap/core';
 import Image from '@tiptap/extension-image';
 import Heading from '@tiptap/extension-heading';
 import Link from '@tiptap/extension-link';
@@ -75,6 +76,28 @@ const PreservedHeading = Heading.extend({
                     }
 
                     return { class: attributes.class };
+                },
+            },
+            outlineVisible: {
+                default: true,
+                parseHTML: (element) => element.getAttribute('data-outline-visible') !== 'false',
+                renderHTML: (attributes) => {
+                    if (attributes.outlineVisible === false) {
+                        return { 'data-outline-visible': 'false' };
+                    }
+
+                    return {};
+                },
+            },
+            headingId: {
+                default: null,
+                parseHTML: (element) => element.getAttribute('data-omi-heading-id'),
+                renderHTML: (attributes) => {
+                    if (!attributes.headingId) {
+                        return {};
+                    }
+
+                    return { 'data-omi-heading-id': attributes.headingId };
                 },
             },
         };
@@ -168,6 +191,30 @@ const SeoEditorLink = Link.extend({
     },
 });
 
+const ArticleEditorStructureShortcuts = Extension.create({
+    name: 'articleEditorStructureShortcuts',
+    addKeyboardShortcuts() {
+        return {
+            'Alt-3': () => {
+                const result = executeEditorCommand(
+                    'split_selection_to_heading',
+                    { editor: this.editor, level: 3 },
+                    { notifyOnFailure: false },
+                );
+                return Boolean(result?.ok && result.transaction_applied);
+            },
+            'Alt-4': () => {
+                const result = executeEditorCommand(
+                    'split_selection_to_heading',
+                    { editor: this.editor, level: 4 },
+                    { notifyOnFailure: false },
+                );
+                return Boolean(result?.ok && result.transaction_applied);
+            },
+        };
+    },
+});
+
 export const articleEditorExtensions = [
     StarterKit.configure({
         heading: false,
@@ -178,6 +225,7 @@ export const articleEditorExtensions = [
     }),
     PreservedParagraph,
     PreservedHeading.configure({ levels: [1, 2, 3, 4, 5, 6] }),
+    ArticleEditorStructureShortcuts,
     Underline,
     Subscript,
     Superscript,

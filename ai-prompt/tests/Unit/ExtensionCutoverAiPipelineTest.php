@@ -8,7 +8,10 @@ namespace Omnichannel\Addons\AiPrompt\Tests\Unit;
 use Tests\Support\ProjectRoot;
 use Omnichannel\Addons\AiPrompt\Extension\Builtin\AiProviders\AiProvidersExtensionProvider;
 use Omnichannel\Addons\AiPrompt\Extension\Builtin\AiProviders\ClaudeAiTextProvider;
+use Omnichannel\Addons\AiPrompt\Extension\Builtin\AiProviders\DeepSeekAiTextProvider;
 use Omnichannel\Addons\AiPrompt\Extension\Builtin\AiProviders\GeminiAiTextProvider;
+use Omnichannel\Addons\AiPrompt\Extension\Builtin\AiProviders\OpenRouterAiTextProvider;
+use Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\OpenAiCompatibleProtocolAdapter;
 use Omnichannel\Addons\Agent\Extension\Builtin\ContentPipelines\ContentPipelinesExtensionProvider;
 use Omnichannel\Addons\Content\Extension\Builtin\ContentPipelines\Definitions\ArticlePipelineDefinition;
 use Omnichannel\Addons\Agent\Extension\Builtin\ContentPipelines\Definitions\ImprovePipelineDefinition;
@@ -24,6 +27,7 @@ use Omnichannel\Addons\Seo\Extension\Contracts\SeoProviderInterface;
 use Omnichannel\Addons\AiPrompt\Extension\Resolvers\AiProviderResolver;
 use Omnichannel\Addons\Agent\Extension\Resolvers\PipelineResolver;
 use Omnichannel\Addons\AiPrompt\Services\Ai\ClaudeMessagesClient;
+use Omnichannel\Addons\AiPrompt\Services\Ai\DeepSeekChatClient;
 use Omnichannel\Addons\AiPrompt\Services\Ai\GeminiGenerateContentClient;
 use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
 use PHPUnit\Framework\TestCase;
@@ -64,8 +68,15 @@ final class ExtensionCutoverAiPipelineTest extends TestCase
         $this->assertTrue(class_exists(AiProvidersExtensionProvider::class));
         $this->assertTrue(class_exists(GeminiAiTextProvider::class));
         $this->assertTrue(class_exists(ClaudeAiTextProvider::class));
+        $this->assertTrue(class_exists(DeepSeekAiTextProvider::class));
         $this->assertTrue(class_exists(GeminiGenerateContentClient::class));
         $this->assertTrue(class_exists(ClaudeMessagesClient::class));
+        $this->assertTrue(class_exists(DeepSeekChatClient::class));
+        $this->assertTrue(class_exists(OpenRouterAiTextProvider::class));
+        $this->assertContains(
+            AiTextProviderInterface::class,
+            class_implements(OpenRouterAiTextProvider::class),
+        );
 
         $this->assertContains(
             AiTextProviderInterface::class,
@@ -116,19 +127,27 @@ final class ExtensionCutoverAiPipelineTest extends TestCase
 
         $geminiProvider = new GeminiAiTextProvider(new GeminiGenerateContentClient);
         $claudeProvider = new ClaudeAiTextProvider(new ClaudeMessagesClient);
+        $deepseekProvider = new DeepSeekAiTextProvider(new DeepSeekChatClient);
+        $openrouterProvider = new OpenRouterAiTextProvider(new OpenAiCompatibleProtocolAdapter);
         $healthDriver = new \Omnichannel\Addons\AiPrompt\Extension\Builtin\AiProviders\AiProvidersHealthDriver(
             $geminiProvider,
             $claudeProvider,
+            $deepseekProvider,
+            $openrouterProvider,
         );
 
         // Same registration path as AiProvidersExtensionProvider::register().
         $registry->registerText($geminiProvider);
         $registry->registerText($claudeProvider);
+        $registry->registerText($deepseekProvider);
+        $registry->registerText($openrouterProvider);
         $registry->register('ai-providers', $healthDriver);
 
         $this->assertTrue($registry->hasText('gemini'));
         $this->assertTrue($registry->hasText('claude'));
-        $this->assertSame(['gemini', 'claude'], $registry->textKeys());
+        $this->assertTrue($registry->hasText('deepseek'));
+        $this->assertTrue($registry->hasText('openrouter'));
+        $this->assertSame(['gemini', 'claude', 'deepseek', 'openrouter'], $registry->textKeys());
         $this->assertSame('gemini', $registry->getText('gemini')?->key());
 
         $extSrc = (string) file_get_contents(
@@ -136,6 +155,7 @@ final class ExtensionCutoverAiPipelineTest extends TestCase
         );
         $this->assertStringContainsString('registerText($this->gemini)', $extSrc);
         $this->assertStringContainsString('registerText($this->claude)', $extSrc);
+        $this->assertStringContainsString('registerText($this->openrouter)', $extSrc);
 
         $resolverSrc = (string) file_get_contents(
             (new \ReflectionClass(AiProviderResolver::class))->getFileName(),

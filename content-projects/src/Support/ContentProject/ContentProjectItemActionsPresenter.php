@@ -181,6 +181,25 @@ final class ContentProjectItemActionsPresenter
             $createOrRerun = false;
         }
 
+        $unlinked = ! $hasArticle;
+        $rowType = strtolower(trim((string) ($row['type'] ?? $row['type_label'] ?? '')));
+        $requiresExistingType = in_array($rowType, ['rewrite', 'improve'], true)
+            || $recoveryAction === 'select_existing_article';
+        if (
+            $unlinked
+            && ! $isGenuineRunning
+            && ! $generationBlocked
+            && $lifecycle !== 'archived'
+            && ! $requiresExistingType
+            && ! in_array($recoveryAction, ['active', 'resume'], true)
+        ) {
+            $selectExistingArticle = true;
+            $createOrRerun = true;
+            if ($createOrRerunLabel !== 'rerun') {
+                $createOrRerunLabel = 'create';
+            }
+        }
+
         $regenOutline = $canRegen && ! $generationBlocked;
         $regenArticle = $canRegen && ! $generationBlocked;
         $regenImage = $canRegen && $hasArticle && ! $generationBlocked;

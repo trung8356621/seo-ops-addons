@@ -7,8 +7,8 @@ namespace Omnichannel\Addons\Media\Services;
 use Omnichannel\Addons\AiPrompt\Models\SeoAiModel;
 use Omnichannel\Addons\Seo\Support\AiModelCategory;
 use Omnichannel\Addons\Seo\Support\GeminiModelVersionPolicy;
+use Omnichannel\Addons\AiPrompt\Support\AiModelLabelPresenter;
 use Omnichannel\Addons\Seo\Support\GoogleAiModelRegistry;
-use Omnichannel\Addons\Media\Support\ImageModelInputLengthPolicy;
 
 final class SeoImageModelPriorityOptionsService
 {
@@ -38,9 +38,9 @@ final class SeoImageModelPriorityOptionsService
             }
 
             $label = trim((string) $model->display_name);
-            $options[$slug] = $this->formatOptionLabel(
+            $options[$slug] = (new \Omnichannel\Addons\AiPrompt\Support\AiModelLabelPresenter())->normal(
                 $slug,
-                $label !== '' ? $label.' ('.$slug.')' : $slug,
+                $label !== '' ? $label : $slug,
             );
         }
 
@@ -49,7 +49,7 @@ final class SeoImageModelPriorityOptionsService
                 continue;
             }
 
-            $options[$slug] ??= $this->formatOptionLabel((string) $slug, (string) $label);
+            $options[$slug] ??= (new AiModelLabelPresenter())->normal((string) $slug, (string) $label);
         }
 
         return $options;
@@ -67,26 +67,12 @@ final class SeoImageModelPriorityOptionsService
             return $options[$slug];
         }
 
-        // Stored legacy slug: vẫn hiển thị kèm (Legacy) nếu còn trong DB form cũ.
         if (GeminiModelVersionPolicy::isGeminiFamily($slug)
             && ! GeminiModelVersionPolicy::meetsMinimumMajorVersion($slug)
         ) {
-            return $slug.' · Legacy';
+            return $slug;
         }
 
         return $slug;
-    }
-
-    private function formatOptionLabel(string $slug, string $label): string
-    {
-        $tierHint = ImageModelInputLengthPolicy::tierHint(
-            ImageModelInputLengthPolicy::tierForModel($slug),
-        );
-
-        if ($tierHint === '') {
-            return $label;
-        }
-
-        return $label.' · '.$tierHint;
     }
 }

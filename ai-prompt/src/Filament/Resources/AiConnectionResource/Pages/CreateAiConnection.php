@@ -99,7 +99,15 @@ class CreateAiConnection extends SeoCreateRecord
         $data['user_id'] = auth()->id();
         $data['is_global'] = $data['is_global'] ?? false;
         $data['default_model'] = null;
-        $data['connection_type'] = ApiConnectionProviders::connectionType($provider)->value;
+        if (\Illuminate\Support\Facades\Schema::hasColumn('api_connections', 'connection_type')) {
+            $data['connection_type'] = ApiConnectionProviders::connectionType($provider)->value;
+        } else {
+            unset($data['connection_type']);
+        }
+        if (ApiConnectionProviders::isAi($provider)) {
+            $data['metadata'] = app(\Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\ProviderConnectionResolver::class)
+                ->sanitizeSubmittedMetadata((int) auth()->id(), $provider, is_array($data['metadata'] ?? null) ? $data['metadata'] : []);
+        }
 
         return $data;
     }
@@ -107,6 +115,10 @@ class CreateAiConnection extends SeoCreateRecord
     protected function afterCreate(): void
     {
         app(AiModelRouterService::class)->syncModelsForConnection((int) $this->record->id);
+        if ($this->record instanceof \App\Models\ApiConnection && ApiConnectionProviders::isAi((string) $this->record->provider)) {
+            app(\Omnichannel\Addons\AiPrompt\Services\AiModelPriorityService::class)
+                ->assignBottomProviderPriority((int) auth()->id(), $this->record);
+        }
     }
 
     /**

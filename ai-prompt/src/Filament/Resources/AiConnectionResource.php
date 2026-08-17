@@ -170,7 +170,16 @@ class AiConnectionResource extends SeoPanelResource
                 Tables\Columns\TextColumn::make('provider')
                     ->label(__('seo-content-ai::filament.api_connections.col_provider'))
                     ->formatStateUsing(
-                        fn (?string $state): string => ApiConnectionProviders::label((string) $state),
+                        function (?string $state, Model $record): string {
+                            $label = ApiConnectionProviders::label((string) $state);
+                            if (! $record instanceof ApiConnection || ! ApiConnectionProviders::isAi((string) $state)) {
+                                return $label;
+                            }
+                            $code = app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionPresenter::class)
+                                ->shortCode($record);
+
+                            return $label.' ['.$code.']';
+                        },
                     )
                     ->sortable(),
                 Tables\Columns\TextColumn::make('status')
@@ -297,7 +306,7 @@ class AiConnectionResource extends SeoPanelResource
             'gsc-edit-root-legacy' => Pages\LegacyGscRootEditRedirect::route('/google-search-console/edit'),
             'edit-gsc' => Pages\EditGscApiConnection::route('/google-search-console/{record}/edit'),
             'edit-dataforseo' => Pages\EditDataForSeoApiConnection::route('/dataforseo/edit'),
-            'edit-serp' => Pages\EditSerpProviderApiConnection::route('/{provider}/edit'),
+            'edit-serp' => Pages\EditSerpProviderApiConnection::route('/serp/{provider}/edit'),
             'edit-extended' => Pages\EditExtendedProviderApiConnection::route('/extended/{provider}/edit'),
             'edit' => Pages\EditAiConnection::route('/{record}/edit'),
         ];

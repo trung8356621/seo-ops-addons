@@ -424,7 +424,7 @@ class SeoPanelProvider extends PanelProvider
                     ->name('seo.articles.outline.store');
                 Route::post('/{article}/outline/check-duplicates', [ArticleOutlineController::class, 'checkDuplicates'])
                     ->whereNumber('article')
-                    ->name('seo.articles.outline.check-duplicates');
+                    ->name('seo.articles.outline.check-duplicates'); // deprecated no-op; do not remove without proving zero callers
                 Route::post('/{article}/outline/refresh', [ArticleOutlineController::class, 'refresh'])
                     ->whereNumber('article')
                     ->name('seo.articles.outline.refresh');

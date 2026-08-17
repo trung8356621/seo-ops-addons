@@ -50,4 +50,26 @@ final class AiConnectionResourceRouteConflictTest extends TestCase
             $routes[$legacyIndex]->getName(),
         );
     }
+
+    public function test_serp_edit_route_does_not_capture_numeric_ai_connection_ids(): void
+    {
+        $routes = collect(Route::getRoutes())
+            ->filter(static fn ($route): bool => str_contains((string) $route->uri(), 'settings/api'))
+            ->values();
+
+        $collidingSerp = $routes->search(
+            static fn ($route): bool => (string) $route->uri() === 'seo/{connection_hash}/settings/api/{provider}/edit',
+        );
+        $serpEditIndex = $routes->search(
+            static fn ($route): bool => (string) $route->uri() === 'seo/{connection_hash}/settings/api/serp/{provider}/edit',
+        );
+        $recordEditIndex = $routes->search(
+            static fn ($route): bool => (string) $route->uri() === 'seo/{connection_hash}/settings/api/{record}/edit',
+        );
+
+        $this->assertFalse($collidingSerp);
+        $this->assertNotFalse($serpEditIndex);
+        $this->assertNotFalse($recordEditIndex);
+        $this->assertLessThan($recordEditIndex, $serpEditIndex);
+    }
 }

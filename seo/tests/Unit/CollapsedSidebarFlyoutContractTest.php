@@ -62,10 +62,11 @@ final class CollapsedSidebarFlyoutContractTest extends TestCase
     {
         $flyout = $this->flyoutBlade();
 
-        self::assertStringContainsString('x-on:keydown.escape.window="close()"', $flyout);
+        self::assertStringContainsString("typeof \$refs.panel?.close === 'function'", $flyout);
+        self::assertStringContainsString('$watch(\'$store.sidebar.isOpen\'', $flyout);
         self::assertStringContainsString('x-on:click.window=', $flyout);
-        self::assertStringContainsString("x-on:click=\"close()\"", $flyout);
-        self::assertStringContainsString('if ($store.sidebar.isOpen) close()', $flyout);
+        self::assertStringNotContainsString('x-on:keydown.escape.window="close()"', $flyout);
+        self::assertStringNotContainsString('if ($store.sidebar.isOpen) close()', $flyout);
         self::assertStringContainsString('generate_href_html', $flyout);
         self::assertStringContainsString('type="button"', $flyout);
         self::assertStringContainsString('aria-haspopup="menu"', $flyout);

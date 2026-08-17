@@ -61,6 +61,13 @@ final class ContentProjectExistingArticleReconciler
             if (! $task instanceof SeoProjectTask) {
                 continue;
             }
+            if (ContentProjectManualArticleResolution::requiresManualResolution($task)) {
+                $results[] = new ContentProjectExistingArticleReconcileResult(
+                    status: ContentProjectExistingArticleReconcileResult::STATUS_NOT_REQUIRED,
+                    reason: ContentProjectManualArticleResolution::MANUAL_ACTION,
+                );
+                continue;
+            }
             if (! $this->needsAssociationRepair($task, $resolvedSiteId)) {
                 continue;
             }
@@ -139,7 +146,22 @@ final class ContentProjectExistingArticleReconciler
         $type = SeoProjectTask::normalizeType($task->type);
         $requiresExisting = in_array($type, SeoProjectTask::typesRequiringExistingArticle(), true);
 
+        if (ContentProjectManualArticleResolution::requiresManualResolution($task)) {
+            return new ContentProjectExistingArticleReconcileResult(
+                status: ContentProjectExistingArticleReconcileResult::STATUS_NOT_REQUIRED,
+                reason: ContentProjectManualArticleResolution::MANUAL_ACTION,
+                persisted: false,
+            );
+        }
+
         $directId = (int) ($task->article_id ?? 0);
+        if (! $requiresExisting && $directId <= 0) {
+            return new ContentProjectExistingArticleReconcileResult(
+                status: ContentProjectExistingArticleReconcileResult::STATUS_NOT_REQUIRED,
+                reason: 'create_unlinked_requires_manual_resolution',
+                persisted: false,
+            );
+        }
         if ($directId > 0) {
             $localId = LocalArticleAssociationGuard::resolveLocalArticleId($directId, $resolvedSiteId);
             if ($localId !== null) {
@@ -656,6 +678,13 @@ final class ContentProjectExistingArticleReconciler
      */
     private function candidatesFromExactTitle(SeoProjectTask $task, ?int $siteId): array
     {
+        $type = SeoProjectTask::normalizeType($task->type);
+        if ($type === SeoProjectTask::TYPE_CREATE) {
+            // CREATE titles were often AI-generated. After the legacy keyword-binding
+            // bug they are unsafe as automatic identity.
+            return [];
+        }
+
         if ($siteId === null || $siteId <= 0) {
             return [];
         }
