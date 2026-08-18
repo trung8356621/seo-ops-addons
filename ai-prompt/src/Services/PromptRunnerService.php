@@ -14,6 +14,7 @@ use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\Models\SeoPromptPart;
 use Omnichannel\Addons\AiPrompt\Services\Ai\DeepSeekChatClient;
 use Omnichannel\Addons\AiPrompt\Services\Ai\GeminiGenerateContentClient;
+use Omnichannel\Addons\AiPrompt\Support\AiCostPolicyScope;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
 use Omnichannel\Addons\AiPrompt\Support\AiUsageMode;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
@@ -459,6 +460,7 @@ class PromptRunnerService
         $usage['routing'] = array_merge($candidate->toLogContext(), [
             'fallback_count' => $fallbackCount,
             'fallback_reasons' => $reasons,
+            'cost_policy' => (AiCostPolicyScope::current())->value,
         ]);
 
         return [$output, $usage, $candidate->model];
@@ -1267,6 +1269,7 @@ class PromptRunnerService
             allowLegacyFallback: true,
             usageModeOverride: $isImagePipeline ? null : AiUsageMode::tryFromMixed($settings['usage_mode'] ?? null),
             allowedFamilyKeys: $allowed,
+            costPolicy: AiCostPolicyScope::current(),
         );
     }
 

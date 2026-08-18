@@ -25,6 +25,7 @@ final class PromptExecutionProfileResolver
         'article.content.generate' => AiExecutionProfile::TextLongform,
         'article.content.rewrite' => AiExecutionProfile::TextLongform,
         'article.content.translate' => AiExecutionProfile::TextLongform,
+        'article.content.improve' => AiExecutionProfile::TextLongform,
         'product.gallery.generate' => AiExecutionProfile::ImageProduct,
     ];
 

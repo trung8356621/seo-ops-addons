@@ -147,7 +147,10 @@ final class OpenRouterProviderTemplateTest extends TestCase
         $chat = SeoAiModel::query()->where('raw_model_name', 'deepseek/deepseek-chat')->first();
         $this->assertNotNull($chat);
         $this->assertTrue((bool) $chat->is_hidden);
-        $this->assertSame(0, SeoAiModel::query()->where('is_hidden', false)->count());
+        $freeRouter = SeoAiModel::query()->where('raw_model_name', 'openrouter/free')->first();
+        $this->assertNotNull($freeRouter);
+        $this->assertFalse((bool) $freeRouter->is_hidden);
+        $this->assertSame(1, SeoAiModel::query()->where('is_hidden', false)->count());
 
         $this->assertTrue($this->router->syncOpenAiCompatibleModels((int) $connection->id));
         $chat->refresh();

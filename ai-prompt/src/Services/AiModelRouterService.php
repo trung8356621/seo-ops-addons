@@ -1086,20 +1086,63 @@ final class AiModelRouterService
                 );
             }
             $seenRaw = array_values(array_unique($seenRaw));
+            if ($provider === ApiConnectionProviders::OPENROUTER) {
+                $this->upsertOpenRouterFreeRouter($connection);
+                $seenRaw[] = OpenRouterModelEconomics::FREE_ROUTER_ID;
+                $seenRaw = array_values(array_unique($seenRaw));
+            }
             if ($seenRaw === []) {
                 return false;
             }
             $this->deactivateMissingModels($connectionId, $seenRaw);
+            if ($provider === ApiConnectionProviders::OPENROUTER) {
+                (new AiModelPrimaryTypeClassifier())->classifyConnection($connection);
+            }
 
             return true;
         } catch (\Throwable $exception) {
             logger()->error('syncOpenAiCompatibleModels failed', [
                 'connection_id' => $connectionId,
                 'message' => $exception->getMessage(),
+                'exception' => $exception::class,
             ]);
 
             return false;
         }
+    }
+
+    private function upsertOpenRouterFreeRouter(ApiConnection $connection): void
+    {
+        $raw = OpenRouterModelEconomics::FREE_ROUTER_ID;
+        $existing = SeoAiModel::query()
+            ->where('api_connection_id', $connection->id)
+            ->where('raw_model_name', $raw)
+            ->first();
+        SeoAiModel::query()->updateOrCreate(
+            [
+                'api_connection_id' => (int) $connection->id,
+                'raw_model_name' => $raw,
+            ],
+            $this->mergeSyncPayload((int) $connection->id, $raw, [
+                'category' => AiModelCategory::GEMINI_FLASH,
+                'display_name' => OpenRouterModelEconomics::FREE_ROUTER_LABEL,
+                'priority' => $existing?->priority ?: 999,
+                'status' => $existing?->status ?: SeoAiModel::STATUS_ACTIVE,
+                'capabilities' => [
+                    'source' => ApiConnectionProviders::OPENROUTER,
+                    'provider_metadata' => [
+                        'pricing' => ['prompt' => '0', 'completion' => '0'],
+                        'architecture' => ['modality' => 'text->text'],
+                    ],
+                    'resolved' => [
+                        \Omnichannel\Addons\AiPrompt\Support\AiModelCapability::TextGenerate->value,
+                        \Omnichannel\Addons\AiPrompt\Support\AiModelCapability::TextReasoning->value,
+                        \Omnichannel\Addons\AiPrompt\Support\AiModelCapability::StructuredOutput->value,
+                    ],
+                ],
+                'last_error' => null,
+            ]),
+        );
     }
 
     public function syncDeepSeekModels(int $connectionId): bool

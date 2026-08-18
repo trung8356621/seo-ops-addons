@@ -51,7 +51,13 @@ final class OpenRouterAiTextProvider implements AiTextProviderInterface
                 $request->options,
             );
 
-            return AiTextResult::success($text, $request->model, $usage);
+            $resolved = '';
+            if (is_array($usage)) {
+                $resolved = trim((string) ($usage['resolved_model'] ?? ''));
+                $usage['requested_model'] = $request->model;
+            }
+
+            return AiTextResult::success($text, $resolved !== '' ? $resolved : $request->model, $usage);
         } catch (PromptRunException $exception) {
             return AiTextResult::failure($exception->getMessage(), $request->model);
         }

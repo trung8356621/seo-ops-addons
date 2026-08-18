@@ -186,10 +186,18 @@ final class OpenRouterTextRoutingCatalog
         }
 
         $userId = (int) $connection->user_id;
-        $before = count($priorities->areaEnabledModels($userId, AiModelArea::Text));
-        $priorities->appendToArea($userId, AiModelArea::Text, $ids);
-        $after = count($priorities->areaEnabledModels($userId, AiModelArea::Text));
-        $enabled += max(0, $after - $before);
+        foreach (self::MODELS as $raw => $displayName) {
+            unset($displayName);
+            $model = SeoAiModel::query()
+                ->where('api_connection_id', (int) $connection->id)
+                ->where('raw_model_name', $raw)
+                ->first();
+            if ($model instanceof SeoAiModel) {
+                $area = $this->primaryAreaForRaw($raw);
+                $priorities->appendToArea($userId, $area, [(int) $model->id]);
+            }
+        }
+        $enabled = count($ids);
 
         return ['upserted' => $upserted, 'enabled' => $enabled];
     }
@@ -395,6 +403,30 @@ final class OpenRouterTextRoutingCatalog
             ->unique()
             ->values()
             ->all();
+    }
+
+    private function primaryAreaForRaw(string $raw): AiModelArea
+    {
+        $inFast = in_array($raw, self::PROFILE_MODELS[AiExecutionProfile::TextFast->value] ?? [], true);
+        $inLong = in_array($raw, self::PROFILE_MODELS[AiExecutionProfile::TextLongform->value] ?? [], true);
+        $inReason = in_array($raw, self::PROFILE_MODELS[AiExecutionProfile::TextReasoning->value] ?? [], true);
+        if ($inFast && ! $inLong && ! $inReason) {
+            return AiModelArea::TextFast;
+        }
+        if ($inLong && ! $inFast) {
+            return AiModelArea::TextLongform;
+        }
+        if ($inReason && ! $inFast && ! $inLong) {
+            return AiModelArea::TextReasoning;
+        }
+        if ($inFast) {
+            return AiModelArea::TextFast;
+        }
+        if ($inLong) {
+            return AiModelArea::TextLongform;
+        }
+
+        return AiModelArea::TextFast;
     }
 
     private function categoryForRaw(string $raw): string

@@ -9,6 +9,7 @@ use Omnichannel\Addons\Agent\Automation\Data\ActionResult;
 use Omnichannel\Addons\Agent\Automation\Data\EventEnvelope;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use App\Support\LocalArticleSaveTimer;
 use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 
@@ -112,15 +113,27 @@ final class ActionSupport
         $lock = Cache::lock(self::articleWriteLockKey($articleId), 30);
 
         try {
-            return $lock->block(max(1, $waitSeconds), function () use ($articleId, $callback): mixed {
+            $waitStarted = hrtime(true);
+
+            return $lock->block(max(1, $waitSeconds), function () use ($articleId, $callback, $waitStarted): mixed {
+                LocalArticleSaveTimer::log(
+                    $articleId,
+                    'articleLock.wait',
+                    (int) round((hrtime(true) - $waitStarted) / 1_000_000),
+                );
                 self::$articleWriteDepth[$articleId] = 1;
                 try {
-                    return $callback();
+                    return LocalArticleSaveTimer::measure($articleId, 'articleLock.held', $callback);
                 } finally {
                     unset(self::$articleWriteDepth[$articleId]);
                 }
             });
         } catch (LockTimeoutException $exception) {
+            LocalArticleSaveTimer::log(
+                $articleId,
+                'articleLock.wait_timeout',
+                (int) round((hrtime(true) - $waitStarted) / 1_000_000),
+            );
             throw new \RuntimeException('article_write_busy', 0, $exception);
         }
     }

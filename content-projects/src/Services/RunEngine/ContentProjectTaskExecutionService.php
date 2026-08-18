@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Services\RunEngine;
 
+use Omnichannel\Addons\AiPrompt\Support\AiCostPolicy;
+use Omnichannel\Addons\AiPrompt\Support\AiCostPolicyScope;
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectErrorCode;
 use Omnichannel\Addons\ContentProjects\Enums\SeoProjectRunAction;
 use Omnichannel\Addons\Content\Models\SeoArticle;
@@ -72,31 +74,35 @@ final class ContentProjectTaskExecutionService
         }
 
         $projectSiteId = (int) ($project->site_id ?? 0);
-        $itemRow = $this->pipeline()->runTaskPipeline(
-            $project,
-            $run,
-            $task,
-            $projectSiteId,
-            forceRetry: $forceRetry,
-        );
-        $itemRow['task_id'] = $taskId;
-        $itemRow['retry_task_id'] = $taskId;
 
-        $this->runItemService->syncMirrorAndCounters($run, $markCompleted);
+        return $this->withRunCostPolicy($run, function () use ($project, $run, $task, $taskId, $projectSiteId, $forceRetry, $markCompleted, $started): ContentProjectTaskExecutionResult {
+            $itemRow = $this->pipeline()->runTaskPipeline(
+                $project,
+                $run,
+                $task,
+                $projectSiteId,
+                forceRetry: $forceRetry,
+            );
+            $itemRow['task_id'] = $taskId;
+            $itemRow['retry_task_id'] = $taskId;
 
-        RuntimeLogger::info('content_project_task_execution.finished', [
-            'run_id' => (int) $run->id,
-            'task_id' => $taskId,
-            'status' => (string) ($itemRow['status'] ?? ''),
-            'duration_seconds' => round(microtime(true) - $started, 3),
-            'force_retry' => $forceRetry,
-            'mark_completed' => $markCompleted,
-        ]);
+            $this->runItemService->syncMirrorAndCounters($run, $markCompleted);
 
-        return ContentProjectTaskExecutionResult::fromLegacyItemRow(
-            $itemRow,
-            durationSeconds: microtime(true) - $started,
-        );
+            RuntimeLogger::info('content_project_task_execution.finished', [
+                'run_id' => (int) $run->id,
+                'task_id' => $taskId,
+                'status' => (string) ($itemRow['status'] ?? ''),
+                'duration_seconds' => round(microtime(true) - $started, 3),
+                'force_retry' => $forceRetry,
+                'mark_completed' => $markCompleted,
+                'cost_policy' => AiCostPolicyScope::current()->value,
+            ]);
+
+            return ContentProjectTaskExecutionResult::fromLegacyItemRow(
+                $itemRow,
+                durationSeconds: microtime(true) - $started,
+            );
+        });
     }
 
     /**
@@ -112,19 +118,36 @@ final class ContentProjectTaskExecutionService
         @set_time_limit(0);
         $started = microtime(true);
 
-        $itemRow = $this->pipeline()->runTaskPipeline(
-            $project,
-            $run,
-            $task,
-            $projectSiteId,
-            forceRetry: $forceRetry,
-        );
-        $itemRow['task_id'] = (int) $task->id;
-        $itemRow['retry_task_id'] = (int) $task->id;
+        return $this->withRunCostPolicy($run, function () use ($project, $run, $task, $projectSiteId, $forceRetry, $started): ContentProjectTaskExecutionResult {
+            $itemRow = $this->pipeline()->runTaskPipeline(
+                $project,
+                $run,
+                $task,
+                $projectSiteId,
+                forceRetry: $forceRetry,
+            );
+            $itemRow['task_id'] = (int) $task->id;
+            $itemRow['retry_task_id'] = (int) $task->id;
 
-        return ContentProjectTaskExecutionResult::fromLegacyItemRow(
-            $itemRow,
-            durationSeconds: microtime(true) - $started,
+            return ContentProjectTaskExecutionResult::fromLegacyItemRow(
+                $itemRow,
+                durationSeconds: microtime(true) - $started,
+            );
+        });
+    }
+
+    /**
+     * @template T
+     * @param  callable(): T  $callback
+     * @return T
+     */
+    private function withRunCostPolicy(SeoProjectRun $run, callable $callback): mixed
+    {
+        $settings = is_array($run->settings) ? $run->settings : [];
+
+        return AiCostPolicyScope::run(
+            AiCostPolicy::tryFromMixed($settings[AiCostPolicy::SETTING_KEY] ?? null),
+            $callback,
         );
     }
 

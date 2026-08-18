@@ -711,8 +711,8 @@ final class SeoAccessControl
     }
 
     /**
-     * Narrow Admin-panel gate for SEO Managers who already have Automation rights.
-     * Does not grant full /admin — RestrictAdminAutomationOnlyUsers limits routes.
+     * Legacy helper. /admin no longer hosts Automation UI and no longer
+     * grants panel access through this method. Automation product UI is on /seo.
      */
     public static function canAccessAdminAutomationPanel(?User $user = null): bool
     {

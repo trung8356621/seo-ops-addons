@@ -145,9 +145,12 @@ final class ArticleEditorFalseVersionConflictRegressionTest extends TestCase
         $editor = $this->js('article-editor.jsx');
         self::assertStringContainsString('saveArticleViaApiSingleFlight(articleId, buildPayload', $editor);
         self::assertStringContainsString("priority: 'explicit'", $editor);
+        self::assertStringContainsString('reloadAfterSuccess: true', $editor);
         // Active session path must prefer session document endpoint.
         $api = $this->js('utils/articleEditorApi.js');
         self::assertStringContainsString('sessionClient.saveDocument', $api);
+        self::assertStringContainsString('context.reloadAfterSuccess === true', $api);
+        self::assertStringContainsString('window.location.reload()', $api);
         $legacyPos = strpos($api, '/api/seo/articles/${articleId}/save');
         $sessionPos = strpos($api, 'sessionClient.saveDocument');
         self::assertNotFalse($sessionPos);

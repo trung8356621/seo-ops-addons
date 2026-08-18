@@ -79,7 +79,8 @@
                         </section>
 
                         <nav class="seo-ai-segment seo-ai-segment--wide" aria-label="{{ __('seo-content-ai::filament.ai_center.models_page_title') }}">
-                            @foreach (['text', 'image', 'video'] as $areaKey)
+                            @foreach (\Omnichannel\Addons\AiPrompt\Support\AiModelArea::uiCases() as $areaEnum)
+                                @php($areaKey = $areaEnum->value)
                                 <button
                                     type="button"
                                     @click="setArea('{{ $areaKey }}')"
@@ -99,6 +100,11 @@
                                 @foreach ($this->aiProviderFilterOptions() as $key => $label)
                                     <option value="{{ $key }}">{{ $label }}</option>
                                 @endforeach
+                            </select>
+                            <select wire:model.live="modelCost">
+                                <option value="all">{{ __('seo-content-ai::filament.ai_center.filter_cost_all') }}</option>
+                                <option value="free">{{ __('seo-content-ai::filament.ai_center.filter_cost_free') }}</option>
+                                <option value="paid">{{ __('seo-content-ai::filament.ai_center.filter_cost_paid') }}</option>
                             </select>
                             <x-filament::button
                                 type="button"
@@ -126,7 +132,8 @@
                             </x-filament::button>
                         </div>
 
-                        @foreach (['text', 'image', 'video'] as $areaKey)
+                        @foreach (\Omnichannel\Addons\AiPrompt\Support\AiModelArea::uiCases() as $areaEnum)
+                            @php($areaKey = $areaEnum->value)
                             @php($areaCount = $areaCounts[$areaKey] ?? ['enabled' => 0, 'available' => 0])
                             <div
                                 x-show="activeCapability === '{{ $areaKey }}'"
@@ -486,7 +493,18 @@
         function seoAiCenter(initial) {
             return {
                 activeMainTab: initial.tab === 'routing' ? 'routing' : 'models',
-                activeCapability: ['text', 'image', 'video'].includes(initial.area) ? initial.area : 'text',
+                activeCapability: (function () {
+                    const modelAreas = ['fast_text', 'long_form_text', 'reasoning_text', 'image', 'video'];
+                    const routingGroups = ['text', 'image', 'video'];
+                    if (initial.tab === 'routing') {
+                        if (routingGroups.includes(initial.area)) return initial.area;
+                        if (['fast_text', 'long_form_text', 'reasoning_text', 'text'].includes(initial.area)) return 'text';
+                        return 'text';
+                    }
+                    if (modelAreas.includes(initial.area)) return initial.area;
+                    if (initial.area === 'text') return 'fast_text';
+                    return 'fast_text';
+                })(),
                 modelsHydrated: initial.modelsHydrated !== false,
                 routingHydrated: !!initial.routingHydrated,
                 editingProfile: initial.editingProfile || null,
@@ -534,6 +552,18 @@
                         return;
                     }
                     this.activeMainTab = next;
+                    if (next === 'routing') {
+                        const group = ['image', 'video'].includes(this.activeCapability)
+                            ? this.activeCapability
+                            : 'text';
+                        if (this.activeCapability !== group) {
+                            this.activeCapability = group;
+                            this.$wire.setModelArea(group);
+                        }
+                    } else if (next === 'models' && this.activeCapability === 'text') {
+                        this.activeCapability = 'fast_text';
+                        this.$wire.setModelArea('fast_text');
+                    }
                     this.replaceUrl();
                     if (next === 'routing' && ! this.routingHydrated) {
                         await this.$wire.loadPanel('routing');

@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\SearchFoundation\Services;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordFocusAttach;
 use Omnichannel\Addons\Content\Services\ArticleLinkContextMapService;
+use App\Support\LocalArticleSaveTimer;
 use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 
 /**
@@ -36,9 +37,17 @@ final class ArticleKeywordLinkReconcileService
             return;
         }
 
-        $this->linkContextMap->resyncArticle($article, $contentOverride, $excludeAnchorPhrases);
+        LocalArticleSaveTimer::measure(
+            (int) $article->getKey(),
+            'linkContextMap.resyncArticle',
+            fn () => $this->linkContextMap->resyncArticle($article, $contentOverride, $excludeAnchorPhrases),
+        );
 
-        $this->refreshMainKeywordDestinationLink($article);
+        LocalArticleSaveTimer::measure(
+            (int) $article->getKey(),
+            'refreshMainKeywordDestinationLink',
+            fn () => $this->refreshMainKeywordDestinationLink($article),
+        );
     }
 
     public function resolveArticleContent(SeoArticle $article): string

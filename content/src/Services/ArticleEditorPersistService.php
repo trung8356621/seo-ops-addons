@@ -12,6 +12,7 @@ use Omnichannel\Addons\Content\Services\ArticleEditor\Document\ArticleEditorDocu
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectArticleMembership;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectPublishingQueueService;
 use Omnichannel\Addons\Content\Support\ArticleEditorSaveContext;
+use App\Support\LocalArticleSaveTimer;
 use Omnichannel\Addons\Media\Services\ArticlePostImagesService;
 use Omnichannel\Addons\SearchFoundation\Services\ArticleKeywordLinkReconcileService;
 use Omnichannel\Addons\WordPress\Services\ArticleWordPressSyncFlagService;
@@ -183,35 +184,61 @@ final class ArticleEditorPersistService
         ArticleEditorSaveContext $context,
         string $html,
     ): void {
+        $articleId = (int) $article->getKey();
         $slug = $context->normalizedSlug();
         $publishAt = $context->resolvePublishAtForSave();
 
-        $this->syncContentProjectScheduledPublish($article->fresh() ?? $article, $context->status, $publishAt);
-
-        $this->postImages->syncFromHtml($article, $html);
-        $article->refresh();
-
-        $this->syncFlags->markLocalEditPending($article);
-
-        $this->revisions->captureAfterSave(
-            $article->fresh(),
-            trim($context->title),
+        LocalArticleSaveTimer::measure($articleId, 'runAfterPersistSideEffects.total', function () use (
+            $article,
+            $context,
             $html,
-            [
-                'seo_title' => trim($context->title),
-                'meta_description' => trim($context->seoMetaDescription),
-                'focus_keyword' => trim($context->focusKeyword),
-                'seo_score' => $article->seoProfile?->seo_score !== null ? (float) $article->seoProfile->seo_score : null,
-                'slug' => $slug,
-                'editor_document' => is_array($article->editor_document) ? $article->editor_document : null,
-                'editor_document_schema_version' => (int) ($article->editor_document_schema_version ?? 0) ?: null,
-                'editor_document_hash' => (string) ($article->editor_document_hash ?? '') ?: null,
-                'document_version' => max(1, (int) ($article->document_version ?? 1)),
-            ],
-            auth()->id() !== null ? (int) auth()->id() : null,
-        );
+            $slug,
+            $publishAt,
+            $articleId,
+        ): void {
+            LocalArticleSaveTimer::measure(
+                $articleId,
+                'syncContentProjectScheduledPublish',
+                fn () => $this->syncContentProjectScheduledPublish($article->fresh() ?? $article, $context->status, $publishAt),
+            );
 
-        $this->keywordLinks->reconcileForArticle($article->fresh(), $html);
+            LocalArticleSaveTimer::measure(
+                $articleId,
+                'postImages.syncFromHtml',
+                fn () => $this->postImages->syncFromHtml($article, $html),
+            );
+            $article->refresh();
+
+            $this->syncFlags->markLocalEditPending($article);
+
+            LocalArticleSaveTimer::measure(
+                $articleId,
+                'revisions.captureAfterSave',
+                fn () => $this->revisions->captureAfterSave(
+                    $article->fresh(),
+                    trim($context->title),
+                    $html,
+                    [
+                        'seo_title' => trim($context->title),
+                        'meta_description' => trim($context->seoMetaDescription),
+                        'focus_keyword' => trim($context->focusKeyword),
+                        'seo_score' => $article->seoProfile?->seo_score !== null ? (float) $article->seoProfile->seo_score : null,
+                        'slug' => $slug,
+                        'editor_document' => is_array($article->editor_document) ? $article->editor_document : null,
+                        'editor_document_schema_version' => (int) ($article->editor_document_schema_version ?? 0) ?: null,
+                        'editor_document_hash' => (string) ($article->editor_document_hash ?? '') ?: null,
+                        'document_version' => max(1, (int) ($article->document_version ?? 1)),
+                    ],
+                    auth()->id() !== null ? (int) auth()->id() : null,
+                ),
+            );
+
+            LocalArticleSaveTimer::measure(
+                $articleId,
+                'keywordLinks.reconcileForArticle',
+                fn () => $this->keywordLinks->reconcileForArticle($article->fresh(), $html),
+            );
+        });
     }
 
     private function guardArticleBodyBeforeSave(SeoArticle $article, string $html): string

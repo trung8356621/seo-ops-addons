@@ -37,7 +37,12 @@ final class SeoSettingsAiCenterNavigationTest extends TestCase
         $this->assertStringContainsString('activeMainTab', $view);
         $this->assertStringContainsString('activeCapability', $view);
         $this->assertStringContainsString('wire:ignore.self', $view);
-        $this->assertStringContainsString('areaModelRowsFor', $view);
+        $this->assertStringContainsString('AiModelArea::uiCases()', $view);
+        $this->assertStringContainsString('tab_fast_text', (string) file_get_contents(ProjectRoot::addonsPath().'/seo-content-ai-compat/lang/en/filament.php'));
+        $this->assertStringContainsString('filter_cost_free', $view);
+        $this->assertStringNotContainsString('allow_paid_fallback', $view);
+        $this->assertStringContainsString('modelCost', $page);
+        $this->assertStringNotContainsString('allowPaidFallback', $page);
         $this->assertStringContainsString('sortable-ai-model-list', $view);
         $this->assertStringContainsString('openModelPicker', $view);
         $this->assertStringContainsString('modelArea', $view);

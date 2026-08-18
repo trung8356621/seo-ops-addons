@@ -10,6 +10,8 @@ use Omnichannel\Addons\AiPrompt\Exceptions\AiRoutingException;
 use Omnichannel\Addons\AiPrompt\Models\AiRoutingProfile;
 use Omnichannel\Addons\AiPrompt\Models\AiRoutingTarget;
 use Omnichannel\Addons\AiPrompt\Models\SeoAiModel;
+use Omnichannel\Addons\AiPrompt\Support\AiCostPolicy;
+use Omnichannel\Addons\AiPrompt\Support\AiCostPolicyScope;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
 use Omnichannel\Addons\AiPrompt\Support\AiModelLabelPresenter;
 use Omnichannel\Addons\AiPrompt\Support\AiUsageMode;
@@ -147,6 +149,12 @@ final class AiRoutingTargetService
      */
     public function eligibleCandidates(int $userId, AiExecutionProfile $profile, AiRoutingContext $context): array
     {
+        $policy = $context->costPolicy ?? AiCostPolicyScope::current();
+        $live = $this->liveCompatibleCandidates($userId, $profile);
+        if (! $profile->isMedia() && $policy === AiCostPolicy::FreeOnly) {
+            return (new FreeRoutingResolver())->resolve($live);
+        }
+
         $settings = $this->profileSettings($userId, $profile);
         $execAllowed = is_array($settings['allowed_execution_keys'] ?? null)
             ? array_values(array_filter(
@@ -156,8 +164,9 @@ final class AiRoutingTargetService
             : [];
         $allowed = $context->allowedFamilyKeys ?? $this->normalizedAllowedFamilies($settings);
         $out = [];
-        foreach ($this->liveCompatibleCandidates($userId, $profile) as $candidate) {
-            $family = $this->families->familyForModelId($candidate->model);
+        foreach ($live as $candidate) {
+            $family = $this->families->familyForModelId($candidate->model)
+                ?? $this->families->aggregatorFamily($candidate->model);
             if ($family === null) {
                 continue;
             }
@@ -166,13 +175,16 @@ final class AiRoutingTargetService
                 && ! in_array($family->familyKey, $execAllowed, true)) {
                 continue;
             }
-            if ($allowed !== [] && ! in_array($family->familyKey, $allowed, true)) {
+            if ($execAllowed === [] && $allowed !== [] && ! in_array($family->familyKey, $allowed, true)) {
+                continue;
+            }
+            if ($execAllowed === [] && $candidate->isFree) {
                 continue;
             }
             $out[] = $candidate;
         }
 
-        return array_values($out);
+        return $this->rankCandidates(array_values($out));
     }
 
     /**
@@ -200,7 +212,7 @@ final class AiRoutingTargetService
             if (! GeminiModelVersionPolicy::isEligibleForAutoRouting($modelKey)) {
                 continue;
             }
-            if ($this->families->familyForModelId($modelKey) === null) {
+            if ($this->families->aggregatorFamily($modelKey) === null) {
                 continue;
             }
             $out[] = new RoutedAiCandidate(
@@ -212,6 +224,8 @@ final class AiRoutingTargetService
                 priority: $this->priorities->areaPriority($model, $area, $connection),
                 options: [],
                 seoAiModelId: (int) $model->id,
+                isFree: OpenRouterModelEconomics::modelIsFree($model)
+                    || OpenRouterModelEconomics::isFree([], $modelKey),
             );
         }
         usort($out, static function (RoutedAiCandidate $a, RoutedAiCandidate $b): int {
@@ -311,7 +325,7 @@ final class AiRoutingTargetService
                 if (! GeminiModelVersionPolicy::isEligibleForAutoRouting($key)) {
                     continue;
                 }
-                if ($this->families->familyForModelId($key) === null) {
+                if ($this->families->aggregatorFamily($key) === null) {
                     continue;
                 }
                 $options[(int) $connection->id.'|'.$key] = $this->labels->normal(
@@ -485,6 +499,39 @@ final class AiRoutingTargetService
                 'enabled' => true,
             ],
         );
+    }
+
+    public const SETTING_ALLOW_PAID_FALLBACK = 'allow_paid_fallback';
+
+    /**
+     * @param  array<string, mixed>  $settings
+     */
+    public function overwriteProfileSettings(int $userId, AiExecutionProfile $profile, array $settings): void
+    {
+        $this->ensureProfileRow($userId, $profile);
+        AiRoutingProfile::query()
+            ->where('user_id', $userId)
+            ->where('key', $profile->value)
+            ->update(['settings' => $settings]);
+        $this->forgetMemo();
+    }
+
+    /**
+     * @param  list<RoutedAiCandidate>  $candidates
+     * @return list<RoutedAiCandidate>
+     */
+    private function rankCandidates(array $candidates): array
+    {
+        usort($candidates, static function (RoutedAiCandidate $a, RoutedAiCandidate $b): int {
+            $priority = $a->priority <=> $b->priority;
+            if ($priority !== 0) {
+                return $priority;
+            }
+
+            return ($a->seoAiModelId ?? 0) <=> ($b->seoAiModelId ?? 0);
+        });
+
+        return array_values($candidates);
     }
 
     private function globalUsageMode(): ?AiUsageMode

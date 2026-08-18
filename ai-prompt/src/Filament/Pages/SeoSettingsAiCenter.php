@@ -19,6 +19,7 @@ use Omnichannel\Addons\AiPrompt\Services\AiConnectionPresenter;
 use Omnichannel\Addons\AiPrompt\Services\AiExecutionTargetPresenter;
 use Omnichannel\Addons\AiPrompt\Services\AiModelFamilyCatalog;
 use Omnichannel\Addons\AiPrompt\Services\AiModelInventory;
+use Omnichannel\Addons\AiPrompt\Services\AiModelPrimaryTypeClassifier;
 use Omnichannel\Addons\AiPrompt\Services\AiModelPriorityService;
 use Omnichannel\Addons\AiPrompt\Services\AiModelRouterService;
 use Omnichannel\Addons\AiPrompt\Services\AiRoutingBootstrapService;
@@ -49,7 +50,7 @@ class SeoSettingsAiCenter extends Page
 
     public string $tab = 'models';
 
-    public string $modelArea = 'text';
+    public string $modelArea = 'fast_text';
 
     public string $modelSearch = '';
 
@@ -58,6 +59,8 @@ class SeoSettingsAiCenter extends Page
     public string $modelType = 'all';
 
     public string $modelStatus = 'all';
+
+    public string $modelCost = 'all';
 
     public bool $showHidden = false;
 
@@ -133,7 +136,10 @@ class SeoSettingsAiCenter extends Page
         $this->modelArea = AiModelArea::tryFromMixed(
             (string) request()->query('modelArea', $this->modelArea),
         )->value;
-        $this->routingGroup = $this->modelArea;
+        if ($this->tab === 'models' && $this->modelArea === AiModelArea::Text->value) {
+            $this->modelArea = AiModelArea::TextFast->value;
+        }
+        $this->routingGroup = AiModelArea::tryFromMixed($this->modelArea)->routingGroup();
         if ($this->tab === 'prompts') {
             $this->redirect(PromptResource::getUrl(), navigate: true);
 
@@ -152,6 +158,7 @@ class SeoSettingsAiCenter extends Page
         $this->modelsHydrated = true;
         $this->routingHydrated = $this->tab === 'routing';
         $userId = (int) auth()->id();
+        app(AiModelPrimaryTypeClassifier::class)->classifyForUser($userId);
         $bootstrap->bootstrapForUser($userId);
         $this->globalUsageMode = $articleSettings->getDefaultAiUsageMode();
         $this->fillRouting($targets, $userId);
@@ -172,7 +179,7 @@ class SeoSettingsAiCenter extends Page
     {
         $value = AiModelArea::tryFromMixed($area)->value;
         $this->modelArea = $value;
-        $this->routingGroup = $value;
+        $this->routingGroup = AiModelArea::tryFromMixed($value)->routingGroup();
     }
 
     public function updatedGlobalUsageMode(SeoCreateArticleSettingsService $articleSettings): void
@@ -252,6 +259,7 @@ class SeoSettingsAiCenter extends Page
                 'provider' => $this->modelProvider,
                 'status' => $this->modelStatus,
                 'technical' => $this->modelTechnical,
+                'cost' => $this->modelCost,
             ],
         );
     }
@@ -508,6 +516,7 @@ class SeoSettingsAiCenter extends Page
     {
         $this->assertManager();
         $result = $router->syncAllConnectionsForUser();
+        app(AiModelPrimaryTypeClassifier::class)->classifyForUser((int) auth()->id());
         $notification = Notification::make()
             ->title($result['failed'] === 0
                 ? __('seo-content-ai::filament.ai_center.sync_ok')
@@ -597,6 +606,7 @@ class SeoSettingsAiCenter extends Page
         return trim($this->modelSearch) === ''
             && ($this->modelProvider === '' || $this->modelProvider === 'all')
             && ($this->modelStatus === '' || $this->modelStatus === 'all')
+            && ($this->modelCost === '' || $this->modelCost === 'all')
             && ! $this->modelTechnical;
     }
 

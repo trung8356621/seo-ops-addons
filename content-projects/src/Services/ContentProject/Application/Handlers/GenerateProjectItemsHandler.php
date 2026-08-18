@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers;
 
+use Omnichannel\Addons\AiPrompt\Support\AiCostPolicy;
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectItemAction;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
@@ -136,6 +137,7 @@ final class GenerateProjectItemsHandler extends AbstractPublishingHandler
                     'task_ids' => $itemIds,
                     'technical_confirm_full_rerun' => $command->technicalConfirmFullRerun,
                     'use_php_engine' => true,
+                    AiCostPolicy::SETTING_KEY => AiCostPolicy::FreeOnly->value,
                 ],
             );
 

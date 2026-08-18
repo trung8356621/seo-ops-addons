@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers;
 
+use Omnichannel\Addons\AiPrompt\Support\AiCostPolicy;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ActorContext;
@@ -161,6 +162,7 @@ final class RerunProjectItemsHandler extends AbstractPublishingHandler
                 'rerun' => true,
                 'rerun_scope' => 'full',
                 'use_php_engine' => true,
+                AiCostPolicy::SETTING_KEY => AiCostPolicy::FreeOnly->value,
             ]);
 
             $run = $this->businessLock->withLock(

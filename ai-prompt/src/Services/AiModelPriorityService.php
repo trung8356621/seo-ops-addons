@@ -278,6 +278,12 @@ final class AiModelPriorityService
         if (isset($from[self::AREAS_KEY]) && is_array($from[self::AREAS_KEY])) {
             $to[self::AREAS_KEY] = $from[self::AREAS_KEY];
         }
+        if (isset($from[AiModelArea::PRIMARY_TYPE_KEY])) {
+            $to[AiModelArea::PRIMARY_TYPE_KEY] = $from[AiModelArea::PRIMARY_TYPE_KEY];
+        }
+        if (isset($from[AiModelArea::PRIMARY_TYPE_SOURCE_KEY])) {
+            $to[AiModelArea::PRIMARY_TYPE_SOURCE_KEY] = $from[AiModelArea::PRIMARY_TYPE_SOURCE_KEY];
+        }
 
         return $to;
     }
@@ -287,6 +293,12 @@ final class AiModelPriorityService
         $explicit = $this->explicitAreaPriority($model, $area);
         if ($explicit !== null) {
             return $explicit;
+        }
+        if ($area->isTextPrimary()) {
+            $legacy = $this->explicitAreaPriority($model, AiModelArea::Text);
+            if ($legacy !== null) {
+                return $legacy;
+            }
         }
         $connection ??= $model->relationLoaded('apiConnection')
             ? $model->apiConnection
@@ -300,9 +312,27 @@ final class AiModelPriorityService
 
     public function isAreaEnabled(SeoAiModel $model, AiModelArea $area, ApiConnection $connection): bool
     {
-        $stored = $this->areaBag($model)[$area->value] ?? null;
+        $bag = $this->areaBag($model);
+        $stored = $bag[$area->value] ?? null;
         if (is_array($stored) && array_key_exists('enabled', $stored)) {
             return (bool) $stored['enabled'];
+        }
+        if ($area->isTextPrimary()) {
+            $anyNew = false;
+            foreach (AiModelArea::textPrimaryCases() as $textArea) {
+                $textBag = $bag[$textArea->value] ?? null;
+                if (is_array($textBag) && array_key_exists('enabled', $textBag)) {
+                    $anyNew = true;
+                    break;
+                }
+            }
+            if ($anyNew) {
+                return false;
+            }
+            $legacy = $bag[AiModelArea::Text->value] ?? null;
+            if (is_array($legacy) && array_key_exists('enabled', $legacy)) {
+                return (bool) $legacy['enabled'];
+            }
         }
         if (Schema::hasColumn('seo_ai_models', 'is_hidden') && (bool) ($model->getAttribute('is_hidden') ?? false)) {
             return false;
@@ -402,7 +432,7 @@ final class AiModelPriorityService
         }
         $rank = max($max, 0) + 1;
         foreach ($models as $model) {
-            $this->writeAreaState($model, $area, true, $rank);
+            $this->writeAreaState($model, $area, true, $rank, AiModelArea::SOURCE_MANUAL);
             $rank++;
         }
         $this->forgetMemo();
@@ -414,7 +444,13 @@ final class AiModelPriorityService
     public function removeFromArea(int $userId, AiModelArea $area, array $ids): void
     {
         foreach ($this->ownedModels($userId, $ids) as $model) {
-            $this->writeAreaState($model, $area, false, $this->explicitAreaPriority($model, $area) ?? $this->modelPriority($model));
+            $this->writeAreaState(
+                $model,
+                $area,
+                false,
+                $this->explicitAreaPriority($model, $area) ?? $this->modelPriority($model),
+                AiModelArea::SOURCE_MANUAL,
+            );
         }
         $this->forgetMemo();
     }
@@ -485,20 +521,46 @@ final class AiModelPriorityService
         }
 
         return match ($area) {
-            AiModelArea::Text => in_array($family->modality, ['text', 'multimodal'], true),
+            AiModelArea::Text,
+            AiModelArea::TextFast,
+            AiModelArea::TextLongform,
+            AiModelArea::TextReasoning => in_array($family->modality, ['text', 'multimodal'], true),
             AiModelArea::Image => in_array($family->modality, ['image', 'multimodal'], true),
             AiModelArea::Video => in_array($family->modality, ['video', 'multimodal'], true),
         };
     }
 
-    private function writeAreaState(SeoAiModel $model, AiModelArea $area, bool $enabled, int $priority): void
-    {
+    private function writeAreaState(
+        SeoAiModel $model,
+        AiModelArea $area,
+        bool $enabled,
+        int $priority,
+        ?string $source = null,
+    ): void {
         $caps = is_array($model->capabilities) ? $model->capabilities : [];
         $areas = is_array($caps[self::AREAS_KEY] ?? null) ? $caps[self::AREAS_KEY] : [];
-        $areas[$area->value] = [
+        $current = is_array($areas[$area->value] ?? null) ? $areas[$area->value] : [];
+        $resolvedSource = $source ?? (isset($current['source']) ? (string) $current['source'] : '');
+        $areas[$area->value] = array_filter([
             'enabled' => $enabled,
             'priority' => $priority,
-        ];
+            'source' => $resolvedSource !== '' ? $resolvedSource : null,
+        ], static fn (mixed $value): bool => $value !== null);
+        if ($enabled && $area->isTextPrimary() && $source === AiModelArea::SOURCE_MANUAL) {
+            $caps[AiModelArea::PRIMARY_TYPE_KEY] = $area->value;
+            $caps[AiModelArea::PRIMARY_TYPE_SOURCE_KEY] = AiModelArea::SOURCE_MANUAL;
+            foreach (AiModelArea::textPrimaryCases() as $other) {
+                if ($other === $area) {
+                    continue;
+                }
+                $otherBag = is_array($areas[$other->value] ?? null) ? $areas[$other->value] : [];
+                $areas[$other->value] = array_filter([
+                    'enabled' => false,
+                    'priority' => $otherBag['priority'] ?? null,
+                    'source' => AiModelArea::SOURCE_MANUAL,
+                ], static fn (mixed $value): bool => $value !== null);
+            }
+        }
         $caps[self::AREAS_KEY] = $areas;
         $model->capabilities = $caps;
         if ($enabled && Schema::hasColumn('seo_ai_models', 'is_hidden')) {

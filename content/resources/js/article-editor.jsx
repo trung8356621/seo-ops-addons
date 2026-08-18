@@ -325,6 +325,7 @@ window.__seoExecuteHeavyArticleAction = async function executeHeavyArticleAction
                     connectionHash: window.__SEO_EDITOR_CONNECTION_HASH__ ?? '',
                     savedHtml: String(window.__SEO_EDITOR_LAST_SAVE_HTML__ ?? editorBundle.html ?? ''),
                     keepOverlay: false,
+                    reloadAfterSuccess: true,
                 });
                 window.__seoResetPublishTabPrimed?.();
             }
@@ -432,6 +433,7 @@ async function runArticleEditorApiAction(action, wire, editorDetail = {}) {
                     siteId,
                     connectionHash: window.__SEO_EDITOR_CONNECTION_HASH__ ?? '',
                     savedHtml: String(window.__SEO_EDITOR_LAST_SAVE_HTML__ ?? apiPayload.html ?? ''),
+                    reloadAfterSuccess: true,
                 });
             } catch (error) {
                 if (error?.conflict) {

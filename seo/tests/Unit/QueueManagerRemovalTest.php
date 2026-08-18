@@ -63,7 +63,8 @@ final class QueueManagerRemovalTest extends TestCase
 
         $trait = $this->readLegacyOrMovedAddonFile('Filament/Concerns/BelongsToAdminAutomationPanel.php');
         self::assertStringContainsString("'Automation'", $trait);
-        self::assertStringContainsString("=== 'admin'", $trait);
+        self::assertStringContainsString("=== 'seo'", $trait);
+        self::assertStringNotContainsString("=== 'admin'", $trait);
         self::assertStringContainsString('getNavigationGroup', $trait);
     }
 

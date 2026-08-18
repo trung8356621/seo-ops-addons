@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Services\RunEngine;
 
+use Omnichannel\Addons\AiPrompt\Support\AiCostPolicy;
+use Omnichannel\Addons\AiPrompt\Support\AiCostPolicyScope;
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectArticleSemanticStatus;
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectErrorCode;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
@@ -44,12 +46,17 @@ final class ContentProjectArticleRunner
         ]);
 
         try {
-            $execution = $this->taskExecution->execute(
-                $run,
-                $taskId,
-                markCompleted: false,
-                forcedArticleId: null,
-                forceRetry: true,
+            $settings = is_array($run->settings) ? $run->settings : [];
+            $policy = AiCostPolicy::tryFromMixed($settings[AiCostPolicy::SETTING_KEY] ?? null);
+            $execution = AiCostPolicyScope::run(
+                $policy,
+                fn () => $this->taskExecution->execute(
+                    $run,
+                    $taskId,
+                    markCompleted: false,
+                    forcedArticleId: null,
+                    forceRetry: true,
+                ),
             );
         } catch (\Throwable $exception) {
             RuntimeLogger::error('seo.content_project_run.article.exception', [

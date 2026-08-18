@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\DataTransfer;
 
+use Omnichannel\Addons\AiPrompt\Support\AiCostPolicy;
 use Omnichannel\Addons\AiPrompt\Support\AiUsageMode;
 use App\Models\ApiConnection;
 
@@ -18,5 +19,11 @@ final class AiRoutingContext
         public readonly bool $allowLegacyFallback = true,
         public readonly ?AiUsageMode $usageModeOverride = null,
         public readonly ?array $allowedFamilyKeys = null,
+        public readonly ?AiCostPolicy $costPolicy = null,
     ) {}
+
+    public function costPolicy(): AiCostPolicy
+    {
+        return $this->costPolicy ?? AiCostPolicy::Default;
+    }
 }

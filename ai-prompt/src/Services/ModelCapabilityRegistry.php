@@ -98,6 +98,14 @@ final class ModelCapabilityRegistry
             return [];
         }
 
+        if ($normalized === OpenRouterModelEconomics::FREE_ROUTER_ID) {
+            return [
+                AiModelCapability::TextGenerate->value,
+                AiModelCapability::TextReasoning->value,
+                AiModelCapability::StructuredOutput->value,
+            ];
+        }
+
         if (str_starts_with($normalized, 'google/')) {
             $suffix = substr($model, strlen('google/'));
             $caps = $this->fromGeminiRegistry(ApiConnectionProviders::GEMINI, $suffix);
@@ -111,8 +119,15 @@ final class ModelCapabilityRegistry
                         AiModelCapability::ToolCall->value,
                     ];
                 }
+                if (OpenRouterModelEconomics::looksLikeNonChatId($normalized)) {
+                    return [];
+                }
 
-                return $caps ?? [];
+                return [
+                    AiModelCapability::TextGenerate->value,
+                    AiModelCapability::TextReasoning->value,
+                    AiModelCapability::StructuredOutput->value,
+                ];
             }
             // OpenRouter Gemini text models may be selected for Reasoning Text profiles.
             if (in_array(AiModelCapability::TextGenerate->value, $caps, true)
@@ -129,7 +144,8 @@ final class ModelCapabilityRegistry
             || str_starts_with($normalized, 'qwen/')
             || str_starts_with($normalized, 'anthropic/')
             || str_starts_with($normalized, 'deepseek/')) {
-            if (str_contains($normalized, 'image') || str_contains($normalized, 'video')) {
+            if (str_contains($normalized, 'image') || str_contains($normalized, 'video')
+                || OpenRouterModelEconomics::looksLikeNonChatId($normalized)) {
                 return [];
             }
 
@@ -143,7 +159,15 @@ final class ModelCapabilityRegistry
 
         $family = (new AiModelFamilyCatalog())->familyForModelId($model);
         if ($family === null) {
-            return null;
+            if (OpenRouterModelEconomics::looksLikeNonChatId($normalized)) {
+                return [];
+            }
+
+            return [
+                AiModelCapability::TextGenerate->value,
+                AiModelCapability::TextReasoning->value,
+                AiModelCapability::StructuredOutput->value,
+            ];
         }
 
         return match ($family->modality) {

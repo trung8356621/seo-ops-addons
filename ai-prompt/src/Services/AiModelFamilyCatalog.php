@@ -89,6 +89,9 @@ final class AiModelFamilyCatalog
                 'veo-3.0-fast-generate-preview',
                 'veo-3.0-generate-preview',
             ], 2, 2, 2),
+            new AiModelFamily('openrouter.free', OpenRouterModelEconomics::FREE_ROUTER_LABEL, ApiConnectionProviders::OPENROUTER, 'text', [
+                OpenRouterModelEconomics::FREE_ROUTER_ID,
+            ], 1, 1, 2),
         ];
     }
 
@@ -120,11 +123,54 @@ final class AiModelFamilyCatalog
 
         if (str_contains($normalized, '/')) {
             $suffix = substr($normalized, (int) strrpos($normalized, '/') + 1);
+            $fromSuffix = $this->familyForModelId($suffix);
 
-            return $this->familyForModelId($suffix);
+            return $fromSuffix;
         }
 
         return null;
+    }
+
+    public function aggregatorFamily(string $providerModelId): ?AiModelFamily
+    {
+        $normalized = BuiltInModelCapabilityCatalog::normalizeModel($providerModelId);
+        if ($normalized === '') {
+            return null;
+        }
+        $existing = $this->familyForModelId($normalized);
+        if ($existing !== null) {
+            return $existing;
+        }
+
+        return $this->syntheticAggregatorFamily($normalized);
+    }
+
+    private function syntheticAggregatorFamily(string $normalized): ?AiModelFamily
+    {
+        if (! str_contains($normalized, '/') || OpenRouterModelEconomics::looksLikeNonChatId($normalized)) {
+            return null;
+        }
+        if (strcasecmp($normalized, OpenRouterModelEconomics::FREE_ROUTER_ID) === 0) {
+            return $this->find('openrouter.free');
+        }
+
+        $display = $normalized;
+        $slash = strrpos($normalized, '/');
+        if ($slash !== false) {
+            $display = substr($normalized, $slash + 1);
+        }
+        $key = 'openrouter.'.str_replace(['/', ':'], '.', strtolower($normalized));
+
+        return new AiModelFamily(
+            $key,
+            $display,
+            ApiConnectionProviders::OPENROUTER,
+            'text',
+            [$normalized],
+            1,
+            2,
+            2,
+        );
     }
 
     public function currentModelId(AiModelFamily $family): ?string

@@ -70,7 +70,7 @@ final class AiModelInventory
         $labels = new AiExecutionTargetPresenter();
         $options = [];
         foreach ($this->targets->liveCompatibleCandidates($userId, $profile) as $candidate) {
-            $family = $this->families->familyForModelId($candidate->model);
+            $family = $this->families->aggregatorFamily($candidate->model);
             if ($family === null) {
                 continue;
             }
@@ -112,7 +112,7 @@ final class AiModelInventory
             $profile,
             new AiRoutingContext(userId: $userId, allowedFamilyKeys: null),
         ) as $candidate) {
-            $family = $this->families->familyForModelId($candidate->model);
+            $family = $this->families->aggregatorFamily($candidate->model);
             if ($family === null) {
                 continue;
             }

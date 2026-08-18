@@ -13,6 +13,7 @@ use Omnichannel\Addons\Content\Services\ArticleEditor\Document\ArticleEditorDocu
 use Omnichannel\Addons\Content\Support\ArticleEditorSessionErrorCode;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Models\User;
+use App\Support\LocalArticleSaveTimer;
 use App\Support\RuntimeLogger;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
@@ -167,8 +168,9 @@ final class ArticleEditorSessionService
     ): array {
         $this->assertArticleEditable($article);
         $session = $this->requireOwnedActiveSession($article, $sessionId, $user);
+        $articleId = (int) $article->getKey();
 
-        return ActionSupport::withArticleLock((int) $article->getKey(), function () use (
+        return LocalArticleSaveTimer::measure($articleId, 'saveDocument.total', function () use (
             $article,
             $session,
             $document,
@@ -176,8 +178,9 @@ final class ArticleEditorSessionService
             $expectedContentHash,
             $saveMode,
             $persist,
+            $articleId,
         ): array {
-            return DB::connection('omi_seo_ai')->transaction(function () use (
+            return ActionSupport::withArticleLock($articleId, function () use (
                 $article,
                 $session,
                 $document,
@@ -185,74 +188,101 @@ final class ArticleEditorSessionService
                 $expectedContentHash,
                 $saveMode,
                 $persist,
+                $articleId,
             ): array {
-                $freshSession = SeoArticleEditorSession::query()->lockForUpdate()->find($session->id);
-                if (! $freshSession instanceof SeoArticleEditorSession || ! $freshSession->isActiveLock()) {
-                    throw $this->sessionInactiveException($freshSession);
-                }
-
-                $freshArticle = SeoArticle::query()->lockForUpdate()->findOrFail((int) $article->getKey());
-
-                // Same-content short-circuit (duplicate autosave / lost ACK) before persist.
-                $noop = $this->tryDocumentNoopAck(
-                    $freshArticle,
+                return LocalArticleSaveTimer::measure($articleId, 'saveDocument.dbTransaction', function () use (
+                    $article,
+                    $session,
                     $document,
                     $expectedDocumentVersion,
+                    $expectedContentHash,
                     $saveMode,
-                );
-                if ($noop !== null) {
-                    $this->touchHeartbeat($freshSession);
-                    RuntimeLogger::info('seo.editor.session_document_noop', [
-                        'article_id' => (int) $freshArticle->getKey(),
-                        'session_id' => (string) $freshSession->id,
-                        'save_mode' => $saveMode,
-                        'document_version' => $noop['document_version'],
-                    ]);
+                    $persist,
+                    $articleId,
+                ): array {
+                    return DB::connection('omi_seo_ai')->transaction(function () use (
+                        $article,
+                        $session,
+                        $document,
+                        $expectedDocumentVersion,
+                        $expectedContentHash,
+                        $saveMode,
+                        $persist,
+                        $articleId,
+                    ): array {
+                        $freshSession = SeoArticleEditorSession::query()->lockForUpdate()->find($session->id);
+                        if (! $freshSession instanceof SeoArticleEditorSession || ! $freshSession->isActiveLock()) {
+                            throw $this->sessionInactiveException($freshSession);
+                        }
 
-                    return $noop;
-                }
+                        $freshArticle = SeoArticle::query()->lockForUpdate()->findOrFail($articleId);
 
-                $this->documentVersions->assertExpected($freshArticle, $expectedDocumentVersion);
-                $this->assertContentHash($freshArticle, $expectedContentHash, $expectedDocumentVersion);
+                        // Same-content short-circuit (duplicate autosave / lost ACK) before persist.
+                        $noop = $this->tryDocumentNoopAck(
+                            $freshArticle,
+                            $document,
+                            $expectedDocumentVersion,
+                            $saveMode,
+                        );
+                        if ($noop !== null) {
+                            $this->touchHeartbeat($freshSession);
+                            RuntimeLogger::info('seo.editor.session_document_noop', [
+                                'article_id' => $articleId,
+                                'session_id' => (string) $freshSession->id,
+                                'save_mode' => $saveMode,
+                                'document_version' => $noop['document_version'],
+                            ]);
 
-                $result = $persist($freshArticle, $document);
-                if (! ($result['success'] ?? false)) {
-                    $persistCode = (string) ($result['code'] ?? 'persist_rejected');
-                    $http = $persistCode === 'article_write_busy' ? 409 : 422;
-                    throw ArticleEditorSessionException::make(
-                        $persistCode,
-                        (string) ($result['message'] ?? 'Persist failed.'),
-                        ['code' => $persistCode],
-                        $http,
-                    );
-                }
+                            return $noop;
+                        }
 
-                $this->touchHeartbeat($freshSession);
-                $saved = $freshArticle->fresh() ?? $freshArticle;
+                        $this->documentVersions->assertExpected($freshArticle, $expectedDocumentVersion);
+                        $this->assertContentHash($freshArticle, $expectedContentHash, $expectedDocumentVersion);
 
-                RuntimeLogger::info('seo.editor.session_document_saved', [
-                    'article_id' => (int) $saved->getKey(),
-                    'session_id' => (string) $freshSession->id,
-                    'save_mode' => $saveMode,
-                    'document_version' => $this->documentVersions->current($saved),
-                ]);
+                        $result = LocalArticleSaveTimer::measure(
+                            $articleId,
+                            'persist.callback',
+                            fn (): array => $persist($freshArticle, $document),
+                        );
+                        if (! ($result['success'] ?? false)) {
+                            $persistCode = (string) ($result['code'] ?? 'persist_rejected');
+                            $http = $persistCode === 'article_write_busy' ? 409 : 422;
+                            throw ArticleEditorSessionException::make(
+                                $persistCode,
+                                (string) ($result['message'] ?? 'Persist failed.'),
+                                ['code' => $persistCode],
+                                $http,
+                            );
+                        }
 
-                $payload = [
-                    'saved' => true,
-                    'noop' => false,
-                    'document_version' => $this->documentVersions->current($saved),
-                    'content_hash' => (string) ($result['content_hash']
-                        ?? $this->conflictGuard->contentHash((string) ($saved->body ?? ''))),
-                    'editor_document_hash' => (string) ($saved->editor_document_hash ?? ''),
-                    'editor_document_schema_version' => (int) ($saved->editor_document_schema_version ?? 0),
-                    'saved_at' => $saved->updated_at?->toIso8601String(),
-                ];
+                        $this->touchHeartbeat($freshSession);
+                        $saved = $freshArticle->fresh() ?? $freshArticle;
 
-                if (isset($result['content_project_handoff']) && is_array($result['content_project_handoff'])) {
-                    $payload['content_project_handoff'] = $result['content_project_handoff'];
-                }
+                        RuntimeLogger::info('seo.editor.session_document_saved', [
+                            'article_id' => (int) $saved->getKey(),
+                            'session_id' => (string) $freshSession->id,
+                            'save_mode' => $saveMode,
+                            'document_version' => $this->documentVersions->current($saved),
+                        ]);
 
-                return $payload;
+                        $payload = [
+                            'saved' => true,
+                            'noop' => false,
+                            'document_version' => $this->documentVersions->current($saved),
+                            'content_hash' => (string) ($result['content_hash']
+                                ?? $this->conflictGuard->contentHash((string) ($saved->body ?? ''))),
+                            'editor_document_hash' => (string) ($saved->editor_document_hash ?? ''),
+                            'editor_document_schema_version' => (int) ($saved->editor_document_schema_version ?? 0),
+                            'saved_at' => $saved->updated_at?->toIso8601String(),
+                        ];
+
+                        if (isset($result['content_project_handoff']) && is_array($result['content_project_handoff'])) {
+                            $payload['content_project_handoff'] = $result['content_project_handoff'];
+                        }
+
+                        return $payload;
+                    });
+                });
             });
         });
     }

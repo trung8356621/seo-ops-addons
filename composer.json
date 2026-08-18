@@ -4,8 +4,7 @@
     "type": "library",
     "license": "proprietary",
     "require": {
-        "php": "^8.2",
-        "omnichannel/client-core": "*"
+        "php": "^8.2"
     },
     "autoload": {
         "psr-4": {
@@ -41,14 +40,5 @@
     },
     "minimum-stability": "dev",
     "prefer-stable": true,
-    "repositories": [
-        {
-            "type": "path",
-            "url": "../omnichannel-client-core",
-            "options": {
-                "symlink": true
-            }
-        }
-    ],
     "version": "0.1.0"
 }

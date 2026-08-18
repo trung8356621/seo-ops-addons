@@ -123,8 +123,14 @@ final class OpenAiCompatibleProtocolAdapter
             throw new PromptRunException('Provider returned empty content.');
         }
         $usage = data_get($json, 'usage');
+        $usageBag = is_array($usage) ? $usage : [];
+        $resolved = trim((string) ($json['model'] ?? ''));
+        if ($resolved !== '') {
+            $usageBag['requested_model'] = $model;
+            $usageBag['resolved_model'] = $resolved;
+        }
 
-        return [$text, is_array($usage) ? $usage : null];
+        return [$text, $usageBag !== [] ? $usageBag : null];
     }
 
     /**

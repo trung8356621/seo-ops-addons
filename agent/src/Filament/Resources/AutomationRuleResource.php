@@ -64,8 +64,8 @@ class AutomationRuleResource extends Resource
     }
 
     /**
-     * Hide Rules from Admin sidebar — technical UI; Flows is primary read-only surface.
-     * Route /admin/automation-rules stays registered for direct URL access.
+     * Hide Rules from sidebar — technical UI; Flows is primary read-only surface.
+     * Route stays registered on the SEO panel for direct URL access.
      */
     public static function shouldRegisterNavigation(): bool
     {

@@ -8,7 +8,6 @@ use Tests\Support\ProjectRoot;
 
 use Omnichannel\Addons\Agent\Automation\Presentation\AutomationFlowPresentationRegistry;
 use Omnichannel\Addons\Agent\Filament\Pages\AutomationFlowsPage;
-use App\Http\Middleware\Filament\RestrictAdminAutomationOnlyUsers;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 
@@ -23,15 +22,14 @@ final class AutomationAdminFlowsUiTest extends TestCase
         self::assertSame('workflows', $reflection->getDefaultProperties()['viewMode'] ?? null);
     }
 
-    public function test_restrict_middleware_allows_automation_flows_prefix(): void
+    public function test_admin_automation_only_middleware_is_removed(): void
     {
-        $reflection = new ReflectionClass(RestrictAdminAutomationOnlyUsers::class);
-        /** @var list<string> $constant */
-        $constant = $reflection->getConstant('ALLOWED_PREFIXES');
+        $middlewarePath = ProjectRoot::path().'/app/Http/Middleware/Filament/RestrictAdminAutomationOnlyUsers.php';
+        self::assertFileDoesNotExist($middlewarePath);
 
-        self::assertContains('admin/automation', $constant);
-        self::assertContains('admin/automation-rules', $constant);
-        self::assertContains('admin/automation-executions', $constant);
+        $providerPath = ProjectRoot::path().'/app/Providers/Filament/AdminPanelProvider.php';
+        $source = (string) file_get_contents($providerPath);
+        self::assertStringNotContainsString('RestrictAdminAutomationOnlyUsers', $source);
     }
 
     public function test_presentation_fallback_label(): void
@@ -44,24 +42,28 @@ final class AutomationAdminFlowsUiTest extends TestCase
         );
     }
 
-    public function test_admin_panel_provider_registers_flows_page(): void
+    public function test_admin_panel_provider_does_not_register_automation_ui(): void
     {
-        $providerPath = ProjectRoot::path().'/app'.'/Providers/Filament/AdminPanelProvider.php';
+        $providerPath = ProjectRoot::path().'/app/Providers/Filament/AdminPanelProvider.php';
         self::assertFileExists($providerPath);
 
         $source = (string) file_get_contents($providerPath);
-        self::assertStringContainsString('AutomationFlowsPage::class', $source);
-        self::assertStringContainsString("slug === 'seo-content-ai'", $source);
-        self::assertStringContainsString('AutomationRuleResource::class', $source);
+        self::assertStringNotContainsString('AutomationFlowsPage::class', $source);
+        self::assertStringNotContainsString('AutomationRuleResource::class', $source);
+        self::assertStringNotContainsString('AutomationExecutionResource::class', $source);
+        self::assertStringNotContainsString('AutomationSettings::class', $source);
+        self::assertStringNotContainsString('AutomationWorkflowBuilder::class', $source);
+        self::assertStringNotContainsString('AutomationOperationsDashboard::class', $source);
+        self::assertStringNotContainsString('ManageServices::class', $source);
     }
 
-    public function test_custom_login_allows_automation_staff(): void
+    public function test_custom_login_does_not_send_staff_to_admin_automation(): void
     {
         $source = (string) file_get_contents(
-            ProjectRoot::path().'/app'.'/Filament/Pages/Auth/CustomLogin.php'
+            ProjectRoot::path().'/app/Filament/Pages/Auth/CustomLogin.php'
         );
 
-        self::assertStringContainsString('canAccessAdminAutomationPanel', $source);
-        self::assertStringContainsString('/admin/automation/flows', $source);
+        self::assertStringNotContainsString('canAccessAdminAutomationPanel', $source);
+        self::assertStringNotContainsString('/admin/automation/flows', $source);
     }
 }

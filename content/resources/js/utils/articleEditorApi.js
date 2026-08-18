@@ -934,13 +934,13 @@ function resetEditArticleHeavyActionBusyOnWire() {
 }
 
 /**
- * Hoàn tất Save — không reload, không Livewire.
+ * Hoàn tất Save — không Livewire. Reload chỉ khi context.reloadAfterSuccess === true (manual Save).
  *
  * Sau save thành công: hủy debounce autosave, cập nhật baseline/token,
  * xóa draft cũ rồi ghi snapshot synced (tránh race tạo lại draft bẩn).
  *
  * @param {{ patch?: Record<string, unknown>, notification?: Record<string, string> }} result
- * @param {{ articleId?: number, connectionHash?: string, savedHtml?: string, siteId?: number, keepOverlay?: boolean, silentNotification?: boolean }} [context]
+ * @param {{ articleId?: number, connectionHash?: string, savedHtml?: string, siteId?: number, keepOverlay?: boolean, silentNotification?: boolean, reloadAfterSuccess?: boolean }} [context]
  */
 export function finishArticleSaveFromApi(result, context = {}) {
     if (result.patch) {
@@ -1019,6 +1019,13 @@ export function finishArticleSaveFromApi(result, context = {}) {
         counter_action: handoff?.handed_off ? 'content_manager_handoff' : null,
         task_id: handoff?.task_id ?? null,
     });
+
+    if (context.reloadAfterSuccess === true) {
+        window.__SEO_EDITOR_EXITING__ = true;
+        window.__seoMarkIntentionalEditorClose?.();
+        window.__seoArticleHeavyActionOverlay?.show?.('save', { persistUntilUnload: true });
+        window.location.reload();
+    }
 }
 
 /**

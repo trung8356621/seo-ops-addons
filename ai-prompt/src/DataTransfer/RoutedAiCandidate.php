@@ -22,6 +22,7 @@ final class RoutedAiCandidate
         public readonly array $options = [],
         public readonly ?int $seoAiModelId = null,
         public readonly bool $legacyFallback = false,
+        public readonly bool $isFree = false,
     ) {}
 
     /**
@@ -39,6 +40,7 @@ final class RoutedAiCandidate
             'priority' => $this->priority,
             'legacy_fallback' => $this->legacyFallback,
             'seo_ai_model_id' => $this->seoAiModelId,
+            'is_free' => $this->isFree,
         ];
     }
 }

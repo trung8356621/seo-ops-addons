@@ -21,6 +21,7 @@ final class ContentProjectRunSettingsSnapshotTest extends TestCase
             'rerun_scope' => 'full',
             'rerun_from_step' => 'outline',
             'technical_confirm_full_rerun' => false,
+            'ai_cost_policy' => 'free_only',
         ];
 
         $snapshot = ContentProjectRunSettings::snapshotForRun($raw);
@@ -30,6 +31,7 @@ final class ContentProjectRunSettingsSnapshotTest extends TestCase
         self::assertSame('full', $snapshot['rerun_scope']);
         self::assertSame('outline', $snapshot['rerun_from_step']);
         self::assertTrue($snapshot['use_php_engine']);
+        self::assertSame('free_only', $snapshot['ai_cost_policy']);
     }
 
     public function test_to_array_alone_does_not_include_task_ids(): void

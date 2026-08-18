@@ -46,6 +46,9 @@
                         <span>{{ $row['model_name'] ?? $row['label'] }}</span>
                     </div>
                 </div>
+                @if (! empty($row['is_free']))
+                    <span class="seo-ai-status seo-ai-status--free">FREE</span>
+                @endif
                 <span @class(['seo-ai-status', ($row['status'] ?? '') === 'active' ? 'seo-ai-status--active' : 'seo-ai-status--inactive'])>
                     {{ ($row['status'] ?? '') === 'active' ? __('seo-content-ai::filament.ai_center.status_active') : __('seo-content-ai::filament.ai_center.status_inactive') }}
                 </span>

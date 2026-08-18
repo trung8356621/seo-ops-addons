@@ -25,11 +25,13 @@ final class ContentProjectRerunScopeIsolationTest extends TestCase
         self::assertStringContainsString('Rerun requires explicit item selection', $full);
         self::assertStringContainsString("'task_ids' => \$itemIds", $full);
         self::assertStringContainsString("'rerun' => true", $full);
+        self::assertStringContainsString('AiCostPolicy::FreeOnly', $full);
 
         $step = $this->source(RerunProjectItemStepHandler::class);
         self::assertStringContainsString('Step rerun requires explicit item selection', $step);
         self::assertStringContainsString("'task_ids' => \$itemIds", $step);
         self::assertStringContainsString("'rerun' => true", $step);
+        self::assertStringContainsString('AiCostPolicy::FreeOnly', $step);
     }
 
     public function test_prepare_run_queue_fail_closed_when_rerun_without_ids(): void
@@ -55,6 +57,7 @@ final class ContentProjectRerunScopeIsolationTest extends TestCase
         // Project-level generate is allowed; item rerun is not.
         $src = $this->source(GenerateProjectItemsHandler::class);
         self::assertStringContainsString('runnableTaskIds', $src);
+        self::assertStringContainsString('AiCostPolicy::FreeOnly', $src);
     }
 
     public function test_prepare_operation_marks_task_queued(): void

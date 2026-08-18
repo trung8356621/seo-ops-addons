@@ -95,6 +95,7 @@ final class AiCenterModelPresenter
         $provider = trim((string) ($filters['provider'] ?? ''));
         $status = trim((string) ($filters['status'] ?? ''));
         $technical = (bool) ($filters['technical'] ?? false);
+        $cost = trim((string) ($filters['cost'] ?? 'all'));
         $rows = [];
         foreach ($this->familyInventory($userId, enabledOnly: false) as $row) {
             $connection = $this->connectionById($userId, (int) ($row['connection_id'] ?? 0));
@@ -141,6 +142,14 @@ final class AiCenterModelPresenter
             $row['model_name'] = $presented['model_name'];
             $row['full_label'] = $presented['full_label'];
             $row['area_priority'] = $this->priorities->areaPriority($model, $area, $connection);
+            $row['is_free'] = OpenRouterModelEconomics::modelIsFree($model)
+                || OpenRouterModelEconomics::isFree([], (string) $model->raw_model_name);
+            if ($cost === 'free' && ! $row['is_free']) {
+                continue;
+            }
+            if ($cost === 'paid' && $row['is_free']) {
+                continue;
+            }
             $rows[] = $row;
         }
         usort($rows, static fn (array $a, array $b): int => ((int) ($a['area_priority'] ?? 0)) <=> ((int) ($b['area_priority'] ?? 0)));
@@ -153,11 +162,10 @@ final class AiCenterModelPresenter
      */
     public function areaCounts(int $userId): array
     {
-        $out = [
-            AiModelArea::Text->value => ['enabled' => 0, 'available' => 0],
-            AiModelArea::Image->value => ['enabled' => 0, 'available' => 0],
-            AiModelArea::Video->value => ['enabled' => 0, 'available' => 0],
-        ];
+        $out = [];
+        foreach (AiModelArea::uiCases() as $area) {
+            $out[$area->value] = ['enabled' => 0, 'available' => 0];
+        }
         foreach ($this->familyInventory($userId, enabledOnly: false) as $row) {
             if (($row['unknown'] ?? false) === true) {
                 continue;
@@ -167,7 +175,7 @@ final class AiCenterModelPresenter
             if ($connection === null || $model === null) {
                 continue;
             }
-            foreach (AiModelArea::cases() as $area) {
+            foreach (AiModelArea::uiCases() as $area) {
                 if (! $this->rowSupportsArea($connection, $row, $area)) {
                     continue;
                 }
@@ -596,7 +604,10 @@ final class AiCenterModelPresenter
         }
 
         return match ($area) {
-            AiModelArea::Text => in_array($family->modality, ['text', 'multimodal'], true),
+            AiModelArea::Text,
+            AiModelArea::TextFast,
+            AiModelArea::TextLongform,
+            AiModelArea::TextReasoning => in_array($family->modality, ['text', 'multimodal'], true),
             AiModelArea::Image => in_array($family->modality, ['image', 'multimodal'], true),
             AiModelArea::Video => in_array($family->modality, ['video', 'multimodal'], true),
         };
@@ -633,6 +644,10 @@ final class AiCenterModelPresenter
         return match ($area) {
             AiModelArea::Image => $hintsImage,
             AiModelArea::Video => $hintsVideo,
+            AiModelArea::Text,
+            AiModelArea::TextFast,
+            AiModelArea::TextLongform,
+            AiModelArea::TextReasoning => ! $hintsImage && ! $hintsVideo,
             default => ! $hintsImage && ! $hintsVideo,
         };
     }

@@ -20,6 +20,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectCon
 use Omnichannel\Addons\Content\Support\ArticleEditorSaveContext;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Models\User;
+use App\Support\LocalArticleSaveTimer;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 
@@ -208,7 +209,8 @@ final class UpdateArticleContentAction implements BusinessAction
 
         for ($attempt = 1; $attempt <= $maxAttempts; $attempt++) {
             try {
-                $written = DB::connection('omi_seo_ai')->transaction(function () use ($article, $saveContext, $content, $input, $forceOverwrite): array {
+                $written = LocalArticleSaveTimer::measure((int) $article->getKey(), 'dbTransaction/persist', function () use ($article, $saveContext, $content, $input, $forceOverwrite): array {
+                    return DB::connection('omi_seo_ai')->transaction(function () use ($article, $saveContext, $content, $input, $forceOverwrite): array {
                     $fresh = $article->fresh();
                     if ($fresh === null) {
                         throw new \RuntimeException('Article disappeared during lock.');
@@ -235,6 +237,7 @@ final class UpdateArticleContentAction implements BusinessAction
                         'article' => $fresh->fresh() ?? $fresh,
                         'html' => $html,
                     ];
+                    });
                 });
 
                 /** @var SeoArticle $persistedArticle */
