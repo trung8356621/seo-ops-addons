@@ -53,10 +53,10 @@ class SeoTeam extends SeoPanelPage implements HasTable
             ->emptyStateHeading(__('seo-content-ai::filament.team.no_members'))
             ->emptyStateIcon('heroicon-o-users')
             ->columns([
-                Tables\Columns\TextColumn::make('display_name')
+                Tables\Columns\TextColumn::make('name')
                     ->label(__('seo-content-ai::filament.team.name'))
-                    ->searchable(query: fn (Builder $query, string $search): Builder => $query->where('name', 'like', "%{$search}%"))
-                    ->sortable(query: fn (Builder $query, string $direction): Builder => $query->orderBy('name', $direction))
+                    ->searchable()
+                    ->sortable()
                     ->weight('medium')
                     ->extraAttributes([
                         'x-data' => '{ timer: null }',
@@ -128,13 +128,18 @@ class SeoTeam extends SeoPanelPage implements HasTable
                     ->modalSubmitActionLabel(__('Lưu'))
                     ->modalCancelActionLabel(__('Huỷ'))
                     ->form([
-                        Forms\Components\TextInput::make('nickname')
+                        Forms\Components\TextInput::make('name')
                             ->label(__('Biệt danh'))
-                            ->maxLength(255)
-                            ->default(fn ($record): ?string => $record->getMeta('nickname')),
+                            ->required()
+                            ->maxLength(255),
                     ])
-                    ->action(function ($record, array $data): void {
-                        $record->setMeta('nickname', $data['nickname']);
+                    ->action(function (User $record, array $data): void {
+                        $this->assertCanManageMember($record);
+
+                        $record->update([
+                            'name' => trim((string) ($data['name'] ?? '')),
+                        ]);
+
                         Notification::make()
                             ->title(__('Đã cập nhật biệt danh'))
                             ->success()
@@ -389,7 +394,7 @@ class SeoTeam extends SeoPanelPage implements HasTable
         $set('memberEmail', (string) $existing->email);
         $set('pickExistingEmail', (string) $existing->email);
         $set('existingUserId', (int) $existing->id);
-        $set('memberName', (string) $existing->display_name);
+        $set('memberName', (string) $existing->name);
     }
 
     /**
@@ -419,7 +424,7 @@ class SeoTeam extends SeoPanelPage implements HasTable
             ->get()
             ->mapWithKeys(function (User $user): array {
                 $label = trim((string) $user->email);
-                $name = trim((string) $user->display_name);
+                $name = trim((string) $user->name);
                 if ($name !== '') {
                     $label .= ' — '.$name;
                 }

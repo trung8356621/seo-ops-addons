@@ -85,6 +85,8 @@ final class ContentProjectRunSettings
         'rerun_sync',
         'technical_confirm_full_rerun',
         'source_article_id',
+        'generation_mode',
+        'generation_keyword_override',
         \Omnichannel\Addons\AiPrompt\Support\AiCostPolicy::SETTING_KEY,
     ];
 

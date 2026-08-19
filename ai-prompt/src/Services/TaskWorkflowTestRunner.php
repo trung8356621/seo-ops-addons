@@ -725,7 +725,8 @@ final class TaskWorkflowTestRunner
                     try {
                         $binding = PromptHookBinding::tryFromPrompt($prompt);
                         $hookKey = trim((string) ($binding?->hookKey ?? ''));
-                        if ($this->legacyRewriteAdapter->isLegacyRewriteHook($hookKey)
+                        if (! $this->shouldBlockInheritedGenerationArtifacts($context, $variables)
+                            && $this->legacyRewriteAdapter->isLegacyRewriteHook($hookKey)
                             && ArticleWritingSourceType::tryFromMixed(
                                 $variables['article_writing_source_type'] ?? $variables['source_type'] ?? null,
                             ) === null
@@ -2217,7 +2218,7 @@ final class TaskWorkflowTestRunner
         }
 
         $rawPrefill = trim((string) ($variables['article_writing_raw_input'] ?? ''));
-        if ($rawPrefill !== '') {
+        if ($rawPrefill !== '' && ! $this->shouldBlockInheritedGenerationArtifacts($context, $variables)) {
             $fromPrefill = $this->articleGenerationInput->tryResolveFromRawArtifact(
                 $rawPrefill,
                 (string) ($variables['article_generation_source'] ?? ArticleGenerationSourceResult::SOURCE_RAW_ARTIFACT),
@@ -2287,14 +2288,16 @@ final class TaskWorkflowTestRunner
             isset($variables['source_run_item_id']) ? (int) $variables['source_run_item_id'] : null,
             isset($variables['source_prompt_result_id']) ? (int) $variables['source_prompt_result_id'] : null,
         );
-        if ($fromVars instanceof ArticleGenerationSourceResult) {
+        if ($fromVars instanceof ArticleGenerationSourceResult
+            && ! $this->shouldBlockInheritedGenerationArtifacts($context, $variables)
+        ) {
             $state->meta['direct_publish_outline_markdown'] = $fromVars->rawArtifact;
 
             return $fromVars;
         }
 
         $article = $state->article ?? $context->article;
-        if ($article instanceof SeoArticle) {
+        if ($article instanceof SeoArticle && ! $this->shouldBlockInheritedGenerationArtifacts($context, $variables)) {
             try {
                 $fromArticle = $this->articleGenerationInput->resolveForArticle($article);
 
@@ -2495,6 +2498,26 @@ final class TaskWorkflowTestRunner
         }
 
         return true;
+    }
+
+    /**
+     * @param  array<string, mixed>  $variables
+     */
+    private function shouldBlockInheritedGenerationArtifacts(TaskTestContext $context, array $variables): bool
+    {
+        if (\Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectFreshKeywordRestart::isActive($variables)) {
+            return true;
+        }
+
+        if (! \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectFreshKeywordRestart::shouldInheritPreviousGeneration($variables)) {
+            return true;
+        }
+
+        if (! \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectFreshKeywordRestart::shouldUseExistingOutline($variables)) {
+            return true;
+        }
+
+        return false;
     }
 
     private function isProductWorkflowContext(TaskTestContext $context, WorkflowExecutionState $state): bool

@@ -74,6 +74,7 @@ final class ContentProjectArchivePreviewAndDomainContextTest extends TestCase
 
         self::assertStringContainsString('applyGlobalSiteScopeToProjectQuery', $source);
         self::assertStringContainsString('currentArchive', $source);
+        self::assertStringContainsString('activeGenerated()', $source);
         self::assertStringNotContainsString('activeProjects()', $source);
     }
 

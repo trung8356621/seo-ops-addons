@@ -207,11 +207,10 @@ final class ContentProjectLegacyOpsFixesTest extends TestCase
         $blade = (string) file_get_contents(
             LegacyAddonPath::resolve('resources/views/components/content-project-bulk-selection-toolbar.blade.php'),
         );
-        self::assertStringContainsString('@if ((int) $selectedCount > 0)', $blade);
+        self::assertStringContainsString('$showCpBulk', $blade);
+        self::assertStringContainsString('(int) $selectedCount > 0', $blade);
         self::assertStringContainsString('archiveSelected', $blade);
         self::assertStringContainsString('archive_selected_confirm', $blade);
-        self::assertStringNotContainsString('@if ((int) $selectedCount === 0)', $blade);
-        self::assertStringNotContainsString('@if (empty($selectedCount))', $blade);
     }
 
     public function test_ops_table_has_no_nested_vertical_scroll(): void

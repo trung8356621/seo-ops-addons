@@ -193,6 +193,7 @@ final class ContentProjectAgentCommandFactory
                 (bool) ($input['confirm_waiting_publish'] ?? false),
                 (bool) ($input['dry_run'] ?? false),
                 isset($input['confirmation_token']) ? (string) $input['confirmation_token'] : null,
+                (bool) ($input['confirm_hidden_stale_runs'] ?? false),
             ),
             'content_project.archive_items' => new ArchiveProjectItemsCommand(
                 $this->projectRef($input),

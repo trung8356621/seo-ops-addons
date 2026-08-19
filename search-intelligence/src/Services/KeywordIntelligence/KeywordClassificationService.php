@@ -19,6 +19,7 @@ use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordNor
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordRuleClassifier;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordSourceNormalizer;
 use Omnichannel\Addons\Seo\Jobs\AuditLinkStatusJob;
+use Omnichannel\Addons\Seo\Services\MonthlyMcp\McpEligibleContentScope;
 use Omnichannel\Addons\SiteSync\Services\Support\SiteSyncSiteMeta;
 
 final class KeywordClassificationService
@@ -343,6 +344,11 @@ final class KeywordClassificationService
         $maps = SeoLinkMap::query()
             ->whereIn('keyword_id', array_keys($byKeyword))
             ->whereNotNull('target_article_id')
+            // Only count eligible SEO content entities as cluster targets
+            // (exclude local WP `type=page`).
+            ->whereHas('targetArticle', static function ($targetQuery): void {
+                $targetQuery = McpEligibleContentScope::applyToSeoArticleTarget($targetQuery);
+            })
             ->get(['keyword_id', 'target_article_id', 'source_article_id']);
 
         $bucket = [];

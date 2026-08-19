@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\ContentProjects\Services\ContentProject;
 
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectItemAction;
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
+use Omnichannel\Addons\Content\Support\ArticleKeywordDistinctCounter;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
@@ -93,6 +94,7 @@ final class ContentProjectItemOperationsReadModel
             ->with([
                 'article.articleMetas' => static fn ($q) => $q->whereIn('meta_key', [
                     'wp_featured_image_url',
+                    ArticleKeywordDistinctCounter::META_KEY,
                     ArticleWordPressSyncFlagService::META_LOCAL_EDIT_PENDING,
                     ArticleWordPressSyncFlagService::META_LOCAL_CONTENT_HASH,
                     ArticleWordPressSyncFlagService::META_PUBLISHED_CONTENT_HASH,
@@ -474,6 +476,8 @@ final class ContentProjectItemOperationsReadModel
             // Rows here always come from scopeInContentProjectWorkingSet() — kept explicit
             // for eligibility computation and to stay a stable contract for consumers.
             'article_id' => $articleId > 0 ? $articleId : 0,
+            'type' => $type,
+            'is_improve' => $type === SeoProjectTask::TYPE_IMPROVE,
             'publishing_queued_at' => $task->publishing_queued_at?->toIso8601String(),
             'in_publishing_queue' => $task->publishing_queued_at !== null,
             'generation_blocked' => $task->isGenerationBlocked(),
@@ -561,6 +565,7 @@ final class ContentProjectItemOperationsReadModel
                 || $generationRecoveryAction === ContentProjectGenerationRecoveryDecision::ACTION_GENERATE,
             'is_generation_stale' => $isStaleGeneration,
             'is_genuinely_running' => $isGenuineRunning,
+            'is_activity_processing' => $isGenuineRunning,
             'has_resumable_checkpoint' => $hasResumableCheckpoint,
             'generation_recovery_action' => $generationRecoveryAction,
             'generation_recovery_reason' => $generationRecoveryReason,
@@ -586,7 +591,23 @@ final class ContentProjectItemOperationsReadModel
             'observed_post_status' => $observedPostStatus,
             'in_publishing_queue' => $rowBase['in_publishing_queue'],
             'can_send_to_publishing_queue' => PublishingQueueHandoffEligibility::canSend($rowBase),
+            'keywords_count' => $this->distinctKeywordCount($article),
         ];
+    }
+
+    /**
+     * Distinct vocabulary keywords from eager-loaded `seo_article_keywords` meta.
+     * Missing meta or missing article → 0. Does not read article body.
+     */
+    private function distinctKeywordCount(mixed $article): int
+    {
+        if (! $article instanceof SeoArticle || ! $article->relationLoaded('articleMetas')) {
+            return 0;
+        }
+
+        $raw = $article->articleMetas->firstWhere('meta_key', ArticleKeywordDistinctCounter::META_KEY)?->meta_value;
+
+        return ArticleKeywordDistinctCounter::count($raw);
     }
 
     /**

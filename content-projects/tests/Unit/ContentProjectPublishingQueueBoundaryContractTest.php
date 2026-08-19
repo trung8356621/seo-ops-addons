@@ -12,6 +12,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Comma
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SendToPublishingQueueCommand;
 use Omnichannel\Addons\Publishing\Support\PublishingQueue\PublishingQueueHandoffEligibility;
 use Omnichannel\Addons\Publishing\Support\PublishingQueue\PublishingQueueStateClassifier;
+use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use PHPUnit\Framework\TestCase;
 
 /**
@@ -145,6 +146,53 @@ final class ContentProjectPublishingQueueBoundaryContractTest extends TestCase
             'execution_status' => 'success',
             'generation_completed_at' => '2026-08-01T10:00:00+00:00',
         ]));
+
+        // «improve» must be publishable without generation completion.
+        self::assertTrue(PublishingQueueHandoffEligibility::canSend([
+            'article_id' => 9,
+            'type' => SeoProjectTask::TYPE_IMPROVE,
+            'generation_status' => 'pending',
+            'execution_status' => '',
+            'generation_completed_at' => '',
+        ]));
+
+        self::assertTrue(PublishingQueueHandoffEligibility::canSend([
+            'article_id' => 9,
+            'type' => SeoProjectTask::TYPE_IMPROVE,
+            'generation_status' => 'failed',
+            'execution_status' => '',
+            'generation_completed_at' => '',
+        ]));
+
+        // via is_improve flag (as passed by read model $rowBase)
+        self::assertTrue(PublishingQueueHandoffEligibility::canSend([
+            'article_id' => 9,
+            'is_improve' => true,
+            'generation_status' => 'pending',
+            'execution_status' => '',
+            'generation_completed_at' => '',
+        ]));
+    }
+
+    /**
+     * Regression: $rowBase passed to canSend must include type + is_improve
+     * so the improve early-return path triggers.
+     */
+    public function test_read_model_row_base_contains_type_and_is_improve(): void
+    {
+        $src = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content-projects/src/Services/ContentProject/ContentProjectItemOperationsReadModel.php',
+        );
+
+        // $rowBase array must include type and is_improve before canSend($rowBase) call
+        $rowBaseStart = strpos($src, '$rowBase = [');
+        self::assertNotFalse($rowBaseStart, '$rowBase array must exist');
+        $canSendCall = strpos($src, 'canSend($rowBase)', $rowBaseStart);
+        self::assertNotFalse($canSendCall, 'canSend($rowBase) must be called');
+
+        $rowBaseBlock = substr($src, $rowBaseStart, $canSendCall - $rowBaseStart);
+        self::assertStringContainsString("'type' => \$type", $rowBaseBlock, '$rowBase must include type');
+        self::assertStringContainsString("'is_improve'", $rowBaseBlock, '$rowBase must include is_improve');
     }
 
     public function test_lang_keys_exist(): void

@@ -50,13 +50,24 @@
                 <div class="cp-ops-mobile-card__row">
                     <x-seo-content-ai::content-project-item-thumbnail :row="$row" class="mt-0.5" />
                     @if ($showCheckbox)
-                        <input
-                            type="checkbox"
-                            class="mt-1 rounded"
-                            value="{{ $tid }}"
-                            wire:model.live="selectedTaskIds"
-                            aria-label="Select item {{ $tid }}"
-                        />
+                                @if ($isPublishingQueue)
+                                    <input
+                                        type="checkbox"
+                                        class="rounded"
+                                        value="{{ $tid }}"
+                                        :checked="$store.pqOpsUi && $store.pqOpsUi.isSelected({{ $tid }})"
+                                        @click.prevent="$store.pqOpsUi && $store.pqOpsUi.toggleRow({{ $tid }})"
+                                        aria-label="Select item {{ $tid }}"
+                                    />
+                                @else
+                                    <input
+                                        type="checkbox"
+                                        class="mt-1 rounded"
+                                        value="{{ $tid }}"
+                                        wire:model.live="selectedTaskIds"
+                                        aria-label="Select item {{ $tid }}"
+                                    />
+                                @endif
                     @endif
                     <div class="cp-ops-mobile-card__body">
                         <x-seo-content-ai::content-project-item-meta :row="$row" />
@@ -69,13 +80,16 @@
                             @endif
                         </div>
                         <div class="cp-ops-mobile-card__meta">
-                            <span x-show="typeof isRowProcessing === 'function' && isRowProcessing({{ $tid }})" x-cloak class="inline-flex items-center gap-1.5">
+                            <span x-show="(typeof isRowProcessing === 'function' && isRowProcessing({{ $tid }})) || {{ ! empty($row['is_activity_processing']) || ! empty($row['is_genuinely_running']) ? 'true' : 'false' }}" x-cloak class="inline-flex items-center gap-1.5">
                                 <svg class="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
                                 {{ __('seo-content-ai::filament.projects.publishing_queue_pending_processing') }}
                             </span>
-                            <span x-show="typeof isRowProcessing !== 'function' || ! isRowProcessing({{ $tid }})">
+                            <span x-show="(typeof isRowProcessing !== 'function' || ! isRowProcessing({{ $tid }})) && {{ empty($row['is_activity_processing']) && empty($row['is_genuinely_running']) ? 'true' : 'false' }}">
                                 {{ $row['last_activity'] ?? '' }}
                             </span>
+                            @if (! $isPublishingQueue)
+                                <span class="cp-ops-kw-count" title="{{ __('seo-content-ai::filament.projects.ops_keywords_count', ['count' => (int) ($row['keywords_count'] ?? 0)]) }}">{{ (int) ($row['keywords_count'] ?? 0) }}</span>
+                            @endif
                         </div>
                     </div>
                     @if ($isPublishingQueue)
@@ -100,8 +114,8 @@
                                     <input
                                         type="checkbox"
                                         class="rounded"
-                                        wire:click.prevent="togglePageSelection"
-                                        @checked($pageAllSelected)
+                                        :checked="$store.pqOpsUi && $store.pqOpsUi.isPageAllSelected()"
+                                        @click.prevent="$store.pqOpsUi && $store.pqOpsUi.togglePage()"
                                         aria-label="Select all on page"
                                     />
                                 @else
@@ -118,6 +132,7 @@
                             <th class="cp-ops-col-life" scope="col">Schedule</th>
                         @else
                             <th class="cp-ops-col-gen" scope="col">{{ __('seo-content-ai::filament.projects.ops_col_generation') }}</th>
+                            <th class="cp-ops-col-keywords" scope="col">{{ __('seo-content-ai::filament.projects.ops_col_keywords') }}</th>
                             <th class="cp-ops-col-life" scope="col">{{ __('seo-content-ai::filament.projects.ops_col_workflow') }}</th>
                         @endif
                         <th class="cp-ops-col-activity" scope="col">Last activity</th>
@@ -130,6 +145,9 @@
                             $tid = (int) ($row['task_id'] ?? 0);
                             $rowPending = in_array($tid, $pendingIdList, true);
                             $rowPendingPhase = $rowPending ? ($pendingPhase ?: 'updating') : null;
+                            $serverActivityProcessing = $rowPending
+                                || ! empty($row['is_activity_processing'])
+                                || ! empty($row['is_genuinely_running']);
                         @endphp
                         <tr
                             wire:key="item-{{ $tid }}"
@@ -145,14 +163,26 @@
                         >
                             @if ($showCheckbox)
                                 <td>
-                                    <input
-                                        type="checkbox"
-                                        class="rounded"
-                                        value="{{ $tid }}"
-                                        wire:model.live="selectedTaskIds"
-                                        @disabled($rowPending)
-                                        aria-label="Select item {{ $tid }}"
-                                    />
+                                    @if ($isPublishingQueue)
+                                        <input
+                                            type="checkbox"
+                                            class="rounded"
+                                            value="{{ $tid }}"
+                                            :checked="$store.pqOpsUi && $store.pqOpsUi.isSelected({{ $tid }})"
+                                            @click.prevent="$store.pqOpsUi && $store.pqOpsUi.toggleRow({{ $tid }})"
+                                            @disabled($rowPending)
+                                            aria-label="Select item {{ $tid }}"
+                                        />
+                                    @else
+                                        <input
+                                            type="checkbox"
+                                            class="rounded"
+                                            value="{{ $tid }}"
+                                            wire:model.live="selectedTaskIds"
+                                            @disabled($rowPending)
+                                            aria-label="Select item {{ $tid }}"
+                                        />
+                                    @endif
                                 </td>
                             @endif
                             <td>
@@ -213,6 +243,13 @@
                                         <div class="cp-ops-step" title="{{ $row['current_step'] }}">{{ $row['current_step'] }}</div>
                                     @endif
                                 </td>
+                                <td class="cp-ops-kw">
+                                    @php $kwCount = (int) ($row['keywords_count'] ?? 0); @endphp
+                                    <span
+                                        class="cp-ops-kw-count"
+                                        title="{{ __('seo-content-ai::filament.projects.ops_keywords_count', ['count' => $kwCount]) }}"
+                                    >{{ $kwCount }}</span>
+                                </td>
                                 <td>
                                     @if (! empty($row['workflow_badge']))
                                         <x-seo-content-ai::content-project-status-badge :badge="$row['workflow_badge']" />
@@ -223,14 +260,14 @@
                             @endif
                             <td class="cp-ops-muted" title="{{ $row['last_activity_full'] ?? '' }}">
                                 <span
-                                    x-show="typeof isRowProcessing === 'function' && isRowProcessing({{ $tid }})"
+                                    x-show="(typeof isRowProcessing === 'function' && isRowProcessing({{ $tid }})) || {{ $serverActivityProcessing && ! $rowPending ? 'true' : 'false' }}"
                                     x-cloak
                                     class="inline-flex items-center gap-1.5"
                                 >
                                     <svg class="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
                                     {{ __('seo-content-ai::filament.projects.publishing_queue_pending_processing') }}
                                 </span>
-                                <span x-show="(typeof isRowProcessing !== 'function' || ! isRowProcessing({{ $tid }}))">
+                                <span x-show="(typeof isRowProcessing !== 'function' || ! isRowProcessing({{ $tid }})) && {{ $serverActivityProcessing && ! $rowPending ? 'false' : 'true' }}">
                                 @if ($rowPending && $rowPendingPhase === 'updating')
                                     <span class="inline-flex items-center gap-1.5">
                                         <svg class="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>

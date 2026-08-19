@@ -188,6 +188,7 @@ final class ContentProjectPublishingQueueReadModel
             $row['publish_state_label'] = $classified['label'];
             $row['publish_status_detail'] = PublishingQueueStatusLabelBuilder::label($row);
             $row['publish_badge'] = ContentProjectStatusBadgePresenter::publishQueueState((string) $classified['state']);
+            $row['is_activity_processing'] = $classified['state'] === PublishingQueueStateClassifier::PUBLISHING;
             // Keep badge label in sync with attempt/retry detail.
             if (is_array($row['publish_badge'])) {
                 $row['publish_badge']['label'] = $classified['label'];

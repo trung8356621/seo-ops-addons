@@ -74,7 +74,11 @@
         @if ($isPublishingQueue || ! $contentManager)
             <button
                 type="button"
-                wire:click="selectPage"
+                @if ($isPublishingQueue)
+                    @click="$store.pqOpsUi.selectPage()"
+                @else
+                    wire:click="selectPage"
+                @endif
                 class="fi-btn fi-btn-color-gray fi-size-sm cp-ops-toolbar__select-page"
                 aria-label="{{ __('seo-content-ai::filament.projects.queue_select_page') }}"
             >

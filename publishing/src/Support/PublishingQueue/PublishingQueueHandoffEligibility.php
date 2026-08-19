@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Publishing\Support\PublishingQueue;
 
+use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectScheduledDefinition;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectFailedOpsDefinition;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectPendingOpsDefinition;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectPublishedDefinition;
@@ -33,16 +35,34 @@ final class PublishingQueueHandoffEligibility
         if (ContentProjectPublishedDefinition::matches($row) && empty($row['has_unpublished_changes'])) {
             return false;
         }
-        if (ContentProjectPendingOpsDefinition::matches($row) || ! empty($row['is_genuinely_running'])) {
-            return false;
-        }
-        if (ContentProjectFailedOpsDefinition::matches($row)) {
-            return false;
-        }
+
+        // «improve» is manual-only by default:
+        // - No generation completion prerequisite
+        // - Still must not be already queued/scheduled
+        $type = strtolower(trim((string) ($row['type'] ?? $row['type_label'] ?? '')));
+        $isImprove = ! empty($row['is_improve'])
+            || $type === SeoProjectTask::TYPE_IMPROVE;
 
         $articleId = (int) ($row['article_id'] ?? 0);
         if ($articleId <= 0) {
             return false;
+        }
+
+        if ($isImprove) {
+            if (! empty($row['is_genuinely_running'])) {
+                return false;
+            }
+
+            // Do not handoff while queue is in a non-unscheduled state.
+            if (in_array($queue, ['waiting', 'retrying', 'failed', 'skipped', 'cancelled'], true)) {
+                return false;
+            }
+
+            if ($queue !== 'none' && ContentProjectScheduledDefinition::matches($row)) {
+                return false;
+            }
+
+            return true;
         }
 
         $gs = strtolower(trim((string) ($row['generation_status'] ?? '')));
@@ -53,7 +73,18 @@ final class PublishingQueueHandoffEligibility
             || in_array($gs, ['completed', 'reviewing'], true)
             || ($exec === 'success' || $exec === 'completed');
 
-        return $contentReady;
+        if ($contentReady === false) {
+            return false;
+        }
+
+        if (ContentProjectPendingOpsDefinition::matches($row) || ! empty($row['is_genuinely_running'])) {
+            return false;
+        }
+        if (ContentProjectFailedOpsDefinition::matches($row)) {
+            return false;
+        }
+
+        return true;
     }
 
     /**

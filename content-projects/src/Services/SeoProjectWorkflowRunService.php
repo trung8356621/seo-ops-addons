@@ -647,19 +647,30 @@ final class SeoProjectWorkflowRunService
         $fromStep = \Omnichannel\Addons\ContentProjects\Enums\ContentProjectRerunFromStep::tryFromMixed($fromStepRaw);
         $includeDownstream = (bool) ($runSettings['rerun_include_downstream'] ?? false);
         $cleanRestart = $fromStep === null || (bool) ($runSettings['rerun'] ?? false);
+        $freshKeywordOverride = trim((string) ($runSettings['generation_keyword_override'] ?? ''));
+        $isFreshKeywordRestart = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectFreshKeywordRestart::isRunSettings($runSettings)
+            && $freshKeywordOverride !== '';
 
         try {
-            $context = $this->inputResolver->resolveForProjectTask(
-                $task,
-                $scope,
-                cleanRestart: $cleanRestart,
-            );
+            if ($isFreshKeywordRestart) {
+                $context = $this->inputResolver->resolveFreshKeywordRestartForProjectTask(
+                    $task,
+                    $freshKeywordOverride,
+                    $scope,
+                );
+            } else {
+                $context = $this->inputResolver->resolveForProjectTask(
+                    $task,
+                    $scope,
+                    cleanRestart: $cleanRestart,
+                );
 
-            if ($cleanRestart && $fromStep === null && (bool) ($runSettings['rerun'] ?? false)) {
-                $variables = $context->variables;
-                $variables['rerun_scope'] = 'full';
-                $variables['force_ai_regenerate'] = 'true';
-                $context = $context->withVariables($variables);
+                if ($cleanRestart && $fromStep === null && (bool) ($runSettings['rerun'] ?? false)) {
+                    $variables = $context->variables;
+                    $variables['rerun_scope'] = 'full';
+                    $variables['force_ai_regenerate'] = 'true';
+                    $context = $context->withVariables($variables);
+                }
             }
 
             Log::info('seo.project_run.task.start', [

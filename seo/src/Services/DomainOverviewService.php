@@ -247,6 +247,8 @@ final class DomainOverviewService
         $wpArticlesTotal = $wpPosts + $wpPages;
         $wpCategories = (int) ($wpManifest['counts']['category'] ?? 0);
 
+        $wpPostTypeCounts = $this->getWpPostTypeCounts($siteId);
+
         return [
             'articles' => $articles,
             'products' => $products,
@@ -259,7 +261,31 @@ final class DomainOverviewService
             'wp_articles_total' => $wpArticlesTotal,
             'wp_categories' => $wpCategories,
             'article_gap' => max(0, $wpArticlesTotal - $articles),
+            'wp_post_type_counts' => $wpPostTypeCounts,
         ];
+    }
+
+    /**
+     * Count articles by raw WordPress post type from article_meta.
+     *
+     * @return array<string, int>  e.g. ['post' => 122, 'page' => 5, 'product' => 79, 'portfolio' => 12]
+     */
+    public function getWpPostTypeCounts(int $siteId): array
+    {
+        if (! \Illuminate\Support\Facades\Schema::connection('omi_seo_ai')->hasTable('article_meta')) {
+            return [];
+        }
+
+        return \Omnichannel\Addons\Content\Models\ArticleMeta::query()
+            ->join('articles', 'articles.id', '=', 'article_meta.article_id')
+            ->where('articles.site_id', $siteId)
+            ->where('article_meta.meta_key', 'wp_post_type')
+            ->whereNotNull('article_meta.meta_value')
+            ->where('article_meta.meta_value', '!=', '')
+            ->groupBy('article_meta.meta_value')
+            ->pluck(\Illuminate\Support\Facades\DB::raw('COUNT(*)'), 'article_meta.meta_value')
+            ->map(static fn (mixed $v): int => (int) $v)
+            ->all();
     }
 
     /**

@@ -38,7 +38,8 @@ final class DomainMonthlyIntelligenceContractTest extends TestCase
     {
         $src = (string) file_get_contents((new ReflectionClass(McpIntelligence::class))->getFileName());
         self::assertStringContainsString('mcp-intelligence', $src);
-        self::assertStringContainsString('openAiContext', $src);
+        self::assertStringContainsString('McpMarkdownRenderer', $src);
+        self::assertStringContainsString('McpAiContextBuilder', $src);
         self::assertStringContainsString('periodKey', $src);
         self::assertStringContainsString('refreshKeywordSnapshot', $src);
         self::assertStringContainsString('syncSiteFromGlobalContext', $src);
@@ -46,10 +47,16 @@ final class DomainMonthlyIntelligenceContractTest extends TestCase
 
         $blade = (string) file_get_contents(dirname(__DIR__, 3).'/seo-content-ai-compat/resources/views/filament/pages/mcp-intelligence.blade.php');
         self::assertStringNotContainsString('wire:model.live="siteId"', $blade);
-        self::assertStringContainsString("aiContextView', 'readable'", $blade);
-        self::assertStringContainsString('mcp_intelligence.readable', $blade);
-        self::assertStringContainsString('mcp_intelligence.raw_json', $blade);
-        self::assertStringContainsString('mcp_intelligence.overview', $blade);
+        self::assertStringContainsString('view_markdown', $blade);
+        self::assertStringContainsString('view_ai_context', $blade);
+        self::assertStringContainsString('markdownOpen', $blade);
+        self::assertStringContainsString('domain-context-changed', $blade);
+        self::assertStringContainsString('SITE OVERVIEW', $blade);
+        self::assertStringContainsString('KEYWORD OVERVIEW', $blade);
+        self::assertStringContainsString('mcp-linked-section', $blade);
+        self::assertStringContainsString('wire:key="mcp-dashboard-', $blade);
+        self::assertStringNotContainsString('mcp-top-clusters', $blade);
+        self::assertStringNotContainsString('mcp_intelligence.overview', $blade);
     }
 
     public function test_keyword_builder_keeps_compact_budget(): void

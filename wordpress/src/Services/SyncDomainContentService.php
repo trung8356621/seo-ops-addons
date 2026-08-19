@@ -1280,7 +1280,8 @@ class SyncDomainContentService
         ArticleWordPressSyncFlagService $syncFlags,
         bool $forceOverwrite = false,
     ): void {
-        $type = $this->normalizeType((string) ($item['type'] ?? 'article'));
+        $rawWpPostType = strtolower(trim((string) ($item['type'] ?? '')));
+        $type = $this->normalizeType($rawWpPostType !== '' ? $rawWpPostType : 'article');
         $publishedAt = $this->parsePublishedAt($item['published_at'] ?? null);
 
         $existing = SeoArticle::query()
@@ -1353,11 +1354,14 @@ class SyncDomainContentService
             );
         }
 
-        $wpPostType = (string) ($item['wp_post_type'] ?? '');
-        // articles.type already set via updateOrCreate; wp_post_type meta retired.
-        if ($wpPostType !== '') {
-            $article->articleMetas()->where('meta_key', 'wp_post_type')->delete();
+        $wpPostTypeForMeta = (string) ($item['wp_post_type'] ?? '');
+        if ($wpPostTypeForMeta === '') {
+            $wpPostTypeForMeta = $rawWpPostType !== '' ? $rawWpPostType : ($type === 'product' ? 'product' : 'post');
         }
+        $article->articleMetas()->updateOrCreate(
+            ['meta_key' => 'wp_post_type'],
+            ['meta_value' => $wpPostTypeForMeta],
+        );
 
         $wpEntity = trim((string) ($item['wp_entity'] ?? ''));
         if ($wpEntity !== '') {
@@ -1891,11 +1895,10 @@ class SyncDomainContentService
         $type = strtolower(trim($type));
 
         return match ($type) {
-            'article', 'post', 'page' => 'article',
             'product' => 'product',
             'category' => 'category',
             'product_category', 'product_cat' => 'product_category',
-            default => $type !== '' ? $type : 'article',
+            default => 'article',
         };
     }
 

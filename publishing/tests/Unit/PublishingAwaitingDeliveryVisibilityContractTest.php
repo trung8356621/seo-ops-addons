@@ -154,6 +154,16 @@ final class PublishingAwaitingDeliveryVisibilityContractTest extends TestCase
         self::assertStringContainsString('recoverStalledDelivery', $src);
         self::assertStringContainsString('DELIVERY_WORKER_STALLED', $src);
         self::assertStringContainsString('attempt_preserved', $src);
+        self::assertStringContainsString('PublishingOverdueInlineDeliveryService', $src);
+        self::assertStringContainsString('resolveStalledDeliveryRetryAt', $src);
+    }
+
+    public function test_overdue_inline_delivery_service_exists(): void
+    {
+        $src = $this->src(\Omnichannel\Addons\Publishing\Services\Publishing\PublishingOverdueInlineDeliveryService::class);
+        self::assertStringContainsString('shouldAttemptInline', $src);
+        self::assertStringContainsString('overdue_inline_delivery_started', $src);
+        self::assertStringContainsString('confirmContentProjectPublishDelivery', $src);
     }
 
     public function test_repair_unprojected_command_registered(): void

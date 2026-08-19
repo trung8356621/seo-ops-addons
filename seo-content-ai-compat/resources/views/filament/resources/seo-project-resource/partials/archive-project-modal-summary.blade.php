@@ -40,9 +40,17 @@
         <div class="mt-4 rounded-lg border border-danger-300 bg-danger-50 px-3 py-2 text-sm text-danger-900 not-prose dark:border-danger-500/40 dark:bg-danger-500/10 dark:text-danger-100">
             {{ e((string) $gate['blocked_reason']) }}
         </div>
-    @elseif (! empty($gate['requires_waiting_publish_confirm']))
+    @endif
+
+    @if (! empty($gate['requires_waiting_publish_confirm']))
         <div class="mt-4 rounded-lg border border-warning-300 bg-warning-50 px-3 py-2 text-sm text-warning-900 not-prose dark:border-warning-500/40 dark:bg-warning-500/10 dark:text-warning-100">
             {{ __('seo-content-ai::filament.projects.archive_waiting_publish_notice', ['count' => (int) ($gate['waiting_publish'] ?? 0)]) }}
+        </div>
+    @endif
+
+    @if (! empty($gate['requires_hidden_stale_runs_confirm']))
+        <div class="mt-4 rounded-lg border border-warning-300 bg-warning-50 px-3 py-2 text-sm text-warning-900 not-prose dark:border-warning-500/40 dark:bg-warning-500/10 dark:text-warning-100">
+            {{ __('seo-content-ai::filament.projects.archive_hidden_stale_runs_notice', ['count' => (int) ($gate['hidden_stale_runs'] ?? 0)]) }}
         </div>
     @endif
 

@@ -487,10 +487,18 @@
         .dark .cp-ops-table tbody tr.is-even { background: rgb(31 41 55 / 0.25); }
         .cp-ops-col-check { width: 2.5rem; }
         .cp-ops-col-thumb { width: 4rem; min-width: 4rem; }
-        .cp-ops-col-item { width: 39%; }
+        .cp-ops-col-item { width: 33%; }
         .cp-ops-col-gen, .cp-ops-col-life { width: 11%; }
-        .cp-ops-col-activity { width: 22%; }
+        .cp-ops-col-keywords { width: 7%; min-width: 4.5rem; }
+        .cp-ops-col-activity { width: 18%; }
         .cp-ops-col-actions { width: 10%; }
+        .cp-ops-kw-count {
+            font-variant-numeric: tabular-nums;
+            font-size: 0.8125rem;
+            font-weight: 600;
+            color: rgb(17 24 39);
+        }
+        .dark .cp-ops-kw-count { color: rgb(243 244 246); }
         .cp-ops-muted {
             font-size: 0.75rem;
             color: rgb(75 85 99);
@@ -584,6 +592,14 @@
         .dark .cp-ops-menu__item:focus { background: rgb(31 41 55); }
         .cp-ops-menu__item--danger { color: rgb(220 38 38); }
         .dark .cp-ops-menu__item--danger { color: rgb(248 113 113); }
+        .cp-ops-menu__item--disabled {
+            cursor: not-allowed;
+            opacity: 0.45;
+        }
+        .cp-ops-menu__item--disabled:hover,
+        .cp-ops-menu__item--disabled:focus {
+            background: transparent;
+        }
         .cp-ops-menu__icon {
             width: 1rem;
             height: 1rem;

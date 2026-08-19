@@ -316,8 +316,7 @@ final class ContentProjectSmartGenerationActionTest extends TestCase
             LegacyAddonPath::resolve('resources/views/components/content-project-item-actions-menu.blade.php'),
         );
         self::assertStringContainsString('createOrRerunOne', $menu);
-        self::assertStringContainsString('item_action_smart_create', $menu);
-        self::assertStringContainsString('item_action_smart_rerun', $menu);
+        self::assertStringContainsString('item_action_run_generation', $menu);
         self::assertStringNotContainsString('wire:click="generateOne(', $menu);
         self::assertStringNotContainsString('wire:click="rerunOne(', $menu);
         // Primary CTA + overflow menu share the same smart action (missing-article path uses Alpine modal).

@@ -36,7 +36,7 @@ final class KeywordMcpContextBuilder
      */
     public function build(int $siteId, string $periodKey): array
     {
-        $landscape = $this->classification->landscape($siteId);
+        $landscape = $this->classification->refreshLandscapeSnapshot($siteId);
         $progress = $this->classification->progress($siteId);
         $tags = $this->tagCounts($siteId);
         $groups = $this->groupDistribution($siteId);
@@ -93,6 +93,7 @@ final class KeywordMcpContextBuilder
                 'cluster_id' => (string) ($cluster['cluster'] ?? $cluster['cluster_key'] ?? ''),
                 'name' => (string) ($cluster['primary'] ?? ''),
                 'keyword_count' => (int) ($cluster['usable_keyword_count'] ?? 0),
+                'linked_articles_count' => (int) ($cluster['target_pages'] ?? $cluster['published'] ?? 0),
                 'article_count' => (int) ($cluster['target_pages'] ?? $cluster['published'] ?? 0),
                 'coverage' => $coverage,
             ];
@@ -111,8 +112,21 @@ final class KeywordMcpContextBuilder
                 $intents[$key] = ($intents[$key] ?? 0) + 1;
             }
         }
-        usort($compactClusters, static fn (array $a, array $b): int => $b['keyword_count'] <=> $a['keyword_count']);
+        usort($compactClusters, static function (array $a, array $b): int {
+            $cmp = $b['keyword_count'] <=> $a['keyword_count'];
+            if ($cmp !== 0) {
+                return $cmp;
+            }
+            $cmp = $b['linked_articles_count'] <=> $a['linked_articles_count'];
+            if ($cmp !== 0) {
+                return $cmp;
+            }
+
+            return strcasecmp((string) ($a['name'] ?? ''), (string) ($b['name'] ?? ''));
+        });
         $compactClusters = array_slice($compactClusters, 0, self::MAX_CLUSTERS);
+        usort($strong, static fn (array $a, array $b): int => self::compareClusters($a, $b));
+        usort($weak, static fn (array $a, array $b): int => self::compareClusters($a, $b));
         $strong = array_slice($strong, 0, 10);
         $weak = array_slice($weak, 0, 10);
 
@@ -253,5 +267,24 @@ final class KeywordMcpContextBuilder
         usort($out, static fn (array $a, array $b): int => $b['count'] <=> $a['count']);
 
         return array_slice($out, 0, self::MAX_GROUPS);
+    }
+
+    /**
+     * @param  array<string, mixed>  $a
+     * @param  array<string, mixed>  $b
+     */
+    private static function compareClusters(array $a, array $b): int
+    {
+        $cmp = ((int) ($b['keyword_count'] ?? 0)) <=> ((int) ($a['keyword_count'] ?? 0));
+        if ($cmp !== 0) {
+            return $cmp;
+        }
+        $cmp = ((int) ($b['linked_articles_count'] ?? $b['article_count'] ?? 0))
+            <=> ((int) ($a['linked_articles_count'] ?? $a['article_count'] ?? 0));
+        if ($cmp !== 0) {
+            return $cmp;
+        }
+
+        return strcasecmp((string) ($a['name'] ?? ''), (string) ($b['name'] ?? ''));
     }
 }

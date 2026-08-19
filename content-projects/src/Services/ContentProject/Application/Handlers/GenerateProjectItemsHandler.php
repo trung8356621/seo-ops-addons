@@ -21,6 +21,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Suppo
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectTenantGuard;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectGenerationRecoveryService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectItemGenerationClassifier;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectImproveManualOnlyGenerationGuard;
 use Omnichannel\Addons\ContentProjects\Services\RunEngine\ContentProjectRunEngine;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectWorkflowRunService;
 use Omnichannel\Addons\Agent\Extension\Resolvers\PipelineResolver;
@@ -120,9 +121,37 @@ final class GenerateProjectItemsHandler extends AbstractPublishingHandler
                 }
             }
 
+            // «improve» is manual-only by default: generic generation must never enqueue AI for it.
+            $allowImproveGeneration = (bool) ($command->settings[ContentProjectImproveManualOnlyGenerationGuard::ALLOW_IMPROVE_GENERATION_SETTING] ?? false);
+            if (! $allowImproveGeneration && $itemIds !== []) {
+                $typesById = SeoProjectTask::query()
+                    ->whereIn('id', $itemIds)
+                    ->pluck('type', 'id')
+                    ->all();
+
+                $guard = ContentProjectImproveManualOnlyGenerationGuard::filterItemIds(
+                    $itemIds,
+                    $typesById,
+                    allowImproveGeneration: false,
+                );
+
+                $itemIds = $guard['eligible_ids'];
+                if ($itemIds === []) {
+                    return ContentProjectActionResult::fail(
+                        ContentProjectActionCodes::VALIDATION_FAILED,
+                        'Improve items are manual-only — AI generation is blocked.',
+                        $projectId,
+                        metadata: [
+                            'skipped_improve_count' => $guard['skipped_improve_count'],
+                            'skipped_improve_ids' => $guard['skipped_improve_ids'],
+                        ],
+                    );
+                }
+            }
+
             $this->assertGenerateAllowed($itemIds);
 
-            if ($preview->failClosed && ! $command->technicalConfirmFullRerun) {
+            if ($command->itemRefs === [] && $preview->failClosed && ! $command->technicalConfirmFullRerun) {
                 return ContentProjectActionResult::fail(
                     ContentProjectActionCodes::VALIDATION_FAILED,
                     'Generate pending fail-closed: would select entire project despite historical execution.',

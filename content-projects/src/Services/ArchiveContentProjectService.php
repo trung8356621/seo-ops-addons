@@ -106,6 +106,8 @@ final class ArchiveContentProjectService
      *     queue_processing: bool,
      *     waiting_publish: int,
      *     requires_waiting_publish_confirm: bool,
+     *     hidden_stale_runs: int,
+     *     requires_hidden_stale_runs_confirm: bool,
      * }
      */
     public function archiveGate(SeoProject $project): array
@@ -114,8 +116,11 @@ final class ArchiveContentProjectService
 
         $aiRunning = SeoProjectRun::query()
             ->where('project_id', $projectId)
+            ->notConsolidated()
             ->whereIn('status', [SeoProjectRun::STATUS_RUNNING, SeoProjectRun::STATUS_STOPPING])
             ->exists();
+
+        $hiddenStaleRuns = $this->hiddenStaleRunsQuery($projectId)->count();
 
         $queueProcessing = false;
         $waitingPublish = 0;
@@ -157,11 +162,16 @@ final class ArchiveContentProjectService
             'queue_processing' => $queueProcessing,
             'waiting_publish' => $waitingPublish,
             'requires_waiting_publish_confirm' => $waitingPublish > 0,
+            'hidden_stale_runs' => $hiddenStaleRuns,
+            'requires_hidden_stale_runs_confirm' => $hiddenStaleRuns > 0,
         ];
     }
 
-    public function assertCanArchive(SeoProject $project, bool $confirmWaitingPublish = false): void
-    {
+    public function assertCanArchive(
+        SeoProject $project,
+        bool $confirmWaitingPublish = false,
+        bool $confirmHiddenStaleRuns = false,
+    ): void {
         $gate = $this->archiveGate($project);
         if (! $gate['can_archive']) {
             throw new RuntimeException((string) $gate['blocked_reason']);
@@ -170,6 +180,12 @@ final class ArchiveContentProjectService
         if ($gate['requires_waiting_publish_confirm'] && ! $confirmWaitingPublish) {
             throw new RuntimeException(__('seo-content-ai::filament.projects.archive_waiting_publish_confirm_required', [
                 'count' => $gate['waiting_publish'],
+            ]));
+        }
+
+        if ($gate['requires_hidden_stale_runs_confirm'] && ! $confirmHiddenStaleRuns) {
+            throw new RuntimeException(__('seo-content-ai::filament.projects.archive_hidden_stale_runs_confirm_required', [
+                'count' => $gate['hidden_stale_runs'],
             ]));
         }
     }
@@ -195,6 +211,7 @@ final class ArchiveContentProjectService
         int $userId,
         ?string $note = null,
         bool $confirmWaitingPublish = false,
+        bool $confirmHiddenStaleRuns = false,
     ): SeoProjectArchive {
         $this->assertValidUserId($userId);
 
@@ -202,7 +219,7 @@ final class ArchiveContentProjectService
             throw new RuntimeException(__('seo-content-ai::filament.projects.archive_source_is_archive'));
         }
 
-        $this->assertCanArchive($project, $confirmWaitingPublish);
+        $this->assertCanArchive($project, $confirmWaitingPublish, $confirmHiddenStaleRuns);
 
         $note = $this->normalizeNote($note);
         $now = now();
@@ -214,6 +231,13 @@ final class ArchiveContentProjectService
             if ($lockedProject->archived_at !== null) {
                 throw new RuntimeException('Project đã được lưu trữ.');
             }
+
+            $liveGate = $this->archiveGate($lockedProject);
+            if (! $liveGate['can_archive']) {
+                throw new RuntimeException((string) $liveGate['blocked_reason']);
+            }
+
+            $cancelledHiddenRuns = $this->cancelHiddenStaleRuns((int) $lockedProject->getKey());
 
             $summary = $this->buildSummary($lockedProject);
             $archive = $this->resolveArchiveHeader($lockedProject);
@@ -279,6 +303,7 @@ final class ArchiveContentProjectService
                 'workspace_destroyed' => true,
                 'workspace_stats' => $cleanupContext->stats(),
                 'tasks_reset_for_fresh_flow' => $resetTasks,
+                'hidden_stale_runs_cancelled' => $cancelledHiddenRuns,
             ]);
 
             return $archive->fresh(['items']) ?? $archive;
@@ -619,7 +644,7 @@ final class ArchiveContentProjectService
      */
     private function resolveWpSyncQueuePayload(SeoArticle $article): array
     {
-        $raw = $this->getMeta($article, ArticleWpSyncQueueService::META_KEY);
+        $raw = $this->getMeta($article, 'wp_sync_queue');
         if ($raw === null) {
             return [];
         }
@@ -776,11 +801,6 @@ final class ArchiveContentProjectService
             return '';
         }
 
-        $displayName = trim((string) ($user->display_name ?? ''));
-        if ($displayName !== '') {
-            return $displayName;
-        }
-
         $name = trim((string) ($user->name ?? ''));
 
         return $name !== '' ? $name : (string) ($user->email ?? '');
@@ -812,6 +832,27 @@ final class ArchiveContentProjectService
         }
 
         return null;
+    }
+
+    /**
+     * Run đã consolidate (ẩn khỏi UI) nhưng status vẫn running/stopping — zombie, không phải AI live.
+     *
+     * @return \Illuminate\Database\Eloquent\Builder<SeoProjectRun>
+     */
+    private function hiddenStaleRunsQuery(int $projectId): \Illuminate\Database\Eloquent\Builder
+    {
+        return SeoProjectRun::query()
+            ->where('project_id', $projectId)
+            ->whereNotNull('consolidated_into_run_id')
+            ->whereIn('status', [SeoProjectRun::STATUS_RUNNING, SeoProjectRun::STATUS_STOPPING]);
+    }
+
+    private function cancelHiddenStaleRuns(int $projectId): int
+    {
+        return $this->hiddenStaleRunsQuery($projectId)->update([
+            'status' => SeoProjectRun::STATUS_CANCELLED,
+            'finished_at' => now(),
+        ]);
     }
 
     private function countWords(string $html): int

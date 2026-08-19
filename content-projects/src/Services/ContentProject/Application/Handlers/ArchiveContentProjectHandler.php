@@ -58,9 +58,16 @@ final class ArchiveContentProjectHandler extends AbstractPublishingHandler
                 ]);
             }
 
+            if ($gate['requires_hidden_stale_runs_confirm'] && ! $command->confirmHiddenStaleRuns) {
+                $warnings[] = (string) __('seo-content-ai::filament.projects.archive_hidden_stale_runs_confirm_required', [
+                    'count' => $gate['hidden_stale_runs'],
+                ]);
+            }
+
             $fingerprint = $this->buildFingerprint($command->name(), $projectId, [
                 'note' => $command->note,
                 'confirm_waiting_publish' => $command->confirmWaitingPublish,
+                'confirm_hidden_stale_runs' => $command->confirmHiddenStaleRuns,
             ]);
 
             if ($this->isDryRun($command->dryRun, $actor->dryRun)) {
@@ -73,6 +80,7 @@ final class ArchiveContentProjectHandler extends AbstractPublishingHandler
                         'gate' => $gate,
                         'note' => $command->note,
                         'confirm_waiting_publish' => $command->confirmWaitingPublish,
+                        'confirm_hidden_stale_runs' => $command->confirmHiddenStaleRuns,
                     ],
                     $warnings,
                     requiresConfirmation: true,
@@ -107,6 +115,7 @@ final class ArchiveContentProjectHandler extends AbstractPublishingHandler
                         $userId,
                         $command->note,
                         $command->confirmWaitingPublish,
+                        $command->confirmHiddenStaleRuns,
                     );
 
                     return ContentProjectActionResult::ok(

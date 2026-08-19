@@ -34,6 +34,7 @@ final class PublishingStuckRecoveryService
         private readonly PublishingRetryPolicy $retryPolicy,
         private readonly PublishOperationKeyFactory $operationKeys,
         private readonly PublishingRecoveryNotifier $notifier,
+        private readonly ?PublishingOverdueInlineDeliveryService $overdueInlineDelivery = null,
     ) {}
 
     /**
@@ -310,6 +311,15 @@ final class PublishingStuckRecoveryService
     private function recoverStalledDelivery(SeoProjectTask $task, string $batchId): string
     {
         $attempt = (int) ($task->publish_attempt_count ?? 0);
+
+        $inlineOutcome = $this->overdueInlineDelivery()?->attempt($task, $batchId);
+        if ($inlineOutcome === 'published') {
+            return 'published';
+        }
+        if (in_array($inlineOutcome, ['retry_wait', 'failed'], true)) {
+            return $inlineOutcome;
+        }
+
         $this->queue->supersedeDeliveryAttempt($task, 'delivery_worker_stalled');
         $fresh = $task->fresh() ?? $task;
 
@@ -319,7 +329,7 @@ final class PublishingStuckRecoveryService
         ]);
 
         if ($this->retryPolicy->canRetry($attempt)) {
-            $nextAt = $this->retryPolicy->nextRetryAt(max(1, $attempt));
+            $nextAt = $this->resolveStalledDeliveryRetryAt($fresh, $attempt);
             // Force status path: supersede left None — set retrying without bumping attempts.
             $from = ContentProjectPublishQueueStatus::tryFrom((string) ($fresh->publish_queue_status ?? ''))
                 ?? ContentProjectPublishQueueStatus::None;
@@ -354,6 +364,30 @@ final class PublishingStuckRecoveryService
         $this->queue->markFailedFromClassification($fresh, $classification);
 
         return 'failed';
+    }
+
+    private function overdueInlineDelivery(): ?PublishingOverdueInlineDeliveryService
+    {
+        return $this->overdueInlineDelivery ?? app(PublishingOverdueInlineDeliveryService::class);
+    }
+
+    private function resolveStalledDeliveryRetryAt(SeoProjectTask $task, int $attempt): ?\Carbon\CarbonInterface
+    {
+        $scheduled = $task->scheduled_publish_at;
+        if ($scheduled !== null && $scheduled->lte(now('UTC'))) {
+            return now('UTC');
+        }
+
+        $nextRetry = $task->next_publish_retry_at;
+        if ($nextRetry !== null && $nextRetry->lte(now('UTC'))) {
+            return now('UTC');
+        }
+
+        if ((int) ($task->dispatch_count ?? 0) >= 3) {
+            return now('UTC');
+        }
+
+        return $this->retryPolicy->nextRetryAt(max(1, $attempt));
     }
 
     private function finalizePublished(SeoProjectTask $task, PublishReconcileResult $reconcile): void

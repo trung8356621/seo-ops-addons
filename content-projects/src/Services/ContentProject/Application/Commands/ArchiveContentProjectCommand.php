@@ -14,6 +14,7 @@ final class ArchiveContentProjectCommand implements ContentProjectCommand
         public readonly bool $confirmWaitingPublish = false,
         public readonly bool $dryRun = false,
         public readonly ?string $confirmationToken = null,
+        public readonly bool $confirmHiddenStaleRuns = false,
     ) {}
 
     public function name(): string

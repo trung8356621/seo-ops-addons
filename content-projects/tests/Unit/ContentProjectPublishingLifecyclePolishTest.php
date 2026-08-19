@@ -95,11 +95,23 @@ final class ContentProjectPublishingLifecyclePolishTest extends TestCase
 
         $archive = $ref->getMethod('archive');
         $params = $archive->getParameters();
-        self::assertGreaterThanOrEqual(4, count($params));
+        self::assertGreaterThanOrEqual(5, count($params));
         self::assertSame('confirmWaitingPublish', $params[3]->getName());
 
         $source = $this->readMethodSource($archive);
         self::assertStringContainsString('assertCanArchive', $source);
+        self::assertStringContainsString('cancelHiddenStaleRuns', $source);
+
+        $gate = $ref->getMethod('archiveGate');
+        $gateSource = $this->readMethodSource($gate);
+        self::assertStringContainsString('notConsolidated', $gateSource);
+        self::assertStringContainsString('hiddenStaleRunsQuery', $gateSource);
+        self::assertStringContainsString('requires_hidden_stale_runs_confirm', $gateSource);
+
+        $assert = $ref->getMethod('assertCanArchive');
+        self::assertGreaterThanOrEqual(3, count($assert->getParameters()));
+        self::assertSame('confirmHiddenStaleRuns', $assert->getParameters()[2]->getName());
+        self::assertSame('confirmHiddenStaleRuns', $params[4]->getName());
     }
 
     public function test_queue_service_is_batch_oriented(): void

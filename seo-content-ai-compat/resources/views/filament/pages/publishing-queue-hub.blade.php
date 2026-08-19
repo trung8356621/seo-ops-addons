@@ -8,6 +8,10 @@
     $hasProject = $project instanceof \Omnichannel\Addons\ContentProjects\Models\SeoProject;
     $selectedCount = count($this->selectedTaskIds);
     $pageCount = count($rows);
+    $pageIds = array_values(array_filter(array_map(
+        static fn (array $row): int => (int) ($row['task_id'] ?? 0),
+        is_array($rows) ? $rows : [],
+    ), static fn (int $id): bool => $id > 0));
     $filteredTotal = (int) ($stats['total'] ?? $pageCount);
     if (trim((string) $this->stateFilter) !== '' || trim((string) $this->search) !== '') {
         $filteredTotal = $pageCount;
@@ -43,8 +47,10 @@
 @endphp
 
 <x-filament-panels::page>
+    <x-seo-content-ai::publishing-queue-optimistic-ui />
     <div
         class="space-y-4"
+        data-pq-page-ids="@js($pageIds)"
         x-data="{
             autoOpen: false,
             quickOpen: false,
@@ -55,7 +61,194 @@
             claimNeedsReviewArticle(taskId, isNeedsReview) {
                 // Publishing Queue has no Needs Review claim flow.
             },
+            isRowProcessing(tid) {
+                return !!$store.pqOpsUi?.isRowProcessing(tid);
+            },
+            rowProcessingKind(tid) {
+                return $store.pqOpsUi?.rowProcessingKind(tid) || null;
+            },
+            beginRowProcessing(tid, kind) {
+                $store.pqOpsUi?.beginRowProcessing(tid, kind);
+            },
+            clearRowProcessing(tid) {
+                $store.pqOpsUi?.clearRowProcessing(tid);
+            },
+            ensurePqStore() {
+                const Alpine = window.Alpine;
+                if (! Alpine || typeof Alpine.store !== 'function') {
+                    return null;
+                }
+                try {
+                    const existing = Alpine.store('pqOpsUi');
+                    if (existing && typeof existing.toggleRow === 'function') {
+                        return existing;
+                    }
+                } catch (e) {}
+                const create = typeof window.createPqOpsUi === 'function'
+                    ? window.createPqOpsUi
+                    : this.createPqOpsUi;
+                const store = create();
+                Alpine.store('pqOpsUi', store);
+                return store;
+            },
+            createPqOpsUi() {
+                return typeof window.createPqOpsUi === 'function'
+                    ? window.createPqOpsUi()
+                    : {
+                    selectedIds: [],
+                    pageIds: [],
+                    processingRows: {},
+                    wire: null,
+                    bindWire(wire, selectedIds, pageIds) {
+                        this.wire = wire || this.wire;
+                        this.pageIds = (Array.isArray(pageIds) ? pageIds : []).map((id) => Number(id)).filter((id) => id > 0);
+                        const incoming = (Array.isArray(selectedIds) ? selectedIds : []).map((id) => Number(id)).filter((id) => id > 0);
+                        if (incoming.length > 0 || (this.selectedIds || []).length === 0) {
+                            this.selectedIds = incoming;
+                        }
+                    },
+                    selectedIdsSnapshot() {
+                        return (this.selectedIds || []).map((id) => Number(id)).filter((id) => id > 0);
+                    },
+                    selectedCount() { return this.selectedIdsSnapshot().length; },
+                    isSelected(id) { return this.selectedIdsSnapshot().includes(Number(id || 0)); },
+                    isPageAllSelected() {
+                        const page = this.pageIds || [];
+                        return page.length > 0 && page.every((id) => this.isSelected(id));
+                    },
+                    toggleRow(id) {
+                        const tid = Number(id || 0);
+                        if (tid <= 0) return;
+                        this.selectedIds = this.isSelected(tid)
+                            ? this.selectedIdsSnapshot().filter((value) => value !== tid)
+                            : [...this.selectedIdsSnapshot(), tid];
+                    },
+                    selectPage() {
+                        this.selectedIds = [...new Set([
+                            ...this.selectedIdsSnapshot(),
+                            ...(this.pageIds || []).map((id) => Number(id)),
+                        ])].filter((id) => id > 0);
+                    },
+                    togglePage() {
+                        if (this.isPageAllSelected()) {
+                            const pageSet = new Set((this.pageIds || []).map((id) => Number(id)));
+                            this.selectedIds = this.selectedIdsSnapshot().filter((id) => ! pageSet.has(id));
+                            return;
+                        }
+                        this.selectPage();
+                    },
+                    clearSelection() {
+                        this.selectedIds = [];
+                        this.syncSelectionToLivewire();
+                    },
+                    flushSelection() { this.syncSelectionToLivewire(); },
+                    syncSelectionToLivewire() {
+                        if (! this.wire || typeof this.wire.set !== 'function') return Promise.resolve();
+                        const ids = this.selectedIdsSnapshot();
+                        const pending = this.wire.set('selectedTaskIds', ids, false);
+                        try { this.wire.set('selectAllMatching', false, false); } catch (e) {}
+                        if (pending && typeof pending.then === 'function') return pending;
+                        return Promise.resolve();
+                    },
+                    runBulk(method, kind, confirmMessage, args) {
+                        if (confirmMessage && ! window.confirm(String(confirmMessage))) return Promise.resolve();
+                        this.beginRowsProcessing(this.selectedIdsSnapshot(), kind || 'publishing');
+                        const wire = this.wire;
+                        const name = String(method || '');
+                        if (! wire || ! name || typeof wire[name] !== 'function') return Promise.resolve();
+                        const invoke = () => Array.isArray(args) && args.length > 0 ? wire[name](...args) : wire[name]();
+                        return this.syncSelectionToLivewire().then(() => invoke());
+                    },
+                    beginRowProcessing(tid, kind) {
+                        const id = Number(tid || 0);
+                        if (id <= 0) return;
+                        this.processingRows = { ...(this.processingRows || {}), [id]: String(kind || 'publishing') };
+                    },
+                    beginRowsProcessing(ids, kind) {
+                        (Array.isArray(ids) ? ids : []).forEach((id) => this.beginRowProcessing(id, kind));
+                    },
+                    beginSelectedProcessing(kind) {
+                        this.beginRowsProcessing(this.selectedIdsSnapshot(), kind);
+                    },
+                    clearRowProcessing(tid) {
+                        const id = Number(tid || 0);
+                        if (id <= 0) return;
+                        const next = { ...(this.processingRows || {}) };
+                        delete next[id];
+                        this.processingRows = next;
+                    },
+                    isRowProcessing(tid) { return !! this.processingRows?.[Number(tid || 0)]; },
+                    rowProcessingKind(tid) { return this.processingRows?.[Number(tid || 0)] || null; },
+                };
+            },
+            init() {
+                const pageIdsFromDom = () => {
+                    try {
+                        return JSON.parse($el.getAttribute('data-pq-page-ids') || '[]');
+                    } catch (e) {
+                        return @js($pageIds);
+                    }
+                };
+                const ui = this.ensurePqStore();
+                ui?.bindWire($wire, @js($this->selectedTaskIds), pageIdsFromDom());
+                const componentId = $wire.__instance?.id;
+                if (! window.Livewire || typeof window.Livewire.hook !== 'function' || ! componentId) {
+                    return;
+                }
+                window.Livewire.hook('commit', ({ component, commit, succeed }) => {
+                    if (component.id !== componentId) {
+                        return;
+                    }
+                    const methods = (commit?.calls || []).map((call) => String(call.method || ''));
+                    const adoptServerSelection = methods.some((name) => [
+                        'clearSelection',
+                        'clearFilters',
+                        'applyStateFilter',
+                        'syncSelectedTaskIds',
+                        'selectPage',
+                        'togglePageSelection',
+                    ].includes(name));
+                    if (methods.length === 0 || methods.every((name) => name === 'refreshQueueHealth')) {
+                        succeed(() => {
+                            queueMicrotask(() => {
+                                const store = $store.pqOpsUi;
+                                if (store) {
+                                    store.pageIds = pageIdsFromDom();
+                                    store.wire = $wire;
+                                }
+                            });
+                        });
+                        return;
+                    }
+                    succeed(() => {
+                        queueMicrotask(() => {
+                            const store = $store.pqOpsUi;
+                            if (! store) {
+                                return;
+                            }
+                            store.wire = $wire;
+                            store.pageIds = pageIdsFromDom();
+                            const serverIds = ($wire.selectedTaskIds || []).map((id) => Number(id)).filter((id) => id > 0);
+                            if (adoptServerSelection) {
+                                store.selectedIds = serverIds;
+                            }
+                            const pending = ($wire.pendingTaskIds || []).map((id) => Number(id)).filter((id) => id > 0);
+                            if (pending.length === 0) {
+                                store.processingRows = {};
+                                return;
+                            }
+                            const next = {};
+                            pending.forEach((id) => {
+                                next[id] = store.processingRows?.[id] || 'publishing';
+                            });
+                            store.processingRows = next;
+                        });
+                    });
+                });
+            },
         }"
+        x-on:cp-ops-row-processing.window="beginRowProcessing(($event.detail || {}).taskId, ($event.detail || {}).kind)"
+        x-on:cp-ops-row-processing-clear.window="clearRowProcessing(($event.detail || {}).taskId)"
         x-on:visibilitychange.window="$wire.refreshQueueHealth()"
         wire:poll.30s="refreshQueueHealth"
     >
@@ -160,14 +353,16 @@
 
             @endif
 
-            @if ($selectedCount > 0 && $selectedCount >= $pageCount && $pageCount > 0 && ! $this->selectAllMatching && $filteredTotal > $pageCount)
-                <div class="mt-2 rounded-md border border-primary-200 bg-primary-50 px-3 py-2 text-sm dark:border-primary-500/30 dark:bg-primary-500/10">
-                    Đã chọn {{ $pageCount }} bài trên trang này.
-                    <button type="button" wire:click="selectAllMatchingResults" class="font-semibold text-primary-700 hover:underline dark:text-primary-300">
-                        Chọn toàn bộ {{ $filteredTotal }} bài phù hợp.
-                    </button>
-                </div>
-            @endif
+            <div
+                class="mt-2 rounded-md border border-primary-200 bg-primary-50 px-3 py-2 text-sm dark:border-primary-500/30 dark:bg-primary-500/10"
+                x-show="$store.pqOpsUi && $store.pqOpsUi.isPageAllSelected() && $store.pqOpsUi.selectedCount() >= {{ $pageCount }} && {{ $pageCount }} > 0 && {{ $this->selectAllMatching ? 'false' : 'true' }} && {{ $filteredTotal }} > {{ $pageCount }}"
+                x-cloak
+            >
+                Đã chọn {{ $pageCount }} bài trên trang này.
+                <button type="button" wire:click="selectAllMatchingResults" class="font-semibold text-primary-700 hover:underline dark:text-primary-300">
+                    Chọn toàn bộ {{ $filteredTotal }} bài phù hợp.
+                </button>
+            </div>
 
             <x-seo-content-ai::content-project-bulk-selection-toolbar
                 variant="publishing_queue"

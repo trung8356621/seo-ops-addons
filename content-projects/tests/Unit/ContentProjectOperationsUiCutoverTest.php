@@ -59,6 +59,7 @@ final class ContentProjectOperationsUiCutoverTest extends TestCase
         self::assertStringContainsString('content-project-bulk-selection-toolbar', $blade);
         self::assertStringContainsString('content-project-items-list', $blade);
         self::assertStringContainsString('variant="content_project"', $blade);
+        self::assertStringContainsString('itemActionBulkMenu', $blade);
         self::assertStringContainsString('applySummaryFilter', $blade);
 
         self::assertStringContainsString('content-project-status-badge', $itemsList);
@@ -90,6 +91,11 @@ final class ContentProjectOperationsUiCutoverTest extends TestCase
         self::assertStringContainsString('archiveSelected', $blade);
         self::assertStringContainsString('content_project', $blade);
         self::assertStringContainsString('publishing_queue', $blade);
+        self::assertStringContainsString('ContentProjectItemActionCatalog', $blade);
+        self::assertSame(1, substr_count($blade, 'wire:click="{{ $action[\'bulk_method\'] }}"'));
+        self::assertStringNotContainsString('Generate working items', $blade);
+        self::assertStringNotContainsString('Regen outline', $blade);
+        self::assertStringNotContainsString('Regen article', $blade);
     }
 
     public function test_actions_menu_groups_and_gates(): void
@@ -119,7 +125,8 @@ final class ContentProjectOperationsUiCutoverTest extends TestCase
         self::assertTrue($reviewOnly['approve']);
         self::assertFalse($reviewOnly['start_review']);
         self::assertFalse($reviewOnly['generate']);
-        self::assertFalse($reviewOnly['create_or_rerun']);
+        self::assertTrue($reviewOnly['create_or_rerun']);
+        self::assertFalse($reviewOnly['run_generation_bulk']);
         self::assertTrue($reviewOnly['has_review']);
 
         $pending = ContentProjectItemActionsPresenter::forRow([
@@ -135,6 +142,7 @@ final class ContentProjectOperationsUiCutoverTest extends TestCase
         ]);
         self::assertTrue($pending['create_or_rerun']);
         self::assertSame('create', $pending['create_or_rerun_label']);
+        self::assertTrue($pending['run_generation_bulk']);
         self::assertFalse($pending['generate']);
         self::assertFalse($pending['approve']);
         self::assertFalse($pending['publish_now']);
@@ -154,6 +162,7 @@ final class ContentProjectOperationsUiCutoverTest extends TestCase
         self::assertFalse($notRunnable['generate']);
         self::assertTrue($notRunnable['create_or_rerun']);
         self::assertSame('rerun', $notRunnable['create_or_rerun_label']);
+        self::assertFalse($notRunnable['run_generation_bulk']);
     }
 
     public function test_status_badge_semantic_colors(): void

@@ -273,11 +273,7 @@
                             <span wire:loading.remove wire:target="runScan">
                                 {{ __('seo-content-ai::filament.articles_optimal.scan_button') }}
                             </span>
-                            <span wire:loading wire:target="runScan" class="inline-flex items-center gap-2">
-                                <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-                                </svg>
+                            <span wire:loading wire:target="runScan">
                                 {{ __('seo-content-ai::filament.articles_optimal.scanning') }}
                             </span>
                         @endif
@@ -301,11 +297,7 @@
                                 <span wire:loading.remove wire:target="queueMissingScoringForFilterSite">
                                     {{ __('seo-content-ai::filament.articles_optimal.queue_missing_scoring') }}
                                 </span>
-                                <span wire:loading wire:target="queueMissingScoringForFilterSite" class="inline-flex items-center gap-2">
-                                    <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none">
-                                        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-                                    </svg>
+                                <span wire:loading wire:target="queueMissingScoringForFilterSite">
                                     {{ __('seo-content-ai::filament.articles_optimal.processing') }}
                                 </span>
                             </x-filament::button>
@@ -369,11 +361,19 @@
                     <span class="text-xs text-gray-500" x-text="`${selectedArticleIds.length} {{ __('seo-content-ai::filament.articles_optimal.bulk_selected_suffix') }}`"></span>
                 </div>
 
-                <div class="overflow-x-auto">
-                    <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-white/10">
+                <div class="w-full overflow-x-auto">
+                    <table class="w-full table-fixed divide-y divide-gray-200 text-sm dark:divide-white/10">
+                        <colgroup>
+                            <col class="w-10">
+                            <col style="width: 22%">
+                            <col style="width: 12%">
+                            <col>
+                            <col class="w-28">
+                            <col class="w-36">
+                        </colgroup>
                         <thead class="bg-gray-50 dark:bg-gray-900/40">
                             <tr>
-                                <th class="w-10 px-3 py-2 text-left font-semibold">
+                                <th class="px-3 py-2 text-left font-semibold">
                                     <input
                                         type="checkbox"
                                         class="rounded border-gray-300"
@@ -384,7 +384,28 @@
                                 <th class="px-3 py-2 text-left font-semibold">{{ __('seo-content-ai::filament.articles_optimal.col_title') }}</th>
                                 <th class="px-3 py-2 text-left font-semibold">{{ __('seo-content-ai::filament.articles_optimal.col_domain') }}</th>
                                 <th class="px-3 py-2 text-left font-semibold">{{ __('seo-content-ai::filament.articles_optimal.col_warnings') }}</th>
-                                <th class="px-3 py-2 text-left font-semibold">{{ __('seo-content-ai::filament.articles_optimal.col_score') }}</th>
+                                <th class="px-3 py-2 text-left font-semibold whitespace-nowrap">
+                                    <button
+                                        type="button"
+                                        wire:click="sortResultsByScore"
+                                        wire:loading.attr="disabled"
+                                        wire:target="sortResultsByScore"
+                                        @class([
+                                            'inline-flex items-center gap-1 text-left hover:text-primary-600 dark:hover:text-primary-400',
+                                            'text-primary-600 dark:text-primary-400' => $resultsSortBy === 'score',
+                                        ])
+                                    >
+                                        <span>{{ __('seo-content-ai::filament.articles_optimal.col_score') }}</span>
+                                        @if ($resultsSortBy === 'score')
+                                            <x-filament::icon
+                                                :icon="$resultsSortDir === 'asc' ? 'heroicon-m-chevron-up' : 'heroicon-m-chevron-down'"
+                                                class="h-4 w-4 shrink-0"
+                                            />
+                                        @else
+                                            <x-filament::icon icon="heroicon-m-arrows-up-down" class="h-4 w-4 shrink-0 opacity-50" />
+                                        @endif
+                                    </button>
+                                </th>
                                 <th class="px-3 py-2 text-left font-semibold">{{ __('seo-content-ai::filament.articles_optimal.col_actions') }}</th>
                             </tr>
                         </thead>
@@ -405,18 +426,18 @@
                                             "
                                         >
                                     </td>
-                                    <td class="px-3 py-3 align-top">
+                                    <td class="min-w-0 px-3 py-3 align-top">
                                         @if (! empty($row['permalink']))
-                                            <a href="{{ $row['permalink'] }}" target="_blank" rel="noopener noreferrer" class="font-medium text-primary-600 hover:underline dark:text-primary-400">
+                                            <a href="{{ $row['permalink'] }}" target="_blank" rel="noopener noreferrer" class="block break-words font-medium text-primary-600 hover:underline dark:text-primary-400">
                                                 {{ $row['title'] }}
                                             </a>
                                         @else
-                                            <span class="font-medium">{{ $row['title'] }}</span>
+                                            <span class="block break-words font-medium">{{ $row['title'] }}</span>
                                         @endif
                                     </td>
-                                    <td class="px-3 py-3 align-top text-gray-600 dark:text-gray-300">{{ $row['domain'] }}</td>
-                                    <td class="px-3 py-3 align-top">
-                                        <ul class="list-disc pl-4 space-y-1 text-gray-700 dark:text-gray-300">
+                                    <td class="min-w-0 px-3 py-3 align-top break-words text-gray-600 dark:text-gray-300">{{ $row['domain'] }}</td>
+                                    <td class="min-w-0 px-3 py-3 align-top">
+                                        <ul class="list-disc space-y-1 break-words pl-4 text-gray-700 dark:text-gray-300">
                                             @if (! empty($row['has_keyword_flags']))
                                                 <li class="font-medium text-amber-700 dark:text-amber-300">
                                                     {{ __('seo-content-ai::filament.articles_optimal.source_keyword_review') }}
@@ -444,7 +465,7 @@
                                             @endif
                                         </ul>
                                     </td>
-                                    <td class="px-3 py-3 align-top">
+                                    <td class="whitespace-nowrap px-3 py-3 align-top">
                                         <span @class([
                                             'font-semibold',
                                             'text-rose-600 dark:text-rose-400' => (int) ($row['score'] ?? 0) < 50,
@@ -452,7 +473,7 @@
                                             'text-emerald-600 dark:text-emerald-400' => (int) ($row['score'] ?? 0) > 70,
                                         ])>{{ (int) ($row['score'] ?? 0) }}</span>
                                     </td>
-                                    <td class="px-3 py-3 align-top">
+                                    <td class="whitespace-nowrap px-3 py-3 align-top">
                                         <div class="flex flex-wrap gap-2">
                                             <x-filament::icon-button tag="a" href="{{ $row['edit_url'] }}" icon="heroicon-o-pencil-square" size="sm" color="gray" tooltip="{{ __('seo-content-ai::filament.articles_optimal.action_edit') }}" label="{{ __('seo-content-ai::filament.articles_optimal.action_open_article') }}" />
                                             <x-filament::icon-button icon="heroicon-o-eye-slash" size="sm" color="warning" x-on:click="runSkipRow({{ (int) $row['id'] }})" tooltip="{{ __('seo-content-ai::filament.articles_optimal.action_skip_audit') }}" />

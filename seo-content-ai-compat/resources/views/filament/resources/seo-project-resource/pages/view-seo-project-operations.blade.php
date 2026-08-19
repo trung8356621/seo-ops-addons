@@ -75,6 +75,11 @@
             missingArticleTitle: '',
             missingArticlePreviousId: 0,
             missingArticleBusy: false,
+            restartKeywordOpen: false,
+            restartKeywordTaskId: 0,
+            restartKeywordItemTitle: '',
+            restartKeywordInput: '',
+            restartKeywordBusy: false,
             openSelectExistingArticleModal(taskId) {
                 const id = Number(taskId || 0);
                 if (id <= 0) return;
@@ -115,6 +120,39 @@
                     this.missingArticleTaskId = 0;
                     this.missingArticleTitle = '';
                     this.missingArticlePreviousId = 0;
+                });
+            },
+            openRestartWithKeywordModal(detail) {
+                const id = Number(detail?.taskId || 0);
+                if (id <= 0) return;
+                const switchingItem = this.restartKeywordTaskId !== id;
+                this.restartKeywordOpen = true;
+                this.restartKeywordBusy = false;
+                this.restartKeywordTaskId = id;
+                this.restartKeywordItemTitle = String(detail?.title || ('#' + id));
+                if (switchingItem) {
+                    this.restartKeywordInput = '';
+                }
+            },
+            closeRestartWithKeywordModal() {
+                this.restartKeywordOpen = false;
+                this.restartKeywordBusy = false;
+                this.restartKeywordTaskId = 0;
+                this.restartKeywordItemTitle = '';
+                this.restartKeywordInput = '';
+            },
+            confirmRestartWithKeyword() {
+                const id = Number(this.restartKeywordTaskId || 0);
+                const keyword = String(this.restartKeywordInput || '').trim();
+                if (id <= 0 || keyword === '' || this.restartKeywordBusy) return;
+                this.restartKeywordBusy = true;
+                $dispatch('cp-ops-row-processing', { taskId: id, kind: 'generation' });
+                $wire.confirmRestartWithKeyword(id, keyword).finally(() => {
+                    this.restartKeywordBusy = false;
+                    this.restartKeywordOpen = false;
+                    this.restartKeywordTaskId = 0;
+                    this.restartKeywordItemTitle = '';
+                    this.restartKeywordInput = '';
                 });
             },
             scheduleSelectArticleSearch() {
@@ -611,6 +649,8 @@
         x-on:close-select-existing-article.window="selectArticleOpen = false"
         x-on:open-missing-article-confirm.window="openMissingArticleConfirmModal($event.detail || {})"
         x-on:close-missing-article-confirm.window="missingArticleOpen = false"
+        x-on:open-restart-with-keyword.window="openRestartWithKeywordModal($event.detail || {})"
+        x-on:close-restart-with-keyword.window="restartKeywordOpen = false"
     >
         @if ($this->settingsOpen)
             <div class="rounded-xl border border-gray-200 bg-white p-4 text-sm dark:border-gray-700 dark:bg-gray-900">
@@ -732,7 +772,11 @@
             @if ($cmOps && $onNeedsReviewFilter && (int) ($summarySnapshot['needs_review'] ?? 0) === 0)
                 <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.ops_needs_review_empty') }}</p>
             @endif
-            <x-seo-content-ai::content-project-bulk-selection-toolbar variant="content_project" :selected-count="$selectedCount" />
+            <x-seo-content-ai::content-project-bulk-selection-toolbar
+                variant="content_project"
+                :selected-count="$selectedCount"
+                :bulk-menu-groups="$this->itemActionBulkMenu"
+            />
         </div>
 
         {{-- Debug lifecycle modal — Alpine first; no WordPress --}}
@@ -822,6 +866,74 @@
                                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
                             </svg>
                             <span>{{ __('seo-content-ai::filament.projects.missing_article_confirm_create') }}</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </template>
+
+        {{-- Fresh keyword restart modal --}}
+        <template x-teleport="body">
+            <div
+                x-show="restartKeywordOpen"
+                x-cloak
+                x-transition.opacity.duration.150ms
+                class="cp-ops-dialog-overlay"
+                @keydown.escape.window="if (restartKeywordOpen) { closeRestartWithKeywordModal() }"
+                @click.self="closeRestartWithKeywordModal()"
+            >
+                <div
+                    x-show="restartKeywordOpen"
+                    x-transition:enter="ease-out duration-150"
+                    x-transition:enter-start="opacity-0 translate-y-1 scale-[0.98]"
+                    x-transition:enter-end="opacity-100 translate-y-0 scale-100"
+                    class="cp-ops-dialog cp-ops-dialog--sm"
+                    @click.outside="closeRestartWithKeywordModal()"
+                >
+                    <div class="cp-ops-dialog__header">
+                        <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">
+                            {{ __('seo-content-ai::filament.projects.restart_with_keyword_title') }}
+                        </h3>
+                        <p class="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-800 dark:bg-gray-800/60 dark:text-gray-200">
+                            <span class="font-medium" x-text="restartKeywordItemTitle"></span>
+                        </p>
+                        <label class="mt-4 block">
+                            <span class="text-sm font-medium text-gray-700 dark:text-gray-200">
+                                {{ __('seo-content-ai::filament.projects.restart_with_keyword_input_label') }}
+                            </span>
+                            <input
+                                type="text"
+                                x-model="restartKeywordInput"
+                                class="fi-input mt-1 block w-full rounded-lg text-sm"
+                                placeholder="{{ __('seo-content-ai::filament.projects.restart_with_keyword_input_placeholder') }}"
+                                @keydown.enter.prevent="confirmRestartWithKeyword()"
+                            />
+                        </label>
+                        <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                            {{ __('seo-content-ai::filament.projects.restart_with_keyword_helper') }}
+                        </p>
+                    </div>
+                    <div class="cp-ops-dialog__footer flex justify-end gap-2">
+                        <button
+                            type="button"
+                            class="fi-btn fi-btn-color-gray fi-size-sm"
+                            @click="closeRestartWithKeywordModal()"
+                            :disabled="restartKeywordBusy"
+                        >
+                            {{ __('seo-content-ai::filament.projects.restart_with_keyword_cancel') }}
+                        </button>
+                        <button
+                            type="button"
+                            class="fi-btn fi-btn-color-primary fi-size-sm inline-flex items-center gap-1"
+                            @click="confirmRestartWithKeyword()"
+                            :disabled="restartKeywordBusy || !String(restartKeywordInput || '').trim()"
+                            :class="{ 'opacity-50 pointer-events-none': restartKeywordBusy || !String(restartKeywordInput || '').trim() }"
+                        >
+                            <svg x-show="restartKeywordBusy" class="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                            </svg>
+                            <span>{{ __('seo-content-ai::filament.projects.restart_with_keyword_submit') }}</span>
                         </button>
                     </div>
                 </div>

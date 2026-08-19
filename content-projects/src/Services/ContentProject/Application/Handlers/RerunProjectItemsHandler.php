@@ -28,6 +28,7 @@ use Omnichannel\Addons\ContentProjects\Services\SeoProjectWorkflowRunService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProjectRunSettings;
 use App\Support\RuntimeLogger;
 use InvalidArgumentException;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectImproveManualOnlyGenerationGuard;
 
 final class RerunProjectItemsHandler extends AbstractPublishingHandler
 {
@@ -76,6 +77,35 @@ final class RerunProjectItemsHandler extends AbstractPublishingHandler
                     'Rerun requires explicit item selection.',
                     $projectId,
                 );
+            }
+
+            // «improve» is manual-only by default: never enqueue AI via generic rerun.
+            $allowImproveGeneration = (bool) ($command->settings[ContentProjectImproveManualOnlyGenerationGuard::ALLOW_IMPROVE_GENERATION_SETTING] ?? false);
+            if (! $allowImproveGeneration && $itemIds !== []) {
+                $typesById = SeoProjectTask::query()
+                    ->whereIn('id', $itemIds)
+                    ->pluck('type', 'id')
+                    ->all();
+
+                $guard = ContentProjectImproveManualOnlyGenerationGuard::filterItemIds(
+                    $itemIds,
+                    $typesById,
+                    allowImproveGeneration: false,
+                );
+
+                $itemIds = $guard['eligible_ids'];
+
+                if ($itemIds === []) {
+                    return ContentProjectActionResult::fail(
+                        ContentProjectActionCodes::VALIDATION_FAILED,
+                        'Improve items are manual-only — AI rerun is blocked.',
+                        $projectId,
+                        metadata: [
+                            'skipped_improve_count' => $guard['skipped_improve_count'],
+                            'skipped_improve_ids' => $guard['skipped_improve_ids'],
+                        ],
+                    );
+                }
             }
 
             $forceFreshCreate = (bool) ($command->settings['fresh_create'] ?? false);

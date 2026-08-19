@@ -238,7 +238,6 @@ final class ContentProjectArchive extends Page
                     ->orWhereHas('site', fn (Builder $siteQuery): Builder => $siteQuery->where('domain', 'like', $like))
                     ->orWhereHas('owner', fn (Builder $ownerQuery): Builder => $ownerQuery
                         ->where('name', 'like', $like)
-                        ->orWhere('display_name', 'like', $like)
                         ->orWhere('email', 'like', $like));
             });
         }
@@ -585,10 +584,7 @@ final class ContentProjectArchive extends Page
             if ($relation === 'site' && $related !== null) {
                 $label = trim((string) ($related->domain ?? ''));
             } elseif ($related instanceof User) {
-                $label = trim((string) ($related->display_name ?? ''));
-                if ($label === '') {
-                    $label = trim((string) ($related->name ?? ''));
-                }
+                $label = trim((string) ($related->name ?? ''));
                 if ($label === '') {
                     $label = (string) ($related->email ?? '');
                 }

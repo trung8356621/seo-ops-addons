@@ -13,7 +13,7 @@ final class ParitySnapshotNormalizer
      * @param  array<string, mixed>|object  $raw
      * @return array{
      *   ids: array{project_id: int|null},
-     *   resulting_state: array{added: int, duplicate: int, overflow: int, domain_mismatch: int, already_in_project: int},
+     *   resulting_state: array{added: int, duplicate: int, overflow: int, domain_mismatch: int, already_in_project: int, allocations: list<array{project_id:int, month:string, added:int}>},
      *   deduplication: array{duplicate: int, already_in_project: int},
      *   links: array{tasks_created: int},
      *   status_transition: null,
@@ -238,7 +238,7 @@ final class ParitySnapshotNormalizer
     }
 
     /**
-     * @return array{added: int, duplicate: int, overflow: int, domain_mismatch: int, already_in_project: int}
+     * @return array{added: int, duplicate: int, overflow: int, domain_mismatch: int, already_in_project: int, allocations: list<array{project_id:int, month:string, added:int}>}
      */
     private function extractAssignmentSummary(mixed $raw): array
     {
@@ -252,12 +252,43 @@ final class ParitySnapshotNormalizer
             $raw = [];
         }
 
+        $allocations = [];
+        if (is_array($raw['allocations'] ?? null)) {
+            foreach ($raw['allocations'] as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+                $added = (int) ($row['added'] ?? 0);
+                if ($added <= 0) {
+                    continue;
+                }
+                $projectId = (int) ($row['project_id'] ?? 0);
+                $month = trim((string) ($row['month'] ?? ''));
+                $key = $projectId > 0 ? (string) $projectId : $month;
+                if ($key === '') {
+                    continue;
+                }
+                if (! isset($allocations[$key])) {
+                    $allocations[$key] = [
+                        'project_id' => $projectId,
+                        'month' => $month,
+                        'added' => 0,
+                    ];
+                }
+                $allocations[$key]['added'] += $added;
+                if ($allocations[$key]['month'] === '' && $month !== '') {
+                    $allocations[$key]['month'] = $month;
+                }
+            }
+        }
+
         return [
             'added' => (int) ($raw['added'] ?? 0),
             'duplicate' => (int) ($raw['duplicate'] ?? 0),
             'overflow' => (int) ($raw['overflow'] ?? 0),
             'domain_mismatch' => (int) ($raw['domain_mismatch'] ?? 0),
             'already_in_project' => (int) ($raw['already_in_project'] ?? 0),
+            'allocations' => array_values($allocations),
         ];
     }
 }

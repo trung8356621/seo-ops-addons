@@ -596,6 +596,7 @@ final class ContentProjectCapabilityRegistry
                     'project_ref' => ['type' => 'string', 'required' => true],
                     'note' => ['type' => 'string', 'required' => false],
                     'confirm_waiting_publish' => ['type' => 'boolean', 'required' => false],
+                    'confirm_hidden_stale_runs' => ['type' => 'boolean', 'required' => false],
                     'dry_run' => ['type' => 'boolean', 'required' => false],
                     'confirmation_token' => ['type' => 'string', 'required' => false],
                 ],

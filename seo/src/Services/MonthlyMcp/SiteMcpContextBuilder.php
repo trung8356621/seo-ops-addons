@@ -21,6 +21,12 @@ use Omnichannel\Addons\SiteSync\Services\Support\SiteSyncInfrastructure;
  */
 final class SiteMcpContextBuilder
 {
+    public function __construct(
+        private readonly SiteMcpContentDistributionAggregator $contentDistribution,
+        private readonly SiteMcpInternalLinkingAggregator $internalLinking,
+        private readonly McpDataQualityGuard $dataQuality,
+    ) {}
+
     public function build(Site $site, string $periodKey): MonthlyMcpSourcePayload
     {
         $siteId = (int) $site->id;
@@ -29,6 +35,9 @@ final class SiteMcpContextBuilder
         $findings = $this->findings($siteId);
         $indexability = $this->indexability($siteId);
         $articles = $this->articleCounts($siteId);
+        $distribution = $this->contentDistribution->aggregate($siteId);
+        $linking = $this->internalLinking->aggregate($site);
+        $publishing = $this->publishingStatus($siteId);
         $lastSync = $this->lastSyncAt($siteId);
         $sourceUpdatedAt = MonthlyMcpFreshness::maxIso([
             is_string($heartbeat['observed_at'] ?? null) ? (string) $heartbeat['observed_at'] : null,
@@ -71,11 +80,15 @@ final class SiteMcpContextBuilder
             'high_findings' => $high,
             'article_total' => $articles['total'],
             'article_published' => $articles['published'],
-            'broken_links' => (int) ($link['broken_links'] ?? 0),
-            'internal_links' => (int) ($link['internal_links'] ?? 0),
-            'orphan_pages' => (int) ($link['orphan_pages'] ?? 0),
-            'link_opportunities' => (int) ($link['opportunities'] ?? 0),
+            'broken_links' => array_key_exists('broken_links', $link) ? (int) $link['broken_links'] : null,
+            'internal_links' => $linking['total_internal_links'],
+            'internally_linked_articles' => $linking['linked_articles'],
+            'articles_without_internal_links' => $linking['articles_without_internal_links'],
+            'categories' => $distribution['categories'],
+            'orphan_pages' => array_key_exists('orphan_pages', $link) ? (int) $link['orphan_pages'] : null,
+            'link_opportunities' => array_key_exists('opportunities', $link) ? (int) $link['opportunities'] : null,
         ];
+        $qualityWarnings = $this->dataQuality->siteWarnings((int) $articles['total'], $distribution, $linking);
         $summary = [
             'identity' => [
                 'site_id' => $siteId,
@@ -92,11 +105,24 @@ final class SiteMcpContextBuilder
                 'source_stale' => MonthlyMcpFreshness::isSourceStale($sourceUpdatedAt),
             ],
             'link_health' => [
-                'internal_links' => (int) ($link['internal_links'] ?? 0),
-                'broken_links' => (int) ($link['broken_links'] ?? 0),
-                'orphan_pages' => (int) ($link['orphan_pages'] ?? 0),
-                'opportunities' => (int) ($link['opportunities'] ?? 0),
+                'internal_links' => $linking['total_internal_links'],
+                'internally_linked_articles' => $linking['linked_articles'],
+                'articles_without_internal_links' => $linking['articles_without_internal_links'],
+                'articles_single_internal_link' => $linking['articles_single_internal_link'],
+                'average_links_per_linked_article' => $linking['average_links_per_linked_article'],
+                'top_linked_articles' => $linking['top_linked_articles'],
+                'broken_links' => array_key_exists('broken_links', $link) ? (int) $link['broken_links'] : null,
+                'orphan_pages' => array_key_exists('orphan_pages', $link) ? (int) $link['orphan_pages'] : null,
+                'opportunities' => array_key_exists('opportunities', $link) ? (int) $link['opportunities'] : null,
                 'last_analyzed_at' => $link['last_analyzed_at'] ?? null,
+                'available' => (bool) ($linking['available'] ?? false),
+                'source' => (string) ($linking['source'] ?? 'unavailable'),
+            ],
+            'internal_linking' => $linking,
+            'content_distribution' => $distribution,
+            'publishing_status' => $publishing,
+            'data_quality' => [
+                'warnings' => $qualityWarnings,
             ],
             'findings' => [
                 'critical' => $critical,
@@ -199,18 +225,47 @@ final class SiteMcpContextBuilder
     }
 
     /**
-     * @return array{total: int, published: int}
+     * @return array{total: int, published: int, draft: int, scheduled: int, private: int, other: int}
      */
     private function articleCounts(int $siteId): array
     {
         if (! Schema::connection('omi_seo_ai')->hasTable('articles')) {
-            return ['total' => 0, 'published' => 0];
+            return ['total' => 0, 'published' => 0, 'draft' => 0, 'scheduled' => 0, 'private' => 0, 'other' => 0];
         }
         $base = SeoArticle::query()->where('site_id', $siteId)->where('status', '!=', 'trash');
+        $publishing = $this->publishingStatus($siteId);
 
         return [
             'total' => (int) (clone $base)->count(),
-            'published' => (int) (clone $base)->where('status', 'published')->count(),
+            'published' => (int) ($publishing['published'] ?? 0),
+            'draft' => (int) ($publishing['draft'] ?? 0),
+            'scheduled' => (int) ($publishing['scheduled'] ?? 0),
+            'private' => (int) ($publishing['private'] ?? 0),
+            'other' => (int) ($publishing['other'] ?? 0),
+        ];
+    }
+
+    /**
+     * @return array{published: int, draft: int, scheduled: int, private: int, other: int}
+     */
+    private function publishingStatus(int $siteId): array
+    {
+        if (! Schema::connection('omi_seo_ai')->hasTable('articles')) {
+            return ['published' => 0, 'draft' => 0, 'scheduled' => 0, 'private' => 0, 'other' => 0];
+        }
+        $base = SeoArticle::query()->where('site_id', $siteId)->where('status', '!=', 'trash');
+        $published = (int) (clone $base)->where('status', 'published')->count();
+        $draft = (int) (clone $base)->where('status', 'draft')->count();
+        $scheduled = (int) (clone $base)->where('status', 'scheduled')->count();
+        $private = (int) (clone $base)->where('status', 'private')->count();
+        $total = (int) (clone $base)->count();
+
+        return [
+            'published' => $published,
+            'draft' => $draft,
+            'scheduled' => $scheduled,
+            'private' => $private,
+            'other' => max(0, $total - $published - $draft - $scheduled - $private),
         ];
     }
 

@@ -65,6 +65,7 @@ final class AssignmentCallerBridge
                     'overflow' => 0,
                     'domain_mismatch' => 0,
                     'already_in_project' => 0,
+                    'allocations' => [],
                 ];
                 foreach ($articles as $article) {
                     $one = $this->actionRunner->run(
@@ -90,9 +91,13 @@ final class AssignmentCallerBridge
                         return $one;
                     }
                     $part = is_array($one->output['summary'] ?? null) ? $one->output['summary'] : [];
-                    foreach (array_keys($aggregate) as $key) {
+                    foreach (['added', 'duplicate', 'overflow', 'domain_mismatch', 'already_in_project'] as $key) {
                         $aggregate[$key] += (int) ($part[$key] ?? 0);
                     }
+                    $aggregate['allocations'] = $this->mergeAllocations(
+                        $aggregate['allocations'],
+                        is_array($part['allocations'] ?? null) ? $part['allocations'] : [],
+                    );
                 }
 
                 return ActionResult::success(output: [
@@ -151,6 +156,7 @@ final class AssignmentCallerBridge
                     'overflow' => 0,
                     'domain_mismatch' => 0,
                     'already_in_project' => 0,
+                    'allocations' => [],
                 ];
                 foreach ($keywords as $keyword) {
                     $keyword->loadCount('mainArticles');
@@ -171,9 +177,13 @@ final class AssignmentCallerBridge
                         return $one;
                     }
                     $part = is_array($one->output['summary'] ?? null) ? $one->output['summary'] : [];
-                    foreach (array_keys($aggregate) as $key) {
+                    foreach (['added', 'duplicate', 'overflow', 'domain_mismatch', 'already_in_project'] as $key) {
                         $aggregate[$key] += (int) ($part[$key] ?? 0);
                     }
+                    $aggregate['allocations'] = $this->mergeAllocations(
+                        $aggregate['allocations'],
+                        is_array($part['allocations'] ?? null) ? $part['allocations'] : [],
+                    );
                 }
 
                 return ActionResult::success(output: [
@@ -195,5 +205,42 @@ final class AssignmentCallerBridge
         );
 
         return $this->parityNormalizer->assignment($result, $projectId)['resulting_state'];
+    }
+
+    /**
+     * @param  list<array{project_id?:int, month?:string, added?:int}>  $current
+     * @param  list<array{project_id?:int, month?:string, added?:int}>  $incoming
+     * @return list<array{project_id:int, month:string, added:int}>
+     */
+    private function mergeAllocations(array $current, array $incoming): array
+    {
+        $merged = [];
+        foreach ([$current, $incoming] as $group) {
+            foreach ($group as $row) {
+                $added = (int) ($row['added'] ?? 0);
+                if ($added <= 0) {
+                    continue;
+                }
+                $projectId = (int) ($row['project_id'] ?? 0);
+                $month = trim((string) ($row['month'] ?? ''));
+                $key = $projectId > 0 ? (string) $projectId : $month;
+                if ($key === '') {
+                    continue;
+                }
+                if (! isset($merged[$key])) {
+                    $merged[$key] = [
+                        'project_id' => $projectId,
+                        'month' => $month,
+                        'added' => 0,
+                    ];
+                }
+                $merged[$key]['added'] += $added;
+                if ($merged[$key]['month'] === '' && $month !== '') {
+                    $merged[$key]['month'] = $month;
+                }
+            }
+        }
+
+        return array_values($merged);
     }
 }

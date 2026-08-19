@@ -13,6 +13,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Contr
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectBusinessLock;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectPreviewToken;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectTenantGuard;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectItemAllocator;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\LocalArticleAssociationGuard;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemIdentity;
 use Illuminate\Support\Facades\DB;
@@ -24,6 +25,7 @@ final class AddContentProjectItemsHandler extends AbstractPublishingHandler
         ContentProjectTenantGuard $tenantGuard,
         ContentProjectBusinessLock $businessLock,
         ContentProjectPreviewToken $previewToken,
+        private readonly ContentProjectItemAllocator $allocator,
     ) {
         parent::__construct($tenantGuard, $businessLock, $previewToken);
     }
@@ -78,7 +80,10 @@ final class AddContentProjectItemsHandler extends AbstractPublishingHandler
                 }
             }
 
-            $createdIds = DB::connection('omi_seo_ai')->transaction(function () use ($project, $command): array {
+            $createdIds = [];
+            $allocations = [];
+            DB::connection('omi_seo_ai')->transaction(function () use ($project, $command, &$createdIds, &$allocations): void {
+                $session = $this->allocator->begin($project);
                 $ids = [];
                 foreach ($command->items as $row) {
                     if (! is_array($row)) {
@@ -93,7 +98,12 @@ final class AddContentProjectItemsHandler extends AbstractPublishingHandler
                         isset($row['title']) ? (string) $row['title'] : (isset($row['post_title']) ? (string) $row['post_title'] : null),
                     );
 
-                    $projectSiteId = (int) ($project->site_id ?? 0);
+                    $target = $session->projectWithRemainingCapacity();
+                    if ($target === null || (int) $target->getKey() <= 0) {
+                        continue;
+                    }
+
+                    $projectSiteId = (int) ($target->site_id ?? $project->site_id ?? 0);
                     $rawArticleId = isset($row['article_id']) ? (int) $row['article_id'] : 0;
                     $localArticleId = $rawArticleId > 0
                         ? LocalArticleAssociationGuard::resolveLocalArticleId(
@@ -102,8 +112,9 @@ final class AddContentProjectItemsHandler extends AbstractPublishingHandler
                         )
                         : null;
 
+                    $occupied = $session->occupiedCount($target);
                     $task = SeoProjectTask::query()->create([
-                        'project_id' => (int) $project->getKey(),
+                        'project_id' => (int) $target->getKey(),
                         'site_id' => $projectSiteId,
                         'type' => $type,
                         'post_type' => (string) ($row['post_type'] ?? SeoProjectTask::POST_TYPE_ARTICLE),
@@ -111,16 +122,15 @@ final class AddContentProjectItemsHandler extends AbstractPublishingHandler
                         'title' => $title !== '' ? $title : null,
                         'status' => SeoProjectTask::STATUS_PENDING,
                         'article_id' => $localArticleId,
-                        'target_date' => $row['target_date'] ?? now()->toDateString(),
+                        'target_date' => $row['target_date'] ?? $target->monthCarbon()->copy()->addDays($occupied)->format('Y-m-d'),
                     ]);
+                    $session->recordAdded($target);
                     $ids[] = (int) $task->getKey();
                 }
 
-                $project->update([
-                    'total_tasks' => (int) $project->tasks()->count(),
-                ]);
-
-                return $ids;
+                $session->syncTouchedCounters();
+                $createdIds = $ids;
+                $allocations = $session->allocations();
             });
 
             return ContentProjectActionResult::ok(
@@ -128,7 +138,10 @@ final class AddContentProjectItemsHandler extends AbstractPublishingHandler
                 count($createdIds).' item(s) added.',
                 $projectId,
                 $createdIds,
-                metadata: ['affected_count' => count($createdIds)],
+                metadata: [
+                    'affected_count' => count($createdIds),
+                    'allocations' => $allocations,
+                ],
             );
         });
     }

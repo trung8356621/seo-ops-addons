@@ -276,6 +276,7 @@ final class ContentProjectUiSixFixesContractTest extends TestCase
             ProjectRoot::addonsPath().'/content-projects/src/Filament/Resources/SeoProjectResource/Pages/ViewSeoProject.php',
         );
         self::assertStringContainsString('skipGenerationOne', $view);
+        self::assertStringContainsString('skipGenerationSelected', $view);
         self::assertStringContainsString('allowGenerationOne', $view);
         self::assertStringContainsString('BlockProjectItemGenerationCommand', $view);
         self::assertStringContainsString('UnblockProjectItemGenerationCommand', $view);

@@ -108,6 +108,44 @@ class SeoProjectTask extends Model
     }
 
     /**
+     * Đã generate trên list: completed/reviewing, hoặc CREATE đã gắn article kết quả.
+     * article_id trên rewrite/improve là bài nguồn — chưa tính generated.
+     *
+     * @param  Builder<SeoProjectTask>  $query
+     * @return Builder<SeoProjectTask>
+     */
+    public function scopeActiveGenerated(Builder $query): Builder
+    {
+        return $query->active()->where(static function (Builder $inner): void {
+            $inner->whereIn('status', [
+                self::STATUS_COMPLETED,
+                self::STATUS_REVIEWING,
+            ])->orWhere(static function (Builder $createGenerated): void {
+                $createGenerated->where('type', self::TYPE_CREATE)
+                    ->whereNotNull('article_id')
+                    ->where('article_id', '>', 0);
+            });
+        });
+    }
+
+    /**
+     * Chưa generate: pending và chưa có article kết quả (CREATE). Rewrite/improve pending vẫn chờ generate dù đã gắn bài nguồn.
+     *
+     * @param  Builder<SeoProjectTask>  $query
+     * @return Builder<SeoProjectTask>
+     */
+    public function scopeActiveNeverGenerated(Builder $query): Builder
+    {
+        return $query->active()
+            ->where('status', self::STATUS_PENDING)
+            ->where(static function (Builder $inner): void {
+                $inner->where('type', '!=', self::TYPE_CREATE)
+                    ->orWhereNull('article_id')
+                    ->orWhere('article_id', '<=', 0);
+            });
+    }
+
+    /**
      * Canonical eligibility for Generate / retry / resume / bulk selection.
      * planned() + not operator-blocked.
      *

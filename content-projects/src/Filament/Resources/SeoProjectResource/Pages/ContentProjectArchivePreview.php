@@ -326,7 +326,7 @@ final class ContentProjectArchivePreview extends Page
         return [
             'project_name' => (string) ($this->archiveRecord->project_name ?: ($snapshot['project_name'] ?? '')),
             'domain' => trim((string) ($this->archiveRecord->site?->domain ?? ($snapshot['domain_name'] ?? ''))),
-            'owner' => trim((string) ($this->archiveRecord->owner?->display_name ?? $this->archiveRecord->owner?->name ?? ($snapshot['owner_name'] ?? ''))),
+            'owner' => trim((string) ($this->archiveRecord->owner?->name ?? ($snapshot['owner_name'] ?? ''))),
             'month' => (int) ($this->archiveRecord->project_month ?? ($snapshot['month'] ?? 0)),
             'year' => (int) ($this->archiveRecord->project_year ?? ($snapshot['year'] ?? 0)),
             'total_articles' => (int) ($this->archiveRecord->total_articles ?? $this->archiveRecord->articles_count ?? ($snapshot['total_articles'] ?? 0)),
@@ -334,7 +334,7 @@ final class ContentProjectArchivePreview extends Page
             'synced_articles' => (int) ($this->archiveRecord->synced_articles ?? ($snapshot['synced_articles'] ?? 0)),
             'average_seo_score' => $this->archiveRecord->average_seo_score ?? ($snapshot['average_seo_score'] ?? null),
             'archived_at' => $this->archiveRecord->archived_at,
-            'archived_by' => trim((string) ($this->archiveRecord->archivedByUser?->display_name ?? $this->archiveRecord->archivedByUser?->name ?? '')),
+            'archived_by' => trim((string) ($this->archiveRecord->archivedByUser?->name ?? '')),
             'note' => trim((string) ($this->archiveRecord->note ?? '')),
         ];
     }

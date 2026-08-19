@@ -855,20 +855,23 @@ class SeoProjectResource extends SeoPanelResource
                     ->numeric()
                     ->alignCenter()
                     ->sortable()
+                    ->getStateUsing(fn (SeoProject $record): int => $record->displayGeneratedCount())
                     ->tooltip(__('seo-content-ai::filament.projects.generated_tooltip')),
 
                 Tables\Columns\TextColumn::make('active_pending_count')
                     ->label(__('seo-content-ai::filament.projects.pending_never_generated'))
                     ->numeric()
                     ->alignCenter()
-                    ->sortable(),
+                    ->sortable()
+                    ->getStateUsing(fn (SeoProject $record): int => $record->displayPendingCount()),
 
                 Tables\Columns\TextColumn::make('active_failed_count')
                     ->label(__('seo-content-ai::filament.projects.failed'))
                     ->numeric()
                     ->alignCenter()
                     ->sortable()
-                    ->toggleable(),
+                    ->toggleable()
+                    ->getStateUsing(fn (SeoProject $record): int => $record->displayFailedCount()),
 
                 Tables\Columns\TextColumn::make('status')
                     ->label(__('seo-content-ai::filament.projects.status'))
@@ -992,6 +995,15 @@ class SeoProjectResource extends SeoPanelResource
                                     ->required();
                             }
 
+                            if ($gate['requires_hidden_stale_runs_confirm']) {
+                                $fields[] = Forms\Components\Checkbox::make('confirm_hidden_stale_runs')
+                                    ->label(__('seo-content-ai::filament.projects.archive_hidden_stale_runs_confirm', [
+                                        'count' => $gate['hidden_stale_runs'],
+                                    ]))
+                                    ->rule('accepted')
+                                    ->required();
+                            }
+
                             return $fields;
                         })
                         ->action(function (SeoProject $record, array $data): void {
@@ -1004,6 +1016,7 @@ class SeoProjectResource extends SeoPanelResource
                                         (int) $record->getKey(),
                                         isset($data['note']) ? (string) $data['note'] : null,
                                         (bool) ($data['confirm_waiting_publish'] ?? false),
+                                        confirmHiddenStaleRuns: (bool) ($data['confirm_hidden_stale_runs'] ?? false),
                                     ),
                                     ActorContext::user(
                                         auth()->id() !== null ? (int) auth()->id() : null,
@@ -1144,22 +1157,8 @@ class SeoProjectResource extends SeoPanelResource
                 ->with(['user', 'site', 'currentArchive'])
                 ->withCount([
                     'tasks as active_tasks_count' => static fn (Builder $sub): Builder => $sub->active(),
-                    'tasks as active_generated_count' => static fn (Builder $sub): Builder => $sub
-                        ->active()
-                        ->where(static function (Builder $inner): void {
-                            $inner->whereIn('status', [
-                                SeoProjectTask::STATUS_COMPLETED,
-                                SeoProjectTask::STATUS_REVIEWING,
-                            ])->orWhere(static function (Builder $linked): void {
-                                $linked->whereNotNull('article_id')->where('article_id', '>', 0);
-                            });
-                        }),
-                    'tasks as active_pending_count' => static fn (Builder $sub): Builder => $sub
-                        ->active()
-                        ->where('status', SeoProjectTask::STATUS_PENDING)
-                        ->where(static function (Builder $inner): void {
-                            $inner->whereNull('article_id')->orWhere('article_id', '<=', 0);
-                        }),
+                    'tasks as active_generated_count' => static fn (Builder $sub): Builder => $sub->activeGenerated(),
+                    'tasks as active_pending_count' => static fn (Builder $sub): Builder => $sub->activeNeverGenerated(),
                     'tasks as active_failed_count' => static fn (Builder $sub): Builder => $sub
                         ->active()
                         ->where('status', SeoProjectTask::STATUS_FAILED),

@@ -107,9 +107,7 @@
         @endif
         @if (! empty($a['create_or_rerun']))
         @php
-            $createOrRerunLabel = (($a['create_or_rerun_label'] ?? 'create') === 'rerun')
-                ? __('seo-content-ai::filament.projects.item_action_smart_rerun')
-                : __('seo-content-ai::filament.projects.item_action_smart_create');
+            $createOrRerunLabel = __('seo-content-ai::filament.projects.item_action_run_generation');
             $confirmMissing = ! empty($a['confirm_recreate_missing_article']);
         @endphp
         <button
@@ -184,44 +182,9 @@
                         <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_open_article') }}</span>
                     </a>
                 @endif
-                @if ($a['skip_generation'])
-                    <button
-                        role="menuitem"
-                        type="button"
-                        wire:click="skipGenerationOne({{ $tid }})"
-                        wire:confirm="{{ __('seo-content-ai::filament.projects.item_action_skip_generation_confirm') }}"
-                        @click="open = false"
-                        class="{{ $itemClass }}"
-                        title="{{ __('seo-content-ai::filament.projects.item_action_skip_generation') }}"
-                    >
-                        <x-filament::icon icon="heroicon-o-no-symbol" class="cp-ops-menu__icon" />
-                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_skip_generation') }}</span>
-                    </button>
-                @endif
-                @if ($a['allow_generation'])
-                    <button
-                        role="menuitem"
-                        type="button"
-                        wire:click="allowGenerationOne({{ $tid }})"
-                        @click="open = false"
-                        class="{{ $itemClass }}"
-                        title="{{ __('seo-content-ai::filament.projects.item_action_allow_generation') }}"
-                    >
-                        <x-filament::icon icon="heroicon-o-arrow-uturn-left" class="cp-ops-menu__icon" />
-                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_allow_generation') }}</span>
-                    </button>
-                @endif
-                @if ($a['acknowledge_error'])
-                    <button role="menuitem" type="button" wire:click="acknowledgeGenerationError({{ $tid }})" wire:confirm="{{ __('seo-content-ai::filament.projects.item_action_acknowledge_error_confirm') }}" @click="open = false" class="{{ $itemClass }}" title="{{ __('seo-content-ai::filament.projects.item_action_acknowledge_error') }}">
-                        <x-filament::icon icon="heroicon-o-check" class="cp-ops-menu__icon" />
-                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_acknowledge_error') }}</span>
-                    </button>
-                @endif
                 @if (! empty($a['create_or_rerun']))
                     @php
-                        $menuCreateOrRerunLabel = (($a['create_or_rerun_label'] ?? 'create') === 'rerun')
-                            ? __('seo-content-ai::filament.projects.item_action_smart_rerun')
-                            : __('seo-content-ai::filament.projects.item_action_smart_create');
+                        $menuCreateOrRerunLabel = __('seo-content-ai::filament.projects.item_action_run_generation');
                         $menuConfirmMissing = ! empty($a['confirm_recreate_missing_article']);
                     @endphp
                     <button
@@ -239,6 +202,50 @@
                         <x-filament::icon icon="heroicon-o-play" class="cp-ops-menu__icon" />
                         <span class="cp-ops-menu__label">{{ $menuCreateOrRerunLabel }}</span>
                     </button>
+                @endif
+                @if ($a['regen_outline'])
+                    <button role="menuitem" type="button" wire:click="regenOutline({{ $tid }})" wire:confirm="{{ __('seo-content-ai::filament.projects.item_action_rerun_outline_confirm') }}" @click="open = false; $dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'generation' })" class="{{ $itemClass }}" title="{{ __('seo-content-ai::filament.projects.item_action_rerun_outline') }}">
+                        <x-filament::icon icon="heroicon-o-document-text" class="cp-ops-menu__icon" />
+                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_rerun_outline') }}</span>
+                    </button>
+                @endif
+                @if ($a['regen_article'])
+                    <button role="menuitem" type="button" wire:click="regenArticle({{ $tid }})" wire:confirm="{{ __('seo-content-ai::filament.projects.item_action_rerun_writing_confirm') }}" @click="open = false; $dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'generation' })" class="{{ $itemClass }}" title="{{ __('seo-content-ai::filament.projects.item_action_rerun_writing') }}">
+                        <x-filament::icon icon="heroicon-o-pencil-square" class="cp-ops-menu__icon" />
+                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_rerun_writing') }}</span>
+                    </button>
+                @endif
+                @if ($a['restart_with_keyword'])
+                    <button
+                        role="menuitem"
+                        type="button"
+                        @click="open = false; $dispatch('open-restart-with-keyword', { taskId: {{ $tid }}, title: @js($title) })"
+                        class="{{ $itemClass }}"
+                        title="{{ __('seo-content-ai::filament.projects.item_action_restart_with_keyword') }}"
+                    >
+                        <x-filament::icon icon="heroicon-o-key" class="cp-ops-menu__icon" />
+                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_restart_with_keyword') }}</span>
+                    </button>
+                @endif
+                @if ($a['skip_generation'])
+                    <button
+                        role="menuitem"
+                        type="button"
+                        wire:click="skipGenerationOne({{ $tid }})"
+                        wire:confirm="{{ __('seo-content-ai::filament.projects.item_action_skip_generation_confirm') }}"
+                        @click="open = false"
+                        class="{{ $itemClass }}"
+                        title="{{ __('seo-content-ai::filament.projects.item_action_skip_generation') }}"
+                    >
+                        <x-filament::icon icon="heroicon-o-no-symbol" class="cp-ops-menu__icon" />
+                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_skip_generation') }}</span>
+                    </button>
+                @endif
+                @if ($a['regen_image'] && $articleUrl)
+                    <a role="menuitem" href="{{ $articleUrl }}" class="{{ $itemClass }}" title="{{ __('seo-content-ai::filament.projects.item_action_regen_image') }}">
+                        <x-filament::icon icon="heroicon-o-photo" class="cp-ops-menu__icon" />
+                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_regen_image') }}</span>
+                    </a>
                 @endif
                 @if ($a['resume_generation'])
                     <button role="menuitem" type="button" wire:click="resumeFromFailedStep({{ $tid }})" @click="open = false; $dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'generation' })" class="{{ $itemClass }}" title="{{ __('seo-content-ai::filament.projects.item_action_resume_failed_step') }}">
@@ -258,23 +265,24 @@
                         <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_select_existing_article') }}</span>
                     </button>
                 @endif
-                @if ($a['regen_outline'])
-                    <button role="menuitem" type="button" wire:click="regenOutline({{ $tid }})" wire:confirm="{{ __('seo-content-ai::filament.projects.item_action_regen_outline_confirm') }}" @click="open = false; $dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'generation' })" class="{{ $itemClass }}" title="{{ __('seo-content-ai::filament.projects.item_action_regen_outline') }}">
-                        <x-filament::icon icon="heroicon-o-document-text" class="cp-ops-menu__icon" />
-                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_regen_outline') }}</span>
+                @if ($a['acknowledge_error'])
+                    <button role="menuitem" type="button" wire:click="acknowledgeGenerationError({{ $tid }})" wire:confirm="{{ __('seo-content-ai::filament.projects.item_action_acknowledge_error_confirm') }}" @click="open = false" class="{{ $itemClass }}" title="{{ __('seo-content-ai::filament.projects.item_action_acknowledge_error') }}">
+                        <x-filament::icon icon="heroicon-o-check" class="cp-ops-menu__icon" />
+                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_acknowledge_error') }}</span>
                     </button>
                 @endif
-                @if ($a['regen_article'])
-                    <button role="menuitem" type="button" wire:click="regenArticle({{ $tid }})" wire:confirm="{{ __('seo-content-ai::filament.projects.item_action_regen_article_confirm') }}" @click="open = false; $dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'generation' })" class="{{ $itemClass }}" title="{{ __('seo-content-ai::filament.projects.item_action_regen_article') }}">
-                        <x-filament::icon icon="heroicon-o-pencil-square" class="cp-ops-menu__icon" />
-                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_regen_article') }}</span>
+                @if ($a['allow_generation'])
+                    <button
+                        role="menuitem"
+                        type="button"
+                        wire:click="allowGenerationOne({{ $tid }})"
+                        @click="open = false"
+                        class="{{ $itemClass }}"
+                        title="{{ __('seo-content-ai::filament.projects.item_action_allow_generation') }}"
+                    >
+                        <x-filament::icon icon="heroicon-o-arrow-uturn-left" class="cp-ops-menu__icon" />
+                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_allow_generation') }}</span>
                     </button>
-                @endif
-                @if ($a['regen_image'] && $articleUrl)
-                    <a role="menuitem" href="{{ $articleUrl }}" class="{{ $itemClass }}" title="{{ __('seo-content-ai::filament.projects.item_action_regen_image') }}">
-                        <x-filament::icon icon="heroicon-o-photo" class="cp-ops-menu__icon" />
-                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_regen_image') }}</span>
-                    </a>
                 @endif
                 @if ($a['improve_note'])
                     <span class="cp-ops-menu__note">{{ __('seo-content-ai::filament.projects.item_action_improve_manual') }}</span>
@@ -285,41 +293,41 @@
                 <div class="cp-ops-menu__divider"></div>
                 <p class="cp-ops-menu__heading">Review</p>
                 @if ($a['start_review'])
-                    <button role="menuitem" type="button" wire:click="startReviewOne({{ $tid }})" @click="open = false" class="{{ $itemClass }}" title="Start review">
+                    <button role="menuitem" type="button" wire:click="startReviewOne({{ $tid }})" @click="open = false" class="{{ $itemClass }}" title="{{ __('seo-content-ai::filament.projects.item_action_start_review') }}">
                         <x-filament::icon icon="heroicon-o-eye" class="cp-ops-menu__icon" />
-                        <span class="cp-ops-menu__label">Start review</span>
+                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_start_review') }}</span>
                     </button>
                 @endif
                 @if ($a['approve'])
-                    <button role="menuitem" type="button" wire:click="approveOne({{ $tid }})" @click="open = false; $dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'other' })" class="{{ $itemClass }}" title="Approve">
+                    <button role="menuitem" type="button" wire:click="approveOne({{ $tid }})" @click="open = false; $dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'other' })" class="{{ $itemClass }}" title="{{ __('seo-content-ai::filament.projects.item_action_approve') }}">
                         <x-filament::icon icon="heroicon-o-check-badge" class="cp-ops-menu__icon" />
-                        <span class="cp-ops-menu__label">Approve</span>
+                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_approve') }}</span>
                     </button>
                 @endif
             @endif
 
-            @if (! empty($a['send_to_publishing_queue']) || $a['has_lifecycle'] || ! empty($a['has_debug']))
+            @if (! empty($a['send_to_publishing_queue']))
                 <div class="cp-ops-menu__divider"></div>
                 <p class="cp-ops-menu__heading">Publishing Queue</p>
-                @if (! empty($a['send_to_publishing_queue']))
-                    <button
-                        role="menuitem"
-                        type="button"
-                        wire:click="sendToPublishingQueueOne({{ $tid }})"
-                        @if (! empty($a['send_to_publishing_queue_warn_cm']))
-                            wire:confirm="{{ __('seo-content-ai::filament.projects.send_to_publishing_queue_confirm_needs_review') }}"
-                        @endif
-                        @click="open = false; $dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'other' })"
-                        class="{{ $itemClass }}"
-                        title="{{ __('seo-content-ai::filament.projects.send_to_publishing_queue') }}"
-                    >
-                        <x-filament::icon icon="heroicon-o-queue-list" class="cp-ops-menu__icon" />
-                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.send_to_publishing_queue') }}</span>
-                    </button>
-                @endif
-                @if ($a['has_lifecycle'])
-                    <p class="cp-ops-menu__heading">Lifecycle</p>
-                @endif
+                <button
+                    role="menuitem"
+                    type="button"
+                    wire:click="sendToPublishingQueueOne({{ $tid }})"
+                    @if (! empty($a['send_to_publishing_queue_warn_cm']))
+                        wire:confirm="{{ __('seo-content-ai::filament.projects.send_to_publishing_queue_confirm_needs_review') }}"
+                    @endif
+                    @click="open = false; $dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'other' })"
+                    class="{{ $itemClass }}"
+                    title="{{ __('seo-content-ai::filament.projects.send_to_publishing_queue') }}"
+                >
+                    <x-filament::icon icon="heroicon-o-queue-list" class="cp-ops-menu__icon" />
+                    <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.send_to_publishing_queue') }}</span>
+                </button>
+            @endif
+
+            @if ($a['has_lifecycle'] || ! empty($a['has_debug']) || $a['cancel'])
+                <div class="cp-ops-menu__divider"></div>
+                <p class="cp-ops-menu__heading">Lifecycle</p>
                 {{-- schedule/publish actions live on Publishing Queue page --}}
                 @if ($a['cancel'])
                     <button role="menuitem" type="button" wire:click="cancelPublishOne({{ $tid }})" wire:confirm="Cancel publishing?" @click="open = false" class="{{ $dangerClass }}" title="Cancel">
@@ -328,9 +336,9 @@
                     </button>
                 @endif
                 @if ($a['archive_item'])
-                    <button role="menuitem" type="button" wire:click="archiveOne({{ $tid }})" wire:confirm="{{ __('seo-content-ai::filament.projects.archive_item_confirm') }}" @click="open = false" class="{{ $dangerClass }}" title="{{ __('seo-content-ai::filament.projects.archive_item') }}">
+                    <button role="menuitem" type="button" wire:click="archiveOne({{ $tid }})" wire:confirm="{{ __('seo-content-ai::filament.projects.archive_item_confirm') }}" @click="open = false" class="{{ $dangerClass }}" title="{{ __('seo-content-ai::filament.projects.item_action_archive') }}">
                         <x-filament::icon icon="heroicon-o-archive-box" class="cp-ops-menu__icon" />
-                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.archive_item') }}</span>
+                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_archive') }}</span>
                     </button>
                 @endif
                 @if (! empty($a['has_debug']))
@@ -377,9 +385,9 @@
             @if ($a['view_details'])
                 <div class="cp-ops-menu__divider"></div>
                 <p class="cp-ops-menu__heading">Other</p>
-                <button role="menuitem" type="button" wire:click="openExecutionDetails({{ $tid }})" @click="open = false" class="{{ $itemClass }}" title="View details">
+                <button role="menuitem" type="button" wire:click="openExecutionDetails({{ $tid }})" @click="open = false" class="{{ $itemClass }}" title="{{ __('seo-content-ai::filament.projects.item_action_view_details') }}">
                     <x-filament::icon icon="heroicon-o-information-circle" class="cp-ops-menu__icon" />
-                    <span class="cp-ops-menu__label">View details</span>
+                    <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_view_details') }}</span>
                 </button>
             @endif
         </div>

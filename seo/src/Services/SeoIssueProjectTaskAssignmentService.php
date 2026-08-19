@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\Seo\Services;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectItemAllocator;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectArticleOwnerSyncService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectTaskUniqueWriter;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
@@ -25,12 +26,13 @@ final class SeoIssueProjectTaskAssignmentService
         private readonly SeoAnalyzerService $analyzer,
         private readonly SeoProjectArticleOwnerSyncService $articleOwnerSync,
         private readonly SeoProjectTaskUniqueWriter $uniqueWriter,
+        private readonly ContentProjectItemAllocator $allocator,
     ) {}
 
     /**
      * @param  array<string, mixed>  $data
      * @param  Collection<int, mixed>  $records
-     * @return array{added:int, duplicate:int, overflow:int, domain_mismatch:int, already_in_project:int}
+     * @return array{added:int, duplicate:int, overflow:int, domain_mismatch:int, already_in_project:int, allocations: list<array{project_id:int, month:string, added:int}>}
      */
     public function assignFromFormData(Collection $records, int $projectId, array $data, bool $dryRun = false): array
     {
@@ -51,7 +53,7 @@ final class SeoIssueProjectTaskAssignmentService
 
     /**
      * @param  Collection<int, mixed>  $records
-     * @return array{added:int, duplicate:int, overflow:int, domain_mismatch:int, already_in_project:int}
+     * @return array{added:int, duplicate:int, overflow:int, domain_mismatch:int, already_in_project:int, allocations: list<array{project_id:int, month:string, added:int}>}
      */
     public function assignArticles(
         Collection $records,
@@ -64,12 +66,15 @@ final class SeoIssueProjectTaskAssignmentService
         bool $dryRun = false,
         bool $ignoreMonthlyCapacity = false,
     ): array {
+        unset($ignoreMonthlyCapacity);
+
         $empty = static fn (int $overflow): array => [
             'added' => 0,
             'duplicate' => 0,
             'overflow' => $overflow,
             'domain_mismatch' => 0,
             'already_in_project' => 0,
+            'allocations' => [],
         ];
 
         $project = SeoProject::query()->find($projectId);
@@ -86,6 +91,7 @@ final class SeoIssueProjectTaskAssignmentService
         $overflow = 0;
         $domainMismatch = 0;
         $alreadyInProject = 0;
+        $allocations = [];
         $projectSiteId = (int) ($project->site_id ?? 0);
         $targetProjectId = (int) $project->id;
         $normalizedTaskType = $this->normalizeAssignTaskType($taskType);
@@ -102,21 +108,18 @@ final class SeoIssueProjectTaskAssignmentService
             $projectSiteId,
             $targetProjectId,
             $normalizedTaskType,
-            $normalizedRewriteMode,
             $normalizedRewriteNotes,
             $normalizedKeywordOverride,
             $normalizedTitleOverride,
             $dryRun,
-            $ignoreMonthlyCapacity,
             &$added,
             &$duplicate,
             &$overflow,
             &$domainMismatch,
             &$alreadyInProject,
+            &$allocations,
         ): void {
-            $project->refresh();
-            $max = $project->maxTasksAllowed();
-            $currentTotal = $project->registeredTaskCount();
+            $session = $this->allocator->begin($project, $dryRun);
 
             $existingKeys = SeoProjectTask::query()
                 ->where('project_id', (int) $project->id)
@@ -126,12 +129,6 @@ final class SeoIssueProjectTaskAssignmentService
             $existingMap = array_fill_keys($existingKeys, true);
 
             foreach ($records as $record) {
-                if (! $ignoreMonthlyCapacity && $currentTotal >= $max) {
-                    $overflow++;
-
-                    continue;
-                }
-
                 if ($this->articleIsContentArchived($record)) {
                     $alreadyInProject++;
 
@@ -165,14 +162,22 @@ final class SeoIssueProjectTaskAssignmentService
                     continue;
                 }
 
+                $target = $session->projectWithRemainingCapacity();
+                if (! $target instanceof SeoProject) {
+                    $overflow++;
+
+                    continue;
+                }
+
                 if (! $dryRun) {
+                    $occupied = $session->occupiedCount($target);
                     $payload = [
-                        'project_id' => (int) $project->id,
+                        'project_id' => (int) $target->getKey(),
                         'site_id' => $siteId > 0 ? $siteId : null,
                         'type' => $normalizedTaskType,
                         'source_content' => $sourceContent,
                         'description' => null,
-                        'target_date' => $project->monthCarbon()->copy()->addDays($currentTotal)->format('Y-m-d'),
+                        'target_date' => $target->monthCarbon()->copy()->addDays($occupied)->format('Y-m-d'),
                         'status' => SeoProjectTask::STATUS_PENDING,
                     ];
 
@@ -221,17 +226,25 @@ final class SeoIssueProjectTaskAssignmentService
                 }
 
                 $existingMap[$key] = true;
-                $currentTotal++;
+                $session->recordAdded($target);
                 $added++;
             }
 
-            if (! $dryRun) {
-                $project->syncTotalTasksCounter();
-            }
+            $allocations = $session->allocations();
+            $session->syncTouchedCounters();
         });
 
         if (! $dryRun && $added > 0) {
-            $this->articleOwnerSync->syncProjectArticles($project->fresh() ?? $project);
+            foreach ($allocations as $row) {
+                $allocatedId = (int) ($row['project_id'] ?? 0);
+                if ($allocatedId <= 0) {
+                    continue;
+                }
+                $allocated = SeoProject::query()->find($allocatedId);
+                if ($allocated instanceof SeoProject) {
+                    $this->articleOwnerSync->syncProjectArticles($allocated);
+                }
+            }
         }
 
         return [
@@ -240,14 +253,26 @@ final class SeoIssueProjectTaskAssignmentService
             'overflow' => $overflow,
             'domain_mismatch' => $domainMismatch,
             'already_in_project' => $alreadyInProject,
+            'allocations' => $allocations,
         ];
     }
 
     /**
-     * @param  array{added?:int, duplicate?:int, overflow?:int, domain_mismatch?:int, already_in_project?:int}  $summary
+     * @param  array{added?:int, duplicate?:int, overflow?:int, domain_mismatch?:int, already_in_project?:int, allocations?: list<array{project_id?:int, month?:string, added?:int}>}  $summary
      */
     public function buildSummaryMessage(array $summary): string
     {
+        $allocation = $this->formatAllocations(is_array($summary['allocations'] ?? null) ? $summary['allocations'] : []);
+        if ($allocation !== '' && (int) ($summary['added'] ?? 0) > 0) {
+            return __('seo-content-ai::filament.article_list.assign_completed_body_allocated', [
+                'added' => (int) ($summary['added'] ?? 0),
+                'allocation' => $allocation,
+                'duplicate' => (int) ($summary['duplicate'] ?? 0),
+                'domain_mismatch' => (int) ($summary['domain_mismatch'] ?? 0),
+                'already_in_project' => (int) ($summary['already_in_project'] ?? 0),
+            ]);
+        }
+
         return __('seo-content-ai::filament.article_list.assign_completed_body', [
             'added' => (int) ($summary['added'] ?? 0),
             'duplicate' => (int) ($summary['duplicate'] ?? 0),
@@ -255,6 +280,24 @@ final class SeoIssueProjectTaskAssignmentService
             'domain_mismatch' => (int) ($summary['domain_mismatch'] ?? 0),
             'already_in_project' => (int) ($summary['already_in_project'] ?? 0),
         ]);
+    }
+
+    /**
+     * @param  list<array{project_id?:int, month?:string, added?:int}>  $allocations
+     */
+    public function formatAllocations(array $allocations): string
+    {
+        $parts = [];
+        foreach ($allocations as $row) {
+            $count = (int) ($row['added'] ?? 0);
+            $month = trim((string) ($row['month'] ?? ''));
+            if ($count <= 0 || $month === '') {
+                continue;
+            }
+            $parts[] = $count.' → '.$month;
+        }
+
+        return implode(', ', $parts);
     }
 
     public function normalizeAssignTaskType(mixed $value): string

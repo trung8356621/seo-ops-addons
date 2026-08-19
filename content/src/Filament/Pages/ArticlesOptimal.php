@@ -66,6 +66,12 @@ final class ArticlesOptimal extends SeoPanelPage
     #[Url(as: 'scan')]
     public bool $hasScanned = false;
 
+    #[Url(as: 'sort')]
+    public ?string $resultsSortBy = null;
+
+    #[Url(as: 'dir')]
+    public string $resultsSortDir = 'asc';
+
     public string $scanState = 'idle';
 
     public ?string $scanError = null;
@@ -502,7 +508,32 @@ final class ArticlesOptimal extends SeoPanelPage
             $this->filterTechnicalSeoScore,
             max(1, (int) $this->getPage()),
             15,
+            $this->normalizedResultsSortBy(),
+            $this->normalizedResultsSortDir(),
         );
+    }
+
+    public function sortResultsByScore(): void
+    {
+        if ($this->resultsSortBy === 'score') {
+            $this->resultsSortDir = $this->resultsSortDir === 'asc' ? 'desc' : 'asc';
+        } else {
+            $this->resultsSortBy = 'score';
+            $this->resultsSortDir = 'asc';
+        }
+
+        $this->resetPage();
+        unset($this->resultsPaginator);
+    }
+
+    private function normalizedResultsSortBy(): ?string
+    {
+        return $this->resultsSortBy === 'score' ? 'score' : null;
+    }
+
+    private function normalizedResultsSortDir(): string
+    {
+        return strtolower($this->resultsSortDir) === 'desc' ? 'desc' : 'asc';
     }
 
     private function invalidateScanResults(): void

@@ -237,6 +237,7 @@ final class ContentProjectApiController extends Controller
                 (bool) $request->boolean('confirm_waiting_publish'),
                 (bool) $request->boolean('dry_run'),
                 $request->input('confirmation_token'),
+                (bool) $request->boolean('confirm_hidden_stale_runs'),
             ),
             $this->actor($request),
         ));

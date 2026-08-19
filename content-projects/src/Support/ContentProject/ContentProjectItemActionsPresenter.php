@@ -21,12 +21,14 @@ use Omnichannel\Addons\Publishing\Support\PublishingQueue\PublishingQueueHandoff
  *     run_again: bool,
  *     create_or_rerun: bool,
  *     create_or_rerun_label: string,
+ *     run_generation_bulk: bool,
  *     confirm_recreate_missing_article: bool,
  *     stop_generation: bool,
  *     resume_generation: bool,
  *     select_existing_article: bool,
  *     regen_outline: bool,
  *     regen_article: bool,
+ *     restart_with_keyword: bool,
  *     regen_image: bool,
  *     retry_failed_step: bool,
  *     debug_rerun_from_start: bool,
@@ -202,6 +204,7 @@ final class ContentProjectItemActionsPresenter
 
         $regenOutline = $canRegen && ! $generationBlocked;
         $regenArticle = $canRegen && ! $generationBlocked;
+        $restartWithKeyword = $canRegen && ! $generationBlocked && ! $isGenuineRunning;
         $regenImage = $canRegen && $hasArticle && ! $generationBlocked;
         $retryFailed = false;
         $debugRerunFromStart = false;
@@ -266,9 +269,26 @@ final class ContentProjectItemActionsPresenter
         $debugToScheduled = $debugEnabled && in_array($lifecycleBucket, ['approved', 'published'], true);
         $debugToPublished = $debugEnabled && in_array($lifecycleBucket, ['approved', 'scheduled'], true);
 
+        // «improve» is manual-only: never expose generation / regeneration / skip-generation CTAs.
+        if ($isImprove) {
+            $createOrRerun = false;
+            $createOrRerunLabel = '';
+            $stopGeneration = false;
+            $resumeGeneration = false;
+            $selectExistingArticle = false;
+            $regenOutline = false;
+            $regenArticle = false;
+            $restartWithKeyword = false;
+            $regenImage = false;
+            $skipGeneration = false;
+            $allowGeneration = false;
+            $startReview = false;
+            $approve = false;
+        }
+
         $hasContent = $openArticle || $createOrRerun || $stopGeneration || $resumeGeneration
             || $selectExistingArticle
-            || $regenOutline || $regenArticle || $regenImage || $improveNote
+            || $regenOutline || $regenArticle || $restartWithKeyword || $regenImage || $improveNote
             || $acknowledgeError || $skipGeneration || $allowGeneration;
         $hasReview = $startReview || $approve;
         $hasPublishing = $sendToPublishingQueue;
@@ -284,12 +304,14 @@ final class ContentProjectItemActionsPresenter
             'run_again' => false,
             'create_or_rerun' => $createOrRerun,
             'create_or_rerun_label' => $createOrRerunLabel,
+            'run_generation_bulk' => $createOrRerun && $createOrRerunLabel === 'create',
             'confirm_recreate_missing_article' => $confirmRecreateMissingArticle,
             'stop_generation' => $stopGeneration,
             'resume_generation' => $resumeGeneration,
             'select_existing_article' => $selectExistingArticle,
             'regen_outline' => $regenOutline,
             'regen_article' => $regenArticle,
+            'restart_with_keyword' => $restartWithKeyword,
             'regen_image' => $regenImage,
             'retry_failed_step' => false,
             'debug_rerun_from_start' => false,
@@ -344,12 +366,14 @@ final class ContentProjectItemActionsPresenter
         $flags['generate'] = false;
         $flags['run_again'] = false;
         $flags['create_or_rerun'] = false;
+        $flags['run_generation_bulk'] = false;
         $flags['confirm_recreate_missing_article'] = false;
         $flags['stop_generation'] = false;
         $flags['resume_generation'] = false;
         $flags['select_existing_article'] = false;
         $flags['regen_outline'] = false;
         $flags['regen_article'] = false;
+        $flags['restart_with_keyword'] = false;
         $flags['regen_image'] = false;
         $flags['retry_failed_step'] = false;
         $flags['debug_rerun_from_start'] = false;

@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\ContentProjects\Services;
 
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectContinuationService;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -14,6 +15,15 @@ use RuntimeException;
 
 final class SeoProjectTaskMoveService
 {
+    public function __construct(
+        private readonly ?ContentProjectContinuationService $continuation = null,
+    ) {}
+
+    private function continuation(): ContentProjectContinuationService
+    {
+        return $this->continuation ?? new ContentProjectContinuationService();
+    }
+
     /**
      * Xóa project: CHỈ xóa khi không còn task active (cùng nguồn dữ liệu với cột
      * "Total items" trên UI — `tasks()->active()`, xem `SeoProjectResource::getEloquentQuery()`
@@ -227,55 +237,7 @@ final class SeoProjectTaskMoveService
 
     public function findOrCreateProjectForMonth(SeoProject $source, Carbon|string $month): SeoProject
     {
-        $siteId = (int) ($source->site_id ?? 0);
-        if ($siteId <= 0) {
-            throw ValidationException::withMessages([
-                'site_id' => __('seo-content-ai::filament.projects.domain_required'),
-            ]);
-        }
-
-        $carbonMonth = Carbon::parse($month)->startOfMonth();
-        $monthDate = $carbonMonth->format('Y-m-d');
-
-        $sameOwner = SeoProject::query()
-            ->where('site_id', $siteId)
-            ->whereDate('month', $monthDate)
-            ->where('user_id', (int) $source->user_id)
-            ->where(function ($query): void {
-                $query->where('kind', SeoProject::KIND_MONTHLY)->orWhereNull('kind');
-            })
-            ->orderBy('id')
-            ->lockForUpdate()
-            ->first();
-
-        if ($sameOwner instanceof SeoProject) {
-            return $sameOwner;
-        }
-
-        $any = SeoProject::query()
-            ->where('site_id', $siteId)
-            ->whereDate('month', $monthDate)
-            ->where(function ($query): void {
-                $query->where('kind', SeoProject::KIND_MONTHLY)->orWhereNull('kind');
-            })
-            ->orderBy('id')
-            ->lockForUpdate()
-            ->first();
-
-        if ($any instanceof SeoProject) {
-            return $any;
-        }
-
-        return SeoProject::query()->create([
-            'name' => SeoProject::defaultNameFromMonth($carbonMonth),
-            'user_id' => (int) $source->user_id,
-            'site_id' => $siteId,
-            'month' => $monthDate,
-            'status' => SeoProject::STATUS_MANUAL,
-            'kind' => SeoProject::KIND_MONTHLY,
-            'total_tasks' => 0,
-            'description' => null,
-        ]);
+        return $this->continuation()->findOrCreateContinuation($source, $month);
     }
 
     public function assertTargetHasCapacity(SeoProject $target, int $incomingCount): void

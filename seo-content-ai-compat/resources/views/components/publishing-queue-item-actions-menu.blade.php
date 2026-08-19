@@ -67,7 +67,7 @@
         <div class="mb-1 max-w-[16rem] rounded-md border border-warning-300 bg-warning-50 px-2 py-1.5 text-left text-[11px] text-warning-900 dark:border-warning-500/40 dark:bg-warning-500/10 dark:text-warning-200">
             <p class="font-medium">Quá trình xuất bản bị gián đoạn.</p>
             <div class="mt-1 flex flex-wrap gap-2">
-                <button type="button" class="font-semibold underline" wire:click="recoverOne({{ $tid }})">Khôi phục</button>
+                <button type="button" class="font-semibold underline" wire:click="recoverOne({{ $tid }})" @click="$dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'publishing' })">Khôi phục</button>
                 @if (! empty($a['view_technical_details']) || ! empty($row['publish_operation_key']))
                     <button
                         type="button"
@@ -116,12 +116,12 @@
                     @if (! empty($a['immediate_disabled']))
                         <p class="cp-ops-menu__note">{{ $a['immediate_disabled_reason'] ?? 'Bài đang được xuất bản.' }}</p>
                     @elseif (! empty($a['publish_now']))
-                        <button role="menuitem" type="button" wire:click="publishOneNow({{ $tid }})" wire:confirm="Xuất bản ngay?" @click="open = false" class="{{ $itemClass }}">
+                        <button role="menuitem" type="button" wire:click="publishOneNow({{ $tid }})" wire:confirm="Xuất bản ngay?" @click="open = false; $dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'publishing' })" class="{{ $itemClass }}">
                             <x-filament::icon icon="heroicon-o-globe-alt" class="cp-ops-menu__icon" />
                             <span class="cp-ops-menu__label">Xuất bản ngay</span>
                         </button>
                     @elseif (! empty($a['retry_now']))
-                        <button role="menuitem" type="button" wire:click="retryPublishOne({{ $tid }})" @click="open = false" class="{{ $itemClass }}">
+                        <button role="menuitem" type="button" wire:click="retryPublishOne({{ $tid }})" @click="open = false; $dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'publishing' })" class="{{ $itemClass }}">
                             <x-filament::icon icon="heroicon-o-arrow-path" class="cp-ops-menu__icon" />
                             <span class="cp-ops-menu__label">Thử lại ngay</span>
                         </button>
@@ -185,7 +185,7 @@
                             type="button"
                             wire:click="forceRecoverOne({{ $tid }})"
                             wire:confirm="Dừng xuất bản và khôi phục bài này?"
-                            @click="open = false"
+                            @click="open = false; $dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'publishing' })"
                             class="{{ $dangerClass }}"
                         >
                             <x-filament::icon icon="heroicon-o-no-symbol" class="cp-ops-menu__icon" />
@@ -219,7 +219,7 @@
                             wire:click="resyncPublishedItemWordPress({{ $tid }})"
                             wire:loading.attr="disabled"
                             wire:target="resyncPublishedItemWordPress({{ $tid }})"
-                            @click="open = false"
+                            @click="open = false; $dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'publishing' })"
                             class="{{ $itemClass }}"
                         >
                             <x-filament::icon icon="heroicon-o-arrow-path" class="cp-ops-menu__icon" />

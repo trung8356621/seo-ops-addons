@@ -187,8 +187,8 @@
                         <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
                             @forelse ($archives as $archive)
                                 @php
-                                    $ownerName = trim((string) ($archive->owner?->display_name ?? $archive->owner?->name ?? ''));
-                                    $archivedByName = trim((string) ($archive->archivedByUser?->display_name ?? $archive->archivedByUser?->name ?? ''));
+                                    $ownerName = trim((string) ($archive->owner?->name ?? ''));
+                                    $archivedByName = trim((string) ($archive->archivedByUser?->name ?? ''));
                                     $domain = trim((string) ($archive->site?->domain ?? ''));
                                     $month = (int) ($archive->project_month ?? 0);
                                     $year = (int) ($archive->project_year ?? 0);

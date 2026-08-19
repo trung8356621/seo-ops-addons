@@ -194,7 +194,7 @@ final class ContentProjectStaleGenerationRecoveryTest extends TestCase
             LegacyAddonPath::resolve('resources/views/components/content-project-item-actions-menu.blade.php'),
         );
         self::assertStringContainsString('createOrRerunOne', $menu);
-        self::assertStringContainsString('item_action_smart_rerun', $menu);
+        self::assertStringContainsString('item_action_run_generation', $menu);
 
         $page = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content-projects/src/Filament/Resources/SeoProjectResource/Pages/ViewSeoProject.php',

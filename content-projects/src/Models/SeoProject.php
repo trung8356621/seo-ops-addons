@@ -118,6 +118,55 @@ class SeoProject extends Model
     }
 
     /**
+     * List column: archived rows use snapshot; live rows use withCount.
+     */
+    public function displayGeneratedCount(): int
+    {
+        if ($this->isProjectArchived()) {
+            $archive = $this->currentArchive;
+            if ($archive instanceof SeoProjectArchive) {
+                return (int) ($archive->completed_articles ?? 0);
+            }
+        }
+
+        return (int) ($this->getAttribute('active_generated_count') ?? 0);
+    }
+
+    public function displayPendingCount(): int
+    {
+        if ($this->isProjectArchived()) {
+            $archive = $this->currentArchive;
+            if ($archive instanceof SeoProjectArchive) {
+                $summary = is_array($archive->summary_snapshot) ? $archive->summary_snapshot : [];
+                if (array_key_exists('incomplete_articles', $summary)) {
+                    return max(0, (int) $summary['incomplete_articles']);
+                }
+
+                $total = (int) ($archive->total_articles ?? $archive->articles_count ?? 0);
+
+                return max(0, $total - (int) ($archive->completed_articles ?? 0));
+            }
+        }
+
+        return (int) ($this->getAttribute('active_pending_count') ?? 0);
+    }
+
+    public function displayFailedCount(): int
+    {
+        if ($this->isProjectArchived()) {
+            $archive = $this->currentArchive;
+            if ($archive instanceof SeoProjectArchive) {
+                $summary = is_array($archive->summary_snapshot) ? $archive->summary_snapshot : [];
+                if (array_key_exists('failed_articles', $summary)) {
+                    return max(0, (int) $summary['failed_articles']);
+                }
+            }
+        }
+
+        return (int) ($this->getAttribute('active_failed_count') ?? 0);
+    }
+
+    /**
      * True when any active item is already linked to a local article.
      * Changing project.site_id in that state would silently corrupt ownership.
      */

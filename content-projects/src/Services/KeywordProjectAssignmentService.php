@@ -8,6 +8,7 @@ use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectItemAllocator;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -21,6 +22,7 @@ final class KeywordProjectAssignmentService
 {
     public function __construct(
         private readonly SeoProjectTaskUniqueWriter $uniqueWriter,
+        private readonly ContentProjectItemAllocator $allocator,
     ) {}
 
     /**
@@ -35,6 +37,7 @@ final class KeywordProjectAssignmentService
             'overflow' => $overflow,
             'domain_mismatch' => 0,
             'already_in_project' => 0,
+            'allocations' => [],
         ];
 
         if ($targetSiteId <= 0) {
@@ -55,6 +58,7 @@ final class KeywordProjectAssignmentService
         $overflow = 0;
         $domainMismatch = 0;
         $alreadyInProject = 0;
+        $allocations = [];
         $projectSiteId = (int) ($project->site_id ?? 0);
         $targetProjectId = (int) $project->id;
 
@@ -70,10 +74,9 @@ final class KeywordProjectAssignmentService
             &$overflow,
             &$domainMismatch,
             &$alreadyInProject,
+            &$allocations,
         ): void {
-            $project->refresh();
-            $max = $project->maxTasksAllowed();
-            $currentTotal = $project->registeredTaskCount();
+            $session = $this->allocator->begin($project, $dryRun);
 
             $existingKeys = SeoProjectTask::query()
                 ->where('project_id', (int) $project->id)
@@ -83,12 +86,6 @@ final class KeywordProjectAssignmentService
             $existingMap = array_fill_keys($existingKeys, true);
 
             foreach ($records as $record) {
-                if ($currentTotal >= $max) {
-                    $overflow++;
-
-                    continue;
-                }
-
                 $assignedProjectId = $this->keywordAssignedContentProjectIdForSite($record, $targetSiteId);
                 if ($assignedProjectId !== null) {
                     if ($assignedProjectId === $targetProjectId) {
@@ -115,10 +112,17 @@ final class KeywordProjectAssignmentService
                     continue;
                 }
 
+                $target = $session->projectWithRemainingCapacity();
+                if (! $target instanceof SeoProject) {
+                    $overflow++;
+
+                    continue;
+                }
+
                 if (! $dryRun) {
                     try {
                         $task = $this->uniqueWriter->createOrReturnExisting([
-                            'project_id' => (int) $project->id,
+                            'project_id' => (int) $target->getKey(),
                             'site_id' => $siteId > 0 ? $siteId : null,
                             'article_id' => null,
                             'type' => SeoProjectTask::TYPE_CREATE,
@@ -128,7 +132,7 @@ final class KeywordProjectAssignmentService
                             'secondary_description' => null,
                             'description' => null,
                             'post_type' => SeoProjectTask::POST_TYPE_ARTICLE,
-                            'target_date' => $project->monthCarbon()->copy()->addDays($currentTotal)->format('Y-m-d'),
+                            'target_date' => $target->monthCarbon()->copy()->addDays($session->occupiedCount($target))->format('Y-m-d'),
                             'status' => SeoProjectTask::STATUS_PENDING,
                         ]);
                     } catch (ValidationException) {
@@ -147,13 +151,12 @@ final class KeywordProjectAssignmentService
                 }
 
                 $existingMap[$key] = true;
-                $currentTotal++;
+                $session->recordAdded($target);
                 $added++;
             }
 
-            if (! $dryRun) {
-                $project->syncTotalTasksCounter();
-            }
+            $allocations = $session->allocations();
+            $session->syncTouchedCounters();
         });
 
         return [
@@ -162,6 +165,7 @@ final class KeywordProjectAssignmentService
             'overflow' => $overflow,
             'domain_mismatch' => $domainMismatch,
             'already_in_project' => $alreadyInProject,
+            'allocations' => $allocations,
         ];
     }
 
@@ -187,6 +191,7 @@ final class KeywordProjectAssignmentService
             'domain_mismatch' => 0,
             'already_in_project' => 0,
             'existing_article' => 0,
+            'allocations' => [],
         ];
 
         $normalized = [];
@@ -221,8 +226,11 @@ final class KeywordProjectAssignmentService
         $domainMismatch = 0;
         $alreadyInProject = 0;
         $existingArticle = 0;
+        $allocations = [];
         $projectSiteId = (int) ($project->site_id ?? 0);
         $targetProjectId = (int) $project->id;
+
+        unset($ignoreMonthlyCapacity);
 
         DB::connection($project->getConnectionName())->transaction(function () use (
             $project,
@@ -231,17 +239,15 @@ final class KeywordProjectAssignmentService
             $targetProjectId,
             $targetSiteId,
             $dryRun,
-            $ignoreMonthlyCapacity,
             &$added,
             &$duplicate,
             &$overflow,
             &$domainMismatch,
             &$alreadyInProject,
             &$existingArticle,
+            &$allocations,
         ): void {
-            $project->refresh();
-            $max = $project->maxTasksAllowed();
-            $currentTotal = $project->registeredTaskCount();
+            $session = $this->allocator->begin($project, $dryRun);
 
             $existingKeys = SeoProjectTask::query()
                 ->where('project_id', (int) $project->id)
@@ -271,12 +277,6 @@ final class KeywordProjectAssignmentService
             $otherProjectMap = array_fill_keys($otherProjectNeedles, true);
 
             foreach ($normalized as $key => $sourceContent) {
-                if (! $ignoreMonthlyCapacity && $currentTotal >= $max) {
-                    $overflow++;
-
-                    continue;
-                }
-
                 if ($projectSiteId > 0 && $targetSiteId !== $projectSiteId) {
                     $domainMismatch++;
 
@@ -309,10 +309,17 @@ final class KeywordProjectAssignmentService
                     $existingArticle++;
                 }
 
+                $target = $session->projectWithRemainingCapacity();
+                if (! $target instanceof SeoProject) {
+                    $overflow++;
+
+                    continue;
+                }
+
                 if (! $dryRun) {
                     try {
                         $task = $this->uniqueWriter->createOrReturnExisting([
-                            'project_id' => (int) $project->id,
+                            'project_id' => (int) $target->getKey(),
                             'site_id' => $targetSiteId > 0 ? $targetSiteId : null,
                             'article_id' => null,
                             'type' => SeoProjectTask::TYPE_CREATE,
@@ -322,7 +329,7 @@ final class KeywordProjectAssignmentService
                             'secondary_description' => null,
                             'description' => null,
                             'post_type' => SeoProjectTask::POST_TYPE_ARTICLE,
-                            'target_date' => $project->monthCarbon()->copy()->addDays($currentTotal)->format('Y-m-d'),
+                            'target_date' => $target->monthCarbon()->copy()->addDays($session->occupiedCount($target))->format('Y-m-d'),
                             'status' => SeoProjectTask::STATUS_PENDING,
                         ]);
                     } catch (ValidationException) {
@@ -341,13 +348,12 @@ final class KeywordProjectAssignmentService
                 }
 
                 $existingMap[$key] = true;
-                $currentTotal++;
+                $session->recordAdded($target);
                 $added++;
             }
 
-            if (! $dryRun) {
-                $project->syncTotalTasksCounter();
-            }
+            $allocations = $session->allocations();
+            $session->syncTouchedCounters();
         });
 
         return [
@@ -357,6 +363,7 @@ final class KeywordProjectAssignmentService
             'domain_mismatch' => $domainMismatch,
             'already_in_project' => $alreadyInProject,
             'existing_article' => $existingArticle,
+            'allocations' => $allocations,
         ];
     }
 

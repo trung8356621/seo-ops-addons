@@ -21,6 +21,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Comma
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ProcessScheduledProjectItemPublishCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\PublishProjectItemsNowCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RestoreContentProjectCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RestartGenerationWithKeywordCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ResumeProjectExecutionCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ResumeProjectItemFromFailedStepCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RetryProjectItemPublishingCommand;
@@ -55,6 +56,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handl
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\ProcessScheduledProjectItemPublishHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\PublishProjectItemsNowHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\RestoreContentProjectHandler;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\RestartGenerationWithKeywordHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\ResumeProjectExecutionHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\RetryProjectItemPublishingHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\RerunProjectItemsHandler;
@@ -153,6 +155,7 @@ final class ContentProjectCommandBusRegistrar
             GenerateProjectItemsCommand::class => GenerateProjectItemsHandler::class,
             RerunProjectItemsCommand::class => RerunProjectItemsHandler::class,
             RerunProjectItemStepCommand::class => RerunProjectItemStepHandler::class,
+            RestartGenerationWithKeywordCommand::class => RestartGenerationWithKeywordHandler::class,
             ResumeProjectItemFromFailedStepCommand::class => ResumeProjectItemFromFailedStepHandler::class,
             AcknowledgeProjectItemGenerationErrorCommand::class => AcknowledgeProjectItemGenerationErrorHandler::class,
             SelectExistingArticleForProjectItemCommand::class => SelectExistingArticleForProjectItemHandler::class,

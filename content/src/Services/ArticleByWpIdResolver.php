@@ -52,11 +52,10 @@ final class ArticleByWpIdResolver
         $type = strtolower(trim($type));
 
         return match ($type) {
-            'article', 'post', 'page' => 'article',
             'product' => 'product',
             'category' => 'category',
             'product_category', 'product_cat' => 'product_category',
-            default => $type !== '' ? $type : 'article',
+            default => 'article',
         };
     }
 }

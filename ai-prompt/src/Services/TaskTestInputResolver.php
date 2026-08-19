@@ -13,6 +13,7 @@ use Omnichannel\Addons\Content\Services\ArticleWritingAssembler;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectExistingArticleReconciler;
 use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectFreshKeywordRestart;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemIdentity;
 use Omnichannel\Addons\ContentProjects\Support\ProjectTaskOriginVariables;
 use Omnichannel\Addons\ContentProjects\Support\TaskTestContext;
@@ -175,6 +176,90 @@ final class TaskTestInputResolver
             ),
             $task,
         );
+    }
+
+    /**
+     * Fresh keyword restart — keyword override only; no inherited outline/content/rewrite source.
+     *
+     * @param  null|callable(Builder): void  $scopeArticles
+     */
+    public function resolveFreshKeywordRestartForProjectTask(
+        SeoProjectTask $task,
+        string $keywordOverride,
+        ?callable $scopeArticles = null,
+    ): TaskTestContext {
+        $keyword = ContentProjectItemIdentity::normalize(trim($keywordOverride));
+        if ($keyword === '') {
+            throw new \InvalidArgumentException('Từ khóa tạo bài mới là bắt buộc.');
+        }
+
+        $type = SeoProjectTask::normalizeType($task->type);
+        $siteId = (int) ($task->site_id ?? 0);
+
+        $this->articleScope = $scopeArticles;
+
+        try {
+            $articleId = (int) ($task->article_id ?? 0);
+            $article = $articleId > 0 ? $this->articlesQuery()->find($articleId) : null;
+
+            if ($article instanceof SeoArticle) {
+                $article->loadMissing(['articleMetas', 'site']);
+            }
+
+            $postType = $this->resolveCanonicalPostType($task, $article);
+            $galleryDescription = SeoProjectTask::isNewArticleType($type)
+                && $postType === SeoProjectTask::POST_TYPE_PRODUCT
+                ? trim((string) ($task->description ?? ''))
+                : '';
+            $loaiSanPham = SeoProjectTask::isNewArticleType($type)
+                && $postType === SeoProjectTask::POST_TYPE_PRODUCT
+                ? trim((string) ($task->loai_san_pham ?? ''))
+                : '';
+
+            $variables = $this->baseVariables('', $keyword, $articleId > 0 ? $articleId : null);
+            $site = $siteId > 0 ? Site::query()->find($siteId) : $this->mainDomain->resolveMainSite();
+            $promptVars = $this->promptSettings->promptVariables($postType);
+            $variables = array_merge(
+                $variables,
+                $promptVars,
+                $this->sitePromptContext->promptVariablesForSite($site),
+            );
+            $variables['tone'] = $this->sitePromptContext->resolveToneForSite(
+                $site,
+                $promptVars['tone'] ?? '',
+            );
+            $variables['post_type'] = $postType;
+            $variables = ContentProjectFreshKeywordRestart::stampVariables($variables, $keyword);
+
+            $context = new TaskTestContext(
+                article: null,
+                isNewArticle: $article === null,
+                matchedBy: null,
+                variables: $variables,
+                summary: sprintf('Fresh keyword restart — «%s»', $keyword),
+                siteId: $siteId > 0 ? $siteId : null,
+                postType: $postType,
+                projectTaskType: $type,
+            );
+
+            $context = $this->applyProjectPostType($context, $postType);
+
+            if ($article instanceof SeoArticle) {
+                $context = $context
+                    ->withProjectTaskType($type)
+                    ->withArticle($article, false, 'id');
+                if ($context->siteId === null && $siteId > 0) {
+                    $context = $context->withSiteId($siteId);
+                }
+            }
+
+            return $this->stampProjectTaskOrigin(
+                $this->withProductPromptVariables($context, $galleryDescription, $loaiSanPham),
+                $task,
+            );
+        } finally {
+            $this->articleScope = null;
+        }
     }
 
     private function withOptionalPromptInputs(
@@ -497,6 +582,25 @@ final class TaskTestInputResolver
                 (int) $task->id,
             ),
         );
+    }
+
+    /**
+     * Resolve canonical post_type: prefer task.post_type, fallback to article's resolved type.
+     * Ensures fresh_keyword_restart inherits post_type even when task row has no explicit value.
+     */
+    private function resolveCanonicalPostType(SeoProjectTask $task, ?SeoArticle $article): string
+    {
+        $taskPostType = trim((string) ($task->post_type ?? ''));
+
+        if ($taskPostType !== '' && in_array($taskPostType, SeoProjectTask::postTypeKeys(), true)) {
+            return $taskPostType;
+        }
+
+        if ($article instanceof SeoArticle) {
+            return ArticlePostTypeResolver::resolve($article);
+        }
+
+        return SeoProjectTask::normalizePostType($taskPostType);
     }
 
     /**

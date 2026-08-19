@@ -241,7 +241,7 @@ final class ContentProjectLegacyTaskForensicContractTest extends TestCase
 
         $menu = LegacyAddonPath::read('resources/views/components/content-project-item-actions-menu.blade.php');
         self::assertStringContainsString('item_action_select_existing_article', $menu);
-        self::assertStringContainsString('item_action_smart_create', $menu);
+        self::assertStringContainsString('item_action_run_generation', $menu);
 
         $meta = LegacyAddonPath::read('resources/views/components/content-project-item-meta.blade.php');
         self::assertStringContainsString('item_article_unlinked', $meta);
@@ -249,7 +249,7 @@ final class ContentProjectLegacyTaskForensicContractTest extends TestCase
         $vi = LegacyAddonPath::read('lang/vi/filament.php');
         self::assertStringContainsString("'item_article_unlinked' => 'Chưa có bài viết'", $vi);
         self::assertStringContainsString("'item_action_select_existing_article' => 'Liên kết bài có sẵn'", $vi);
-        self::assertStringContainsString("'item_action_smart_create' => 'Tạo bài mới'", $vi);
+        self::assertStringContainsString("'item_action_run_generation' => 'Chạy tạo bài'", $vi);
     }
 
     public function test_manual_picker_and_attach_are_site_scoped_including_create(): void

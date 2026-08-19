@@ -44,6 +44,8 @@ final class ArchiveContentProjectServiceTest extends TestCase
         self::assertStringContainsString('workspaceDestroyer', $source);
         self::assertStringContainsString('destroyInTransaction', $source);
         self::assertStringContainsString('resetProjectTasksForFreshFlow', $source);
+        self::assertStringContainsString('cancelHiddenStaleRuns', $source);
+        self::assertStringContainsString('hidden_stale_runs_cancelled', $source);
         self::assertStringNotContainsString('taskLifecycle', $source);
         self::assertStringNotContainsString('content_archived_at', $source);
         self::assertStringNotContainsString('SeoProjectTaskLifecycleService', $source);
@@ -87,6 +89,11 @@ final class ArchiveContentProjectServiceTest extends TestCase
         self::assertStringContainsString('previous_indexed_at', $source);
         self::assertStringNotContainsString("'body'", $source);
         self::assertStringNotContainsString("'content'", $source);
+
+        $queueMethod = (new ReflectionClass(ArchiveContentProjectService::class))->getMethod('resolveWpSyncQueuePayload');
+        $queueSource = $this->readMethodSource($queueMethod);
+        self::assertStringContainsString("'wp_sync_queue'", $queueSource);
+        self::assertStringNotContainsString('ArticleWpSyncQueueService', $queueSource);
     }
 
     public function test_models_expose_archive_relations_and_casts(): void
@@ -127,6 +134,8 @@ final class ArchiveContentProjectServiceTest extends TestCase
         self::assertStringContainsString('ArchiveContentProjectService', $source);
         self::assertStringContainsString("Action::make('archive_project')", $source);
         self::assertStringContainsString('isProjectArchived()', $source);
+        self::assertStringContainsString('displayGeneratedCount()', $source);
+        self::assertStringContainsString('confirm_hidden_stale_runs', $source);
         self::assertStringContainsString("getUrl('archive-preview'", $source);
     }
 

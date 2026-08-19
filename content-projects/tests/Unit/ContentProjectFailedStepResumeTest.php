@@ -38,7 +38,7 @@ final class ContentProjectFailedStepResumeTest extends TestCase
         self::assertFileExists($bladePath);
         $blade = (string) file_get_contents($bladePath);
         self::assertStringContainsString('createOrRerunOne({{ $tid }})', $blade);
-        self::assertStringContainsString('item_action_smart_create', $blade);
+        self::assertStringContainsString('item_action_run_generation', $blade);
         self::assertStringContainsString('resumeFromFailedStep({{ $tid }})', $blade);
         self::assertStringNotContainsString('Chạy lại từ đầu', $blade);
     }

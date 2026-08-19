@@ -43,6 +43,9 @@ final class ContentProjectStaffMonthAvailabilityTest extends TestCase
         self::assertStringContainsString('getUnassignedStaffForMonth', $source);
         self::assertStringContainsString('assertUnassignedForMonth', $source);
         self::assertStringContainsString('lockForUpdate', $source);
+        self::assertStringContainsString("pluck('user_id')", $source);
+        self::assertStringNotContainsString('nickname', $source);
+        self::assertStringNotContainsString('display_name', $source);
         // Không scope domain mặc định.
         self::assertStringNotContainsString("->where('site_id'", $source);
     }

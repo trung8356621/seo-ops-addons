@@ -314,6 +314,21 @@ final class PublishingQueueHub extends SeoPanelPage
         $this->selectAllMatching = false;
     }
 
+    /**
+     * Client-driven selection sync. skipRender keeps checkbox UX instant.
+     *
+     * @param  list<int|string>  $ids
+     */
+    public function syncSelectedTaskIds(array $ids = []): void
+    {
+        $this->selectedTaskIds = array_values(array_unique(array_filter(
+            array_map(static fn (mixed $id): int => (int) $id, $ids),
+            static fn (int $id): bool => $id > 0,
+        )));
+        $this->selectAllMatching = false;
+        $this->skipRender();
+    }
+
     public function selectPage(): void
     {
         $ids = [];
@@ -326,6 +341,7 @@ final class PublishingQueueHub extends SeoPanelPage
 
         $this->selectedTaskIds = array_values(array_unique($ids));
         $this->selectAllMatching = false;
+        $this->skipRender();
     }
 
     public function selectAllMatchingResults(): void
@@ -353,11 +369,13 @@ final class PublishingQueueHub extends SeoPanelPage
         if ($allSelected) {
             $this->selectedTaskIds = array_values(array_diff($selected, $pageIds));
             $this->selectAllMatching = false;
+            $this->skipRender();
 
             return;
         }
 
         $this->selectedTaskIds = array_values(array_unique(array_merge($selected, $pageIds)));
+        $this->skipRender();
     }
 
     /**

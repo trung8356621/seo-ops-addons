@@ -83,6 +83,7 @@ final class CreateContentProjectHandler extends AbstractPublishingHandler
                     'kind' => $attrs['kind'] ?? SeoProject::KIND_MONTHLY,
                     'user_id' => $userId,
                     'total_tasks' => $totalTasks,
+                    'description' => $attrs['description'] ?? null,
                 ]);
             });
 

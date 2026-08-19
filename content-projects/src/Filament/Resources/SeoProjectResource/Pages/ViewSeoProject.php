@@ -16,6 +16,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Actor
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ApproveProjectItemsCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ArchiveContentProjectCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ArchiveProjectItemsCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RestartGenerationWithKeywordCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RerunProjectItemsCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RerunProjectItemStepCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ResumeProjectItemFromFailedStepCommand;
@@ -41,6 +42,8 @@ use Omnichannel\Addons\ContentProjects\Enums\ContentProjectRerunFromStep;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectInReviewReportingDefinition;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectRecentlyCompletedDefinition;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectOpsCounterTransitionMap;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemActionCatalog;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemActionsPresenter;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Support\RuntimeLogger;
 use Carbon\Carbon;
@@ -108,6 +111,14 @@ final class ViewSeoProject extends Page
     public string $missingArticleConfirmTitle = '';
 
     public ?int $missingArticleConfirmPreviousId = null;
+
+    public bool $restartWithKeywordOpen = false;
+
+    public ?int $restartWithKeywordTaskId = null;
+
+    public string $restartWithKeywordItemTitle = '';
+
+    public string $restartWithKeywordInput = '';
 
     public string $search = '';
 
@@ -637,6 +648,15 @@ final class ViewSeoProject extends Page
                                 ->required();
                         }
 
+                        if ($gate['requires_hidden_stale_runs_confirm']) {
+                            $fields[] = Forms\Components\Checkbox::make('confirm_hidden_stale_runs')
+                                ->label(__('seo-content-ai::filament.projects.archive_hidden_stale_runs_confirm', [
+                                    'count' => $gate['hidden_stale_runs'],
+                                ]))
+                                ->rule('accepted')
+                                ->required();
+                        }
+
                         return $fields;
                     })
                     ->action(function (array $data) use ($project): void {
@@ -649,6 +669,7 @@ final class ViewSeoProject extends Page
                                     (int) $project->getKey(),
                                     isset($data['note']) ? (string) $data['note'] : null,
                                     (bool) ($data['confirm_waiting_publish'] ?? false),
+                                    confirmHiddenStaleRuns: (bool) ($data['confirm_hidden_stale_runs'] ?? false),
                                 ),
                                 ActorContext::user(
                                     auth()->id() !== null ? (int) auth()->id() : null,
@@ -872,6 +893,51 @@ final class ViewSeoProject extends Page
     public function getSelectedCountProperty(): int
     {
         return count($this->normalizeSelectedIds($this->selectedTaskIds));
+    }
+
+    /**
+     * Grouped bulk Actions menu — presentation only.
+     *
+     * @return list<array{key: string, heading: string, actions: list<array<string, mixed>>}>
+     */
+    public function getItemActionBulkMenuProperty(): array
+    {
+        $ids = $this->selectedItemIds();
+        if ($ids === []) {
+            return [];
+        }
+
+        $rows = $this->operationsPayload['rows'] ?? [];
+        if (! is_array($rows)) {
+            $rows = [];
+        }
+
+        $flagsByTaskId = [];
+        foreach ($ids as $id) {
+            $flagsByTaskId[$id] = [];
+        }
+        foreach ($rows as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $tid = (int) ($row['task_id'] ?? 0);
+            if ($tid <= 0 || ! isset($flagsByTaskId[$tid])) {
+                continue;
+            }
+            $flagsByTaskId[$tid] = ContentProjectItemActionsPresenter::forRow($row);
+        }
+
+        $overrides = [];
+        try {
+            $preview = $this->previewBulkGenerate($ids);
+            $overrides['run_generation'] = (int) ($preview['valid'] ?? 0);
+        } catch (Throwable) {
+            // Presenter flags remain the generate-pending source.
+        }
+
+        return ContentProjectItemActionCatalog::groupBulkMenu(
+            ContentProjectItemActionCatalog::summarizeBulk(count($ids), $flagsByTaskId, $overrides),
+        );
     }
 
     /** @return list<int> */
@@ -1350,6 +1416,123 @@ final class ViewSeoProject extends Page
         $this->invalidateOpsCache();
     }
 
+    public function openRestartWithKeyword(int|SeoProjectTask $taskOrId): void
+    {
+        $project = $this->requireProject();
+        if (! SeoAccessControl::canAccessContentProjectRun($project)) {
+            Notification::make()->title('Forbidden')->danger()->send();
+
+            return;
+        }
+
+        $task = $taskOrId instanceof SeoProjectTask
+            ? $taskOrId
+            : SeoProjectTask::query()
+                ->where('project_id', (int) $project->id)
+                ->whereKey((int) $taskOrId)
+                ->first();
+
+        if (! $task instanceof SeoProjectTask) {
+            return;
+        }
+
+        $title = trim((string) ($task->title ?? ''));
+        if ($title === '') {
+            $title = trim((string) ($task->keyword ?? $task->source_content ?? ''));
+        }
+        if ($title === '') {
+            $title = '#'.(int) $task->getKey();
+        }
+
+        $this->dispatch(
+            'open-restart-with-keyword',
+            taskId: (int) $task->getKey(),
+            title: $title,
+        );
+    }
+
+    public function closeRestartWithKeyword(): void
+    {
+        $this->dispatch('close-restart-with-keyword');
+    }
+
+    public function confirmRestartWithKeyword(?int $taskId = null, ?string $keyword = null): void
+    {
+        $project = $this->requireProject();
+        if (! SeoAccessControl::canAccessContentProjectRun($project)) {
+            Notification::make()->title('Forbidden')->danger()->send();
+
+            return;
+        }
+
+        $resolvedTaskId = (int) ($taskId ?? $this->restartWithKeywordTaskId ?? 0);
+        $resolvedKeyword = trim((string) ($keyword ?? $this->restartWithKeywordInput ?? ''));
+        if ($resolvedTaskId <= 0) {
+            $this->closeRestartWithKeyword();
+
+            return;
+        }
+
+        if ($resolvedKeyword === '') {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.restart_with_keyword_keyword_required'))
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        $task = SeoProjectTask::query()
+            ->where('project_id', (int) $project->id)
+            ->whereKey($resolvedTaskId)
+            ->first();
+        if (! $task instanceof SeoProjectTask) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.run_failed'))
+                ->body('Item not found.')
+                ->danger()
+                ->send();
+            $this->closeRestartWithKeyword();
+
+            return;
+        }
+
+        $this->closeRestartWithKeyword();
+
+        $result = app(ContentProjectCommandBus::class)->dispatch(
+            new RestartGenerationWithKeywordCommand(
+                (int) $project->id,
+                [$resolvedTaskId],
+                $resolvedKeyword,
+                SeoProjectRun::MODE_FULL,
+                [
+                    'generate_post_images' => $this->generatePostImages,
+                ],
+            ),
+            ActorContext::user(
+                auth()->id() !== null ? (int) auth()->id() : null,
+                (int) ($project->site_id ?? 0) ?: null,
+            ),
+        );
+
+        if (! $result->success) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.run_failed'))
+                ->body($result->message)
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        Notification::make()
+            ->title(__('seo-content-ai::filament.projects.restart_with_keyword_started'))
+            ->success()
+            ->send();
+
+        $this->invalidateOpsCache();
+    }
+
     private function executeCreateOrRerun(SeoProject $project, SeoProjectTask $task): void
     {
         $taskId = (int) $task->getKey();
@@ -1589,6 +1772,36 @@ final class ViewSeoProject extends Page
     }
 
     /**
+     * Same BlockProjectItemGenerationCommand as skipGenerationOne — no new command family.
+     */
+    public function skipGenerationSelected(): void
+    {
+        $project = $this->requireProject();
+        if (! SeoAccessControl::canAccessContentProjectRun($project)) {
+            Notification::make()->title('Forbidden')->danger()->send();
+
+            return;
+        }
+
+        $ids = $this->selectedItemIds();
+        if ($ids === []) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.queue_select_required'))
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        $this->dispatchBus(new BlockProjectItemGenerationCommand(
+            (int) $project->id,
+            $ids,
+            'operator_skip_generation',
+        ));
+        $this->resetPage();
+    }
+
+    /**
      * Clear generation block — allow Generate / Retry again.
      */
     public function allowGenerationOne(int $taskId): void
@@ -1726,12 +1939,22 @@ final class ViewSeoProject extends Page
     public function previewBulkGenerate(array $taskIds = []): array
     {
         $ids = $taskIds !== [] ? $taskIds : $this->selectedTaskIds;
+        $typesById = $ids !== []
+            ? SeoProjectTask::query()->whereIn('id', $ids)->pluck('type', 'id')->all()
+            : [];
+
         $preview = app(ContentProjectItemGenerationClassifier::class)->preview($this->requireProject());
         $allowed = array_flip($preview->runnableTaskIds());
         $valid = 0;
         $skipped = [];
         foreach ($ids as $id) {
             $id = (int) $id;
+            $taskType = SeoProjectTask::normalizeType((string) ($typesById[$id] ?? ''));
+            if ($taskType === SeoProjectTask::TYPE_IMPROVE) {
+                $skipped[] = ['task_id' => $id, 'reason' => 'manual_only_improve'];
+
+                continue;
+            }
             if (isset($allowed[$id])) {
                 $valid++;
                 continue;
@@ -1762,7 +1985,23 @@ final class ViewSeoProject extends Page
         }
 
         $preview = $this->previewBulkGenerate($taskIds);
+        $manualImproveSkipped = count(array_filter(
+            $preview['skipped'] ?? [],
+            static fn (array $row): bool => ($row['reason'] ?? '') === 'manual_only_improve',
+        ));
         if ($preview['valid'] <= 0) {
+            if ($manualImproveSkipped > 0) {
+                Notification::make()
+                    ->title(__('seo-content-ai::filament.projects.run_failed'))
+                    ->body(sprintf(
+                        'Bỏ qua %d mục Improve vì đây là nội dung chỉnh sửa thủ công.',
+                        $manualImproveSkipped,
+                    ))
+                    ->warning()
+                    ->send();
+
+                return;
+            }
             Notification::make()
                 ->title(__('seo-content-ai::filament.projects.run_failed'))
                 ->body(__('seo-content-ai::filament.projects.run_items_empty'))
@@ -1793,7 +2032,13 @@ final class ViewSeoProject extends Page
             );
             Notification::make()
                 ->title(__('seo-content-ai::filament.projects.run_started'))
-                ->body(__('seo-content-ai::filament.projects.generate_pending_started_body'))
+                ->body($manualImproveSkipped > 0
+                    ? sprintf(
+                        'Đã chạy tạo bài cho %d mục. Bỏ qua %d mục Improve vì đây là nội dung chỉnh sửa thủ công.',
+                        (int) $preview['valid'],
+                        $manualImproveSkipped,
+                    )
+                    : __('seo-content-ai::filament.projects.generate_pending_started_body'))
                 ->success()
                 ->send();
         } catch (Throwable $e) {

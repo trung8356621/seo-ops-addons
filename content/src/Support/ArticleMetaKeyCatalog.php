@@ -240,12 +240,12 @@ final class ArticleMetaKeyCatalog
                 'readers' => ['SeoAnalyzerService', 'ArticleEditorPersistService', 'WordPressArticleContentService'],
             ],
             'wp_post_type' => [
-                'purpose' => 'WP post type mirror — deleted Task 7 §N; use articles.type',
-                'class' => self::CLASS_COMPATIBILITY,
-                'cleanup' => true,
-                'canonical_replacement' => 'articles.type',
-                'writers' => [],
-                'readers' => [],
+                'purpose' => 'Raw WordPress post_type slug (post, page, product, custom CPT)',
+                'class' => self::CLASS_CANONICAL,
+                'cleanup' => false,
+                'canonical_replacement' => null,
+                'writers' => ['SyncDomainContentService'],
+                'readers' => ['McpEligibleContentScope', 'DomainOverviewService'],
             ],
             'wp_entity' => [
                 'purpose' => 'post vs term entity',

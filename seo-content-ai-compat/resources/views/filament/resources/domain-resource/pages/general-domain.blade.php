@@ -182,25 +182,55 @@
                     <x-slot name="heading">{{ __('Thống kê đồng bộ') }}</x-slot>
                     <x-slot name="description">{{ __('Số lượng theo type trên kho nội dung SEO.') }}</x-slot>
 
-                    <div class="grid gap-2 text-sm sm:grid-cols-2">
-                        <p><span class="font-semibold">{{ __('Bài viết') }}:</span> {{ $stats['articles'] }}</p>
-                        @if(($stats['wp_articles_total'] ?? 0) > 0)
-                            <p class="text-xs text-gray-500 sm:col-span-2">
-                                {{ __('WP') }}: {{ $stats['wp_posts'] }} post + {{ $stats['wp_pages'] }} page
-                                @if(($stats['article_gap'] ?? 0) > 0)
-                                    <span class="font-semibold text-warning-600 dark:text-warning-400">
-                                        — {{ __('thiếu') }} {{ $stats['article_gap'] }} {{ __('bài so với plugin') }}
-                                    </span>
-                                @endif
-                            </p>
+                    @php
+                        $wpTypeCounts = $stats['wp_post_type_counts'] ?? [];
+                        $defaultLabels = ['post' => __('Bài viết'), 'page' => __('Trang'), 'product' => __('Sản phẩm')];
+                        $defaultTypes = ['post', 'page', 'product'];
+                        $customTypes = array_diff(array_keys($wpTypeCounts), $defaultTypes);
+                    @endphp
+                    <div class="space-y-3 text-sm">
+                        @if(!empty($wpTypeCounts))
+                            <div>
+                                <p class="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{{ __('Nội dung WordPress') }}</p>
+                                <div class="grid gap-1 sm:grid-cols-2">
+                                    @foreach($defaultTypes as $dt)
+                                        <p><span class="font-semibold">{{ $defaultLabels[$dt] ?? ucfirst($dt) }} · {{ $dt }}:</span> {{ $wpTypeCounts[$dt] ?? 0 }}</p>
+                                    @endforeach
+                                    @foreach($customTypes as $ct)
+                                        @if(($wpTypeCounts[$ct] ?? 0) > 0)
+                                            <p><span class="font-semibold">{{ ucfirst(str_replace(['_', '-'], ' ', $ct)) }}:</span> {{ $wpTypeCounts[$ct] }}</p>
+                                        @endif
+                                    @endforeach
+                                </div>
+                                @php $contentTotal = array_sum($wpTypeCounts); @endphp
+                                <p class="mt-1 text-gray-500">{{ __('Tổng nội dung WP') }}: {{ $contentTotal }}</p>
+                            </div>
+                        @else
+                            <div class="grid gap-1 sm:grid-cols-2">
+                                <p><span class="font-semibold">{{ __('Bài viết') }}:</span> {{ $stats['articles'] }}</p>
+                                <p><span class="font-semibold">{{ __('Sản phẩm') }}:</span> {{ $stats['products'] }}</p>
+                            </div>
+                            @if(($stats['wp_articles_total'] ?? 0) > 0)
+                                <p class="text-xs text-gray-500">
+                                    {{ __('WP') }}: {{ $stats['wp_posts'] }} post + {{ $stats['wp_pages'] }} page
+                                    @if(($stats['article_gap'] ?? 0) > 0)
+                                        <span class="font-semibold text-warning-600 dark:text-warning-400">
+                                            — {{ __('thiếu') }} {{ $stats['article_gap'] }} {{ __('bài so với plugin') }}
+                                        </span>
+                                    @endif
+                                </p>
+                            @endif
                         @endif
-                        <p><span class="font-semibold">{{ __('Sản phẩm') }}:</span> {{ $stats['products'] }}</p>
-                        <p><span class="font-semibold">{{ __('Danh mục') }}:</span> {{ $stats['categories'] }}</p>
-                        <p><span class="font-semibold">{{ __('Danh mục SP') }}:</span> {{ $stats['product_categories'] }}</p>
-                        @if($stats['other'] > 0)
-                            <p class="sm:col-span-2"><span class="font-semibold">{{ __('Khác') }}:</span> {{ $stats['other'] }}</p>
-                        @endif
-                        <p class="sm:col-span-2 text-gray-500">{{ __('Tổng') }}: {{ $stats['total'] }} {{ __('bản ghi') }}</p>
+
+                        <div>
+                            <p class="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{{ __('Taxonomy') }}</p>
+                            <div class="grid gap-1 sm:grid-cols-2">
+                                <p><span class="font-semibold">{{ __('Danh mục') }}:</span> {{ $stats['categories'] }}</p>
+                                <p><span class="font-semibold">{{ __('Danh mục SP') }}:</span> {{ $stats['product_categories'] }}</p>
+                            </div>
+                        </div>
+
+                        <p class="text-gray-500">{{ __('Tổng bản ghi') }}: {{ $stats['total'] }}</p>
                     </div>
 
                     @php $seoScoring = $this->getSeoScoringProgress(); @endphp

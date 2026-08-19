@@ -99,7 +99,11 @@ final class SeoAuditKeywordFlagService
         bool $filterTechnicalSeoScore,
         int $page = 1,
         int $perPage = 15,
+        ?string $sortBy = null,
+        string $sortDir = 'asc',
     ): LengthAwarePaginator {
+        $sortBy = $sortBy === 'score' ? 'score' : null;
+        $sortDir = strtolower($sortDir) === 'desc' ? 'desc' : 'asc';
         // Root cause fix: khi user chọn rule/aggregate, KHÔNG UNION keyword_review flags.
         // Trước đây OR keyword Warning/Danger → checkbox "Thiếu từ khóa chính" vẫn ra bài đã có keyword.
         $mergedIds = $this->resolveResultArticleIds(
@@ -148,19 +152,7 @@ final class SeoAuditKeywordFlagService
                 );
             })
             ->filter()
-            ->sort(function (array $left, array $right): int {
-                $dangerCompare = ((int) ($right['danger_count'] ?? 0)) <=> ((int) ($left['danger_count'] ?? 0));
-                if ($dangerCompare !== 0) {
-                    return $dangerCompare;
-                }
-
-                $warningCompare = ((int) ($right['warning_count'] ?? 0)) <=> ((int) ($left['warning_count'] ?? 0));
-                if ($warningCompare !== 0) {
-                    return $warningCompare;
-                }
-
-                return strcmp((string) ($right['updated_at'] ?? ''), (string) ($left['updated_at'] ?? ''));
-            })
+            ->sort(fn (array $left, array $right): int => $this->compareResultRows($left, $right, $sortBy, $sortDir))
             ->values();
 
         $total = $rows->count();
@@ -174,6 +166,32 @@ final class SeoAuditKeywordFlagService
             $page,
             ['path' => request()->url(), 'query' => request()->query()],
         );
+    }
+
+    /**
+     * @param  array<string, mixed>  $left
+     * @param  array<string, mixed>  $right
+     */
+    private function compareResultRows(array $left, array $right, ?string $sortBy, string $sortDir): int
+    {
+        if ($sortBy === 'score') {
+            $scoreCompare = ((int) ($left['score'] ?? 0)) <=> ((int) ($right['score'] ?? 0));
+            if ($scoreCompare !== 0) {
+                return $sortDir === 'desc' ? -$scoreCompare : $scoreCompare;
+            }
+        } else {
+            $dangerCompare = ((int) ($right['danger_count'] ?? 0)) <=> ((int) ($left['danger_count'] ?? 0));
+            if ($dangerCompare !== 0) {
+                return $dangerCompare;
+            }
+
+            $warningCompare = ((int) ($right['warning_count'] ?? 0)) <=> ((int) ($left['warning_count'] ?? 0));
+            if ($warningCompare !== 0) {
+                return $warningCompare;
+            }
+        }
+
+        return strcmp((string) ($right['updated_at'] ?? ''), (string) ($left['updated_at'] ?? ''));
     }
 
     /**

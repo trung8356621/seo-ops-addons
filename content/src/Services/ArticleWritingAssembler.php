@@ -73,8 +73,15 @@ class ArticleWritingAssembler
 
         if ($sourceType === null
             && (bool) ($variables['legacy_rewrite_adapter'] ?? false)
+            && \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectFreshKeywordRestart::shouldUseRewriteSourceContent($variables)
         ) {
             $sourceType = ArticleWritingSourceType::ExistingArticle;
+        }
+
+        if ($sourceType === ArticleWritingSourceType::ExistingArticle
+            && ! \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectFreshKeywordRestart::shouldUseRewriteSourceContent($variables)
+        ) {
+            $sourceType = ArticleWritingSourceType::Outline;
         }
 
         if ($sourceType === null) {

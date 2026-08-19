@@ -293,7 +293,7 @@ final class ContentProjectStaffAvailabilityService
      */
     public function presentStaff(User $user, CarbonImmutable|Carbon|string|null $month = null): array
     {
-        $name = trim((string) ($user->display_name ?: $user->name ?: ''));
+        $name = trim((string) ($user->name ?: ''));
         $email = trim((string) ($user->email ?? ''));
         $normalized = ContentProjectMonthContext::normalize($month);
 
@@ -326,7 +326,7 @@ final class ContentProjectStaffAvailabilityService
 
     public function formatLabel(User $user): string
     {
-        $name = trim((string) ($user->display_name ?? ''));
+        $name = trim((string) ($user->name ?? ''));
         $email = trim((string) ($user->email ?? ''));
 
         if ($name !== '' && $email !== '') {
@@ -337,13 +337,7 @@ final class ContentProjectStaffAvailabilityService
             return $name;
         }
 
-        if ($email !== '') {
-            return $email;
-        }
-
-        $fallbackName = trim((string) ($user->name ?? ''));
-
-        return $fallbackName !== '' ? $fallbackName : '#'.(int) $user->getKey();
+        return $email !== '' ? $email : '#'.(int) $user->getKey();
     }
 
     /**

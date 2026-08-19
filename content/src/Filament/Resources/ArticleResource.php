@@ -340,11 +340,34 @@ class ArticleResource extends SeoPanelResource
                     }),
                 SelectFilter::make('post_type')
                     ->label(__('seo-content-ai::filament.article_list.post_type'))
-                    ->options([
-                        'post' => __('seo-content-ai::filament.article_list.post_type_post'),
-                        'page' => __('seo-content-ai::filament.article_list.post_type_page'),
-                        'product' => __('seo-content-ai::filament.article_list.post_type_product'),
-                    ])
+                    ->options(static function (): array {
+                        $defaultLabels = [
+                            'post' => __('seo-content-ai::filament.article_list.post_type_post'),
+                            'page' => __('seo-content-ai::filament.article_list.post_type_page'),
+                            'product' => __('seo-content-ai::filament.article_list.post_type_product'),
+                        ];
+                        if (! \Illuminate\Support\Facades\Schema::connection('omi_seo_ai')->hasTable('article_meta')) {
+                            return $defaultLabels;
+                        }
+                        $slugs = \Omnichannel\Addons\Content\Models\ArticleMeta::query()
+                            ->where('meta_key', 'wp_post_type')
+                            ->whereNotNull('meta_value')
+                            ->where('meta_value', '!=', '')
+                            ->distinct()
+                            ->pluck('meta_value')
+                            ->sort()
+                            ->values()
+                            ->all();
+                        if ($slugs === []) {
+                            return $defaultLabels;
+                        }
+                        $options = [];
+                        foreach ($slugs as $slug) {
+                            $options[$slug] = $defaultLabels[$slug]
+                                ?? ucfirst(str_replace(['_', '-'], ' ', (string) $slug));
+                        }
+                        return $options;
+                    })
                     ->default('post')
                     ->native(false)
                     ->placeholder(__('seo-content-ai::filament.article_list.all_post_types'))
@@ -709,44 +732,53 @@ class ArticleResource extends SeoPanelResource
     public static function applyPostTypeFilterScope(Builder $query, string $wpPostType): void
     {
         $wpPostType = strtolower(trim($wpPostType));
+        if ($wpPostType === '') {
+            return;
+        }
 
-        match ($wpPostType) {
-            'product' => $query->where('articles.type', 'product'),
-            'page' => static::applyArticlesWithWpPostTypeMetaScope($query, 'page'),
-            'post' => $query->where(function (Builder $scopeQuery): void {
-                $scopeQuery
-                    ->whereIn('articles.type', ['article'])
-                    ->orWhereNull('articles.type')
-                    ->orWhere('articles.type', '');
-            }),
-            default => null,
-        };
+        static::applyArticlesWithWpPostTypeMetaScope($query, $wpPostType);
     }
 
     public static function resolveWordPressPostTypeLabel(SeoArticle $record): string
     {
-        $type = strtolower(trim((string) ($record->type ?? 'article')));
+        $wpPostType = null;
+        if ($record->relationLoaded('articleMetas')) {
+            $meta = $record->articleMetas->firstWhere('meta_key', 'wp_post_type');
+            $wpPostType = $meta?->meta_value;
+        } else {
+            $wpPostType = $record->articleMetas()
+                ->where('meta_key', 'wp_post_type')
+                ->value('meta_value');
+        }
 
+        $wpPostType = strtolower(trim((string) ($wpPostType ?? '')));
+
+        if ($wpPostType !== '') {
+            $labels = [
+                'post' => __('seo-content-ai::filament.article_list.post_type_post'),
+                'page' => __('seo-content-ai::filament.article_list.post_type_page'),
+                'product' => __('seo-content-ai::filament.article_list.post_type_product'),
+            ];
+            return $labels[$wpPostType] ?? ucfirst(str_replace(['_', '-'], ' ', $wpPostType));
+        }
+
+        $type = strtolower(trim((string) ($record->type ?? 'article')));
         return match ($type) {
             'product' => __('seo-content-ai::filament.article_list.post_type_product'),
             'category' => __('seo-content-ai::filament.article_list.post_type_category'),
             'product_category', 'product_cat' => __('seo-content-ai::filament.article_list.post_type_product_category'),
-            'page' => __('seo-content-ai::filament.article_list.post_type_page'),
             default => __('seo-content-ai::filament.article_list.post_type_post'),
         };
     }
 
     private static function applyArticlesWithWpPostTypeMetaScope(Builder $query, string $wpPostType): void
     {
-        $articleType = match (strtolower(trim($wpPostType))) {
-            'product' => 'product',
-            'product_cat', 'product_category' => 'product_category',
-            'category' => 'category',
-            'page' => 'page',
-            default => 'article',
-        };
+        $wpPostType = strtolower(trim($wpPostType));
 
-        $query->where('articles.type', $articleType);
+        $query->whereHas('articleMetas', static function (Builder $metaQ) use ($wpPostType): void {
+            $metaQ->where('meta_key', 'wp_post_type')
+                ->where('meta_value', $wpPostType);
+        });
     }
 
     public static function applyContentTabScope(Builder $query, string $contentTab): Builder
