@@ -46,6 +46,7 @@ final class SiteMcpAggregationTest extends TestCase
         ], 'domain.test'));
 
         self::assertStringContainsString('Posts: 100', $markdown);
+        self::assertStringContainsString('Pages: 10', $markdown);
         self::assertStringContainsString('Categories: 8', $markdown);
         self::assertStringContainsString('Products: 20', $markdown);
         self::assertStringContainsString('Product categories: 4', $markdown);

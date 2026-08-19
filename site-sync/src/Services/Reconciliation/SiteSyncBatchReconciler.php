@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\SiteSync\Services\Reconciliation;
 use Omnichannel\Addons\SiteSync\Models\SeoSiteSyncBatch;
 use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
 use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncBatchData;
+use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncSchema;
 use Omnichannel\Addons\WordPress\Services\SyncDomainContentService;
 use App\Models\Site;
 
@@ -43,17 +44,27 @@ final class SiteSyncBatchReconciler
     public function apply(Site $site, SeoSiteSyncBatch $batch): array
     {
         if ($batch->applied_at !== null) {
+            $identityBackfilled = 0;
+            if ($batch->mode === SiteSyncSchema::MODE_FORCE_FULL) {
+                $identityBackfilled = $this->articleImport->backfillWpPostTypeMetaFromBatchPayload(
+                    $site,
+                    $batch->decodedPayload(),
+                );
+            }
+
             return [
                 'articles' => 0,
                 'links' => 0,
                 'provider_keywords' => 0,
                 'scores' => 0,
                 'idempotent_skip' => 1,
+                'wp_post_type_backfilled' => $identityBackfilled,
             ];
         }
 
         $data = SiteSyncBatchData::fromArray($batch->decodedPayload());
-        $articleCounts = $this->articleImport->importItems($site, $data->articles);
+        $forceOverwrite = $batch->mode === SiteSyncSchema::MODE_FORCE_FULL;
+        $articleCounts = $this->articleImport->importItems($site, $data->articles, $forceOverwrite);
         $linkCounts = $this->links->reconcileWordPressLinks($site, $data->links);
         $keywordCounts = $this->keywords->reconcile($site, $data->providerKeywords);
         $scoreCounts = $this->scores->reconcile($site, $data->scores);

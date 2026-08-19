@@ -225,6 +225,10 @@ final class SeoAccessControl
             return false;
         }
 
+        if (request()->routeIs('filament.seo.pages.mcp-intelligence')) {
+            return false;
+        }
+
         if (
             request()->routeIs('filament.seo.pages.articles-optimal')
             || request()->is('seo/*/articles/optimal', 'seo/*/articles/optimal/*')

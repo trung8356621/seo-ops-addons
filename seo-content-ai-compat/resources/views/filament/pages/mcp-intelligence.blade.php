@@ -81,25 +81,31 @@
             aiContextView = 'raw';
         ">
             <header class="mcp-report__header">
-                <div>
-                    <h1 class="mcp-report__title">{{ __('seo-content-ai::filament.mcp_intelligence.title') }}</h1>
-                    <p class="mcp-report__meta">
-                        {{ $site?->domain ?? __('seo-content-ai::filament.mcp_intelligence.pick_site') }}
-                        · {{ __('seo-content-ai::filament.mcp_intelligence.month_label', ['period' => $periodLabel]) }}
-                        · {{ $period ? __('seo-content-ai::filament.mcp_intelligence.status_'.$period->status) : __('seo-content-ai::filament.mcp_intelligence.status_missing') }}
-                    </p>
-                </div>
-                <div class="mcp-report__controls">
-                    <x-select wire:model.live="periodKey" class="min-w-[8rem]">
-                        @foreach ($this->periodOptions() as $opt)
-                            <option value="{{ sprintf('%04d-%02d', $opt['year'], $opt['month']) }}">
-                                {{ $opt['label'] }}
-                                @if ($opt['exists'] && $opt['status'] === 'finalized')
-                                    · {{ __('seo-content-ai::filament.mcp_intelligence.status_finalized') }}
-                                @endif
-                            </option>
-                        @endforeach
-                    </x-select>
+                <div class="mcp-report__toolbar">
+                    <div class="mcp-report__filter-bar">
+                        <div class="mcp-report__filter">
+                            <span class="mcp-report__filter-label">{{ __('seo-content-ai::filament.mcp_intelligence.domain_label') }}</span>
+                            <x-select wire:model.live="siteId" class="min-w-[14rem]">
+                                @foreach ($this->siteOptions() as $siteOptionId => $siteDomain)
+                                    <option value="{{ $siteOptionId }}">{{ $siteDomain }}</option>
+                                @endforeach
+                            </x-select>
+                        </div>
+                        <div class="mcp-report__filter">
+                            <span class="mcp-report__filter-label">{{ __('seo-content-ai::filament.mcp_intelligence.period_label') }}</span>
+                            <x-select wire:model.live="periodKey" class="min-w-[8rem]">
+                                @foreach ($this->periodOptions() as $opt)
+                                    <option value="{{ sprintf('%04d-%02d', $opt['year'], $opt['month']) }}">
+                                        {{ $opt['label'] }}
+                                        @if ($opt['exists'] && $opt['status'] === 'finalized')
+                                            · {{ __('seo-content-ai::filament.mcp_intelligence.status_finalized') }}
+                                        @endif
+                                    </option>
+                                @endforeach
+                            </x-select>
+                        </div>
+                    </div>
+                    <div class="mcp-report__controls">
                     @if ($period && $isOpen)
                         <div class="relative">
                             <button type="button" class="mcp-btn mcp-btn--primary" @click="refreshOpen = !refreshOpen">
@@ -126,6 +132,15 @@
                     @endif
                     <button type="button" class="mcp-btn" @click="markdownOpen = true">{{ __('seo-content-ai::filament.mcp_intelligence.view_markdown') }}</button>
                     <button type="button" class="mcp-btn" @click="aiContextOpen = true">{{ __('seo-content-ai::filament.mcp_intelligence.view_ai_context') }}</button>
+                    </div>
+                </div>
+                <div class="mcp-report__heading">
+                    <h1 class="mcp-report__title">{{ __('seo-content-ai::filament.mcp_intelligence.title') }}</h1>
+                    <p class="mcp-report__meta">
+                        {{ $site?->domain ?? __('seo-content-ai::filament.mcp_intelligence.pick_site') }}
+                        · {{ __('seo-content-ai::filament.mcp_intelligence.month_label', ['period' => $periodLabel]) }}
+                        · {{ $period ? __('seo-content-ai::filament.mcp_intelligence.status_'.$period->status) : __('seo-content-ai::filament.mcp_intelligence.status_missing') }}
+                    </p>
                 </div>
             </header>
 
@@ -147,7 +162,7 @@
                         </div>
                     </div>
                 @else
-                    <p class="mcp-empty">{{ __('seo-content-ai::filament.mcp_intelligence.need_global_domain') }}</p>
+                    <p class="mcp-empty">{{ __('seo-content-ai::filament.mcp_intelligence.need_domain') }}</p>
                 @endif
             @elseif ($state['changed_after_finalize'])
                 <div class="mcp-banner mcp-banner--warn">{{ __('seo-content-ai::filament.mcp_intelligence.source_changed_after_finalize') }}</div>
@@ -323,15 +338,17 @@
                                 <div class="mcp-overview-section__title">Phân bố nội dung</div>
                                 @php
                                     $posts = array_key_exists('posts', $contentDistribution) ? $contentDistribution['posts'] : null;
+                                    $pages = array_key_exists('pages', $contentDistribution) ? $contentDistribution['pages'] : null;
                                     $categories = array_key_exists('categories', $contentDistribution) ? $contentDistribution['categories'] : null;
                                     $products = array_key_exists('products', $contentDistribution) ? $contentDistribution['products'] : null;
                                     $productCategories = array_key_exists('product_categories', $contentDistribution) ? $contentDistribution['product_categories'] : null;
                                     $other = array_key_exists('other', $contentDistribution) ? $contentDistribution['other'] : null;
-                                    $distMax = max((int) ($posts ?? 0), (int) ($categories ?? 0), (int) ($products ?? 0), (int) ($productCategories ?? 0), (int) ($other ?? 0));
+                                    $distMax = max((int) ($posts ?? 0), (int) ($pages ?? 0), (int) ($categories ?? 0), (int) ($products ?? 0), (int) ($productCategories ?? 0), (int) ($other ?? 0));
                                 @endphp
                                 <div class="mcp-dist-list">
                                     @foreach ([
                                         ['label' => 'Bài viết', 'value' => $posts],
+                                        ['label' => 'Trang', 'value' => $pages],
                                         ['label' => 'Danh mục', 'value' => $categories],
                                         ['label' => 'Sản phẩm', 'value' => $products],
                                         ['label' => 'Danh mục sản phẩm', 'value' => $productCategories],

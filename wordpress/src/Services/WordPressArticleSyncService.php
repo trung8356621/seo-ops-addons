@@ -189,7 +189,11 @@ final class WordPressArticleSyncService
                 'type' => $postType === 'product' ? 'product' : 'article',
             ], static fn (mixed $value): bool => $value !== null))->save();
             $this->timestampService->sync($article, $decoded);
-            $article->articleMetas()->whereIn('meta_key', ['wp_post_type', 'wp_slug'])->delete();
+            $article->articleMetas()->where('meta_key', 'wp_slug')->delete();
+            $article->articleMetas()->updateOrCreate(
+                ['meta_key' => 'wp_post_type'],
+                ['meta_value' => $postType],
+            );
             $article->articleMetas()->updateOrCreate(
                 ['meta_key' => 'wp_entity'],
                 ['meta_value' => 'post'],
@@ -997,7 +1001,10 @@ final class WordPressArticleSyncService
             $article->update([
                 'type' => $remotePostType === 'product' ? 'product' : 'article',
             ]);
-            $article->articleMetas()->where('meta_key', 'wp_post_type')->delete();
+            $article->articleMetas()->updateOrCreate(
+                ['meta_key' => 'wp_post_type'],
+                ['meta_value' => $remotePostType],
+            );
         }
         if ($remoteSlug !== '') {
             $article->update(['slug' => $remoteSlug]);

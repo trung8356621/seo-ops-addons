@@ -53,7 +53,7 @@ final class McpMarkdownRendererTest extends TestCase
         self::assertStringContainsString('Internally linked articles: 57', $markdown);
         self::assertStringContainsString('Articles receiving internal links: 57', $markdown);
         self::assertStringContainsString('Article A — 24 internal links', $markdown);
-        self::assertStringNotContainsString('Pages:', $markdown);
+        self::assertStringContainsString('Pages: 12', $markdown);
     }
 
     public function test_keyword_markdown_contains_core_metrics(): void

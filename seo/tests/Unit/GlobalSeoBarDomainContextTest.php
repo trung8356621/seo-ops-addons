@@ -77,16 +77,30 @@ final class GlobalSeoBarDomainContextTest extends TestCase
         $this->assertContains(RefreshesOnDomainContextChanged::class, class_uses(ContentProjectQueueHealthWidget::class) ?: []);
     }
 
-    public function test_keyword_and_mcp_pages_follow_global_domain_without_local_selector(): void
+    public function test_mcp_page_hides_global_domain_picker(): void
+    {
+        $source = (string) file_get_contents((string) (new ReflectionClass(SeoAccessControl::class))->getFileName());
+
+        $this->assertStringContainsString("request()->routeIs('filament.seo.pages.mcp-intelligence')", $source);
+    }
+
+    public function test_mcp_page_uses_local_domain_picker(): void
+    {
+        $mcp = (string) file_get_contents((string) (new ReflectionClass(McpIntelligence::class))->getFileName());
+        $blade = (string) file_get_contents(dirname(__DIR__, 3).'/seo-content-ai-compat/resources/views/filament/pages/mcp-intelligence.blade.php');
+
+        $this->assertStringContainsString('resolveInitialSiteId', $mcp);
+        $this->assertStringNotContainsString('syncSiteFromGlobalContext', $mcp);
+        $this->assertStringContainsString('wire:model.live="siteId"', $blade);
+        $this->assertStringContainsString('mcp-report__filter-bar', $blade);
+    }
+
+    public function test_keyword_pages_follow_global_domain_without_local_selector(): void
     {
         $nav = (string) file_get_contents(dirname(__DIR__, 3).'/search-intelligence/src/Filament/Resources/KeywordResource/Pages/Concerns/HasKeywordWorkspaceNavigation.php');
         $this->assertStringContainsString('domain-context-changed', $nav);
         $this->assertStringContainsString('SeoAccessControl::globalSiteId', $nav);
         $this->assertStringNotContainsString('setGlobalSiteId(null)', $nav);
-
-        $mcp = (string) file_get_contents((string) (new ReflectionClass(McpIntelligence::class))->getFileName());
-        $this->assertStringContainsString('syncSiteFromGlobalContext', $mcp);
-        $this->assertStringContainsString('onDomainContextChanged', $mcp);
 
         $this->assertContains(HasKeywordWorkspaceNavigation::class, class_uses(ListKeywords::class) ?: []);
         $this->assertContains(HasKeywordWorkspaceNavigation::class, class_uses(KeywordTopicClusters::class) ?: []);

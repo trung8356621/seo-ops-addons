@@ -4027,8 +4027,10 @@ return [
     'mcp_intelligence' => [
         'nav' => 'MCP Intelligence',
         'title' => 'MCP Intelligence',
-        'pick_site' => 'Chọn website trên thanh Domain',
-        'need_global_domain' => 'Chọn một website cụ thể trên Domain selector để xem báo cáo tháng.',
+        'pick_site' => 'Chọn website',
+        'need_domain' => 'Chọn website ở thanh trên để xem báo cáo tháng.',
+        'domain_label' => 'Tên miền',
+        'period_label' => 'Kỳ',
         'month_label' => 'Tháng :period',
         'status_open' => 'Đang mở',
         'status_finalized' => 'Đã hoàn tất',

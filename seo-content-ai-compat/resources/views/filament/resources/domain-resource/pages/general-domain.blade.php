@@ -189,30 +189,23 @@
                         $customTypes = array_diff(array_keys($wpTypeCounts), $defaultTypes);
                     @endphp
                     <div class="space-y-3 text-sm">
-                        @if(!empty($wpTypeCounts))
-                            <div>
-                                <p class="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{{ __('Nội dung WordPress') }}</p>
-                                <div class="grid gap-1 sm:grid-cols-2">
-                                    @foreach($defaultTypes as $dt)
-                                        <p><span class="font-semibold">{{ $defaultLabels[$dt] ?? ucfirst($dt) }} · {{ $dt }}:</span> {{ $wpTypeCounts[$dt] ?? 0 }}</p>
-                                    @endforeach
-                                    @foreach($customTypes as $ct)
-                                        @if(($wpTypeCounts[$ct] ?? 0) > 0)
-                                            <p><span class="font-semibold">{{ ucfirst(str_replace(['_', '-'], ' ', $ct)) }}:</span> {{ $wpTypeCounts[$ct] }}</p>
-                                        @endif
-                                    @endforeach
-                                </div>
-                                @php $contentTotal = array_sum($wpTypeCounts); @endphp
-                                <p class="mt-1 text-gray-500">{{ __('Tổng nội dung WP') }}: {{ $contentTotal }}</p>
-                            </div>
-                        @else
+                        <div>
+                            <p class="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{{ __('Nội dung WordPress') }}</p>
                             <div class="grid gap-1 sm:grid-cols-2">
-                                <p><span class="font-semibold">{{ __('Bài viết') }}:</span> {{ $stats['articles'] }}</p>
-                                <p><span class="font-semibold">{{ __('Sản phẩm') }}:</span> {{ $stats['products'] }}</p>
+                                @foreach($defaultTypes as $dt)
+                                    <p><span class="font-semibold">{{ $defaultLabels[$dt] ?? ucfirst($dt) }} · {{ $dt }}:</span> {{ $wpTypeCounts[$dt] ?? 0 }}</p>
+                                @endforeach
+                                @foreach($customTypes as $ct)
+                                    @if(($wpTypeCounts[$ct] ?? 0) > 0)
+                                        <p><span class="font-semibold">{{ ucfirst(str_replace(['_', '-'], ' ', $ct)) }}:</span> {{ $wpTypeCounts[$ct] }}</p>
+                                    @endif
+                                @endforeach
                             </div>
-                            @if(($stats['wp_articles_total'] ?? 0) > 0)
+                            @php $contentTotal = array_sum($wpTypeCounts); @endphp
+                            <p class="mt-1 text-gray-500">{{ __('Tổng nội dung WP') }}: {{ $contentTotal > 0 ? $contentTotal : '—' }}</p>
+                            @if(empty($wpTypeCounts) && ($stats['wp_articles_total'] ?? 0) > 0)
                                 <p class="text-xs text-gray-500">
-                                    {{ __('WP') }}: {{ $stats['wp_posts'] }} post + {{ $stats['wp_pages'] }} page
+                                    {{ __('WP manifest') }}: {{ $stats['wp_posts'] }} post + {{ $stats['wp_pages'] }} page
                                     @if(($stats['article_gap'] ?? 0) > 0)
                                         <span class="font-semibold text-warning-600 dark:text-warning-400">
                                             — {{ __('thiếu') }} {{ $stats['article_gap'] }} {{ __('bài so với plugin') }}
@@ -220,7 +213,7 @@
                                     @endif
                                 </p>
                             @endif
-                        @endif
+                        </div>
 
                         <div>
                             <p class="mb-1 text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-gray-400">{{ __('Taxonomy') }}</p>

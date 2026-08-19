@@ -736,6 +736,46 @@ class ArticleResource extends SeoPanelResource
             return;
         }
 
+        if ($wpPostType === 'post') {
+            $query->where(static function (Builder $scopeQuery): void {
+                $scopeQuery
+                    ->whereHas('articleMetas', static function (Builder $metaQ): void {
+                        $metaQ->where('meta_key', 'wp_post_type')->where('meta_value', 'post');
+                    })
+                    ->orWhere(static function (Builder $legacyQ): void {
+                        $legacyQ
+                            ->whereDoesntHave('articleMetas', static function (Builder $metaQ): void {
+                                $metaQ->where('meta_key', 'wp_post_type');
+                            })
+                            ->where(function (Builder $typeQ): void {
+                                $typeQ->whereIn('articles.type', ['article'])
+                                    ->orWhereNull('articles.type')
+                                    ->orWhere('articles.type', '');
+                            });
+                    });
+            });
+
+            return;
+        }
+
+        if ($wpPostType === 'product') {
+            $query->where(static function (Builder $scopeQuery): void {
+                $scopeQuery
+                    ->whereHas('articleMetas', static function (Builder $metaQ): void {
+                        $metaQ->where('meta_key', 'wp_post_type')->where('meta_value', 'product');
+                    })
+                    ->orWhere(static function (Builder $legacyQ): void {
+                        $legacyQ
+                            ->whereDoesntHave('articleMetas', static function (Builder $metaQ): void {
+                                $metaQ->where('meta_key', 'wp_post_type');
+                            })
+                            ->where('articles.type', 'product');
+                    });
+            });
+
+            return;
+        }
+
         static::applyArticlesWithWpPostTypeMetaScope($query, $wpPostType);
     }
 

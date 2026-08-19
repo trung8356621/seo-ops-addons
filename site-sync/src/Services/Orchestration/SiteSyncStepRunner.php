@@ -648,7 +648,10 @@ final class SiteSyncStepRunner
         $batchCount = count($batchIds);
         foreach ($batchIds as $batchId) {
             $batch = SeoSiteSyncBatch::query()->find((int) $batchId);
-            if ($batch === null || $batch->applied_at !== null) {
+            if ($batch === null) {
+                continue;
+            }
+            if ($batch->applied_at !== null && ! $forceFull) {
                 continue;
             }
             $counters = $this->reconciler->apply($site, $batch);
@@ -660,6 +663,8 @@ final class SiteSyncStepRunner
             $totals['updated'] += (int) ($counters['updated'] ?? 0);
             $totals['unchanged'] += (int) ($counters['unchanged'] ?? 0);
             $totals['failed'] += (int) ($counters['failed'] ?? 0);
+            $totals['wp_post_type_backfilled'] = (int) ($totals['wp_post_type_backfilled'] ?? 0)
+                + (int) ($counters['wp_post_type_backfilled'] ?? 0);
             $applied++;
             $this->checkpointCatalog($run, $totals, $applied, $batchCount);
         }

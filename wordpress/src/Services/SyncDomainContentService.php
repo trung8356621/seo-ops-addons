@@ -1120,7 +1120,7 @@ class SyncDomainContentService
      * @param  array<int, array<string, mixed>>  $items
      * @return array<string, int>
      */
-    public function importItems(Site $site, array $items): array
+    public function importItems(Site $site, array $items, bool $forceOverwrite = false): array
     {
         $synced = [
             'article' => 0,
@@ -1171,7 +1171,7 @@ class SyncDomainContentService
                     synced: $synced,
                     userId: $userId,
                     syncFlags: $syncFlags,
-                    forceOverwrite: false,
+                    forceOverwrite: $forceOverwrite,
                 );
             } catch (Throwable $e) {
                 Log::warning('SeoContentAi sync item failed', [
@@ -1184,6 +1184,80 @@ class SyncDomainContentService
         }
 
         return $synced;
+    }
+
+    /**
+     * Backfill article_meta.wp_post_type from staged Site Sync batch payloads.
+     * Safe to run after force_full when batches were applied before identity meta existed.
+     *
+     * @param  list<int>  $batchIds
+     */
+    public function backfillWpPostTypeMetaFromRunBatches(Site $site, array $batchIds): int
+    {
+        $updated = 0;
+
+        foreach ($batchIds as $batchId) {
+            $batchId = (int) $batchId;
+            if ($batchId <= 0) {
+                continue;
+            }
+
+            $batch = \Omnichannel\Addons\SiteSync\Models\SeoSiteSyncBatch::query()->find($batchId);
+            if ($batch === null || (int) $batch->site_id !== (int) $site->id) {
+                continue;
+            }
+
+            $updated += $this->backfillWpPostTypeMetaFromBatchPayload($site, $batch->decodedPayload());
+        }
+
+        return $updated;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     */
+    public function backfillWpPostTypeMetaFromBatchPayload(Site $site, array $payload): int
+    {
+        $updated = 0;
+        $articles = is_array($payload['articles'] ?? null) ? $payload['articles'] : [];
+
+        foreach ($articles as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+
+            $wpId = (int) ($item['wp_id'] ?? 0);
+            if ($wpId <= 0) {
+                continue;
+            }
+
+            $wpPostType = $this->resolveWpPostTypeForMeta($item);
+            if ($wpPostType === '') {
+                continue;
+            }
+
+            $existing = SeoArticle::query()
+                ->where('site_id', $site->id)
+                ->whereWpPostId($wpId)
+                ->first();
+
+            if (! $existing instanceof SeoArticle) {
+                continue;
+            }
+
+            $current = strtolower(trim((string) $existing->articleMetas()
+                ->where('meta_key', 'wp_post_type')
+                ->value('meta_value')));
+
+            if ($current === $wpPostType) {
+                continue;
+            }
+
+            $this->persistWpPostTypeMeta($existing, $wpPostType);
+            $updated++;
+        }
+
+        return $updated;
     }
 
     /**
@@ -1280,8 +1354,8 @@ class SyncDomainContentService
         ArticleWordPressSyncFlagService $syncFlags,
         bool $forceOverwrite = false,
     ): void {
-        $rawWpPostType = strtolower(trim((string) ($item['type'] ?? '')));
-        $type = $this->normalizeType($rawWpPostType !== '' ? $rawWpPostType : 'article');
+        $wpPostTypeForMeta = $this->resolveWpPostTypeForMeta($item);
+        $type = $this->normalizeType($wpPostTypeForMeta);
         $publishedAt = $this->parsePublishedAt($item['published_at'] ?? null);
 
         $existing = SeoArticle::query()
@@ -1295,6 +1369,7 @@ class SyncDomainContentService
             && $existing instanceof SeoArticle
             && $syncFlags->shouldBlockWordPressImport($existing)
         ) {
+            $this->persistWpPostTypeMeta($existing, $wpPostTypeForMeta);
             $syncFlags->markDataOutOfSync($existing);
 
             if (array_key_exists('conflict', $synced)) {
@@ -1354,14 +1429,7 @@ class SyncDomainContentService
             );
         }
 
-        $wpPostTypeForMeta = (string) ($item['wp_post_type'] ?? '');
-        if ($wpPostTypeForMeta === '') {
-            $wpPostTypeForMeta = $rawWpPostType !== '' ? $rawWpPostType : ($type === 'product' ? 'product' : 'post');
-        }
-        $article->articleMetas()->updateOrCreate(
-            ['meta_key' => 'wp_post_type'],
-            ['meta_value' => $wpPostTypeForMeta],
-        );
+        $this->persistWpPostTypeMeta($article, $wpPostTypeForMeta);
 
         $wpEntity = trim((string) ($item['wp_entity'] ?? ''));
         if ($wpEntity !== '') {
@@ -1371,10 +1439,10 @@ class SyncDomainContentService
             );
         }
 
-        if ($wpEntity === 'term' && $wpPostType !== '') {
+        if ($wpEntity === 'term' && $wpPostTypeForMeta !== '') {
             $article->articleMetas()->updateOrCreate(
                 ['meta_key' => 'wp_taxonomy'],
-                ['meta_value' => $wpPostType],
+                ['meta_value' => $wpPostTypeForMeta],
             );
         }
 
@@ -1888,6 +1956,44 @@ class SyncDomainContentService
         $scheme = ! empty($site->ssl) ? 'https' : 'http';
 
         return $scheme.'://'.rtrim($domain, '/');
+    }
+
+    /**
+     * Canonical raw WordPress post_type slug for article_meta.wp_post_type.
+     *
+     * @param  array<string, mixed>  $item
+     */
+    private function resolveWpPostTypeForMeta(array $item): string
+    {
+        $explicit = strtolower(trim((string) ($item['wp_post_type'] ?? '')));
+        if ($explicit !== '') {
+            return $explicit;
+        }
+
+        $legacyType = strtolower(trim((string) ($item['type'] ?? '')));
+        if (in_array($legacyType, ['post', 'page', 'product'], true)) {
+            return $legacyType;
+        }
+        if ($legacyType !== '' && ! in_array($legacyType, ['article', 'category', 'product_category', 'product_cat'], true)) {
+            return $legacyType;
+        }
+
+        return $this->normalizeType($legacyType !== '' ? $legacyType : 'article') === 'product'
+            ? 'product'
+            : 'post';
+    }
+
+    private function persistWpPostTypeMeta(SeoArticle $article, string $wpPostType): void
+    {
+        $wpPostType = strtolower(trim($wpPostType));
+        if ($wpPostType === '') {
+            return;
+        }
+
+        $article->articleMetas()->updateOrCreate(
+            ['meta_key' => 'wp_post_type'],
+            ['meta_value' => $wpPostType],
+        );
     }
 
     private function normalizeType(string $type): string

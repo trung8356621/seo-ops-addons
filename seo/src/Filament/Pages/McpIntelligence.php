@@ -33,6 +33,7 @@ use Omnichannel\Addons\Seo\Services\MonthlyMcp\MonthlyMcpFreshness;
 use Omnichannel\Addons\Seo\Services\MonthlyMcp\MonthlyMcpReportService;
 use Omnichannel\Addons\Seo\Services\MonthlyMcp\MonthlyMcpSnapshotService;
 use Omnichannel\Addons\Seo\Services\MonthlyMcp\MonthlyMcpUiPresenter;
+use Omnichannel\Addons\Seo\Services\MonthlyMcp\SiteMcpContentDistributionAggregator;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use RuntimeException;
 use Throwable;
@@ -96,15 +97,14 @@ final class McpIntelligence extends SeoPanelPage
         if ($this->periodKey === '' || preg_match('/^\d{4}-\d{2}$/', $this->periodKey) !== 1) {
             $this->periodKey = sprintf('%04d-%02d', (int) now()->year, (int) now()->month);
         }
-        $this->syncSiteFromGlobalContext();
+        $this->resolveInitialSiteId();
     }
 
     #[On('domain-context-changed')]
     #[On('seoGlobalSiteChanged')]
     public function onDomainContextChanged(mixed $domain = null, mixed $siteId = null): void
     {
-        parent::onDomainContextChanged($domain, $siteId);
-        $this->syncSiteFromGlobalContext(is_numeric($siteId) ? (int) $siteId : null);
+        // MCP dùng domain picker cục bộ — không đồng bộ từ GlobalSeoBar.
         $this->previewSource = null;
         $this->linkedArticlesPage = 1;
     }
@@ -112,6 +112,7 @@ final class McpIntelligence extends SeoPanelPage
     public function updatedSiteId(): void
     {
         $this->previewSource = null;
+        $this->linkedArticlesPage = 1;
     }
 
     /**
@@ -309,10 +310,24 @@ final class McpIntelligence extends SeoPanelPage
         return app(MonthlyMcpUiPresenter::class);
     }
 
-    private function syncSiteFromGlobalContext(?int $siteId = null): void
+    private function resolveInitialSiteId(): void
     {
-        $resolved = $siteId !== null && $siteId > 0 ? $siteId : SeoAccessControl::globalSiteId();
-        $this->siteId = ($resolved !== null && $resolved > 0) ? $resolved : null;
+        $current = (int) ($this->siteId ?? 0);
+        if ($current > 0 && SeoAccessControl::canAccessSite($current)) {
+            return;
+        }
+
+        $global = SeoAccessControl::globalSiteId();
+        if ($global !== null && $global > 0 && SeoAccessControl::canAccessSite($global)) {
+            $this->siteId = $global;
+
+            return;
+        }
+
+        $options = $this->siteOptions();
+        if ($options !== []) {
+            $this->siteId = (int) array_key_first($options);
+        }
     }
 
     /**
@@ -357,6 +372,12 @@ final class McpIntelligence extends SeoPanelPage
                 ];
 
             $siteSummary = is_array($siteSnap?->summary_json) ? $siteSnap->summary_json : [];
+            if ($site instanceof Site) {
+                $liveDistribution = app(SiteMcpContentDistributionAggregator::class)->aggregate((int) $site->id);
+                if (($liveDistribution['available'] ?? false) === true) {
+                    $siteSummary['content_distribution'] = $liveDistribution;
+                }
+            }
             $linkedTotalInt = $siteId > 0 ? $this->linkedArticlesTotalEligible($siteId) : null;
             $linkedRows = [];
             if ($siteId > 0 && $linkedTotalInt !== null) {

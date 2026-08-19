@@ -10,21 +10,22 @@ use ReflectionMethod;
 
 final class McpIntelligenceUiStateTest extends TestCase
 {
-    public function test_domain_switch_listener_is_bound_via_livewire_attributes(): void
+    public function test_domain_switch_listener_does_not_sync_global_site_id(): void
     {
         $method = new ReflectionMethod(McpIntelligence::class, 'onDomainContextChanged');
-        $attributes = $method->getAttributes(\Livewire\Attributes\On::class);
+        $source = (string) file_get_contents((string) $method->getFileName());
 
-        $events = [];
-        foreach ($attributes as $attr) {
-            $args = $attr->getArguments();
-            if (isset($args[0]) && is_string($args[0])) {
-                $events[] = $args[0];
-            }
-        }
+        self::assertStringContainsString('onDomainContextChanged', $source);
+        self::assertStringNotContainsString('syncSiteFromGlobalContext', $source);
+        self::assertStringContainsString('$this->linkedArticlesPage = 1', $source);
+    }
 
-        self::assertContains('domain-context-changed', $events);
-        self::assertContains('seoGlobalSiteChanged', $events);
+    public function test_view_state_overlays_live_content_distribution(): void
+    {
+        $source = (string) file_get_contents((string) (new ReflectionMethod(McpIntelligence::class, 'viewState'))->getFileName());
+
+        self::assertStringContainsString('SiteMcpContentDistributionAggregator', $source);
+        self::assertStringContainsString("['content_distribution'] = \$liveDistribution", $source);
     }
 
     public function test_period_switch_resets_linked_articles_page(): void

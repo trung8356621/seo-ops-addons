@@ -53,10 +53,12 @@ final class SiteMcpContentDistributionAggregator
 
         $sync = $this->overview->getSyncStatistics($siteId);
         $manifest = $this->manifestCounts($siteId);
+        $wpPostTypeCounts = is_array($sync['wp_post_type_counts'] ?? null) ? $sync['wp_post_type_counts'] : [];
         $hasLocal = (int) ($sync['total'] ?? 0) > 0;
         $hasManifest = $manifest !== [];
+        $hasWpPostTypeMeta = $wpPostTypeCounts !== [];
 
-        if (! $hasLocal && ! $hasManifest) {
+        if (! $hasLocal && ! $hasManifest && ! $hasWpPostTypeMeta) {
             return $this->unavailable(['no synced articles or WP manifest']);
         }
 
@@ -64,17 +66,23 @@ final class SiteMcpContentDistributionAggregator
         $warnings = [];
 
         $posts = null;
-        if ($hasManifest && array_key_exists('article', $manifest)) {
+        if ($hasWpPostTypeMeta && array_key_exists('post', $wpPostTypeCounts)) {
+            $posts = (int) $wpPostTypeCounts['post'];
+            $sources[] = 'meta.wp_post_type.post';
+        } elseif ($hasManifest && array_key_exists('article', $manifest)) {
             $posts = (int) $manifest['article'];
             $sources[] = 'wp_manifest.posts';
         } elseif ($hasLocal) {
             $posts = (int) ($sync['articles'] ?? 0);
             $sources[] = 'local.articles';
-            $warnings[] = 'pages split unavailable without WP manifest; posts uses local article count (post+page merged locally)';
+            $warnings[] = 'pages split unavailable without WP manifest or wp_post_type meta; posts uses local article count (post+page merged locally)';
         }
 
         $pages = null;
-        if ($hasManifest && array_key_exists('page', $manifest)) {
+        if ($hasWpPostTypeMeta && array_key_exists('page', $wpPostTypeCounts)) {
+            $pages = (int) $wpPostTypeCounts['page'];
+            $sources[] = 'meta.wp_post_type.page';
+        } elseif ($hasManifest && array_key_exists('page', $manifest)) {
             $pages = (int) $manifest['page'];
             $sources[] = 'wp_manifest.pages';
         }

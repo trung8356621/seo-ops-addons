@@ -191,6 +191,7 @@ final class McpMarkdownRenderer
             '## Content Distribution',
             '',
             '- Posts: '.$this->formatDistributionMetric($distribution, 'posts', $distributionAvailable),
+            '- Pages: '.$this->formatDistributionMetric($distribution, 'pages', $distributionAvailable),
             '- Categories: '.$this->formatDistributionMetric($distribution, 'categories', $distributionAvailable),
             '- Products: '.$this->formatDistributionMetric($distribution, 'products', $distributionAvailable),
             '- Product categories: '.$this->formatDistributionMetric($distribution, 'product_categories', $distributionAvailable),

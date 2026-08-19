@@ -1,9 +1,14 @@
 .mcp-intelligence-page .fi-header { display: none; }
 .mcp-report { padding: 0.25rem 1rem 1.5rem; }
-.mcp-report__header { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 1rem; align-items: flex-end; }
+.mcp-report__header { display: flex; flex-direction: column; gap: 0.75rem; }
+.mcp-report__toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 0.75rem; }
+.mcp-report__filter-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75rem; }
+.mcp-report__filter { display: flex; align-items: center; gap: 0.5rem; }
+.mcp-report__filter-label { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.05em; text-transform: uppercase; color: rgb(107 114 128); white-space: nowrap; }
+.mcp-report__heading { min-width: 0; }
 .mcp-report__title { font-size: 1.25rem; font-weight: 700; color: rgb(17 24 39); }
 .mcp-report__meta { margin-top: 0.25rem; font-size: 0.875rem; color: rgb(107 114 128); }
-.mcp-report__controls { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; }
+.mcp-report__controls { display: flex; flex-wrap: wrap; gap: 0.5rem; align-items: center; justify-content: flex-end; }
 .mcp-btn { border: 1px solid rgb(229 231 235); border-radius: 0.5rem; background: #fff; padding: 0.4rem 0.75rem; font-size: 0.8125rem; font-weight: 600; }
 .mcp-btn--primary { background: rgb(124 58 237); border-color: rgb(124 58 237); color: #fff; }
 .mcp-menu { position: absolute; right: 0; z-index: 20; margin-top: 0.25rem; min-width: 12rem; border: 1px solid rgb(229 231 235); border-radius: 0.5rem; background: #fff; padding: 0.25rem; }

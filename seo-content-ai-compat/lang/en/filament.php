@@ -4058,8 +4058,10 @@ return [
     'mcp_intelligence' => [
         'nav' => 'MCP Intelligence',
         'title' => 'MCP Intelligence',
-        'pick_site' => 'Select a website in the Domain selector',
-        'need_global_domain' => 'Pick a specific website in the global Domain selector to view the monthly report.',
+        'pick_site' => 'Select a website',
+        'need_domain' => 'Pick a website in the toolbar above to view the monthly report.',
+        'domain_label' => 'Domain',
+        'period_label' => 'Period',
         'month_label' => 'Month :period',
         'status_open' => 'Open',
         'status_finalized' => 'Finalized',
