@@ -23,9 +23,10 @@ final class DocumentAnalysisInputTest extends TestCase
         self::assertStringContainsString('documentModel', $analyzer);
         self::assertStringContainsString("document_owner: 'tiptap_json'", $analyzer);
         self::assertStringContainsString('sliceFirstWordsFromModel', $analyzer);
-        self::assertStringContainsString('selectH2', $analyzer);
+        self::assertStringContainsString('createCurrentDraftAnalysisSnapshot', $analyzer);
+        self::assertStringContainsString('currentDraft.h2Count', $analyzer);
         self::assertStringContainsString('selectFaqPlaceholders', $analyzer);
-        self::assertStringContainsString('selectTables', $analyzer);
+        self::assertStringContainsString('snapshot?.tables', $analyzer);
     }
 
     public function test_compose_and_editor_pass_document_or_blocks(): void
@@ -36,11 +37,11 @@ final class DocumentAnalysisInputTest extends TestCase
         self::assertStringContainsString('document: input.document', $compose);
         self::assertStringContainsString('blocks: input.blocks', $compose);
 
-        $editor = (string) file_get_contents(
-            ProjectRoot::addonsPath().'/content/resources/js/components/SeoArticleEditor.jsx',
+        $editorAnalysis = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/hooks/useArticleEditorSeoAnalysis.js',
         );
-        self::assertStringContainsString('documentJsonFromEditorsOrBlocks', $editor);
-        self::assertStringContainsString('document: documentJsonFromEditorsOrBlocks', $editor);
+        self::assertStringContainsString('documentJsonFromEditorsOrBlocks', $editorAnalysis);
+        self::assertStringContainsString('document: documentJsonFromEditorsOrBlocks', $editorAnalysis);
     }
 
     public function test_document_model_architecture_doc_exists(): void

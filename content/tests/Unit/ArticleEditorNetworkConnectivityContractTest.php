@@ -70,13 +70,14 @@ final class ArticleEditorNetworkConnectivityContractTest extends TestCase
         self::assertStringNotContainsString('IndexedDB', $network);
     }
 
-    public function test_verify_reuses_heartbeat_or_seo_summary(): void
+    public function test_verify_reuses_edit_lease_renew_or_seo_summary(): void
     {
         $network = $this->js('utils/articleEditorNetwork.js');
 
-        self::assertStringContainsString('/editor-sessions/', $network);
-        self::assertStringContainsString('/heartbeat', $network);
-        self::assertStringContainsString('/editor/seo-summary', $network);
+        self::assertStringContainsString('/edit-lease/', $network);
+        self::assertStringNotContainsString('/heartbeat', $network);
+        self::assertStringContainsString('/editor/settings', $network);
+        self::assertStringNotContainsString('/editor/seo-summary', $network);
         self::assertStringContainsString('verifyArticleEditorBackendReachable', $network);
     }
 
@@ -131,23 +132,23 @@ final class ArticleEditorNetworkConnectivityContractTest extends TestCase
         self::assertStringContainsString('KhÃ´ng thá»ƒ lÆ°u khi Ä‘ang máº¥t káº¿t ná»‘i.', $shell);
     }
 
-    public function test_seo_summary_settings_lazy_load_is_shared_and_not_aborted(): void
+    public function test_seo_settings_lazy_load_is_shared_without_summary_score(): void
     {
         $lazy = $this->js('utils/articleEditorSeoLazy.js');
         $boot = $this->js('article-editor.jsx');
         $hook = $this->js('hooks/useArticleEditorSeoAndLinksState.js');
 
-        self::assertStringContainsString('loadArticleEditorSeoLazy', $lazy);
-        self::assertStringContainsString('seoArticleApiFetch(seoSummaryUrl)', $lazy);
+        self::assertStringContainsString('loadArticleEditorSeoSettings', $lazy);
+        self::assertStringContainsString('seoArticleApiFetch(settingsUrl)', $lazy);
+        self::assertStringNotContainsString('seoSummaryUrl', $lazy);
         self::assertStringNotContainsString('signal', $lazy);
 
-        self::assertStringContainsString('loadArticleEditorSeoLazy', $boot);
-        self::assertStringContainsString('do not remount', $boot);
+        self::assertStringContainsString('loadArticleEditorSeoSettings', $boot);
+        self::assertStringNotContainsString('seo-editor-seo-summary-loaded', $boot);
         self::assertStringNotContainsString('idleController.abort()', $boot);
 
-        self::assertStringContainsString('loadArticleEditorSeoLazy', $hook);
-        self::assertStringNotContainsString('controller.abort()', $hook);
-        self::assertStringNotContainsString('[seoPanelActive, articleId, analysis]', $hook);
+        self::assertStringContainsString('seo-editor-seo-settings-loaded', $hook);
+        self::assertStringNotContainsString('seo-summary', $hook);
     }
 
     public function test_no_offline_queue_or_new_storage_in_network_files(): void

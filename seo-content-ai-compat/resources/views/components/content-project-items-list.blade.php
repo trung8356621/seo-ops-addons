@@ -88,7 +88,7 @@
                                 {{ $row['last_activity'] ?? '' }}
                             </span>
                             @if (! $isPublishingQueue)
-                                <span class="cp-ops-kw-count" title="{{ __('seo-content-ai::filament.projects.ops_keywords_count', ['count' => (int) ($row['keywords_count'] ?? 0)]) }}">{{ (int) ($row['keywords_count'] ?? 0) }}</span>
+                                <span class="cp-ops-kw-text" title="{{ $row['keyword'] ?? '—' }}">{{ $row['keyword'] ?? '—' }}</span>
                             @endif
                         </div>
                     </div>
@@ -244,11 +244,10 @@
                                     @endif
                                 </td>
                                 <td class="cp-ops-kw">
-                                    @php $kwCount = (int) ($row['keywords_count'] ?? 0); @endphp
                                     <span
-                                        class="cp-ops-kw-count"
-                                        title="{{ __('seo-content-ai::filament.projects.ops_keywords_count', ['count' => $kwCount]) }}"
-                                    >{{ $kwCount }}</span>
+                                        class="cp-ops-kw-text"
+                                        title="{{ $row['keyword'] ?? '—' }}"
+                                    >{{ $row['keyword'] ?? '—' }}</span>
                                 </td>
                                 <td>
                                     @if (! empty($row['workflow_badge']))

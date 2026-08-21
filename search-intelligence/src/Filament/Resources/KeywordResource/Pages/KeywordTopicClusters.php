@@ -9,16 +9,25 @@ use Filament\Resources\Pages\Page;
 use Illuminate\Contracts\Support\Htmlable;
 use Livewire\Attributes\Url;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
+use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\AppliesTopicClusterProposalBatches;
+use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\AppliesTopicClusterProposals;
+use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\DissolvesTopicClusters;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\HasKeywordWorkspaceNavigation;
 use Omnichannel\Addons\SearchIntelligence\Jobs\RecomputeKeywordGroupMembershipsJob;
 use Omnichannel\Addons\SearchIntelligence\Models\KeywordRuleGroup;
 use Omnichannel\Addons\SearchIntelligence\Models\KeywordRuleGroupRule;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\ClusterProposal\KeywordClusterProposalEngine;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\ClusterProposal\KeywordClusterProposalStrategy;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterQuery;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordGroupMembershipService;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordNormalizer;
+use Omnichannel\Addons\Seo\Support\DomainContextResolver;
 
 final class KeywordTopicClusters extends Page
 {
+    use AppliesTopicClusterProposalBatches;
+    use AppliesTopicClusterProposals;
+    use DissolvesTopicClusters;
     use HasKeywordWorkspaceNavigation;
 
     protected static string $resource = KeywordResource::class;
@@ -45,6 +54,15 @@ final class KeywordTopicClusters extends Page
     public string $newRulePhrase = '';
 
     public ?int $editingGroupId = null;
+
+    public bool $showClusterProposalPreview = false;
+
+    public string $clusterProposalStrategy = KeywordClusterProposalStrategy::BALANCED;
+
+    /** @var array<string, mixed>|null */
+    public ?array $clusterProposalPreview = null;
+
+    public string $clusterProposalOutlierSearch = '';
 
     public function mount(): void
     {
@@ -219,17 +237,77 @@ final class KeywordTopicClusters extends Page
 
     public function clusterUrl(string $clusterKey): string
     {
-        $url = KeywordResource::getUrl('cluster', ['clusterKey' => $clusterKey]);
-        $siteId = $this->resolveKeywordWorkspaceSiteId();
-        if ($siteId !== null) {
-            $url .= (str_contains($url, '?') ? '&' : '?').'site_id='.$siteId;
-        }
-
-        return $url;
+        return app(DomainContextResolver::class)->appendSiteToUrl(
+            KeywordResource::getUrl('cluster', ['clusterKey' => $clusterKey]),
+            $this->resolveKeywordWorkspaceSiteId(),
+        );
     }
 
     public function unclusteredUrl(): string
     {
         return app(KeywordClusterQuery::class)->unclusteredListUrl($this->resolveKeywordWorkspaceSiteId());
+    }
+
+    public function openClusterProposalPreview(): void
+    {
+        $this->showClusterProposalPreview = true;
+        $this->refreshClusterProposalPreview();
+    }
+
+    public function closeClusterProposalPreview(): void
+    {
+        $this->showClusterProposalPreview = false;
+        $this->clusterProposalOutlierSearch = '';
+    }
+
+    public function updatedClusterProposalStrategy(): void
+    {
+        if ($this->showClusterProposalPreview) {
+            $this->refreshClusterProposalPreview();
+        }
+    }
+
+    public function refreshClusterProposalPreview(): void
+    {
+        $siteId = $this->resolveKeywordWorkspaceSiteId();
+        if ($siteId === null || $siteId <= 0) {
+            $this->clusterProposalPreview = null;
+
+            return;
+        }
+
+        $result = app(KeywordClusterProposalEngine::class)->previewForSite(
+            $siteId,
+            $this->clusterProposalStrategy,
+        );
+        $this->clusterProposalPreview = $result->toArray();
+        $this->selectedReadyProposalFingerprints = [];
+        $this->cancelBatchApplyConfirm();
+        $this->cancelApplyProposalConfirm();
+    }
+
+    /**
+     * @return list<array{keyword_id: int, phrase: string}>
+     */
+    public function getFilteredClusterProposalOutliers(): array
+    {
+        $items = $this->clusterProposalPreview['unclustered'] ?? [];
+        if (! is_array($items)) {
+            return [];
+        }
+
+        $search = mb_strtolower(trim($this->clusterProposalOutlierSearch));
+        if ($search === '') {
+            return $items;
+        }
+
+        return array_values(array_filter(
+            $items,
+            static function (array $row) use ($search): bool {
+                $phrase = mb_strtolower((string) ($row['phrase'] ?? ''));
+
+                return str_contains($phrase, $search);
+            },
+        ));
     }
 }

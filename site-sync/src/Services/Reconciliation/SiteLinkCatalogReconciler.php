@@ -133,6 +133,7 @@ final class SiteLinkCatalogReconciler
         $rows = SeoSiteLinkCatalog::query()
             ->forSite($siteId)
             ->whereIn('source', [SiteSyncSchema::SOURCE_WORDPRESS, SiteSyncSchema::SOURCE_MANUAL])
+            ->whereNull('inactive_at')
             ->orderBy('source')
             ->orderBy('id')
             ->get();
@@ -160,6 +161,7 @@ final class SiteLinkCatalogReconciler
                 'type' => (string) $row->type,
                 'content_hash' => $row->content_hash,
                 'source' => (string) $row->source,
+                'meta' => is_array($row->meta) ? $row->meta : [],
                 'updated_at' => optional($row->updated_at_wp ?? $row->updated_at)?->toIso8601String(),
             ];
         }

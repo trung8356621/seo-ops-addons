@@ -38,7 +38,7 @@ final class SyncArticleToWordPressPipeline
                 $sideEffect,
                 $slug ?? (string) ($article->slug ?? ''),
             ),
-            default => $this->articleSync->syncForArticle($article, $sideEffect, $seoOverride),
+            default => $this->syncOrCreateStandalone($article, $sideEffect, $seoOverride),
         };
 
         if (! ($result['success'] ?? false)) {
@@ -55,5 +55,24 @@ final class SyncArticleToWordPressPipeline
             'wordpress_connection_id' => (int) ($article->site_id ?? 0) ?: null,
             'sync_status' => 'completed',
         ]);
+    }
+
+    /**
+     * Default `sync` (standalone / retry / automation): create WP post when unlinked.
+     * `update_existing` stays editor-sync only — never create.
+     *
+     * @param  array{seo_title?: string, meta_description?: string, focus_keyword?: string}|null  $seoOverride
+     * @return array<string, mixed>
+     */
+    private function syncOrCreateStandalone(
+        SeoArticle $article,
+        WordPressExecutionContext $sideEffect,
+        ?array $seoOverride = null,
+    ): array {
+        if ((int) ($article->wordpressLink?->wp_post_id ?? 0) <= 0) {
+            return $this->articleSync->publishForArticle($article, $sideEffect, $seoOverride);
+        }
+
+        return $this->articleSync->syncForArticle($article, $sideEffect, $seoOverride);
     }
 }

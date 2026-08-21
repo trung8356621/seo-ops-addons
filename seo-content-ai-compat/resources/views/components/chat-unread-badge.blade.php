@@ -1,6 +1,6 @@
 @php
     $unreadUrl = auth()->check() ? route('seo.team-messages.unread-count') : '';
-    $onChatPage = request()->routeIs('filament.seo.pages.chat');
+    $onChatPage = \Omnichannel\Addons\Seo\Support\SeoPanelRoutes::is('filament.seo.pages.chat');
 @endphp
 
 @if ($unreadUrl !== '')

@@ -162,8 +162,8 @@ export function createDocumentModel(doc) {
         });
 
         cache = {
-            plainText: textParts.join('').replace(/\s+/g, ' ').trim(),
-            plainTextEligible: eligibleParts.join('').replace(/\s+/g, ' ').trim(),
+            plainText: textParts.join(' ').replace(/\s+/g, ' ').trim(),
+            plainTextEligible: eligibleParts.join(' ').replace(/\s+/g, ' ').trim(),
             headings,
             links,
             images,

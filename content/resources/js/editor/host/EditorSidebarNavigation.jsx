@@ -88,8 +88,17 @@ function chipBadge(chipId, health, badges) {
     }
 
     const value = badges?.[chipId];
-    if (value === null || value === undefined || value === '') {
-        return chipId === 'reviews' ? 0 : null;
+    // NOT_LOADED: null/undefined/''/false must never render as Reviews 0.
+    if (value === null || value === undefined || value === '' || value === false) {
+        return null;
+    }
+
+    if (typeof value === 'number' && Number.isFinite(value)) {
+        if (value === 0) {
+            return chipId === 'reviews' ? 0 : null;
+        }
+
+        return value;
     }
 
     const numeric = Number(value);

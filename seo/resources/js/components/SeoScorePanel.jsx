@@ -53,6 +53,7 @@ export default function SeoScorePanel({
     loading,
     analyzing,
     stale = false,
+    ready = false,
     analyzeError = null,
     onAnalyzeClick,
     onViolationAction,
@@ -60,11 +61,45 @@ export default function SeoScorePanel({
     canGenerateFeaturedSnippet = true,
     savedScore = null,
     scoreSource = 'live',
+    syncRequired = false,
+    unavailableMessage = null,
 }) {
     const [passedOpen, setPassedOpen] = useState(true);
     const rules = Array.isArray(seoScoringRules) && seoScoringRules.length > 0
         ? seoScoringRules
         : (Array.isArray(window.__SEO_SCORING_RULES__) ? window.__SEO_SCORING_RULES__ : []);
+    const isLoading = loading || analyzing;
+    const isReady = ready === true && !isLoading && !syncRequired;
+
+    if (syncRequired) {
+        return (
+            <div className="seo-score-panel seo-assistant-score seo-assistant-score--unanalyzed">
+                <p className="seo-assistant-score__hint">
+                    {unavailableMessage || t('content_sync_required_seo')}
+                </p>
+            </div>
+        );
+    }
+
+    if (!isReady && !isLoading) {
+        return (
+            <div className="seo-score-panel seo-assistant-score seo-assistant-score--unanalyzed">
+                <p className="seo-assistant-score__hint">
+                    {analyzeError
+                        ? t('editor_seo_analyze_failed')
+                        : t('editor_seo_unanalyzed')}
+                </p>
+                <button
+                    type="button"
+                    className="seo-assistant-score__stale-hint"
+                    onClick={onAnalyzeClick}
+                >
+                    {analyzeError ? t('editor_seo_analyze_retry') : t('editor_seo_update_score')}
+                </button>
+            </div>
+        );
+    }
+
     const violations = sanitizeViolations(
         Array.isArray(analysis?.violations) ? analysis.violations : [],
         rules,
@@ -77,7 +112,6 @@ export default function SeoScorePanel({
     const failedItems = buildFailedViolationItems(violations, rules, messages, metrics, locale);
     const passedItems = buildPassedRuleItems(violations, rules, messages);
     const quality = scoreQualityLabel(score);
-    const isLoading = loading || analyzing;
     const saved = savedScore === null || savedScore === undefined ? null : Number(savedScore);
     const showSavedDiff = Number.isFinite(saved) && saved !== score;
 
@@ -126,7 +160,13 @@ export default function SeoScorePanel({
             ) : null}
 
             {stale && !analyzing && !analyzeError ? (
-                <p className="seo-assistant-score__stale-hint">{t('editor_seo_stale')}</p>
+                <button
+                    type="button"
+                    className="seo-assistant-score__stale-hint"
+                    onClick={onAnalyzeClick}
+                >
+                    {t('editor_seo_stale')}
+                </button>
             ) : null}
 
             {!analyzing ? (

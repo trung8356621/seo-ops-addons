@@ -133,6 +133,9 @@ export default function ArticleReviewsTab({
     initialReviews = [],
     onRefresh,
     loading = false,
+    loaded = false,
+    count = null,
+    countLoading = false,
     warning = null,
     canQuickCreate = false,
     showConfigureReviews = false,
@@ -309,7 +312,7 @@ export default function ArticleReviewsTab({
 
     return (
         <div className="seo-reviews-tab">
-            {loading || statusLoading ? (
+            {loading || statusLoading || countLoading || !loaded ? (
                 <p className="seo-reviews-tab__summary" role="status">
                     Đang tải đánh giá từ WordPress…
                 </p>
@@ -358,7 +361,9 @@ export default function ArticleReviewsTab({
             ) : null}
             <div className="seo-reviews-tab__header">
                 <p className="seo-reviews-tab__summary">
-                    {t('reviews_tab_summary', { count: reviews.length })}
+                    {t('reviews_tab_summary', {
+                        count: loaded ? reviews.length : (count ?? '…'),
+                    })}
                 </p>
                 <div className="seo-reviews-tab__actions">
                     {canQuickCreate && typeof onQuickCreate === 'function' ? (
@@ -391,9 +396,9 @@ export default function ArticleReviewsTab({
                 </div>
             </div>
 
-            {reviews.length === 0 ? (
+            {loaded && reviews.length === 0 ? (
                 <p className="seo-reviews-tab__empty">{t('reviews_tab_empty')}</p>
-            ) : (
+            ) : reviews.length > 0 ? (
                 <ul className="seo-reviews-tab__list">
                     {reviews.map((review, index) => {
                         const author = String(review?.author ?? '').trim() || t('reviews_tab_guest');
@@ -436,7 +441,7 @@ export default function ArticleReviewsTab({
                         );
                     })}
                 </ul>
-            )}
+            ) : null}
         </div>
     );
 }

@@ -585,6 +585,9 @@
                 <div class="seo-media-preview-modal__head">
                     <div>
                         <h3 class="seo-media-preview-modal__title">{{ $previewImage['slug'] ?? ($previewMediaType === 'video' ? 'Video' : 'Image') }}</h3>
+                        @if (filled($previewImage['ai_generator'] ?? null))
+                            <p class="seo-media-preview-modal__article">{{ $previewImage['ai_generator'] }}</p>
+                        @endif
                         @if (! empty($previewImage['article_id']) && ! empty($previewImage['article_edit_url']))
                             <a
                                 href="{{ $previewImage['article_edit_url'] }}"
@@ -636,15 +639,36 @@
                             );
                     @endphp
                     @if ($canEditImage && $previewMediaType === 'image')
+                        @php
+                            $previewEditorPayload = [
+                                'siteId' => (int) $siteId,
+                                'seoMediaId' => (int) ($previewImage['seo_media_id'] ?? 0),
+                                'wpAttachmentId' => (int) ($previewImage['wp_attachment_id'] ?? $previewImage['id'] ?? 0),
+                                'url' => (string) ($previewImage['url'] ?? ''),
+                                'slug' => (string) ($previewImage['slug'] ?? ''),
+                            ];
+                        @endphp
                         <button
                             type="button"
                             class="seo-media-preview-btn is-edit"
-                            wire:click="openImageEditor"
-                            wire:loading.attr="disabled"
-                            wire:target="openImageEditor"
+                            data-editor-label="Edit image"
+                            data-seo-open-editor-b64="{{ base64_encode(json_encode($previewEditorPayload, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)) }}"
+                            onclick="(function (el) {
+                                try {
+                                    if (el.disabled) {
+                                        return;
+                                    }
+                                    var raw = el.getAttribute('data-seo-open-editor-b64') || '';
+                                    var payload = JSON.parse(atob(raw));
+                                    window.dispatchEvent(new CustomEvent('seo-media-library-open-image-editor', {
+                                        detail: { payload: payload, trigger: el },
+                                    }));
+                                } catch (err) {
+                                    console.error('seo-open-image-editor failed', err);
+                                }
+                            })(this)"
                         >
-                            <span wire:loading.remove wire:target="openImageEditor">Edit image</span>
-                            <span wire:loading wire:target="openImageEditor">Preparing...</span>
+                            <span data-editor-label>Edit image</span>
                         </button>
                     @endif
                     @php

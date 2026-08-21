@@ -136,7 +136,7 @@ final class ArticleEditorFalseVersionConflictRegressionTest extends TestCase
         self::assertStringContainsString('expected_document_version: this.documentVersion', $client);
     }
 
-    public function test_explicit_save_waits_inflight_then_rebuilds_payload(): void
+    public function test_explicit_save_waits_inflight_rebuilds_payload_and_does_not_reload(): void
     {
         $queue = $this->js('utils/articleEditorSaveQueue.js');
         self::assertStringContainsString('pendingRoundPromise = activeSavePromise', $queue);
@@ -145,10 +145,13 @@ final class ArticleEditorFalseVersionConflictRegressionTest extends TestCase
         $editor = $this->js('article-editor.jsx');
         self::assertStringContainsString('saveArticleViaApiSingleFlight(articleId, buildPayload', $editor);
         self::assertStringContainsString("priority: 'explicit'", $editor);
-        self::assertStringContainsString('reloadAfterSuccess: true', $editor);
+        self::assertStringContainsString('reloadAfterSuccess: false', $editor);
+        self::assertStringNotContainsString('reloadAfterSuccess: true', $editor);
+        self::assertStringContainsString("const requiresBlockingOverlay = normalizedAction !== 'save'", $editor);
         // Active session path must prefer session document endpoint.
         $api = $this->js('utils/articleEditorApi.js');
         self::assertStringContainsString('sessionClient.saveDocument', $api);
+        self::assertStringContainsString('detail: { success: true }', $api);
         self::assertStringContainsString('context.reloadAfterSuccess === true', $api);
         self::assertStringContainsString('window.location.reload()', $api);
         $legacyPos = strpos($api, '/api/seo/articles/${articleId}/save');
@@ -200,7 +203,7 @@ final class ArticleEditorFalseVersionConflictRegressionTest extends TestCase
         self::assertStringContainsString('client.acquire(documentVersion)', $boot);
     }
 
-    public function test_heartbeat_does_not_mutate_document_version_authority(): void
+    public function test_lease_renew_does_not_mutate_document_version_authority(): void
     {
         $heartbeat = $this->methodSource(new ReflectionMethod(ArticleEditorSessionService::class, 'heartbeat'));
         self::assertStringContainsString('touchHeartbeat', $heartbeat);
@@ -210,8 +213,9 @@ final class ArticleEditorFalseVersionConflictRegressionTest extends TestCase
         self::assertStringNotContainsString('writeArticleRow', $heartbeat);
 
         $client = $this->js('utils/editorSessionClient.js');
-        // Client may sync version FROM heartbeat response (foreign writer) â€” must not PUT a version bump.
-        self::assertStringContainsString('/heartbeat', $client);
+        // Client may sync version FROM lease renew response; it must not PUT a version bump.
+        self::assertStringContainsString('/edit-lease/${this.sessionId}', $client);
+        self::assertStringNotContainsString('/heartbeat', $client);
         self::assertStringContainsString('body: JSON.stringify({})', $client);
     }
 

@@ -35,27 +35,16 @@ final class ArticleEditorSessionController extends Controller
 
     public function store(Request $request, SeoArticle $article): JsonResponse
     {
-        @file_put_contents(
-            storage_path('logs/editor-session-debug.log'),
-            date('c').' ENTER store article='.$article->getKey()
-            .' auth='.(auth()->id() ?? 'null')
-            .' cid='.(string) $request->input('client_instance_id', '')
-            .' ctype='.(string) $request->header('Content-Type', '')
-            .' seo='.(string) $request->header('X-SEO-Connection', '')
-            .' keys='.implode(',', array_keys($request->all()))
-            ."\n",
-            FILE_APPEND,
-        );
-
         try {
             abort_unless(SeoAccessControl::canAccessArticle($article), 403);
             $user = $this->requireUser($request);
+            $tabId = (string) $request->input('tab_id', $request->input('client_instance_id', ''));
 
             try {
                 $payload = $this->sessions->acquire(
                     $article,
                     $user,
-                    (string) $request->input('client_instance_id', ''),
+                    $tabId,
                     $request->input('known_document_version'),
                     $request->userAgent(),
                 );
@@ -65,49 +54,25 @@ final class ArticleEditorSessionController extends Controller
                     'error' => $exception->errorCode,
                     'status' => $exception->httpStatus,
                     'message' => $exception->getMessage(),
-                    'client_instance_id' => (string) $request->input('client_instance_id', ''),
+                    'tab_id' => $tabId,
                     'auth_id' => auth()->id(),
                     'has_csrf' => $request->headers->has('X-CSRF-TOKEN'),
                     'content_type' => (string) $request->header('Content-Type', ''),
                     'seo_connection' => (string) $request->header('X-SEO-Connection', ''),
                 ]);
-                @file_put_contents(
-                    storage_path('logs/editor-session-debug.log'),
-                    date('c').' REJECTED '.json_encode([
-                        'error' => $exception->errorCode,
-                        'status' => $exception->httpStatus,
-                        'message' => $exception->getMessage(),
-                        'client_instance_id' => (string) $request->input('client_instance_id', ''),
-                        'auth_id' => auth()->id(),
-                        'input' => $request->all(),
-                        'seo_connection' => (string) $request->header('X-SEO-Connection', ''),
-                    ], JSON_UNESCAPED_UNICODE)."\n",
-                    FILE_APPEND,
-                );
 
                 return $this->errorResponse($exception);
             }
-
-            @file_put_contents(
-                storage_path('logs/editor-session-debug.log'),
-                date('c').' OK session='.(string) ($payload['session']['id'] ?? '')."\n",
-                FILE_APPEND,
-            );
 
             return response()->json($payload);
         } catch (\Throwable $exception) {
             \App\Support\RuntimeLogger::report($exception, [
                 'source' => 'ArticleEditorSessionController::store',
                 'article_id' => (int) $article->getKey(),
-                'client_instance_id' => (string) $request->input('client_instance_id', ''),
+                'tab_id' => (string) $request->input('tab_id', $request->input('client_instance_id', '')),
                 'auth_id' => auth()->id(),
                 'input_keys' => array_keys($request->all()),
             ]);
-            @file_put_contents(
-                storage_path('logs/editor-session-debug.log'),
-                date('c').' EXCEPTION '.$exception::class.' '.$exception->getMessage()."\n",
-                FILE_APPEND,
-            );
 
             throw $exception;
         }

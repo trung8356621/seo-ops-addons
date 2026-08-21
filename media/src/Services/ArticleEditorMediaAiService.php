@@ -14,6 +14,7 @@ use Omnichannel\Addons\Media\Models\SeoMedia;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
+use Omnichannel\Addons\AiPrompt\Services\PromptLoaiSanPhamOptionsService;
 use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
 use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
 use Omnichannel\Addons\Commerce\Services\ProductGallery\ImageProviderCapabilityResolver;
@@ -1208,6 +1209,7 @@ final class ArticleEditorMediaAiService
     {
         $variables[SeoCreateArticleSettingsService::EDITOR_VAR_MEDIA_SOURCE] = (string) $config['source'];
         $variables[SeoCreateArticleSettingsService::EDITOR_VAR_MEDIA_TARGET] = (string) $config['media_target'];
+        $variables[SeoCreateArticleSettingsService::EDITOR_VAR_IMAGE_TOOL_TYPE] = (string) ($config['tool_type'] ?? '');
 
         $taskId = $config['task_id'] ?? null;
         if (is_int($taskId) && $taskId > 0) {

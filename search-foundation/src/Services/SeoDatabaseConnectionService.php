@@ -450,14 +450,16 @@ final class SeoDatabaseConnectionService
             ->where('is_active', true)
             ->orderBy('id');
 
-        if ($user instanceof User && $user->role !== User::ROLE_ADMIN) {
-            $ownerId = $this->resolveOwnerIdForUser($user);
-            if ($ownerId <= 0) {
-                return null;
-            }
-
-            $query->whereHas('users', fn (Builder $builder): Builder => $builder->where('users.id', $ownerId));
+        if (! $user instanceof User) {
+            return $query->value('hash_id');
         }
+
+        $ownerId = $this->resolveOwnerIdForUser($user);
+        if ($ownerId <= 0) {
+            return null;
+        }
+
+        $query->whereHas('users', fn (Builder $builder): Builder => $builder->where('users.id', $ownerId));
 
         return $query->value('hash_id');
     }
@@ -466,10 +468,6 @@ final class SeoDatabaseConnectionService
     {
         if ($user === null) {
             return false;
-        }
-
-        if ($user->role === User::ROLE_ADMIN) {
-            return true;
         }
 
         $ownerId = $this->resolveOwnerIdForUser($user);
@@ -494,10 +492,6 @@ final class SeoDatabaseConnectionService
      */
     public function accessibleSiteIdsForUser(User $user): array
     {
-        if ($user->role === User::ROLE_ADMIN) {
-            return Site::query()->pluck('id')->map(fn ($id): int => (int) $id)->all();
-        }
-
         $ownerId = $user->isStaff() && (int) $user->parent_id > 0
             ? (int) $user->parent_id
             : (int) $user->id;

@@ -16,6 +16,7 @@ use Omnichannel\Addons\Seo\Services\DomainOverviewService;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordPersistenceService;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordReviewService;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClassificationService;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterEligibility;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordClassificationVisibility;
 use App\Core\Operations\LongRunningProgress;
 use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectActionFactory;
@@ -695,12 +696,7 @@ class ListKeywords extends ListRecords
             return $query;
         }
         if ($key === '_none') {
-            return $query->where(function (Builder $outer): void {
-                $outer->whereDoesntHave('seoClassification')
-                    ->orWhereHas('seoClassification', static function (Builder $classification): void {
-                        $classification->whereNull('cluster_key')->orWhere('cluster_key', '');
-                    });
-            });
+            return app(KeywordClusterEligibility::class)->applyUnclusteredSeoKeywordScope($query);
         }
 
         return $query->whereHas(

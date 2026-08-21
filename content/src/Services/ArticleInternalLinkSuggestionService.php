@@ -677,7 +677,9 @@ final class ArticleInternalLinkSuggestionService
             ->where('review_status', KeywordReviewStatus::Active->value)
             ->whereNotNull('phrase')
             ->where('phrase', '!=', '')
-            ->orderByRaw('CHAR_LENGTH(phrase) DESC');
+            ->orderByRaw('CHAR_LENGTH(phrase) DESC')
+            // Cap hot-path scan — long-tail phrases beyond this rarely match content.
+            ->limit(800);
 
         if ($excludeKeywordIds !== []) {
             $keywordsQuery->whereNotIn('id', $excludeKeywordIds);

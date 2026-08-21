@@ -119,4 +119,39 @@ final class ContentProjectFreshKeywordRestart
 
         return $variables;
     }
+
+    /**
+     * Persist canonical keyword only after a successful fresh-keyword generation.
+     * Updates task.keyword + article seo_focus_keyword (Edit Article «Từ khóa chính»).
+     */
+    public static function commitCanonicalKeyword(
+        \Omnichannel\Addons\ContentProjects\Models\SeoProjectTask $task,
+        string $keyword,
+        ?int $articleId = null,
+    ): void {
+        $keyword = trim($keyword);
+        if ($keyword === '') {
+            return;
+        }
+
+        $task->keyword = $keyword;
+        $task->save();
+
+        $resolvedArticleId = $articleId !== null && $articleId > 0
+            ? $articleId
+            : (int) ($task->article_id ?? 0);
+        if ($resolvedArticleId <= 0) {
+            return;
+        }
+
+        $article = \Omnichannel\Addons\Content\Models\SeoArticle::query()->find($resolvedArticleId);
+        if (! $article instanceof \Omnichannel\Addons\Content\Models\SeoArticle) {
+            return;
+        }
+
+        $article->articleMetas()->updateOrCreate(
+            ['meta_key' => 'seo_focus_keyword'],
+            ['meta_value' => $keyword],
+        );
+    }
 }

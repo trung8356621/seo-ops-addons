@@ -40,15 +40,19 @@ final class ArticleEditorSessionAcquireContractTest extends TestCase
         self::assertStringNotContainsString('existing.length >= 32', $source);
     }
 
-    public function test_session_wrapper_uses_generation_guard_and_stable_heartbeat_dep(): void
+    public function test_session_wrapper_uses_generation_guard_and_stable_lease_deps(): void
     {
         $source = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content/resources/js/article-editor.jsx',
         );
 
         self::assertStringContainsString('acquireGenerationRef', $source);
-        self::assertStringContainsString('heartbeatSeconds', $source);
-        self::assertStringContainsString('[articleId, applyClientState, documentVersion, heartbeatSeconds]', $source);
+        self::assertStringContainsString('leaseTtlSeconds', $source);
+        self::assertStringContainsString('leaseRenewLeadSeconds', $source);
+        self::assertStringContainsString(
+            '[articleId, applyClientState, documentVersion, leaseRenewLeadSeconds, leaseTtlSeconds]',
+            $source,
+        );
     }
 
     public function test_backend_invalid_client_instance_id_is_422(): void

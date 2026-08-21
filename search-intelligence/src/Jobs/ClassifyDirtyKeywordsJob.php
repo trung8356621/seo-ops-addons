@@ -57,7 +57,7 @@ final class ClassifyDirtyKeywordsJob implements ShouldQueue, ShouldBeUnique
             $result = $classification->classifyBatch($this->siteId, 500, false, false);
             $processed += $result['processed'];
             $loops++;
-        } while ($result['dirty_remaining'] > 0 && $result['processed'] > 0 && $loops < 20);
+        } while ($result['dirty_remaining'] > 0 && $result['processed'] > 0 && $loops < 200);
 
         if ($processed > 0) {
             PushKeywordDictionaryJob::dispatch($this->siteId);

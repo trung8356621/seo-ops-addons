@@ -268,7 +268,7 @@ final class PublishingRecoveryNotifier
 
     private function canReceivePublishAlerts(User $user): bool
     {
-        if (method_exists($user, 'isAdmin') && $user->isAdmin()) {
+        if ($user->isOwner()) {
             return true;
         }
 

@@ -10,6 +10,24 @@ const FAQ_ANSWER_EDITOR_PROPS = Object.freeze({
     }),
 });
 
+/**
+ * TipTap getHTML() throws `Cannot read properties of null (reading 'cached')`
+ * when the editor view/schema is already torn down (unmount / remount race).
+ *
+ * @param {import('@tiptap/core').Editor|null|undefined} editor
+ * @returns {string|null}
+ */
+export function safeFaqEditorHtml(editor) {
+    if (!editor || editor.isDestroyed || !editor.view || !editor.state?.schema) {
+        return null;
+    }
+    try {
+        return String(editor.getHTML() ?? '');
+    } catch {
+        return null;
+    }
+}
+
 export default function FaqAnswerEditor({ html, onChange, onFocus }) {
     const initialContent = useMemo(() => answerHtmlForEditor(html), []);
     const onChangeRef = useRef(onChange);
@@ -28,23 +46,42 @@ export default function FaqAnswerEditor({ html, onChange, onFocus }) {
         content: initialContent,
         editorProps: FAQ_ANSWER_EDITOR_PROPS,
         onUpdate: ({ editor: ed }) => {
-            onChangeRef.current?.(ed.getHTML());
+            const next = safeFaqEditorHtml(ed);
+            if (next == null) {
+                return;
+            }
+            onChangeRef.current?.(next);
         },
         onFocus: () => onFocusRef.current?.(),
     }, []);
 
     useEffect(() => {
-        if (!editor) return;
+        if (!editor || editor.isDestroyed || !editor.view) {
+            return;
+        }
         const next = answerHtmlForEditor(html);
-        const current = editor.getHTML();
-        if (current !== next) {
+        const current = safeFaqEditorHtml(editor);
+        if (current == null || current === next) {
+            return;
+        }
+        try {
             editor.commands.setContent(next, false);
+        } catch {
+            // Ignore setContent races during unmount/remount.
         }
     }, [html, editor]);
 
-    useEffect(() => () => editor?.destroy(), [editor]);
+    useEffect(() => () => {
+        if (editor && !editor.isDestroyed) {
+            try {
+                editor.destroy();
+            } catch {
+                // ignore
+            }
+        }
+    }, [editor]);
 
-    if (!editor) {
+    if (!editor || editor.isDestroyed) {
         return <div className="seo-faq-answer-loading text-sm text-gray-400 italic">Đang tải editor…</div>;
     }
 

@@ -3,8 +3,8 @@
 declare(strict_types=1);
 
 return [
-    'lock_ttl_seconds' => max(30, (int) env('ARTICLE_EDITOR_LOCK_TTL_SECONDS', 120)),
-    'heartbeat_seconds' => max(10, (int) env('ARTICLE_EDITOR_HEARTBEAT_SECONDS', 30)),
+    'lock_ttl_seconds' => max(180, (int) env('ARTICLE_EDITOR_LOCK_TTL_SECONDS', 240)),
+    'lease_renew_lead_seconds' => max(30, (int) env('ARTICLE_EDITOR_LEASE_RENEW_LEAD_SECONDS', 60)),
     'server_autosave_debounce_ms' => max(1000, (int) env('ARTICLE_EDITOR_SERVER_AUTOSAVE_DEBOUNCE_MS', 4000)),
 
     /**

@@ -42,10 +42,8 @@ final class ContentProjectStaffAvailabilityService
             ->where('seo_role', User::SEO_ROLE_CONTENT_MANAGER)
             ->where('status', User::STATUS_NORMAL);
 
-        if (auth()->user()?->role !== User::ROLE_ADMIN) {
-            $ownerId = SeoAccessControl::accountOwnerId() ?? (int) auth()->id();
-            $query->where('parent_id', $ownerId);
-        }
+        $ownerId = SeoAccessControl::accountOwnerId() ?? (int) auth()->id();
+        $query->where('parent_id', $ownerId);
 
         return $query->orderBy('name');
     }

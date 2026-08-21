@@ -283,7 +283,7 @@ MD;
     private function manager(int $id): User
     {
         $user = new User([
-            'role' => User::ROLE_ADMIN,
+            'role' => User::ROLE_OWNER,
             'seo_role' => User::SEO_ROLE_MANAGER,
             'status' => User::STATUS_NORMAL,
         ]);

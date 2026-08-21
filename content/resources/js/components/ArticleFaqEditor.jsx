@@ -11,6 +11,13 @@ import {
     rememberFaqSnapshot,
     replaceFaqSnapshot,
 } from '../utils/articleEditorFaqSnapshot';
+import {
+    faqRowClientKey,
+    faqRowsNeedPersistFlush,
+    isFaqUnpersistedLocal,
+    mergeFaqRowsPreservingDrafts,
+    mergeGeneratedFaqsWithExisting,
+} from '../utils/faqDraftPlaceholders';
 import { runFaqExtractFromToolbar } from '../editor/modules/faq/faqExtractToolbarAction';
 import { t } from '../utils/i18n';
 import { canMutateEditor } from '../utils/editorSessionState';
@@ -23,6 +30,7 @@ const normalizeQuestion = (text) =>
 
 const newFaqRow = (sortOrder = 1) => ({
     id: null,
+    client_key: `faq-draft-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`,
     question: '',
     answer: '<p></p>',
     sort_order: sortOrder,
@@ -53,7 +61,7 @@ const pickFaqField = (row, keys) => {
     return '';
 };
 
-const normalizeFaqRowShape = (row) => {
+const normalizeFaqRowShape = (row, index = 0) => {
     const question = pickFaqField(row, ['question', 'q', 'title', 'name', 'label', 'heading']);
     let answer = pickFaqField(row, ['answer', 'a', 'content', 'body', 'text', 'response', 'value']);
     const more = pickFaqField(row, ['more', 'see_more', 'seeMore', 'xem_them', 'intro', 'lead']);
@@ -64,14 +72,18 @@ const normalizeFaqRowShape = (row) => {
 
     return {
         ...row,
+        client_key: faqRowClientKey(row, index),
         question: question || row?.question || '',
-        answer: answerHtmlForEditor(answer || row?.answer),
+        // Keep empty / mid-edit answers — do not drop rows while the user types.
+        answer: answerHtmlForEditor(answer || row?.answer || '<p></p>'),
         more: more || row?.more || '',
     };
 };
 
 const normalizeFaqRows = (rows) =>
-    applyLocalDuplicates((rows ?? []).map(normalizeFaqRowShape).filter((row) => String(row.answer ?? '').trim() !== ''));
+    applyLocalDuplicates(
+        (rows ?? []).map((row, index) => normalizeFaqRowShape(row, index)),
+    );
 
 const reasonLabels = {
     no_pairs: t('faq_debug_no_pairs'),
@@ -234,6 +246,7 @@ export default function ArticleFaqEditor({
 
     const skipBlurDuplicateCheckRef = useRef(false);
     const flushFaqsInFlightRef = useRef(false);
+    const generateFaqInFlightRef = useRef(false);
     const [renewingIndex, setRenewingIndex] = useState(null);
     const [generatingAll, setGeneratingAll] = useState(false);
     const [markdownImportOpen, setMarkdownImportOpen] = useState(false);
@@ -258,6 +271,9 @@ export default function ArticleFaqEditor({
         void runFaqExtractFromToolbar({ articleId });
     }, [articleId]);
 
+    const flushFaqsRef = useRef(() => {});
+    const debouncedSaveRef = useRef((rows) => {});
+
     const flushFaqs = useCallback(() => {
         if (!articleId) return;
         if (flushFaqsInFlightRef.current) {
@@ -271,12 +287,30 @@ export default function ArticleFaqEditor({
         setSaveStatus('saving');
         void (async () => {
             try {
-                const snap = await replaceFaqSnapshot(articleId, faqsRef.current);
-                const rows = itemsFromFaqSnapshot(snap);
-                setFaqs(normalizeFaqRows(rows));
-                clearFaqDraft(articleId);
-                setSaveStatus('saved');
-                window.dispatchEvent(new CustomEvent('article-faqs-save-finished'));
+                const localBefore = Array.isArray(faqsRef.current) ? [...faqsRef.current] : [];
+                const snap = await replaceFaqSnapshot(articleId, localBefore);
+                // Prefer post-await UI state so edits during the request are not discarded.
+                const localNow = Array.isArray(faqsRef.current) ? [...faqsRef.current] : localBefore;
+                const rows = mergeFaqRowsPreservingDrafts(
+                    itemsFromFaqSnapshot(snap),
+                    localNow,
+                );
+                const next = normalizeFaqRows(rows.rows);
+                faqsRef.current = next;
+                setFaqs(next);
+                if (next.some(isFaqUnpersistedLocal)) {
+                    saveFaqDraft(articleId, next);
+                } else {
+                    clearFaqDraft(articleId);
+                }
+                if (rows.needsFlush || faqRowsNeedPersistFlush(next)) {
+                    // Complete rows typed during in-flight save — flush again.
+                    setSaveStatus('pending');
+                    debouncedSaveRef.current(next);
+                } else {
+                    setSaveStatus('saved');
+                    window.dispatchEvent(new CustomEvent('article-faqs-save-finished'));
+                }
             } catch (error) {
                 setSaveStatus('pending');
                 window.dispatchEvent(
@@ -294,15 +328,20 @@ export default function ArticleFaqEditor({
         })();
     }, [articleId]);
 
+    flushFaqsRef.current = flushFaqs;
+
     const { debounced: debouncedSave } = useDebouncedCallback((rows) => {
         if (!articleId) return;
         // Transient recovery only — canonical persist via FAQ snapshot API.
         saveFaqDraft(articleId, rows);
-        flushFaqs();
+        flushFaqsRef.current();
     }, 1200);
+
+    debouncedSaveRef.current = debouncedSave;
 
     const persistRows = useCallback(
         (rows) => {
+            faqsRef.current = rows;
             setFaqs(rows);
             setSaveStatus('pending');
             debouncedSave(rows);
@@ -344,13 +383,13 @@ export default function ArticleFaqEditor({
 
     const updateRow = useCallback(
         (index, patch) => {
-            persistRows(
-                applyLocalDuplicates(
-                    faqs.map((row, i) => (i === index ? { ...row, ...patch } : row)),
-                ),
+            const prev = Array.isArray(faqsRef.current) ? faqsRef.current : [];
+            const next = applyLocalDuplicates(
+                prev.map((row, i) => (i === index ? { ...row, ...patch } : row)),
             );
+            persistRows(next);
         },
-        [faqs, persistRows],
+        [persistRows],
     );
 
     const requestCrossDuplicateCheck = useCallback((index, question, faqId) => {
@@ -496,12 +535,13 @@ export default function ArticleFaqEditor({
     };
 
     const generateAllFaqs = () => {
-        if (!canGenerateFaq || generatingAll) {
+        if (!canGenerateFaq || generatingAll || generateFaqInFlightRef.current) {
             return;
         }
         if (!canMutateEditor()) {
             return;
         }
+        generateFaqInFlightRef.current = true;
         setGeneratingAll(true);
         void (async () => {
             try {
@@ -509,8 +549,13 @@ export default function ArticleFaqEditor({
                     ? String(window.__seoExportEditorHtml() ?? '')
                     : '';
                 const preview = await generateFaqPreview(articleId, html);
-                const rows = normalizeFaqRows(preview?.faqs ?? []);
-                setFaqs(rows);
+                const generated = normalizeFaqRows(preview?.faqs ?? []);
+                // Additive preview: keep manual / existing rows; dedupe by question.
+                const merged = normalizeFaqRows(
+                    mergeGeneratedFaqsWithExisting(faqsRef.current ?? [], generated),
+                );
+                setFaqs(merged);
+                faqsRef.current = merged;
                 setAiPreviewPending(true);
                 setSaveStatus('pending');
             } catch (error) {
@@ -524,6 +569,7 @@ export default function ArticleFaqEditor({
                     }),
                 );
             } finally {
+                generateFaqInFlightRef.current = false;
                 setGeneratingAll(false);
             }
         })();
@@ -576,11 +622,13 @@ export default function ArticleFaqEditor({
     };
 
     const addFaq = () => {
-        persistRows([...faqs, newFaqRow(faqs.length + 1)]);
+        const prev = Array.isArray(faqsRef.current) ? faqsRef.current : faqs;
+        persistRows([...prev, newFaqRow(prev.length + 1)]);
     };
 
     const removeFaq = (index) => {
-        persistRows(applyLocalDuplicates(faqs.filter((_, i) => i !== index)));
+        const prev = Array.isArray(faqsRef.current) ? faqsRef.current : faqs;
+        persistRows(applyLocalDuplicates(prev.filter((_, i) => i !== index)));
     };
 
     const renewFaq = (index) => {
@@ -721,7 +769,7 @@ export default function ArticleFaqEditor({
                 ) : (
                     faqs.map((row, index) => (
                         <div
-                            key={row.id ?? `new-${index}`}
+                            key={faqRowClientKey(row, index)}
                             data-seo-faq-index={index}
                             className={`seo-faq-item ${row.duplicate ? 'is-duplicate' : ''}`}
                         >
@@ -773,7 +821,7 @@ export default function ArticleFaqEditor({
 
                             <label className="seo-faq-label mt-3 block">{t('faq_answer')}</label>
                             <FaqAnswerEditor
-                                key={row.id ?? `faq-answer-${index}`}
+                                key={faqRowClientKey(row, index)}
                                 html={row.answer}
                                 onChange={(html) => updateRow(index, { answer: html })}
                             />

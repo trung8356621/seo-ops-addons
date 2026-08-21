@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\Content\Services;
 
 use Omnichannel\Addons\AiPrompt\Services\WorkflowParserService;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\WordPress\Services\ArticleFaqWordPressRestoreService;
 
 /**
  * Tách FAQ từ HTML body vào bảng seo_faqs khi panel FAQ còn trống.

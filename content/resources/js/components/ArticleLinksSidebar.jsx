@@ -19,6 +19,7 @@ import {
     normalizeHrefForCompare,
     normalizeLinkLabel,
     partitionSuggestionCatalogBySite,
+    filterMainDomainSuggestionItems,
 } from '../utils/articleLinkSuggestionFilter';
 import {
     clearExcludedLinkSuggestions,
@@ -279,6 +280,46 @@ function DomainInsertableList({
                     </li>
                 );
             })}
+        </ul>
+    );
+}
+
+function MainDomainSuggestionList({ items, relationship, onInsert }) {
+    if (!items.length) {
+        return <p className="wp-article-links-empty">{t('main_domain_suggestions_empty')}</p>;
+    }
+
+    return (
+        <ul className="wp-article-links-keywords">
+            {items.map((item, index) => {
+                const title = String(item?.page_title ?? item?.text ?? '').trim();
+                const href = String(item?.href ?? item?.target_url ?? '').trim();
+                const key = `main-domain-${normalizeHrefForCompare(href) || index}`;
+
+                return (
+                    <li key={key} className="wp-article-links-keyword-row">
+                        <span className="wp-article-links-keyword is-readonly" title={title}>
+                            <strong>{title || href}</strong>
+                            <small className="wp-article-main-domain-url">{href}</small>
+                        </span>
+                        <button
+                            type="button"
+                            className="wp-article-links-insert-btn is-text"
+                            disabled={title === '' || href === ''}
+                            onMouseDown={(event) => event.preventDefault()}
+                            onClick={() => onInsert(item, index, key)}
+                        >
+                            <Link2 size={14} aria-hidden />
+                            <span>{t('main_domain_suggestions_insert')}</span>
+                        </button>
+                    </li>
+                );
+            })}
+            <li className="wp-article-links-hint">
+                {relationship === 'internal'
+                    ? t('main_domain_suggestions_internal_hint')
+                    : t('main_domain_suggestions_external_hint')}
+            </li>
         </ul>
     );
 }
@@ -709,6 +750,7 @@ function InternalLinksSection({
     suggestionsLoading = false,
     suggestionsHasResults = false,
     suggestionsExhausted = false,
+    suggestionsError = null,
     reviewLoadingKey = '',
     errorKeywordIds,
     onKeywordClick,
@@ -723,19 +765,6 @@ function InternalLinksSection({
     const showSuggestions = internal.length < 10 && suggestedInternal.length > 0;
     const showExcludedClear = excludedCount > 0;
     const showGenerate = typeof onGenerateSuggestions === 'function';
-
-    if (internal.length === 0 && !showSuggestions && !showExcludedClear && !showGenerate) {
-        return (
-            <KeywordList
-                items={[]}
-                title={t('links_internal_title_zero')}
-                activeKey={activeKey}
-                target="editor"
-                onKeywordClick={onKeywordClick}
-                onCopyKeyword={onCopyKeyword}
-            />
-        );
-    }
 
     return (
         <div className="wp-article-links-group">
@@ -770,6 +799,15 @@ function InternalLinksSection({
                               : t('links_generate_suggestions')}
                     </button>
                 </div>
+            ) : null}
+            {suggestionsLoading && suggestedInternal.length === 0 ? (
+                <p className="wp-article-links-empty">{t('links_suggestions_loading')}</p>
+            ) : null}
+            {!suggestionsLoading && suggestionsError ? (
+                <p className="wp-article-links-empty text-rose-600 dark:text-rose-400">{suggestionsError}</p>
+            ) : null}
+            {!suggestionsLoading && !suggestionsError && !showSuggestions && suggestionsHasResults === false && !showGenerate ? (
+                <p className="wp-article-links-empty">{t('editor_links_suggestions_empty')}</p>
             ) : null}
             {showSuggestions || showExcludedClear ? (
                 <div className="wp-article-links-suggestions-head">
@@ -929,17 +967,26 @@ export default function ArticleLinksSidebar({
     const [cycleByKey, setCycleByKey] = useState({});
     const [internalCollapsed, setInternalCollapsed] = useState(true);
     const [externalCollapsed, setExternalCollapsed] = useState(true);
+    const [mainDomainCollapsed, setMainDomainCollapsed] = useState(true);
     const [domainLinksCollapsed, setDomainLinksCollapsed] = useState(true);
     const [ctaCollapsed, setCtaCollapsed] = useState(true);
     const [linkSectionFilter, setLinkSectionFilter] = useState('all');
     const [baseLoading, setBaseLoading] = useState(true);
     const [baseError, setBaseError] = useState(null);
+    const [suggestionsLoading, setSuggestionsLoading] = useState(false);
     const [suggestionsError, setSuggestionsError] = useState(null);
     const [suggestionsEmpty, setSuggestionsEmpty] = useState(false);
     const suggestionsAbortRef = useRef(null);
+    const suggestionsCacheRef = useRef(new Map());
+    const suggestionsAutoStartedRef = useRef(false);
     const suggestionCursorRef = useRef({ phase: 'idle', hasResults: false });
     const [suggestionPhase, setSuggestionPhase] = useState('idle');
     const [suggestionsHasResults, setSuggestionsHasResults] = useState(false);
+    const [mainDomainSuggestions, setMainDomainSuggestions] = useState({
+        mainDomain: '',
+        relationship: null,
+        items: [],
+    });
 
     const bumpSuggestionCursor = (next) => {
         suggestionCursorRef.current = next;
@@ -960,6 +1007,7 @@ export default function ArticleLinksSidebar({
             if (section === 'links') {
                 setInternalCollapsed(false);
                 setExternalCollapsed(false);
+                setMainDomainCollapsed(false);
                 setDomainLinksCollapsed(false);
                 return;
             }
@@ -992,6 +1040,11 @@ export default function ArticleLinksSidebar({
                 if (payload.ctaQuickTemplates) {
                     setServerCtaTemplates(payload.ctaQuickTemplates);
                 }
+                setMainDomainSuggestions(payload.mainDomainSuggestions ?? {
+                    mainDomain: '',
+                    relationship: null,
+                    items: [],
+                });
 
                 window.dispatchEvent(
                     new CustomEvent('seo-editor-links-updated', {
@@ -1027,8 +1080,6 @@ export default function ArticleLinksSidebar({
             suggestionsAbortRef.current?.abort();
         };
     }, []);
-
-    const [suggestionsLoading, setSuggestionsLoading] = useState(false);
     const countUsableSuggestions = (catalog = keywordCatalogRef.current) => {
         const partitioned = partitionSuggestionCatalogBySite(catalog, siteDomainRef.current);
         const visible = buildVisibleInternalSuggestions({
@@ -1124,13 +1175,30 @@ export default function ArticleLinksSidebar({
         );
     };
 
-    const loadLinkSuggestions = async () => {
+    const buildSuggestionsInputKey = (articleId, content) => {
+        const focus =
+            String(document.querySelector('#seo-article-focus-keyword, [data-seo-focus-keyword]')?.value
+                ?? document.querySelector('input[name="focus_keyword"]')?.value
+                ?? '')
+                .trim()
+                .toLowerCase();
+        const sample = String(content || '').slice(0, 400) + String(content || '').slice(-200);
+        let hash = 0;
+        for (let i = 0; i < sample.length; i += 1) {
+            hash = ((hash << 5) - hash) + sample.charCodeAt(i);
+            hash |= 0;
+        }
+        return `${articleId}|${focus}|${String(content || '').length}|${hash}`;
+    };
+
+    const loadLinkSuggestions = async (options = {}) => {
         const { articleId } = articleMetaRef.current;
         if (suggestionsLoading) {
             return;
         }
 
-        const findMore = suggestionCursorRef.current.hasResults === true;
+        const force = options.force === true;
+        const findMore = !force && suggestionCursorRef.current.hasResults === true;
         suggestionsAbortRef.current?.abort();
         const controller = new AbortController();
         suggestionsAbortRef.current = controller;
@@ -1148,6 +1216,20 @@ export default function ArticleLinksSidebar({
 
         try {
             const content = await requestEditorDocumentHtml();
+            const cacheKey = buildSuggestionsInputKey(articleId, content);
+            if (!findMore && !force) {
+                const cached = suggestionsCacheRef.current.get(cacheKey);
+                if (cached) {
+                    applySuggestionPayload(cached, 'links-suggestions-cache');
+                    const usableCached = countUsableSuggestions();
+                    bumpSuggestionCursor({
+                        phase: usableCached > 0 ? 'source1_done' : 'exhausted',
+                        hasResults: usableCached > 0,
+                    });
+                    return;
+                }
+            }
+
             if (findMore) {
                 const payload = await fetchEditorLinksSuggestions(articleId, {
                     content,
@@ -1171,9 +1253,11 @@ export default function ArticleLinksSidebar({
                 return;
             }
             applySuggestionPayload(payload, 'links-suggestions');
+            suggestionsCacheRef.current.set(cacheKey, payload);
 
             let usableCount = countUsableSuggestions();
-            if (usableCount < 5) {
+            // Avoid second HTTP round-trip when primary already has a usable set.
+            if (usableCount < 3) {
                 const fallbackPayload = await fetchEditorLinksSuggestions(articleId, {
                     content,
                     mode: 'fallback',
@@ -1185,6 +1269,17 @@ export default function ArticleLinksSidebar({
                 }
                 applySuggestionPayload(fallbackPayload, 'links-suggestions-fallback', { append: true });
                 usableCount = countUsableSuggestions(keywordCatalogRef.current);
+                suggestionsCacheRef.current.set(cacheKey, {
+                    ...payload,
+                    suggestedInternalLinks: [
+                        ...(payload.suggestedInternalLinks ?? []),
+                        ...(fallbackPayload.suggestedInternalLinks ?? []),
+                    ],
+                    suggestedInternalLinksCatalog: [
+                        ...(payload.suggestedInternalLinksCatalog ?? []),
+                        ...(fallbackPayload.suggestedInternalLinksCatalog ?? []),
+                    ],
+                });
             }
 
             bumpSuggestionCursor({
@@ -1208,6 +1303,19 @@ export default function ArticleLinksSidebar({
             }
         }
     };
+
+    useEffect(() => {
+        if (suggestionsAutoStartedRef.current) {
+            return undefined;
+        }
+        suggestionsAutoStartedRef.current = true;
+        const timer = window.setTimeout(() => {
+            void loadLinkSuggestions();
+        }, 0);
+
+        return () => window.clearTimeout(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps -- one-shot warm suggestions; cache prevents regen
+    }, []);
 
     const [hiddenRowKeys, setHiddenRowKeys] = useState(() => new Set());
     const allDomainLinksRef = useRef(
@@ -1629,6 +1737,13 @@ export default function ArticleLinksSidebar({
 
     const internal = links.internal ?? [];
     const external = links.external ?? [];
+    const visibleMainDomainSuggestions = useMemo(() => {
+        return filterMainDomainSuggestionItems(
+            mainDomainSuggestions.items,
+            internal,
+            external,
+        );
+    }, [external, internal, mainDomainSuggestions.items]);
 
     const suggestedInternal = useMemo(() => {
         const plain = articlePlainText.trim();
@@ -1666,10 +1781,28 @@ export default function ArticleLinksSidebar({
             });
         }
 
-        return stableSuggestionsRef.current.filter((item) => {
+        const filtered = stableSuggestionsRef.current.filter((item) => {
             return !isSuggestionExcluded(String(item?.text ?? ''), excludedSuggestionLabels);
         });
-    }, [internal, external, excludedSuggestionLabels, articlePlainText, catalogVersion, anchorEditTick]);
+        if (mainDomainSuggestions.relationship !== 'internal') {
+            return filtered;
+        }
+
+        const existingHrefs = new Set(
+            filtered
+                .map((item) => normalizeHrefForCompare(item?.href ?? item?.target_url))
+                .filter(Boolean),
+        );
+
+        return [
+            ...filtered,
+            ...visibleMainDomainSuggestions.filter((item) => {
+                const href = normalizeHrefForCompare(item?.href ?? item?.target_url);
+
+                return href !== '' && !existingHrefs.has(href);
+            }),
+        ];
+    }, [internal, external, excludedSuggestionLabels, articlePlainText, catalogVersion, anchorEditTick, mainDomainSuggestions.relationship, visibleMainDomainSuggestions]);
 
     const suggestedInternalRef = useRef(suggestedInternal);
     suggestedInternalRef.current = suggestedInternal;
@@ -1905,6 +2038,17 @@ export default function ArticleLinksSidebar({
         window.dispatchEvent(new CustomEvent('seo-editor-insert-suggested-link', { detail }));
     };
 
+    const insertMainDomainSuggestion = (item, index, itemKey) => {
+        const hrefKey = normalizeHrefForCompare(item?.href ?? item?.target_url);
+        setMainDomainSuggestions((current) => ({
+            ...current,
+            items: (Array.isArray(current.items) ? current.items : []).filter(
+                (candidate) => normalizeHrefForCompare(candidate?.href ?? candidate?.target_url) !== hrefKey,
+            ),
+        }));
+        insertSuggestedLink(item, index, itemKey);
+    };
+
     const hideDomainRow = (itemKey) => {
         if (!itemKey) {
             return;
@@ -2049,6 +2193,7 @@ export default function ArticleLinksSidebar({
                         suggestionsLoading={suggestionsLoading}
                         suggestionsHasResults={suggestionsHasResults}
                         suggestionsExhausted={suggestionPhase === 'exhausted'}
+                        suggestionsError={suggestionsError}
                         onKeywordClick={(item, index, itemKey) =>
                             scrollToKeyword(item, 'internal', index, itemKey)
                         }
@@ -2117,6 +2262,27 @@ export default function ArticleLinksSidebar({
                         ) : null}
                     </div>
                 </LinkAssistantSection>
+
+                {mainDomainSuggestions.relationship === 'external' ? (
+                <LinkAssistantSection
+                    title={`${t('main_domain_suggestions_title')} (${visibleMainDomainSuggestions.length})`}
+                    count={visibleMainDomainSuggestions.length}
+                    collapsed={mainDomainCollapsed}
+                    onToggle={() => setMainDomainCollapsed((value) => !value)}
+                    sectionKey="links"
+                >
+                    {mainDomainSuggestions.mainDomain ? (
+                        <p className="wp-article-links-hint">
+                            {mainDomainSuggestions.mainDomain}
+                        </p>
+                    ) : null}
+                    <MainDomainSuggestionList
+                        items={visibleMainDomainSuggestions}
+                        relationship={mainDomainSuggestions.relationship}
+                        onInsert={insertMainDomainSuggestion}
+                    />
+                </LinkAssistantSection>
+                ) : null}
 
                 <LinkAssistantSection
                     title={`${t('domain_link_widget_title')} (${domainLinks.length})`}

@@ -41,11 +41,8 @@ final class SeoAccessControl
         /** @var User|null $user */
         $user = auth()->user();
 
-        // Admin / Owner luôn rank manager — không fallback content_manager khi seo_role trống.
-        if (in_array((string) ($user?->role ?? ''), [User::ROLE_ADMIN, User::ROLE_OWNER], true)) {
-            return self::ROLE_MANAGER;
-        }
-
+        // seo_role is the only SEO rank source (including owner).
+        // owner + content_manager keeps content_manager SEO rules while client setup stays owner-gated.
         return self::normalizeRole((string) ($user?->seo_role ?? self::ROLE_CONTENT_MANAGER));
     }
 
@@ -120,7 +117,7 @@ final class SeoAccessControl
     }
 
     /**
-     * Planner / manager / owner / admin (actual rank > content_manager) được ghi đè
+     * Planner / manager (actual rank > content_manager) được ghi đè
      * bài writer khi conflict token lệch — không phụ thuộc VIEW AS giả lập.
      */
     public static function canForceArticleContentOverwrite(): bool
@@ -134,13 +131,6 @@ final class SeoAccessControl
 
     public static function canViewAutomationRules(): bool
     {
-        $user = auth()->user();
-        if ($user instanceof User
-            && in_array((string) $user->role, [User::ROLE_ADMIN, User::ROLE_OWNER], true)
-        ) {
-            return true;
-        }
-
         return self::canAccessPlannerFeatures() || self::canMutateInSeoPanel();
     }
 
@@ -186,7 +176,8 @@ final class SeoAccessControl
             return false;
         }
 
-        if (in_array((string) $user->role, [User::ROLE_ADMIN, User::ROLE_OWNER], true)) {
+        // Owner luôn vào SEO panel (kể cả khi seo_role trống).
+        if ((string) $user->role === User::ROLE_OWNER) {
             return true;
         }
 
@@ -199,9 +190,15 @@ final class SeoAccessControl
     {
         /** @var User|null $user */
         $user = auth()->user();
+        if (! $user instanceof User) {
+            return false;
+        }
 
-        return $user instanceof User
-            && in_array((string) $user->role, [User::ROLE_ADMIN, User::ROLE_OWNER], true);
+        if ((string) $user->role === User::ROLE_OWNER) {
+            return true;
+        }
+
+        return self::canAccessManagerFeatures();
     }
 
     public static function isContentManager(): bool
@@ -221,22 +218,22 @@ final class SeoAccessControl
 
     public static function shouldShowGlobalSitePicker(): bool
     {
-        if (request()->routeIs('filament.seo.resources.keywords.*')) {
+        if (SeoPanelRoutes::is('filament.seo.resources.keywords.*')) {
             return false;
         }
 
-        if (request()->routeIs('filament.seo.pages.mcp-intelligence')) {
+        if (SeoPanelRoutes::is('filament.seo.pages.mcp-intelligence')) {
             return false;
         }
 
         if (
-            request()->routeIs('filament.seo.pages.articles-optimal')
+            SeoPanelRoutes::is('filament.seo.pages.articles-optimal')
             || request()->is('seo/*/articles/optimal', 'seo/*/articles/optimal/*')
         ) {
             return false;
         }
 
-        if (request()->routeIs('filament.seo.pages.performance-hub')) {
+        if (SeoPanelRoutes::is('filament.seo.pages.performance-hub')) {
             $source = (string) request()->query('source', 'gsc');
 
             if ($source !== '' && $source !== 'gsc') {
@@ -249,37 +246,22 @@ final class SeoAccessControl
 
     public static function isSeoPanelAdminViewer(): bool
     {
-        $user = auth()->user();
-        if (! $user instanceof User || (string) $user->role !== User::ROLE_ADMIN) {
-            return false;
-        }
-
-        return SeoConnectionContext::current() instanceof SeoDatabaseConnection
-            || SeoConnectionContext::hash() !== null;
+        return false;
     }
 
     public static function isSeoPanelReadOnly(): bool
     {
-        return self::isSeoPanelAdminViewer();
+        return false;
     }
 
     public static function canMutateInSeoPanel(): bool
     {
-        return ! self::isSeoPanelReadOnly();
+        return true;
     }
 
     public static function shouldScopeToAccountOwner(): bool
     {
-        $user = auth()->user();
-        if (! $user instanceof User) {
-            return true;
-        }
-
-        if ((string) $user->role !== User::ROLE_ADMIN) {
-            return true;
-        }
-
-        return self::isSeoPanelAdminViewer();
+        return true;
     }
 
     public static function panelOwnerId(): ?int
@@ -315,7 +297,7 @@ final class SeoAccessControl
 
     /**
      * Planner-equivalent Content Project workflow management.
-     * planner + manager (+ admin/owner via rank). content_manager = false.
+     * planner + manager via seo_role rank. content_manager = false.
      * Does not grant Prompt / user / system settings rights.
      */
     public static function canManageContentProjectWorkflow(): bool
@@ -468,10 +450,6 @@ final class SeoAccessControl
             return true;
         }
 
-        if ((string) $user->role === User::ROLE_ADMIN && ! self::isSeoPanelAdminViewer()) {
-            return true;
-        }
-
         if (self::isContentManager()) {
             return ArticleResource::canContentManagerAccessArticle($article);
         }
@@ -497,10 +475,6 @@ final class SeoAccessControl
 
     public static function accountOwnerId(): ?int
     {
-        if (self::isSeoPanelAdminViewer()) {
-            return self::panelOwnerId();
-        }
-
         /** @var User|null $user */
         $user = auth()->user();
         if (! $user instanceof User) {
@@ -704,13 +678,6 @@ final class SeoAccessControl
 
     public static function canViewAutomation(): bool
     {
-        $user = auth()->user();
-        if ($user instanceof User
-            && in_array((string) $user->role, [User::ROLE_ADMIN, User::ROLE_OWNER], true)
-        ) {
-            return true;
-        }
-
         return self::canAccessPlannerFeatures() || self::canMutateInSeoPanel();
     }
 
@@ -770,20 +737,8 @@ final class SeoAccessControl
 
     public static function canClearAutomationLogs(): bool
     {
-        $user = auth()->user();
-        if ($user instanceof User
-            && in_array((string) $user->role, [User::ROLE_ADMIN, User::ROLE_OWNER], true)
-        ) {
-            return true;
-        }
-
         if (! self::canAccessManagerFeatures()) {
             return false;
-        }
-
-        // Core admin browsing SEO panel is otherwise read-only; Clear Logs is an explicit ops action.
-        if (self::isSeoPanelAdminViewer()) {
-            return true;
         }
 
         return self::canMutateInSeoPanel();

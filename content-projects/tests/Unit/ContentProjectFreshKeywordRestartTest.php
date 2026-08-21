@@ -84,12 +84,23 @@ final class ContentProjectFreshKeywordRestartTest extends TestCase
         self::assertStringContainsString('ContentProjectFreshKeywordWorkspaceResetService', $handler);
         self::assertStringContainsString('resetForTask', $handler);
         self::assertStringContainsString('validateFull', $handler);
-        self::assertStringNotContainsString('$task->keyword', $handler);
+        self::assertStringNotContainsString('commitCanonicalKeyword', $handler);
         self::assertStringNotContainsString('fresh_create', $handler);
 
         $reset = (string) file_get_contents((new ReflectionClass(ContentProjectFreshKeywordWorkspaceResetService::class))->getFileName());
         self::assertStringContainsString('ArticleAiHistoryPendingDraftStore::META_KEY', $reset);
         self::assertStringNotContainsString('SeoPromptResult', $reset);
+    }
+
+    public function test_canonical_keyword_commits_only_via_success_helper(): void
+    {
+        $support = (string) file_get_contents((new ReflectionClass(ContentProjectFreshKeywordRestart::class))->getFileName());
+        self::assertStringContainsString('function commitCanonicalKeyword', $support);
+        self::assertStringContainsString('seo_focus_keyword', $support);
+
+        $workflow = (string) file_get_contents((new ReflectionClass(SeoProjectWorkflowRunService::class))->getFileName());
+        self::assertStringContainsString('commitCanonicalKeyword', $workflow);
+        self::assertStringContainsString('isFreshKeywordRestart', $workflow);
     }
 
     public function test_run_settings_snapshot_keeps_generation_mode_and_keyword(): void
@@ -159,7 +170,8 @@ final class ContentProjectFreshKeywordRestartTest extends TestCase
         self::assertStringContainsString('restartKeywordOpen', $ops);
         self::assertStringContainsString('confirmRestartWithKeyword', $ops);
         self::assertStringContainsString('restart_with_keyword_input_label', $ops);
-        self::assertStringContainsString('x-teleport="body"', $ops);
+        self::assertStringContainsString('pollRestartWithKeywordStatus', $ops);
+        self::assertStringContainsString('waitRestartKeywordTerminal', $ops);
         self::assertStringNotContainsString('$wire.openRestartWithKeyword', $ops);
 
         $vi = (string) file_get_contents(LegacyAddonPath::resolve('lang/vi/filament.php'));

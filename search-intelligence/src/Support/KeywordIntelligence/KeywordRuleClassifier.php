@@ -61,11 +61,21 @@ final class KeywordRuleClassifier
         $hasCanonical = (bool) ($context['has_canonical_match'] ?? false);
 
         $features = $this->features($raw, $text);
+        $cta = $this->ctaAssessment($text, $raw, $features);
         $kind = $this->kind($raw, $text, $features);
+        if ($cta['is_cta_like']) {
+            $kind = (int) $features['word_count'] >= 6 ? self::KIND_SENTENCE : self::KIND_DESCRIPTIVE_PHRASE;
+        }
         $intent = $this->intent($text, $kind, $features);
         $confidence = $this->confidence($kind, $features, $source, $occurrence, $hasCanonical);
         $keywordScore = $this->keywordScore($kind, $features, $source, $occurrence, $sourcePosts, $targetPosts, $hasCanonical);
+        if ($cta['is_cta_like']) {
+            $keywordScore = min($keywordScore, 0.12);
+        }
         $isSeo = $this->isSeoKeyword($kind, $keywordScore, $source, $hasCanonical);
+        if ($cta['is_cta_like']) {
+            $isSeo = false;
+        }
         $isAnchor = $this->isAnchorCandidate($kind, $features, $isSeo);
         $band = $confidence >= 0.90 ? 'auto' : ($confidence >= 0.65 ? 'review' : 'ambiguous');
         $skipSegments = (bool) ($context['skip_segments'] ?? false);
@@ -425,5 +435,54 @@ final class KeywordRuleClassifier
         }
 
         return $out;
+    }
+
+    /**
+     * Generalized CTA / action-phrase detection (not site-specific blacklist).
+     *
+     * @param  array<string, mixed>  $features
+     * @return array{score: int, is_cta_like: bool}
+     */
+    private function ctaAssessment(string $text, string $raw, array $features): array
+    {
+        $score = 0;
+        $wordCount = (int) ($features['word_count'] ?? 0);
+        $productHits = (int) ($features['product_hits'] ?? 0);
+
+        if (preg_match('/^(nhận|liên hệ|đăng ký|gọi|xem|tìm hiểu|điền|bắt đầu|click|contact|get|request|read more|sign up)\b/u', $text) === 1) {
+            $score += 2;
+        }
+        if (preg_match('/\b(liên hệ ngay|nhận tư vấn|đăng ký nhận|gọi ngay|xem thêm|tìm hiểu thêm|điền form|contact us|get quote|request quote)\b/u', $text) === 1) {
+            $score += 2;
+        }
+        if (preg_match('/\b(chúng tôi|contact us)\b/u', $text) === 1 && preg_match('/\b(liên hệ|nhận|gọi|đăng ký|tư vấn)\b/u', $text) === 1) {
+            $score += 1;
+        }
+        if (preg_match('/\b(ngay|miễn phí)\b/u', $text) === 1 && preg_match('/\b(nhận|liên hệ|đăng ký|gọi|tư vấn|báo giá ngay)\b/u', $text) === 1) {
+            $score += 1;
+        }
+        if (str_contains($raw, '→')) {
+            $score += 2;
+        }
+        if ($wordCount <= 3 && preg_match('/\b(ngay|miễn phí|here|now)\b/u', $text) === 1) {
+            $score += 1;
+        }
+
+        $commercialSeoLead = preg_match('/^(báo giá|giá|mua|cách|xưởng|sản xuất|gia công|in logo)\b/u', $text) === 1
+            && $productHits >= 1;
+        if ($commercialSeoLead) {
+            $score -= 3;
+        }
+        if ($productHits >= 2 && preg_match('/\b(túi|balo|canvas|vải|không dệt|may|xưởng)\b/u', $text) === 1) {
+            $score -= 1;
+        }
+        if ($features['has_question'] ?? false) {
+            $score -= 2;
+        }
+
+        return [
+            'score' => $score,
+            'is_cta_like' => $score >= 3 && ! $commercialSeoLead && $productHits <= 1,
+        ];
     }
 }

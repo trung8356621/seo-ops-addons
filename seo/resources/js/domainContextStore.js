@@ -1,5 +1,6 @@
 export const ALL_KEY = 'all';
 export const QUERY_KEY = 'domain';
+export const SITE_ID_QUERY_KEY = 'site_id';
 export const HEADER_KEY = 'X-Seo-Domain-Context';
 export const STORAGE_ACTIVE = 'seo_ops.active_domain';
 export const STORAGE_LAST = 'seo_ops.last_domain';
@@ -71,12 +72,55 @@ export function resolveDomainContext(sources = {}) {
 }
 
 /**
+ * @returns {Record<string, number>}
+ */
+export function accessibleSiteIdsByDomainKey() {
+    const raw = window.__SEO_SITE_IDS_BY_DOMAIN__;
+    if (!raw || typeof raw !== 'object') {
+        return {};
+    }
+
+    /** @type {Record<string, number>} */
+    const map = {};
+    for (const [key, value] of Object.entries(raw)) {
+        const siteId = Number(value);
+        if (Number.isInteger(siteId) && siteId > 0) {
+            map[normalizeDomainKey(key)] = siteId;
+        }
+    }
+
+    return map;
+}
+
+/**
+ * @param {string} domainKey
+ * @returns {number|null}
+ */
+export function resolveSiteIdFromDomainKey(domainKey) {
+    const key = normalizeDomainKey(domainKey);
+    if (isAllDomains(key)) {
+        return null;
+    }
+    if (/^\d+$/.test(key)) {
+        return Number(key);
+    }
+
+    const mapped = accessibleSiteIdsByDomainKey()[key];
+    return Number.isInteger(mapped) && mapped > 0 ? mapped : null;
+}
+
+/**
  * @param {string} href
  * @returns {string|null}
  */
 export function readDomainFromUrl(href) {
     try {
         const url = new URL(href, 'http://local.test');
+        const siteId = url.searchParams.get(SITE_ID_QUERY_KEY);
+        if (siteId != null && String(siteId).trim() !== '' && /^\d+$/.test(String(siteId).trim())) {
+            return String(Number(siteId));
+        }
+
         const value = url.searchParams.get(QUERY_KEY);
 
         return value == null || String(value).trim() === '' ? null : String(value);
@@ -93,7 +137,19 @@ export function readDomainFromUrl(href) {
 export function buildUrlWithDomain(href, domainKey) {
     const url = new URL(href, 'http://local.test');
     const key = normalizeDomainKey(domainKey);
-    url.searchParams.set(QUERY_KEY, key);
+    url.searchParams.delete(QUERY_KEY);
+    url.searchParams.delete(SITE_ID_QUERY_KEY);
+
+    if (isAllDomains(key)) {
+        url.searchParams.set(QUERY_KEY, ALL_KEY);
+    } else {
+        const siteId = resolveSiteIdFromDomainKey(key);
+        if (siteId != null) {
+            url.searchParams.set(SITE_ID_QUERY_KEY, String(siteId));
+        } else {
+            url.searchParams.set(QUERY_KEY, key);
+        }
+    }
 
     return `${url.pathname}${url.search}${url.hash}`;
 }

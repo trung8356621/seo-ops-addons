@@ -10,9 +10,9 @@ use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
 use Omnichannel\Addons\SearchIntelligence\Jobs\ClassifyDirtyKeywordsJob;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterSiteScope;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordClassification;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordCanonicalizer;
-use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordClusterKey;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordDictionaryBuilder;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordLandscapeBuilder;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordNormalizer;
@@ -36,7 +36,6 @@ final class KeywordClassificationService
         private readonly KeywordDictionaryBuilder $dictionary,
         private readonly KeywordSourceNormalizer $sources,
         private readonly KeywordCanonicalizer $canonicalizer,
-        private readonly KeywordClusterKey $clusterKey,
         private readonly KeywordLandscapeBuilder $landscape,
     ) {}
 
@@ -123,7 +122,6 @@ final class KeywordClassificationService
                 'folded_text' => $norm['folded_text'],
                 'phrase_kind' => $classified['phrase_kind'],
                 'seo_intent' => $classified['seo_intent'],
-                'cluster_key' => mb_strtolower($this->clusterKey->make($norm['normalized_text'], $norm['folded_text']), 'UTF-8'),
                 'canonical_keyword_id' => (int) $keyword->id,
                 'is_anchor_candidate' => $classified['is_anchor_candidate'],
                 'anchor_priority' => $classified['anchor_priority'],
@@ -133,6 +131,15 @@ final class KeywordClassificationService
                 'input_hash' => $inputHash,
                 'classification_hash' => hash('sha256', $classified['phrase_kind'].'|'.$classified['seo_intent'].'|'.$norm['folded_text']),
             ];
+
+            $existingClusterKey = $existing instanceof SeoKeywordClassification
+                ? trim((string) ($existing->cluster_key ?? ''))
+                : '';
+            if ($existingClusterKey !== '') {
+                $payload['cluster_key'] = $existingClusterKey;
+            } else {
+                $payload['cluster_key'] = null;
+            }
             if (Schema::connection('omi_seo_ai')->hasColumn('seo_keyword_classifications', 'source_kind')) {
                 $payload['source_kind'] = $sourceKind;
                 $payload['is_seo_keyword'] = $classified['is_seo_keyword'];
@@ -428,14 +435,8 @@ final class KeywordClassificationService
         if ($siteId <= 0) {
             return $query;
         }
-        if (Schema::connection('omi_seo_ai')->hasColumn('keywords', 'site_id')) {
-            return $query->where(function ($inner) use ($siteId): void {
-                $inner->where('site_id', $siteId)
-                    ->orWhereHas('linkMaps.sourceArticle', static fn ($q) => $q->where('site_id', $siteId));
-            });
-        }
 
-        return $query->whereHas('linkMaps.sourceArticle', static fn ($q) => $q->where('site_id', $siteId));
+        return KeywordClusterSiteScope::apply($query, $siteId);
     }
 
     private function writeProgress(int $siteId, LongRunningProgress $progress): void

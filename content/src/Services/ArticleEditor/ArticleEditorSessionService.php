@@ -20,9 +20,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
 /**
- * Server-authoritative Article Editor session lock.
- * Cache mutex via ActionSupport::withArticleLock (article-write:{id}) serializes writers.
- * Reentrant in-process so persist → UpdateArticleContentAction does not deadlock.
+ * Server-authoritative article-scoped edit lease.
+ * Same-user tabs may hold independent leases; document_version prevents stale overwrites.
+ * Cache mutex via ActionSupport::withArticleLock (article-write:{id}) is fail-fast.
  */
 final class ArticleEditorSessionService
 {
@@ -34,12 +34,7 @@ final class ArticleEditorSessionService
 
     public function lockTtlSeconds(): int
     {
-        return max(30, (int) config('seo-content-ai.article_editor.lock_ttl_seconds', 120));
-    }
-
-    public function heartbeatIntervalSeconds(): int
-    {
-        return max(10, (int) config('seo-content-ai.article_editor.heartbeat_seconds', 30));
+        return max(180, (int) config('seo-content-ai.article_editor.lock_ttl_seconds', 240));
     }
 
     /**
@@ -58,7 +53,7 @@ final class ArticleEditorSessionService
 
         $clientInstanceId = $this->normalizeUuid($clientInstanceId, 'client_instance_id');
 
-        return ActionSupport::withArticleLock((int) $article->getKey(), function () use (
+        return $this->withArticleWriteLock((int) $article->getKey(), function () use (
             $article,
             $user,
             $clientInstanceId,
@@ -75,34 +70,22 @@ final class ArticleEditorSessionService
                 $fresh = SeoArticle::query()->lockForUpdate()->findOrFail((int) $article->getKey());
                 $this->expireStaleSessionsForArticle($fresh);
 
-                $active = $this->findActiveSessionLocked($fresh);
-                if ($active instanceof SeoArticleEditorSession) {
-                    if (
-                        (int) $active->user_id === (int) $user->getKey()
-                        && (string) $active->client_instance_id === $clientInstanceId
-                    ) {
-                        $this->touchHeartbeat($active);
+                $activeSessions = $this->findActiveSessionsLocked($fresh);
+                $owned = $activeSessions->first(static fn (SeoArticleEditorSession $session): bool =>
+                    (int) $session->user_id === (int) $user->getKey()
+                    && (string) $session->client_instance_id === $clientInstanceId
+                );
+                if ($owned instanceof SeoArticleEditorSession) {
+                    $this->touchHeartbeat($owned);
 
-                        return $this->ownedAcquirePayload($fresh, $active->fresh() ?? $active, $knownDocumentVersion);
-                    }
+                    return $this->ownedAcquirePayload($fresh, $owned->fresh() ?? $owned, $knownDocumentVersion);
+                }
 
-                    // Same authenticated user may reopen/reload/take over the editor atomically.
-                    // Revoke the old editor instance so its later heartbeat cannot steal ownership back.
-                    if ((int) $active->user_id === (int) $user->getKey()) {
-                        $active->status = ArticleEditorSessionStatus::TakenOver;
-                        $active->revoked_at = now();
-                        $active->takeover_by_user_id = (int) $user->getKey();
-                        $active->save();
-
-                        RuntimeLogger::info('seo.editor.session_same_user_takeover', [
-                            'article_id' => (int) $fresh->getKey(),
-                            'old_session_id' => (string) $active->id,
-                            'user_id' => (int) $user->getKey(),
-                            'new_client_instance_id' => $clientInstanceId,
-                        ]);
-                    } else {
-                        throw ArticleEditorSessionException::locked($this->publicLockPayload($active, $user));
-                    }
+                $foreign = $activeSessions->first(static fn (SeoArticleEditorSession $session): bool =>
+                    (int) $session->user_id !== (int) $user->getKey()
+                );
+                if ($foreign instanceof SeoArticleEditorSession) {
+                    throw ArticleEditorSessionException::locked($this->publicLockPayload($foreign, $user));
                 }
 
                 $now = now();
@@ -125,6 +108,9 @@ final class ArticleEditorSessionService
                     'session_id' => (string) $session->id,
                     'user_id' => (int) $user->getKey(),
                     'client_instance_id' => $clientInstanceId,
+                    'same_user_active_leases' => $activeSessions
+                        ->where('user_id', (int) $user->getKey())
+                        ->count(),
                 ]);
 
                 return $this->ownedAcquirePayload($fresh, $session, $knownDocumentVersion);
@@ -180,7 +166,7 @@ final class ArticleEditorSessionService
             $persist,
             $articleId,
         ): array {
-            return ActionSupport::withArticleLock($articleId, function () use (
+            return $this->withArticleWriteLock($articleId, function () use (
                 $article,
                 $session,
                 $document,
@@ -233,7 +219,10 @@ final class ArticleEditorSessionService
                                 'document_version' => $noop['document_version'],
                             ]);
 
-                            return $noop;
+                            return [
+                                ...$noop,
+                                'lease_expires_at' => $freshSession->expires_at?->toIso8601String(),
+                            ];
                         }
 
                         $this->documentVersions->assertExpected($freshArticle, $expectedDocumentVersion);
@@ -274,6 +263,7 @@ final class ArticleEditorSessionService
                             'editor_document_hash' => (string) ($saved->editor_document_hash ?? ''),
                             'editor_document_schema_version' => (int) ($saved->editor_document_schema_version ?? 0),
                             'saved_at' => $saved->updated_at?->toIso8601String(),
+                            'lease_expires_at' => $freshSession->expires_at?->toIso8601String(),
                         ];
 
                         if (isset($result['content_project_handoff']) && is_array($result['content_project_handoff'])) {
@@ -308,7 +298,7 @@ final class ArticleEditorSessionService
         $this->assertArticleEditable($article);
         $session = $this->requireOwnedActiveSession($article, $sessionId, $user);
 
-        return ActionSupport::withArticleLock((int) $article->getKey(), function () use (
+        return $this->withArticleWriteLock((int) $article->getKey(), function () use (
             $article,
             $session,
             $document,
@@ -382,7 +372,7 @@ final class ArticleEditorSessionService
     {
         $session = $this->requireOwnedSession($article, $sessionId, $user);
 
-        ActionSupport::withArticleLock((int) $article->getKey(), function () use ($session): void {
+        $this->withArticleWriteLock((int) $article->getKey(), function () use ($session): void {
             DB::connection('omi_seo_ai')->transaction(function () use ($session): void {
                 $fresh = SeoArticleEditorSession::query()->lockForUpdate()->find($session->id);
                 if (! $fresh instanceof SeoArticleEditorSession) {
@@ -440,7 +430,7 @@ final class ArticleEditorSessionService
         $this->assertArticleEditable($article);
         $clientInstanceId = $this->normalizeUuid($clientInstanceId, 'client_instance_id');
 
-        return ActionSupport::withArticleLock((int) $article->getKey(), function () use (
+        return $this->withArticleWriteLock((int) $article->getKey(), function () use (
             $article,
             $user,
             $clientInstanceId,
@@ -585,10 +575,6 @@ final class ArticleEditorSessionService
     {
         if ($user === null) {
             return SeoAccessControl::canAccessManagerFeatures();
-        }
-
-        if (in_array((string) ($user->role ?? ''), [User::ROLE_ADMIN, User::ROLE_OWNER], true)) {
-            return true;
         }
 
         $role = SeoAccessControl::normalizeRole((string) ($user->seo_role ?? SeoAccessControl::ROLE_CONTENT_MANAGER));
@@ -837,17 +823,18 @@ final class ArticleEditorSessionService
             || str_contains($message, 'SQLSTATE[40001]');
     }
 
-    private function findActiveSessionLocked(SeoArticle $article): ?SeoArticleEditorSession
+    /**
+     * @return \Illuminate\Database\Eloquent\Collection<int, SeoArticleEditorSession>
+     */
+    private function findActiveSessionsLocked(SeoArticle $article): \Illuminate\Database\Eloquent\Collection
     {
-        $session = SeoArticleEditorSession::query()
+        return SeoArticleEditorSession::query()
             ->where('article_id', (int) $article->getKey())
             ->where('status', ArticleEditorSessionStatus::Active)
             ->where('expires_at', '>', now())
             ->orderByDesc('acquired_at')
             ->lockForUpdate()
-            ->first();
-
-        return $session instanceof SeoArticleEditorSession ? $session : null;
+            ->get();
     }
 
     private function touchHeartbeat(SeoArticleEditorSession $session): void
@@ -1093,8 +1080,11 @@ final class ArticleEditorSessionService
             'session' => [
                 'id' => (string) $session->id,
                 'status' => ArticleEditorSessionStatus::Active->value,
-                'heartbeat_interval_seconds' => $this->heartbeatIntervalSeconds(),
+                'lease_ttl_seconds' => $this->lockTtlSeconds(),
+                'started_at' => $session->acquired_at?->toIso8601String(),
+                'last_seen_at' => $session->heartbeat_at?->toIso8601String(),
                 'expires_at' => $session->expires_at?->toIso8601String(),
+                'tab_id' => (string) $session->client_instance_id,
                 'client_instance_id' => (string) $session->client_instance_id,
             ],
             'article' => [
@@ -1162,5 +1152,30 @@ final class ArticleEditorSessionService
         }
 
         return mb_substr($trimmed, 0, 255);
+    }
+
+    /**
+     * Editor UI requests must never occupy a PHP worker waiting for a mutex.
+     *
+     * @template T
+     * @param  callable(): T  $callback
+     * @return T
+     */
+    private function withArticleWriteLock(int $articleId, callable $callback): mixed
+    {
+        try {
+            return ActionSupport::withArticleLock($articleId, $callback);
+        } catch (\RuntimeException $exception) {
+            if ($exception->getMessage() !== 'article_write_busy') {
+                throw $exception;
+            }
+
+            throw ArticleEditorSessionException::make(
+                'article_write_busy',
+                'Article is currently being updated.',
+                ['article_id' => $articleId],
+                409,
+            );
+        }
     }
 }

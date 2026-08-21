@@ -1,5 +1,5 @@
 import { AI_PLACEHOLDER_LOADING_URL, fetchArticleAiMediaJobs, fetchSeoMediaStatus, isAiPlaceholderLoadingSrc } from '@media-addon/utils/seoMediaApi.js';
-import { appendProductAlbumItems, syncProductAlbumToServer } from '@media-addon/utils/articleProductAlbumStorage.js';
+import { saveProductAlbum, syncProductAlbumToServer } from '@media-addon/utils/articleProductAlbumStorage.js';
 import { assertWritableEditorSession } from '../utils/editorSessionState';
 import { callEditArticleLivewire } from '../utils/articleEditorLivewire';
 import { createEmptyImageBlock } from '../utils/contentDocumentHelpers';
@@ -141,47 +141,51 @@ export default function useArticleEditorImageGeneration({ activeBlockIdRef, arti
             return false;
         }
 
-        const trimmedUrl = String(finalUrl ?? '').trim();
-        if (mediaId <= 0 || trimmedUrl === '') {
+        const sourceUrl = String(finalUrl ?? '').trim();
+        if (mediaId <= 0 || sourceUrl === '') {
             return false;
         }
 
-        // Luôn gắn ảnh gốc (chưa split) vào album — không dùng gallery_urls từ auto-split.
-        const rawItems = [{ id: mediaId, url: trimmedUrl }];
+        const splitItems = (Array.isArray(galleryItems) ? galleryItems : [])
+            .map((row) => {
+                if (typeof row === 'string') {
+                    return { id: 0, url: String(row).trim() };
+                }
+                return {
+                    id: Number(row?.id ?? row?.seoMediaId ?? row?.seo_media_id ?? 0) || 0,
+                    url: String(row?.url ?? row?.src ?? '').trim(),
+                };
+            })
+            .filter((item) => {
+                if (item.url === '' || item.url === sourceUrl) {
+                    return false;
+                }
+                if (item.id > 0 && item.id === mediaId) {
+                    return false;
+                }
+                return true;
+            });
 
-        const appended = appendProductAlbumItems(articleId, rawItems);
-        if (appended.length === 0) {
-            return false;
+        // Gallery = split/child outputs only. Sprite/source stays as generation reference.
+        if (splitItems.length > 0) {
+            saveProductAlbum(articleId, splitItems);
+            mediaActions.markDirty();
+            syncProductAlbumToServer(articleId);
         }
 
-        mediaActions.markDirty();
         pendingAiMediaRef.current.delete(mediaId);
         window.dispatchEvent(new CustomEvent('article-ai-media-job-updated', { detail: { seoMediaId: mediaId } }));
-
-        const galleryUrls = appended
-            .map((item) => ({
-                id: Number(item?.id ?? 0),
-                url: String(item?.url ?? '').trim(),
-            }))
-            .filter((item) => item.url !== '');
-
-        window.dispatchEvent(
-            new CustomEvent('article-ai-image-generated', {
-                detail: {
-                    target: 'product-gallery',
-                    status: 'completed',
-                    url: String(galleryUrls[0]?.url ?? finalUrl ?? '').trim(),
-                    seoMediaId: mediaId,
-                    gallery_urls: galleryUrls,
-                    galleryUrls,
-                },
-            }),
-        );
-
-        syncProductAlbumToServer(articleId);
+        window.dispatchEvent(new CustomEvent('seo-product-gallery-updated', {
+            detail: {
+                sourceUrl,
+                seoMediaId: mediaId,
+                gallery: splitItems,
+            },
+        }));
+        setImagesReloadKey((key) => key + 1);
 
         return true;
-    }, [articleId]);
+    }, [articleId, setImagesReloadKey]);
 
     const AI_JOBS_POLL_MS = 5_000;
     const AI_JOBS_INITIAL_POLL_MS = 3_000;
@@ -801,8 +805,8 @@ export default function useArticleEditorImageGeneration({ activeBlockIdRef, arti
 
         resumedArticleAiJobsRef.current = articleId;
         let cancelled = false;
-
-        void (async () => {
+        const timerId = window.setTimeout(() => {
+            void (async () => {
             try {
                 const jobs = await fetchArticleAiMediaJobs(articleId);
                 if (cancelled) {
@@ -909,10 +913,12 @@ export default function useArticleEditorImageGeneration({ activeBlockIdRef, arti
             } catch {
                 // Không chặn editor nếu API job tạm lỗi.
             }
-        })();
+            })();
+        }, 5000);
 
         return () => {
             cancelled = true;
+            window.clearTimeout(timerId);
         };
     }, [
         articleId,

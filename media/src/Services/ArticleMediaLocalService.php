@@ -6,6 +6,8 @@ namespace Omnichannel\Addons\Media\Services;
 
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Media\Models\SeoMedia;
+use Omnichannel\Addons\Media\Support\ProductGallery\ProductGalleryArtifactRole;
+use Omnichannel\Addons\Media\Support\ProductGallery\ProductGalleryReadyState;
 use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 use Omnichannel\Addons\WordPress\Services\WordPressArticleMediaService;
 use Omnichannel\Addons\WordPress\Services\WordPressLocalMediaSyncService;
@@ -905,6 +907,15 @@ final class ArticleMediaLocalService
         ?string $url = null,
     ): bool {
         if ((string) ($article->type ?? '') !== 'product') {
+            return false;
+        }
+
+        $role = ProductGalleryReadyState::artifactRole($media);
+        if (in_array($role, [
+            ProductGalleryArtifactRole::GENERATED_SPRITE,
+            ProductGalleryArtifactRole::GENERATED_PARENT,
+            ProductGalleryArtifactRole::GENERATED_CHILD_REFERENCE,
+        ], true)) {
             return false;
         }
 

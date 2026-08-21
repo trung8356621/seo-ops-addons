@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { ChevronDown } from 'lucide-react';
 import { executeEditorCommand } from '../utils/editorCommands';
 import { canMutateEditor } from '../utils/editorSessionState';
+import { canApplyParagraphStyle } from '../utils/paragraphStyleCompatibility';
 import { t } from '../utils/i18n';
 
 const STYLES = [
@@ -26,6 +27,9 @@ function getActiveStyle(editor) {
 
 function applyStyle(editor, value) {
     if (!canMutateEditor()) {
+        return;
+    }
+    if (!canApplyParagraphStyle(editor, value)) {
         return;
     }
     executeEditorCommand('set_paragraph_style', { editor, value }, { notifyOnFailure: true });
@@ -117,21 +121,29 @@ export default function ParagraphStyleDropdown({ editor }) {
                 }}
                 onMouseDown={(e) => e.stopPropagation()}
             >
-                {STYLES.map((style) => (
-                    <button
-                        key={style.value}
-                        type="button"
-                        role="option"
-                        aria-selected={activeValue === style.value}
-                        className={`seo-fmt-dropdown-item${activeValue === style.value ? ' is-active' : ''}`}
-                        onClick={() => {
-                            applyStyle(editor, style.value);
-                            setOpen(false);
-                        }}
-                    >
-                        <span className={style.previewClass}>{style.label}</span>
-                    </button>
-                ))}
+                {STYLES.map((style) => {
+                    const disabled = mutationLocked || !canApplyParagraphStyle(editor, style.value);
+                    return (
+                        <button
+                            key={style.value}
+                            type="button"
+                            role="option"
+                            aria-selected={activeValue === style.value}
+                            aria-disabled={disabled}
+                            disabled={disabled}
+                            className={`seo-fmt-dropdown-item${activeValue === style.value ? ' is-active' : ''}${disabled ? ' is-disabled' : ''}`}
+                            onClick={() => {
+                                if (disabled) {
+                                    return;
+                                }
+                                applyStyle(editor, style.value);
+                                setOpen(false);
+                            }}
+                        >
+                            <span className={style.previewClass}>{style.label}</span>
+                        </button>
+                    );
+                })}
             </div>,
             document.body,
         )

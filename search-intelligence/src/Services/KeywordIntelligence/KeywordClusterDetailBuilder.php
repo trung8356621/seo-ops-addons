@@ -27,7 +27,7 @@ final class KeywordClusterDetailBuilder
             return null;
         }
 
-        $keywordIds = $this->keywordIdsForCluster($siteId, $clusterKey);
+        $keywordIds = $this->clusters->memberKeywordIds($siteId, $clusterKey);
         if ($keywordIds === []) {
             return null;
         }
@@ -120,7 +120,7 @@ final class KeywordClusterDetailBuilder
 
     public function paginateKeywords(?int $siteId, string $clusterKey, int $perPage = 25): LengthAwarePaginator
     {
-        $ids = $this->keywordIdsForCluster($siteId, $clusterKey);
+        $ids = $this->clusters->memberKeywordIds($siteId, $clusterKey);
         if ($ids === []) {
             return Keyword::query()->whereRaw('1 = 0')->paginate($perPage);
         }
@@ -133,18 +133,4 @@ final class KeywordClusterDetailBuilder
             ->paginate($perPage);
     }
 
-    /**
-     * @return list<int>
-     */
-    private function keywordIdsForCluster(?int $siteId, string $clusterKey): array
-    {
-        $query = SeoKeywordClassification::query()
-            ->where('cluster_key', $clusterKey);
-        if ($siteId !== null && $siteId > 0) {
-            $ids = Keyword::query()->forSite($siteId)->select('id');
-            $query->whereIn('keyword_id', $ids);
-        }
-
-        return $query->limit(5000)->pluck('keyword_id')->map(static fn ($id): int => (int) $id)->all();
-    }
 }

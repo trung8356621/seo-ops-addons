@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\Content\Tests\Feature;
 use Omnichannel\Addons\Agent\Automation\Contracts\BusinessActionDispatcher;
 use Omnichannel\Addons\Agent\Automation\Data\ActionContext;
 use Omnichannel\Addons\Agent\Automation\Data\ActionResult;
+use Omnichannel\Addons\Agent\Automation\Support\ActionSupport;
 use Omnichannel\Addons\SearchFoundation\Http\Middleware\SetDynamicSeoDatabase;
 use Omnichannel\Addons\Content\Enums\ArticleEditorSessionStatus;
 use Omnichannel\Addons\WordPress\Jobs\ManualWordPressSyncJob;
@@ -22,6 +23,7 @@ use App\Models\SiteMeta;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -262,7 +264,7 @@ final class ArticleEditorStandaloneFeaturedSyncWpTest extends TestCase
         self::assertSame([], $mediaPayloads);
     }
 
-    public function test_same_user_new_session_takes_over_and_old_heartbeat_cannot_ping_pong(): void
+    public function test_same_user_tabs_keep_independent_active_leases(): void
     {
         [$user, , $article] = $this->makeStandaloneArticle();
         $service = app(ArticleEditorSessionService::class);
@@ -275,16 +277,12 @@ final class ArticleEditorStandaloneFeaturedSyncWpTest extends TestCase
         $sessionB = (string) $second['session']['id'];
 
         self::assertNotSame($sessionA, $sessionB);
-        self::assertSame(ArticleEditorSessionStatus::TakenOver, SeoArticleEditorSession::query()->find($sessionA)?->status);
+        self::assertSame(ArticleEditorSessionStatus::Active, SeoArticleEditorSession::query()->find($sessionA)?->status);
         self::assertSame(ArticleEditorSessionStatus::Active, SeoArticleEditorSession::query()->find($sessionB)?->status);
 
-        try {
-            $service->heartbeat($article->fresh() ?? $article, $sessionA, $user);
-            self::fail('Old heartbeat should not reclaim same-user takeover.');
-        } catch (ArticleEditorSessionException $exception) {
-            self::assertSame('article_editor_session_taken_over', $exception->errorCode);
-        }
-
+        $service->heartbeat($article->fresh() ?? $article, $sessionA, $user);
+        $service->heartbeat($article->fresh() ?? $article, $sessionB, $user);
+        self::assertSame(ArticleEditorSessionStatus::Active, SeoArticleEditorSession::query()->find($sessionA)?->status);
         self::assertSame(ArticleEditorSessionStatus::Active, SeoArticleEditorSession::query()->find($sessionB)?->status);
     }
 
@@ -308,6 +306,36 @@ final class ArticleEditorStandaloneFeaturedSyncWpTest extends TestCase
         $service->assertNoActiveEditorSession($article->fresh() ?? $article, 'sync_from_wordpress');
 
         self::assertNotEmpty($active['session']['id']);
+    }
+
+    public function test_article_write_lock_for_one_article_does_not_block_another(): void
+    {
+        $articleALock = Cache::lock(ActionSupport::articleWriteLockKey(2754), 30);
+        self::assertTrue($articleALock->get());
+
+        try {
+            $result = ActionSupport::withArticleLock(2383, static fn (): string => 'article-b-saved');
+            self::assertSame('article-b-saved', $result);
+        } finally {
+            $articleALock->release();
+        }
+    }
+
+    public function test_same_article_write_lock_fails_fast(): void
+    {
+        $heldLock = Cache::lock(ActionSupport::articleWriteLockKey(2754), 30);
+        self::assertTrue($heldLock->get());
+        $startedAt = hrtime(true);
+
+        try {
+            ActionSupport::withArticleLock(2754, static fn (): bool => true);
+            self::fail('Concurrent write should fail fast.');
+        } catch (\RuntimeException $exception) {
+            self::assertSame('article_write_busy', $exception->getMessage());
+            self::assertLessThan(250, (hrtime(true) - $startedAt) / 1_000_000);
+        } finally {
+            $heldLock->release();
+        }
     }
 
     private function makeStandaloneArticle(): array

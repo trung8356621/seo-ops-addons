@@ -54,8 +54,9 @@ final class ArticleEditorSessionLockContractTest extends TestCase
 
     public function test_migrations_define_document_version_and_sessions_table(): void
     {
-        $versionMigration = (string) file_get_contents(\Omnichannel\Addons\Seo\Support\SeoMigrationPath::find('2026_08_02_140000_add_document_version_to_articles_table.php'));
-        $sessionMigration = (string) file_get_contents(\Omnichannel\Addons\Seo\Support\SeoMigrationPath::find('2026_08_02_140100_create_article_editor_sessions_table.php'));
+        $migrationRoot = ProjectRoot::addonsPath().'/content/database/migrations';
+        $versionMigration = (string) file_get_contents($migrationRoot.'/2026_08_02_140000_add_document_version_to_articles_table.php');
+        $sessionMigration = (string) file_get_contents($migrationRoot.'/2026_08_02_140100_create_article_editor_sessions_table.php');
 
         self::assertStringContainsString("document_version", $versionMigration);
         self::assertStringContainsString("unsignedBigInteger('document_version')->default(1)", $versionMigration);
@@ -204,7 +205,7 @@ final class ArticleEditorSessionLockContractTest extends TestCase
         ));
 
         self::assertStringContainsString('editor_locked_retry', $i18n);
-        self::assertStringContainsString('BÃ i viáº¿t Ä‘ang Ä‘Æ°á»£c chá»‰nh sá»­a', $i18n);
+        self::assertStringContainsString('Bài viết đang được chỉnh sửa', $i18n);
 
         $api = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content/resources/js/utils/articleEditorApi.js',
@@ -227,8 +228,9 @@ final class ArticleEditorSessionLockContractTest extends TestCase
     {
         $config = include LegacyAddonPath::resolve('config/article_editor.php');
         self::assertIsArray($config);
-        self::assertSame(120, $config['lock_ttl_seconds']);
-        self::assertSame(30, $config['heartbeat_seconds']);
+        self::assertSame(240, $config['lock_ttl_seconds']);
+        self::assertSame(60, $config['lease_renew_lead_seconds']);
+        self::assertArrayNotHasKey('heartbeat_seconds', $config);
         self::assertSame(4000, $config['server_autosave_debounce_ms']);
     }
 

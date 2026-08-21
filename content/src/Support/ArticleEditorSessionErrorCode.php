@@ -31,4 +31,7 @@ final class ArticleEditorSessionErrorCode
     public const CONTENT_PROJECT_ARCHIVED = 'content_project_archived';
 
     public const TAKEOVER_FORBIDDEN = 'takeover_forbidden';
+
+    /** WP-linked article with no local content snapshot — empty editor save refused. */
+    public const LOCAL_CONTENT_SYNC_REQUIRED = 'local_content_sync_required';
 }

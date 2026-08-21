@@ -7,8 +7,10 @@ namespace Omnichannel\Addons\Media\Services;
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\Media\Support\ImageModelInputLengthPolicy;
+use Omnichannel\Addons\Media\Support\ImageRoutingStrategy;
 use Omnichannel\Addons\Media\Support\ImageToolType;
 use Omnichannel\Addons\AiPrompt\Support\PromptLoaiSanPhamVariable;
+use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
 use Omnichannel\Addons\Content\Support\Utf8Sanitizer;
 use App\Models\ApiConnection;
 use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
@@ -21,6 +23,8 @@ final class MediaGenerationService
     public function __construct(
         private readonly GeminiMediaGenerationService $geminiMediaGeneration,
         private readonly TypographyPipelineService $typographyPipeline,
+        private readonly ImageRoutingStrategy $imageRoutingStrategy,
+        private readonly SeoCreateArticleSettingsService $workflowSettings,
     ) {}
 
     /**
@@ -100,10 +104,7 @@ final class MediaGenerationService
             );
         }
 
-        $toolType = ImageToolType::fromMixed($prompt->tools ?? 'default');
-        if (! $toolType->isImagePipeline()) {
-            $toolType = ImageToolType::Image;
-        }
+        $toolType = $this->resolveImageToolType($prompt, $variables);
 
         if ($toolType->isTypography()) {
             return $this->typographyPipeline->execute($connection, $prompt, $compiled, $variables);
@@ -128,6 +129,57 @@ final class MediaGenerationService
         }
 
         return $result;
+    }
+
+    /**
+     * Model ImageRoutingStrategy sẽ thử — ghi snapshot khi status=running.
+     *
+     * @param  array<string, string>  $variables
+     * @return list<string>
+     */
+    public function intendedRenderModels(SeoPrompt $prompt, string $compiled, array $variables): array
+    {
+        $toolType = $this->resolveImageToolType($prompt, $variables);
+        if (! $toolType->isImagePipeline()) {
+            return [];
+        }
+
+        $preference = $this->workflowSettings->getRenderingPreference();
+        $policy = $this->imageRoutingStrategy->executionPolicy(
+            toolType: $toolType,
+            preference: $preference,
+            compiledPromptLength: ImageModelInputLengthPolicy::measureCompiledPromptLength($compiled),
+            productContext: $this->isProductImageContext($variables),
+            configuredPriorityList: $toolType->isTypography()
+                ? $this->workflowSettings->getTypographyModelPriority()
+                : $this->workflowSettings->getImageModelPriority(),
+            adminEnabledUnknownSlugs: $this->workflowSettings->getAdminEnabledUnknownImageModels(),
+            allowGeneralImageFallback: $toolType->isTypography()
+                && $this->workflowSettings->allowTypographyGeneralImageFallback(),
+            generalImageFallbackPriorityList: $this->workflowSettings->getImageModelPriority(),
+        );
+
+        return $policy->models;
+    }
+
+    /**
+     * @param  array<string, mixed>  $variables
+     */
+    private function resolveImageToolType(SeoPrompt $prompt, array $variables): ImageToolType
+    {
+        $fromEditor = ImageToolType::fromMixed(
+            $variables[SeoCreateArticleSettingsService::EDITOR_VAR_IMAGE_TOOL_TYPE] ?? '',
+        );
+        if ($fromEditor->isImagePipeline()) {
+            return $fromEditor;
+        }
+
+        $fromPrompt = ImageToolType::fromMixed($prompt->tools ?? 'default');
+        if ($fromPrompt->isImagePipeline()) {
+            return $fromPrompt;
+        }
+
+        return ImageToolType::Image;
     }
 
     /**

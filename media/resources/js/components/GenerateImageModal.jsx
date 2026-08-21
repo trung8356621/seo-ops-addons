@@ -1,6 +1,6 @@
 ﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { X } from 'lucide-react';
+import { FileText, LayoutGrid, RefreshCw, Tag, X } from 'lucide-react';
 import SeoSelect from '@content-addon/components/SeoSelect.jsx';
 import ImageSplitterPanel from './ImageSplitterPanel';
 import { fetchSeoMediaStatus } from '../utils/seoMediaApi';
@@ -70,6 +70,16 @@ function readProductGalleryItemsFromDom() {
             }),
         )
         .filter(Boolean);
+}
+
+function isNonGalleryArtifactRole(role) {
+    return ['generated_sprite', 'generated_parent', 'generated_child_reference'].includes(
+        String(role ?? '').trim(),
+    );
+}
+
+function gridCellLabel(rowIndex, colIndex) {
+    return `${String.fromCharCode(65 + rowIndex)}${colIndex + 1}`;
 }
 
 function requestPromptPreview(detail) {
@@ -171,6 +181,9 @@ export default function GenerateImageModal({
     const [promptPreviewLoading, setPromptPreviewLoading] = useState(false);
     const [promptPreviewError, setPromptPreviewError] = useState('');
     const [galleryItems, setGalleryItems] = useState([]);
+    const [sourceImage, setSourceImage] = useState(null);
+    const [splitPreviewItems, setSplitPreviewItems] = useState([]);
+    const [previewGrid, setPreviewGrid] = useState(3);
     const [selectedSplitUrl, setSelectedSplitUrl] = useState('');
     const [generationError, setGenerationError] = useState('');
     const [generationErrorTechnical, setGenerationErrorTechnical] = useState('');
@@ -213,13 +226,17 @@ export default function GenerateImageModal({
             }
         });
 
+        const sourceUrl = String(sourceImage?.url ?? '').trim();
         setGalleryItems(
-            external.map((item) => ({
-                ...item,
-                connected: item.connected || connectedUrlsRef.current.has(item.url),
-            })),
+            external
+                .filter((item) => !sourceUrl || item.url !== sourceUrl)
+                .filter((item) => !isNonGalleryArtifactRole(item.role))
+                .map((item) => ({
+                    ...item,
+                    connected: item.connected || connectedUrlsRef.current.has(item.url),
+                })),
         );
-    }, [articleId, productGalleryItems]);
+    }, [articleId, productGalleryItems, sourceImage]);
 
     useEffect(() => {
         refreshGalleryItems();
@@ -238,6 +255,9 @@ export default function GenerateImageModal({
             setPendingMediaId(null);
             setPendingExecutionId(null);
             setGenerationError('');
+            setSourceImage(null);
+            setSplitPreviewItems([]);
+            setPreviewGrid(3);
             setSelectedSplitUrl('');
             setMode1Status(null);
             setGalleryGenerationMode('sprite');
@@ -298,18 +318,24 @@ export default function GenerateImageModal({
 
             if (url) {
                 const processing = status === 'processing' || status === 'pending';
+                const role = payload?.media_artifact_role || payload?.mediaArtifactRole || null;
                 const item = {
                     id: mediaId,
                     url,
                     processing,
                     connected: status === 'completed',
-                    role: payload?.media_artifact_role || null,
+                    role,
                 };
 
-                if (status === 'completed') {
-                    markConnectedItem(item);
-                } else {
-                    setGalleryItems((prev) => mergeGalleryPreviewItems(prev, [item]));
+                if (isProductGallery && (isNonGalleryArtifactRole(role) || mediaId > 0)) {
+                    setSourceImage(item);
+                    setSelectedSplitUrl(url);
+                } else if (!isProductGallery) {
+                    if (status === 'completed') {
+                        markConnectedItem(item);
+                    } else {
+                        setGalleryItems((prev) => mergeGalleryPreviewItems(prev, [item]));
+                    }
                 }
             }
 
@@ -322,9 +348,21 @@ export default function GenerateImageModal({
 
                         return normalizeGalleryPreviewItem({ ...row, connected: true });
                     })
-                    .filter(Boolean);
+                    .filter((row) => {
+                        if (!row) {
+                            return false;
+                        }
+                        if (url && row.url === url) {
+                            return false;
+                        }
+                        if (mediaId > 0 && row.id === mediaId) {
+                            return false;
+                        }
+                        return true;
+                    });
 
                 rows.forEach((row) => connectedUrlsRef.current.add(row.url));
+                setSplitPreviewItems(rows);
                 setGalleryItems((prev) => mergeGalleryPreviewItems(prev, rows));
             }
 
@@ -347,7 +385,7 @@ export default function GenerateImageModal({
                 setGenerationErrorRetryable(Boolean(payload?.retryable));
             }
         },
-        [markConnectedItem],
+        [isProductGallery, markConnectedItem],
     );
 
     useEffect(() => {
@@ -573,19 +611,26 @@ export default function GenerateImageModal({
         (data) => {
             const galleryRows = Array.isArray(data?.product_gallery_items) ? data.product_gallery_items : [];
             if (numericArticleId > 0 && galleryRows.length > 0) {
-                const appended = appendProductAlbumItems(numericArticleId, galleryRows);
-                appended.forEach((row) => {
-                    const normalized = normalizeGalleryPreviewItem(row, { connected: true });
-                    if (normalized) {
-                        connectedUrlsRef.current.add(normalized.url);
+                const sourceUrl = String(sourceImage?.url ?? '').trim();
+                const sourceId = Number(sourceImage?.id ?? 0) || 0;
+                const pieces = galleryRows.filter((row) => {
+                    const url = String(row?.url ?? '').trim();
+                    const id = Number(row?.id ?? 0) || 0;
+                    if (url !== '' && sourceUrl !== '' && url === sourceUrl) {
+                        return false;
                     }
+                    if (id > 0 && sourceId > 0 && id === sourceId) {
+                        return false;
+                    }
+                    return true;
                 });
-                setGalleryItems((prev) =>
-                    mergeGalleryPreviewItems(
-                        prev,
-                        appended.map((row) => normalizeGalleryPreviewItem(row, { connected: true })).filter(Boolean),
-                    ),
-                );
+                appendProductAlbumItems(numericArticleId, pieces);
+                const normalizedRows = pieces
+                    .map((row) => normalizeGalleryPreviewItem(row, { connected: true }))
+                    .filter(Boolean);
+                normalizedRows.forEach((row) => connectedUrlsRef.current.add(row.url));
+                setSplitPreviewItems(normalizedRows);
+                setGalleryItems((prev) => mergeGalleryPreviewItems(prev, normalizedRows));
             }
 
             if (numericArticleId > 0) {
@@ -594,7 +639,7 @@ export default function GenerateImageModal({
 
             setSelectedSplitUrl('');
         },
-        [numericArticleId],
+        [numericArticleId, sourceImage],
     );
 
     const categoryId = Number.parseInt(String(productCategoryId || ''), 10) || 0;
@@ -612,7 +657,7 @@ export default function GenerateImageModal({
             userBrief: brief,
             target: 'product-gallery',
             loaiSanPhamCategoryArticleId: categoryId,
-            loaiSanPhamCustom: customValue || brief,
+            loaiSanPhamCustom: customValue,
         });
     }, [isProductGallery, brief, categoryId, customValue]);
 
@@ -626,45 +671,46 @@ export default function GenerateImageModal({
         return () => window.clearTimeout(timer);
     }, [open, isProductGallery, fetchPromptPreview]);
 
-    const loaiSanPhamPreview = useMemo(() => {
-        if (!isProductGallery) {
-            return '';
+    const albumPreviewCells = useMemo(() => {
+        const size = previewGrid;
+        const cells = [];
+        for (let row = 0; row < size; row += 1) {
+            for (let col = 0; col < size; col += 1) {
+                const index = row * size + col;
+                cells.push({
+                    row,
+                    col,
+                    label: gridCellLabel(row, col),
+                    piece: splitPreviewItems[index] ?? null,
+                });
+            }
         }
+        return cells;
+    }, [previewGrid, splitPreviewItems]);
 
-        const parts = [];
-        const selected = productCategoryOptions.find(
-            (option) => String(option?.id ?? '') === String(productCategoryId),
+    const selectedSplitItem = sourceImage && Number(sourceImage.id) > 0 ? sourceImage : null;
+
+    const applyPreviewGrid = (next) => {
+        const grid = Math.max(2, Math.min(4, Number(next) || 3));
+        setPreviewGrid(grid);
+        setPostProcessing((prev) =>
+            normalizePostProcessing({
+                ...prev,
+                split_grid_size: grid,
+                split_rows: grid,
+                split_columns: grid,
+            }),
         );
-        const categoryLabel = String(selected?.label ?? '').trim();
-
-        if (categoryLabel) {
-            parts.push(categoryLabel);
-        }
-        if (customValue) {
-            parts.push(customValue);
-        } else if (brief) {
-            parts.push(brief);
-        }
-
-        return parts.join(' — ');
-    }, [isProductGallery, customValue, productCategoryId, productCategoryOptions]);
-
-    const previewItems = useMemo(() => galleryItems, [galleryItems]);
-
-    const selectedSplitItem = useMemo(() => {
-        if (!selectedSplitUrl) {
-            return null;
-        }
-
-        return previewItems.find((item) => item.url === selectedSplitUrl) ?? null;
-    }, [previewItems, selectedSplitUrl]);
+    };
 
     if (!open) {
         return null;
     }
 
-    const hasLoaiSanPham = categoryId > 0 || customValue !== '' || brief !== '';
-    const canSubmit = brief !== '' && (!isProductGallery || hasLoaiSanPham) && !submitting;
+    const hasLoaiSanPham = categoryId > 0 || customValue !== '';
+    const canSubmit = isProductGallery
+        ? hasLoaiSanPham && !submitting
+        : brief !== '' && !submitting;
 
     const handleSubmit = () => {
         if (!canSubmit) {
@@ -674,7 +720,7 @@ export default function GenerateImageModal({
         const payload = {
             userBrief: brief,
             loaiSanPhamCategoryArticleId: categoryId,
-            loaiSanPhamCustom: customValue || brief,
+            loaiSanPhamCustom: customValue,
             galleryGenerationMode:
                 galleryGenerationMode === 'parent_child' && !parentChildAllowed
                     ? 'sprite'
@@ -702,118 +748,136 @@ export default function GenerateImageModal({
         <div className="seo-generate-image-modal__col seo-generate-image-modal__col--form">
             {isProductGallery ? (
                 <>
-                    <label className="seo-generate-image-modal__label" htmlFor="seo-generate-gallery-mode">
-                        {t('generate_image_mode2_mode_label')}
-                    </label>
-                    <SeoSelect
-                        id="seo-generate-gallery-mode"
-                        value={galleryGenerationMode}
-                        onChange={(event) => {
-                            const next = String(event.target.value ?? '');
-                            if (next === 'parent_child' && !parentChildAllowed) {
-                                return;
-                            }
-                            setGalleryGenerationMode(next);
-                        }}
-                        options={[
-                            { value: 'sprite', label: t('generate_image_mode2_mode_sprite') },
-                            {
-                                value: 'parent_child',
-                                label: t('generate_image_mode2_mode_parent_child'),
-                                disabled: !parentChildAllowed,
-                            },
-                            { value: 'auto', label: t('generate_image_mode2_mode_auto') },
-                        ]}
-                    />
-                    {!parentChildAllowed ? (
+                    <section className="seo-generate-image-modal__card">
+                        <h4 className="seo-generate-image-modal__card-title">
+                            <LayoutGrid size={16} />
+                            <span>1. {t('generate_image_mode2_mode_label')}</span>
+                        </h4>
+                        <label className="seo-generate-image-modal__label" htmlFor="seo-generate-gallery-mode">
+                            {t('generate_image_mode2_mode_label')}
+                        </label>
+                        <SeoSelect
+                            id="seo-generate-gallery-mode"
+                            value={galleryGenerationMode}
+                            onChange={(event) => {
+                                const next = String(event.target.value ?? '');
+                                if (next === 'parent_child' && !parentChildAllowed) {
+                                    return;
+                                }
+                                setGalleryGenerationMode(next);
+                            }}
+                            options={[
+                                { value: 'sprite', label: t('generate_image_mode2_mode_sprite') },
+                                {
+                                    value: 'parent_child',
+                                    label: t('generate_image_mode2_mode_parent_child'),
+                                    disabled: !parentChildAllowed,
+                                },
+                                { value: 'auto', label: t('generate_image_mode2_mode_auto') },
+                            ]}
+                        />
+                        {!parentChildAllowed ? (
+                            <p className="seo-generate-image-modal__helper">
+                                {t('generate_image_mode2_feature_disabled')}
+                                {parentChildReason ? ` (${parentChildReason})` : ''}
+                            </p>
+                        ) : null}
                         <p className="seo-generate-image-modal__helper">
-                            {t('generate_image_mode2_feature_disabled')}
-                            {parentChildReason ? ` (${parentChildReason})` : ''}
+                            {t('generate_image_mode2_capability_label')}
+                            {': '}
+                            {providerSupportsReference === null
+                                ? t('generate_image_mode2_capability_unknown')
+                                : providerSupportsReference
+                                  ? t('generate_image_mode2_capability_yes')
+                                  : t('generate_image_mode2_capability_no')}
                         </p>
-                    ) : null}
-                    <p className="seo-generate-image-modal__helper">
-                        {t('generate_image_mode2_capability_label')}
-                        {': '}
-                        {providerSupportsReference === null
-                            ? t('generate_image_mode2_capability_unknown')
-                            : providerSupportsReference
-                              ? t('generate_image_mode2_capability_yes')
-                              : t('generate_image_mode2_capability_no')}
-                    </p>
-                    {galleryGenerationMode === 'parent_child' && providerSupportsReference === false ? (
-                        <p className="seo-generate-image-modal__helper">
-                            {t('generate_image_mode2_unsupported_hint')}
-                        </p>
-                    ) : null}
-                    {canaryProduct ? (
-                        <div className="seo-generate-image-modal__helper" data-testid="pg-canary-badge">
-                            <strong>Canary Product</strong>
-                            {' — '}
-                            Test A Sprite · Test C Parent/Child · Test D Auto. Original media must exist before Mode 2.
-                        </div>
-                    ) : null}
-                    {mode2Progress ? (
-                        <p className="seo-generate-image-modal__helper">{mode2Progress}</p>
-                    ) : null}
+                        {galleryGenerationMode === 'parent_child' && providerSupportsReference === false ? (
+                            <p className="seo-generate-image-modal__helper">
+                                {t('generate_image_mode2_unsupported_hint')}
+                            </p>
+                        ) : null}
+                        {canaryProduct ? (
+                            <div className="seo-generate-image-modal__helper" data-testid="pg-canary-badge">
+                                <strong>Canary Product</strong>
+                                {' — '}
+                                Test A Sprite · Test C Parent/Child · Test D Auto. Original media must exist before Mode 2.
+                            </div>
+                        ) : null}
+                        {mode2Progress ? (
+                            <p className="seo-generate-image-modal__helper">{mode2Progress}</p>
+                        ) : null}
+                    </section>
 
-                    <label className="seo-generate-image-modal__label" htmlFor="seo-generate-image-product-cat">
-                        {t('generate_image_product_cat_label')}
-                    </label>
-                    <SeoSelect
-                        id="seo-generate-image-product-cat"
-                        value={productCategoryId}
-                        onChange={(event) => setProductCategoryId(event.target.value)}
-                        placeholder={t('generate_image_product_cat_placeholder')}
-                        options={productCategoryOptions.map((option) => ({
-                            value: option.id,
-                            label: option.label,
-                        }))}
-                    />
-                    <p className="seo-generate-image-modal__helper">{t('generate_image_product_cat_helper')}</p>
+                    <section className="seo-generate-image-modal__card">
+                        <h4 className="seo-generate-image-modal__card-title">
+                            <Tag size={16} />
+                            <span>2. {t('generate_image_product_cat_label')}</span>
+                        </h4>
+                        <label className="seo-generate-image-modal__label" htmlFor="seo-generate-image-product-cat">
+                            {t('generate_image_product_cat_label')}
+                        </label>
+                        <SeoSelect
+                            id="seo-generate-image-product-cat"
+                            value={productCategoryId}
+                            onChange={(event) => setProductCategoryId(event.target.value)}
+                            placeholder={t('generate_image_product_cat_placeholder')}
+                            options={productCategoryOptions.map((option) => ({
+                                value: option.id,
+                                label: option.label,
+                            }))}
+                        />
+                        <p className="seo-generate-image-modal__helper">{t('generate_image_product_cat_helper')}</p>
 
-                    <label className="seo-generate-image-modal__label" htmlFor="seo-generate-image-loai-custom">
-                        {t('generate_image_loai_san_pham_custom_label')}
-                    </label>
-                    <input
-                        id="seo-generate-image-loai-custom"
-                        type="text"
-                        value={loaiSanPhamCustom}
-                        onChange={(event) => setLoaiSanPhamCustom(event.target.value)}
-                        className="seo-generate-image-modal__input"
-                        placeholder={t('generate_image_loai_san_pham_custom_placeholder')}
-                    />
-                    <p className="seo-generate-image-modal__helper">{t('generate_image_loai_san_pham_custom_helper')}</p>
-
-                    {loaiSanPhamPreview ? (
-                        <p className="seo-generate-image-modal__preview">
-                            <span className="seo-generate-image-modal__preview-label">
-                                {t('generate_image_loai_san_pham_preview_label')}
-                            </span>
-                            {loaiSanPhamPreview}
-                        </p>
-                    ) : null}
+                        <label className="seo-generate-image-modal__label" htmlFor="seo-generate-image-loai-custom">
+                            {t('generate_image_loai_san_pham_custom_label')}
+                        </label>
+                        <input
+                            id="seo-generate-image-loai-custom"
+                            type="text"
+                            value={loaiSanPhamCustom}
+                            onChange={(event) => setLoaiSanPhamCustom(event.target.value)}
+                            className="seo-generate-image-modal__input"
+                            placeholder={t('generate_image_loai_san_pham_custom_placeholder')}
+                        />
+                    </section>
                 </>
             ) : null}
 
-            <label className="seo-generate-image-modal__label" htmlFor="seo-generate-image-prompt">
-                {t('generate_image_prompt_label')}
-            </label>
-            <textarea
-                id="seo-generate-image-prompt"
-                value={prompt}
-                onChange={(event) => setPrompt(event.target.value)}
-                className="seo-generate-image-modal__textarea"
-                placeholder={t('compose_placeholder')}
-                rows={isProductGallery ? 5 : 8}
-                autoFocus={!isProductGallery}
-            />
+            <section className={isProductGallery ? 'seo-generate-image-modal__card' : undefined}>
+                {isProductGallery ? (
+                    <h4 className="seo-generate-image-modal__card-title">
+                        <FileText size={16} />
+                        <span>3. {t('generate_image_prompt_label')}</span>
+                    </h4>
+                ) : null}
+                <label className="seo-generate-image-modal__label" htmlFor="seo-generate-image-prompt">
+                    {t('generate_image_prompt_label')}
+                </label>
+                <textarea
+                    id="seo-generate-image-prompt"
+                    value={prompt}
+                    onChange={(event) => setPrompt(event.target.value.slice(0, 500))}
+                    className="seo-generate-image-modal__textarea"
+                    placeholder={
+                        isProductGallery
+                            ? t('generate_image_prompt_placeholder')
+                            : t('compose_placeholder')
+                    }
+                    rows={isProductGallery ? 6 : 8}
+                    maxLength={500}
+                    autoFocus={!isProductGallery}
+                />
+                {isProductGallery ? (
+                    <p className="seo-generate-image-modal__char-count">{`${prompt.length}/500`}</p>
+                ) : null}
+            </section>
         </div>
     );
 
     const previewColumn = twoColumn ? (
         <div className="seo-generate-image-modal__col seo-generate-image-modal__col--preview">
             <section className="seo-generate-image-modal__preview-section">
-                <h4 className="seo-generate-image-modal__preview-heading">{t('generate_image_preview_tab_image')}</h4>
+                <h4 className="seo-generate-image-modal__preview-heading">{t('generate_image_source_heading')}</h4>
                 {generationError ? (
                     <div className="seo-generate-image-modal__error-box">
                         <p className="seo-generate-image-modal__error">{generationError}</p>
@@ -830,151 +894,119 @@ export default function GenerateImageModal({
                                 {t('retry') || 'Retry'}
                             </button>
                         ) : null}
-                        {generationErrorTechnical ? (
-                            <details className="seo-generate-image-modal__tech">
-                                <summary>{t('view_technical_details') || 'View technical details'}</summary>
-                                <pre className="seo-generate-image-modal__tech-pre">{generationErrorTechnical}</pre>
-                            </details>
-                        ) : null}
                     </div>
                 ) : null}
-                {mode1Status ? (
-                    <div className="seo-generate-image-modal__mode1-status">
-                        <p className="seo-generate-image-modal__preview-label">
-                            {t('generate_image_mode1_mode_label')}
-                            {': '}
-                            <strong>{t('generate_image_mode1_mode_sprite')}</strong>
-                        </p>
-                        <p className="seo-generate-image-modal__helper">
-                            {t('generate_image_mode1_sprite_saved')}
-                        </p>
-                        <p className="seo-generate-image-modal__preview-label">
-                            {t('generate_image_mode1_validation')}
-                            {': '}
-                            <strong>
-                                {mode1Status?.sprite_validation?.valid
-                                    ? t('generate_image_mode1_pass')
-                                    : t('generate_image_mode1_fail')}
-                            </strong>
-                        </p>
-                        {mode1Status?.sprite_validation ? (
-                            <p className="seo-generate-image-modal__helper">
-                                {t('generate_image_mode1_confidence', {
-                                    value: Number(mode1Status.sprite_validation.confidence ?? 0).toFixed(2),
-                                })}
-                                {' · '}
-                                {t('generate_image_mode1_panels', {
-                                    count: Number(
-                                        mode1Status.sprite_validation.detected_panel_count
-                                            ?? mode1Status.sprite_validation.detected_panels
-                                            ?? 0,
-                                    ) || 0,
-                                })}
-                                {' · '}
-                                {t('generate_image_mode1_usable_panels', {
-                                    count: Array.isArray(mode1Status.selected_media_ids)
-                                        && mode1Status.gallery_source === 'ai_children'
-                                        ? mode1Status.selected_media_ids.length
-                                        : Array.isArray(mode1Status.child_media_ids)
-                                          ? mode1Status.child_media_ids.length
-                                          : 0,
-                                })}
-                            </p>
-                        ) : null}
-                        <p className="seo-generate-image-modal__helper">
-                            {t('generate_image_mode1_source_label')}
-                            {': '}
-                            {mode1Status?.gallery_source === 'ai_children'
-                                ? t('generate_image_mode1_source_ai')
-                                : mode1Status?.gallery_source === 'original_images'
-                                    || mode1Status?.gallery_source === 'original_fallback'
-                                  ? t('generate_image_mode1_source_original')
-                                  : t('generate_image_mode1_source_pending')}
-                        </p>
-                        <p className="seo-generate-image-modal__helper">
-                            {t('generate_image_mode1_quality_label')}
-                            {': '}
-                            {mode1Status?.gallery_quality === 'perfect'
-                                ? t('generate_image_mode1_quality_perfect')
-                                : mode1Status?.gallery_quality === 'usable'
-                                  ? t('generate_image_mode1_quality_usable')
-                                  : mode1Status?.gallery_quality === 'manual'
-                                    ? t('generate_image_mode1_quality_manual')
-                                    : t('generate_image_mode1_quality_fallback')}
-                        </p>
-                        <p className="seo-generate-image-modal__preview-label">
-                            {t('generate_image_mode1_gallery_ready')}
-                            {': '}
-                            <strong>
-                                {mode1Status?.gallery_ready
-                                    ? t('generate_image_mode1_ready_yes')
-                                    : t('generate_image_mode1_ready_no')}
-                            </strong>
-                        </p>
-                        {(mode1Status?.gallery_source === 'original_images'
-                            || mode1Status?.gallery_source === 'original_fallback') ? (
-                            <p className="seo-generate-image-modal__helper">
-                                {t('generate_image_mode1_fallback_hint')}
-                            </p>
-                        ) : null}
+                {sourceImage?.url ? (
+                    <div className="seo-generate-image-modal__source">
+                        <div className="seo-generate-image-modal__source-thumb">
+                            <img src={sourceImage.url} alt="" />
+                            {sourceImage.connected ? (
+                                <span className="seo-generate-image-modal__image-badge is-connected">
+                                    {t('generate_image_preview_connected')}
+                                </span>
+                            ) : null}
+                            {sourceImage.processing ? (
+                                <span className="seo-generate-image-modal__image-badge">{t('processing')}</span>
+                            ) : null}
+                        </div>
+                        <p className="seo-generate-image-modal__helper">{t('generate_image_source_helper')}</p>
                     </div>
-                ) : null}
-                {submitting && previewItems.length === 0 ? (
-                    <p className="seo-generate-image-modal__empty">{t('generating_image')}</p>
-                ) : null}
-                {previewItems.length > 0 ? (
-                    <div className="seo-generate-image-modal__image-grid">
-                        {previewItems.map((item) => (
-                            <button
-                                key={item.url}
-                                type="button"
-                                className={`seo-generate-image-modal__image-thumb${
-                                    item.processing ? ' is-processing' : ''
-                                }${selectedSplitUrl === item.url ? ' is-selected' : ''}${
-                                    item.connected ? ' is-connected' : ''
-                                }`}
-                                onClick={() => {
-                                    if (Number(item.id) > 0) {
-                                        setSelectedSplitUrl((current) =>
-                                            current === item.url ? '' : item.url,
-                                        );
-                                    }
-                                }}
-                                title={
-                                    Number(item.id) > 0
-                                        ? t('generate_image_preview_select_for_split')
-                                        : undefined
-                                }
-                            >
-                                <img src={item.url} alt="" loading="lazy" />
-                                {item.processing ? (
-                                    <span className="seo-generate-image-modal__image-badge">{t('processing')}</span>
-                                ) : null}
-                                {item.connected ? (
-                                    <span className="seo-generate-image-modal__image-badge is-connected">
-                                        {t('generate_image_preview_connected')}
-                                    </span>
-                                ) : null}
-                            </button>
-                        ))}
+                ) : submitting ? (
+                    <div className="seo-generate-image-modal__skeleton" aria-hidden="true">
+                        <span />
                     </div>
                 ) : (
-                    <p className="seo-generate-image-modal__empty">{t('generate_image_preview_no_images')}</p>
+                    <p className="seo-generate-image-modal__empty">{t('generate_image_source_empty')}</p>
                 )}
             </section>
 
-            {selectedSplitItem && Number(selectedSplitItem.id) > 0 && postProcessing.split_enabled ? (
+            <section className="seo-generate-image-modal__preview-section">
+                <div className="seo-generate-image-modal__preview-heading-row">
+                    <h4 className="seo-generate-image-modal__preview-heading">{t('generate_image_album_preview_heading')}</h4>
+                    <button
+                        type="button"
+                        className="seo-generate-image-modal__refresh-preview"
+                        onClick={fetchPromptPreview}
+                        disabled={promptPreviewLoading || submitting}
+                    >
+                        <RefreshCw size={12} />
+                        {' '}
+                        {t('generate_image_preview_refresh')}
+                    </button>
+                </div>
+                <div className="seo-generate-image-modal__grid-controls">
+                    <div className="seo-generate-image-modal__segmented">
+                        <span>{t('generate_image_rows')}</span>
+                        {[2, 3, 4].map((n) => (
+                            <button
+                                key={`rows-${n}`}
+                                type="button"
+                                className={previewGrid === n ? 'is-active' : ''}
+                                onClick={() => applyPreviewGrid(n)}
+                            >
+                                {n}
+                            </button>
+                        ))}
+                    </div>
+                    <div className="seo-generate-image-modal__segmented">
+                        <span>{t('generate_image_cols')}</span>
+                        {[2, 3, 4].map((n) => (
+                            <button
+                                key={`cols-${n}`}
+                                type="button"
+                                className={previewGrid === n ? 'is-active' : ''}
+                                onClick={() => applyPreviewGrid(n)}
+                            >
+                                {n}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+                {submitting && !sourceImage?.url ? (
+                    <div className="seo-generate-image-modal__sprite-grid is-loading" style={{ '--pg-grid': previewGrid }}>
+                        {albumPreviewCells.map((cell) => (
+                            <div key={cell.label} className="seo-generate-image-modal__sprite-cell is-skeleton">
+                                <span>{cell.label}</span>
+                            </div>
+                        ))}
+                    </div>
+                ) : (
+                    <div className="seo-generate-image-modal__sprite-grid" style={{ '--pg-grid': previewGrid }}>
+                        {albumPreviewCells.map((cell) => (
+                            <div key={cell.label} className="seo-generate-image-modal__sprite-cell">
+                                {cell.piece?.url ? (
+                                    <img src={cell.piece.url} alt="" />
+                                ) : sourceImage?.url ? (
+                                    <span
+                                        className="seo-generate-image-modal__sprite-crop"
+                                        style={{
+                                            backgroundImage: `url(${sourceImage.url})`,
+                                            backgroundSize: `${previewGrid * 100}% ${previewGrid * 100}%`,
+                                            backgroundPosition: `${previewGrid > 1 ? (cell.col / (previewGrid - 1)) * 100 : 0}% ${previewGrid > 1 ? (cell.row / (previewGrid - 1)) * 100 : 0}%`,
+                                        }}
+                                    />
+                                ) : (
+                                    <span className="seo-generate-image-modal__sprite-placeholder" />
+                                )}
+                                <em>{cell.label}</em>
+                            </div>
+                        ))}
+                    </div>
+                )}
+            </section>
+
+            {selectedSplitItem && Number(selectedSplitItem.id) > 0 && splitPreviewItems.length === 0 ? (
                 <section className="seo-generate-image-modal__preview-section seo-generate-image-modal__split-section">
                     <h4 className="seo-generate-image-modal__preview-heading">{t('split_grid')}</h4>
-                    <p className="seo-generate-image-modal__helper">{t('generate_image_split_keep_original_hint')}</p>
+                    <p className="seo-generate-image-modal__helper">{t('generate_image_source_helper')}</p>
                     <ImageSplitterPanel
                         siteId={numericSiteId > 0 ? numericSiteId : null}
                         articleId={numericArticleId > 0 ? numericArticleId : null}
                         seoMediaId={selectedSplitItem.id}
                         imageUrl={selectedSplitItem.url}
                         variant="gallery"
-                        defaultRows={postProcessing.split_grid_size ?? postProcessing.split_rows}
-                        defaultCols={postProcessing.split_grid_size ?? postProcessing.split_columns}
+                        defaultRows={previewGrid}
+                        defaultCols={previewGrid}
                         autoSaveOnSplit
                         canDeleteOriginal={false}
                         onSplitSaved={handleSplitSaved}
@@ -982,39 +1014,38 @@ export default function GenerateImageModal({
                 </section>
             ) : null}
 
-            <section className="seo-generate-image-modal__preview-section">
-                <div className="seo-generate-image-modal__preview-heading-row">
-                    <h4 className="seo-generate-image-modal__preview-heading">{t('generate_image_preview_tab_prompt')}</h4>
-                    <button
-                        type="button"
-                        className="seo-generate-image-modal__refresh-preview"
-                        onClick={fetchPromptPreview}
-                        disabled={promptPreviewLoading}
-                    >
-                        {promptPreviewLoading ? t('generate_image_preview_prompt_loading') : t('generate_image_preview_refresh')}
-                    </button>
-                </div>
-                <div className="seo-generate-image-modal__prompt-render">
-                    {renderedPromptMeta.promptName ? (
-                        <p className="seo-generate-image-modal__prompt-meta">
-                            {renderedPromptMeta.promptName}
-                            {renderedPromptMeta.promptId > 0 ? ` (#${renderedPromptMeta.promptId})` : ''}
-                        </p>
-                    ) : null}
-                    {promptPreviewError ? (
-                        <p className="seo-generate-image-modal__error">{promptPreviewError}</p>
-                    ) : null}
-                    {renderedPrompt ? (
-                        <pre className="seo-generate-image-modal__prompt-pre">{renderedPrompt}</pre>
-                    ) : (
-                        <p className="seo-generate-image-modal__empty">
-                            {promptPreviewLoading
-                                ? t('generate_image_preview_prompt_loading')
-                                : t('generate_image_preview_prompt_empty')}
-                        </p>
-                    )}
-                </div>
-            </section>
+            <details className="seo-generate-image-modal__tech-panel">
+                <summary>{t('generate_image_tech_heading')}</summary>
+                <ul>
+                    <li>
+                        {t('generate_image_mode1_mode_label')}
+                        {': '}
+                        {t('generate_image_mode1_mode_sprite')}
+                    </li>
+                    <li>
+                        {t('generate_image_tech_grid')}
+                        {': '}
+                        {previewGrid}
+                        {' × '}
+                        {previewGrid}
+                    </li>
+                    <li>
+                        {t('generate_image_tech_total')}
+                        {': '}
+                        {previewGrid * previewGrid}
+                    </li>
+                    <li>
+                        {t('generate_image_tech_ratio')}
+                        {': '}
+                        1:1
+                    </li>
+                    <li>
+                        {t('generate_image_tech_format')}
+                        {': '}
+                        PNG
+                    </li>
+                </ul>
+            </details>
         </div>
     ) : null;
 
@@ -1057,7 +1088,7 @@ export default function GenerateImageModal({
                         disabled={!canSubmit}
                         title={isProductGallery && !hasLoaiSanPham ? t('generate_image_loai_san_pham_required') : undefined}
                     >
-                        {submitting ? t('processing') : t('generate_image')}
+                        {submitting ? t('generating_image') : t('generate_image')}
                     </button>
                 </div>
             </div>

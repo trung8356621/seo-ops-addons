@@ -16,6 +16,8 @@ final class DomainContext
 
     public const QUERY_KEY = 'domain';
 
+    public const SITE_ID_QUERY_KEY = 'site_id';
+
     public const HEADER_KEY = 'X-Seo-Domain-Context';
 
     public function __construct(

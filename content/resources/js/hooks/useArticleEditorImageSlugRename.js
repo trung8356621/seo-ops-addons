@@ -63,7 +63,7 @@ import { saveCurrentArticleFromEditor } from '../utils/articleEditorSaveQueue';
 import { setArticleAutosaveLock } from '../utils/articleAutosaveLock';
 import { showArticleOperationOverlay } from '../utils/articleOperationTracker';
 import { t } from '../utils/i18n';
-import { useCallback } from 'react';
+import { useCallback, useEffect } from 'react';
 
 /**
  * useArticleEditorImageSlugRename - extracted from SeoArticleEditor.jsx (Task 7 mechanical
@@ -184,6 +184,12 @@ export default function useArticleEditorImageSlugRename({ articleId, articleTitl
             }),
         );
     }, [supportsProductGallery, supplementalImages, articleId, commitActiveBlock, requestAnalyze, scheduleAutosave]);
+
+    useEffect(() => {
+        const onDistribute = () => distributeProductGalleryImages();
+        window.addEventListener('seo-editor-distribute-product-gallery', onDistribute);
+        return () => window.removeEventListener('seo-editor-distribute-product-gallery', onDistribute);
+    }, [distributeProductGalleryImages]);
 
 
     const patchImageInBlocks = useCallback(
@@ -1658,5 +1664,5 @@ export default function useArticleEditorImageSlugRename({ articleId, articleTitl
         ],
     );
 
-    return { applySlugRenameFinished, armBlockOutsideClickGuard, assertNoLocalSlugFixBeforeWpSync, handleImageAltTitleChange, patchImageInBlocks, persistEditorContentImmediately, quickFixAltTitleAllImages, quickFixAltTitleSingleImage, quickFixSlugAllImages, quickFixSlugSingleImage, selectPlainTextInBlock };
+    return { applySlugRenameFinished, armBlockOutsideClickGuard, assertNoLocalSlugFixBeforeWpSync, distributeProductGalleryImages, handleImageAltTitleChange, patchImageInBlocks, persistEditorContentImmediately, quickFixAltTitleAllImages, quickFixAltTitleSingleImage, quickFixSlugAllImages, quickFixSlugSingleImage, selectPlainTextInBlock };
 }

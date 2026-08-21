@@ -68,6 +68,7 @@
                 editorSessionStatus: 'acquiring',
                 editorLockReason: null,
                 editorNetworkAvailable: true,
+                contentLifecycle: 'CONTENT_LOADING',
 
                 init() {
                     const applyState = (detail) => {
@@ -85,6 +86,17 @@
                         applyState(event.detail || {});
                     });
 
+                    const applyLifecycle = (detail) => {
+                        const payload = detail && typeof detail === 'object' ? detail : {};
+                        this.contentLifecycle = String(payload.state || 'CONTENT_LOADING');
+                    };
+                    if (window.__SEO_EDITOR_CONTENT_LIFECYCLE__) {
+                        applyLifecycle(window.__SEO_EDITOR_CONTENT_LIFECYCLE__);
+                    }
+                    window.addEventListener('article-editor-content-lifecycle-changed', (event) => {
+                        applyLifecycle(event.detail || {});
+                    });
+
                     const applyNetwork = (detail) => {
                         const payload = detail && typeof detail === 'object' ? detail : {};
                         // Sync WP only when fully available (not unavailable / recovering).
@@ -99,7 +111,9 @@
                 },
 
                 canMutateDocument() {
-                    return this.editorWritable === true;
+                    const lifecycleOk = this.contentLifecycle === 'EDITABLE'
+                        || this.contentLifecycle === 'NEW_EMPTY_ARTICLE';
+                    return this.editorWritable === true && lifecycleOk;
                 },
 
                 canSyncDocument() {
@@ -107,12 +121,15 @@
                 },
 
                 notifyReadOnly() {
+                    const syncRequired = this.contentLifecycle === 'SYNC_REQUIRED';
                     window.dispatchEvent(new CustomEvent('seo-article-editor-notify', {
                         detail: {
-                            title: 'Chỉ đọc',
-                            body: this.editorLockReason
-                                ? ('Phiên không writable: ' + this.editorLockReason)
-                                : 'Bài viết đang ở chế độ chỉ đọc.',
+                            title: syncRequired ? 'Chưa đồng bộ nội dung' : 'Chỉ đọc',
+                            body: syncRequired
+                                ? 'Đồng bộ từ WordPress trước khi lưu hoặc chỉnh sửa.'
+                                : (this.editorLockReason
+                                    ? ('Phiên không writable: ' + this.editorLockReason)
+                                    : 'Bài viết đang ở chế độ chỉ đọc.'),
                             status: 'warning',
                         },
                     }));

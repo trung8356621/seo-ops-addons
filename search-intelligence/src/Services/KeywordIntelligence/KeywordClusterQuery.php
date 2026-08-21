@@ -12,11 +12,13 @@ use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Models\KeywordRuleGroup;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordClassification;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordCanonicalizer;
+use Omnichannel\Addons\Seo\Support\DomainContextResolver;
 
 final class KeywordClusterQuery
 {
     public function __construct(
         private readonly KeywordGroupCoverageBuilder $coverageBuilder,
+        private readonly KeywordClusterEligibility $eligibility,
     ) {}
 
     public function classificationsReady(): bool
@@ -25,36 +27,23 @@ final class KeywordClusterQuery
     }
 
     /**
-     * @return array{total_keywords: int, clustered: int, unclustered: int, topic_clusters: int, system_groups: int, custom_groups: int}
+     * @return array{
+     *     total_keywords: int,
+     *     classified_keywords: int,
+     *     seo_eligible_keywords: int,
+     *     clustered: int,
+     *     unclustered: int,
+     *     unclassified_keywords: int,
+     *     non_seo_keywords: int,
+     *     non_seo_but_clustered: int,
+     *     topic_clusters: int,
+     *     system_groups: int,
+     *     custom_groups: int,
+     * }
      */
     public function summary(?int $siteId): array
     {
-        $total = $this->keywordBase($siteId)->count();
-        $clustered = 0;
-        $clusters = 0;
-        if ($this->classificationsReady()) {
-            $clusteredQuery = $this->classificationJoin($siteId)
-                ->whereNotNull('c.cluster_key')
-                ->where('c.cluster_key', '!=', '');
-            $clustered = (clone $clusteredQuery)->distinct()->count('c.keyword_id');
-            $clusters = (int) (clone $clusteredQuery)->distinct()->count('c.cluster_key');
-        }
-
-        $systemGroups = 0;
-        $customGroups = 0;
-        if (Schema::connection('omi_seo_ai')->hasTable('seo_keyword_rule_groups')) {
-            $systemGroups = KeywordRuleGroup::query()->where('group_type', 'system')->where('is_active', true)->count();
-            $customGroups = KeywordRuleGroup::query()->where('group_type', 'custom')->where('is_active', true)->count();
-        }
-
-        return [
-            'total_keywords' => $total,
-            'clustered' => $clustered,
-            'unclustered' => max(0, $total - $clustered),
-            'topic_clusters' => $clusters,
-            'system_groups' => $systemGroups,
-            'custom_groups' => $customGroups,
-        ];
+        return $this->eligibility->summaryMetrics($siteId);
     }
 
     /**
@@ -207,38 +196,53 @@ final class KeywordClusterQuery
 
     public function unclusteredListUrl(?int $siteId): string
     {
-        $url = \Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource::getUrl('index').'?cluster=_none';
-        if ($siteId !== null && $siteId > 0) {
-            $url .= '&site_id='.$siteId;
-        }
-
-        return $url;
+        return app(DomainContextResolver::class)->appendSiteToUrl(
+            \Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource::getUrl('index').'?cluster=_none',
+            $siteId,
+        );
     }
 
-    private function keywordBase(?int $siteId)
+    /**
+     * @return list<int>
+     */
+    public function memberKeywordIds(?int $siteId, string $clusterKey): array
     {
-        $query = Keyword::query();
-        if ($siteId !== null && $siteId > 0) {
-            $query->forSite($siteId);
+        $clusterKey = trim($clusterKey);
+        if ($clusterKey === '' || ! $this->classificationsReady()) {
+            return [];
         }
 
-        return $query;
+        $query = SeoKeywordClassification::query()
+            ->where('cluster_key', $clusterKey);
+
+        if ($siteId !== null && $siteId > 0) {
+            $ids = Keyword::query()->forSite($siteId)->select('id');
+            $query->whereIn('keyword_id', $ids);
+        }
+
+        return $query->limit(5000)->pluck('keyword_id')->map(static fn ($id): int => (int) $id)->all();
+    }
+
+    public function clusterExists(string $clusterKey): bool
+    {
+        $clusterKey = trim($clusterKey);
+        if ($clusterKey === '' || ! $this->classificationsReady()) {
+            return false;
+        }
+
+        return SeoKeywordClassification::query()
+            ->where('cluster_key', $clusterKey)
+            ->exists();
     }
 
     private function keywordIdSubquery(?int $siteId): Builder
     {
-        $query = DB::connection('omi_seo_ai')->table('keywords')->select('id');
-        if ($siteId !== null && $siteId > 0 && Schema::connection('omi_seo_ai')->hasColumn('keywords', 'site_id')) {
-            return $query->where('site_id', $siteId);
-        }
-        if ($siteId !== null && $siteId > 0) {
-            return DB::connection('omi_seo_ai')->table('seo_link_maps')
-                ->join('articles', 'articles.id', '=', 'seo_link_maps.source_article_id')
-                ->where('articles.site_id', $siteId)
-                ->select('seo_link_maps.keyword_id as id');
-        }
+        return KeywordClusterSiteScope::keywordIdSubquery($siteId);
+    }
 
-        return $query;
+    private function keywordBase(?int $siteId)
+    {
+        return KeywordClusterSiteScope::apply(Keyword::query(), $siteId);
     }
 
     private function classificationJoin(?int $siteId)

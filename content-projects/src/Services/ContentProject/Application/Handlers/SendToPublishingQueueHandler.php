@@ -82,8 +82,11 @@ final class SendToPublishingQueueHandler extends AbstractPublishingHandler
             foreach ($tasks as $task) {
                 $article = $task->relationLoaded('article') ? $task->article : null;
                 $seoArticle = $article instanceof SeoArticle ? $article : null;
+                $type = SeoProjectTask::normalizeType($task->type);
                 $row = [
                     'article_id' => (int) ($task->article_id ?? 0),
+                    'type' => $type,
+                    'is_improve' => $type === SeoProjectTask::TYPE_IMPROVE,
                     'publishing_queued_at' => $task->publishing_queued_at?->toIso8601String(),
                     'in_publishing_queue' => $task->publishing_queued_at !== null,
                     'generation_status' => (string) ($task->status ?? ''),

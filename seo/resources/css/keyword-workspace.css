@@ -1682,6 +1682,7 @@ body.keyword-drawer-open {
     display: grid;
     grid-template-columns: repeat(4, minmax(0, 1fr));
     gap: 0.75rem;
+    margin: 0.75rem 0;
 }
 
 @media (max-width: 1023px) {
@@ -1780,6 +1781,7 @@ a.topic-index-stat:hover {
     flex-wrap: wrap;
     align-items: center;
     gap: 0.75rem;
+    margin: 0.75rem 0;
 }
 
 .topic-index-filters .x-select-wrap {

@@ -138,6 +138,8 @@ final class SeoCreateArticleSettingsService implements \Omnichannel\Addons\Conte
 
     public const EDITOR_VAR_MEDIA_TARGET = '_editor_media_target';
 
+    public const EDITOR_VAR_IMAGE_TOOL_TYPE = '_editor_image_tool_type';
+
     /** @deprecated Dùng publish_article_task_id; vẫn đọc/ghi để tương thích wp_options cũ */
     public const KEY_LEGACY_TASK_ID = 'task_id';
 

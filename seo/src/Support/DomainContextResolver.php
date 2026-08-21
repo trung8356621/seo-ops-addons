@@ -123,8 +123,56 @@ final class DomainContextResolver
         return $this->resolveKey($raw);
     }
 
+    /**
+     * @return array<string, int>
+     */
+    public function accessibleSiteIdsByDomainKey(): array
+    {
+        $map = [];
+        foreach (SeoAccessControl::accessibleSitesQuery()->orderBy('domain')->get(['id', 'domain']) as $site) {
+            if (! $site instanceof Site) {
+                continue;
+            }
+            $map[$this->domainKeyForSite($site)] = (int) $site->getKey();
+        }
+
+        return $map;
+    }
+
+    public function appendSiteToUrl(string $url, ?int $siteId = null): string
+    {
+        $siteId ??= SeoAccessControl::globalSiteId();
+        if ($siteId === null || $siteId <= 0) {
+            return $url;
+        }
+
+        $fragment = '';
+        $base = $url;
+        if (str_contains($url, '#')) {
+            [$base, $fragment] = explode('#', $url, 2);
+        }
+
+        $query = [];
+        if (str_contains($base, '?')) {
+            [$base, $queryString] = explode('?', $base, 2);
+            parse_str($queryString, $query);
+        }
+
+        unset($query[DomainContext::QUERY_KEY]);
+        $query[DomainContext::SITE_ID_QUERY_KEY] = (string) $siteId;
+
+        $built = $base.'?'.http_build_query($query);
+
+        return $fragment !== '' ? $built.'#'.$fragment : $built;
+    }
+
     private function rawRequestKey(Request $request): ?string
     {
+        $siteId = $request->query(DomainContext::SITE_ID_QUERY_KEY);
+        if (is_numeric($siteId) && (int) $siteId > 0) {
+            return (string) (int) $siteId;
+        }
+
         $query = $request->query(DomainContext::QUERY_KEY);
         if (is_string($query) && trim($query) !== '') {
             return $query;

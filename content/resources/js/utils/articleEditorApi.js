@@ -353,6 +353,17 @@ function normalizeMediaSnapshotProductAlbum(mediaSnapshot) {
  * @param {Record<string, unknown>} payload
  */
 export async function saveArticleViaApi(articleId, payload) {
+    const lifecycleState = String(window.__SEO_EDITOR_CONTENT_LIFECYCLE__?.state || '');
+    if (
+        lifecycleState === 'SYNC_REQUIRED'
+        || lifecycleState === 'CONTENT_LOADING'
+        || lifecycleState === 'ERROR'
+    ) {
+        const error = new Error('Nội dung chưa được đồng bộ từ WordPress — không lưu được.');
+        error.code = 'local_content_sync_required';
+        throw error;
+    }
+
     const sessionClient = window.__seoEditorSessionClient;
     if (sessionClient && !sessionClient.readOnly && sessionClient.sessionId) {
         if (window.__SEO_EDITOR_READ_ONLY__) {
@@ -622,7 +633,31 @@ export function buildPermalinkDisplayUrl(base, slug, suffix = '') {
 }
 
 /**
+ * Normalize permalink for equality checks (trim, lower, drop trailing slash).
+ * Mirrors PHP EditArticle::normalizePermalinkForCompare / MainDomainSuggestionService::normalizeUrl.
+ *
+ * @param {string} url
+ * @returns {string}
+ */
+export function normalizePermalinkForCompare(url) {
+    return String(url ?? '').trim().toLowerCase().replace(/\/+$/, '');
+}
+
+/**
+ * @param {string} left
+ * @param {string} right
+ * @returns {boolean}
+ */
+export function permalinksAreEquivalent(left, right) {
+    const a = normalizePermalinkForCompare(left);
+    const b = normalizePermalinkForCompare(right);
+
+    return a !== '' && a === b;
+}
+
+/**
  * Cập nhật dòng «Đường dẫn» dưới tiêu đề (`.wp-permalink`) + slug input nếu có.
+ * Không ghi đè «Đường dẫn WP» (observed) — chỉ hiện/ẩn khi editor URL khác WP.
  *
  * @param {{
  *   permalink?: string,
@@ -630,6 +665,7 @@ export function buildPermalinkDisplayUrl(base, slug, suffix = '') {
  *   slug?: string,
  *   permalink_base?: string,
  *   permalink_suffix?: string,
+ *   wordpress_permalink?: string,
  * }} patch
  */
 export function patchPermalinkDisplay(patch) {
@@ -671,21 +707,58 @@ export function patchPermalinkDisplay(patch) {
         root.setAttribute('data-permalink-suffix', suffix);
     }
 
+    // Observed WP permalink is read-only; only refresh attribute when explicitly provided.
+    if (root && Object.prototype.hasOwnProperty.call(patch, 'wordpress_permalink')) {
+        const nextWp = String(patch.wordpress_permalink ?? '').trim();
+        root.setAttribute('data-wordpress-permalink', nextWp);
+        const wpAnchor = root.querySelector('[data-seo-wp-permalink-url]');
+        if (wpAnchor instanceof HTMLAnchorElement && nextWp !== '') {
+            wpAnchor.href = nextWp;
+            wpAnchor.textContent = nextWp;
+        }
+    }
+
     if (permalink === '') {
+        syncWordPressPermalinkRowVisibility(root, '');
         return;
     }
 
-    const target = root?.querySelector('[data-seo-permalink-url]')
-        ?? root?.querySelector('a')
-        ?? root?.querySelector('span.break-all');
+    const target = root?.querySelector('[data-seo-permalink-url]');
 
     if (!target) {
+        syncWordPressPermalinkRowVisibility(root, permalink);
         return;
     }
 
     target.textContent = permalink;
     if (target instanceof HTMLAnchorElement) {
         target.href = permalink;
+    }
+
+    syncWordPressPermalinkRowVisibility(root, permalink);
+}
+
+/**
+ * @param {Element|null|undefined} root
+ * @param {string} editorPermalink
+ */
+function syncWordPressPermalinkRowVisibility(root, editorPermalink) {
+    if (!(root instanceof Element)) {
+        return;
+    }
+
+    const wpPermalink = String(root.getAttribute('data-wordpress-permalink') ?? '').trim();
+    const row = root.querySelector('[data-seo-wp-permalink-row]');
+    if (!(row instanceof HTMLElement) || wpPermalink === '') {
+        return;
+    }
+
+    const show = !permalinksAreEquivalent(editorPermalink, wpPermalink);
+    row.classList.toggle('hidden', !show);
+    if (show) {
+        row.removeAttribute('hidden');
+    } else {
+        row.setAttribute('hidden', '');
     }
 }
 
@@ -715,17 +788,23 @@ export function applyArticleSeoMetaSaveResult(result) {
     }
 
     const slug = String(result.article_slug ?? '').trim();
-    const permalink = String(
-        result.permalink
-            ?? preview?.url
-            ?? '',
-    ).trim();
+    const base = String(result.permalink_base ?? '').trim();
+    const suffix = String(result.permalink_suffix ?? '').trim();
+    // Editor «Đường dẫn» follows current slug — never replace with observed WP permalink.
+    let permalink = '';
+    if (slug !== '') {
+        permalink = buildPermalinkDisplayUrl(base, slug, suffix);
+    }
+    if (permalink === '') {
+        permalink = String(result.permalink ?? preview?.url ?? '').trim();
+    }
 
     patchPermalinkDisplay({
         permalink,
         article_slug: slug,
         permalink_base: result.permalink_base,
         permalink_suffix: result.permalink_suffix,
+        wordpress_permalink: result.wordpress_permalink ?? result.wp_permalink,
     });
 
     if (slug !== '') {
@@ -735,6 +814,7 @@ export function applyArticleSeoMetaSaveResult(result) {
                     slug,
                     article_slug: slug,
                     permalink,
+                    wordpress_permalink: result.wordpress_permalink ?? result.wp_permalink,
                     permalink_base: result.permalink_base,
                     permalink_suffix: result.permalink_suffix,
                 },
@@ -880,16 +960,8 @@ export function applyArticleEditorSavePatch(patch) {
         });
     }
 
-    if (patch.seo_analysis && typeof patch.seo_analysis === 'object') {
-        // Incomplete analysis (no violations) must not wipe client diagnostics mid-save.
-        if (Object.prototype.hasOwnProperty.call(patch.seo_analysis, 'violations')) {
-            window.dispatchEvent(
-                new CustomEvent('seo-editor-analyze-result', {
-                    detail: { result: patch.seo_analysis },
-                }),
-            );
-        }
-    }
+    // Save ACK owns persistence state only. Canonical PHP analysis remains available
+    // in the response for server consumers, but must not replace current-draft SEO.
 
     if (patch.revision_count != null) {
         window.dispatchEvent(
@@ -934,7 +1006,8 @@ function resetEditArticleHeavyActionBusyOnWire() {
 }
 
 /**
- * Hoàn tất Save — không Livewire. Reload chỉ khi context.reloadAfterSuccess === true (manual Save).
+ * Hoàn tất Save — không Livewire. Manual Save không reload; reload chỉ khi
+ * context.reloadAfterSuccess === true (legacy/explicit callers).
  *
  * Sau save thành công: hủy debounce autosave, cập nhật baseline/token,
  * xóa draft cũ rồi ghi snapshot synced (tránh race tạo lại draft bẩn).
@@ -1003,7 +1076,9 @@ export function finishArticleSaveFromApi(result, context = {}) {
         window.__seoEndArticleHeavyActionClient?.();
         resetEditArticleHeavyActionBusyOnWire();
     }
-    window.dispatchEvent(new CustomEvent('article-editor-save-finished'));
+    window.dispatchEvent(new CustomEvent('article-editor-save-finished', {
+        detail: { success: true },
+    }));
     const handoff = result?.content_project_handoff && typeof result.content_project_handoff === 'object'
         ? result.content_project_handoff
         : null;

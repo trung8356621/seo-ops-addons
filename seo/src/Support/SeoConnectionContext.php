@@ -40,11 +40,6 @@ final class SeoConnectionContext
             return $routeHash;
         }
 
-        $current = self::hash();
-        if ($current !== null) {
-            return $current;
-        }
-
         $path = trim((string) $request->path(), '/');
         if (preg_match('#^seo/([a-zA-Z0-9]{32,64})(?:/|$)#', $path, $matches) === 1) {
             return $matches[1];
@@ -53,6 +48,11 @@ final class SeoConnectionContext
         $referer = (string) $request->headers->get('referer', '');
         if ($referer !== '' && preg_match('#/seo/([a-zA-Z0-9]{32,64})(?:/|\\?|$)#', $referer, $matches) === 1) {
             return $matches[1];
+        }
+
+        $current = self::hash();
+        if ($current !== null) {
+            return $current;
         }
 
         return null;
@@ -129,7 +129,14 @@ final class SeoConnectionContext
             return $hash;
         }
 
-        $sessionHash = session('seo_current_connection_hash');
+        $sessionHash = null;
+        if (function_exists('app') && app()->bound('session')) {
+            try {
+                $sessionHash = session('seo_current_connection_hash');
+            } catch (\Throwable) {
+                $sessionHash = null;
+            }
+        }
 
         return is_string($sessionHash) && self::isValidHashFormat($sessionHash)
             ? $sessionHash
@@ -147,14 +154,16 @@ final class SeoConnectionContext
 
     public static function panelPath(string $path = ''): string
     {
-        $hash = self::hash();
         $path = ltrim($path, '/');
+        $routeHash = request()->route('connection_hash');
 
-        if ($hash === null) {
-            return $path === '' ? '/seo' : '/seo/'.$path;
+        // Explicit hash route (secondary / deep link) keeps hash in the URL.
+        if (is_string($routeHash) && self::isValidHashFormat($routeHash)) {
+            return $path === '' ? '/seo/'.$routeHash : '/seo/'.$routeHash.'/'.$path;
         }
 
-        return $path === '' ? '/seo/'.$hash : '/seo/'.$hash.'/'.$path;
+        // Short Main Service presentation — context lives in session, not the path.
+        return $path === '' ? '/seo' : '/seo/'.$path;
     }
 
     public static function panelUrl(string $path = ''): string

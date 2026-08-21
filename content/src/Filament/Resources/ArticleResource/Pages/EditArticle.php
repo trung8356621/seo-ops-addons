@@ -83,12 +83,15 @@ use Omnichannel\Addons\WordPress\Services\WordPressAttachmentRenameService;
 use Omnichannel\Addons\WordPress\Services\WordPressMediaLibraryService;
 use Omnichannel\Addons\AiPrompt\Services\WorkflowParserService;
 use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
+use Omnichannel\Addons\Content\Support\PublishCategoryOptionsAssembler;
+use Omnichannel\Addons\Publishing\Support\PublishingTaxonomySelectionFilter;
 use Omnichannel\Addons\Content\Support\ArticleWritingExecutionContext;
 use Omnichannel\Addons\Content\Support\ArticleWritingExecutionResult;
 use Omnichannel\Addons\Content\Support\ArticleWritingInput;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordFocusAttach;
 use Omnichannel\Addons\SearchIntelligence\Support\RankMathSeoValueNormalizer;
 use Omnichannel\Addons\Agent\Automation\Support\ArticleContentConflictGuard;
+use Omnichannel\Addons\Content\Support\ArticleEditorContentLifecycle;
 use Omnichannel\Addons\Content\Support\ArticleEditorPerfDebug;
 use Omnichannel\Addons\Content\Support\ArticleMetaMap;
 use Omnichannel\Addons\Content\Support\ArticleEditorSaveContext;
@@ -212,6 +215,9 @@ class EditArticle extends SeoEditRecord
 
     /** @var array<string, mixed>|null Cache post WP fetch trong một request mount. */
     private ?array $cachedWordPressPostPayload = null;
+
+    /** @var array<string, mixed>|null */
+    private ?array $cachedPublishCategoryOptions = null;
 
     protected string $bootstrapEditorHtml = '';
 
@@ -440,6 +446,7 @@ class EditArticle extends SeoEditRecord
             'slug' => $slug,
             'article_slug' => $slug,
             'permalink' => trim($this->getDisplayPermalink()),
+            'wordpress_permalink' => trim($this->getObservedWordPressPermalink()),
             'permalink_base' => rtrim($this->getPermalinkBase(), '/'),
             'permalink_suffix' => $this->getPermalinkSuffix(),
         ];
@@ -679,54 +686,17 @@ class EditArticle extends SeoEditRecord
                 : ArticlePostTypeResolver::resolve($this->record),
         );
         $taxonomy = $this->resolvePublishCategoryTaxonomy($postType);
-        $siteId = (int) ($this->record->site_id ?? 0);
 
-        $options = $this->getPublishCategoryOptions()[$taxonomy] ?? [];
+        $bundle = $this->getPublishCategoryOptions();
+        $options = $bundle[$taxonomy] ?? [];
+        $catalogOk = (bool) ($bundle['status'][$taxonomy]['ok'] ?? false);
         $optionIds = collect($options)
             ->map(static fn (array $option): int => (int) ($option['id'] ?? 0))
             ->filter(static fn (int $id): bool => $id > 0)
-            ->all();
-
-        $normalized = collect($categoryIds)
-            ->map(static fn (mixed $id): int => (int) $id)
-            ->filter(static fn (int $id): bool => $id > 0)
-            ->unique()
-            ->values();
-
-        $direct = $normalized
-            ->filter(static fn (int $id): bool => in_array($id, $optionIds, true))
             ->values()
             ->all();
 
-        if ($direct !== []) {
-            return $direct;
-        }
-
-        if ($siteId > 0) {
-            $mapped = SeoArticle::query()
-                ->leftJoin('wordpress_article_links as wal_taxonomy', 'wal_taxonomy.article_id', '=', 'articles.id')
-                ->where('articles.site_id', $siteId)
-                ->where('articles.type', $taxonomy)
-                ->whereIn('wal_taxonomy.wp_post_id', $normalized->all())
-                ->get(['articles.id as id', 'wal_taxonomy.wp_post_id as wp_post_id'])
-                ->map(static function (SeoArticle $term) use ($optionIds): ?int {
-                    $resolvedId = (int) ($term->wp_post_id ?? 0) > 0
-                        ? (int) $term->wp_post_id
-                        : (int) $term->id;
-
-                    return in_array($resolvedId, $optionIds, true) ? $resolvedId : null;
-                })
-                ->filter(static fn (?int $id): bool => $id !== null && $id > 0)
-                ->unique()
-                ->values()
-                ->all();
-
-            if ($mapped !== []) {
-                return $mapped;
-            }
-        }
-
-        return $normalized->isNotEmpty() ? $normalized->values()->all() : [];
+        return PublishingTaxonomySelectionFilter::filter($categoryIds, $optionIds, $catalogOk);
     }
 
     /**
@@ -1064,120 +1034,24 @@ class EditArticle extends SeoEditRecord
     }
 
     /**
-     * Danh mục đã đồng bộ từ WordPress theo site, tách theo taxonomy
-     * (post → category, product → product_category) cho tab Publish.
+     * WordPress taxonomy catalog (post → category, product → product_cat) cho tab Publish.
      *
-     * @return array{category: list<array{id: int, label: string}>, product_category: list<array{id: int, label: string}>}
+     * @return array{
+     *     category: list<array{id: int, label: string}>,
+     *     product_category: list<array{id: int, label: string}>,
+     *     status?: array<string, array{ok: bool, code: string, message: string, taxonomy: string}>
+     * }
      */
     public function getPublishCategoryOptions(): array
     {
-        $options = ['category' => [], 'product_category' => []];
+        if (is_array($this->cachedPublishCategoryOptions)) {
+            return $this->cachedPublishCategoryOptions;
+        }
 
         $siteId = (int) ($this->record->site_id ?? 0);
-        if ($siteId <= 0) {
-            return $options;
-        }
+        $this->cachedPublishCategoryOptions = app(PublishCategoryOptionsAssembler::class)->forSite($siteId);
 
-        $terms = SeoArticle::query()
-            ->where('site_id', $siteId)
-            ->whereIn('type', ['category', 'product_category'])
-            ->with([
-                'articleMetas' => static function ($query): void {
-                    $query->where('meta_key', 'wp_parent_id');
-                },
-                'wordpressLink:article_id,wp_post_id',
-            ])
-            ->get(['id', 'title', 'type']);
-
-        foreach (['category', 'product_category'] as $taxonomyType) {
-            $options[$taxonomyType] = $this->buildHierarchicalPublishCategoryOptions(
-                $terms->where('type', $taxonomyType)->values(),
-            );
-        }
-
-        return $options;
-    }
-
-    /**
-     * @param  \Illuminate\Support\Collection<int, SeoArticle>  $terms
-     * @return list<array{id: int, label: string}>
-     */
-    private function buildHierarchicalPublishCategoryOptions(\Illuminate\Support\Collection $terms): array
-    {
-        /** @var array<int, array{id: int, label: string, parent_id: int}> $nodes */
-        $nodes = [];
-
-        foreach ($terms as $term) {
-            $wpId = (int) ($term->wordpressLink?->wp_post_id ?? 0);
-            if ($wpId <= 0) {
-                continue;
-            }
-
-            $title = trim((string) ($term->title ?? ''));
-            $parentRaw = $term->articleMetas->firstWhere('meta_key', 'wp_parent_id')?->meta_value;
-            $nodes[$wpId] = [
-                'id' => $wpId,
-                'label' => $title !== '' ? $title : 'Danh mục #'.$term->id,
-                'parent_id' => max(0, (int) $parentRaw),
-            ];
-        }
-
-        if ($nodes === []) {
-            return [];
-        }
-
-        /** @var array<int, list<int>> $byParent */
-        $byParent = [];
-        foreach ($nodes as $wpId => $node) {
-            $byParent[$node['parent_id']][] = $wpId;
-        }
-
-        foreach ($byParent as &$siblings) {
-            usort(
-                $siblings,
-                static fn (int $leftId, int $rightId): int => strcasecmp(
-                    $nodes[$leftId]['label'],
-                    $nodes[$rightId]['label'],
-                ),
-            );
-        }
-        unset($siblings);
-
-        $result = [];
-        $visited = [];
-
-        $walk = function (int $parentId, int $depth) use (&$walk, &$result, &$visited, $byParent, $nodes): void {
-            foreach ($byParent[$parentId] ?? [] as $wpId) {
-                if (isset($visited[$wpId])) {
-                    continue;
-                }
-
-                $visited[$wpId] = true;
-                $node = $nodes[$wpId];
-                $prefix = $depth > 0 ? str_repeat('— ', $depth) : '';
-                $result[] = [
-                    'id' => $node['id'],
-                    'label' => $prefix.$node['label'],
-                ];
-                $walk($wpId, $depth + 1);
-            }
-        };
-
-        $walk(0, 0);
-
-        foreach (array_keys($nodes) as $wpId) {
-            if (isset($visited[$wpId])) {
-                continue;
-            }
-
-            $node = $nodes[$wpId];
-            $result[] = [
-                'id' => $node['id'],
-                'label' => $node['label'],
-            ];
-        }
-
-        return $result;
+        return $this->cachedPublishCategoryOptions;
     }
 
     public function resolvePublishCategoryTaxonomy(?string $postType = null): string
@@ -1256,13 +1130,18 @@ class EditArticle extends SeoEditRecord
             return 0;
         }
 
-        $options = $this->getPublishCategoryOptions()[$this->resolveTaxonomyParentOptionKey()] ?? [];
+        $bundle = $this->getPublishCategoryOptions();
+        $options = $bundle[$this->resolveTaxonomyParentOptionKey()] ?? [];
+        $catalogOk = (bool) ($bundle['status'][$this->resolveTaxonomyParentOptionKey()]['ok'] ?? false);
         $optionIds = collect($options)
             ->map(static fn (array $option): int => (int) ($option['id'] ?? 0))
             ->filter(static fn (int $id): bool => $id > 0)
+            ->values()
             ->all();
 
-        return in_array($parentId, $optionIds, true) ? $parentId : 0;
+        $filtered = PublishingTaxonomySelectionFilter::filter([$parentId], $optionIds, $catalogOk);
+
+        return $filtered[0] ?? 0;
     }
 
     /**
@@ -2129,6 +2008,31 @@ class EditArticle extends SeoEditRecord
         return $base !== ''
             ? rtrim($base, '/').'/'.$displaySlug
             : '';
+    }
+
+    /**
+     * Observed WordPress permalink (meta wp_permalink). Never invent from editor slug.
+     */
+    public function getObservedWordPressPermalink(): string
+    {
+        $this->record->loadMissing('articleMetas');
+
+        return trim((string) (
+            $this->record->articleMetas->firstWhere('meta_key', 'wp_permalink')?->meta_value ?? ''
+        ));
+    }
+
+    public function permalinksAreEquivalent(string $left, string $right): bool
+    {
+        $a = $this->normalizePermalinkForCompare($left);
+        $b = $this->normalizePermalinkForCompare($right);
+
+        return $a !== '' && $a === $b;
+    }
+
+    public function normalizePermalinkForCompare(string $url): string
+    {
+        return rtrim(mb_strtolower(trim($url)), '/');
     }
 
     /**
@@ -3343,7 +3247,14 @@ class EditArticle extends SeoEditRecord
         // Phase 2B: React owns immediate analysis — nudge slug only; no shadow seo-analyze-result.
         $this->js(sprintf(
             'window.dispatchEvent(new CustomEvent("seo-editor-slug-updated", { detail: %s }))',
-            json_encode(['slug' => $this->articleSlug], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            json_encode([
+                'slug' => $this->articleSlug,
+                'article_slug' => $this->articleSlug,
+                'permalink' => trim($this->getDisplayPermalink()),
+                'wordpress_permalink' => trim($this->getObservedWordPressPermalink()),
+                'permalink_base' => rtrim($this->getPermalinkBase(), '/'),
+                'permalink_suffix' => $this->getPermalinkSuffix(),
+            ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         ));
     }
 
@@ -3460,6 +3371,21 @@ class EditArticle extends SeoEditRecord
         $html = app(ArticleEditorHtmlSanitizeService::class)->stripTransientEditorMarkup($html);
         $html = $this->guardArticleBodyBeforeSave($html);
 
+        $persist = app(ArticleEditorPersistService::class);
+        $rejectedEmpty = $persist->rejectUnhydratedEmptyPersist($this->record, $html);
+        if ($rejectedEmpty !== null) {
+            if ($notify) {
+                Notification::make()
+                    ->title('Nội dung chưa được đồng bộ')
+                    ->body((string) ($rejectedEmpty['message'] ?? 'Đồng bộ từ WordPress trước khi lưu.'))
+                    ->warning()
+                    ->send();
+                $this->cancelHeavyArticleAction();
+            }
+
+            return null;
+        }
+
         if (strlen(trim($html)) < 50 && $this->articleHadSubstantialContent()) {
             if ($notify) {
                 Notification::make()
@@ -3504,7 +3430,6 @@ class EditArticle extends SeoEditRecord
         ];
 
         $context = ArticleEditorSaveContext::fromBundle($this->record, $bundle);
-        $persist = app(ArticleEditorPersistService::class);
         $writtenHtml = $persist->writeArticleRow($this->record, $context, $html);
         $persist->runAfterPersistSideEffects($this->record->fresh() ?? $this->record, $context, $writtenHtml);
 
@@ -4093,6 +4018,11 @@ class EditArticle extends SeoEditRecord
             ->forArticle($this->record);
         $externalFacts = app(\Omnichannel\Addons\Content\Services\ArticleEditor\ArticleEditorAnalysisPolicyService::class)
             ->externalFacts($this->record);
+        $contentLifecycle = app(ArticleEditorContentLifecycle::class)->bootstrapPayload(
+            $this->record,
+            $this->bootstrapEditorHtml,
+            allowFetchFromWordPress: ! SeoAccessControl::isContentManager(),
+        );
 
         $payload = [
             'articleId' => $articleId,
@@ -4107,6 +4037,7 @@ class EditArticle extends SeoEditRecord
             'permalinkSuffix' => $this->getPermalinkSuffix(),
             'siteDomain' => trim((string) ($this->record->site?->domain ?? '')),
             'content' => $this->bootstrapEditorHtml,
+            'contentLifecycle' => $contentLifecycle,
             'status' => (string) $this->articleStatus,
             'postType' => SeoProjectTask::normalizePostType($this->articlePostType),
             'contentRevision' => hash('sha256', $contentRevisionSource),
@@ -4124,11 +4055,11 @@ class EditArticle extends SeoEditRecord
             'canTakeoverEditorSession' => app(\Omnichannel\Addons\Content\Services\ArticleEditor\ArticleEditorSessionService::class)
                 ->userCanTakeover(auth()->user() instanceof \App\Models\User ? auth()->user() : null),
             'editorSession' => [
-                'lockTtlSeconds' => (int) config('seo-content-ai.article_editor.lock_ttl_seconds', 120),
-                'heartbeatSeconds' => (int) config('seo-content-ai.article_editor.heartbeat_seconds', 30),
+                'leaseTtlSeconds' => (int) config('seo-content-ai.article_editor.lock_ttl_seconds', 240),
+                'leaseRenewLeadSeconds' => (int) config('seo-content-ai.article_editor.lease_renew_lead_seconds', 60),
                 'serverAutosaveDebounceMs' => (int) config('seo-content-ai.article_editor.server_autosave_debounce_ms', 4000),
                 'endpoints' => [
-                    'acquire' => route('seo.articles.editor-sessions.store', ['article' => $articleId]),
+                    'acquire' => route('seo.articles.edit-lease.store', ['article' => $articleId]),
                     // Deprecated: no editor UI caller; route/service retained pending product/ops approval.
                     'takeover' => route('seo.articles.editor-sessions.takeover', ['article' => $articleId]),
                 ],
@@ -4231,8 +4162,8 @@ class EditArticle extends SeoEditRecord
 
     /**
      * Minimal settings the editor needs synchronously at boot (autosave interval,
-     * permission flags). No `seo_scoring_rules` / `seo_rule_messages` / messages —
-     * those load with the SEO summary / settings lazy endpoint (Phase 2).
+     * permission flags). Full localized scoring messages load from the settings
+     * endpoint; live analysis never waits for or adopts the persisted SEO summary.
      *
      * @param  array<string, mixed>|null  $analysisPolicy
      * @param  array<string, mixed>|null  $externalFacts

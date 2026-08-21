@@ -34,7 +34,9 @@ use Omnichannel\Addons\Seo\Services\SeoNotificationService;
 use Omnichannel\Addons\SearchIntelligence\Services\SeoRankKeywordGroupService;
 use Omnichannel\Addons\SearchFoundation\Services\TagPersistenceService;
 use Omnichannel\Addons\SearchFoundation\Support\InternalAnchorKeywordFilter;
+use Omnichannel\Addons\Seo\Support\DomainContextResolver;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\Seo\Support\SeoPanelRoutes;
 use App\Models\Site;
 use Filament\Forms;
 use Filament\Forms\Form;
@@ -124,12 +126,12 @@ class KeywordResource extends SeoPanelResource
                         ->parentItem($parentLabel)
                         ->sort(1)
                         ->url($contentEditorUrl)
-                        ->isActiveWhen(fn (): bool => request()->routeIs('filament.seo.resources.keywords.*')),
+                        ->isActiveWhen(fn (): bool => SeoPanelRoutes::is('filament.seo.resources.keywords.*')),
                     \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.keyword.ai_discovery_nav'))
                         ->parentItem($parentLabel)
                         ->sort(2)
                         ->url(\Omnichannel\Addons\SearchIntelligence\Filament\Pages\AiKeywordDiscovery::getUrl())
-                        ->isActiveWhen(fn (): bool => request()->routeIs('filament.seo.pages.ai-keyword-discovery')),
+                        ->isActiveWhen(fn (): bool => SeoPanelRoutes::is('filament.seo.pages.ai-keyword-discovery')),
                     \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.performance_hub.nav_seo_performance'))
                         ->parentItem($parentLabel)
                         ->sort(3)
@@ -283,7 +285,10 @@ class KeywordResource extends SeoPanelResource
                             return null;
                         }
 
-                        return static::getUrl('cluster', ['clusterKey' => $key]);
+                        return app(DomainContextResolver::class)->appendSiteToUrl(
+                            static::getUrl('cluster', ['clusterKey' => $key]),
+                            (int) (static::resolveKeywordSiteId($record) ?? 0) ?: SeoAccessControl::globalSiteId(),
+                        );
                     })
                     ->color(fn (Keyword $record): string => app(KeywordTagResolver::class)->clusterKey($record) !== ''
                             ? 'primary'

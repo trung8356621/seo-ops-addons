@@ -32,7 +32,8 @@ final class ProductGalleryCanaryUiTest extends TestCase
         $access = (string) file_get_contents(
             (new ReflectionClass(ProductGalleryCanaryAccess::class))->getFileName() ?: '',
         );
-        $this->assertStringContainsString('isSeoPanelReadOnly', $access);
+        $this->assertStringContainsString('canAccessManagerFeatures', $access);
+        $this->assertStringContainsString('ROLE_OWNER', $access);
         $this->assertStringContainsString('fixture_ui_enabled', $access);
         $this->assertStringContainsString('local', $access);
     }

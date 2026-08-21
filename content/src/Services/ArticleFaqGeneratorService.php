@@ -14,6 +14,7 @@ use Omnichannel\Addons\AiPrompt\Services\PromptResultLinkService;
 use Omnichannel\Addons\AiPrompt\Models\PromptResult;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
+use Omnichannel\Addons\WordPress\Services\ArticleFaqWordPressRestoreService;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookCallerBridge;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookExecutionInput;
 

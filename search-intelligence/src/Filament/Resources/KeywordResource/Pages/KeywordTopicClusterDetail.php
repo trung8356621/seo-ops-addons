@@ -7,12 +7,17 @@ namespace Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResour
 use Filament\Resources\Pages\Page;
 use Illuminate\Contracts\Support\Htmlable;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
+use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\DissolvesTopicClusters;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\HasKeywordWorkspaceNavigation;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterDetailBuilder;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterQuery;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTagResolver;
+use Omnichannel\Addons\Seo\Support\DomainContext;
+use Omnichannel\Addons\Seo\Support\DomainContextResolver;
 
 final class KeywordTopicClusterDetail extends Page
 {
+    use DissolvesTopicClusters;
     use HasKeywordWorkspaceNavigation;
 
     protected static string $resource = KeywordResource::class;
@@ -27,7 +32,34 @@ final class KeywordTopicClusterDetail extends Page
     {
         $this->initializeKeywordWorkspaceSiteFilter();
         $this->clusterKey = rawurldecode($clusterKey);
-        abort_unless($this->getDetail() !== null, 404);
+
+        if ($this->getDetail() !== null) {
+            $this->maybeRedirectToScopedSiteUrl();
+
+            return;
+        }
+
+        abort_unless(app(KeywordClusterQuery::class)->clusterExists($this->clusterKey), 404);
+        $this->maybeRedirectToScopedSiteUrl();
+    }
+
+    public function onKeywordWorkspaceSiteFilterChanged(): void
+    {
+        $this->maybeRedirectToScopedSiteUrl();
+    }
+
+    private function maybeRedirectToScopedSiteUrl(): void
+    {
+        if (request()->has(DomainContext::QUERY_KEY) || request()->has(DomainContext::SITE_ID_QUERY_KEY)) {
+            return;
+        }
+
+        $siteId = $this->resolveKeywordWorkspaceSiteId();
+        if ($siteId === null || $siteId <= 0) {
+            return;
+        }
+
+        $this->redirect(app(DomainContextResolver::class)->appendSiteToUrl(request()->fullUrl(), $siteId));
     }
 
     public static function canAccess(array $parameters = []): bool
@@ -71,6 +103,11 @@ final class KeywordTopicClusterDetail extends Page
 
     public function backUrl(): string
     {
-        return $this->appendKeywordWorkspaceSiteToUrl(KeywordResource::getUrl('clusters'));
+        return $this->dissolveClustersListUrl();
+    }
+
+    protected function shouldRedirectAfterDissolve(): bool
+    {
+        return true;
     }
 }

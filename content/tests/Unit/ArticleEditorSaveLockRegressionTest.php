@@ -19,17 +19,19 @@ final class ArticleEditorSaveLockRegressionTest extends TestCase
         return $this->readLegacyOrMovedAddonFile($relative);
     }
 
-    public function test_article_write_lock_is_reentrant_and_not_automation_namespace(): void
+    public function test_article_write_lock_is_article_scoped_reentrant_and_fail_fast(): void
     {
         $support = $this->readAddon('Automation/Support/ActionSupport.php');
 
         self::assertStringContainsString('article-write:', $support);
         self::assertStringContainsString('articleWriteDepth', $support);
         self::assertStringContainsString('article_write_busy', $support);
-        self::assertStringContainsString('->block(', $support);
+        self::assertStringContainsString('if (! $lock->get())', $support);
+        self::assertStringContainsString('$lock->release()', $support);
+        self::assertStringNotContainsString('->block(', $support);
         self::assertStringNotContainsString('automation-article-', $support);
-        self::assertStringNotContainsString('if (! $lock->get())', $support);
         self::assertStringNotContainsString('lưu/autosave', $support);
+        self::assertStringContainsString("return 'article-write:'.\$articleId", $support);
     }
 
     public function test_session_save_and_content_action_both_use_with_article_lock(): void
@@ -39,7 +41,8 @@ final class ArticleEditorSaveLockRegressionTest extends TestCase
 
         self::assertStringContainsString('ActionSupport::withArticleLock', $session);
         self::assertStringContainsString('ActionSupport::withArticleLock', $action);
-        self::assertStringContainsString('Reentrant', $session);
+        self::assertStringContainsString('withArticleWriteLock', $session);
+        self::assertStringContainsString("'article_write_busy'", $session);
         self::assertStringContainsString('article_write_busy', $action);
         self::assertStringContainsString('Bài đang được lưu bởi request khác', $action);
         self::assertStringNotContainsString('lưu/autosave', $action);

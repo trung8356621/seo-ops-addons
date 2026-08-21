@@ -10,7 +10,6 @@ use Omnichannel\Addons\Agent\Automation\Data\EventEnvelope;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Support\LocalArticleSaveTimer;
-use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Facades\Cache;
 
 final class ActionSupport
@@ -92,7 +91,7 @@ final class ActionSupport
      * @param  callable(): T  $callback
      * @return T
      */
-    public static function withArticleLock(int $articleId, callable $callback, int $waitSeconds = 5): mixed
+    public static function withArticleLock(int $articleId, callable $callback): mixed
     {
         if ($articleId <= 0) {
             return $callback();
@@ -111,30 +110,29 @@ final class ActionSupport
         }
 
         $lock = Cache::lock(self::articleWriteLockKey($articleId), 30);
-
-        try {
-            $waitStarted = hrtime(true);
-
-            return $lock->block(max(1, $waitSeconds), function () use ($articleId, $callback, $waitStarted): mixed {
-                LocalArticleSaveTimer::log(
-                    $articleId,
-                    'articleLock.wait',
-                    (int) round((hrtime(true) - $waitStarted) / 1_000_000),
-                );
-                self::$articleWriteDepth[$articleId] = 1;
-                try {
-                    return LocalArticleSaveTimer::measure($articleId, 'articleLock.held', $callback);
-                } finally {
-                    unset(self::$articleWriteDepth[$articleId]);
-                }
-            });
-        } catch (LockTimeoutException $exception) {
+        $acquireStarted = hrtime(true);
+        if (! $lock->get()) {
             LocalArticleSaveTimer::log(
                 $articleId,
-                'articleLock.wait_timeout',
-                (int) round((hrtime(true) - $waitStarted) / 1_000_000),
+                'articleLock.busy',
+                (int) round((hrtime(true) - $acquireStarted) / 1_000_000),
             );
-            throw new \RuntimeException('article_write_busy', 0, $exception);
+
+            throw new \RuntimeException('article_write_busy');
+        }
+
+        LocalArticleSaveTimer::log(
+            $articleId,
+            'articleLock.acquire',
+            (int) round((hrtime(true) - $acquireStarted) / 1_000_000),
+        );
+        self::$articleWriteDepth[$articleId] = 1;
+
+        try {
+            return LocalArticleSaveTimer::measure($articleId, 'articleLock.held', $callback);
+        } finally {
+            unset(self::$articleWriteDepth[$articleId]);
+            $lock->release();
         }
     }
 

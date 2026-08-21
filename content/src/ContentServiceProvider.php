@@ -17,6 +17,12 @@ final class ContentServiceProvider extends ServiceProvider
 
     public function register(): void
     {
+        // Extra early provider (seo-content-ai compat). WordPress addon is DB-gated
+        // and may not bind the catalog before EditArticle resolves this port.
+        $this->app->singleton(
+            \Omnichannel\Addons\Publishing\Contracts\PublishingTaxonomyCatalog::class,
+            \Omnichannel\Addons\WordPress\Services\WordPressPublishingTaxonomyCatalog::class,
+        );
         $this->registerCapabilities();
     }
 

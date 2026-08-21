@@ -89,16 +89,18 @@ final class ArticleEditorStabilizationFaqSeoLinksTest extends TestCase
         self::assertStringNotContainsString('payloadForArticle', $body);
     }
 
-    public function test_seo_idle_marks_stale_without_auto_analysis(): void
+    public function test_seo_live_analysis_is_local_debounced_and_has_no_php_preview(): void
     {
         $hook = $this->js('hooks/useArticleEditorSeoAnalysis.js');
         $editor = $this->js('components/SeoArticleEditor.jsx');
 
         self::assertStringContainsString('markSeoStale', $hook);
-        self::assertStringContainsString('void runPhpSeoPreview()', $hook);
-        self::assertStringNotContainsString("id: 'seo-idle-analyze'", $hook);
-        self::assertStringNotContainsString('scheduleIdleSeoAnalysis', $hook);
-        self::assertStringNotContainsString('scheduleIdleSeoAnalysis', $editor);
+        self::assertStringContainsString('runLocalSeoAnalysis()', $hook);
+        self::assertStringContainsString('}, 450)', $hook);
+        self::assertStringContainsString("console.debug('[EditPerf] seo.local'", $hook);
+        self::assertStringNotContainsString('runPhpSeoPreview', $hook);
+        self::assertStringNotContainsString('previewSeoScoreViaApi', $hook);
+        self::assertStringNotContainsString('previewSeoScoreViaApi', $editor);
         self::assertStringContainsString('requestAnalyze', $editor);
         self::assertStringContainsString('onAnalyzeClick: requestAnalyze', $editor);
         self::assertStringContainsString('editor_seo_analyzing', $editor);

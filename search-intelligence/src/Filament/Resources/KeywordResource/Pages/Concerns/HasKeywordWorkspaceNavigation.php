@@ -5,13 +5,11 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns;
 
 use Livewire\Attributes\On;
-use Livewire\Attributes\Url;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 
 trait HasKeywordWorkspaceNavigation
 {
-    #[Url(as: 'site_id')]
     public ?int $keywordWorkspaceSiteId = null;
 
     protected function initializeKeywordWorkspaceSiteFilter(): void

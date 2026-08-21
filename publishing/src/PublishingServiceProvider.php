@@ -19,6 +19,11 @@ final class PublishingServiceProvider extends ServiceProvider
 
     public function register(): void
     {
+        $this->app->bindIf(
+            \Omnichannel\Addons\Publishing\Contracts\PublishingTaxonomyCatalog::class,
+            \Omnichannel\Addons\Publishing\Support\UnavailablePublishingTaxonomyCatalog::class,
+        );
+
         if (! $this->app->bound(CapabilityRegistry::class)) {
             return;
         }

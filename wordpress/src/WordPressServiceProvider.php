@@ -6,6 +6,8 @@ namespace Omnichannel\Addons\WordPress;
 
 use App\Core\Capability\CapabilityRegistry;
 use Illuminate\Support\ServiceProvider;
+use Omnichannel\Addons\Publishing\Contracts\PublishingTaxonomyCatalog;
+use Omnichannel\Addons\WordPress\Services\WordPressPublishingTaxonomyCatalog;
 
 /**
  * Peer addon skeleton: registers capabilities into Client Core.
@@ -17,6 +19,7 @@ final class WordPressServiceProvider extends ServiceProvider
 
     public function register(): void
     {
+        $this->app->singleton(PublishingTaxonomyCatalog::class, WordPressPublishingTaxonomyCatalog::class);
         $this->registerCapabilities();
     }
 

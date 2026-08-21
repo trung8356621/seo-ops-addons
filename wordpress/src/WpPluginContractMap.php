@@ -29,6 +29,7 @@ final class WpPluginContractMap
             'GET /sync/v2/delta' => 'site-sync.v2',
             'GET /sync/v2/batches' => 'site-sync.v2',
             'GET /sync/v2/manifest' => 'site-sync.v2',
+            'GET /taxonomy-catalog/{taxonomy}' => 'wordpress.bridge',
             'POST /posts' => 'wordpress.publisher',
             'POST /posts/{id}/editor-sync' => 'wordpress.bridge',
             'POST /posts/{id}/media' => 'media.library',

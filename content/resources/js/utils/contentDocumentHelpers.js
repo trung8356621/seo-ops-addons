@@ -1049,7 +1049,9 @@ export const parseHtmlToBlocks = (html) => {
         if (textAfter.trim()) blocks.push(...splitClassic(textAfter));
     }
 
-    return hoistInlineImagesFromTextBlocks(regroupParsedBlocksByH2(normalizeBlocks(blocks)));
+    return peelSectionHeadingTrailingBlocks(
+        hoistInlineImagesFromTextBlocks(regroupParsedBlocksByH2(normalizeBlocks(blocks))),
+    );
 };
 
 export const hoistInlineImagesFromTextBlocks = (blocks) => {
@@ -1191,6 +1193,136 @@ export const regroupParsedBlocksByH2 = (blocks) => {
     });
 
     return normalizeBlocks(result);
+};
+
+/**
+ * Section H2 block must stay heading-only. Trailing H3/table/P become sibling blocks
+ * so intro paragraphs can sit at section.blocks[1] and remain editable/movable.
+ *
+ * @param {Array<object>} blocks
+ * @returns {Array<object>}
+ */
+export const peelSectionHeadingTrailingBlocks = (blocks) => {
+    if (!Array.isArray(blocks) || blocks.length === 0) {
+        return Array.isArray(blocks) ? blocks : [];
+    }
+
+    const result = [];
+
+    for (const block of blocks) {
+        if (!block || block.type !== 'text' || block.isWp || typeof block.content !== 'string') {
+            result.push(block);
+            continue;
+        }
+
+        const peeled = peelOneLeadingH2Block(block);
+        for (const row of peeled) {
+            result.push(row);
+        }
+    }
+
+    return normalizeBlocks(result);
+};
+
+/**
+ * @param {{ id?: string, type?: string, content?: string, isWp?: boolean, prefix?: string, suffix?: string }} block
+ * @returns {Array<object>}
+ */
+function peelOneLeadingH2Block(block) {
+    const normalized = normalizeSectionHeadingBlockHtml(block.content);
+    if (!normalized || !/<h2\b/i.test(normalized)) {
+        return [block];
+    }
+
+    let doc;
+    try {
+        doc = new DOMParser().parseFromString(normalized, 'text/html');
+    } catch {
+        return [block];
+    }
+
+    const topNodes = flattenHtmlBodyNodes(doc.body).filter((node) => {
+        if (node.nodeType === 3) {
+            return Boolean(String(node.textContent ?? '').replace(/\u00a0/g, ' ').trim());
+        }
+
+        return node.nodeType === 1;
+    });
+
+    if (topNodes.length === 0) {
+        return [block];
+    }
+
+    const first = topNodes[0];
+    if (first.nodeType !== 1 || String(first.tagName || '').toUpperCase() !== 'H2') {
+        return [{ ...block, content: normalized }];
+    }
+
+    const trailing = topNodes.slice(1);
+    if (trailing.length === 0) {
+        return [{
+            ...block,
+            content: normalizeSectionHeadingBlockHtml(first.outerHTML),
+        }];
+    }
+
+    const rows = [{
+        ...block,
+        content: normalizeSectionHeadingBlockHtml(first.outerHTML),
+    }];
+
+    for (const node of trailing) {
+        const owner = node.ownerDocument || doc;
+        const temp = owner.createElement('div');
+        temp.appendChild(node.cloneNode(true));
+        const html = cleanBlockHtmlForEditorDisplay(temp.innerHTML.trim());
+        if (!isMeaningfulHtml(html)) {
+            continue;
+        }
+
+        if (node.nodeType === 1 && isWordPressImageElement(node)) {
+            const image = parseImageFromBlockContent(html) ?? parseVideoMediaFromHtml(html);
+            rows.push({
+                id: newBlockId('image'),
+                type: 'image',
+                isWp: false,
+                prefix: '',
+                content: image && image.mediaType !== 'video' ? renderImageFigure(image) : html,
+                suffix: '',
+                image: image ?? undefined,
+            });
+            continue;
+        }
+
+        rows.push({
+            id: newBlockId('classic'),
+            type: 'text',
+            isWp: false,
+            prefix: '',
+            content: html,
+            suffix: '',
+        });
+    }
+
+    return rows.length > 0 ? rows : [block];
+}
+
+/**
+ * Movable blocks inside a section — excludes the locked H2 section heading.
+ *
+ * @param {{ isIntro?: boolean, blockIds?: string[] }|null|undefined} section
+ * @returns {string[]}
+ */
+export const sectionMovableBlockIds = (section) => {
+    const ids = Array.isArray(section?.blockIds) ? section.blockIds.map((id) => String(id ?? '').trim()).filter(Boolean) : [];
+    if (ids.length === 0) {
+        return [];
+    }
+    if (section?.isIntro) {
+        return ids;
+    }
+
+    return ids.slice(1);
 };
 
 export const hasMeaningfulExportHtml = (html) => {

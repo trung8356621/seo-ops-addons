@@ -80,7 +80,7 @@
                     href="{{ $aiDiscoveryUrl }}"
                     @class([
                         'seo-keywords-dropdown__link',
-                        'is-active' => request()->routeIs('filament.seo.pages.ai-keyword-discovery'),
+                        'is-active' => \Omnichannel\Addons\Seo\Support\SeoPanelRoutes::is('filament.seo.pages.ai-keyword-discovery'),
                     ])
                 >
                     {{ __('seo-content-ai::filament.keyword.ai_discovery_nav') }}
@@ -91,7 +91,7 @@
                     href="{{ $performanceHubUrl }}"
                     @class([
                         'seo-keywords-dropdown__link',
-                        'is-active' => request()->routeIs('filament.seo.pages.performance-hub', 'seo.performance.*'),
+                        'is-active' => \Omnichannel\Addons\Seo\Support\SeoPanelRoutes::is('filament.seo.pages.performance-hub', 'seo.performance.*'),
                     ])
                 >
                     {{ __('seo-content-ai::filament.performance_hub.nav_seo_performance') }}
@@ -102,7 +102,7 @@
                     href="{{ $tagsUrl }}"
                     @class([
                         'seo-keywords-dropdown__link',
-                        'is-active' => request()->routeIs('filament.seo.resources.keywords.tags.*'),
+                        'is-active' => \Omnichannel\Addons\Seo\Support\SeoPanelRoutes::is('filament.seo.resources.keywords.tags.*'),
                     ])
                 >
                     {{ __('seo-content-ai::filament.nav.tags') }}

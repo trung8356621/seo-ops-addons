@@ -42,6 +42,14 @@ export default function useArticleEditorSaveQueue({ articleId, blockEditorsRef, 
         if (!articleId || sessionReadOnly || window.__SEO_EDITOR_READ_ONLY__) {
             return false;
         }
+        const lifecycleState = String(window.__SEO_EDITOR_CONTENT_LIFECYCLE__?.state || '');
+        if (
+            lifecycleState === 'SYNC_REQUIRED'
+            || lifecycleState === 'CONTENT_LOADING'
+            || lifecycleState === 'ERROR'
+        ) {
+            return false;
+        }
         if (!isDraftPersistenceEnabled() && options.force !== true) {
             return false;
         }
@@ -409,6 +417,30 @@ export default function useArticleEditorSaveQueue({ articleId, blockEditorsRef, 
             delete window.__seoDisableArticleDraftPersistence;
         };
     }, [cancelLocalDraftSave, persistLocalRecoverySnapshot]);
+
+    useEffect(() => {
+        const onManualSaveStarted = () => setSaveStatus('saving');
+        const onManualSaveFinished = (event) => {
+            if (event?.detail?.conflict) {
+                setSaveStatus('conflict');
+                return;
+            }
+            if (event?.detail?.failed) {
+                setSaveStatus('failed');
+                return;
+            }
+            if (event?.detail?.success) {
+                setSaveStatus('saved');
+            }
+        };
+        window.addEventListener('article-editor-save-started', onManualSaveStarted);
+        window.addEventListener('article-editor-save-finished', onManualSaveFinished);
+
+        return () => {
+            window.removeEventListener('article-editor-save-started', onManualSaveStarted);
+            window.removeEventListener('article-editor-save-finished', onManualSaveFinished);
+        };
+    }, [setSaveStatus]);
 
     const skipNextAutosave = useRef(true);
     const loadedArticleIdRef = useRef(null);

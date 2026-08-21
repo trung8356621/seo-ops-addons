@@ -1456,21 +1456,30 @@ final class ViewSeoProject extends Page
         $this->dispatch('close-restart-with-keyword');
     }
 
-    public function confirmRestartWithKeyword(?int $taskId = null, ?string $keyword = null): void
+    /**
+     * @return array{ok: bool, terminal: ?string, message: string, task_id?: int, execution_ref?: mixed}
+     */
+    public function confirmRestartWithKeyword(?int $taskId = null, ?string $keyword = null): array
     {
         $project = $this->requireProject();
         if (! SeoAccessControl::canAccessContentProjectRun($project)) {
             Notification::make()->title('Forbidden')->danger()->send();
 
-            return;
+            return [
+                'ok' => false,
+                'terminal' => 'failed',
+                'message' => 'Forbidden',
+            ];
         }
 
         $resolvedTaskId = (int) ($taskId ?? $this->restartWithKeywordTaskId ?? 0);
         $resolvedKeyword = trim((string) ($keyword ?? $this->restartWithKeywordInput ?? ''));
         if ($resolvedTaskId <= 0) {
-            $this->closeRestartWithKeyword();
-
-            return;
+            return [
+                'ok' => false,
+                'terminal' => 'failed',
+                'message' => 'Invalid item.',
+            ];
         }
 
         if ($resolvedKeyword === '') {
@@ -1479,7 +1488,11 @@ final class ViewSeoProject extends Page
                 ->danger()
                 ->send();
 
-            return;
+            return [
+                'ok' => false,
+                'terminal' => 'failed',
+                'message' => 'Keyword required',
+            ];
         }
 
         $task = SeoProjectTask::query()
@@ -1492,12 +1505,13 @@ final class ViewSeoProject extends Page
                 ->body('Item not found.')
                 ->danger()
                 ->send();
-            $this->closeRestartWithKeyword();
 
-            return;
+            return [
+                'ok' => false,
+                'terminal' => 'failed',
+                'message' => 'Item not found.',
+            ];
         }
-
-        $this->closeRestartWithKeyword();
 
         $result = app(ContentProjectCommandBus::class)->dispatch(
             new RestartGenerationWithKeywordCommand(
@@ -1522,14 +1536,109 @@ final class ViewSeoProject extends Page
                 ->danger()
                 ->send();
 
-            return;
+            return [
+                'ok' => false,
+                'terminal' => 'failed',
+                'message' => (string) $result->message,
+            ];
         }
 
+        // Do not close modal / toast success here — Alpine waits for terminal generation.
+        return [
+            'ok' => true,
+            'terminal' => null,
+            'message' => 'started',
+            'task_id' => $resolvedTaskId,
+            'execution_ref' => $result->metadata['execution_ref'] ?? null,
+        ];
+    }
+
+    /**
+     * Lightweight poll for «Chạy lại với từ khóa» modal finalize.
+     *
+     * @return array{ok: bool, running: bool, terminal: ?string, generation_status: string}
+     */
+    public function pollRestartWithKeywordStatus(int $taskId, ?string $executionRef = null): array
+    {
+        $project = $this->requireProject();
+        $task = SeoProjectTask::query()
+            ->where('project_id', (int) $project->id)
+            ->whereKey($taskId)
+            ->first();
+
+        if (! $task instanceof SeoProjectTask) {
+            return [
+                'ok' => false,
+                'running' => false,
+                'terminal' => 'failed',
+                'generation_status' => 'missing',
+            ];
+        }
+
+        $runId = 0;
+        if (is_string($executionRef) && trim($executionRef) !== '') {
+            try {
+                $runId = ContentProjectPublicRef::decodeExecution(trim($executionRef));
+            } catch (\Throwable) {
+                if (ctype_digit(trim($executionRef))) {
+                    $runId = (int) $executionRef;
+                }
+            }
+        }
+        $latestItemQuery = SeoProjectRunItem::query()->where('task_id', $taskId);
+        if ($runId > 0) {
+            $latestItemQuery->where('run_id', $runId);
+        }
+        $latestItem = $latestItemQuery->orderByDesc('id')->first();
+
+        if ($runId > 0 && ! $latestItem instanceof SeoProjectRunItem) {
+            // Queue prepared but run item not visible yet — still running.
+            return [
+                'ok' => true,
+                'running' => true,
+                'terminal' => null,
+                'generation_status' => 'pending',
+            ];
+        }
+
+        $capability = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectGenerationCapabilityResolver::class)
+            ->decide($project, $task, [
+                'recover_stale' => true,
+                'persist_article_repair' => false,
+            ]);
+
+        $execStatus = strtolower(trim((string) ($latestItem?->status ?? '')));
+        $running = $capability->isActive()
+            || \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExecutionStatus::isActive($execStatus);
+        $genStatus = strtolower(trim((string) ($task->status ?? '')));
+        $execNormalized = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExecutionStatus::normalize($execStatus);
+
+        $terminal = null;
+        if (! $running && $latestItem instanceof SeoProjectRunItem) {
+            $failedTokens = ['failed', 'cancelled', 'timeout', 'blocked', 'ignored_stale', 'skipped', 'manual', 'error'];
+            $successTokens = ['success', 'completed'];
+            if (in_array($execNormalized, $failedTokens, true)) {
+                $terminal = 'failed';
+            } elseif (in_array($execNormalized, $successTokens, true)) {
+                $terminal = 'completed';
+            }
+        }
+
+        return [
+            'ok' => true,
+            'running' => $running,
+            'terminal' => $terminal,
+            'generation_status' => $execStatus !== '' ? $execStatus : $genStatus,
+        ];
+    }
+
+    public function finalizeRestartWithKeywordSuccess(): void
+    {
         Notification::make()
-            ->title(__('seo-content-ai::filament.projects.restart_with_keyword_started'))
+            ->title('Đã tạo lại bài với từ khóa mới')
+            ->body('Từ khóa chính đã được cập nhật.')
             ->success()
             ->send();
-
         $this->invalidateOpsCache();
     }
 

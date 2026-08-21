@@ -20,7 +20,7 @@ import { useEffect } from 'react';
  * useArticleEditorExternalEventsBridge - extracted from SeoArticleEditor.jsx (Task 7 mechanical
  * extraction). Mechanical move - no behavior change.
  */
-export default function useArticleEditorExternalEventsBridge({ activeBlockId, activeBlockIdRef, analyzedBlocksRef, applyCompletedMediaToPlaceholder, applyCompletedMediaToProductGallery, applySeoAnalysisResult, articleId, articleTitle, assertNoLocalSlugFixBeforeWpSync, assertWritableDocumentNotWhitespaceCorrupted, blockEditorsRef, blockFlushRef, blockOutsideClickGuardUntilRef, blocks, blocksRef, clearAwaitingClientImagePlaceholders, clearMediaPolling, clearOutlineFocus, clearTempMerge, connectionHashRef, dismissedEditorImageMediaIdsRef, editorHostActionsRef, findImageBlockByMediaId, generateImageTargetRef, getExportHtml, globalEditor, initialPostImages, insertImageAfterBlock, insertVideoAfterBlock, isDismissedEditorImageMedia, lastSeoAnalysisRef, mediaPollTimersRef, networkRecovering, networkUnavailable, outlineHasSavedHeadings, panelFaqsRef, patchImageInBlocks, pendingAiMediaRef, placeProcessingImagePlaceholder, postImagesRef, publishEditorImagesCatalogRef, reconcileImagesTabWithBlocks, requestAnalyze, requestGenerateArticleImage, resolveAiRefBlockId, resolveArticleFaqsSnapshot, runLocalSeoAnalysis, saveStatus, scheduleAutosave, markSeoStale, sectionByBlockId, seoDomain, seoMetaRef, setActiveBlockId, setArticleType, setBlocks, setFaqCount, setGlobalEditor, setImagesReloadKey, setInsertMenu, setPanelFaqs, setSaveStatus, setSavedSeoScore, setSeoStale, setSupportsProductGallery, skipNextAutosave, startMediaStatusPolling, supplementalImagesRef, tempMerge, tempMergeRef, updateBlockContent }) {
+export default function useArticleEditorExternalEventsBridge({ activeBlockId, activeBlockIdRef, analyzedBlocksRef, applyCompletedMediaToPlaceholder, applyCompletedMediaToProductGallery, applySeoAnalysisResult, articleId, articleTitle, assertNoLocalSlugFixBeforeWpSync, assertWritableDocumentNotWhitespaceCorrupted, blockEditorsRef, blockFlushRef, blockOutsideClickGuardUntilRef, blocks, blocksRef, clearAwaitingClientImagePlaceholders, clearMediaPolling, clearOutlineFocus, clearTempMerge, connectionHashRef, dismissedEditorImageMediaIdsRef, editorHostActionsRef, faqsCanonicalKnownRef, findImageBlockByMediaId, generateImageTargetRef, getExportHtml, globalEditor, initialPostImages, insertImageAfterBlock, insertVideoAfterBlock, isDismissedEditorImageMedia, lastSeoAnalysisRef, mediaPollTimersRef, networkRecovering, networkUnavailable, outlineHasSavedHeadings, panelFaqsRef, patchImageInBlocks, pendingAiMediaRef, placeProcessingImagePlaceholder, postImagesRef, publishEditorImagesCatalogRef, reconcileImagesTabWithBlocks, requestAnalyze, requestGenerateArticleImage, resolveAiRefBlockId, resolveArticleFaqsSnapshot, runLocalSeoAnalysis, saveStatus, scheduleAutosave, markSeoStale, sectionByBlockId, seoDomain, seoMetaRef, setActiveBlockId, setArticleType, setBlocks, setFaqCount, setGlobalEditor, setImagesReloadKey, setInsertMenu, setPanelFaqs, setSaveStatus, setSavedSeoScore, setSeoStale, setSupportsProductGallery, skipNextAutosave, startMediaStatusPolling, supplementalImagesRef, tempMerge, tempMergeRef, updateBlockContent }) {
     useEffect(() => {
         const applyExtractedFaqsToEditor = (detail = {}) => {
             const html = stripLeadingH1FromHtml(detail?.editorHtml ?? detail?.editor_html ?? '');
@@ -134,6 +134,9 @@ export default function useArticleEditorExternalEventsBridge({ activeBlockId, ac
         const syncPanelFaqs = (event) => {
             const fromExtract = event.detail?.faqs;
             if (Array.isArray(fromExtract)) {
+                if (faqsCanonicalKnownRef) {
+                    faqsCanonicalKnownRef.current = true;
+                }
                 panelFaqsRef.current = fromExtract;
                 setPanelFaqs(fromExtract);
                 setFaqCount(fromExtract.length);
@@ -147,6 +150,9 @@ export default function useArticleEditorExternalEventsBridge({ activeBlockId, ac
                 return;
             }
 
+            if (faqsCanonicalKnownRef) {
+                faqsCanonicalKnownRef.current = true;
+            }
             panelFaqsRef.current = rows;
             setPanelFaqs(rows);
             setFaqCount(rows.length);
@@ -207,10 +213,7 @@ export default function useArticleEditorExternalEventsBridge({ activeBlockId, ac
             if (!result || typeof result !== 'object') {
                 return;
             }
-            if (!Object.prototype.hasOwnProperty.call(result, 'violations')) {
-                return;
-            }
-            applySeoAnalysisResult(result, 'saved');
+            // Persistence-only. Canonical PHP analysis must not replace current-draft live SEO.
             const score = Number(result.total_score ?? result.score ?? result.seo_score);
             if (Number.isFinite(score)) {
                 setSavedSeoScore(score);

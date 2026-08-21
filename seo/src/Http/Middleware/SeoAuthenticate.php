@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Seo\Http\Middleware;
 
 use Omnichannel\Addons\Seo\Support\SeoConnectionContext;
+use Omnichannel\Addons\Seo\Support\SeoPanelRoutes;
+use Filament\Facades\Filament;
 use Filament\Http\Middleware\Authenticate as FilamentAuthenticate;
 
 /**
@@ -25,13 +27,21 @@ final class SeoAuthenticate extends FilamentAuthenticate
 
     protected function redirectTo($request): ?string
     {
+        $panelId = Filament::getCurrentPanel()?->getId();
+
+        // Short Main Service panel — never bounce guests onto a hash login URL.
+        if ($panelId === 'seo-main') {
+            return SeoPanelRoutes::shortLoginUrl([
+                'return_url' => $request->fullUrl(),
+            ]);
+        }
+
         $hash = SeoConnectionContext::applyUrlDefaultsFromRequest($request);
 
         if ($hash !== null) {
             return route('filament.seo.auth.login', ['connection_hash' => $hash]);
         }
 
-        // Fallback: /seo redirector picks a connection — never throw UrlGenerationException.
-        return url('/seo');
+        return SeoPanelRoutes::shortLoginUrl();
     }
 }

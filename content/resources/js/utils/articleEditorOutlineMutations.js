@@ -3,7 +3,7 @@
  * Browser uses DOMParser; Node tests use a conservative regex fallback.
  */
 
-import { normalizeOutlineHeadingText } from './articleEditorClientOutline';
+import { normalizeOutlineHeadingText } from './articleEditorClientOutline.js';
 
 const HEADING_RE = /<h([2-4])\b([^>]*)>([\s\S]*?)<\/h\1>/gi;
 
@@ -114,6 +114,64 @@ export function changeHeadingLevelInHtml(html, headingIndex, level) {
         return String(html ?? '');
     }
     const next = `<${tag}${current.attrs}>${current.inner}</${tag}>`;
+
+    return String(html ?? '').slice(0, current.start) + next + String(html ?? '').slice(current.end);
+}
+
+function wrapParagraphInner(inner, kind) {
+    if (kind === 'bold') {
+        return `<p><strong>${inner}</strong></p>`;
+    }
+    if (kind === 'italic') {
+        return `<p><em>${inner}</em></p>`;
+    }
+
+    return `<p>${inner}</p>`;
+}
+
+/**
+ * Convert a heading to another heading level or a paragraph (optionally fully marked).
+ *
+ * @param {string} html
+ * @param {number} headingIndex
+ * @param {'h2'|'h3'|'h4'|'paragraph'|'bold'|'italic'} kind
+ * @returns {string}
+ */
+export function convertHeadingInHtml(html, headingIndex, kind) {
+    const nextKind = String(kind ?? '');
+    if (nextKind === 'h2' || nextKind === 'h3' || nextKind === 'h4') {
+        return changeHeadingLevelInHtml(html, headingIndex, Number(nextKind.slice(1)));
+    }
+
+    if (!['paragraph', 'bold', 'italic'].includes(nextKind)) {
+        return String(html ?? '');
+    }
+
+    if (typeof DOMParser !== 'undefined') {
+        const doc = new DOMParser().parseFromString(String(html ?? ''), 'text/html');
+        const heading = doc.body.querySelectorAll('h2, h3, h4')[headingIndex];
+        if (!heading) {
+            return String(html ?? '');
+        }
+        const paragraph = doc.createElement('p');
+        if (nextKind === 'paragraph') {
+            paragraph.innerHTML = heading.innerHTML;
+        } else {
+            const mark = doc.createElement(nextKind === 'bold' ? 'strong' : 'em');
+            mark.innerHTML = heading.innerHTML;
+            paragraph.appendChild(mark);
+        }
+        heading.replaceWith(paragraph);
+
+        return doc.body.innerHTML;
+    }
+
+    const matches = parseHeadingsRegex(html);
+    const current = matches[headingIndex];
+    if (!current) {
+        return String(html ?? '');
+    }
+    const next = wrapParagraphInner(current.inner, nextKind);
 
     return String(html ?? '').slice(0, current.start) + next + String(html ?? '').slice(current.end);
 }
@@ -237,7 +295,8 @@ export function insertAfterHeadingSectionInHtml(html, payload = {}) {
     const source = String(html ?? '');
     const level = Math.min(4, Math.max(2, Number(payload.level) || 3));
     const text = escapeText(normalizeOutlineHeadingText(payload.text) || 'Heading');
-    const insert = payload.paragraph
+    const paragraphOnly = payload.paragraph === true;
+    const insert = paragraphOnly
         ? '<p></p>'
         : `<${headingTag(level)}>${text}</${headingTag(level)}><p></p>`;
     const headingIndex = Number(payload.headingIndex);
@@ -251,6 +310,14 @@ export function insertAfterHeadingSectionInHtml(html, payload = {}) {
 
             return doc.body.innerHTML;
         }
+
+        // Intro paragraph must sit directly under the heading, before H3/table/body.
+        if (paragraphOnly) {
+            heading.insertAdjacentHTML('afterend', insert);
+
+            return doc.body.innerHTML;
+        }
+
         const currentLevel = Number(heading.tagName.charAt(1));
         let last = heading;
         let cursor = heading.nextSibling;
@@ -273,6 +340,11 @@ export function insertAfterHeadingSectionInHtml(html, payload = {}) {
     if (!Number.isFinite(headingIndex) || !matches[headingIndex]) {
         return `${source}${insert}`;
     }
+    if (paragraphOnly) {
+        const current = matches[headingIndex];
+
+        return source.slice(0, current.end) + insert + source.slice(current.end);
+    }
     const end = sectionEnd(matches, headingIndex, source.length);
 
     return source.slice(0, end) + insert + source.slice(end);
@@ -281,6 +353,7 @@ export function insertAfterHeadingSectionInHtml(html, payload = {}) {
 export default {
     renameHeadingInHtml,
     changeHeadingLevelInHtml,
+    convertHeadingInHtml,
     deleteHeadingKeepContentInHtml,
     deleteHeadingWithContentInHtml,
     setOutlineVisibleInHtml,

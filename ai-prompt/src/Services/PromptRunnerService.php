@@ -145,13 +145,19 @@ class PromptRunnerService
             $result->update([
                 'prompt_id' => $prompt->id,
                 'status' => 'running',
-                'input_snapshot' => $this->sanitizeInputSnapshot($this->withImageOutputModeAudit([
-                    'variables' => $variables,
-                    'compiled_prompt' => $compiled,
-                    'model_category' => $category,
-                    'is_task_mode' => $isTaskMode,
-                    'tools' => $toolType,
-                ], $prompt, $variables, $toolType)),
+                'input_snapshot' => $this->sanitizeInputSnapshot($this->withIntendedImageModels(
+                    $this->withImageOutputModeAudit([
+                        'variables' => $variables,
+                        'compiled_prompt' => $compiled,
+                        'model_category' => $category,
+                        'is_task_mode' => $isTaskMode,
+                        'tools' => $toolType,
+                    ], $prompt, $variables, $toolType),
+                    $prompt,
+                    $compiled,
+                    $variables,
+                    $toolType,
+                )),
                 'output_text' => null,
                 'error_message' => null,
                 'started_at' => now(),
@@ -163,13 +169,19 @@ class PromptRunnerService
                 'user_id' => (int) auth()->id(),
                 'site_id' => 0,
                 'status' => 'running',
-                'input_snapshot' => $this->sanitizeInputSnapshot($this->withImageOutputModeAudit([
-                    'variables' => $variables,
-                    'compiled_prompt' => $compiled,
-                    'model_category' => $category,
-                    'is_task_mode' => $isTaskMode,
-                    'tools' => $toolType,
-                ], $prompt, $variables, $toolType)),
+                'input_snapshot' => $this->sanitizeInputSnapshot($this->withIntendedImageModels(
+                    $this->withImageOutputModeAudit([
+                        'variables' => $variables,
+                        'compiled_prompt' => $compiled,
+                        'model_category' => $category,
+                        'is_task_mode' => $isTaskMode,
+                        'tools' => $toolType,
+                    ], $prompt, $variables, $toolType),
+                    $prompt,
+                    $compiled,
+                    $variables,
+                    $toolType,
+                )),
                 'started_at' => now(),
             ]);
         }
@@ -232,17 +244,23 @@ class PromptRunnerService
             'user_id' => (int) auth()->id(),
             'site_id' => 0,
             'status' => 'running',
-            'input_snapshot' => $this->sanitizeInputSnapshot($this->withImageOutputModeAudit([
-                'variables' => $variables,
-                'compiled_prompt' => $compiled,
-                'model_category' => $category,
-                'is_task_mode' => $isTaskMode,
-                'tools' => $this->normalizeToolType($prompt),
-                'chain_mode' => true,
-                'chain_step' => 'task',
-                'chain_step_index' => 0,
-                'direct_image_preview' => true,
-            ], $prompt, $variables, $this->normalizeToolType($prompt))),
+            'input_snapshot' => $this->sanitizeInputSnapshot($this->withIntendedImageModels(
+                $this->withImageOutputModeAudit([
+                    'variables' => $variables,
+                    'compiled_prompt' => $compiled,
+                    'model_category' => $category,
+                    'is_task_mode' => $isTaskMode,
+                    'tools' => $this->normalizeToolType($prompt),
+                    'chain_mode' => true,
+                    'chain_step' => 'task',
+                    'chain_step_index' => 0,
+                    'direct_image_preview' => true,
+                ], $prompt, $variables, $this->normalizeToolType($prompt)),
+                $prompt,
+                $compiled,
+                $variables,
+                $this->normalizeToolType($prompt),
+            )),
             'started_at' => now(),
         ]);
 
@@ -326,14 +344,20 @@ class PromptRunnerService
 
         $category = $this->aiModelRouter->resolveCategoryForPrompt($prompt, $toolType);
 
-        $snapshot = $this->withImageOutputModeAudit([
-            'variables' => $variables,
-            'compiled_prompt' => $compiled,
-            'model_category' => $category,
-            'is_task_mode' => $isTaskMode,
-            'tools' => $toolType,
-            'manual_compiled' => true,
-        ], $prompt, $variables, $toolType);
+        $snapshot = $this->withIntendedImageModels(
+            $this->withImageOutputModeAudit([
+                'variables' => $variables,
+                'compiled_prompt' => $compiled,
+                'model_category' => $category,
+                'is_task_mode' => $isTaskMode,
+                'tools' => $toolType,
+                'manual_compiled' => true,
+            ], $prompt, $variables, $toolType),
+            $prompt,
+            $compiled,
+            $variables,
+            $toolType,
+        );
 
         if ($chainParentStep && $this->hasDependentSubTasks($prompt)) {
             $snapshot['chain_mode'] = true;
@@ -412,24 +436,24 @@ class PromptRunnerService
         if (ImageToolType::fromMixed($toolType)->isImagePipeline()) {
             $candidates = $this->aiModelRouter->resolveAll($profile->value, $context);
             $gemini = null;
-            $modelsOverride = [];
             foreach ($candidates as $candidate) {
                 if ($candidate->provider !== ApiConnectionProviders::GEMINI) {
                     continue;
                 }
-                $gemini ??= $candidate;
-                $modelsOverride[] = $candidate->model;
+                $gemini = $candidate;
+                break;
             }
             if ($gemini === null) {
                 throw AiRoutingException::noCandidate($profile->value, 'image.generate');
             }
 
+            // Connection from AiModelRouter; raw image models from ImageRoutingStrategy
+            // (omnichannel-backend). Do not pass text/profile slugs as modelsOverride.
             $media = $this->mediaGeneration->executeImage(
                 $gemini->connection,
                 $prompt,
                 $compiled,
                 $variables,
-                $modelsOverride !== [] ? array_values(array_unique($modelsOverride)) : null,
             );
             $media['routing'] = $gemini->toLogContext();
 
@@ -1110,6 +1134,35 @@ class PromptRunnerService
             },
             Utf8Sanitizer::string($text),
         );
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     * @param  array<string, mixed>  $variables
+     * @return array<string, mixed>
+     */
+    private function withIntendedImageModels(
+        array $snapshot,
+        SeoPrompt $prompt,
+        string $compiled,
+        array $variables,
+        string $toolType,
+    ): array {
+        if (! ImageToolType::fromMixed($toolType)->isImagePipeline()) {
+            return $snapshot;
+        }
+
+        $models = $this->mediaGeneration->intendedRenderModels($prompt, $compiled, $variables);
+        $first = trim((string) ($models[0] ?? ''));
+        if ($first === '') {
+            return $snapshot;
+        }
+
+        $snapshot = array_merge($snapshot, $this->modelSnapshotFields($toolType, $first));
+        $snapshot['render_model_pending'] = true;
+        $snapshot['image_models_to_try'] = $models;
+
+        return $snapshot;
     }
 
     /**

@@ -9,6 +9,7 @@ use Omnichannel\Addons\SearchFoundation\Services\SeoDatabaseConnectionService;
 use Omnichannel\Addons\Seo\Support\DomainContext;
 use Omnichannel\Addons\Seo\Support\DomainContextResolver;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\Seo\Support\SeoPanelRoutes;
 use Omnichannel\Addons\Seo\Support\SeoConnectionContext;
 use App\Models\Site;
 use App\Support\RuntimeLogger;
@@ -141,7 +142,6 @@ class GlobalSeoBar extends Component
             'showDomainPicker' => SeoAccessControl::shouldShowGlobalSitePicker(),
             'showContentProjectPicker' => $showContentProjectPicker && SeoAccessControl::shouldShowGlobalSitePicker(),
             'contentProjectOptions' => $contentProjectOptions,
-            'isAdminViewer' => SeoAccessControl::isSeoPanelReadOnly(),
         ]);
     }
 
@@ -180,7 +180,7 @@ class GlobalSeoBar extends Component
 
     private function shouldForceAllDomainsScope(): bool
     {
-        return request()->routeIs('filament.seo.resources.keywords.*');
+        return SeoPanelRoutes::is('filament.seo.resources.keywords.*');
     }
 
     private function syncGlobalContentProjectSelection(): void

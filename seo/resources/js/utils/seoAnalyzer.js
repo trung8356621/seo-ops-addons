@@ -11,17 +11,15 @@ import {
     sanitizeViolations,
     scoreFromViolations,
 } from './seoScoreCalculator';
-import { resolveFeaturedSnippetTableScore } from './seoContentBonus';
+import { resolveFeaturedSnippetViolationFromTables } from './seoContentBonus';
 import {
     TARGET_WORDS_PER_IMAGE,
     computeContentLengthMetrics,
     computeImageRatioMetrics,
 } from './seoReasonMetrics';
 import {
-    applyImageCountsToMetrics,
     getAnalysisPolicy,
     normalizeViolationList,
-    resolveContentImageCounts,
     wordsPerImageFromPolicy,
 } from './articleAnalysisOwnership';
 import { DEFAULT_WIKI_TRUST_DOMAINS, isWikiTrustUrl, normalizeDomainHost, resolveLinkHost } from './wikiTrustDomains';
@@ -29,8 +27,9 @@ import {
     createDocumentModel,
     sliceFirstWordsFromModel,
 } from '@content-addon/utils/documentModel.js';
-import { selectFaqPlaceholders, selectH2, selectLinks, selectTables } from '@content-addon/utils/documentSelectors.js';
+import { selectFaqPlaceholders, selectLinks } from '@content-addon/utils/documentSelectors.js';
 import { blocksToDocumentJson, htmlToDocumentJson } from '@content-addon/utils/htmlDocumentCompat.js';
+import { createCurrentDraftAnalysisSnapshot } from '@content-addon/utils/currentDraftAnalysisSnapshot.js';
 
 const RULE_KEYS = {
     missingFocusKeyword: 'missing_focus_keyword',
@@ -47,9 +46,6 @@ const RULE_KEYS = {
     keywordMissingInMeta: 'keyword_missing_in_meta',
     keywordMissingInSlug: 'keyword_missing_in_slug',
     keywordMissingInIntro: 'keyword_missing_in_intro',
-    featuredSnippetMissing: 'featured_snippet_missing',
-    featuredSnippetBelowGood: 'featured_snippet_below_good',
-    featuredSnippetBelowExcellent: 'featured_snippet_below_excellent',
 };
 
 export function resolveScoringMessage(key, messages = {}, params = {}) {
@@ -454,10 +450,11 @@ function parseFaqsFromHtmlForScoring(html) {
     return [];
 }
 
-function resolveFaqsForScoring(html, faqs, documentModel = null) {
-    const normalized = normalizeFaqs(faqs);
-    if (normalized.length > 0) {
-        return normalized;
+export function resolveFaqsForScoring(html, faqs, documentModel = null) {
+    // Array (including []) = canonical/known FAQ owner state.
+    // null/undefined = unknown/unhydrated — DocumentModel/HTML fallback allowed.
+    if (Array.isArray(faqs)) {
+        return normalizeFaqs(faqs);
     }
 
     // Prefer DocumentModel placeholder nodes over HTML parse.
@@ -478,44 +475,14 @@ function resolveArticleLengthTarget(postType, settings = {}) {
     return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
-function resolveFeaturedSnippetViolation(html, thresholds = {}, documentModel = null) {
-    const source = String(html ?? '').trim();
-    const hasTableFromModel = documentModel ? selectTables(documentModel).length > 0 : false;
-    const hasTableFromHtml = /<table\b/i.test(source);
-    if ((!hasTableFromModel && !hasTableFromHtml) || source === '') {
-        // Model may know table exists while export HTML empty during bridge gaps.
-        if (!hasTableFromModel) {
-            return RULE_KEYS.featuredSnippetMissing;
-        }
-    }
-
-    if (typeof document === 'undefined') {
-        return hasTableFromModel ? RULE_KEYS.featuredSnippetBelowGood : RULE_KEYS.featuredSnippetMissing;
-    }
-
-    if (source === '' || !hasTableFromHtml) {
-        return hasTableFromModel ? RULE_KEYS.featuredSnippetBelowGood : RULE_KEYS.featuredSnippetMissing;
-    }
-
-    const score = resolveFeaturedSnippetTableScore(source, {
+function resolveFeaturedSnippetViolation(snapshot, thresholds = {}) {
+    return resolveFeaturedSnippetViolationFromTables(snapshot?.tables ?? [], {
         rows_min: Number(thresholds?.rows_min ?? 6),
         rows_range: Number(thresholds?.rows_range ?? 8),
         rows_max: Number(thresholds?.rows_max ?? 10),
         min_columns: Number(thresholds?.min_columns ?? 2),
         max_columns: Number(thresholds?.max_columns ?? 5),
     });
-
-    if (score.tier === 'excellent') {
-        return null;
-    }
-    if (score.tier === 'good') {
-        return RULE_KEYS.featuredSnippetBelowExcellent;
-    }
-    if (score.tier === 'average') {
-        return RULE_KEYS.featuredSnippetBelowGood;
-    }
-
-    return RULE_KEYS.featuredSnippetMissing;
 }
 
 function resolveImageRatioViolations(html, imageMetricsOverride = null, wordsPerImage = TARGET_WORDS_PER_IMAGE) {
@@ -584,13 +551,14 @@ function computeViolations({
     seoScoringRules = [],
     imageMetricsOverride = null,
     wordsPerImage = TARGET_WORDS_PER_IMAGE,
-    documentModel = null,
+    snapshot = null,
 }) {
     const keyword = normalizeFocusKeyword(focusKeyword);
     const violations = [];
-    const model = documentModel || resolveAnalysisDocumentModel({ html: content });
-    const wordCount = model.wordCount({ eligible: true });
-    const h2Count = selectH2(model).length;
+    const currentDraft = snapshot || createCurrentDraftAnalysisSnapshot({ html: content });
+    const model = currentDraft.documentModel;
+    const wordCount = currentDraft.wordCount;
+    const h2Count = currentDraft.h2Count;
     const extractedLinks = extractLinksFromDocument(model, siteDomain, content);
     const introText = sliceFirstWordsFromModel(model, 100);
 
@@ -623,7 +591,7 @@ function computeViolations({
         }),
     );
 
-    const snippetViolation = resolveFeaturedSnippetViolation(content, featuredSnippetThresholds, model);
+    const snippetViolation = resolveFeaturedSnippetViolation(currentDraft, featuredSnippetThresholds);
     if (snippetViolation) {
         violations.push(snippetViolation);
     }
@@ -658,7 +626,7 @@ export function computeSeoAnalysis({
     metaDescription = '',
     slug = '',
     siteDomain = '',
-    faqs = [],
+    faqs = undefined,
     wikiTrustDomains = DEFAULT_WIKI_TRUST_DOMAINS,
     scoringMessages = {},
     seoScoringRules = [],
@@ -674,13 +642,18 @@ export function computeSeoAnalysis({
     const keyword = normalizeFocusKeyword(focusKeyword);
     const content = String(html ?? '');
     const wordsPerImage = wordsPerImageFromPolicy(policy);
-    const documentModel = resolveAnalysisDocumentModel({
-        documentModel: incomingModel,
-        document: documentJson,
-        blocks,
-        html: content,
-    });
-    const modelWordCount = documentModel.wordCount({ eligible: true });
+    const snapshot = incomingModel && typeof incomingModel.wordCount === 'function'
+        ? createCurrentDraftAnalysisSnapshot({
+            html: content,
+            document: incomingModel.json(),
+        })
+        : createCurrentDraftAnalysisSnapshot({
+            html: content,
+            document: documentJson,
+            blocks,
+        });
+    const documentModel = snapshot.documentModel;
+    const modelWordCount = snapshot.wordCount;
 
     const lengthSettings = {
         article_length_product: policy?.content?.article_length_product
@@ -694,18 +667,13 @@ export function computeSeoAnalysis({
         // Ensure snapshot counts available to resolveContentImageCounts via store.
     }
 
-    const htmlImageMetrics = calculateTextToImageMetrics(content, { wordsPerImage });
-    htmlImageMetrics.current_word_count = modelWordCount;
-    const counts = resolveContentImageCounts(articleId, htmlImageMetrics);
-    let imageMetrics = applyImageCountsToMetrics(
-        {
-            ...htmlImageMetrics,
-            current_word_count: modelWordCount,
-            missingAlt: htmlImageMetrics.missingAlt,
-        },
-        counts,
-        policy,
-    );
+    const imageMetrics = computeImageRatioMetrics('', {
+        countWordsForImageRatio: () => modelWordCount,
+        wordsPerImage,
+        validImageCountOverride: snapshot.imageCount,
+        missingAltOverride: snapshot.missingImageAltCount,
+    });
+    imageMetrics.count_source = snapshot.source;
     const contentLengthMetrics = computeContentLengthMetrics(modelWordCount, lengthTarget);
     const rules = Array.isArray(policy?.seo_scoring_rules) && policy.seo_scoring_rules.length > 0
         ? policy.seo_scoring_rules
@@ -735,6 +703,15 @@ export function computeSeoAnalysis({
                 image_ratio: imageMetrics,
                 content_length: contentLengthMetrics,
                 target_words_per_image: wordsPerImage,
+                draft_structure: {
+                    source: snapshot.source,
+                    heading_count: snapshot.headings.length,
+                    h2_count: snapshot.h2Count,
+                    image_count: snapshot.imageCount,
+                    table_count: snapshot.tables.length,
+                    list_count: snapshot.lists.length,
+                    link_count: snapshot.links.length,
+                },
                 document_owner: 'tiptap_json',
             },
             policy_version: Number(policy?.version) || 1,
@@ -756,7 +733,7 @@ export function computeSeoAnalysis({
         seoScoringRules: rules,
         imageMetricsOverride: imageMetrics,
         wordsPerImage,
-        documentModel,
+        snapshot,
     });
 
     let violations = normalizeViolationList(result.violations, policy);
@@ -778,6 +755,15 @@ export function computeSeoAnalysis({
         image_ratio: imageMetrics,
         content_length: contentLengthMetrics,
         target_words_per_image: wordsPerImage,
+        draft_structure: {
+            source: snapshot.source,
+            heading_count: snapshot.headings.length,
+            h2_count: snapshot.h2Count,
+            image_count: snapshot.imageCount,
+            table_count: snapshot.tables.length,
+            list_count: snapshot.lists.length,
+            link_count: snapshot.links.length,
+        },
     };
     const errors = buildViolationLines(violations, rules, scoringMessages, metrics);
 

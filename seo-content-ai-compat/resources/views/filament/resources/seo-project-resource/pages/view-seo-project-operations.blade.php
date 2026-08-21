@@ -80,6 +80,8 @@
             restartKeywordItemTitle: '',
             restartKeywordInput: '',
             restartKeywordBusy: false,
+            restartKeywordError: '',
+            restartKeywordPollTimer: null,
             openSelectExistingArticleModal(taskId) {
                 const id = Number(taskId || 0);
                 if (id <= 0) return;
@@ -125,9 +127,14 @@
             openRestartWithKeywordModal(detail) {
                 const id = Number(detail?.taskId || 0);
                 if (id <= 0) return;
+                if (this.restartKeywordPollTimer) {
+                    clearTimeout(this.restartKeywordPollTimer);
+                    this.restartKeywordPollTimer = null;
+                }
                 const switchingItem = this.restartKeywordTaskId !== id;
                 this.restartKeywordOpen = true;
                 this.restartKeywordBusy = false;
+                this.restartKeywordError = '';
                 this.restartKeywordTaskId = id;
                 this.restartKeywordItemTitle = String(detail?.title || ('#' + id));
                 if (switchingItem) {
@@ -135,25 +142,89 @@
                 }
             },
             closeRestartWithKeywordModal() {
+                if (this.restartKeywordPollTimer) {
+                    clearTimeout(this.restartKeywordPollTimer);
+                    this.restartKeywordPollTimer = null;
+                }
+                const tid = Number(this.restartKeywordTaskId || 0);
                 this.restartKeywordOpen = false;
                 this.restartKeywordBusy = false;
+                this.restartKeywordError = '';
                 this.restartKeywordTaskId = 0;
                 this.restartKeywordItemTitle = '';
                 this.restartKeywordInput = '';
+                if (tid > 0) {
+                    $dispatch('cp-ops-row-processing-clear', { taskId: tid });
+                }
+            },
+            async waitRestartKeywordTerminal(taskId, executionRef) {
+                const maxAttempts = 150;
+                for (let attempt = 0; attempt < maxAttempts; attempt++) {
+                    await new Promise((resolve) => {
+                        this.restartKeywordPollTimer = setTimeout(resolve, attempt === 0 ? 800 : 2000);
+                    });
+                    this.restartKeywordPollTimer = null;
+                    if (! this.restartKeywordOpen || Number(this.restartKeywordTaskId) !== Number(taskId)) {
+                        return 'cancelled';
+                    }
+                    let status = null;
+                    try {
+                        status = await $wire.pollRestartWithKeywordStatus(Number(taskId), executionRef || null);
+                    } catch (e) {
+                        continue;
+                    }
+                    if (! status || ! status.ok) {
+                        continue;
+                    }
+                    if (status.running) {
+                        continue;
+                    }
+                    if (status.terminal === 'completed') {
+                        return 'completed';
+                    }
+                    if (status.terminal === 'failed') {
+                        return 'failed';
+                    }
+                }
+                return 'timeout';
             },
             confirmRestartWithKeyword() {
                 const id = Number(this.restartKeywordTaskId || 0);
                 const keyword = String(this.restartKeywordInput || '').trim();
                 if (id <= 0 || keyword === '' || this.restartKeywordBusy) return;
                 this.restartKeywordBusy = true;
+                this.restartKeywordError = '';
                 $dispatch('cp-ops-row-processing', { taskId: id, kind: 'generation' });
-                $wire.confirmRestartWithKeyword(id, keyword).finally(() => {
-                    this.restartKeywordBusy = false;
-                    this.restartKeywordOpen = false;
-                    this.restartKeywordTaskId = 0;
-                    this.restartKeywordItemTitle = '';
-                    this.restartKeywordInput = '';
-                });
+                $wire.confirmRestartWithKeyword(id, keyword)
+                    .then(async (result) => {
+                        if (! result || result.ok !== true) {
+                            this.restartKeywordBusy = false;
+                            this.restartKeywordError = String(result?.message || 'Không bắt đầu được generation.');
+                            $dispatch('cp-ops-row-processing-clear', { taskId: id });
+                            return;
+                        }
+                        const terminal = await this.waitRestartKeywordTerminal(id, result.execution_ref || null);
+                        if (terminal === 'completed') {
+                            this.closeRestartWithKeywordModal();
+                            $dispatch('cp-ops-row-processing-clear', { taskId: id });
+                            try { await $wire.finalizeRestartWithKeywordSuccess(); } catch (e) {}
+                            return;
+                        }
+                        if (terminal === 'cancelled') {
+                            return;
+                        }
+                        this.restartKeywordBusy = false;
+                        this.restartKeywordError = terminal === 'timeout'
+                            ? 'Generation quá lâu — kiểm tra trạng thái item trên bảng.'
+                            : 'Generation thất bại. Từ khóa cũ được giữ nguyên.';
+                        $dispatch('cp-ops-row-processing-clear', { taskId: id });
+                        try { await this.doLazyRefresh(true); } catch (e) {}
+                    })
+                    .catch(() => {
+                        this.restartKeywordBusy = false;
+                        this.restartKeywordError = 'Không bắt đầu được generation.';
+                        $dispatch('cp-ops-row-processing-clear', { taskId: id });
+                    });
             },
             scheduleSelectArticleSearch() {
                 if (this.selectArticleSearchTimer) {
@@ -650,7 +721,7 @@
         x-on:open-missing-article-confirm.window="openMissingArticleConfirmModal($event.detail || {})"
         x-on:close-missing-article-confirm.window="missingArticleOpen = false"
         x-on:open-restart-with-keyword.window="openRestartWithKeywordModal($event.detail || {})"
-        x-on:close-restart-with-keyword.window="restartKeywordOpen = false"
+        x-on:close-restart-with-keyword.window="closeRestartWithKeywordModal()"
     >
         @if ($this->settingsOpen)
             <div class="rounded-xl border border-gray-200 bg-white p-4 text-sm dark:border-gray-700 dark:bg-gray-900">
@@ -873,72 +944,88 @@
         </template>
 
         {{-- Fresh keyword restart modal --}}
-        <template x-teleport="body">
+        {{-- Restart-with-keyword modal (keep in-tree — avoid teleport orphan after Livewire morph) --}}
+        <div
+            x-show="restartKeywordOpen"
+            x-cloak
+            x-transition.opacity.duration.150ms
+            class="cp-ops-dialog-overlay"
+            @keydown.escape.window="if (restartKeywordOpen && !restartKeywordBusy) { closeRestartWithKeywordModal() }"
+            @click.self="if (!restartKeywordBusy) { closeRestartWithKeywordModal() }"
+        >
             <div
                 x-show="restartKeywordOpen"
-                x-cloak
-                x-transition.opacity.duration.150ms
-                class="cp-ops-dialog-overlay"
-                @keydown.escape.window="if (restartKeywordOpen) { closeRestartWithKeywordModal() }"
-                @click.self="closeRestartWithKeywordModal()"
+                x-transition:enter="ease-out duration-150"
+                x-transition:enter-start="opacity-0 translate-y-1 scale-[0.98]"
+                x-transition:enter-end="opacity-100 translate-y-0 scale-100"
+                class="cp-ops-dialog cp-ops-dialog--sm"
             >
-                <div
-                    x-show="restartKeywordOpen"
-                    x-transition:enter="ease-out duration-150"
-                    x-transition:enter-start="opacity-0 translate-y-1 scale-[0.98]"
-                    x-transition:enter-end="opacity-100 translate-y-0 scale-100"
-                    class="cp-ops-dialog cp-ops-dialog--sm"
-                    @click.outside="closeRestartWithKeywordModal()"
-                >
-                    <div class="cp-ops-dialog__header">
-                        <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">
-                            {{ __('seo-content-ai::filament.projects.restart_with_keyword_title') }}
-                        </h3>
-                        <p class="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-800 dark:bg-gray-800/60 dark:text-gray-200">
-                            <span class="font-medium" x-text="restartKeywordItemTitle"></span>
-                        </p>
-                        <label class="mt-4 block">
-                            <span class="text-sm font-medium text-gray-700 dark:text-gray-200">
-                                {{ __('seo-content-ai::filament.projects.restart_with_keyword_input_label') }}
-                            </span>
-                            <input
-                                type="text"
-                                x-model="restartKeywordInput"
-                                class="fi-input mt-1 block w-full rounded-lg text-sm"
-                                placeholder="{{ __('seo-content-ai::filament.projects.restart_with_keyword_input_placeholder') }}"
-                                @keydown.enter.prevent="confirmRestartWithKeyword()"
-                            />
-                        </label>
-                        <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
-                            {{ __('seo-content-ai::filament.projects.restart_with_keyword_helper') }}
-                        </p>
-                    </div>
-                    <div class="cp-ops-dialog__footer flex justify-end gap-2">
-                        <button
-                            type="button"
-                            class="fi-btn fi-btn-color-gray fi-size-sm"
-                            @click="closeRestartWithKeywordModal()"
+                <div class="cp-ops-dialog__header">
+                    <h3 class="text-base font-semibold text-gray-900 dark:text-gray-100">
+                        {{ __('seo-content-ai::filament.projects.restart_with_keyword_title') }}
+                    </h3>
+                    <p class="mt-3 rounded-lg bg-gray-50 px-3 py-2 text-sm text-gray-800 dark:bg-gray-800/60 dark:text-gray-200">
+                        <span class="font-medium" x-text="restartKeywordItemTitle"></span>
+                    </p>
+                    <label class="mt-4 block">
+                        <span class="text-sm font-medium text-gray-700 dark:text-gray-200">
+                            {{ __('seo-content-ai::filament.projects.restart_with_keyword_input_label') }}
+                        </span>
+                        <input
+                            type="text"
+                            x-model="restartKeywordInput"
+                            class="fi-input mt-1 block w-full rounded-lg text-sm"
+                            placeholder="{{ __('seo-content-ai::filament.projects.restart_with_keyword_input_placeholder') }}"
                             :disabled="restartKeywordBusy"
-                        >
-                            {{ __('seo-content-ai::filament.projects.restart_with_keyword_cancel') }}
-                        </button>
-                        <button
-                            type="button"
-                            class="fi-btn fi-btn-color-primary fi-size-sm inline-flex items-center gap-1"
-                            @click="confirmRestartWithKeyword()"
-                            :disabled="restartKeywordBusy || !String(restartKeywordInput || '').trim()"
-                            :class="{ 'opacity-50 pointer-events-none': restartKeywordBusy || !String(restartKeywordInput || '').trim() }"
-                        >
-                            <svg x-show="restartKeywordBusy" class="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
-                            </svg>
-                            <span>{{ __('seo-content-ai::filament.projects.restart_with_keyword_submit') }}</span>
-                        </button>
-                    </div>
+                            @keydown.enter.prevent="confirmRestartWithKeyword()"
+                        />
+                    </label>
+                    <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                        {{ __('seo-content-ai::filament.projects.restart_with_keyword_helper') }}
+                    </p>
+                    <p
+                        x-show="restartKeywordBusy"
+                        x-cloak
+                        class="mt-3 inline-flex items-center gap-2 text-sm text-sky-700 dark:text-sky-300"
+                    >
+                        <svg class="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                        </svg>
+                        <span>{{ __('seo-content-ai::filament.projects.ops_running') }}…</span>
+                    </p>
+                    <p
+                        x-show="restartKeywordError"
+                        x-cloak
+                        class="mt-3 text-sm text-rose-600 dark:text-rose-400"
+                        x-text="restartKeywordError"
+                    ></p>
+                </div>
+                <div class="cp-ops-dialog__footer flex justify-end gap-2">
+                    <button
+                        type="button"
+                        class="fi-btn fi-btn-color-gray fi-size-sm"
+                        @click="closeRestartWithKeywordModal()"
+                        :disabled="restartKeywordBusy"
+                    >
+                        {{ __('seo-content-ai::filament.projects.restart_with_keyword_cancel') }}
+                    </button>
+                    <button
+                        type="button"
+                        class="fi-btn fi-btn-color-primary fi-size-sm inline-flex items-center gap-1"
+                        @click="confirmRestartWithKeyword()"
+                        :disabled="restartKeywordBusy || !String(restartKeywordInput || '').trim()"
+                        :class="{ 'opacity-50 pointer-events-none': restartKeywordBusy || !String(restartKeywordInput || '').trim() }"
+                    >
+                        <svg x-show="restartKeywordBusy" class="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+                            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
+                        </svg>
+                        <span>{{ __('seo-content-ai::filament.projects.restart_with_keyword_submit') }}</span>
+                    </button>
                 </div>
             </div>
-        </template>
+        </div>
 
         {{-- Select Existing Article modal — teleport to body (z-index + padding) --}}
         <template x-teleport="body">

@@ -4,9 +4,13 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Seo\Filament\Pages\Auth;
 
+use App\Models\User;
+use Filament\Facades\Filament;
 use Filament\Pages\Auth\Login;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Support\Facades\Session;
+use Omnichannel\Addons\Seo\Services\SeoLoginServiceResolver;
+use Omnichannel\Addons\Seo\Support\SeoConnectionContext;
 
 final class SeoLogin extends Login
 {
@@ -38,13 +42,33 @@ final class SeoLogin extends Login
         }
     }
 
+    public function getLoginFormActionUrl(): string
+    {
+        $hash = request()->route('connection_hash');
+        if (is_string($hash) && SeoConnectionContext::isValidHashFormat($hash)) {
+            return route('seo.auth.login.hash.store', ['connection_hash' => $hash]);
+        }
+
+        return route('seo.auth.login.store');
+    }
+
     protected function getRedirectUrl(): string
     {
         if (is_string($this->return_url) && $this->return_url !== '') {
             return $this->return_url;
         }
 
-        return parent::getRedirectUrl();
+        $user = Filament::auth()->user();
+        if (! $user instanceof User) {
+            return parent::getRedirectUrl();
+        }
+
+        $explicitHash = request()->route('connection_hash');
+        $explicitHash = is_string($explicitHash) && SeoConnectionContext::isValidHashFormat($explicitHash)
+            ? $explicitHash
+            : null;
+
+        return app(SeoLoginServiceResolver::class)->redirectUrlAfterLogin($user, $explicitHash);
     }
 
     public function getGoogleLoginReturnUrl(): string
@@ -53,6 +77,11 @@ final class SeoLogin extends Login
             return $this->return_url;
         }
 
-        return filament()->getCurrentPanel()->getUrl();
+        $hash = request()->route('connection_hash');
+        if (is_string($hash) && SeoConnectionContext::isValidHashFormat($hash)) {
+            return url('/seo/'.$hash);
+        }
+
+        return url('/seo');
     }
 }

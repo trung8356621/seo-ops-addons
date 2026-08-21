@@ -1,13 +1,16 @@
-﻿import React, { useCallback } from 'react';
+﻿import React, { lazy, Suspense, useCallback } from 'react';
 import { ImagePlus, Trash2 } from 'lucide-react';
 import { EditorModuleErrorBoundary } from '@content-addon/editor/runtime/EditorModuleErrorBoundary.jsx';
 import { useEditorHostApiOptional } from '@content-addon/editor/host/EditorHostApiContext.jsx';
 import { useEditorMedia } from '../../host/hooks/useEditorMedia';
 import { useEditorMediaPicker } from '../../host/hooks/useEditorMediaPicker';
 import { useEditorNotifications } from '@content-addon/editor/host/hooks/useEditorNotifications.js';
-import { GallerySidebarPanel } from '../gallery/GallerySidebarPanel';
 import { normalizeFeaturedMediaItem } from '@content-addon/utils/articleEditorMediaSnapshot.js';
 import { t } from '@content-addon/utils/i18n.js';
+
+const GallerySidebarPanel = lazy(() => import('../gallery/GallerySidebarPanel.jsx').then((mod) => ({
+    default: mod.GallerySidebarPanel,
+})));
 
 function isProductType(type, supportsProductGallery = false) {
     if (supportsProductGallery) {
@@ -27,7 +30,11 @@ export function FeaturedSidebarPanel({ articleId = null, active = false }) {
     const supportsProductGallery = Boolean(host?.article?.supportsProductGallery);
 
     if (isProductType(runtimeType, supportsProductGallery)) {
-        return <GallerySidebarPanel articleId={articleId} active={active} />;
+        return (
+            <Suspense fallback={<div className="seo-module-loading p-3 text-sm">{t('editor_module_loading')}</div>}>
+                <GallerySidebarPanel articleId={articleId} active={active} />
+            </Suspense>
+        );
     }
 
     return <FeaturedImagePanel articleId={articleId} active={active} />;

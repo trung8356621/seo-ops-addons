@@ -18,11 +18,22 @@ final class AgentServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->registerCapabilities();
+        $this->registerAutomationRuntime();
     }
 
     public function boot(): void
     {
         // Routes/migrations attach as extraction progresses.
+    }
+
+    private function registerAutomationRuntime(): void
+    {
+        $this->app->singleton(\Omnichannel\Addons\Agent\Automation\Support\SensitivePayloadRedactor::class);
+        $this->app->singleton(\Omnichannel\Addons\Agent\Automation\Runtime\ActionExecutionLogger::class);
+        $this->app->bind(
+            \Omnichannel\Addons\Agent\Automation\Contracts\ActionExecutionLoggerContract::class,
+            \Omnichannel\Addons\Agent\Automation\Runtime\ActionExecutionLogger::class,
+        );
     }
 
     private function registerCapabilities(): void

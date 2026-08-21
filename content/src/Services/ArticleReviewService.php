@@ -360,9 +360,7 @@ final class ArticleReviewService
             };
         }
 
-        $role = in_array((string) ($user->role ?? ''), [User::ROLE_ADMIN, User::ROLE_OWNER], true)
-            ? SeoAccessControl::ROLE_MANAGER
-            : SeoAccessControl::normalizeRole((string) ($user->seo_role ?? SeoAccessControl::ROLE_CONTENT_MANAGER));
+        $role = SeoAccessControl::normalizeRole((string) ($user->seo_role ?? SeoAccessControl::ROLE_CONTENT_MANAGER));
 
         return match ($action) {
             ArticleReviewActionType::SubmitReview => $role === SeoAccessControl::ROLE_CONTENT_MANAGER,

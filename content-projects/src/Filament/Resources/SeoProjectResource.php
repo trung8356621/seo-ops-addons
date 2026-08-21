@@ -32,6 +32,7 @@ use Omnichannel\Addons\ContentProjects\Services\SeoProjectRunConsolidationServic
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectWorkflowRunService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemIdentity;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\Seo\Support\SeoPanelRoutes;
 use Omnichannel\Addons\Seo\Support\SeoConnectionContext;
 use Omnichannel\Addons\Content\Support\SystemDateTime;
 use App\Models\Site;
@@ -195,7 +196,7 @@ class SeoProjectResource extends SeoPanelResource
                 ->icon('heroicon-o-queue-list')
                 ->group(null)
                 ->parentItem($parentLabel)
-                ->isActiveWhen(fn (): bool => request()->routeIs('filament.seo.pages.publishing-queue'))
+                ->isActiveWhen(fn (): bool => SeoPanelRoutes::is('filament.seo.pages.publishing-queue'))
                 ->sort(5)
                 ->url(PublishingQueueHub::getUrl());
         }
@@ -1767,12 +1768,10 @@ class SeoProjectResource extends SeoPanelResource
             ->where('seo_role', User::SEO_ROLE_CONTENT_MANAGER)
             ->where('status', User::STATUS_NORMAL);
 
-        if (auth()->user()?->role !== User::ROLE_ADMIN) {
-            $ownerId = SeoAccessControl::accountOwnerId() ?? (int) auth()->id();
-            $query->where(function (Builder $users) use ($ownerId): void {
-                $users->whereKey($ownerId)->orWhere('parent_id', $ownerId);
-            });
-        }
+        $ownerId = SeoAccessControl::accountOwnerId() ?? (int) auth()->id();
+        $query->where(function (Builder $users) use ($ownerId): void {
+            $users->whereKey($ownerId)->orWhere('parent_id', $ownerId);
+        });
 
         return $query
             ->orderBy('name')

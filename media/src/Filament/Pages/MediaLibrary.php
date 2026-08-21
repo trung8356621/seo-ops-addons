@@ -16,6 +16,7 @@ use Omnichannel\Addons\Media\Services\SeoMediaWpEditStagingService;
 use Omnichannel\Addons\Media\Services\SeoWpMediaEditedPendingService;
 use Omnichannel\Addons\WordPress\Services\WordPressMediaLibraryService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\Seo\Support\SeoPanelRoutes;
 use App\Models\Site;
 use Filament\Navigation\NavigationItem;
 use Filament\Notifications\Notification;
@@ -1296,7 +1297,7 @@ class MediaLibrary extends Page
         return [
             NavigationItem::make($parentLabel)
                 ->icon(static::getNavigationIcon())
-                ->isActiveWhen(fn (): bool => request()->routeIs('filament.seo.pages.media-library')
+                ->isActiveWhen(fn (): bool => SeoPanelRoutes::is('filament.seo.pages.media-library')
                     && ! in_array(request()->query('activeTab'), ['local', 'generated'], true))
                 ->sort(static::getNavigationSort())
                 ->url(static::getUrl(['activeTab' => 'original'])),
@@ -1304,7 +1305,7 @@ class MediaLibrary extends Page
                 ->icon('heroicon-o-globe-alt')
                 ->group(null)
                 ->parentItem($parentLabel)
-                ->isActiveWhen(fn (): bool => request()->routeIs('filament.seo.pages.media-library')
+                ->isActiveWhen(fn (): bool => SeoPanelRoutes::is('filament.seo.pages.media-library')
                     && request()->query('activeTab', 'original') === 'original')
                 ->sort(1)
                 ->url(static::getUrl(['activeTab' => 'original'])),
@@ -1312,7 +1313,7 @@ class MediaLibrary extends Page
                 ->icon('heroicon-o-server-stack')
                 ->group(null)
                 ->parentItem($parentLabel)
-                ->isActiveWhen(fn (): bool => request()->routeIs('filament.seo.pages.media-library')
+                ->isActiveWhen(fn (): bool => SeoPanelRoutes::is('filament.seo.pages.media-library')
                     && in_array(request()->query('activeTab'), ['local', 'generated'], true))
                 ->sort(2)
                 ->url(static::getUrl(['activeTab' => 'local'])),

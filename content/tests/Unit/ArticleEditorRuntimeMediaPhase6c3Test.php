@@ -17,6 +17,11 @@ final class ArticleEditorRuntimeMediaPhase6c3Test extends TestCase
         return ProjectRoot::addonsPath().'/content/resources/js/'.$relative;
     }
 
+    private function mediaJs(string $relative): string
+    {
+        return ProjectRoot::addonsPath().'/media/resources/js/'.$relative;
+    }
+
     private function bladeEditArticle(): string
     {
         return LegacyAddonPath::resolve('resources/views/filament/resources/article-resource/pages/edit-article.blade.php');
@@ -55,12 +60,12 @@ final class ArticleEditorRuntimeMediaPhase6c3Test extends TestCase
 
     public function test_gallery_module_nav_chip_false_ui_via_featured(): void
     {
-        $mod = (string) file_get_contents($this->js('editor/modules/gallery/index.js'));
+        $mod = (string) file_get_contents($this->mediaJs('editor/modules/gallery/index.js'));
         self::assertStringContainsString('navChip: false', $mod);
         self::assertStringContainsString("portalRootKey: 'featured'", $mod);
-        self::assertFileExists($this->js('editor/modules/gallery/GallerySidebarPanel.jsx'));
+        self::assertFileExists($this->mediaJs('editor/modules/gallery/GallerySidebarPanel.jsx'));
 
-        $panel = (string) file_get_contents($this->js('editor/modules/gallery/GallerySidebarPanel.jsx'));
+        $panel = (string) file_get_contents($this->mediaJs('editor/modules/gallery/GallerySidebarPanel.jsx'));
         self::assertStringContainsString('reorderGallery', $panel);
         self::assertStringContainsString('stableId', $panel);
         self::assertStringContainsString("mode: 'gallery'", $panel);
@@ -69,7 +74,8 @@ final class ArticleEditorRuntimeMediaPhase6c3Test extends TestCase
         self::assertStringContainsString("seo-open-generate-image-modal", $panel);
         self::assertStringContainsString("target: 'product-gallery'", $panel);
         self::assertStringContainsString("t('generate_product_gallery_image')", $panel);
-        self::assertStringNotContainsString('seo-editor-distribute-product-gallery', $panel);
+        self::assertStringContainsString('seo-editor-distribute-product-gallery', $panel);
+        self::assertStringContainsString("t('product_gallery_distribute')", $panel);
     }
 
     public function test_featured_navigation_does_not_open_picker_and_product_gallery_is_multi_select(): void
@@ -84,7 +90,7 @@ final class ArticleEditorRuntimeMediaPhase6c3Test extends TestCase
         self::assertStringNotContainsString("target: 'product-gallery'", $featured);
         self::assertStringNotContainsString("mode: 'gallery'", $featured);
 
-        $gallery = (string) file_get_contents($this->js('editor/modules/gallery/GallerySidebarPanel.jsx'));
+        $gallery = (string) file_get_contents($this->mediaJs('editor/modules/gallery/GallerySidebarPanel.jsx'));
         self::assertStringContainsString("mode: 'gallery'", $gallery);
         self::assertStringContainsString("selection: 'multiple'", $gallery);
         self::assertStringContainsString('await media.replaceGallery(merged)', $gallery);
@@ -222,7 +228,7 @@ final class ArticleEditorRuntimeMediaPhase6c3Test extends TestCase
         self::assertStringContainsString('return `wp:${wpId}`', $picker);
         self::assertStringContainsString('return `local:${seoId}`', $picker);
 
-        $panel = (string) file_get_contents($this->js('editor/modules/gallery/GallerySidebarPanel.jsx'));
+        $panel = (string) file_get_contents($this->mediaJs('editor/modules/gallery/GallerySidebarPanel.jsx'));
         self::assertStringContainsString("item?.asset_key", $panel);
 
         $service = ProjectRoot::addonsPath().'/content/src/Services/ArticleEditor/ArticleEditorMediaSnapshotService.php';

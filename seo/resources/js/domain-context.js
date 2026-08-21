@@ -4,6 +4,7 @@ import {
     HEADER_KEY,
     LEGACY_EVENT_NAME,
     QUERY_KEY,
+    SITE_ID_QUERY_KEY,
     STORAGE_ACTIVE,
     STORAGE_LAST,
     buildUrlWithDomain,
@@ -209,7 +210,7 @@ function interceptSeoLinks(event) {
         return;
     }
 
-    if (url.searchParams.has(QUERY_KEY)) {
+    if (url.searchParams.has(QUERY_KEY) || url.searchParams.has(SITE_ID_QUERY_KEY)) {
         return;
     }
 
@@ -226,7 +227,7 @@ function attachNavigateHook() {
 
         try {
             const next = new URL(url, window.location.origin);
-            if (!isSeoPanelPath(next.href) || next.searchParams.has(QUERY_KEY)) {
+            if (!isSeoPanelPath(next.href) || next.searchParams.has(QUERY_KEY) || next.searchParams.has(SITE_ID_QUERY_KEY)) {
                 return;
             }
             next.searchParams.set(QUERY_KEY, currentKey());
@@ -264,6 +265,7 @@ function exposeApi() {
     window.SeoDomainContext = {
         ALL_KEY,
         QUERY_KEY,
+        SITE_ID_QUERY_KEY,
         domainKey: currentKey,
         isAllDomains: () => isAllDomains(currentKey()),
         select,

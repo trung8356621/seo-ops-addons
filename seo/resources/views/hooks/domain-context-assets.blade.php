@@ -12,6 +12,7 @@
 </style>
 <script>
     window.__SEO_ACCESSIBLE_DOMAINS__ = @json($resolver->accessibleDomainKeys());
+    window.__SEO_SITE_IDS_BY_DOMAIN__ = @json($resolver->accessibleSiteIdsByDomainKey());
     window.__SEO_DOMAIN_CONTEXT_FROM_SERVER__ = @json($domainContext->domainKey);
     window.__SEO_DOMAIN_CONTEXT_KEY__ = window.__SEO_DOMAIN_CONTEXT_KEY__ || window.__SEO_DOMAIN_CONTEXT_FROM_SERVER__;
 </script>

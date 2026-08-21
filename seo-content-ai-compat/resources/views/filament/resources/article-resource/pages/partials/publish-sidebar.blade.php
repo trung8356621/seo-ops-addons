@@ -538,6 +538,21 @@
                     <button type="button" x-on:click="applyStatus()" class="text-sky-600 hover:underline">Đồng ý</button>
                     <button type="button" x-on:click="cancelEdit('Status')" class="text-sky-600 hover:underline">Hủy</button>
                 </div>
+                <div class="mt-2">
+                    <button
+                        type="button"
+                        wire:click="reconcileObservedWordPressState"
+                        wire:loading.attr="disabled"
+                        wire:target="reconcileObservedWordPressState"
+                        class="text-xs font-semibold text-sky-700 hover:underline"
+                    >
+                        <span wire:loading.remove wire:target="reconcileObservedWordPressState">Kiểm tra lại trạng thái</span>
+                        <span wire:loading wire:target="reconcileObservedWordPressState" class="inline-flex items-center gap-1 opacity-50">
+                            <svg class="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+                            Đang kiểm tra
+                        </span>
+                    </button>
+                </div>
             </div>
 
             <div class="text-xs">

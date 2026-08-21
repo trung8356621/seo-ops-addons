@@ -349,3 +349,30 @@ export function buildVisibleInternalSuggestions({
         MAX_VISIBLE_INTERNAL_SUGGESTIONS,
     );
 }
+
+/**
+ * Main-domain catalog candidates must not duplicate current article links.
+ *
+ * @param {unknown[]} items
+ * @param {unknown[]} internal
+ * @param {unknown[]} external
+ * @returns {unknown[]}
+ */
+export function filterMainDomainSuggestionItems(items, internal = [], external = []) {
+    const linked = new Set(
+        [...(Array.isArray(internal) ? internal : []), ...(Array.isArray(external) ? external : [])]
+            .map((item) => normalizeHrefForCompare(item?.href ?? item?.target_url))
+            .filter(Boolean),
+    );
+    const seen = new Set();
+
+    return (Array.isArray(items) ? items : []).filter((item) => {
+        const href = normalizeHrefForCompare(item?.href ?? item?.target_url);
+        if (!href || linked.has(href) || seen.has(href)) {
+            return false;
+        }
+        seen.add(href);
+
+        return true;
+    });
+}

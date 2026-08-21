@@ -81,7 +81,7 @@ final class GlobalSeoBarDomainContextTest extends TestCase
     {
         $source = (string) file_get_contents((string) (new ReflectionClass(SeoAccessControl::class))->getFileName());
 
-        $this->assertStringContainsString("request()->routeIs('filament.seo.pages.mcp-intelligence')", $source);
+        $this->assertStringContainsString("SeoPanelRoutes::is('filament.seo.pages.mcp-intelligence')", $source);
     }
 
     public function test_mcp_page_uses_local_domain_picker(): void

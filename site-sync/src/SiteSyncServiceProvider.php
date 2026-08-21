@@ -6,6 +6,8 @@ namespace Omnichannel\Addons\SiteSync;
 
 use App\Core\Capability\CapabilityRegistry;
 use Illuminate\Support\ServiceProvider;
+use Omnichannel\Addons\SiteSync\Contracts\SiteLinkCatalogCapability;
+use Omnichannel\Addons\SiteSync\Services\Capabilities\SiteLinkCatalogCapabilityService;
 
 /**
  * Peer addon skeleton: registers capabilities into Client Core.
@@ -35,6 +37,14 @@ final class SiteSyncServiceProvider extends ServiceProvider
         $caps = $this->app->make(CapabilityRegistry::class);
         foreach ($this->providedCapabilityIds() as $id) {
             if ($caps->has($id)) {
+                continue;
+            }
+            if ($id === SiteLinkCatalogCapability::ID) {
+                $caps->register(
+                    $id,
+                    $this->app->make(SiteLinkCatalogCapabilityService::class),
+                    self::SLUG,
+                );
                 continue;
             }
             $caps->register($id, new CapabilityMarker($id, self::SLUG), self::SLUG);

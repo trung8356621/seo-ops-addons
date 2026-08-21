@@ -151,8 +151,8 @@
                     {{ __('Website chưa có dữ liệu trong kho SEO. Chạy đồng bộ từ WordPress.') }}
                 </x-slot>
                 @include('seo-content-ai::filament.resources.domain-resource.pages.partials.domain-sync-actions', [
-                    'showTest' => auth()->user()?->role === 'admin'
-                        && ! \Omnichannel\Addons\Seo\Support\SeoAccessControl::isSeoPanelReadOnly(),
+                    'showTest' => \Omnichannel\Addons\Seo\Support\SeoAccessControl::canAccessManagerFeatures()
+                        && \Omnichannel\Addons\Seo\Support\SeoAccessControl::canMutateInSeoPanel(),
                 ])
             </x-filament::section>
         @else
@@ -251,8 +251,8 @@
                     </div>
 
                     @include('seo-content-ai::filament.resources.domain-resource.pages.partials.domain-sync-actions', [
-                        'showTest' => auth()->user()?->role === 'admin'
-                        && ! \Omnichannel\Addons\Seo\Support\SeoAccessControl::isSeoPanelReadOnly(),
+                        'showTest' => \Omnichannel\Addons\Seo\Support\SeoAccessControl::canAccessManagerFeatures()
+                            && \Omnichannel\Addons\Seo\Support\SeoAccessControl::canMutateInSeoPanel(),
                     ])
                 </x-filament::section>
             </div>

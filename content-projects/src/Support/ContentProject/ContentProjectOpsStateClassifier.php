@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Support\ContentProject;
 
+use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+
 /**
  * Single classifier for Content Project ops Summary + List + badges.
  *
@@ -225,6 +227,15 @@ final class ContentProjectOpsStateClassifier
         if ($failed) {
             return 'failed';
         }
+
+        // Manual-only improve is never "waiting for AI generation".
+        $type = SeoProjectTask::normalizeType($row['type'] ?? $row['type_label'] ?? '');
+        $isImprove = ! empty($row['is_improve'])
+            || $type === SeoProjectTask::TYPE_IMPROVE;
+        if ($isImprove && (int) ($row['article_id'] ?? 0) > 0) {
+            return 'generated';
+        }
+
         $gs = strtolower(trim((string) ($row['generation_status'] ?? '')));
         $exec = strtolower(trim((string) ($row['execution_status'] ?? '')));
         if (in_array($gs, ['completed', 'reviewing'], true)

@@ -16,6 +16,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * Canonical FAQ snapshot + mutations for Article Editor (Phase 2C).
@@ -65,6 +66,16 @@ final class ArticleEditorFaqSnapshotController extends Controller
             abort(401);
         }
 
+        $lockKey = 'article-faq-generate-preview:'.(int) $article->getKey();
+        $lock = Cache::lock($lockKey, 180);
+        if (! $lock->get()) {
+            return response()->json([
+                'success' => false,
+                'error' => 'faq_generation_in_flight',
+                'message' => 'FAQ generation already in progress.',
+            ], 409);
+        }
+
         try {
             app(\Omnichannel\Addons\Content\Services\ArticleEditor\ArticleEditorSessionService::class)
                 ->assertArticleEditable($article);
@@ -86,6 +97,8 @@ final class ArticleEditorFaqSnapshotController extends Controller
                 'error' => 'faq_generation_failed',
                 'message' => $exception->getMessage(),
             ], 422);
+        } finally {
+            optional($lock)->release();
         }
     }
 

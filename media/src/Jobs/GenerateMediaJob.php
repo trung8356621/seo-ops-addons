@@ -64,7 +64,6 @@ class GenerateMediaJob implements ShouldQueue
         PromptResultLinkService $promptResultLinks,
         SeoDatabaseConnectionService $databaseConnection,
         ArticleEditorReadinessService $editorReadiness,
-        EditorWorkflowExecutionService $workflowExecution,
     ): void {
         $databaseConnection->bootstrapLegacySharedConnection();
 
@@ -113,7 +112,6 @@ class GenerateMediaJob implements ShouldQueue
                 && $article instanceof SeoArticle
             ) {
                 $workflowResult = $this->runEditorWorkflow(
-                    workflowExecution: $workflowExecution,
                     media: $media,
                     article: $article,
                     taskId: $workflowTaskId,
@@ -168,14 +166,19 @@ class GenerateMediaJob implements ShouldQueue
                 : (string) $media->path;
             $resolvedFilename = basename($urlPath !== '' ? $urlPath : $finalUrl);
 
-            $media->update([
+            $payload = [
                 'url' => $finalUrl,
                 'path' => $resolvedPath !== '' ? $resolvedPath : (string) $media->path,
                 'filename' => $resolvedFilename !== '' ? $resolvedFilename : (string) $media->filename,
                 'status' => 'completed',
                 'error_message' => null,
                 'prompt_variables' => $this->mergeWorkflowSnapshotIntoVariables($media, $workflowSnapshot),
-            ]);
+            ];
+            $renderModel = trim((string) ($workflowSnapshot['render_model'] ?? $workflowSnapshot['raw_model_used'] ?? ''));
+            if ($renderModel !== '') {
+                $payload['ai_generator'] = $renderModel;
+            }
+            $media->update($payload);
 
             $media = $media->fresh();
             if (ImageToolType::fromMixed($this->toolType)->isImagePipeline() && $media instanceof SeoMedia) {
@@ -293,7 +296,6 @@ class GenerateMediaJob implements ShouldQueue
      * @return array{url: string|null, snapshot: array<string, mixed>}
      */
     private function runEditorWorkflow(
-        EditorWorkflowExecutionService $workflowExecution,
         SeoMedia $media,
         SeoArticle $article,
         int $taskId,
@@ -304,7 +306,7 @@ class GenerateMediaJob implements ShouldQueue
         }
 
         $expectedTool = ImageToolType::fromMixed($this->toolType);
-        $result = $workflowExecution->executeForEditor(
+        $result = app(EditorWorkflowExecutionService::class)->executeForEditor(
             task: $task,
             article: $article,
             variables: $this->variables,

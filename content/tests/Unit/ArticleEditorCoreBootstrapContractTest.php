@@ -24,7 +24,7 @@ final class ArticleEditorCoreBootstrapContractTest extends TestCase
         foreach ([
             "'articleId'", "'connectionHash'", "'siteId'", "'title'", "'slug'",
             "'metaDescription'", "'focusKeyword'", "'permalinkBase'", "'permalinkSuffix'", "'siteDomain'",
-            "'content'", "'status'", "'postType'", "'updatedAt'", "'expectedUpdatedAt'",
+            "'content'", "'contentLifecycle'", "'status'", "'postType'", "'updatedAt'", "'expectedUpdatedAt'",
             "'expectedContentHash'", "'featuredImageUrl'", "'supportsProductGallery'", "'isCanaryProduct'",
             "'parentChildAllowed'", "'parentChildReason'",
             "'endpoints'", "'settings'",

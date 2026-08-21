@@ -61,7 +61,8 @@ export function extractOutlineHeadingsFromHtml(html, blockId) {
         const doc = new DOMParser().parseFromString(source, 'text/html');
         return Array.from(doc.body.querySelectorAll('h2, h3, h4')).map((heading, index) => {
             const text = normalizeOutlineHeadingText(heading.textContent);
-            const visible = heading.getAttribute('data-outline-visible') !== 'false';
+            const safe = isOutlineSafeHeadingElement(heading);
+            const visible = safe && heading.getAttribute('data-outline-visible') !== 'false';
             const headingId = heading.getAttribute('data-omi-heading-id') || `client:${String(blockId)}:${index}`;
 
             return {
@@ -81,18 +82,57 @@ export function extractOutlineHeadingsFromHtml(html, blockId) {
     let match;
     while ((match = re.exec(source)) !== null) {
         const index = headings.length;
+        const inner = String(match[3] ?? '');
+        const safe = !/<\s*(table|ul|ol|img|figure)\b/i.test(inner)
+            && !isHtmlOffsetInsideTable(source, match.index);
         headings.push({
             id: headingIdFromAttrs(match[2], blockId, index),
             level: Number.parseInt(match[1], 10),
             heading_text: normalizeOutlineHeadingText(stripTags(match[3])),
             block_id: String(blockId),
             heading_index: index,
-            outline_visible: headingVisibleFromAttrs(match[2]),
+            outline_visible: safe && headingVisibleFromAttrs(match[2]),
             children: [],
         });
     }
 
     return headings;
+}
+
+/**
+ * @param {string} source
+ * @param {number} index
+ * @returns {boolean}
+ */
+function isHtmlOffsetInsideTable(source, index) {
+    const before = String(source ?? '').slice(0, Math.max(0, Number(index) || 0)).toLowerCase();
+    const lastOpen = before.lastIndexOf('<table');
+    if (lastOpen < 0) {
+        return false;
+    }
+    const lastClose = before.lastIndexOf('</table');
+
+    return lastOpen > lastClose;
+}
+
+/**
+ * Real outline headings only — never table cells / flattened structured wrappers.
+ *
+ * @param {Element} heading
+ * @returns {boolean}
+ */
+function isOutlineSafeHeadingElement(heading) {
+    if (!heading || typeof heading.closest !== 'function') {
+        return false;
+    }
+    if (heading.closest('table')) {
+        return false;
+    }
+    if (heading.querySelector('table, ul, ol, img, figure, video, iframe')) {
+        return false;
+    }
+
+    return true;
 }
 
 /**

@@ -380,7 +380,8 @@
                     this.heavyPageAction = window.__seoArticleHeavyActionOverlay.action ?? 'sync';
                     return;
                 }
-                window.__seoArticleOperationTracker?.bootstrap?.(this.articleId);
+                // Do not fetch operation-status on init — it contends with edit-lease
+                // on artisan serve. PHP already embedded any active operation.
             },
             lockPageForHeavyAction(action = 'sync') {
                 if (this.syncPageLocked || document.getElementById('seo-article-heavy-action-overlay')) {
@@ -715,29 +716,60 @@
                         />
                     </div>
 
+                    @php
+                        $editorPermalink = trim($this->getDisplayPermalink());
+                        if ($editorPermalink === '') {
+                            $editorPermalink = trim($this->getPermalinkBase()) !== ''
+                                ? rtrim($this->getPermalinkBase(), '/').'/'.$this->getDisplaySlug()
+                                : '';
+                        }
+                        $wpPermalink = trim($this->getObservedWordPressPermalink());
+                        $showWpPermalinkRow = $wpPermalink !== ''
+                            && ! $this->permalinksAreEquivalent($editorPermalink, $wpPermalink);
+                    @endphp
                     <div
-                        class="wp-permalink mt-3 flex flex-wrap items-baseline gap-x-1 gap-y-1 text-sm text-gray-600 dark:text-gray-400"
+                        class="wp-permalink mt-3 space-y-1.5 text-sm text-gray-600 dark:text-gray-400"
                         data-seo-permalink-root
                         data-permalink-base="{{ rtrim($this->getPermalinkBase(), '/') }}"
                         data-permalink-suffix="{{ $this->getPermalinkSuffix() }}"
                         data-article-slug="{{ trim($this->articleSlug) }}"
+                        data-wordpress-permalink="{{ $wpPermalink }}"
                     >
-                        <span class="font-medium text-gray-700 dark:text-gray-300">Đường dẫn:</span>
-                        @php($displayPermalink = trim($this->getDisplayPermalink()))
-                        @if($displayPermalink !== '' && (int) ($record->wordpressLink?->wp_post_id ?? 0) > 0)
-                            <a
-                                href="{{ $displayPermalink }}"
-                                target="_blank"
-                                rel="noopener"
-                                data-seo-permalink-url
-                                class="text-sky-600 dark:text-sky-400 hover:underline break-all"
-                            >{{ $displayPermalink }}</a>
-                        @else
-                            <span
-                                data-seo-permalink-url
-                                class="break-all text-gray-500 dark:text-gray-400"
-                                title="URL dự kiến, chưa tồn tại trên WordPress"
-                            >{{ $displayPermalink !== '' ? $displayPermalink : (trim($this->getPermalinkBase()) !== '' ? rtrim($this->getPermalinkBase(), '/') . '/' . $this->getDisplaySlug() : '#') }}</span>
+                        <div class="wp-permalink__row wp-permalink__row--editor flex flex-wrap items-baseline gap-x-1 gap-y-1">
+                            <span class="font-medium text-gray-700 dark:text-gray-300 shrink-0">Đường dẫn:</span>
+                            @if($editorPermalink !== '')
+                                <a
+                                    href="{{ $editorPermalink }}"
+                                    target="_blank"
+                                    rel="noopener"
+                                    data-seo-permalink-url
+                                    class="wp-permalink__url text-sky-600 dark:text-sky-400 hover:underline"
+                                    title="URL theo slug hiện tại trong editor"
+                                >{{ $editorPermalink }}</a>
+                            @else
+                                <span
+                                    data-seo-permalink-url
+                                    class="wp-permalink__url text-gray-500 dark:text-gray-400"
+                                    title="URL dự kiến, chưa có slug"
+                                >#</span>
+                            @endif
+                        </div>
+                        @if($wpPermalink !== '')
+                            <div
+                                class="wp-permalink__row wp-permalink__row--wp flex flex-wrap items-baseline gap-x-1 gap-y-1{{ $showWpPermalinkRow ? '' : ' hidden' }}"
+                                data-seo-wp-permalink-row
+                                @if(! $showWpPermalinkRow) hidden @endif
+                            >
+                                <span class="font-medium text-gray-700 dark:text-gray-300 shrink-0">Đường dẫn WP:</span>
+                                <a
+                                    href="{{ $wpPermalink }}"
+                                    target="_blank"
+                                    rel="noopener"
+                                    data-seo-wp-permalink-url
+                                    class="wp-permalink__url text-sky-600 dark:text-sky-400 hover:underline"
+                                    title="Permalink thực tế đang tồn tại trên WordPress"
+                                >{{ $wpPermalink }}</a>
+                            </div>
                         @endif
                     </div>
                 </div>
@@ -948,7 +980,7 @@
                                                     <header class="seo-assistant-widget__header seo-assistant-widget__header--static">
                                                         <div class="seo-assistant-widget__toggle seo-assistant-widget__toggle--static">
                                                             <svg class="seo-assistant-widget__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M14 2v6h6M16 13H8M16 17H8M10 9H8"/></svg>
-                                                            <span class="seo-assistant-widget__title">Article Information</span>
+                                                            <span class="seo-assistant-widget__title">Trạng thái bài viết</span>
                                                         </div>
                                                     </header>
                                                     <div class="seo-assistant-widget__body space-y-3">

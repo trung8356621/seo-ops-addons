@@ -10,6 +10,7 @@ import { planCanonicalArticleBlockSplit } from './canonicalArticleBlockSplit';
 import {
     changeCurrentBlockType,
     changeHeadingLevelByIndex,
+    convertHeadingByIndex,
     deleteHeadingKeepContent,
     deleteHeadingWithContent,
     insertHeadingAfterSection,
@@ -182,6 +183,18 @@ export function changeHeadingLevelCommand(context, payload = {}) {
     ));
 }
 
+export function convertHeadingCommand(context, payload = {}) {
+    const headingIndex = Number(payload.headingIndex ?? payload.heading_index);
+    const kind = String(payload.kind ?? '').trim();
+    if (!Number.isFinite(headingIndex) || headingIndex < 0 || kind === '') {
+        return failCommand('convert_heading', EDITOR_COMMAND_CODES.SELECTION_INVALID);
+    }
+
+    return runStateCommand(context, payload, 'convert_heading', (state, dispatch) => (
+        convertHeadingByIndex(state, dispatch, { headingIndex, kind })
+    ));
+}
+
 export function deleteHeadingKeepContentCommand(context, payload = {}) {
     const headingIndex = Number(payload.headingIndex ?? payload.heading_index);
     if (!Number.isFinite(headingIndex) || headingIndex < 0) {
@@ -241,6 +254,7 @@ export default {
     changeCurrentBlockHeadingCommand,
     renameHeadingCommand,
     changeHeadingLevelCommand,
+    convertHeadingCommand,
     deleteHeadingKeepContentCommand,
     deleteHeadingWithContentCommand,
     setHeadingOutlineVisibleCommand,

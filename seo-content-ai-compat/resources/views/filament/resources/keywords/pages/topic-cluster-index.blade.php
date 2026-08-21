@@ -31,12 +31,22 @@
             <a href="{{ $this->unclusteredUrl() }}" class="topic-index-stat">
                 <div class="topic-index-stat__label">{{ __('seo-content-ai::filament.keyword.topic_summary_unclustered') }}</div>
                 <div class="topic-index-stat__value is-accent">{{ number_format((int) $summary['unclustered']) }}</div>
+                <div class="topic-index-stat__meta">{{ __('seo-content-ai::filament.keyword.topic_summary_unclustered_hint') }}</div>
             </a>
             <div class="topic-index-stat">
                 <div class="topic-index-stat__label">{{ __('seo-content-ai::filament.keyword.topic_summary_groups') }}</div>
                 <div class="topic-index-stat__value">{{ number_format((int) $summary['system_groups'] + (int) $summary['custom_groups']) }}</div>
             </div>
         </div>
+
+        @if (((int) ($summary['unclassified_keywords'] ?? 0)) > 0 || ((int) ($summary['non_seo_keywords'] ?? 0)) > 0)
+            <p class="text-xs text-gray-500 dark:text-gray-400">
+                {{ __('seo-content-ai::filament.keyword.topic_summary_quality_line', [
+                    'unclassified' => number_format((int) ($summary['unclassified_keywords'] ?? 0)),
+                    'non_seo' => number_format((int) ($summary['non_seo_keywords'] ?? 0)),
+                ]) }}
+            </p>
+        @endif
 
         <div class="topic-index-tabs" role="tablist">
             <button type="button" class="topic-index-tab {{ $this->section === 'clusters' ? 'is-active' : '' }}" wire:click="showClusters">
@@ -48,19 +58,36 @@
         </div>
 
         @if ($this->section === 'clusters')
-            <div class="topic-index-filters">
-                <input type="search" wire:model.live.debounce.400ms="clusterSearch" class="topic-index-input" placeholder="{{ __('seo-content-ai::filament.keyword.topic_search_cluster') }}">
-                <x-select size="sm" wire:model.live="coverageFilter">
-                    <option value="">{{ __('seo-content-ai::filament.keyword.topic_coverage_any') }}</option>
-                    <option value="strong">Strong</option>
-                    <option value="medium">Medium</option>
-                    <option value="weak">Weak</option>
-                    <option value="unknown">Unknown</option>
-                </x-select>
-                <label class="topic-index-check">
-                    <input type="checkbox" wire:model.live="hasArticles">
-                    {{ __('seo-content-ai::filament.keyword.topic_has_articles') }}
-                </label>
+            <div class="flex flex-wrap items-center justify-between gap-3">
+                <div class="topic-index-filters flex-1">
+                    <input type="search" wire:model.live.debounce.400ms="clusterSearch" class="topic-index-input" placeholder="{{ __('seo-content-ai::filament.keyword.topic_search_cluster') }}">
+                    <x-select size="sm" wire:model.live="coverageFilter">
+                        <option value="">{{ __('seo-content-ai::filament.keyword.topic_coverage_any') }}</option>
+                        <option value="strong">Strong</option>
+                        <option value="medium">Medium</option>
+                        <option value="weak">Weak</option>
+                        <option value="unknown">Unknown</option>
+                    </x-select>
+                    <label class="topic-index-check">
+                        <input type="checkbox" wire:model.live="hasArticles">
+                        {{ __('seo-content-ai::filament.keyword.topic_has_articles') }}
+                    </label>
+                </div>
+                <x-filament::button
+                    type="button"
+                    size="sm"
+                    color="gray"
+                    wire:click="openClusterProposalPreview"
+                    wire:loading.attr="disabled"
+                    wire:target="openClusterProposalPreview,refreshClusterProposalPreview"
+                >
+                    <span wire:loading.remove wire:target="openClusterProposalPreview,refreshClusterProposalPreview">
+                        {{ __('seo-content-ai::filament.keyword.topic_proposal_open') }}
+                    </span>
+                    <span wire:loading wire:target="openClusterProposalPreview,refreshClusterProposalPreview">
+                        {{ __('seo-content-ai::filament.keyword.topic_proposal_working') }}
+                    </span>
+                </x-filament::button>
             </div>
 
             @if ($clusters->total() === 0)
@@ -78,6 +105,9 @@
                                 <th>{{ __('seo-content-ai::filament.keyword.topic_col_groups') }}</th>
                                 <th>Intent</th>
                                 <th>Coverage</th>
+                                @if ($this->canDissolveCluster())
+                                    <th class="w-28"></th>
+                                @endif
                             </tr>
                         </thead>
                         <tbody>
@@ -109,6 +139,13 @@
                                     </td>
                                     <td class="capitalize">{{ $row['intent'] !== '' ? $row['intent'] : '—' }}</td>
                                     <td><span class="topic-index-pill {{ $pill }}">{{ $row['coverage'] }}</span></td>
+                                    @if ($this->canDissolveCluster())
+                                        <td class="text-right">
+                                            @include('seo-content-ai::filament.resources.keywords.pages.partials.dissolve-cluster-row-action', [
+                                                'clusterKey' => $row['cluster_key'],
+                                            ])
+                                        </td>
+                                    @endif
                                 </tr>
                             @endforeach
                         </tbody>
@@ -116,6 +153,9 @@
                 </div>
                 <div>{{ $clusters->links() }}</div>
             @endif
+
+            @include('seo-content-ai::filament.resources.keywords.pages.partials.dissolve-cluster-modal')
+            @include('seo-content-ai::filament.resources.keywords.pages.partials.cluster-proposal-preview-modal')
         @else
             <div class="topic-index-filters">
                 <input type="search" wire:model.live.debounce.400ms="groupSearch" class="topic-index-input" placeholder="{{ __('seo-content-ai::filament.keyword.topic_search_group') }}">

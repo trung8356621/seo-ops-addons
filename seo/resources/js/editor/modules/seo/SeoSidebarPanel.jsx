@@ -35,9 +35,12 @@ export function SeoSidebarPanel() {
                 loading={seo.loading}
                 analyzing={seo.analyzing}
                 stale={seo.stale}
+                ready={seo.ready === true}
                 analyzeError={seo.analyzeError}
                 savedScore={seo.savedScore}
                 scoreSource={seo.scoreSource}
+                syncRequired={seo.syncRequired === true}
+                unavailableMessage={seo.unavailableMessage || null}
                 onAnalyzeClick={seo.onAnalyzeClick}
                 onViolationAction={seo.onViolationAction}
                 canGenerateFaq={seo.canGenerateFaq}

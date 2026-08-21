@@ -17,10 +17,10 @@ export const SHELL_BOUNDARY_NAV_ITEMS = Object.freeze([
     {
         id: 'article',
         panelId: 'article',
-        label: 'Article',
-        fullLabel: 'Article Information',
+        label: 'Trạng thái',
+        fullLabel: 'Trạng thái bài viết',
         order: 910,
         shell: true,
-        keywords: ['article', 'info', 'slug', 'status', 'schedule', 'author'],
+        keywords: ['article', 'info', 'slug', 'status', 'trạng thái', 'schedule', 'author'],
     },
 ]);

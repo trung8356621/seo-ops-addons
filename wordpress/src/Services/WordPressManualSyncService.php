@@ -121,17 +121,13 @@ final class WordPressManualSyncService
         }
 
         $article = $fresh->fresh() ?? $fresh;
-        $publishImmediately = (bool) filter_var(
-            data_get($bundle, 'publish_box.publish_immediately', false),
-            FILTER_VALIDATE_BOOL,
-        );
 
         return $this->enqueueManual(
             $article,
             $actor,
             $initiatedFrom,
             [
-                'mode' => $publishImmediately ? 'publish' : 'sync',
+                'mode' => $this->standalonePipelineMode($article),
                 'seo_override' => $context->seoPayloadForWordPress(),
             ],
         );
@@ -172,7 +168,12 @@ final class WordPressManualSyncService
             return $this->mapPostPublishCommandResult($result, $article);
         }
 
-        return $this->enqueueManual($article, $actor, $initiatedFrom, ['mode' => 'sync']);
+        return $this->enqueueManual(
+            $article,
+            $actor,
+            $initiatedFrom,
+            ['mode' => $this->standalonePipelineMode($article)],
+        );
     }
 
     /**
@@ -778,6 +779,15 @@ final class WordPressManualSyncService
                 'status' => 'danger',
             ],
         ];
+    }
+
+    /**
+     * Standalone (không thuộc Content Project): bài chưa liên kết WP phải tạo post mới.
+     * `Đăng ngay` chỉ đổi status local — không được map sang editor-sync (đòi wp_post_id).
+     */
+    private function standalonePipelineMode(SeoArticle $article): string
+    {
+        return (int) ($article->wordpressLink?->wp_post_id ?? 0) > 0 ? 'sync' : 'publish';
     }
 
     /**

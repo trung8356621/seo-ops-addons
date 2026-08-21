@@ -12,18 +12,23 @@ import {
 } from '../utils/articleEditorStorage';
 import { countGluedInlineMarkBoundaries, plainTextFromHtmlLoose, repairGluedInlineMarkBoundaryWhitespaceWithReport } from '../utils/inlineWhitespaceGuard';
 import { enrichBlocksWithPostImages, reconcileSupplementalImagesWithBlocks } from '@media-addon/utils/articleImagesUtils.js';
-import { exportBlocksToHtml, parseHtmlToBlocks, stripLeadingH1FromHtml } from '../utils/contentDocumentHelpers';
+import { exportBlocksToHtml, parseHtmlToBlocks, stripLeadingH1FromHtml, createEmptyTextBlock } from '../utils/contentDocumentHelpers';
 import { filterSuggestedInternalLinks, isSpecialOrContactHref, mergeSuggestionCatalog } from '../utils/articleLinkSuggestionFilter';
 import { mediaActions } from '@media-addon/editor/domains/media/state.js';
 import { seoActions, seoApi } from '@seo-addon/editor/domains/seo/state.js';
+import { isCachedSeoAnalysisValid } from '../utils/seoAnalysisReadiness';
 import { t } from '../utils/i18n';
 import { useCallback, useEffect, useState } from 'react';
+import {
+    CONTENT_LIFECYCLE,
+    getContentLifecycle,
+} from '../utils/articleEditorContentLifecycle';
 
 /**
  * useArticleEditorBootstrap - extracted from SeoArticleEditor.jsx (Task 7 mechanical
  * extraction). Mechanical move - no behavior change.
  */
-export default function useArticleEditorBootstrap({ analyzedBlocksRef, articleId, bootstrapBodyPlainRef, canRedo, canUndo, cancelLocalDraftSave, clearTempMerge, connectionHashRef, dismissedEditorImageMediaIdsRef, draftScope, expectedContentHash, expectedUpdatedAt, hasHydratedSeoFromServerRef, initialEditorDocument, initialEditorDocumentHash, initialHtml, initialPostImages, initialSeo, loadedArticleIdRef, postImagesRef, redo, requestAnalyze, sessionReadOnly, setActiveBlockId, setAnalyzing, setBlocks, setExtractedLinks, setGlobalEditor, setImagesReloadKey, setSeoStale, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomainRef, skipNextAutosave, suggestionExternalCatalogRef, undo, whitespaceCorruptionLockedRef, withDraftSite }) {
+export default function useArticleEditorBootstrap({ analyzedBlocksRef, articleId, bootstrapBodyPlainRef, canRedo, canUndo, cancelLocalDraftSave, clearTempMerge, connectionHashRef, dismissedEditorImageMediaIdsRef, draftScope, expectedContentHash, expectedUpdatedAt, hasHydratedSeoFromServerRef, initialEditorDocument, initialEditorDocumentHash, initialHtml, initialPostImages, initialSeo, loadedArticleIdRef, markSeoAnalysisReady = null, postImagesRef, redo, requestAnalyze, sessionReadOnly, setActiveBlockId, setAnalyzing, setBlocks, setExtractedLinks, setGlobalEditor, setImagesReloadKey, setSeoStale, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomainRef, skipNextAutosave, suggestionExternalCatalogRef, undo, whitespaceCorruptionLockedRef, withDraftSite }) {
     useEffect(() => {
         const isTypingTarget = (target) =>
             Boolean(
@@ -131,11 +136,33 @@ export default function useArticleEditorBootstrap({ analyzedBlocksRef, articleId
         const serverBlocksFromJson = serverHtmlRepair.repaired
             ? null
             : blocksFromEditorDocumentEnvelope(initialEditorDocument, effectiveInitialHtml);
-        const serverBlocks = enrichBlocksWithPostImages(
+        let serverBlocks = enrichBlocksWithPostImages(
             serverBlocksFromJson
                 ?? parseHtmlToBlocks(stripLeadingH1FromHtml(effectiveInitialHtml)),
             postImagesRef.current,
         );
+        const lifecycleState = String(getContentLifecycle()?.state || '');
+        if (lifecycleState === CONTENT_LIFECYCLE.SYNC_REQUIRED) {
+            // Missing local snapshot — never auto-apply hollow draft / empty blocks as editable.
+            setBlocks([]);
+            markSeoAnalysisReady?.(false);
+            setSeoStale(false);
+            setDraftRestoreOffer(null);
+            setDraftChoiceModalOpen(false);
+            setActiveBlockId(null);
+            setGlobalEditor(null);
+            skipNextAutosave.current = true;
+            return;
+        }
+        if (
+            serverBlocks.length === 0
+            && lifecycleState === CONTENT_LIFECYCLE.NEW_EMPTY_ARTICLE
+        ) {
+            serverBlocks = enrichBlocksWithPostImages(
+                [createEmptyTextBlock()],
+                postImagesRef.current,
+            );
+        }
         if (initialEditorDocumentHash && !serverHtmlRepair.repaired) {
             window.__SEO_EDITOR_DOCUMENT_HASH__ = String(initialEditorDocumentHash);
         }
@@ -158,11 +185,19 @@ export default function useArticleEditorBootstrap({ analyzedBlocksRef, articleId
         if (hardReadonly) {
             setBlocks(serverBlocks);
             const analyzedContentHash = String(initialSeo?.analyzed_content_hash ?? '').trim();
-            setSeoStale(
-                analyzedContentHash !== ''
+            const analysisFresh = analyzedContentHash !== ''
                 && serverBodyHash !== ''
-                && analyzedContentHash !== serverBodyHash,
-            );
+                && analyzedContentHash === serverBodyHash;
+            if (analysisFresh && isCachedSeoAnalysisValid(initialSeo, {
+                contentHash: serverBodyHash,
+                bodyHash: serverBodyHash,
+            })) {
+                markSeoAnalysisReady?.(true);
+                setSeoStale(false);
+            } else {
+                markSeoAnalysisReady?.(false);
+                setSeoStale(false);
+            }
             setDraftRestoreOffer(null);
             setDraftChoiceModalOpen(false);
             setActiveBlockId(null);
@@ -227,11 +262,19 @@ export default function useArticleEditorBootstrap({ analyzedBlocksRef, articleId
             window.__seoCancelArticleDraftAutosave?.();
 
             const analyzedContentHash = String(initialSeo?.analyzed_content_hash ?? '').trim();
-            setSeoStale(
-                analyzedContentHash !== ''
+            const analysisFresh = analyzedContentHash !== ''
                 && serverBodyHash !== ''
-                && analyzedContentHash !== serverBodyHash,
-            );
+                && analyzedContentHash === serverBodyHash;
+            if (analysisFresh && isCachedSeoAnalysisValid(initialSeo, {
+                contentHash: serverBodyHash,
+                bodyHash: serverBodyHash,
+            })) {
+                markSeoAnalysisReady?.(true);
+                setSeoStale(false);
+            } else {
+                markSeoAnalysisReady?.(false);
+                setSeoStale(false);
+            }
 
             if (shouldPromptRestore) {
                 // Keep dirty recovery — never silently discard unsaved work on F5.
@@ -388,7 +431,23 @@ export default function useArticleEditorBootstrap({ analyzedBlocksRef, articleId
         }
 
         hasHydratedSeoFromServerRef.current = true;
-        seoApi.adopt(initialSeo.analysis ?? null, initialSeo.focus_keyword ?? '');
+        const bodyHash = hashContent(String(initialHtml ?? ''));
+        const currentHash = String(expectedContentHash ?? '').trim() || bodyHash;
+        const cacheValid = isCachedSeoAnalysisValid(initialSeo, {
+            contentHash: bodyHash || currentHash,
+            bodyHash,
+        });
+
+        if (cacheValid) {
+            seoApi.adopt(initialSeo.analysis, initialSeo.focus_keyword ?? '');
+            markSeoAnalysisReady?.(true);
+            setSeoStale(false);
+        } else {
+            seoActions.clearAnalysis();
+            seoApi.adopt(null, initialSeo.focus_keyword ?? '');
+            markSeoAnalysisReady?.(false);
+            setSeoStale(false);
+        }
         seoActions.markClean();
         setExtractedLinks({
             internal: initialSeo.extracted_links?.internal ?? [],
@@ -423,7 +482,7 @@ export default function useArticleEditorBootstrap({ analyzedBlocksRef, articleId
                 initialSeo.suggested_external_links ?? [],
             );
         }
-    }, [initialSeo]);
+    }, [initialSeo, expectedContentHash, initialHtml, markSeoAnalysisReady]);
 
     const reconcileImagesTabWithBlocks = useCallback((nextBlocks) => {
         mediaActions.setSupplementalImages((prev) => reconcileSupplementalImagesWithBlocks(prev, nextBlocks));

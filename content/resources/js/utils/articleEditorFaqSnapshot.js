@@ -30,6 +30,8 @@ export function itemsFromFaqSnapshot(snapshot) {
     const items = Array.isArray(snapshot?.items) ? snapshot.items : [];
     return items.map((row, index) => ({
         id: row?.id ?? null,
+        client_key: String(row?.client_key ?? '').trim()
+            || (row?.id != null ? `faq-id-${row.id}` : ''),
         question: String(row?.question ?? ''),
         answer: String(row?.answer ?? '<p></p>'),
         more: String(row?.more ?? ''),

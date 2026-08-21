@@ -1,4 +1,5 @@
 import { uploadLocalMediaFiles } from './utils/seoLocalMediaUpload';
+import { buildMediaImageEditorUrl, prepareImageEditorUrl } from './utils/seoMediaApi';
 
 const MEDIA_LIBRARY_REMOVE_MS = 280;
 
@@ -10,6 +11,7 @@ function registerSeoMediaLibraryActions() {
         selectionAnchorKey: null,
         selectionStorageScope: '',
         localMediaUploading: false,
+        previewEditorOpening: false,
         init() {
             this.selectionStorageScope = this.resolveSelectionStorageScope();
             this.restoreSelectionFromStorage();
@@ -28,10 +30,19 @@ function registerSeoMediaLibraryActions() {
             };
 
             window.addEventListener('seo-media-library-dom-refreshed', this.handleDomRefreshed);
+
+            this.handleOpenImageEditor = (event) => {
+                const detail = event?.detail ?? {};
+                this.openPreviewImageEditor(detail.payload ?? detail, detail.trigger ?? null);
+            };
+            window.addEventListener('seo-media-library-open-image-editor', this.handleOpenImageEditor);
         },
         destroy() {
             if (this.handleDomRefreshed) {
                 window.removeEventListener('seo-media-library-dom-refreshed', this.handleDomRefreshed);
+            }
+            if (this.handleOpenImageEditor) {
+                window.removeEventListener('seo-media-library-open-image-editor', this.handleOpenImageEditor);
             }
         },
         resolveSelectionStorageScope() {
@@ -305,6 +316,91 @@ function registerSeoMediaLibraryActions() {
                     this.downloadCard(card);
                 }, index * 350);
             });
+        },
+        setPreviewEditorButtonState(triggerEl, opening) {
+            if (!triggerEl) {
+                return;
+            }
+
+            triggerEl.disabled = opening;
+            const label = triggerEl.querySelector('[data-editor-label]');
+            if (label) {
+                label.textContent = opening ? 'Preparing...' : (triggerEl.dataset.editorLabel ?? 'Edit image');
+            }
+        },
+        async openPreviewImageEditor(payload, triggerEl = null) {
+            if (this.previewEditorOpening) {
+                return;
+            }
+
+            const siteId = Number(payload?.siteId ?? 0);
+            if (!siteId) {
+                return;
+            }
+
+            const seoMediaId = Number(payload?.seoMediaId ?? 0);
+            const wpAttachmentId = Number(payload?.wpAttachmentId ?? 0);
+
+            this.previewEditorOpening = true;
+            this.setPreviewEditorButtonState(triggerEl, true);
+
+            if (seoMediaId > 0) {
+                const directUrl = buildMediaImageEditorUrl({ seoMediaId });
+                if (directUrl) {
+                    window.open(directUrl, '_blank', 'noopener,noreferrer');
+                    if (typeof this.$wire?.closeImagePreview === 'function') {
+                        await this.$wire.closeImagePreview();
+                    }
+
+                    this.previewEditorOpening = false;
+                    this.setPreviewEditorButtonState(triggerEl, false);
+
+                    return;
+                }
+            }
+
+            const popup = window.open('about:blank', '_blank', 'noopener,noreferrer');
+
+            try {
+                const data = await prepareImageEditorUrl({
+                    siteId,
+                    seoMediaId: seoMediaId > 0 ? seoMediaId : null,
+                    wpAttachmentId: wpAttachmentId > 0 ? wpAttachmentId : null,
+                    url: payload?.url ?? '',
+                    slug: payload?.slug ?? '',
+                });
+
+                const editorUrl = data?.editor_url;
+                if (!editorUrl) {
+                    throw new Error('Không mở được trình chỉnh sửa.');
+                }
+
+                if (popup && !popup.closed) {
+                    popup.location.href = editorUrl;
+                } else {
+                    window.open(editorUrl, '_blank', 'noopener,noreferrer');
+                }
+
+                if (typeof this.$wire?.closeImagePreview === 'function') {
+                    await this.$wire.closeImagePreview();
+                }
+            } catch (error) {
+                if (popup && !popup.closed) {
+                    popup.close();
+                }
+
+                const message = error?.message ?? 'Không mở được trình chỉnh sửa.';
+                if (typeof this.$wire?.notifyLocalMediaUpload === 'function') {
+                    await this.$wire.notifyLocalMediaUpload(
+                        'danger',
+                        'Không mở được trình chỉnh sửa',
+                        message,
+                    );
+                }
+            } finally {
+                this.previewEditorOpening = false;
+                this.setPreviewEditorButtonState(triggerEl, false);
+            }
         },
         openLocalMediaUploadPicker() {
             if (this.localMediaUploading) {

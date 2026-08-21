@@ -553,7 +553,11 @@ export function installArticleOperationTracker() {
     };
 
     const bootId = Number(window.__SEO_ACTIVE_ARTICLE_OPERATION__?.article_id || 0);
-    if (bootId > 0) {
-        void bootstrapArticleOperationLock(bootId);
-    }
+        if (bootId > 0) {
+            window.setTimeout(() => {
+                if (!window.__SEO_EDITOR_EXITING__) {
+                    void bootstrapArticleOperationLock(bootId);
+                }
+            }, 8000);
+        }
 }

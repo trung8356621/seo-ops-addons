@@ -40,7 +40,12 @@ final class PromptHookCallerBridge
         }
 
         if ($mode === PromptHookRuntimeMode::Shadow) {
-            if ($this->liveShadowGate->allows($hookKey)) {
+            // Live provider shadow is DEV-diagnostic only. Default path is
+            // shadowWithoutProvider (one legacy provider execution + parity audit).
+            if (
+                $this->flags->liveShadowProviderEnabled()
+                && $this->liveShadowGate->allows($hookKey)
+            ) {
                 $legacyResult = $legacyExecute();
                 try {
                     $this->engine->execute($hookKey, $version, $envelope, $correlationId);

@@ -19,20 +19,20 @@ final class ArticleEditorAutomationLockWaitTest extends TestCase
         return $this->readLegacyOrMovedAddonFile($relative);
     }
 
-    public function test_with_article_lock_blocks_instead_of_fail_fast_get(): void
+    public function test_with_article_lock_fails_fast_without_waiting(): void
     {
         $support = $this->readAddon('Automation/Support/ActionSupport.php');
 
-        self::assertStringContainsString('LockTimeoutException', $support);
-        self::assertStringContainsString('->block(', $support);
         self::assertStringContainsString('article-write:', $support);
         self::assertStringContainsString('articleWriteDepth', $support);
-        self::assertStringNotContainsString('if (! $lock->get())', $support);
+        self::assertStringContainsString('if (! $lock->get())', $support);
+        self::assertStringNotContainsString('->block(', $support);
+        self::assertStringNotContainsString('LockTimeoutException', $support);
     }
 
     public function test_server_autosave_shares_single_flight_with_explicit_save(): void
     {
-        $editor = $this->readAddon('resources/js/components/SeoArticleEditor.jsx');
+        $editor = $this->readAddon('resources/js/hooks/useArticleEditorSaveQueue.js');
 
         self::assertStringContainsString('saveArticleViaApiSingleFlight', $editor);
         self::assertStringContainsString("payload.save_mode = 'autosave'", $editor);

@@ -147,13 +147,14 @@ final class ContentProjectPublishingQueueBoundaryContractTest extends TestCase
             'generation_completed_at' => '2026-08-01T10:00:00+00:00',
         ]));
 
-        // «improve» must be publishable without generation completion.
+        // «improve» must be publishable without generation completion when dirty.
         self::assertTrue(PublishingQueueHandoffEligibility::canSend([
             'article_id' => 9,
             'type' => SeoProjectTask::TYPE_IMPROVE,
             'generation_status' => 'pending',
             'execution_status' => '',
             'generation_completed_at' => '',
+            'has_unpublished_changes' => true,
         ]));
 
         self::assertTrue(PublishingQueueHandoffEligibility::canSend([
@@ -162,6 +163,7 @@ final class ContentProjectPublishingQueueBoundaryContractTest extends TestCase
             'generation_status' => 'failed',
             'execution_status' => '',
             'generation_completed_at' => '',
+            'has_unpublished_changes' => true,
         ]));
 
         // via is_improve flag (as passed by read model $rowBase)
@@ -171,7 +173,50 @@ final class ContentProjectPublishingQueueBoundaryContractTest extends TestCase
             'generation_status' => 'pending',
             'execution_status' => '',
             'generation_completed_at' => '',
+            'has_unpublished_changes' => true,
         ]));
+
+        // improve without unpublished changes is not eligible
+        self::assertFalse(PublishingQueueHandoffEligibility::canSend([
+            'article_id' => 9,
+            'type' => SeoProjectTask::TYPE_IMPROVE,
+            'generation_status' => 'pending',
+            'has_unpublished_changes' => false,
+        ]));
+
+        // rewrite still requires generation readiness
+        self::assertFalse(PublishingQueueHandoffEligibility::canSend([
+            'article_id' => 9,
+            'type' => SeoProjectTask::TYPE_REWRITE,
+            'generation_status' => 'pending',
+            'execution_status' => '',
+            'generation_completed_at' => '',
+            'has_unpublished_changes' => true,
+        ]));
+
+        // improve blocked while genuinely processing
+        self::assertFalse(PublishingQueueHandoffEligibility::canSend([
+            'article_id' => 9,
+            'type' => SeoProjectTask::TYPE_IMPROVE,
+            'has_unpublished_changes' => true,
+            'is_genuinely_running' => true,
+        ]));
+    }
+
+    /**
+     * Regression: SendToPublishingQueueHandler must pass type + is_improve into canSend
+     * (same semantics as read-model UI eligibility).
+     */
+    public function test_send_handler_row_contains_type_and_is_improve(): void
+    {
+        $src = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content-projects/src/Services/ContentProject/Application/Handlers/SendToPublishingQueueHandler.php',
+        );
+
+        self::assertStringContainsString("'type' => \$type", $src);
+        self::assertStringContainsString("'is_improve' => \$type === SeoProjectTask::TYPE_IMPROVE", $src);
+        self::assertStringContainsString('SeoProjectTask::normalizeType($task->type)', $src);
+        self::assertStringContainsString('PublishingQueueHandoffEligibility::canSend($row)', $src);
     }
 
     /**

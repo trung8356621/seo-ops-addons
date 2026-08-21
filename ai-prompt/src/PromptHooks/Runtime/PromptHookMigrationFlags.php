@@ -21,6 +21,15 @@ final class PromptHookMigrationFlags
         return (bool) config('seo-content-ai.prompt_hooks.live_shadow_enabled', false);
     }
 
+    /**
+     * Second gate for billable dual-run (legacy + hook provider) in Shadow mode.
+     * Default OFF — ordinary shadow uses shadowWithoutProvider (no second provider call).
+     */
+    public function liveShadowProviderEnabled(): bool
+    {
+        return (bool) config('seo-content-ai.prompt_hooks.live_shadow_provider_enabled', false);
+    }
+
     public function experimentalAllowed(): bool
     {
         return (bool) config('seo-content-ai.prompt_hooks.experimental_allowed', true);

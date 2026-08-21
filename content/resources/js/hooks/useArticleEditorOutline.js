@@ -7,6 +7,7 @@ import {
 } from '../utils/articleEditorClientOutline';
 import {
     changeHeadingLevelInHtml,
+    convertHeadingInHtml,
     deleteHeadingKeepContentInHtml,
     deleteHeadingWithContentInHtml,
     insertAfterHeadingSectionInHtml,
@@ -27,6 +28,7 @@ import {
     resolveBlockIdFromOutlineHeadingId,
     truncateOutlineHeadingText,
 } from '../utils/contentDocumentHelpers';
+import { isCanonicalLockedHeadingHtml } from '../utils/editorHtmlUtils';
 import { callEditArticleLivewire } from '../utils/articleEditorLivewire';
 import { normalizeBlocks, parseFeaturedSnippetNewSectionBlocks } from '@media-addon/utils/blockImageUtils.js';
 import { setArticleAutosaveLock } from '../utils/articleAutosaveLock';
@@ -1083,14 +1085,18 @@ export default function useArticleEditorOutline({ activeBlockId, activateBlock =
         [articleTitle, canGenerateFeaturedSnippet, featuredSnippetGenerating, focusKeyword],
     );
 
-    const changeOutlineHeadingLevel = useCallback((node, level) => {
+    const convertOutlineHeading = useCallback((node, kind) => {
         mutateOutlineHeading(
             node,
-            'change_heading_level',
-            { level },
-            (html, headingIndex) => changeHeadingLevelInHtml(html, headingIndex, level),
+            'convert_heading',
+            { kind },
+            (html, headingIndex) => convertHeadingInHtml(html, headingIndex, kind),
         );
     }, [mutateOutlineHeading]);
+
+    const changeOutlineHeadingLevel = useCallback((node, level) => {
+        convertOutlineHeading(node, `h${Number(level) || 2}`);
+    }, [convertOutlineHeading]);
 
     const deleteOutlineHeadingKeepContent = useCallback((node) => {
         mutateOutlineHeading(
@@ -1130,9 +1136,60 @@ export default function useArticleEditorOutline({ activeBlockId, activateBlock =
             return;
         }
 
-        const text = kind === 'paragraph'
-            ? ''
-            : `${t('editor_new_section_heading')} ${String(Date.now()).slice(-4)}`;
+        if (kind === 'paragraph') {
+            const blockId = String(node?.block_id ?? '').trim()
+                || resolveBlockIdFromOutlineHeadingId(node?.id, outlineHeadingIdsByBlockIdRef.current);
+            const level = Number(node?.level ?? 0);
+            if (!blockId) {
+                return;
+            }
+
+            commitActiveBlock?.();
+            const block = blocksRef.current.find((item) => item.id === blockId) ?? null;
+            const section = editorSections.find((item) => item.blockIds?.includes(blockId)) ?? null;
+            const isSectionH2 = level === 2 && section && !section.isIntro && section.blockIds?.[0] === blockId;
+            const standaloneHeading = block ? isCanonicalLockedHeadingHtml(block.content) : false;
+
+            // Locked / section H2 heading blocks are not TipTap-editable — intro P must be a sibling block.
+            if (isSectionH2 || standaloneHeading) {
+                const newBlock = createEmptyTextBlock();
+                setBlocks((prev) => {
+                    const index = prev.findIndex((item) => item.id === blockId);
+                    if (index < 0) {
+                        return prev;
+                    }
+                    const next = [...prev];
+                    next.splice(index + 1, 0, newBlock);
+
+                    return next;
+                });
+                setInsertMenu?.(null);
+                setActiveBlockId(newBlock.id);
+                setGlobalEditor(null);
+                outlineFingerprintRef.current = '';
+
+                return;
+            }
+
+            mutateOutlineHeading(
+                node,
+                'insert_heading_after',
+                {
+                    level: 3,
+                    text: 'Heading',
+                    insertParagraph: false,
+                    paragraphOnly: true,
+                },
+                (html, headingIndex) => insertAfterHeadingSectionInHtml(html, {
+                    headingIndex,
+                    paragraph: true,
+                }),
+            );
+
+            return;
+        }
+
+        const text = `${t('editor_new_section_heading')} ${String(Date.now()).slice(-4)}`;
         const level = kind === 'h4-child' ? 4 : 3;
         const ok = mutateOutlineHeading(
             node,
@@ -1140,18 +1197,18 @@ export default function useArticleEditorOutline({ activeBlockId, activateBlock =
             {
                 level,
                 text: text || 'Heading',
-                insertParagraph: kind !== 'paragraph',
-                paragraphOnly: kind === 'paragraph',
+                insertParagraph: true,
+                paragraphOnly: false,
             },
             (html, headingIndex) => insertAfterHeadingSectionInHtml(html, {
                 headingIndex,
                 level,
                 text,
-                paragraph: kind === 'paragraph',
+                paragraph: false,
             }),
         );
 
-        if (ok && kind !== 'paragraph') {
+        if (ok) {
             setOutlineTreeSync({
                 token: Date.now(),
                 action: 'focusNew',
@@ -1162,7 +1219,7 @@ export default function useArticleEditorOutline({ activeBlockId, activateBlock =
                 focusEdit: true,
             });
         }
-    }, [addSection, addSectionAfter, editorSections, mutateOutlineHeading]);
+    }, [addSection, addSectionAfter, commitActiveBlock, editorSections, mutateOutlineHeading, setActiveBlockId, setBlocks, setGlobalEditor, setInsertMenu, setOutlineTreeSync]);
 
-    return { addOutlineNode, addSection, addSectionAfter, applyOutlineHeadingHtml, applyOutlineHeadingText, changeOutlineHeadingLevel, collapseAllSections, confirmFeaturedSnippetPromptInsert, deleteOutlineHeadingKeepContent, deleteOutlineHeadingWithContent, focusOutlineFromSectionHeader, handleOutlineHeadingFromEditor, handleOutlineLoaded, insertFeaturedSnippetAsNewSectionAfter, jumpToOutlineHeading, requestGenerateFeaturedSnippetAfterSection, resolveHeadingInnerHtml, runFeaturedSnippetPromptGenerate, saveSectionTitleFromHeader, toggleOutlineHeadingVisible, toggleSectionCollapse, updateOutlineHeadingTitle };
+    return { addOutlineNode, addSection, addSectionAfter, applyOutlineHeadingHtml, applyOutlineHeadingText, changeOutlineHeadingLevel, collapseAllSections, confirmFeaturedSnippetPromptInsert, convertOutlineHeading, deleteOutlineHeadingKeepContent, deleteOutlineHeadingWithContent, focusOutlineFromSectionHeader, handleOutlineHeadingFromEditor, handleOutlineLoaded, insertFeaturedSnippetAsNewSectionAfter, jumpToOutlineHeading, requestGenerateFeaturedSnippetAfterSection, resolveHeadingInnerHtml, runFeaturedSnippetPromptGenerate, saveSectionTitleFromHeader, toggleOutlineHeadingVisible, toggleSectionCollapse, updateOutlineHeadingTitle };
 }

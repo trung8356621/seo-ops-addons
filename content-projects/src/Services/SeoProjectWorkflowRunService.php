@@ -750,6 +750,16 @@ final class SeoProjectWorkflowRunService
                     $this->restorePublishedLifecycle($task, $publishedSnapshot, null);
                     $this->markPublishedRerunDirty($task, $articleId > 0 ? $articleId : (int) ($task->article_id ?? 0));
                 }
+
+                if ($isFreshKeywordRestart) {
+                    \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectFreshKeywordRestart::commitCanonicalKeyword(
+                        $task,
+                        $freshKeywordOverride,
+                        $articleId > 0 ? $articleId : (int) ($task->article_id ?? 0),
+                    );
+                    $task->refresh();
+                }
+
                 $this->markTaskCompleted($task, $articleId > 0 ? $articleId : (int) ($task->article_id ?? 0));
 
                 $this->runItemService->markSuccess(

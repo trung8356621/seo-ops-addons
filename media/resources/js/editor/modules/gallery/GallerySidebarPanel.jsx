@@ -1,5 +1,5 @@
 ﻿import React, { useCallback, useMemo, useState } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { LayoutGrid, Plus, Trash2 } from 'lucide-react';
 import { EditorModuleErrorBoundary } from '@content-addon/editor/runtime/EditorModuleErrorBoundary.jsx';
 import { useEditorMedia } from '../../host/hooks/useEditorMedia';
 import { useEditorMediaPicker } from '../../host/hooks/useEditorMediaPicker';
@@ -36,6 +36,18 @@ export function GallerySidebarPanel({ articleId = null, active = false }) {
         window.dispatchEvent(new CustomEvent('seo-open-generate-image-modal', {
             detail: { target: 'product-gallery' },
         }));
+    }, [mutable, notify]);
+
+    const distributeToSections = useCallback(() => {
+        if (!mutable) {
+            notify({
+                title: t('editor_gallery_notify_title'),
+                body: t('editor_gallery_read_only'),
+                status: 'warning',
+            });
+            return;
+        }
+        window.dispatchEvent(new CustomEvent('seo-editor-distribute-product-gallery'));
     }, [mutable, notify]);
 
     const openPicker = useCallback(() => {
@@ -188,6 +200,15 @@ export function GallerySidebarPanel({ articleId = null, active = false }) {
                         title={t('generate_product_gallery_image')}
                     >
                         {t('generate_product_gallery_image')}
+                    </button>
+                    <button
+                        type="button"
+                        className="wp-product-gallery-distribute mt-2"
+                        onClick={distributeToSections}
+                        disabled={!mutable}
+                        title={t('product_gallery_distribute')}
+                    >
+                        <LayoutGrid size={14} className="inline" /> {t('product_gallery_distribute')}
                     </button>
                     <button
                         type="button"

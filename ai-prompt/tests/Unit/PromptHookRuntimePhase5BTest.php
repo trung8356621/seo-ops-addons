@@ -296,6 +296,47 @@ final class PromptHookRuntimePhase5BTest extends TestCase
     public function test_live_shadow_default_off(): void
     {
         self::assertFalse((new PromptHookMigrationFlags)->liveShadowEnabled());
+        self::assertFalse((new PromptHookMigrationFlags)->liveShadowProviderEnabled());
+    }
+
+    public function test_shadow_live_gate_without_provider_flag_does_not_double_call_provider(): void
+    {
+        Config::set('seo-content-ai.prompt_hooks.migration', array_merge(
+            (array) config('seo-content-ai.prompt_hooks.migration', []),
+            ['article.outline.generate' => 'shadow'],
+        ));
+        Config::set('seo-content-ai.prompt_hooks.live_shadow_enabled', true);
+        Config::set('seo-content-ai.prompt_hooks.live_shadow_provider_enabled', false);
+        Config::set('seo-content-ai.prompt_hooks.live_shadow_environments', [app()->environment()]);
+        Config::set('seo-content-ai.prompt_hooks.live_shadow_hook_allowlist', ['article.outline.generate']);
+        Config::set('seo-content-ai.prompt_hooks.live_shadow_sample_rate', 1.0);
+        Config::set('seo-content-ai.prompt_hooks.budget_store', 'memory');
+        Config::set('seo-content-ai.prompt_hooks.live_shadow_allow_memory_budget', true);
+        Log::shouldReceive('info')->zeroOrMoreTimes();
+        Log::shouldReceive('warning')->zeroOrMoreTimes();
+
+        $legacyCalls = 0;
+        $provider = new FakePromptProviderAdapter(['text' => 'should-not-run']);
+        $bridge = new PromptHookCallerBridge(new PromptHookMigrationFlags, $this->engine($provider));
+        $out = $bridge->run(
+            'article.outline.generate',
+            '0.1.0',
+            PromptHookExecutionInput::fromArray([
+                'context' => [],
+                'input' => ['post_title' => 'SEO guide', 'keyword' => 'k'],
+                'previous_outputs' => [],
+                'settings' => [],
+            ]),
+            static function () use (&$legacyCalls): string {
+                $legacyCalls++;
+
+                return 'legacy-only';
+            },
+        );
+
+        self::assertSame('legacy-only', $out);
+        self::assertSame(1, $legacyCalls);
+        self::assertCount(0, $provider->calls);
     }
 
     public function test_budget_guard_exceeded(): void

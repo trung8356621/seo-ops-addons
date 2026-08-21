@@ -412,6 +412,58 @@ export function changeHeadingLevelByIndex(state, dispatch, payload) {
     return true;
 }
 
+function markForKind(schema, kind) {
+    if (kind === 'bold') {
+        return schema.marks.bold || schema.marks.strong || null;
+    }
+    if (kind === 'italic') {
+        return schema.marks.italic || schema.marks.em || null;
+    }
+
+    return null;
+}
+
+/**
+ * Convert a heading by index: H2/H3/H4, paragraph, or paragraph + bold/italic mark.
+ *
+ * @param {import('@tiptap/pm/state').EditorState} state
+ * @param {(tr: import('@tiptap/pm/state').Transaction) => void} [dispatch]
+ * @param {{ headingIndex: number, kind: 'h2'|'h3'|'h4'|'paragraph'|'bold'|'italic' }} payload
+ * @returns {boolean}
+ */
+export function convertHeadingByIndex(state, dispatch, payload) {
+    const kind = String(payload.kind ?? '');
+    if (kind === 'h2' || kind === 'h3' || kind === 'h4') {
+        return changeHeadingLevelByIndex(state, dispatch, {
+            headingIndex: payload.headingIndex,
+            level: Number(kind.slice(1)),
+        });
+    }
+
+    if (!['paragraph', 'bold', 'italic'].includes(kind)) {
+        return false;
+    }
+
+    const found = findHeadingByIndex(state.doc, payload.headingIndex);
+    const paragraphType = state.schema.nodes.paragraph;
+    if (!found || !paragraphType) {
+        return false;
+    }
+
+    let tr = state.tr.setNodeMarkup(found.pos, paragraphType, {});
+    const mark = markForKind(state.schema, kind);
+    if (mark) {
+        const from = found.pos + 1;
+        const to = found.pos + found.node.nodeSize - 1;
+        if (to > from) {
+            tr = tr.addMark(from, to, mark.create());
+        }
+    }
+    dispatch?.(tr);
+
+    return true;
+}
+
 /**
  * Delete the heading node, keep following content.
  *
@@ -491,10 +543,11 @@ export function setHeadingOutlineVisible(state, dispatch, payload) {
 
 /**
  * Insert a heading (and optional empty paragraph) after the target heading's section slice.
+ * paragraphOnly → insert empty paragraph immediately after the target heading (intro slot).
  *
  * @param {import('@tiptap/pm/state').EditorState} state
  * @param {(tr: import('@tiptap/pm/state').Transaction) => void} [dispatch]
- * @param {{ headingIndex: number, level: number, text: string, insertParagraph?: boolean }} payload
+ * @param {{ headingIndex: number, level: number, text: string, insertParagraph?: boolean, paragraphOnly?: boolean }} payload
  * @returns {boolean}
  */
 export function insertHeadingAfterSection(state, dispatch, payload) {
@@ -510,7 +563,8 @@ export function insertHeadingAfterSection(state, dispatch, payload) {
     const text = String(payload.text ?? '').trim() || 'Heading';
     const level = Math.min(6, Math.max(2, Number(payload.level) || 3));
     const nodes = [];
-    if (payload.paragraphOnly) {
+    const paragraphOnly = payload.paragraphOnly === true;
+    if (paragraphOnly) {
         nodes.push(paragraphType.create());
     } else {
         nodes.push(headingType.create(
@@ -524,11 +578,15 @@ export function insertHeadingAfterSection(state, dispatch, payload) {
 
     let insertPos = state.doc.content.size;
     if (found) {
-        const parentLevel = Number(found.node.attrs?.level) || 2;
-        const next = headings.find((item) => (
-            item.index > found.index && Number(item.node.attrs?.level || 2) <= parentLevel
-        ));
-        insertPos = next ? next.pos : state.doc.content.size;
+        if (paragraphOnly) {
+            insertPos = found.pos + found.node.nodeSize;
+        } else {
+            const parentLevel = Number(found.node.attrs?.level) || 2;
+            const next = headings.find((item) => (
+                item.index > found.index && Number(item.node.attrs?.level || 2) <= parentLevel
+            ));
+            insertPos = next ? next.pos : state.doc.content.size;
+        }
     }
 
     const tr = state.tr.insert(insertPos, nodes);
@@ -546,6 +604,7 @@ export default {
     changeCurrentBlockType,
     renameHeadingByIndex,
     changeHeadingLevelByIndex,
+    convertHeadingByIndex,
     deleteHeadingKeepContent,
     deleteHeadingWithContent,
     setHeadingOutlineVisible,

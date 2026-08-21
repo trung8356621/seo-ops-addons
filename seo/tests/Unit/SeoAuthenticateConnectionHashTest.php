@@ -45,6 +45,7 @@ final class SeoAuthenticateConnectionHashTest extends TestCase
         self::assertNotFalse($source);
         self::assertStringContainsString("route('filament.seo.auth.login'", $source);
         self::assertStringContainsString('connection_hash', $source);
-        self::assertStringContainsString("url('/seo')", $source);
+        self::assertStringContainsString('SeoPanelRoutes::shortLoginUrl', $source);
+        self::assertStringContainsString('seo-main', $source);
     }
 }

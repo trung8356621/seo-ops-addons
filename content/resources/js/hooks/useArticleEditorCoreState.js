@@ -6,7 +6,7 @@ import {
 } from '../utils/articleEditorClientOutline';
 import { callEditArticleLivewire } from '../utils/articleEditorLivewire';
 import { createArticleEditorUtilityScheduler } from '../utils/articleEditorUtilityScheduler';
-import { fetchWordPressProductReviews } from '../utils/articleEditorApi';
+import { fetchProductReviewStatus, fetchWordPressProductReviews } from '../utils/articleEditorApi';
 import { isAbortError } from '../utils/articleEditorModules';
 import { loadFeaturedImage } from '@media-addon/utils/articleFeaturedImageStorage.js';
 import { loadProductAlbum, normalizeProductAlbumList } from '@media-addon/utils/articleProductAlbumStorage.js';
@@ -21,14 +21,36 @@ import {
 } from 'react';
 import { useMediaEditor } from '@media-addon/editor/domains/media/useMediaEditor.js';
 
+const reviewStatusInflight = new Map();
+
+function fetchReviewStatusSingleFlight(articleId) {
+    const id = Number(articleId) || 0;
+    if (reviewStatusInflight.has(id)) {
+        return reviewStatusInflight.get(id);
+    }
+    const request = fetchProductReviewStatus(id).finally(() => {
+        if (reviewStatusInflight.get(id) === request) {
+            reviewStatusInflight.delete(id);
+        }
+    });
+    reviewStatusInflight.set(id, request);
+
+    return request;
+}
+
 /**
  * useArticleEditorCoreState - extracted from SeoArticleEditor.jsx (Task 7 mechanical
  * extraction). Mechanical move - no behavior change.
  */
 export default function useArticleEditorCoreState({ activeHeavyModule, activeHeavyModuleRef, articleId, blocks, blocksRef, editorSettings, initialFaqs, initialPostImages, initialProductGallery, initialSupplementalImages, initialVirtualReviews, perfDebug, reviewsAbortRef, setAssistantPortalRoots, setMediaPickerRoot, supportsProductGallery }) {
-    const [virtualReviews, setVirtualReviews] = useState(() =>
-        Array.isArray(initialVirtualReviews) ? initialVirtualReviews : [],
+    const initialReviewRows = Array.isArray(initialVirtualReviews) ? initialVirtualReviews : [];
+    const [virtualReviews, setVirtualReviews] = useState(() => initialReviewRows);
+    const [reviewsLoaded, setReviewsLoaded] = useState(initialReviewRows.length > 0);
+    const [reviewCount, setReviewCount] = useState(
+        initialReviewRows.length > 0 ? initialReviewRows.length : null,
     );
+    const [reviewCountLoading, setReviewCountLoading] = useState(false);
+    const reviewsLoadedRef = useRef(initialReviewRows.length > 0);
     const isProductPost = supportsProductGallery;
     const showReviewsTab = editorSettings?.show_reviews_tab !== false;
     const canQuickCreateReviews = editorSettings?.can_quick_create_reviews === true;
@@ -63,6 +85,9 @@ export default function useArticleEditorCoreState({ activeHeavyModule, activeHea
             const next = detail.reviews ?? detail.params?.reviews;
             if (Array.isArray(next)) {
                 setVirtualReviews(next);
+                setReviewCount(next.length);
+                setReviewsLoaded(true);
+                reviewsLoadedRef.current = true;
             }
         };
 
@@ -77,13 +102,16 @@ export default function useArticleEditorCoreState({ activeHeavyModule, activeHea
     const imagesPanelActive = activeHeavyModule === 'images';
     const seoPanelActive = activeHeavyModule === 'seo';
     useEffect(() => {
-        // Phase 3: fetch reviews only while Reviews is active; abort + drop heavy list on leave.
+        // Full review rows are on-demand. Leaving the panel never destroys loaded
+        // review state; Save/SEO analysis must not rehydrate this domain.
         if (!showReviewsTab || !isProductPost || !articleId || !reviewsPanelActive) {
             reviewsAbortRef.current?.abort();
             if (!reviewsPanelActive) {
-                setVirtualReviews([]);
                 setReviewsLoading(false);
             }
+            return undefined;
+        }
+        if (reviewsLoadedRef.current) {
             return undefined;
         }
 
@@ -107,7 +135,11 @@ export default function useArticleEditorCoreState({ activeHeavyModule, activeHea
                 const data = result.data ?? {};
                 const remote = Array.isArray(data.reviews) ? data.reviews : [];
                 const pending = Array.isArray(data.pending_local_reviews) ? data.pending_local_reviews : [];
-                setVirtualReviews([...remote, ...pending]);
+                const merged = [...remote, ...pending];
+                setVirtualReviews(merged);
+                setReviewCount(merged.length);
+                setReviewsLoaded(true);
+                reviewsLoadedRef.current = true;
                 if (data.warning) {
                     setReviewsLoadWarning(String(data.warning));
                 }
@@ -132,6 +164,43 @@ export default function useArticleEditorCoreState({ activeHeavyModule, activeHea
         };
     }, [articleId, isProductPost, showReviewsTab, reviewsPanelActive]);
 
+    useEffect(() => {
+        if (!showReviewsTab || !isProductPost || !articleId || reviewCount !== null) {
+            return undefined;
+        }
+
+        let cancelled = false;
+        let timerId = null;
+        const loadCount = async () => {
+            setReviewCountLoading(true);
+            try {
+                const result = await fetchReviewStatusSingleFlight(articleId);
+                if (cancelled || !result.success) {
+                    return;
+                }
+                const data = result.data ?? {};
+                const remote = Math.max(0, Number(data.wordpress_review_count ?? data.count ?? 0) || 0);
+                const pending = Math.max(0, Number(data.local_pending_count ?? 0) || 0);
+                setReviewCount(remote + pending);
+            } catch {
+                // Count is supplemental; keep unknown and let opening Reviews retry.
+            } finally {
+                if (!cancelled) {
+                    setReviewCountLoading(false);
+                }
+            }
+        };
+
+        timerId = window.setTimeout(() => void loadCount(), 7000);
+
+        return () => {
+            cancelled = true;
+            if (timerId !== null) {
+                window.clearTimeout(timerId);
+            }
+        };
+    }, [articleId, isProductPost, reviewCount, showReviewsTab]);
+
     const refreshVirtualReviews = useCallback(async () => {
         if (!articleId || !isProductPost) {
             return callEditArticleLivewire('refreshVirtualReviewsForEditor');
@@ -148,6 +217,9 @@ export default function useArticleEditorCoreState({ activeHeavyModule, activeHea
             const pending = Array.isArray(data.pending_local_reviews) ? data.pending_local_reviews : [];
             const merged = [...remote, ...pending];
             setVirtualReviews(merged);
+            setReviewCount(merged.length);
+            setReviewsLoaded(true);
+            reviewsLoadedRef.current = true;
             setReviewsLoadWarning(data.warning ? String(data.warning) : null);
             return merged;
         } catch (error) {
@@ -233,7 +305,12 @@ export default function useArticleEditorCoreState({ activeHeavyModule, activeHea
     const [quickReplaceValue, setQuickReplaceValue] = useState('');
     const [editorSearchMatchCount, setEditorSearchMatchCount] = useState(null);
     const panelFaqsRef = useRef(Array.isArray(initialFaqs) ? initialFaqs : []);
-    const [panelFaqs, setPanelFaqs] = useState(Array.isArray(initialFaqs) ? initialFaqs : []);
+    const [panelFaqs, setPanelFaqs] = useState(() => (Array.isArray(initialFaqs) ? initialFaqs : []));
+    // Lazy FAQ: default [] from shell is unhydrated. Only mark known when bootstrap
+    // supplied an explicit array prop, or after FAQ editor/extract events.
+    const faqsCanonicalKnownRef = useRef(
+        initialFaqs !== undefined && initialFaqs !== null && Array.isArray(initialFaqs),
+    );
     panelFaqsRef.current = panelFaqs;
     const [faqCount, setFaqCount] = useState(() => {
         const core = readCoreBootstrap();
@@ -321,5 +398,5 @@ export default function useArticleEditorCoreState({ activeHeavyModule, activeHea
         return undefined;
     }, [blocks]);
 
-    return { analyzing, canGenerateFaq, canGenerateFeaturedSnippet, canGenerateOutlineHeading, canQuickCreateReviews, clientOutline, collapsedSectionIds, editorSearchMatchCount, faqCount, featuredHealthSnapshot, featuredSnippetGenerating, featuredSnippetPreviewHtml, featuredSnippetPromptContext, featuredSnippetPromptOpen, featuredSnippetTargetRef, generateImageModalInitialCustom, generateImageModalOpen, generateImageModalPrompt, generateImageModalTarget, generateImageTargetRef, generateQuickPostReviews, imageRenameBusy, imageRenameBusyCount, imagesReloadKey, imagesTabJumpTarget, insertMenu, isProductPost, outlineAppendDoneRef, outlineAppendInflightRef, outlineFingerprintRef, outlineHasSavedHeadings, outlineHeadingCommand, outlineHeadingIdsByBlockIdRef, outlineHeadingIdsByKeyRef, outlineHeadingKeys, outlineJumpTarget, outlineTreeSync, panelFaqs, panelFaqsRef, pendingFaqGenerateRef, pendingLocalRenameQueueRef, pendingLocalRenameResultsRef, pendingQuickFixKeywordRef, pendingWpRenameRequestRef, postImagesRef, productGalleryItems, publishEditorImagesCatalogRef, quickCreateReviewsConfigUrl, quickFixSlugAllBusy, quickReplaceFind, quickReplaceValue, refreshVirtualReviews, reviewsLoadWarning, reviewsLoading, saveStatus, sectionTitleEditRequest, seoAnalyzeError, seoPanelActive, setAnalyzing, setClientOutline, setCollapsedSectionIds, setEditorSearchMatchCount, setFaqCount, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptContext, setFeaturedSnippetPromptOpen, setGenerateImageModalInitialCustom, setGenerateImageModalOpen, setGenerateImageModalPrompt, setGenerateImageModalTarget, setImageRenameBusy, setImageRenameBusyCount, setImagesReloadKey, setImagesTabJumpTarget, setInsertMenu, setOutlineHasSavedHeadings, setOutlineHeadingCommand, setOutlineHeadingKeys, setOutlineJumpTarget, setOutlineTreeSync, setPanelFaqs, setQuickFixSlugAllBusy, setQuickReplaceFind, setQuickReplaceValue, setSaveStatus, setSectionTitleEditRequest, setSeoAnalyzeError, showConfigureReviewsLink, showReviewsTab, slugRenameManagedByBatchRef, supplementalImages, supplementalImagesRef, utilitySchedulerRef, virtualReviews };
+    return { analyzing, canGenerateFaq, canGenerateFeaturedSnippet, canGenerateOutlineHeading, canQuickCreateReviews, clientOutline, collapsedSectionIds, editorSearchMatchCount, faqCount, faqsCanonicalKnownRef, featuredHealthSnapshot, featuredSnippetGenerating, featuredSnippetPreviewHtml, featuredSnippetPromptContext, featuredSnippetPromptOpen, featuredSnippetTargetRef, generateImageModalInitialCustom, generateImageModalOpen, generateImageModalPrompt, generateImageModalTarget, generateImageTargetRef, generateQuickPostReviews, imageRenameBusy, imageRenameBusyCount, imagesReloadKey, imagesTabJumpTarget, insertMenu, isProductPost, outlineAppendDoneRef, outlineAppendInflightRef, outlineFingerprintRef, outlineHasSavedHeadings, outlineHeadingCommand, outlineHeadingIdsByBlockIdRef, outlineHeadingIdsByKeyRef, outlineHeadingKeys, outlineJumpTarget, outlineTreeSync, panelFaqs, panelFaqsRef, pendingFaqGenerateRef, pendingLocalRenameQueueRef, pendingLocalRenameResultsRef, pendingQuickFixKeywordRef, pendingWpRenameRequestRef, postImagesRef, productGalleryItems, publishEditorImagesCatalogRef, quickCreateReviewsConfigUrl, quickFixSlugAllBusy, quickReplaceFind, quickReplaceValue, refreshVirtualReviews, reviewCount, reviewCountLoading, reviewsLoaded, reviewsLoadWarning, reviewsLoading, saveStatus, sectionTitleEditRequest, seoAnalyzeError, seoPanelActive, setAnalyzing, setClientOutline, setCollapsedSectionIds, setEditorSearchMatchCount, setFaqCount, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptContext, setFeaturedSnippetPromptOpen, setGenerateImageModalInitialCustom, setGenerateImageModalOpen, setGenerateImageModalPrompt, setGenerateImageModalTarget, setImageRenameBusy, setImageRenameBusyCount, setImagesReloadKey, setImagesTabJumpTarget, setInsertMenu, setOutlineHasSavedHeadings, setOutlineHeadingCommand, setOutlineHeadingKeys, setOutlineJumpTarget, setOutlineTreeSync, setPanelFaqs, setQuickFixSlugAllBusy, setQuickReplaceFind, setQuickReplaceValue, setSaveStatus, setSectionTitleEditRequest, setSeoAnalyzeError, showConfigureReviewsLink, showReviewsTab, slugRenameManagedByBatchRef, supplementalImages, supplementalImagesRef, utilitySchedulerRef, virtualReviews };
 }

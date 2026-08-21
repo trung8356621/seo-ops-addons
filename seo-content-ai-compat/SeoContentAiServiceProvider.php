@@ -41,6 +41,10 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
 
     public function register(): void
     {
+        $this->app->singleton(
+            \Omnichannel\Addons\Publishing\Contracts\PublishingTaxonomyCatalog::class,
+            \Omnichannel\Addons\WordPress\Services\WordPressPublishingTaxonomyCatalog::class,
+        );
         $this->app->singleton(PromptMediaStorageService::class);
         $this->app->singleton(SeoDatabaseConnectionService::class);
         $this->app->singleton(\Omnichannel\Addons\Content\Support\ArticleFeaturedImageResolver::class);

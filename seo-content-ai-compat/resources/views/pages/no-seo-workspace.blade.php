@@ -17,7 +17,7 @@
     <div class="card">
         <h1>{{ __('seo-content-ai::filament.no_seo_workspace.heading') }}</h1>
         <p>{{ __('seo-content-ai::filament.no_seo_workspace.body') }}</p>
-        <form class="logout-form" method="POST" action="{{ route('seo.logout') }}" style="margin-top: .75rem;">
+        <form class="logout-form" method="POST" action="{{ route('filament.seo-main.auth.logout') }}" style="margin-top: .75rem;">
             @csrf
             <button type="submit" class="logout-link">{{ __('seo-content-ai::filament.no_seo_workspace.logout') }}</button>
         </form>

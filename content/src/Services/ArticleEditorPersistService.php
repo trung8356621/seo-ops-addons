@@ -11,7 +11,9 @@ use Omnichannel\Addons\Content\Services\ArticleEditor\Document\ArticleEditorDocu
 use Omnichannel\Addons\Content\Services\ArticleEditor\Document\ArticleEditorDocumentWriter;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectArticleMembership;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectPublishingQueueService;
+use Omnichannel\Addons\Content\Support\ArticleEditorContentLifecycle;
 use Omnichannel\Addons\Content\Support\ArticleEditorSaveContext;
+use Omnichannel\Addons\Content\Support\ArticleEditorSessionErrorCode;
 use App\Support\LocalArticleSaveTimer;
 use Omnichannel\Addons\Media\Services\ArticlePostImagesService;
 use Omnichannel\Addons\SearchFoundation\Services\ArticleKeywordLinkReconcileService;
@@ -30,6 +32,7 @@ final class ArticleEditorPersistService
         private readonly ContentProjectArticleMembership $contentProjectMembership,
         private readonly ContentProjectPublishingQueueService $publishingQueue,
         private readonly ArticleEditorDocumentWriter $documentWriter,
+        private readonly ArticleEditorContentLifecycle $contentLifecycle,
     ) {}
 
     /**
@@ -45,19 +48,30 @@ final class ArticleEditorPersistService
         bool $deferSeoAnalysis = true,
         ?array $seoAnalysis = null,
     ): array {
+        $rejected = $this->rejectUnhydratedEmptyPersist($article, $html);
+        if ($rejected !== null) {
+            return $rejected;
+        }
+
         $html = $this->persistLocalSilent($article, $context, $html);
 
         return $this->buildPersistResult($article, $html);
     }
 
     /**
-     * @return array{success: bool, message: string, html?: string}
+     * @return array{success: bool, message: string, html?: string, code?: string}
      */
     public function buildPersistResult(SeoArticle $article, string $html): array
     {
+        $rejected = $this->rejectUnhydratedEmptyPersist($article, $html);
+        if ($rejected !== null) {
+            return $rejected;
+        }
+
         if (strlen(trim($html)) < 50 && $this->articleHadSubstantialContent($article)) {
             return [
                 'success' => false,
+                'code' => 'empty_editor_body',
                 'message' => 'Editor trả về nội dung rỗng. Hãy thử lại hoặc dùng Lấy từ WordPress / Restore trước khi lưu.',
             ];
         }
@@ -74,10 +88,30 @@ final class ArticleEditorPersistService
         ArticleEditorSaveContext $context,
         string $html,
     ): string {
+        if ($this->contentLifecycle->shouldRejectEmptyPersist($article, $html)) {
+            return (string) ($article->body ?? '');
+        }
+
         $html = $this->writeArticleRow($article, $context, $html);
         $this->runAfterPersistSideEffects($article, $context, $html);
 
         return $html;
+    }
+
+    /**
+     * @return array{success: false, code: string, message: string}|null
+     */
+    public function rejectUnhydratedEmptyPersist(SeoArticle $article, string $html): ?array
+    {
+        if (! $this->contentLifecycle->shouldRejectEmptyPersist($article, $html)) {
+            return null;
+        }
+
+        return [
+            'success' => false,
+            'code' => ArticleEditorSessionErrorCode::LOCAL_CONTENT_SYNC_REQUIRED,
+            'message' => 'Nội dung bài viết chưa được đồng bộ từ WordPress. Đồng bộ trước khi lưu.',
+        ];
     }
 
     /**
@@ -93,6 +127,10 @@ final class ArticleEditorPersistService
         ?array $editorDocument = null,
         ?string $expectedEditorDocumentHash = null,
     ): string {
+        if ($this->contentLifecycle->shouldRejectEmptyPersist($article, $html)) {
+            return (string) ($article->body ?? '');
+        }
+
         $derivedFromJson = false;
 
         $previousBody = (string) ($article->getOriginal('body') ?? $article->body ?? '');

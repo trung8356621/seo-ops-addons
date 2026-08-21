@@ -67,6 +67,7 @@ import {
 import {
     changeCurrentBlockHeadingCommand,
     changeHeadingLevelCommand,
+    convertHeadingCommand,
     deleteHeadingKeepContentCommand,
     deleteHeadingWithContentCommand,
     insertHeadingAfterCommand,
@@ -192,6 +193,7 @@ mut('split_paragraph_at_cursor', splitParagraphAtCursorCommand);
 mut('change_current_block_heading', changeCurrentBlockHeadingCommand);
 mut('rename_heading', renameHeadingCommand);
 mut('change_heading_level', changeHeadingLevelCommand);
+mut('convert_heading', convertHeadingCommand);
 mut('delete_heading_keep_content', deleteHeadingKeepContentCommand);
 mut('delete_heading_with_content', deleteHeadingWithContentCommand);
 mut('set_heading_outline_visible', setHeadingOutlineVisibleCommand);

@@ -40,6 +40,7 @@ export function mountArticleSeoPreview(rootEl, payload) {
             seoRuleMessages={payload.seo_rule_messages ?? payload.seo_scoring_messages ?? {}}
             loading={false}
             analyzing={false}
+            ready={true}
         />,
     );
 }

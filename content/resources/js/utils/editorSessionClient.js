@@ -140,25 +140,31 @@ const RECOVERABLE_SESSION_LOSS = new Set([
 
 export class EditorSessionClient {
     /**
-     * @param {{ articleId: number|string, heartbeatSeconds?: number, onStateChange?: Function }} options
+     * @param {{ articleId: number|string, leaseTtlSeconds?: number, leaseRenewLeadSeconds?: number, onStateChange?: Function }} options
      */
     constructor(options) {
         this.articleId = Number(options.articleId) || 0;
-        this.heartbeatSeconds = Math.max(10, Number(options.heartbeatSeconds) || 30);
+        this.leaseTtlSeconds = Math.max(180, Number(options.leaseTtlSeconds) || 240);
+        this.leaseRenewLeadSeconds = Math.max(30, Number(options.leaseRenewLeadSeconds) || 60);
         this.clientInstanceId = getOrCreateClientInstanceId(this.articleId);
         this.sessionId = null;
         this.documentVersion = Math.max(1, Number(options.documentVersion) || 1);
         this.lockStatus = 'unknown';
         this.readOnly = true;
         this.lockInfo = null;
-        this.heartbeatTimer = null;
+        this.leaseExpiresAt = 0;
+        this.leaseRenewTimer = null;
+        this.lastActivityAt = Date.now();
+        this.lastLeaseRenewedAt = 0;
         this.offline = false;
         this.onStateChange = typeof options.onStateChange === 'function' ? options.onStateChange : null;
         this.destroyed = false;
         this.recovering = false;
-        this._heartbeatInFlight = false;
+        this._leaseRenewInFlight = false;
         this._lastEmitted = null;
         this._visibilityHandler = null;
+        this._activityHandler = null;
+        this.bindActivity();
         this.bindVisibility();
     }
 
@@ -219,11 +225,12 @@ export class EditorSessionClient {
         return runExclusiveAcquire(dedupeKey, async () => {
             try {
                 const { response, data } = await seoArticleApiFetch(
-                    `/api/seo/articles/${this.articleId}/editor-sessions`,
+                    `/api/seo/articles/${this.articleId}/edit-lease`,
                     {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
+                            tab_id: this.clientInstanceId,
                             client_instance_id: this.clientInstanceId,
                             known_document_version: knownDocumentVersion ?? this.documentVersion,
                         }),
@@ -237,7 +244,7 @@ export class EditorSessionClient {
                     this.readOnly = true;
                     this.lockInfo = error.lock;
                     this.offline = false;
-                    this.stopHeartbeat();
+                    this.cancelLeaseRenew();
                     this.emit();
                     return { ok: false, error, data };
                 }
@@ -251,17 +258,17 @@ export class EditorSessionClient {
                 this.readOnly = false;
                 this.lockInfo = null;
                 this.offline = false;
-                if (data?.session?.heartbeat_interval_seconds) {
-                    this.heartbeatSeconds = Math.max(10, Number(data.session.heartbeat_interval_seconds) || 30);
+                if (data?.session?.lease_ttl_seconds) {
+                    this.leaseTtlSeconds = Math.max(180, Number(data.session.lease_ttl_seconds) || 240);
                 }
-                this.startHeartbeat();
+                this.markLeaseRenewed(data?.session?.expires_at);
                 this.emit();
                 return { ok: true, data };
             } catch (error) {
                 this.lockStatus = 'network_error';
                 this.readOnly = true;
                 this.offline = true;
-                this.stopHeartbeat();
+                this.cancelLeaseRenew();
                 this.emit();
                 return {
                     ok: false,
@@ -305,9 +312,34 @@ export class EditorSessionClient {
         this.lockStatus = 'owned';
         this.readOnly = false;
         this.lockInfo = null;
-        this.startHeartbeat();
+        this.markLeaseRenewed(data?.session?.expires_at);
         this.emit();
         return { ok: true, data };
+    }
+
+    bindActivity() {
+        if (typeof window === 'undefined' || this._activityHandler) {
+            return;
+        }
+        this._activityHandler = () => {
+            this.lastActivityAt = Date.now();
+            if (this.sessionId && !this.readOnly) {
+                this.scheduleLeaseRenew();
+            }
+        };
+        ['pointerdown', 'keydown', 'input'].forEach((eventName) => {
+            window.addEventListener(eventName, this._activityHandler, { passive: true });
+        });
+    }
+
+    unbindActivity() {
+        if (typeof window === 'undefined' || !this._activityHandler) {
+            return;
+        }
+        ['pointerdown', 'keydown', 'input'].forEach((eventName) => {
+            window.removeEventListener(eventName, this._activityHandler);
+        });
+        this._activityHandler = null;
     }
 
     bindVisibility() {
@@ -318,13 +350,14 @@ export class EditorSessionClient {
             if (this.destroyed || document.visibilityState !== 'visible') {
                 return;
             }
-            // Tab trở lại: thử heartbeat ngay, hoặc reclaim nếu session đã mất recoverable.
+            // Returning to a visible tab only schedules a near-expiry renew.
             if (this.readOnly && RECOVERABLE_SESSION_LOSS.has(String(this.lockStatus || ''))) {
                 void this.recoverSession();
                 return;
             }
             if (!this.readOnly && this.sessionId) {
-                void this.heartbeatOnce();
+                this.lastActivityAt = Date.now();
+                this.scheduleLeaseRenew();
             }
         };
         document.addEventListener('visibilitychange', this._visibilityHandler);
@@ -338,41 +371,54 @@ export class EditorSessionClient {
         this._visibilityHandler = null;
     }
 
-    startHeartbeat() {
-        this.stopHeartbeat();
+    markLeaseRenewed(expiresAt = null) {
+        const parsed = Date.parse(String(expiresAt || ''));
+        this.leaseExpiresAt = Number.isFinite(parsed)
+            ? parsed
+            : Date.now() + (this.leaseTtlSeconds * 1000);
+        this.lastLeaseRenewedAt = Date.now();
+        this.scheduleLeaseRenew();
+    }
+
+    scheduleLeaseRenew() {
+        this.cancelLeaseRenew();
         if (this.readOnly || !this.sessionId || this.destroyed) {
             return;
         }
-
-        // Keep lock alive even when tab hidden / briefly offline — skipping TTL expiry
-        // was locking Save for solo editors after ~2 minutes in background.
-        const tick = () => {
-            void this.heartbeatOnce();
-        };
-
-        void this.heartbeatOnce();
-        this.heartbeatTimer = window.setInterval(tick, this.heartbeatSeconds * 1000);
+        const renewAt = this.leaseExpiresAt - (this.leaseRenewLeadSeconds * 1000);
+        const delay = Math.max(0, renewAt - Date.now());
+        this.leaseRenewTimer = window.setTimeout(() => {
+            this.leaseRenewTimer = null;
+            const visible = typeof document === 'undefined' || document.visibilityState === 'visible';
+            const activityWindowMs = Math.min(120, this.leaseTtlSeconds) * 1000;
+            const recentlyActive = Date.now() - this.lastActivityAt <= activityWindowMs;
+            const recentlyRenewed = Date.now() - this.lastLeaseRenewedAt < this.leaseRenewLeadSeconds * 1000;
+            if (!visible || !recentlyActive || recentlyRenewed) {
+                return;
+            }
+            void this.renewLeaseOnce();
+        }, delay);
     }
 
-    stopHeartbeat() {
-        if (this.heartbeatTimer != null) {
-            window.clearInterval(this.heartbeatTimer);
-            this.heartbeatTimer = null;
+    cancelLeaseRenew() {
+        if (this.leaseRenewTimer != null) {
+            window.clearTimeout(this.leaseRenewTimer);
+            this.leaseRenewTimer = null;
         }
     }
 
-    async heartbeatOnce() {
+    async renewLeaseOnce() {
         if (this.destroyed || this.readOnly || !this.sessionId) {
             return;
         }
-        if (this._heartbeatInFlight) {
+        if (this._leaseRenewInFlight) {
             return;
         }
-        this._heartbeatInFlight = true;
+        this._leaseRenewInFlight = true;
 
         try {
             const { response, data } = await seoArticleApiFetch(
-                `/api/seo/articles/${this.articleId}/editor-sessions/${this.sessionId}/heartbeat`,
+                `/api/seo/articles/${this.articleId}/edit-lease/${this.sessionId}`,
                 { method: 'PUT', body: JSON.stringify({}) },
             );
 
@@ -385,22 +431,22 @@ export class EditorSessionClient {
             if (data?.document_version != null) {
                 this.setDocumentVersion(data.document_version);
             }
+            this.markLeaseRenewed(data?.expires_at);
             const wasOffline = this.offline;
             this.offline = false;
             if (wasOffline) {
                 this.emit();
             }
         } catch {
-            // Network blip: keep sessionId, retry on next interval (do not permanent-skip).
             this.offline = true;
             this.emit();
         } finally {
-            this._heartbeatInFlight = false;
+            this._leaseRenewInFlight = false;
         }
     }
 
     handleLostSession(error) {
-        this.stopHeartbeat();
+        this.cancelLeaseRenew();
         this.sessionId = null;
         this.readOnly = true;
         this.lockStatus = error?.code || 'lost';
@@ -534,6 +580,7 @@ export class EditorSessionClient {
         if (data?.document_version != null) {
             this.setDocumentVersion(data.document_version);
         }
+        this.markLeaseRenewed(data?.lease_expires_at);
         if (typeof window !== 'undefined') {
             if (data?.document_version != null) {
                 window.__SEO_EDITOR_DOCUMENT_VERSION__ = Math.max(
@@ -596,7 +643,7 @@ export class EditorSessionClient {
             return { ok: false, error, data, response };
         }
 
-        this.stopHeartbeat();
+        this.cancelLeaseRenew();
         this.sessionId = null;
         this.lockStatus = 'released';
         this.readOnly = true;
@@ -610,12 +657,12 @@ export class EditorSessionClient {
 
     async release() {
         if (!this.sessionId) {
-            this.stopHeartbeat();
+            this.cancelLeaseRenew();
             return { ok: true };
         }
 
         const sessionId = this.sessionId;
-        this.stopHeartbeat();
+        this.cancelLeaseRenew();
         this.sessionId = null;
         this.lockStatus = 'released';
         this.readOnly = true;
@@ -623,7 +670,7 @@ export class EditorSessionClient {
 
         try {
             await seoArticleApiFetch(
-                `/api/seo/articles/${this.articleId}/editor-sessions/${sessionId}`,
+                `/api/seo/articles/${this.articleId}/edit-lease/${sessionId}`,
                 { method: 'DELETE' },
             );
         } catch {
@@ -636,7 +683,8 @@ export class EditorSessionClient {
     destroy() {
         this.destroyed = true;
         this.recovering = false;
-        this.stopHeartbeat();
+        this.cancelLeaseRenew();
+        this.unbindActivity();
         this.unbindVisibility();
     }
 }

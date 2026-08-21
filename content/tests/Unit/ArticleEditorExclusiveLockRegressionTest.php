@@ -49,7 +49,7 @@ final class ArticleEditorExclusiveLockRegressionTest extends TestCase
     {
         $client = $this->readAddon('resources/js/utils/editorSessionClient.js');
         $shell = $this->readAddon('resources/js/article-editor.jsx');
-        $editor = $this->readAddon('resources/js/components/SeoArticleEditor.jsx');
+        $editor = $this->readAddon('resources/js/hooks/useArticleEditorImageSlugRename.js');
 
         self::assertStringContainsString("this.lockStatus = 'owned'", $client);
         self::assertStringContainsString('this.readOnly = false', $client);
@@ -94,26 +94,30 @@ final class ArticleEditorExclusiveLockRegressionTest extends TestCase
         self::assertStringNotContainsString('Bạn đang xem ở chế độ chỉ đọc', $i18n);
     }
 
-    public function test_same_user_new_client_can_take_over_server_side(): void
+    public function test_same_user_tabs_keep_independent_leases(): void
     {
         $service = $this->readAddon('Services/ArticleEditor/ArticleEditorSessionService.php');
+        $channel = $this->readAddon('resources/js/utils/articleEditorTabChannel.js');
 
         self::assertStringContainsString('client_instance_id === $clientInstanceId', $service);
-        self::assertStringContainsString('session_same_user_takeover', $service);
-        self::assertStringContainsString('ArticleEditorSessionStatus::TakenOver', $service);
-        self::assertStringContainsString('takeover_by_user_id', $service);
+        self::assertStringContainsString('same_user_active_leases', $service);
+        self::assertStringNotContainsString('session_same_user_takeover', $service);
         self::assertStringContainsString('ArticleEditorSessionException::locked', $service);
+        self::assertStringContainsString('new window.BroadcastChannel(`article-editor-${normalizedArticleId}`)', $channel);
+        self::assertStringContainsString("return { supported: false, destroy() {} }", $channel);
     }
 
-    public function test_client_keeps_heartbeat_when_hidden_and_recovers_expiry(): void
+    public function test_client_renews_active_visible_lease_without_polling(): void
     {
         $client = $this->readAddon('resources/js/utils/editorSessionClient.js');
 
         self::assertStringContainsString('bindVisibility', $client);
+        self::assertStringContainsString('bindActivity', $client);
         self::assertStringContainsString('recoverSession', $client);
         self::assertStringContainsString('RECOVERABLE_SESSION_LOSS', $client);
-        self::assertStringContainsString('heartbeatOnce', $client);
-        self::assertStringNotContainsString("document.visibilityState === 'hidden'", $client);
-        self::assertStringNotContainsString('|| this.offline)', $client);
+        self::assertStringContainsString('renewLeaseOnce', $client);
+        self::assertStringContainsString("document.visibilityState === 'visible'", $client);
+        self::assertStringContainsString('recentlyActive', $client);
+        self::assertStringNotContainsString('setInterval', $client);
     }
 }

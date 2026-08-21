@@ -5,10 +5,9 @@ import './editor/modules';
 import { registerDomainSaveOwners, unregisterDomainSaveOwners } from './editor/domains';
 import { clearStaleEditorAssetReloadFlag } from './editor/runtime/staleEditorAssets';
 import SeoArticleEditor from './components/SeoArticleEditor';
-import WordPressMediaRenameModal from '@wordpress-addon/components/WordPressMediaRenameModal.jsx';
+import LazyWordPressMediaRenameModal from '@wordpress-addon/components/LazyWordPressMediaRenameModal.jsx';
 import '../css/article-editor.css';
 import '../css/seo-select.css';
-import '../../../media/resources/css/image-splitter.css';
 import '@media-addon/utils/seoLocalMediaUpload.js';
 import {
     readArticleMediaPickerCache,
@@ -33,7 +32,7 @@ import {
     prepareEditorExitAfterSyncEnqueue,
     syncArticleToWordPressViaApi,
 } from './utils/articleEditorApi';
-import { loadArticleEditorSeoLazy } from './utils/articleEditorSeoLazy';
+import { loadArticleEditorSeoSettings } from './utils/articleEditorSeoLazy';
 import {
     beginExplicitEditorSave,
     endExplicitEditorSave,
@@ -41,13 +40,19 @@ import {
     saveArticleViaApiSingleFlight,
 } from './utils/articleEditorSaveQueue';
 import { flushMediaSnapshotMutations } from './utils/articleEditorMediaSnapshot';
-import { EditorSessionClient } from './utils/editorSessionClient';
+import { EditorSessionClient, getOrCreateClientInstanceId } from './utils/editorSessionClient';
+import { createArticleEditorTabChannel } from './utils/articleEditorTabChannel';
 import {
     ARTICLE_EDITOR_SESSION_STATE_EVENT,
     EDITOR_SESSION_STATUS,
     emitArticleEditorSessionState,
     resolveSessionStatusFromClient,
 } from './utils/editorSessionState';
+import {
+    CONTENT_LIFECYCLE,
+    emitContentLifecycle,
+    normalizeContentLifecyclePayload,
+} from './utils/articleEditorContentLifecycle';
 import { assertWritableEditorSession } from './utils/editorSessionState';
 import { t } from './utils/i18n';
 import {
@@ -111,17 +116,27 @@ queueMicrotask(() => {
         return;
     }
 
-    const activeOp = window.__SEO_ACTIVE_ARTICLE_OPERATION__;
-    const articleId = Number(activeOp?.article_id ?? 0);
-    if (activeOp && typeof activeOp === 'object' && articleId > 0) {
-        // WP sync queued/processing → tracker redirect Sync Queue (không Elapsed).
-        window.__seoArticleOperationTracker?.apply?.(articleId, activeOp);
+    const deferOperationBootstrap = (cb) => {
+        window.setTimeout(cb, 8000);
+    };
 
-        return;
-    }
-    if (articleId > 0) {
-        window.__seoArticleOperationTracker?.bootstrap?.(articleId);
-    }
+    deferOperationBootstrap(() => {
+        if (window.__SEO_EDITOR_EXITING__) {
+            return;
+        }
+
+        const activeOp = window.__SEO_ACTIVE_ARTICLE_OPERATION__;
+        const articleId = Number(activeOp?.article_id ?? 0);
+        if (activeOp && typeof activeOp === 'object' && articleId > 0) {
+            // WP sync queued/processing → tracker redirect Sync Queue (không Elapsed).
+            window.__seoArticleOperationTracker?.apply?.(articleId, activeOp);
+
+            return;
+        }
+        if (articleId > 0) {
+            window.__seoArticleOperationTracker?.bootstrap?.(articleId);
+        }
+    });
 });
 
 window.addEventListener('seo-editor-slug-updated', (event) => {
@@ -132,6 +147,7 @@ window.addEventListener('seo-editor-slug-updated', (event) => {
         slug: detail.slug,
         permalink_base: detail.permalink_base,
         permalink_suffix: detail.permalink_suffix,
+        wordpress_permalink: detail.wordpress_permalink,
     });
 });
 
@@ -194,6 +210,7 @@ window.__seoExecuteHeavyArticleAction = async function executeHeavyArticleAction
         ? 'sync'
         : (action === 'save-close' ? 'save-close' : 'save');
     const overlayAction = normalizedAction === 'sync' ? 'sync' : 'save';
+    const requiresBlockingOverlay = normalizedAction !== 'save';
 
     if (window.__SEO_EDITOR_NETWORK_STATUS__?.unavailable) {
         const message = normalizedAction === 'sync'
@@ -204,11 +221,10 @@ window.__seoExecuteHeavyArticleAction = async function executeHeavyArticleAction
         throw error;
     }
 
-    if (!window.__seoArticleHeavyActionOverlay?.locked) {
+    if (requiresBlockingOverlay && !window.__seoArticleHeavyActionOverlay?.locked) {
         window.__seoBeginArticleHeavyActionClient?.(overlayAction);
+        await window.__seoYieldForHeavyActionPaint?.();
     }
-
-    await window.__seoYieldForHeavyActionPaint?.();
 
     try {
         const collect = window.__seoCollectEditorHeavyBundle;
@@ -325,7 +341,7 @@ window.__seoExecuteHeavyArticleAction = async function executeHeavyArticleAction
                     connectionHash: window.__SEO_EDITOR_CONNECTION_HASH__ ?? '',
                     savedHtml: String(window.__SEO_EDITOR_LAST_SAVE_HTML__ ?? editorBundle.html ?? ''),
                     keepOverlay: false,
-                    reloadAfterSuccess: true,
+                    reloadAfterSuccess: false,
                 });
                 window.__seoResetPublishTabPrimed?.();
             }
@@ -340,6 +356,11 @@ window.__seoExecuteHeavyArticleAction = async function executeHeavyArticleAction
         }
     } catch (error) {
         window.__seoEndArticleHeavyActionClient?.();
+        if (normalizedAction === 'save') {
+            window.dispatchEvent(new CustomEvent('article-editor-save-finished', {
+                detail: { failed: true },
+            }));
+        }
         throw error;
     }
 };
@@ -354,11 +375,10 @@ window.__seoExecuteHeavyArticleAction = async function executeHeavyArticleAction
 async function runArticleEditorApiAction(action, wire, editorDetail = {}) {
     const normalizedAction = action === 'sync' ? 'sync' : 'save';
 
-    if (!window.__seoArticleHeavyActionOverlay?.locked) {
+    if (normalizedAction === 'sync' && !window.__seoArticleHeavyActionOverlay?.locked) {
         window.__seoBeginArticleHeavyActionClient?.(normalizedAction);
+        await window.__seoYieldForHeavyActionPaint?.();
     }
-
-    await window.__seoYieldForHeavyActionPaint?.();
 
     const html = String(editorDetail.html ?? '').trim();
     if (!html) {
@@ -433,7 +453,7 @@ async function runArticleEditorApiAction(action, wire, editorDetail = {}) {
                     siteId,
                     connectionHash: window.__SEO_EDITOR_CONNECTION_HASH__ ?? '',
                     savedHtml: String(window.__SEO_EDITOR_LAST_SAVE_HTML__ ?? apiPayload.html ?? ''),
-                    reloadAfterSuccess: true,
+                    reloadAfterSuccess: false,
                 });
             } catch (error) {
                 if (error?.conflict) {
@@ -447,6 +467,11 @@ async function runArticleEditorApiAction(action, wire, editorDetail = {}) {
         }
     } catch (error) {
         window.__seoEndArticleHeavyActionClient?.();
+        if (normalizedAction === 'save') {
+            window.dispatchEvent(new CustomEvent('article-editor-save-finished', {
+                detail: { failed: true },
+            }));
+        }
         throw error;
     }
 }
@@ -760,18 +785,31 @@ function ArticleEditorWithSession(props) {
     const [acquireError, setAcquireError] = React.useState(null);
     const [sessionStatus, setSessionStatus] = React.useState(EDITOR_SESSION_STATUS.ACQUIRING);
     const [sessionReasonCode, setSessionReasonCode] = React.useState(null);
+    const [sameUserPeerOpen, setSameUserPeerOpen] = React.useState(false);
     const clientRef = React.useRef(null);
     const editorMountedRef = React.useRef(false);
     const acquireGenerationRef = React.useRef(0);
     const intentionalEditorCloseRef = React.useRef(false);
-    const heartbeatSeconds = Math.max(
-        10,
-        Number(
-            editorSessionConfig?.heartbeatSeconds
-            ?? editorSessionConfig?.heartbeat_seconds
-            ?? 30,
-        ) || 30,
+    const leaseTtlSeconds = Math.max(
+        180,
+        Number(editorSessionConfig?.leaseTtlSeconds ?? editorSessionConfig?.lease_ttl_seconds ?? 240) || 240,
     );
+    const leaseRenewLeadSeconds = Math.max(
+        30,
+        Number(editorSessionConfig?.leaseRenewLeadSeconds ?? editorSessionConfig?.lease_renew_lead_seconds ?? 60) || 60,
+    );
+
+    React.useEffect(() => {
+        const tabId = getOrCreateClientInstanceId(articleId);
+        const tabChannel = createArticleEditorTabChannel({
+            articleId,
+            userId: currentUserId,
+            tabId,
+            onPeer: () => setSameUserPeerOpen(true),
+        });
+
+        return () => tabChannel.destroy();
+    }, [articleId, currentUserId]);
 
     const applyClientState = React.useCallback((client, reasonCode = null) => {
         window.__seoEditorSessionClient = client;
@@ -819,7 +857,8 @@ function ArticleEditorWithSession(props) {
         const client = new EditorSessionClient({
             articleId,
             documentVersion,
-            heartbeatSeconds,
+            leaseTtlSeconds,
+            leaseRenewLeadSeconds,
             onStateChange: (snap) => {
                 if (acquireGenerationRef.current !== generation) {
                     return;
@@ -863,7 +902,7 @@ function ArticleEditorWithSession(props) {
 
         setAcquireError(null);
         applyClientState(client, null);
-    }, [articleId, applyClientState, documentVersion, heartbeatSeconds]);
+    }, [articleId, applyClientState, documentVersion, leaseRenewLeadSeconds, leaseTtlSeconds]);
 
     React.useEffect(() => {
         window.__SEO_EDITOR_CURRENT_USER_ID__ = currentUserId != null ? Number(currentUserId) || 0 : 0;
@@ -921,7 +960,7 @@ function ArticleEditorWithSession(props) {
                 return;
             }
             try {
-                const url = `/api/seo/articles/${articleId}/editor-sessions/${encodeURIComponent(client.sessionId)}`;
+                const url = `/api/seo/articles/${articleId}/edit-lease/${encodeURIComponent(client.sessionId)}`;
                 if (typeof navigator.sendBeacon === 'function') {
                     const blob = new Blob([JSON.stringify({ _method: 'DELETE' })], { type: 'application/json' });
                     navigator.sendBeacon(url, blob);
@@ -1001,6 +1040,18 @@ function ArticleEditorWithSession(props) {
             data-session-status={sessionStatus || undefined}
             data-session-writable={sessionReadOnly ? '0' : '1'}
         >
+            {sameUserPeerOpen ? (
+                <div className="mx-3 mt-2 flex items-center justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                    <span>Bài viết này cũng đang mở trong một tab khác. Revision guard sẽ ngăn ghi đè bản mới hơn.</span>
+                    <button
+                        type="button"
+                        className="shrink-0 rounded border border-amber-300 bg-white px-2 py-1 font-medium hover:bg-amber-100"
+                        onClick={() => setSameUserPeerOpen(false)}
+                    >
+                        Tiếp tục tại tab này
+                    </button>
+                </div>
+            ) : null}
             <SeoArticleEditor
                 {...editorProps}
                 articleId={articleId}
@@ -1044,6 +1095,9 @@ function readArticleEditorBootstrap() {
     let initialGalleryDescription = '';
     let lazyEndpoints = {};
     let aiHistoryPendingApply = null;
+    let contentLifecycle = normalizeContentLifecyclePayload({
+        state: CONTENT_LIFECYCLE.CONTENT_LOADING,
+    });
 
     // Phase 2 primary: single core bootstrap.
     try {
@@ -1069,6 +1123,11 @@ function readArticleEditorBootstrap() {
             parentChildAllowed = Boolean(core?.parentChildAllowed ?? core?.parent_child_allowed);
             parentChildReason = String(core?.parentChildReason ?? core?.parent_child_reason ?? '').trim();
             initialHtml = typeof core?.content === 'string' ? core.content : '';
+            if (core?.contentLifecycle && typeof core.contentLifecycle === 'object') {
+                contentLifecycle = normalizeContentLifecyclePayload(core.contentLifecycle);
+            } else if (core?.content_lifecycle && typeof core.content_lifecycle === 'object') {
+                contentLifecycle = normalizeContentLifecyclePayload(core.content_lifecycle);
+            }
             if (core?.editorDocument && typeof core.editorDocument === 'object') {
                 initialEditorDocument = core.editorDocument;
             } else if (core?.editor_document && typeof core.editor_document === 'object') {
@@ -1237,6 +1296,7 @@ function readArticleEditorBootstrap() {
     if (connectionHash) {
         window.__SEO_CONNECTION_HASH__ = connectionHash;
     }
+    emitContentLifecycle(contentLifecycle);
 
     return {
         initialHtml,
@@ -1271,6 +1331,7 @@ function readArticleEditorBootstrap() {
         initialGalleryDescription,
         lazyEndpoints,
         aiHistoryPendingApply,
+        contentLifecycle,
     };
 }
 
@@ -1352,6 +1413,7 @@ function mountArticleEditorPage() {
         initialGalleryDescription,
         lazyEndpoints,
         aiHistoryPendingApply,
+        contentLifecycle,
     } = bootstrap;
 
     // Manual AI History apply: nạp outline/content vào draft session, không gọi AI.
@@ -1456,8 +1518,9 @@ function mountArticleEditorPage() {
                 initialLoaiSanPham={initialLoaiSanPham}
                 initialGalleryDescription={initialGalleryDescription}
                 perfDebug={perfDebugEnabled}
+                contentLifecycle={contentLifecycle}
             />
-            <WordPressMediaRenameModal />
+            <LazyWordPressMediaRenameModal />
         </>,
     );
 
@@ -1477,11 +1540,9 @@ function mountArticleEditorPage() {
         }
     }
 
-    // Phase 2/3: light SEO summary + settings idle — abortable; no heavy module fetch.
+    // Static scoring policy/messages are supplemental. Live score never waits for a
+    // persisted server summary and never adopts it as current editor analysis.
     if (articleId) {
-        const seoSummaryUrl =
-            bootstrap.lazyEndpoints?.seoSummary
-            || `/api/seo/articles/${articleId}/editor/seo-summary`;
         const settingsUrl =
             bootstrap.lazyEndpoints?.settings
             || `/api/seo/articles/${articleId}/editor/settings`;
@@ -1511,9 +1572,8 @@ function mountArticleEditorPage() {
             }
             void (async () => {
                 try {
-                    const [seoRes, settingsRes] = await loadArticleEditorSeoLazy({
+                    const settingsRes = await loadArticleEditorSeoSettings({
                         articleId,
-                        seoSummaryUrl,
                         settingsUrl,
                     });
                     if (idleCancelled) {
@@ -1533,11 +1593,9 @@ function mountArticleEditorPage() {
                         if (settingsData.external_facts && typeof settingsData.external_facts === 'object') {
                             setExternalFacts(settingsData.external_facts);
                         }
-                    }
-                    if (seoRes.response.ok && seoRes.data?.success !== false) {
                         window.dispatchEvent(
-                            new CustomEvent('seo-editor-seo-summary-loaded', {
-                                detail: seoRes.data?.data ?? {},
+                            new CustomEvent('seo-editor-seo-settings-loaded', {
+                                detail: settingsData,
                             }),
                         );
                     }
@@ -1545,7 +1603,7 @@ function mountArticleEditorPage() {
                     if (e?.name === 'AbortError') {
                         return;
                     }
-                    console.warn('Failed to load SEO summary/settings', e);
+                    console.warn('Failed to load SEO settings', e);
                 }
             })();
         });

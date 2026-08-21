@@ -33,6 +33,7 @@ use Omnichannel\Addons\ContentProjects\Services\SeoProjectArticleOwnerSyncServic
 use Omnichannel\Addons\WordPress\Services\SitePolylangService;
 use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\Seo\Support\SeoPanelRoutes;
 use Omnichannel\Addons\Seo\Support\SeoDisplayTimezone;
 use Omnichannel\Addons\WordPress\Support\WordPressPermalinkBuilder;
 use App\Models\Site;
@@ -2355,7 +2356,7 @@ class ArticleResource extends SeoPanelResource
         return [
             \Filament\Navigation\NavigationItem::make($parentLabel)
                 ->icon(static::getNavigationIcon())
-                ->isActiveWhen(fn (): bool => request()->routeIs('filament.seo.resources.articles.index')
+                ->isActiveWhen(fn (): bool => SeoPanelRoutes::is('filament.seo.resources.articles.index')
                     && in_array(request()->query('tab', Pages\ListArticles::TAB_POSTS), [
                         Pages\ListArticles::TAB_POSTS,
                         '',
@@ -2366,7 +2367,7 @@ class ArticleResource extends SeoPanelResource
                 ->icon('heroicon-o-document-text')
                 ->group(null)
                 ->parentItem($parentLabel)
-                ->isActiveWhen(fn (): bool => request()->routeIs('filament.seo.resources.articles.index')
+                ->isActiveWhen(fn (): bool => SeoPanelRoutes::is('filament.seo.resources.articles.index')
                     && request()->query('tab', Pages\ListArticles::TAB_POSTS) === Pages\ListArticles::TAB_POSTS)
                 ->sort(1)
                 ->url(static::getUrl('index', ['tab' => Pages\ListArticles::TAB_POSTS])),
@@ -2374,7 +2375,7 @@ class ArticleResource extends SeoPanelResource
                 ->icon('heroicon-o-folder')
                 ->group(null)
                 ->parentItem($parentLabel)
-                ->isActiveWhen(fn (): bool => request()->routeIs('filament.seo.resources.articles.index')
+                ->isActiveWhen(fn (): bool => SeoPanelRoutes::is('filament.seo.resources.articles.index')
                     && request()->query('tab') === Pages\ListArticles::TAB_CATEGORIES)
                 ->sort(2)
                 ->url(static::getUrl('index', ['tab' => Pages\ListArticles::TAB_CATEGORIES])),
@@ -2382,7 +2383,7 @@ class ArticleResource extends SeoPanelResource
                 ->icon('heroicon-o-check-badge')
                 ->group(null)
                 ->parentItem($parentLabel)
-                ->isActiveWhen(fn (): bool => request()->routeIs('filament.seo.resources.articles.index')
+                ->isActiveWhen(fn (): bool => SeoPanelRoutes::is('filament.seo.resources.articles.index')
                     && request()->query('tab') === Pages\ListArticles::TAB_REVIEWED)
                 ->sort(4)
                 ->url(static::getUrl('index', ['tab' => Pages\ListArticles::TAB_REVIEWED])),
@@ -2390,7 +2391,7 @@ class ArticleResource extends SeoPanelResource
                 ->icon('heroicon-o-no-symbol')
                 ->group(null)
                 ->parentItem($parentLabel)
-                ->isActiveWhen(fn (): bool => request()->routeIs('filament.seo.resources.articles.index')
+                ->isActiveWhen(fn (): bool => SeoPanelRoutes::is('filament.seo.resources.articles.index')
                     && request()->query('tab') === Pages\ListArticles::TAB_SKIPPED)
                 ->sort(5)
                 ->url(static::getUrl('index', ['tab' => Pages\ListArticles::TAB_SKIPPED])),

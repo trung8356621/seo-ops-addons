@@ -43,18 +43,11 @@ final class ProductGalleryCanaryAccess
             return false;
         }
 
-        // Core admin viewer trên SEO connection thường read-only — không tạo fixture.
-        if (SeoAccessControl::isSeoPanelReadOnly()) {
-            return false;
+        if (SeoAccessControl::canMutateContentProjects() || SeoAccessControl::canAccessManagerFeatures()) {
+            return true;
         }
 
-        if (! SeoAccessControl::canMutateContentProjects() && ! SeoAccessControl::canAccessManagerFeatures()) {
-            $role = (string) ($user->role ?? '');
-
-            return in_array($role, [User::ROLE_ADMIN, User::ROLE_OWNER], true);
-        }
-
-        return true;
+        return (string) ($user->role ?? '') === User::ROLE_OWNER;
     }
 
     public static function isCanaryArticle(SeoArticle $article): bool

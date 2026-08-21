@@ -100,14 +100,28 @@
             }
         });
 
-        refresh();
-        document.addEventListener('visibilitychange', () => {
-            if (!document.hidden) {
-                refresh();
-            } else {
-                schedule();
-            }
-        });
+        const onEditorPage = document.body.classList.contains('article-editor-page')
+            || document.documentElement.classList.contains('article-editor-page')
+            || Boolean(document.querySelector('.seo-article-edit-page, [data-article-editor-page], #seo-article-editor-root'));
+        const start = () => {
+            refresh();
+            document.addEventListener('visibilitychange', () => {
+                if (!document.hidden) {
+                    refresh();
+                } else {
+                    schedule();
+                }
+            });
+        };
+
+        if (onEditorPage) {
+            // rIC fires immediately after a long parse (thread is idle waiting on
+            // network) and then contends with lease/settings on artisan serve.
+            window.setTimeout(start, 10000);
+            return;
+        }
+
+        start();
     }
 
     if (document.readyState === 'loading') {

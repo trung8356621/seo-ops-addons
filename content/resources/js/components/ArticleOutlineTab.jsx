@@ -1,5 +1,5 @@
-﻿import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, Check, Copy, Loader2, MoreHorizontal, Pencil, Plus } from 'lucide-react';
+﻿import { useCallback, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState, createContext } from 'react';
+import { AlertTriangle, Check, ChevronRight, Copy, Loader2, MoreHorizontal, Pencil, Plus } from 'lucide-react';
 import { csrfToken, seoArticleApiHeaders } from '@seo-addon/utils/seoArticleApi.js';
 import { isPersistedOutlineHeadingId } from '../utils/contentDocumentHelpers';
 import { findLocalDuplicateHeadingKeys, localDuplicateHeadingKey } from '../utils/articleEditorClientOutline';
@@ -8,8 +8,6 @@ import { t } from '../utils/i18n';
 const outlineUrl = (articleId) => `/api/seo/articles/${articleId}/outline`;
 const outlineRefreshUrl = (articleId) => `/api/seo/articles/${articleId}/outline/refresh`;
 const headingUrl = (articleId, headingId) => `/api/seo/articles/${articleId}/outline/${headingId}`;
-const generateUrl = (articleId, headingId) =>
-    `/api/seo/articles/${articleId}/outline/${headingId}/generate`;
 
 function findOutlineNodeByPredicate(nodes, predicate) {
     for (const node of nodes ?? []) {
@@ -241,8 +239,116 @@ function swapSiblingInTree(nodes, nodeId, direction) {
     return changed ? nextNodes : nodes;
 }
 
+const OutlineMenuContext = createContext({
+    openKey: null,
+    setOpenKey: () => {},
+});
+
+function OutlineMenuProvider({ children }) {
+    const [openKey, setOpenKey] = useState(null);
+
+    useEffect(() => {
+        if (!openKey) {
+            return undefined;
+        }
+
+        const onPointerDown = (event) => {
+            if (event.target?.closest?.('[data-outline-menu-root]')) {
+                return;
+            }
+            setOpenKey(null);
+        };
+        const onKeyDown = (event) => {
+            if (event.key === 'Escape') {
+                setOpenKey(null);
+            }
+        };
+
+        document.addEventListener('mousedown', onPointerDown);
+        document.addEventListener('keydown', onKeyDown);
+
+        return () => {
+            document.removeEventListener('mousedown', onPointerDown);
+            document.removeEventListener('keydown', onKeyDown);
+        };
+    }, [openKey]);
+
+    const value = useMemo(() => ({ openKey, setOpenKey }), [openKey]);
+
+    return (
+        <OutlineMenuContext.Provider value={value}>
+            {children}
+        </OutlineMenuContext.Provider>
+    );
+}
+
+function OutlineConvertSubmenu({ onConvert }) {
+    const wrapRef = useRef(null);
+    const flyoutRef = useRef(null);
+    const [open, setOpen] = useState(false);
+    const [placement, setPlacement] = useState({ left: true, up: false });
+
+    useLayoutEffect(() => {
+        if (!open || !flyoutRef.current) {
+            return;
+        }
+        const rect = flyoutRef.current.getBoundingClientRect();
+        setPlacement({
+            left: true,
+            up: rect.bottom > window.innerHeight - 8,
+        });
+    }, [open]);
+
+    const choose = (kind) => {
+        setOpen(false);
+        onConvert(kind);
+    };
+
+    return (
+        <div
+            ref={wrapRef}
+            className={`seo-outline-block__submenu-wrap${open ? ' is-open' : ''}`}
+            onMouseEnter={() => setOpen(true)}
+            onMouseLeave={() => setOpen(false)}
+        >
+            <button
+                type="button"
+                className="seo-outline-block__submenu-trigger"
+                aria-haspopup="menu"
+                aria-expanded={open}
+                onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    setOpen((current) => !current);
+                }}
+            >
+                <span>{t('outline_convert_to')}</span>
+                <ChevronRight size={14} aria-hidden="true" />
+            </button>
+            {open ? (
+                <div
+                    ref={flyoutRef}
+                    className={[
+                        'seo-outline-block__submenu',
+                        placement.left ? 'is-left' : '',
+                        placement.up ? 'is-up' : '',
+                    ].filter(Boolean).join(' ')}
+                    role="menu"
+                >
+                    <button type="button" role="menuitem" onClick={() => choose('h2')}>{t('outline_convert_h2')}</button>
+                    <button type="button" role="menuitem" onClick={() => choose('h3')}>{t('outline_convert_h3')}</button>
+                    <button type="button" role="menuitem" onClick={() => choose('h4')}>{t('outline_convert_h4')}</button>
+                    <button type="button" role="menuitem" onClick={() => choose('paragraph')}>{t('outline_convert_paragraph')}</button>
+                    <button type="button" role="menuitem" onClick={() => choose('bold')}>{t('outline_convert_bold')}</button>
+                    <button type="button" role="menuitem" onClick={() => choose('italic')}>{t('outline_convert_italic')}</button>
+                </div>
+            ) : null}
+        </div>
+    );
+}
+
 /**
- * Block 1 heading: click nhảy editor, double-click focus nhóm, icon Pencil/Sparkles để sửa/gen.
+ * Block 1 heading: click nhảy editor, double-click focus nhóm, icon Pencil để sửa.
  */
 function HeadingBlock({
     node,
@@ -255,23 +361,23 @@ function HeadingBlock({
     onJumpToEditor,
     onSaveText,
     onSaveHtml,
-    onGenerate,
     onMoveUp,
     onMoveDown,
     onDelete,
     onAddNode = null,
-    onChangeLevel = null,
-    onDeleteKeepContent = null,
+    onConvert = null,
     onDeleteWithContent = null,
     onToggleVisible = null,
     canMoveUp = false,
     canMoveDown = false,
     canDelete = false,
-    canGenerateOutlineHeading = false,
     resolveHeadingInnerHtml = null,
     busyHeadingId,
     isLocalDuplicate = false,
 }) {
+    const { openKey, setOpenKey } = useContext(OutlineMenuContext);
+    const moreKey = `more:${node.id}`;
+    const addKey = `add:${node.id}`;
     const [editing, setEditing] = useState(false);
     const [htmlEditMode, setHtmlEditMode] = useState(false);
     const [draft, setDraft] = useState(node.heading_text);
@@ -280,8 +386,8 @@ function HeadingBlock({
     const clickTimerRef = useRef(null);
     const copyTimerRef = useRef(null);
     const [copied, setCopied] = useState(false);
-    const [menuOpen, setMenuOpen] = useState(false);
-    const [addOpen, setAddOpen] = useState(false);
+    const menuOpen = openKey === moreKey;
+    const addOpen = openKey === addKey;
     const isBusy = busyHeadingId === node.id;
     const isHeadingFocused = activeHeadingId === node.id;
 
@@ -539,15 +645,14 @@ function HeadingBlock({
                         >
                             <Pencil size={13} strokeWidth={1.75} />
                         </button>
-                        <div className="seo-outline-block__hover-wrap">
+                        <div className="seo-outline-block__hover-wrap" data-outline-menu-root>
                             <button
                                 type="button"
                                 className="seo-outline-block__hover-btn"
                                 title={t('outline_add_heading')}
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    setAddOpen((open) => !open);
-                                    setMenuOpen(false);
+                                    setOpenKey(addOpen ? null : addKey);
                                 }}
                             >
                                 <Plus size={13} strokeWidth={1.75} />
@@ -555,62 +660,50 @@ function HeadingBlock({
                             {addOpen ? (
                                 <div className="seo-outline-block__menu" onClick={(e) => e.stopPropagation()}>
                                     {node.level <= 2 ? (
-                                        <button type="button" onClick={() => { setAddOpen(false); onAddNode?.(node, 'h2-below'); }}>
+                                        <button type="button" onClick={() => { setOpenKey(null); onAddNode?.(node, 'h2-below'); }}>
                                             {t('outline_add_h2_below')}
                                         </button>
                                     ) : null}
                                     {node.level <= 3 ? (
-                                        <button type="button" onClick={() => { setAddOpen(false); onAddNode?.(node, 'h3-child'); }}>
+                                        <button type="button" onClick={() => { setOpenKey(null); onAddNode?.(node, 'h3-child'); }}>
                                             {t('outline_add_h3_child')}
                                         </button>
                                     ) : null}
-                                    <button type="button" onClick={() => { setAddOpen(false); onAddNode?.(node, 'paragraph'); }}>
+                                    <button type="button" onClick={() => { setOpenKey(null); onAddNode?.(node, 'paragraph'); }}>
                                         {t('outline_add_paragraph')}
                                     </button>
                                 </div>
                             ) : null}
                         </div>
-                        <div className="seo-outline-block__hover-wrap">
+                        <div className="seo-outline-block__hover-wrap" data-outline-menu-root>
                             <button
                                 type="button"
                                 className="seo-outline-block__hover-btn"
                                 title={t('outline_more_actions')}
                                 onClick={(e) => {
                                     e.stopPropagation();
-                                    setMenuOpen((open) => !open);
-                                    setAddOpen(false);
+                                    setOpenKey(menuOpen ? null : moreKey);
                                 }}
                             >
                                 <MoreHorizontal size={13} strokeWidth={1.75} />
                             </button>
                             {menuOpen ? (
-                                <div className="seo-outline-block__menu" onClick={(e) => e.stopPropagation()}>
-                                    {node.level !== 2 ? (
-                                        <button type="button" onClick={() => { setMenuOpen(false); onChangeLevel?.(node, 2); }}>
-                                            {t('outline_change_h2')}
-                                        </button>
-                                    ) : null}
-                                    {node.level !== 3 ? (
-                                        <button type="button" onClick={() => { setMenuOpen(false); onChangeLevel?.(node, 3); }}>
-                                            {t('outline_change_h3')}
-                                        </button>
-                                    ) : null}
-                                    {node.level !== 4 ? (
-                                        <button type="button" onClick={() => { setMenuOpen(false); onChangeLevel?.(node, 4); }}>
-                                            {t('outline_change_h4')}
-                                        </button>
-                                    ) : null}
-                                    <button type="button" onClick={() => { setMenuOpen(false); onToggleVisible?.(node, false); }}>
+                                <div className="seo-outline-block__menu" role="menu" onClick={(e) => e.stopPropagation()}>
+                                    <OutlineConvertSubmenu
+                                        onConvert={(kind) => {
+                                            setOpenKey(null);
+                                            onConvert?.(node, kind);
+                                        }}
+                                    />
+                                    <button type="button" onClick={() => { setOpenKey(null); onToggleVisible?.(node, false); }}>
                                         {t('outline_hide_from_outline')}
                                     </button>
-                                    <button type="button" onClick={() => { setMenuOpen(false); onDeleteKeepContent?.(node); }}>
-                                        {t('outline_delete_keep_content')}
-                                    </button>
+                                    <div className="seo-outline-block__sep" role="separator" />
                                     <button
                                         type="button"
                                         className="is-danger"
                                         onClick={() => {
-                                            setMenuOpen(false);
+                                            setOpenKey(null);
                                             if (node.level <= 2) {
                                                 onDelete?.(node);
                                                 return;
@@ -622,11 +715,6 @@ function HeadingBlock({
                                     >
                                         {t('outline_delete_with_content')}
                                     </button>
-                                    {canGenerateOutlineHeading ? (
-                                        <button type="button" disabled={isBusy} onClick={() => { setMenuOpen(false); onGenerate(node); }}>
-                                            {t('outline_ai_gen')}
-                                        </button>
-                                    ) : null}
                                 </div>
                             ) : null}
                         </div>
@@ -649,15 +737,12 @@ function OutlineTree({
     onJumpToEditor,
     onSaveText,
     onSaveHtml,
-    onGenerate,
     onMoveHeading,
     onDeleteHeading,
     onAddNode = null,
-    onChangeLevel = null,
-    onDeleteKeepContent = null,
+    onConvert = null,
     onDeleteWithContent = null,
     onToggleVisible = null,
-    canGenerateOutlineHeading = false,
     resolveHeadingInnerHtml = null,
     busyHeadingId,
     localDuplicateKeys = null,
@@ -695,19 +780,16 @@ function OutlineTree({
                             onJumpToEditor={onJumpToEditor}
                             onSaveText={onSaveText}
                             onSaveHtml={onSaveHtml}
-                            onGenerate={onGenerate}
                             onMoveUp={(headingNode) => onMoveHeading?.(headingNode, 'prev')}
                             onMoveDown={(headingNode) => onMoveHeading?.(headingNode, 'next')}
                             onDelete={onDeleteHeading}
                             onAddNode={onAddNode}
-                            onChangeLevel={onChangeLevel}
-                            onDeleteKeepContent={onDeleteKeepContent}
+                            onConvert={onConvert}
                             onDeleteWithContent={onDeleteWithContent}
                             onToggleVisible={onToggleVisible}
                             canMoveUp={canMoveUp}
                             canMoveDown={canMoveDown}
                             canDelete
-                            canGenerateOutlineHeading={canGenerateOutlineHeading}
                             resolveHeadingInnerHtml={resolveHeadingInnerHtml}
                             busyHeadingId={busyHeadingId}
                             isLocalDuplicate={Boolean(localDuplicateKeys?.has(localDuplicateHeadingKey(node.heading_text)))}
@@ -725,15 +807,12 @@ function OutlineTree({
                                     onJumpToEditor={onJumpToEditor}
                                     onSaveText={onSaveText}
                                     onSaveHtml={onSaveHtml}
-                                    onGenerate={onGenerate}
                                     onMoveHeading={onMoveHeading}
                                     onDeleteHeading={onDeleteHeading}
                                     onAddNode={onAddNode}
-                                    onChangeLevel={onChangeLevel}
-                                    onDeleteKeepContent={onDeleteKeepContent}
+                                    onConvert={onConvert}
                                     onDeleteWithContent={onDeleteWithContent}
                                     onToggleVisible={onToggleVisible}
-                                    canGenerateOutlineHeading={canGenerateOutlineHeading}
                                     resolveHeadingInnerHtml={resolveHeadingInnerHtml}
                                     busyHeadingId={busyHeadingId}
                                     localDuplicateKeys={localDuplicateKeys}
@@ -767,7 +846,7 @@ export default function ArticleOutlineTab({
     onOutlineAddSection,
     onOutlineAddNode = null,
     onOutlineChangeLevel = null,
-    onOutlineDeleteKeepContent = null,
+    onOutlineConvert = null,
     onOutlineDeleteWithContent = null,
     onOutlineToggleVisible = null,
     onNotify,
@@ -776,9 +855,10 @@ export default function ArticleOutlineTab({
     preferClientSource = false,
     clientOutline = null,
     onClientRefresh = null,
+    syncRequired = false,
 }) {
     const [tree, setTree] = useState(() => (preferClientSource && Array.isArray(clientOutline) ? clientOutline : []));
-    const [loading, setLoading] = useState(!preferClientSource);
+    const [loading, setLoading] = useState(!preferClientSource && !syncRequired);
     const [error, setError] = useState('');
     const [activeGroupId, setActiveGroupId] = useState(null);
     const [activeHeadingId, setActiveHeadingId] = useState(null);
@@ -1249,29 +1329,6 @@ export default function ArticleOutlineTab({
         [applyHeadingPatch, articleId, notify, onHeadingHtmlChange, onSaveOutlineHeadingTitle],
     );
 
-    const handleGenerate = useCallback(
-        async (node) => {
-            setBusyHeadingId(node.id);
-            try {
-                const data = await requestJson(generateUrl(articleId, node.id), {
-                    method: 'POST',
-                    body: JSON.stringify({}),
-                });
-
-                const newText = String(data.heading?.heading_text ?? '').trim();
-                if (newText !== '' && newText !== node.heading_text) {
-                    applyHeadingPatch(node, newText);
-                }
-                notify(t('outline_notify_title'), t('outline_ai_regen_success'), 'success');
-            } catch (e) {
-                notify(t('outline_notify_title'), e.message || t('outline_ai_regen_failed'), 'danger');
-            } finally {
-                setBusyHeadingId(null);
-            }
-        },
-        [applyHeadingPatch, articleId, notify],
-    );
-
     const handleMoveHeading = useCallback(
         (node, direction) => {
             setTree((prev) => swapSiblingInTree(prev, node.id, direction));
@@ -1349,6 +1406,10 @@ export default function ArticleOutlineTab({
                 <div className="seo-outline-empty">
                     <Loader2 size={18} className="seo-outline-spin" /> {t('outline_loading')}
                 </div>
+            ) : syncRequired ? (
+                <div className="seo-outline-empty">
+                    {t('content_sync_required_outline')}
+                </div>
             ) : error !== '' ? (
                 <div className="seo-outline-empty seo-outline-empty--error">{error}</div>
             ) : tree.length === 0 ? (
@@ -1357,29 +1418,34 @@ export default function ArticleOutlineTab({
                 </div>
             ) : (
                 <div className="seo-outline-tree">
-                    <OutlineTree
-                        nodes={tree}
-                        activeGroupId={activeGroupId}
-                        activeHeadingId={activeHeadingId}
-                        editingHeadingId={editingHeadingId}
-                        onEditingHeadingEnd={handleEditingHeadingEnd}
-                        onSelectGroup={handleSelectGroup}
-                        onJumpToEditor={handleJumpToEditor}
-                        onSaveText={handleSaveText}
-                        onSaveHtml={handleSaveHtml}
-                        onGenerate={handleGenerate}
-                        onMoveHeading={handleMoveHeading}
-                        onDeleteHeading={handleDeleteHeading}
-                        onAddNode={onOutlineAddNode}
-                        onChangeLevel={onOutlineChangeLevel}
-                        onDeleteKeepContent={onOutlineDeleteKeepContent}
-                        onDeleteWithContent={onOutlineDeleteWithContent}
-                        onToggleVisible={onOutlineToggleVisible}
-                        canGenerateOutlineHeading={canGenerateOutlineHeading}
-                        resolveHeadingInnerHtml={resolveHeadingInnerHtml}
-                        busyHeadingId={busyHeadingId}
-                        localDuplicateKeys={localDuplicateKeys}
-                    />
+                    <OutlineMenuProvider>
+                        <OutlineTree
+                            nodes={tree}
+                            activeGroupId={activeGroupId}
+                            activeHeadingId={activeHeadingId}
+                            editingHeadingId={editingHeadingId}
+                            onEditingHeadingEnd={handleEditingHeadingEnd}
+                            onSelectGroup={handleSelectGroup}
+                            onJumpToEditor={handleJumpToEditor}
+                            onSaveText={handleSaveText}
+                            onSaveHtml={handleSaveHtml}
+                            onMoveHeading={handleMoveHeading}
+                            onDeleteHeading={handleDeleteHeading}
+                            onAddNode={onOutlineAddNode}
+                            onConvert={(node, kind) => {
+                                if ((kind === 'h2' || kind === 'h3' || kind === 'h4') && typeof onOutlineConvert !== 'function') {
+                                    onOutlineChangeLevel?.(node, Number(kind.slice(1)));
+                                    return;
+                                }
+                                onOutlineConvert?.(node, kind);
+                            }}
+                            onDeleteWithContent={onOutlineDeleteWithContent}
+                            onToggleVisible={onOutlineToggleVisible}
+                            resolveHeadingInnerHtml={resolveHeadingInnerHtml}
+                            busyHeadingId={busyHeadingId}
+                            localDuplicateKeys={localDuplicateKeys}
+                        />
+                    </OutlineMenuProvider>
                 </div>
             )}
         </div>

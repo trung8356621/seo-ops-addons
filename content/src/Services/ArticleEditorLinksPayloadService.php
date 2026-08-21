@@ -18,6 +18,7 @@ final class ArticleEditorLinksPayloadService
 {
     public function __construct(
         private readonly ArticleInternalLinkSuggestionService $suggestionService,
+        private readonly ArticleEditorMainDomainSuggestionService $mainDomainSuggestions,
     ) {}
 
     /**
@@ -37,6 +38,7 @@ final class ArticleEditorLinksPayloadService
             'domain_link_list_catalog' => app(DomainLinkListEditorService::class)->forSite($article->site),
             'domain_cta_list' => app(DomainCtaEditorService::class)->forSite($article->site),
             'cta_quick_templates' => app(DomainCtaEditorService::class)->quickTemplates(),
+            'main_domain_suggestions' => $this->mainDomainSuggestions->forArticle($article),
             'suggested_internal_links' => [],
             'suggested_internal_links_catalog' => [],
             'suggested_external_links' => [],

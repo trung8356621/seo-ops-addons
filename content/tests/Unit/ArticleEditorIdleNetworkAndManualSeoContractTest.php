@@ -21,13 +21,15 @@ final class ArticleEditorIdleNetworkAndManualSeoContractTest extends TestCase
         self::assertStringContainsString('KHÔNG còn gọi SEO analyze', $queue);
     }
 
-    public function test_idle_scheduler_no_longer_previews(): void
+    public function test_live_scheduler_debounces_local_analysis_only(): void
     {
         $hook = $this->js('hooks/useArticleEditorSeoAnalysis.js');
         self::assertStringContainsString('const markSeoStale = useCallback', $hook);
-        self::assertStringNotContainsString("id: 'seo-idle-analyze'", $hook);
-        self::assertStringNotContainsString('scheduleIdleSeoAnalysis', $hook);
-        self::assertTrue(strpos($hook, 'void runPhpSeoPreview()') > strpos($hook, 'const requestAnalyze = useCallback'));
+        self::assertStringContainsString('setSeoStaleRevision((current) => current + 1)', $hook);
+        self::assertStringContainsString('runLocalSeoAnalysis()', $hook);
+        self::assertStringContainsString('}, 450)', $hook);
+        self::assertStringNotContainsString('runPhpSeoPreview', $hook);
+        self::assertStringNotContainsString('previewSeoScoreViaApi', $hook);
     }
 
     public function test_content_and_meta_changes_mark_seo_stale_only(): void
@@ -46,12 +48,12 @@ final class ArticleEditorIdleNetworkAndManualSeoContractTest extends TestCase
         self::assertStringNotContainsString('scheduleIdleSeoAnalysis', $outline);
     }
 
-    public function test_explicit_analyze_invokes_preview_once(): void
+    public function test_explicit_analyze_is_local_only(): void
     {
         $hook = $this->js('hooks/useArticleEditorSeoAnalysis.js');
         $request = $this->methodLike($hook, 'const requestAnalyze = useCallback');
         self::assertStringContainsString('runLocalSeoAnalysis()', $request);
-        self::assertSame(1, substr_count($request, 'void runPhpSeoPreview()'));
+        self::assertStringNotContainsString('runPhpSeoPreview', $request);
 
         $panel = (string) file_get_contents(
             ProjectRoot::addonsPath().'/seo/resources/js/components/SeoScorePanel.jsx',
@@ -60,17 +62,27 @@ final class ArticleEditorIdleNetworkAndManualSeoContractTest extends TestCase
         self::assertStringContainsString('onClick={onAnalyzeClick}', $panel);
     }
 
-    public function test_seo_lazy_summary_load_does_not_analyze(): void
+    public function test_seo_lazy_load_fetches_settings_without_server_summary(): void
     {
         $lazy = $this->js('utils/articleEditorSeoLazy.js');
-        self::assertStringContainsString('loadArticleEditorSeoLazy', $lazy);
+        self::assertStringContainsString('loadArticleEditorSeoSettings', $lazy);
+        self::assertStringNotContainsString('seoSummaryUrl', $lazy);
         self::assertStringNotContainsString('previewSeoScoreViaApi', $lazy);
         self::assertStringNotContainsString('runLocalSeoAnalysis', $lazy);
 
         $state = $this->js('hooks/useArticleEditorSeoAndLinksState.js');
-        self::assertStringContainsString('loadArticleEditorSeoLazy', $state);
+        self::assertStringContainsString('seo-editor-seo-settings-loaded', $state);
+        self::assertStringNotContainsString('seo-editor-seo-summary-loaded', $state);
+        self::assertStringNotContainsString('seo-summary', $state);
         self::assertStringNotContainsString('previewSeoScoreViaApi', $state);
         self::assertStringNotContainsString('requestAnalyze', $state);
+
+        $shell = $this->js('article-editor.jsx');
+        self::assertStringNotContainsString('/editor/seo-summary', $shell);
+        self::assertStringNotContainsString('seo-editor-seo-summary-loaded', $shell);
+
+        $network = $this->js('utils/articleEditorNetwork.js');
+        self::assertStringNotContainsString('/editor/seo-summary', $network);
     }
 
     public function test_unchanged_article_does_not_autosave(): void
@@ -82,11 +94,14 @@ final class ArticleEditorIdleNetworkAndManualSeoContractTest extends TestCase
         self::assertStringContainsString('currentBodyHash !== ackBodyHash', $network);
     }
 
-    public function test_editor_session_heartbeat_does_not_call_livewire(): void
+    public function test_editor_lease_renew_is_activity_gated_and_does_not_poll_or_call_livewire(): void
     {
         $client = $this->js('utils/editorSessionClient.js');
-        self::assertStringContainsString('editor-sessions/${this.sessionId}/heartbeat', $client);
-        self::assertStringContainsString('_heartbeatInFlight', $client);
+        self::assertStringContainsString('edit-lease/${this.sessionId}', $client);
+        self::assertStringContainsString('_leaseRenewInFlight', $client);
+        self::assertStringContainsString('recentlyActive', $client);
+        self::assertStringContainsString('visibilityState === \'visible\'', $client);
+        self::assertStringNotContainsString('setInterval', $client);
         self::assertStringNotContainsString('Livewire.find', $client);
         self::assertStringNotContainsString('component.set', $client);
         self::assertStringNotContainsString("component?.set", $client);

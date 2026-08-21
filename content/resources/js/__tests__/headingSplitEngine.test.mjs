@@ -321,6 +321,25 @@ describe('outline heading mutations', () => {
         assert.equal(texts.includes('heading:Top 10 thương hiệu balo'), true);
     });
 
+    it('inserts paragraphOnly immediately under the target heading', () => {
+        const doc = schema.node('doc', null, [
+            heading(2, 'Top 10'),
+            heading(3, 'Herschel'),
+            paragraph('Nội dung'),
+            heading(2, 'Kết luận'),
+        ]);
+        const next = apply(EditorState.create({ schema, doc }), insertHeadingAfterSection, {
+            headingIndex: 0,
+            paragraphOnly: true,
+        });
+        const rows = blockTexts(next);
+        assert.equal(rows[0].type, 'heading');
+        assert.equal(rows[0].level, 2);
+        assert.equal(rows[1].type, 'paragraph');
+        assert.equal(rows[2].type, 'heading');
+        assert.equal(rows[2].level, 3);
+    });
+
     it('inserts an H3 child before the next H2, after existing H3s', () => {
         const doc = schema.node('doc', null, [
             heading(2, 'Top 10'),

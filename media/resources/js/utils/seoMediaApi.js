@@ -796,23 +796,40 @@ export function processClipboardImagePaste(event, options = {}) {
  * Tiptap editorProps.handlePaste — chặn base64, upload blob lên Laravel.
  * @param {{ articleId?: number|null, siteId?: number|null, defaultAltTitle?: string }} context
  */
+/** @type {Map<number, Promise<unknown[]>>} */
+const articleAiJobsInflight = new Map();
+
 export async function fetchArticleAiMediaJobs(articleId) {
     if (!articleId) {
         return [];
     }
 
-    const url = ARTICLE_AI_JOBS_URL_TEMPLATE.replace('{articleId}', String(articleId));
-    const response = await fetch(url, {
-        credentials: 'same-origin',
-        headers: { Accept: 'application/json' },
-    });
-    const data = await response.json().catch(() => ({}));
-
-    if (!response.ok || !data.success) {
-        throw new Error(data.message ?? 'Không tải được danh sách job AI.');
+    const id = Number(articleId) || 0;
+    if (articleAiJobsInflight.has(id)) {
+        return articleAiJobsInflight.get(id);
     }
 
-    return Array.isArray(data.items) ? data.items : [];
+    const url = ARTICLE_AI_JOBS_URL_TEMPLATE.replace('{articleId}', String(articleId));
+    const request = (async () => {
+        const response = await fetch(url, {
+            credentials: 'same-origin',
+            headers: { Accept: 'application/json' },
+        });
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok || !data.success) {
+            throw new Error(data.message ?? 'Không tải được danh sách job AI.');
+        }
+
+        return Array.isArray(data.items) ? data.items : [];
+    })().finally(() => {
+        if (articleAiJobsInflight.get(id) === request) {
+            articleAiJobsInflight.delete(id);
+        }
+    });
+    articleAiJobsInflight.set(id, request);
+
+    return request;
 }
 
 export async function fetchSeoMediaStatus(seoMediaId) {

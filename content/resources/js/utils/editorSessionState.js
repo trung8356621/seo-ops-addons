@@ -90,6 +90,17 @@ export function canMutateEditor() {
     if (window.__SEO_EDITOR_READ_ONLY__) {
         return false;
     }
+    const lifecycle = window.__SEO_EDITOR_CONTENT_LIFECYCLE__;
+    const lifecycleState = lifecycle && typeof lifecycle === 'object'
+        ? String(lifecycle.state || '')
+        : '';
+    if (
+        lifecycleState === 'SYNC_REQUIRED'
+        || lifecycleState === 'CONTENT_LOADING'
+        || lifecycleState === 'ERROR'
+    ) {
+        return false;
+    }
     const state = window.__SEO_EDITOR_SESSION_STATE__ || lastState;
     return Boolean(state?.writable) && state?.status === EDITOR_SESSION_STATUS.ACTIVE;
 }

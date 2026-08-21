@@ -188,6 +188,7 @@ final class WordPressArticleSyncService
                 'slug' => $remoteSlug !== '' ? $remoteSlug : null,
                 'type' => $postType === 'product' ? 'product' : 'article',
             ], static fn (mixed $value): bool => $value !== null))->save();
+            $article->unsetRelation('wordpressLink');
             $this->timestampService->sync($article, $decoded);
             $article->articleMetas()->where('meta_key', 'wp_slug')->delete();
             $article->articleMetas()->updateOrCreate(
@@ -377,6 +378,7 @@ final class WordPressArticleSyncService
             'wp_post_id' => $wpPostId,
             'slug' => $remoteSlug !== '' ? $remoteSlug : null,
         ], static fn (mixed $value): bool => $value !== null))->save();
+        $article->unsetRelation('wordpressLink');
 
         if ($permalink !== '') {
             $article->articleMetas()->updateOrCreate(
@@ -432,6 +434,8 @@ final class WordPressArticleSyncService
                 }
 
                 $article = $article->fresh() ?? $article;
+                $article->unsetRelation('wordpressLink');
+                $article->loadMissing('wordpressLink');
             }
 
             return $this->syncForArticle($article, $sideEffect, $seoOverride);
@@ -1352,6 +1356,8 @@ final class WordPressArticleSyncService
                 'message' => (string) ($created['message'] ?? 'Không tạo được bài trên WordPress.'),
             ];
         }
+
+        $article->unsetRelation('wordpressLink');
 
         return [
             'success' => true,

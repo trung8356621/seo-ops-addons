@@ -5,6 +5,7 @@
 import { EDITOR_COMMAND_CODES, failCommand, okCommand } from './editorCommandResult';
 import { resolveTargetEditor } from './resolveTargetEditor';
 import { runEditorTransaction } from './runEditorTransaction';
+import { canApplyParagraphStyle } from '../paragraphStyleCompatibility';
 
 function withEditor(context, payload, name, run) {
     const resolved = resolveTargetEditor(context, payload, name);
@@ -61,6 +62,14 @@ export function setTextAlignCommand(context, payload = {}) {
 export function setParagraphStyleCommand(context, payload = {}) {
     return withEditor(context, payload, 'set_paragraph_style', (editor, editorId) => {
         const value = String(payload.value ?? payload.style ?? 'p').trim();
+        if (!canApplyParagraphStyle(editor, value)) {
+            return failCommand('set_paragraph_style', EDITOR_COMMAND_CODES.NO_CHANGE, {
+                editor_id: editorId,
+                message_key: 'editor_command.selection_invalid',
+                meta: { reason: 'heading_incompatible_structured_block', value },
+            });
+        }
+
         return runEditorTransaction({
             editor,
             editorId,

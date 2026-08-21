@@ -230,11 +230,9 @@ function pickFeaturedSnippetMetricsByMaxPoints(candidates, thresholds) {
     return best;
 }
 
-export function resolveFeaturedSnippetTableScore(html, thresholds = DEFAULT_FEATURED_SNIPPET_THRESHOLDS) {
+function resolveFeaturedSnippetScoreFromCandidates(candidates, thresholds) {
     const minCols = thresholds.min_columns;
     const maxCols = thresholds.max_columns;
-    const candidates = collectHtmlTableMetrics(html, minCols, maxCols);
-
     const columnLabel = `${minCols}–${maxCols} cột`;
     const tierThresholdLabel = `${thresholds.rows_min} / ${thresholds.rows_range} / ${thresholds.rows_max} dòng (trung bình / tốt / rất tốt)`;
     const metrics = pickFeaturedSnippetMetricsByMaxPoints(candidates, thresholds);
@@ -270,6 +268,97 @@ export function resolveFeaturedSnippetTableScore(html, thresholds = DEFAULT_FEAT
         data_rows: dataRows,
         message: `${tierLabel} — ${dataRows} dòng dữ liệu, ${columnLabel} (${tierThresholdLabel})`,
     };
+}
+
+function collectNodeText(node) {
+    if (!node || typeof node !== 'object') {
+        return '';
+    }
+    if (typeof node.text === 'string') {
+        return node.text;
+    }
+
+    return (Array.isArray(node.content) ? node.content : [])
+        .map((child) => collectNodeText(child))
+        .join(' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function collectDocumentTableMetrics(tables, minCols, maxCols) {
+    return (Array.isArray(tables) ? tables : []).map((table) => {
+        const rows = (Array.isArray(table?.content) ? table.content : [])
+            .filter((row) => row?.type === 'tableRow');
+        const rowColCounts = [];
+        let headerRowCount = 0;
+        let hasFirstColumnDescriptor = true;
+
+        rows.forEach((row) => {
+            const cells = (Array.isArray(row?.content) ? row.content : [])
+                .filter((cell) => cell?.type === 'tableCell' || cell?.type === 'tableHeader');
+            if (cells.length === 0) {
+                return;
+            }
+            rowColCounts.push(cells.length);
+            if (cells.some((cell) => cell.type === 'tableHeader')) {
+                headerRowCount += 1;
+            }
+            if (collectNodeText(cells[0]) === '') {
+                hasFirstColumnDescriptor = false;
+            }
+        });
+
+        if (rowColCounts.length === 0) {
+            return null;
+        }
+        const colCount = Math.max(...rowColCounts);
+        if (!featuredSnippetColumnCountPasses(colCount, minCols, maxCols, hasFirstColumnDescriptor)) {
+            return null;
+        }
+
+        return {
+            data_rows: Math.max(0, rowColCounts.length - (headerRowCount > 0 ? 1 : 0)),
+            columns: colCount,
+        };
+    }).filter(Boolean);
+}
+
+export function resolveFeaturedSnippetTableScore(html, thresholds = DEFAULT_FEATURED_SNIPPET_THRESHOLDS) {
+    return resolveFeaturedSnippetScoreFromCandidates(
+        collectHtmlTableMetrics(html, thresholds.min_columns, thresholds.max_columns),
+        thresholds,
+    );
+}
+
+export function resolveFeaturedSnippetTableScoreFromTables(
+    tables,
+    thresholds = DEFAULT_FEATURED_SNIPPET_THRESHOLDS,
+) {
+    return resolveFeaturedSnippetScoreFromCandidates(
+        collectDocumentTableMetrics(tables, thresholds.min_columns, thresholds.max_columns),
+        thresholds,
+    );
+}
+
+export function resolveFeaturedSnippetViolationFromTables(
+    tables,
+    thresholds = DEFAULT_FEATURED_SNIPPET_THRESHOLDS,
+) {
+    if (!Array.isArray(tables) || tables.length === 0) {
+        return 'featured_snippet_missing';
+    }
+
+    const score = resolveFeaturedSnippetTableScoreFromTables(tables, thresholds);
+    if (score.tier === SNIPPET_TIER_EXCELLENT) {
+        return null;
+    }
+    if (score.tier === SNIPPET_TIER_GOOD) {
+        return 'featured_snippet_below_excellent';
+    }
+
+    // Existing but undersized/average tables need improvement, not a false
+    // "missing table" diagnosis.
+    return 'featured_snippet_below_good';
 }
 
 function formatBonusItem(key, label, raw, faqCount = null) {

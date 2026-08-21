@@ -313,7 +313,7 @@ export function createArticleEditorNetworkMonitor(options) {
 
 /**
  * Lightweight reachability check — any HTTP response means backend reachable.
- * Prefer session heartbeat; fallback to seo-summary GET.
+ * Prefer edit-lease renew; fallback to lightweight settings GET.
  *
  * @param {number} articleId
  * @param {(url: string, options?: RequestInit) => Promise<{ response: Response, data: unknown }>} apiFetch
@@ -330,14 +330,15 @@ export async function verifyArticleEditorBackendReachable(articleId, apiFetch) {
 
     try {
         if (sessionId !== '') {
-            await apiFetch(`/api/seo/articles/${id}/editor-sessions/${sessionId}/heartbeat`, {
+            const { data } = await apiFetch(`/api/seo/articles/${id}/edit-lease/${sessionId}`, {
                 method: 'PUT',
                 body: JSON.stringify({}),
             });
+            client?.markLeaseRenewed?.(data?.expires_at);
             return true;
         }
 
-        await apiFetch(`/api/seo/articles/${id}/editor/seo-summary`, {
+        await apiFetch(`/api/seo/articles/${id}/editor/settings`, {
             method: 'GET',
         });
         return true;

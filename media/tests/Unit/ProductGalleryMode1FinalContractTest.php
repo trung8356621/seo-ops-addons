@@ -14,6 +14,7 @@ use Omnichannel\Addons\Media\Support\ProductGallery\ProductGallerySource;
 use Omnichannel\Addons\Media\Support\ProductGallery\ProductGalleryStateNormalizer;
 use Omnichannel\Addons\Media\Support\ProductGallery\SpriteValidationResult;
 use PHPUnit\Framework\TestCase;
+use ReflectionClass;
 
 final class ProductGalleryMode1FinalContractTest extends TestCase
 {
@@ -203,5 +204,29 @@ final class ProductGalleryMode1FinalContractTest extends TestCase
         $this->assertArrayHasKey('usable_child_count', $selection->history);
         $this->assertArrayHasKey('selected_media_ids', $selection->history);
         $this->assertSame(42, $selection->history['sprite_media_id']);
+    }
+
+    public function test_append_generated_skips_sprite_and_reference_roles(): void
+    {
+        $source = (string) file_get_contents(
+            (new ReflectionClass(\Omnichannel\Addons\Media\Services\ArticleMediaLocalService::class))->getFileName() ?: '',
+        );
+
+        $this->assertStringContainsString('appendGeneratedImageToProductAlbum', $source);
+        $this->assertStringContainsString('ProductGalleryArtifactRole::GENERATED_SPRITE', $source);
+        $this->assertStringContainsString('ProductGalleryArtifactRole::GENERATED_PARENT', $source);
+        $this->assertStringContainsString('ProductGalleryArtifactRole::GENERATED_CHILD_REFERENCE', $source);
+        $this->assertStringContainsString('return false;', $source);
+    }
+
+    public function test_pipeline_never_auto_inserts_sprite_into_album_items(): void
+    {
+        $source = (string) file_get_contents(
+            (new ReflectionClass(\Omnichannel\Addons\Commerce\Services\ProductGallery\ProductGalleryPipelineService::class))->getFileName() ?: '',
+        );
+
+        $this->assertStringContainsString('Never auto-insert sprite', $source);
+        $this->assertStringContainsString('GENERATED_SPRITE', $source);
+        $this->assertStringContainsString('replaceProductAlbumLocal', $source);
     }
 }

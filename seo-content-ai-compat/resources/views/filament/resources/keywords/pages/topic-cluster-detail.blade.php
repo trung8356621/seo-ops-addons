@@ -19,13 +19,25 @@
         <a href="{{ $this->backUrl() }}" class="topic-index-link text-sm">← {{ __('seo-content-ai::filament.keyword.topic_cluster_title') }}</a>
 
         @if ($detail)
-            <header>
-                <h1 class="text-xl font-semibold text-gray-950 dark:text-white">{{ $detail['label'] }}</h1>
-                <p class="mt-1 text-sm text-gray-500">
-                    {{ number_format((int) $detail['keyword_count']) }} {{ __('seo-content-ai::filament.keyword.topic_col_keywords') }}
-                    · {{ number_format((int) $detail['article_count']) }} {{ __('seo-content-ai::filament.keyword.topic_col_articles') }}
-                    · {{ number_format((int) $detail['internal_links']) }} internal links
-                </p>
+            <header class="flex flex-wrap items-start justify-between gap-3">
+                <div>
+                    <h1 class="text-xl font-semibold text-gray-950 dark:text-white">{{ $detail['label'] }}</h1>
+                    <p class="mt-1 text-sm text-gray-500">
+                        {{ number_format((int) $detail['keyword_count']) }} {{ __('seo-content-ai::filament.keyword.topic_col_keywords') }}
+                        · {{ number_format((int) $detail['article_count']) }} {{ __('seo-content-ai::filament.keyword.topic_col_articles') }}
+                        · {{ number_format((int) $detail['internal_links']) }} internal links
+                    </p>
+                </div>
+                @if ($this->canDissolveCluster())
+                    <x-filament::button
+                        type="button"
+                        color="danger"
+                        outlined
+                        wire:click="openDissolveConfirm({{ json_encode($detail['cluster_key']) }})"
+                    >
+                        {{ __('seo-content-ai::filament.keyword.topic_dissolve_action') }}
+                    </x-filament::button>
+                @endif
             </header>
 
             <div class="topic-index-stats">
@@ -106,6 +118,8 @@
                 </table>
             </div>
             <div>{{ $keywords->links() }}</div>
+
+            @include('seo-content-ai::filament.resources.keywords.pages.partials.dissolve-cluster-modal')
         @endif
     </div>
 </x-filament-panels::page>

@@ -34,12 +34,15 @@
                 isTaxonomy: initial.isTaxonomy === true,
                 categoryTaxonomy: initial.categoryTaxonomy ?? 'category',
                 optionsByTaxonomy: initial.options ?? { category: [], product_category: [] },
+                catalogStatus: initial.status ?? {},
                 searchQuery: '',
                 highlightError: false,
                 wpFetchedAt: '',
                 wpFetchedCount: 0,
                 _saveTimer: null,
                 _optionsLoaded: false,
+                _optionsLoading: false,
+                _optionsError: false,
 
                 init() {
                     window.__seoPushPublishCategoriesToWire = () => this.pushCategoriesToWire();
@@ -76,18 +79,44 @@
                 },
 
                 async ensurePublishCategoryOptions() {
-                    if (this._optionsLoaded) {
+                    if (this._optionsLoaded || this._optionsLoading) {
                         return;
                     }
-                    this._optionsLoaded = true;
+                    this._optionsLoading = true;
+                    this._optionsError = false;
                     try {
                         const opts = await this.$wire.getPublishCategoryOptions();
                         if (opts && typeof opts === 'object') {
-                            this.optionsByTaxonomy = opts;
+                            this.catalogStatus = opts.status ?? {};
+                            this.optionsByTaxonomy = {
+                                category: Array.isArray(opts.category) ? opts.category : [],
+                                product_category: Array.isArray(opts.product_category) ? opts.product_category : [],
+                            };
+                            this._optionsLoaded = true;
+                            const tax = this.categoryTaxonomy || 'category';
+                            const status = this.catalogStatus?.[tax] ?? this.catalogStatus?.category ?? null;
+                            if (status && status.ok === false) {
+                                this._optionsError = true;
+                            }
+                        } else {
+                            this._optionsError = true;
                         }
                     } catch (e) {
                         this._optionsLoaded = false;
+                        this._optionsError = true;
+                        this.catalogStatus = {
+                            category: { ok: false, code: 'error', message: 'Không tải được taxonomy catalog.' },
+                            product_category: { ok: false, code: 'error', message: 'Không tải được taxonomy catalog.' },
+                        };
+                    } finally {
+                        this._optionsLoading = false;
                     }
+                },
+
+                retryPublishCategoryOptions() {
+                    this._optionsLoaded = false;
+                    this._optionsError = false;
+                    void this.ensurePublishCategoryOptions();
                 },
 
                 syncCategoryTaxonomyFromPostType() {
@@ -176,6 +205,31 @@
                     return this.taxonomy() === 'product_category'
                         ? 'Danh mục sản phẩm (product_cat)'
                         : 'Chuyên mục (category)';
+                },
+
+                catalogState() {
+                    const status = this.catalogStatus?.[this.taxonomy()] ?? null;
+                    if (! status || typeof status !== 'object') {
+                        return { ok: true, code: 'ok', message: '' };
+                    }
+
+                    return status;
+                },
+
+                catalogUnavailable() {
+                    return this.catalogState().ok === false;
+                },
+
+                emptyCatalogMessage() {
+                    if (this.catalogUnavailable()) {
+                        const message = String(this.catalogState().message || '').trim();
+
+                        return message !== ''
+                            ? message
+                            : 'Không lấy được taxonomy catalog từ WordPress. Không dùng danh mục local làm nguồn.';
+                    }
+
+                    return 'WordPress chưa có term nào cho taxonomy này.';
                 },
 
                 allOptions() {
@@ -286,9 +340,12 @@
 
                 filterValidCategoryIds(categoryIds) {
                     const optionIds = new Set(this.allOptions().map((opt) => Number(opt.id)));
+                    const raw = this.normalizeRawCategoryIds(categoryIds);
+                    if (optionIds.size === 0) {
+                        return this.catalogUnavailable() ? raw : [];
+                    }
 
-                    return this.normalizeRawCategoryIds(categoryIds)
-                        .filter((id) => optionIds.has(id));
+                    return raw.filter((id) => optionIds.has(id));
                 },
 
                 applyWpCategories(categoryIds, fetchedAt = '', persistSelection = true) {
@@ -452,26 +509,48 @@
                     x-model="searchQuery"
                     placeholder="Tìm danh mục cha..."
                     class="w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-800 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                    :disabled="_optionsLoading || _optionsError"
                 />
 
                 <div class="max-h-52 space-y-0.5 overflow-y-auto rounded border border-gray-300 bg-white p-2 dark:border-gray-600 dark:bg-gray-900">
-                    <template x-if="allOptions().length === 0">
-                        <p class="text-xs text-gray-500 dark:text-gray-400">
-                            Chưa có danh mục đồng bộ cho tên miền này. Đồng bộ nội dung domain trước.
-                        </p>
+                    <template x-if="_optionsLoading">
+                        <div class="flex items-center gap-2 py-2 text-xs text-gray-500 dark:text-gray-400">
+                            <svg class="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+                            </svg>
+                            <span>Đang tải danh mục...</span>
+                        </div>
+                    </template>
+                    <template x-if="!_optionsLoading && _optionsError">
+                        <div class="space-y-2 py-1">
+                            <p class="text-xs text-rose-600 dark:text-rose-400">Không tải được danh mục</p>
+                            <button
+                                type="button"
+                                class="text-xs font-semibold text-sky-700 hover:underline dark:text-sky-300"
+                                @click="retryPublishCategoryOptions()"
+                            >Thử lại</button>
+                        </div>
+                    </template>
+                    <template x-if="!_optionsLoading && !_optionsError && allOptions().length === 0">
+                        <p class="text-xs text-gray-500 dark:text-gray-400" x-text="emptyCatalogMessage()"></p>
                     </template>
 
-                    <template x-for="option in filteredOptions()" :key="'parent-' + option.id">
-                        <label class="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-xs text-gray-800 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-800">
-                            <input
-                                type="radio"
-                                name="taxonomy_parent_term"
-                                class="h-3.5 w-3.5 border-gray-300 text-sky-600 focus:ring-sky-500 dark:border-gray-600 dark:bg-gray-900"
-                                x-bind:checked="isParentSelected(option.id)"
-                                x-on:change="selectParentTerm(option.id)"
-                            />
-                            <span x-text="option.label"></span>
-                        </label>
+                    <template x-if="!_optionsLoading && !_optionsError">
+                        <div>
+                            <template x-for="option in filteredOptions()" :key="'parent-' + option.id">
+                                <label class="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-xs text-gray-800 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-800">
+                                    <input
+                                        type="radio"
+                                        name="taxonomy_parent_term"
+                                        class="h-3.5 w-3.5 border-gray-300 text-sky-600 focus:ring-sky-500 dark:border-gray-600 dark:bg-gray-900"
+                                        x-bind:checked="isParentSelected(option.id)"
+                                        x-on:change="selectParentTerm(option.id)"
+                                    />
+                                    <span x-text="option.label"></span>
+                                </label>
+                            </template>
+                        </div>
                     </template>
                 </div>
 
@@ -495,6 +574,7 @@
                     x-model="searchQuery"
                     placeholder="Tìm danh mục..."
                     class="w-full rounded border border-gray-300 bg-white px-2 py-1 text-xs text-gray-800 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+                    :disabled="_optionsLoading || _optionsError"
                 />
 
                 <div
@@ -503,26 +583,49 @@
                         ? 'border-red-500 ring-2 ring-red-300 dark:ring-red-800'
                         : 'border-gray-300 dark:border-gray-600'"
                 >
-                    <template x-if="allOptions().length === 0">
-                        <p class="text-xs text-gray-500 dark:text-gray-400">
-                            Chưa có danh mục đồng bộ cho tên miền này. Đồng bộ nội dung domain trước.
-                        </p>
+                    <template x-if="_optionsLoading">
+                        <div class="flex items-center gap-2 py-2 text-xs text-gray-500 dark:text-gray-400">
+                            <svg class="h-3.5 w-3.5 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
+                                <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/>
+                            </svg>
+                            <span>Đang tải danh mục...</span>
+                        </div>
                     </template>
 
-                    <template x-for="option in filteredOptions()" :key="option.id">
-                        <label class="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-xs text-gray-800 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-800">
-                            <input
-                                type="checkbox"
-                                class="h-3.5 w-3.5 rounded border-gray-300 text-sky-600 focus:ring-sky-500 dark:border-gray-600 dark:bg-gray-900"
-                                x-bind:checked="isChecked(option.id)"
-                                x-on:change="toggle(option.id)"
-                            />
-                            <span x-text="option.label"></span>
-                        </label>
+                    <template x-if="!_optionsLoading && _optionsError">
+                        <div class="space-y-2 py-1">
+                            <p class="text-xs text-rose-600 dark:text-rose-400">Không tải được danh mục</p>
+                            <button
+                                type="button"
+                                class="text-xs font-semibold text-sky-700 hover:underline dark:text-sky-300"
+                                @click="retryPublishCategoryOptions()"
+                            >Thử lại</button>
+                        </div>
                     </template>
 
-                    <template x-if="allOptions().length > 0 && filteredOptions().length === 0">
-                        <p class="text-xs text-gray-500 dark:text-gray-400">Không có danh mục khớp từ khóa.</p>
+                    <template x-if="!_optionsLoading && !_optionsError && allOptions().length === 0">
+                        <p class="text-xs text-gray-500 dark:text-gray-400" x-text="emptyCatalogMessage()"></p>
+                    </template>
+
+                    <template x-if="!_optionsLoading && !_optionsError">
+                        <div>
+                            <template x-for="option in filteredOptions()" :key="option.id">
+                                <label class="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-xs text-gray-800 hover:bg-gray-50 dark:text-gray-100 dark:hover:bg-gray-800">
+                                    <input
+                                        type="checkbox"
+                                        class="h-3.5 w-3.5 rounded border-gray-300 text-sky-600 focus:ring-sky-500 dark:border-gray-600 dark:bg-gray-900"
+                                        x-bind:checked="isChecked(option.id)"
+                                        x-on:change="toggle(option.id)"
+                                    />
+                                    <span x-text="option.label"></span>
+                                </label>
+                            </template>
+
+                            <template x-if="allOptions().length > 0 && filteredOptions().length === 0">
+                                <p class="text-xs text-gray-500 dark:text-gray-400">Không có danh mục khớp từ khóa.</p>
+                            </template>
+                        </div>
                     </template>
                 </div>
 

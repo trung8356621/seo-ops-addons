@@ -8,6 +8,7 @@ namespace Omnichannel\Addons\Content\Services;
 use Omnichannel\Addons\AiPrompt\Services\WorkflowParserService;
 use Omnichannel\Addons\Seo\Exceptions\FaqManualExtractException;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\WordPress\Services\ArticleFaqWordPressRestoreService;
 
 final class ArticleFaqManualExtractService
 {

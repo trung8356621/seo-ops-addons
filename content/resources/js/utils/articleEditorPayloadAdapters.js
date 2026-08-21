@@ -216,6 +216,7 @@ export function normalizeFaqPayload(responseOrPayload) {
  *   suggestedInternalLinksCatalog: unknown[],
  *   suggestedExternalLinks: unknown[],
  *   suggestedExternalLinksCatalog: unknown[],
+ *   mainDomainSuggestions: { mainDomain: string, relationship: string|null, items: unknown[] },
  *   canGenerateSuggestions: boolean,
  * }}
  */
@@ -254,6 +255,16 @@ export function normalizeLinksPayload(payload) {
         suggestedExternalLinksCatalog: Array.isArray(src.suggested_external_links_catalog)
             ? src.suggested_external_links_catalog
             : [],
+        mainDomainSuggestions: {
+            mainDomain: String(src.main_domain_suggestions?.main_domain ?? '').trim(),
+            relationship: src.main_domain_suggestions?.relationship
+                ? String(src.main_domain_suggestions.relationship)
+                : null,
+            source: String(src.main_domain_suggestions?.source ?? ''),
+            items: Array.isArray(src.main_domain_suggestions?.items)
+                ? src.main_domain_suggestions.items
+                : [],
+        },
         canGenerateSuggestions: src.can_generate_suggestions !== false,
         contentSource: typeof src.content_source === 'string' ? src.content_source : '',
         suggestionDebug: src.suggestion_debug && typeof src.suggestion_debug === 'object'

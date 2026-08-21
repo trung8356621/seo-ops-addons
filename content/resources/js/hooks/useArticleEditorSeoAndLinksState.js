@@ -1,10 +1,7 @@
 import { DEFAULT_WIKI_TRUST_DOMAINS } from '@seo-addon/utils/wikiTrustDomains.js';
-import { LINKS_RESCAN_REQUEST_EVENT, isAbortError } from '../utils/articleEditorModules';
 import { filterSuggestedInternalLinks, isSpecialOrContactHref, mergeSuggestionCatalog } from '../utils/articleLinkSuggestionFilter';
-import { normalizeSeoSummary } from '../utils/articleEditorPayloadAdapters';
-import { seoActions, seoApi } from '@seo-addon/editor/domains/seo/state.js';
-import { loadArticleEditorSeoLazy } from '../utils/articleEditorSeoLazy';
-import { t } from '../utils/i18n';
+import { seoActions, seoApi, getSeoState } from '@seo-addon/editor/domains/seo/state.js';
+import { isCachedSeoAnalysisValid, isCompletedSeoAnalysis } from '../utils/seoAnalysisReadiness';
 import { useEffect, useRef, useState } from 'react';
 import { useSeoEditor } from '@seo-addon/editor/domains/seo/useSeoEditor.js';
 
@@ -12,7 +9,7 @@ import { useSeoEditor } from '@seo-addon/editor/domains/seo/useSeoEditor.js';
  * useArticleEditorSeoAndLinksState - extracted from SeoArticleEditor.jsx (Task 7 mechanical
  * extraction). Mechanical move - no behavior change.
  */
-export default function useArticleEditorSeoAndLinksState({ activeHeavyModuleRef, articleId, articleTitle, editorSettings, initialPostType, initialSeo, seoPanelActive, seoSummaryAbortRef, seoSummaryLoadedRef, setSeoSummaryError, setSeoSummaryLoading }) {
+export default function useArticleEditorSeoAndLinksState({ articleTitle, editorSettings, initialPostType, initialSeo, setSeoSummaryError, setSeoSummaryLoading }) {
     const [siteDomain] = useState(() => String(initialSeo?.site_domain ?? '').trim());
     const [articleType, setArticleType] = useState(
         () => String(initialSeo?.article_type ?? initialPostType ?? 'post').trim(),
@@ -20,17 +17,21 @@ export default function useArticleEditorSeoAndLinksState({ activeHeavyModuleRef,
     const wikiTrustDomains = Array.isArray(editorSettings?.wiki_trust_domains)
         ? editorSettings.wiki_trust_domains
         : DEFAULT_WIKI_TRUST_DOMAINS;
-    const scoringMessages =
+    const [scoringMessages, setScoringMessages] = useState(() => (
         editorSettings?.seo_rule_messages && typeof editorSettings.seo_rule_messages === 'object'
             ? editorSettings.seo_rule_messages
             : editorSettings?.seo_scoring_messages && typeof editorSettings.seo_scoring_messages === 'object'
               ? editorSettings.seo_scoring_messages
-              : {};
-    const seoScoringRules = Array.isArray(editorSettings?.seo_scoring_rules)
+              : {}
+    ));
+    const [seoScoringRules, setSeoScoringRules] = useState(() => (Array.isArray(editorSettings?.seo_scoring_rules)
         ? editorSettings.seo_scoring_rules
+        : Array.isArray(editorSettings?.analysis_policy?.seo_scoring_rules)
+          ? editorSettings.analysis_policy.seo_scoring_rules
         : Array.isArray(initialSeo?.seo_scoring_rules)
           ? initialSeo.seo_scoring_rules
-          : [];
+          : []
+    ));
     const seoMetaRef = useRef({
         seoTitle: String(articleTitle ?? initialSeo?.google_serp_preview?.title ?? '').trim(),
         metaDescription: String(
@@ -49,124 +50,77 @@ export default function useArticleEditorSeoAndLinksState({ activeHeavyModuleRef,
             : Number(initialSeo.score)
     ));
     const [seoScoreSource, setSeoScoreSource] = useState('saved');
-    const seoPreviewAbortRef = useRef(null);
     const [mediaHealthTick, setMediaHealthTick] = useState(0);
     // Declared before effects that close over it — avoids TDZ after minify (`const` used before init).
     const siteDomainRef = useRef(String(initialSeo?.site_domain ?? '').trim());
 
     useEffect(() => {
-        seoApi.adopt(initialSeo?.analysis ?? null, initialSeo?.focus_keyword ?? '');
+        const currentHash = String(initialSeo?.content_hash ?? '').trim();
+        const cacheValid = isCachedSeoAnalysisValid(initialSeo, {
+            contentHash: currentHash,
+            bodyHash: currentHash,
+        });
+        if (cacheValid) {
+            seoApi.adopt(initialSeo.analysis, initialSeo?.focus_keyword ?? '');
+            setSeoScoreSource('saved');
+        } else {
+            seoActions.clearAnalysis();
+            seoApi.adopt(null, initialSeo?.focus_keyword ?? '');
+        }
         seoActions.markClean();
+        setSeoSummaryLoading(false);
+        setSeoSummaryError(null);
     }, []);
 
     useEffect(() => {
-        const onSeoSummary = (event) => {
+        const onSeoSettings = (event) => {
             const detail = event?.detail ?? {};
             if (!detail || typeof detail !== 'object') {
                 return;
             }
-            const summary = normalizeSeoSummary(detail);
-            seoSummaryLoadedRef.current = true;
-            setSeoSummaryError(null);
-            setSeoSummaryLoading(false);
-            /** @type {Partial<{ focusKeyword: string, analysis: object, seoScore: number|null }>} */
-            const seoPatch = {
-                analysis: {
-                    score: summary.score,
-                    violations: summary.violations,
-                },
-                seoScore: summary.score == null || !Number.isFinite(Number(summary.score))
-                    ? null
-                    : Number(summary.score),
-            };
-            if (summary.focusKeyword != null) {
-                seoPatch.focusKeyword = String(summary.focusKeyword);
+            if (Array.isArray(detail.seo_scoring_rules)) {
+                setSeoScoringRules(detail.seo_scoring_rules);
             }
-            seoDomain.patch(seoPatch);
-            if (summary.seoTitle || summary.metaDescription || summary.articleSlug) {
-                seoMetaRef.current = {
-                    ...seoMetaRef.current,
-                    seoTitle: summary.seoTitle || seoMetaRef.current.seoTitle,
-                    metaDescription: summary.metaDescription || seoMetaRef.current.metaDescription,
-                    slug: summary.articleSlug || seoMetaRef.current.slug,
-                };
-            }
-            if (summary.siteDomain) {
-                siteDomainRef.current = summary.siteDomain;
-                // Domain arrived after first scan — republish classification for Links panel.
-                window.dispatchEvent(new CustomEvent(LINKS_RESCAN_REQUEST_EVENT));
+            const messages = detail.seo_rule_messages ?? detail.seo_scoring_messages;
+            if (messages && typeof messages === 'object') {
+                setScoringMessages(messages);
             }
         };
-        window.addEventListener('seo-editor-seo-summary-loaded', onSeoSummary);
-        return () => window.removeEventListener('seo-editor-seo-summary-loaded', onSeoSummary);
+        window.addEventListener('seo-editor-seo-settings-loaded', onSeoSettings);
+        return () => window.removeEventListener('seo-editor-seo-settings-loaded', onSeoSettings);
     }, []);
 
-    // SEO Assistant: reuse page-level lazy GET. Do not AbortSignal — remount must not cancel.
     useEffect(() => {
-        if (!seoPanelActive || !articleId) {
-            setSeoSummaryLoading(false);
-            return undefined;
-        }
-
-        if (seoSummaryLoadedRef.current || analysis != null) {
-            setSeoSummaryLoading(false);
-            return undefined;
-        }
-
-        let cancelled = false;
-        setSeoSummaryLoading(true);
-        setSeoSummaryError(null);
-
-        void (async () => {
-            let settled = false;
-            try {
-                const url =
-                    window.__SEO_EDITOR_LAZY_ENDPOINTS__?.seoSummary
-                    || `/api/seo/articles/${articleId}/editor/seo-summary`;
-                const settingsUrl =
-                    window.__SEO_EDITOR_LAZY_ENDPOINTS__?.settings
-                    || `/api/seo/articles/${articleId}/editor/settings`;
-                const [seoRes] = await loadArticleEditorSeoLazy({
-                    articleId,
-                    seoSummaryUrl: url,
-                    settingsUrl,
-                });
-                if (cancelled || activeHeavyModuleRef.current !== 'seo') {
-                    return;
-                }
-                if (!seoRes.response.ok || seoRes.data?.success === false) {
-                    settled = true;
-                    setSeoSummaryError(t('editor_seo_load_error'));
-                    return;
-                }
-                const summary = normalizeSeoSummary(seoRes.data);
-                settled = true;
-                seoSummaryLoadedRef.current = true;
-                window.dispatchEvent(
-                    new CustomEvent('seo-editor-seo-summary-loaded', { detail: summary.raw }),
-                );
-            } catch (error) {
-                if (isAbortError(error) || cancelled) {
-                    return;
-                }
-                if (activeHeavyModuleRef.current === 'seo') {
-                    settled = true;
-                    setSeoSummaryError(t('editor_seo_load_error'));
-                }
-            } finally {
-                if (!cancelled && activeHeavyModuleRef.current === 'seo') {
-                    setSeoSummaryLoading(false);
-                    if (!settled && !seoSummaryLoadedRef.current) {
-                        setSeoSummaryError(t('editor_seo_load_error'));
-                    }
+        const onSavePatched = (event) => {
+            const persistedScore = event?.detail?.article?.seo_score;
+            if (persistedScore !== null && persistedScore !== undefined) {
+                const value = Number(persistedScore);
+                if (Number.isFinite(value)) {
+                    // Saved score is supplemental comparison state only. Never replace
+                    // the live current-draft analysis after an ACK.
+                    setSavedSeoScore(value);
                 }
             }
-        })();
 
-        return () => {
-            cancelled = true;
+            const contentHash = String(
+                event?.detail?.article?.content_hash
+                ?? event?.detail?.content_hash
+                ?? '',
+            ).trim();
+            const current = getSeoState()?.analysis;
+            if (contentHash !== '' && isCompletedSeoAnalysis(current)) {
+                seoActions.patch({
+                    analysis: {
+                        ...current,
+                        content_hash: contentHash,
+                    },
+                });
+                seoActions.markClean();
+            }
         };
-    }, [seoPanelActive, articleId]);
+        window.addEventListener('article-editor-save-patched', onSavePatched);
+        return () => window.removeEventListener('article-editor-save-patched', onSavePatched);
+    }, []);
 
     const [extractedLinks, setExtractedLinks] = useState(() => {
         const source = initialSeo?.extracted_links ?? { internal: [], external: [] };
@@ -207,5 +161,5 @@ export default function useArticleEditorSeoAndLinksState({ activeHeavyModuleRef,
         ),
     );
 
-    return { analysis, articleType, domainLinkCatalogRef, extractedLinks, focusKeyword, hasHydratedSeoFromServerRef, lastSeoAnalysisRef, mediaHealthTick, savedSeoScore, scoringMessages, seoDomain, seoMetaRef, seoPreviewAbortRef, seoScoreSource, seoScoringRules, setArticleType, setExtractedLinks, setMediaHealthTick, setSavedSeoScore, setSeoScoreSource, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomain, siteDomainRef, suggestedExternalLinks, suggestedInternalLinks, suggestionExternalCatalogRef, suggestionKeywordCatalogRef, wikiTrustDomains };
+    return { analysis, articleType, domainLinkCatalogRef, extractedLinks, focusKeyword, hasHydratedSeoFromServerRef, lastSeoAnalysisRef, mediaHealthTick, savedSeoScore, scoringMessages, seoDomain, seoMetaRef, seoScoreSource, seoScoringRules, setArticleType, setExtractedLinks, setMediaHealthTick, setSavedSeoScore, setSeoScoreSource, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomain, siteDomainRef, suggestedExternalLinks, suggestedInternalLinks, suggestionExternalCatalogRef, suggestionKeywordCatalogRef, wikiTrustDomains };
 }

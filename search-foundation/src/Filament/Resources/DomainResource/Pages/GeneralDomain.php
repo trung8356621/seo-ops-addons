@@ -1044,8 +1044,8 @@ class GeneralDomain extends Page
             ->label(__('seo-content-ai::filament.domain.test_sync_debug'))
             ->icon('heroicon-o-bug-ant')
             ->color('gray')
-            ->visible(fn (): bool => auth()->user()?->role === 'admin'
-                && ! SeoAccessControl::isSeoPanelReadOnly())
+            ->visible(fn (): bool => SeoAccessControl::canAccessManagerFeatures()
+                && SeoAccessControl::canMutateInSeoPanel())
             ->requiresConfirmation()
             ->modalDescription(__('seo-content-ai::filament.domain.test_sync_debug_description'))
             ->action(function (): void {

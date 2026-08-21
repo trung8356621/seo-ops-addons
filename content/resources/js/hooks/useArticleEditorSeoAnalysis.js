@@ -1,12 +1,13 @@
 import { buildSeoAnalysisPayload } from '@seo-addon/utils/seoAnalyzer.js';
 import { composeImmediateArticleAnalysis } from '@seo-addon/utils/composeArticleAnalysis.js';
-import { documentJsonFromEditorsOrBlocks } from '../utils/editorDocumentBridge';
+import { documentJsonFromEditorsOrBlocks, htmlFromEditorsOrBlocks } from '../utils/editorDocumentBridge';
+import { createCurrentDraftAnalysisSnapshot } from '../utils/currentDraftAnalysisSnapshot';
 import { filterSuggestedInternalLinks, isSpecialOrContactHref } from '../utils/articleLinkSuggestionFilter';
 import { flattenClientOutlineNodes } from '../utils/articleEditorClientOutline';
 import { getAnalysisPolicy, getExternalFacts } from '@seo-addon/utils/articleAnalysisOwnership.js';
 import { openPanel } from '../editor/runtime/editorRuntimeNavigation';
-import { previewSeoScoreViaApi } from '../utils/articleEditorApi';
 import { sanitizeViolations, scoreFromViolations } from '@seo-addon/utils/seoScoreCalculator.js';
+import { isCompletedSeoAnalysis } from '../utils/seoAnalysisReadiness';
 import {
     useCallback,
     useEffect,
@@ -15,12 +16,34 @@ import {
 } from 'react';
 
 /**
- * useArticleEditorSeoAnalysis - extracted from SeoArticleEditor.jsx (Task 7 mechanical
- * extraction). Mechanical move - no behavior change.
+ * useArticleEditorSeoAnalysis - local SEO analysis for Edit Article.
+ * Empty violations must never imply READY/100 until a real analysis completed.
  */
-export default function useArticleEditorSeoAnalysis({ articleId, articleTitle, articleType, blockEditorsRef, blockFlushRef, blocksRef, canGenerateFaq, clientOutline, editorSettings, focusKeyword, getExportHtml, lastSeoAnalysisRef, panelFaqsRef, pendingFaqGenerateRef, publishExtractedLinks, requestAnalyzeRef, scoringMessages, seoDomain, seoMetaRef, seoPreviewAbortRef, seoScoringRules, setAnalyzing, setExtractedLinks, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptContext, setFeaturedSnippetPromptOpen, setSeoAnalyzeError, setSeoScoreSource, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomain, siteDomainRef, tempMergeRef, utilitySchedulerRef, wikiTrustDomains }) {
+export default function useArticleEditorSeoAnalysis({ articleId, articleTitle, articleType, blockEditorsRef, blockFlushRef, blocksRef, canGenerateFaq, clientOutline, editorSettings, faqsCanonicalKnownRef, focusKeyword, getExportHtml, lastSeoAnalysisRef, panelFaqsRef, pendingFaqGenerateRef, publishExtractedLinks, requestAnalyzeRef, scoringMessages, seoDomain, seoMetaRef, seoScoringRules, setAnalyzing, setExtractedLinks, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptContext, setFeaturedSnippetPromptOpen, setSeoAnalyzeError, setSeoScoreSource, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomain, siteDomainRef, tempMergeRef, wikiTrustDomains }) {
+    const [seoStale, setSeoStale] = useState(false);
+    const [seoStaleRevision, setSeoStaleRevision] = useState(1);
+    const [seoAnalysisReady, setSeoAnalysisReady] = useState(false);
+    const seoAnalysisReadyRef = useRef(false);
+    const analyzedBlocksRef = useRef(null);
+
+    useEffect(() => {
+        seoAnalysisReadyRef.current = seoAnalysisReady;
+    }, [seoAnalysisReady]);
+
     const applySeoAnalysisResult = useCallback((result, source = 'live') => {
         if (!result || typeof result !== 'object') {
+            setAnalyzing(false);
+            return;
+        }
+
+        // Realtime editor owns draft scoring. Async PHP/persisted patches must not
+        // overwrite a newer FAQ-aware live analysis (score-one-save-behind / faq_missing flicker).
+        if (
+            source !== 'live'
+            && lastSeoAnalysisRef.current
+            && (lastSeoAnalysisRef.current.analysis_owner === 'react_immediate'
+                || Number(lastSeoAnalysisRef.current.updated_at ?? 0) > 0)
+        ) {
             setAnalyzing(false);
             return;
         }
@@ -46,20 +69,24 @@ export default function useArticleEditorSeoAnalysis({ articleId, articleTitle, a
             violations,
             score,
             seo_score: score,
+            metrics: result.metrics ?? payload?.metrics ?? {},
             errors: result.errors ?? [],
             good: result.good ?? [],
             warnings: result.warnings ?? [],
             score_version: result.score_version ?? null,
             content_hash: result.content_hash ?? null,
             calculated_at: result.calculated_at ?? null,
+            analysis_owner: result.analysis_owner ?? 'react_immediate',
+            updated_at: result.updated_at ?? Date.now(),
         };
         seoDomain.patch({
             analysis: nextAnalysis,
             seoScore: score,
         });
         setSeoScoreSource(source);
+        setSeoAnalysisReady(true);
+        seoAnalysisReadyRef.current = true;
         setAnalyzing(false);
-
 
         if (payload.extracted_links) {
             setSuggestedInternalLinks((prevSuggested) => {
@@ -99,28 +126,40 @@ export default function useArticleEditorSeoAnalysis({ articleId, articleTitle, a
     }, [publishExtractedLinks, seoScoringRules]);
 
     const resolveArticleFaqsSnapshot = useCallback(() => {
-        const fromFaqEditor = window.__seoCollectArticleFaqs?.();
-        if (Array.isArray(fromFaqEditor)) {
-            return fromFaqEditor;
+        // editor | panel | none — same ownership idea as resolveFaqsPersistPayload().
+        const collectorOpen = typeof window.__seoCollectArticleFaqs === 'function';
+        if (collectorOpen) {
+            const fromFaqEditor = window.__seoCollectArticleFaqs();
+            return Array.isArray(fromFaqEditor) ? fromFaqEditor : [];
         }
 
-        return panelFaqsRef.current;
-    }, []);
+        if (faqsCanonicalKnownRef?.current === true) {
+            return Array.isArray(panelFaqsRef.current) ? panelFaqsRef.current : [];
+        }
 
-    // Perf Phase 2B: immediate local analysis debounce 250ms (policy-driven).
-    // Kh�ng g?i server. Kh�ng remount TipTap.
-    const analyzedBlocksRef = useRef(null);
-    const [seoStale, setSeoStale] = useState(false);
+        // Unhydrated — allow DocumentModel / [omi_faq] compatibility fallback in analyzer.
+        return null;
+    }, [faqsCanonicalKnownRef, panelFaqsRef]);
 
-    const runLocalSeoAnalysis = useCallback(() => {
+    const runLocalSeoAnalysis = useCallback((options = {}) => {
         if (!tempMergeRef.current) {
             blockFlushRef.current?.();
         }
         const meta = seoMetaRef.current;
         const policy = getAnalysisPolicy() || editorSettings?.analysis_policy || null;
+        const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        const liveDocument = documentJsonFromEditorsOrBlocks(blockEditorsRef.current, blocksRef.current);
+        const liveHtml = htmlFromEditorsOrBlocks(blockEditorsRef.current, blocksRef.current)
+            || getExportHtml();
+        const snapshot = createCurrentDraftAnalysisSnapshot({
+            html: liveHtml,
+            document: liveDocument,
+            blocks: blocksRef.current,
+        });
         const result = composeImmediateArticleAnalysis({
-            documentHtml: getExportHtml(),
-            document: documentJsonFromEditorsOrBlocks(blockEditorsRef.current, blocksRef.current),
+            documentHtml: snapshot.html,
+            document: snapshot.document,
+            documentModel: snapshot.documentModel,
             blocks: blocksRef.current,
             focusKeyword,
             seoTitle: meta.seoTitle || articleTitle,
@@ -145,8 +184,25 @@ export default function useArticleEditorSeoAnalysis({ articleId, articleTitle, a
             articleId,
             externalFacts: getExternalFacts() || editorSettings?.external_facts || null,
         });
+        if (options.force === true) {
+            result.manual = true;
+            result.updated_at = Date.now();
+        }
 
-        applySeoAnalysisResult(result);
+        applySeoAnalysisResult(result, 'live');
+        const finishedAt = typeof performance !== 'undefined' ? performance.now() : Date.now();
+        const durationMs = Math.max(0, finishedAt - startedAt);
+        window.__SEO_EDITOR_LAST_LOCAL_ANALYSIS_MS__ = durationMs;
+        if (editorSettings?.perf_debug || import.meta.env?.DEV) {
+            console.debug('[EditPerf] seo.local', {
+                article_id: Number(articleId) || 0,
+                duration_ms: Number(durationMs.toFixed(2)),
+                source: result?.metrics?.draft_structure?.source ?? 'current_editor_draft',
+                word_count: result?.metrics?.content_length?.current_word_count ?? 0,
+            });
+        }
+
+        return result;
     }, [
         applySeoAnalysisResult,
         articleId,
@@ -166,60 +222,61 @@ export default function useArticleEditorSeoAnalysis({ articleId, articleTitle, a
         wikiTrustDomains,
     ]);
 
-    const runPhpSeoPreview = useCallback(async () => {
-        if (!articleId) {
-            return;
-        }
-        if (seoPreviewAbortRef.current) {
-            seoPreviewAbortRef.current.abort();
-        }
-        const controller = new AbortController();
-        seoPreviewAbortRef.current = controller;
-        const meta = seoMetaRef.current;
-        try {
-            setAnalyzing(true);
-            setSeoAnalyzeError(null);
-            const data = await previewSeoScoreViaApi(articleId, {
-                title: meta.seoTitle || articleTitle,
-                slug: meta.slug,
-                meta_description: meta.metaDescription,
-                focus_keyword: focusKeyword,
-                content: getExportHtml(),
-            }, { signal: controller.signal });
-            if (controller.signal.aborted) {
-                return;
-            }
-            applySeoAnalysisResult(data, 'live');
-            setSeoStale(false);
-        } catch (error) {
-            if (error?.name === 'AbortError') {
-                return;
-            }
-            // Keep local JS score; surface soft error.
-            setSeoAnalyzeError(error?.message ?? 'seo_preview_failed');
-            setAnalyzing(false);
-        }
-    }, [applySeoAnalysisResult, articleId, articleTitle, focusKeyword, getExportHtml]);
-
     const requestAnalyze = useCallback(() => {
-        try {
-            setAnalyzing(true);
-            setSeoAnalyzeError(null);
-            runLocalSeoAnalysis();
-            analyzedBlocksRef.current = blocksRef.current;
-            setSeoStale(false);
-            void runPhpSeoPreview();
-        } catch (error) {
-            setAnalyzing(false);
-            setSeoAnalyzeError(error?.message ?? 'seo_analyze_failed');
-        }
-    }, [runLocalSeoAnalysis, runPhpSeoPreview]);
+        setAnalyzing(true);
+        setSeoAnalyzeError(null);
+        window.requestAnimationFrame(() => {
+            try {
+                runLocalSeoAnalysis({ force: true });
+                analyzedBlocksRef.current = blocksRef.current;
+                setSeoStale(false);
+            } catch (error) {
+                setAnalyzing(false);
+                setSeoAnalysisReady(false);
+                seoAnalysisReadyRef.current = false;
+                setSeoAnalyzeError(error?.message ?? 'seo_analyze_failed');
+            }
+        });
+    }, [runLocalSeoAnalysis]);
 
     requestAnalyzeRef.current = requestAnalyze;
 
     const markSeoStale = useCallback(() => {
+        // Debounced re-analysis only after a real READY analysis exists.
+        if (!seoAnalysisReadyRef.current) {
+            return;
+        }
         setSeoStale(true);
+        setSeoStaleRevision((current) => current + 1);
     }, []);
+
+    const markSeoAnalysisReady = useCallback((ready = true) => {
+        const next = ready === true;
+        setSeoAnalysisReady(next);
+        seoAnalysisReadyRef.current = next;
+        if (!next) {
+            setSeoStale(false);
+        }
+    }, []);
+
+    useEffect(() => {
+        if (!seoStale || !seoAnalysisReady) {
+            return undefined;
+        }
+
+        const timer = window.setTimeout(() => {
+            try {
+                runLocalSeoAnalysis();
+                analyzedBlocksRef.current = blocksRef.current;
+                setSeoStale(false);
+            } catch (error) {
+                setAnalyzing(false);
+                setSeoAnalyzeError(error?.message ?? 'seo_analyze_failed');
+            }
+        }, 450);
+
+        return () => window.clearTimeout(timer);
+    }, [runLocalSeoAnalysis, seoAnalysisReady, seoStale, seoStaleRevision]);
 
     useEffect(() => {
         const onMediaSnapshotAnalyze = (event) => {
@@ -240,7 +297,6 @@ export default function useArticleEditorSeoAnalysis({ articleId, articleTitle, a
         if (options?.autoGenerate) {
             pendingFaqGenerateRef.current = true;
         }
-        // Defer past TipTap activate / shortcode mousedown � tr�nh race mount FAQ l?n d?u.
         window.setTimeout(() => {
             openPanel('faq', {
                 source: options?.source ?? 'faq-shortcode',
@@ -294,5 +350,21 @@ export default function useArticleEditorSeoAnalysis({ articleId, articleTitle, a
         }
     }, [canGenerateFaq, openFaqModule, openFeaturedSnippetPrompt]);
 
-    return { analyzedBlocksRef, applySeoAnalysisResult, createFaqFromShortcode, handleSeoViolationAction, markSeoStale, openFaqModule, requestAnalyze, resolveArticleFaqsSnapshot, runLocalSeoAnalysis, seoStale, setSeoStale };
+    return {
+        analyzedBlocksRef,
+        applySeoAnalysisResult,
+        createFaqFromShortcode,
+        handleSeoViolationAction,
+        isCompletedSeoAnalysis,
+        markSeoAnalysisReady,
+        markSeoStale,
+        openFaqModule,
+        requestAnalyze,
+        resolveArticleFaqsSnapshot,
+        runLocalSeoAnalysis,
+        seoAnalysisReady,
+        seoStale,
+        setSeoAnalysisReady,
+        setSeoStale,
+    };
 }

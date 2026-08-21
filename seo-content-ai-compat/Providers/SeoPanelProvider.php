@@ -9,7 +9,6 @@ use Omnichannel\Addons\Seo\Filament\Pages\Auth\SeoEditProfile;
 use Omnichannel\Addons\Content\Http\Controllers\ArticleEditorLazyPayloadController;
 use Omnichannel\Addons\Content\Http\Controllers\ArticleEditorSyncController;
 use Omnichannel\Addons\Content\Http\Controllers\ArticleEditorSessionController;
-use Omnichannel\Addons\Content\Http\Middleware\LogEditorSessionAcquireMiddleware;
 use Omnichannel\Addons\Content\Http\Controllers\ArticleEditorOperationController;
 use Omnichannel\Addons\Commerce\Http\Controllers\ArticleProductReviewReconcileController;
 use Omnichannel\Addons\Commerce\Http\Controllers\ArticleProductReviewStatusController;
@@ -27,8 +26,12 @@ use Omnichannel\Addons\SearchFoundation\Http\Controllers\KeywordReviewController
 use Omnichannel\Addons\AiPrompt\Http\Controllers\PromptHookExecuteController;
 use Omnichannel\Addons\Content\Http\Controllers\SeoArticleRevisionController;
 use Omnichannel\Addons\Media\Http\Controllers\SeoMediaController;
+use Omnichannel\Addons\Seo\Filament\Pages\Auth\SeoLogin;
+use Omnichannel\Addons\Seo\Http\Controllers\SeoLoginController;
 use Omnichannel\Addons\Seo\Http\Controllers\SeoPanelLogoutController;
 use Omnichannel\Addons\Seo\Http\Controllers\SeoPanelRedirectController;
+use Omnichannel\Addons\Seo\Http\Middleware\BootFilamentSeoPanel;
+use Omnichannel\Addons\Seo\Http\Middleware\ResolveSeoMainServiceContext;
 use Omnichannel\Addons\Media\Http\Controllers\SeoWatermarkController;
 use Omnichannel\Addons\Seo\Http\Controllers\SupportTicketController;
 use Omnichannel\Addons\Seo\Http\Controllers\TeamMessageController;
@@ -75,7 +78,19 @@ class SeoPanelProvider extends PanelProvider
 {
     public function register(): void
     {
+        // BEFORE panel registration — Filament binds seo/{connection_hash} for the hash panel.
+        Route::pattern('connection_hash', '[a-zA-Z0-9]{32,64}');
+
+        // Hash/secondary panel keeps id "seo" so existing filament.seo.* route names stay stable.
         parent::register();
+
+        // Main Service short URLs: real /seo/{page} routes (no REQUEST_URI rewrite).
+        Filament::registerPanel(
+            fn (): Panel => $this->configureSeoPanel(
+                Panel::make()->id('seo-main')->path('seo'),
+                hashed: false,
+            ),
+        );
 
         // Shared persistTarget for usingTargetMedia() across PromptRunner / GeminiMediaGenerationService.
         $this->app->singleton(PromptMediaStorageService::class);
@@ -100,18 +115,33 @@ class SeoPanelProvider extends PanelProvider
         $this->loadViewsFrom($addonRoot.'/resources/views', 'seo-content-ai');
         $this->loadTranslationsFrom($addonRoot.'/lang', 'seo-content-ai');
 
-        Route::pattern('connection_hash', '[a-zA-Z0-9]{32,64}');
+        // Short login POST (Filament seo-main owns GET /seo/login).
+        // Hash login POST remains explicit — Filament hash panel only registers GET login.
+        Route::middleware(['web'])
+            ->group(function (): void {
+                Route::post('/seo/login', [SeoLoginController::class, 'store'])
+                    ->middleware([BootFilamentSeoPanel::class])
+                    ->name('seo.auth.login.store');
+                Route::post('/seo/{connection_hash}/login', [SeoLoginController::class, 'store'])
+                    ->middleware([BootFilamentSeoPanel::class])
+                    ->where(['connection_hash' => '[a-zA-Z0-9]{32,64}'])
+                    ->name('seo.auth.login.hash.store');
+            });
 
         Route::middleware(['web'])
-            ->get('/seo', SeoPanelRedirectController::class)
+            ->get('/seo/select-workspace', SeoPanelRedirectController::class)
             ->name('seo.panel.redirect');
+
+        // Exact /seo stays Filament seo-main Dashboard (registered by panel path "seo").
+        // Guests are sent to /seo/login by auth middleware.
 
         Route::middleware(['web', 'auth'])
             ->post('/seo/logout', SeoPanelLogoutController::class)
-            ->name('seo.logout');
+            ->name('filament.seo-main.auth.logout');
 
         Filament::serving(function (): void {
-            if (filament()->getCurrentPanel()?->getId() !== 'seo') {
+            $panelId = filament()->getCurrentPanel()?->getId();
+            if (! in_array($panelId, ['seo', 'seo-main'], true)) {
                 return;
             }
 
@@ -270,7 +300,7 @@ class SeoPanelProvider extends PanelProvider
         FilamentView::registerRenderHook(
             PanelsRenderHook::SIDEBAR_FOOTER,
             function (): HtmlString {
-                if (filament()->getCurrentPanel()?->getId() !== 'seo') {
+                if (! in_array(filament()->getCurrentPanel()?->getId(), ['seo', 'seo-main'], true)) {
                     return new HtmlString('');
                 }
 
@@ -283,7 +313,7 @@ class SeoPanelProvider extends PanelProvider
         FilamentView::registerRenderHook(
             PanelsRenderHook::HEAD_END,
             function (): HtmlString {
-                if (filament()->getCurrentPanel()?->getId() !== 'seo' && ! request()->is('seo', 'seo/*')) {
+                if (! in_array(filament()->getCurrentPanel()?->getId(), ['seo', 'seo-main'], true) && ! request()->is('seo', 'seo/*')) {
                     return new HtmlString('');
                 }
 
@@ -331,20 +361,6 @@ class SeoPanelProvider extends PanelProvider
             EncryptCookies::class,
             AddQueuedCookiesToResponse::class,
             StartSession::class,
-            AuthenticateSession::class,
-            ShareErrorsFromSession::class,
-            VerifyCsrfToken::class,
-            IlluminateAuthenticate::class,
-            CheckMainRole::class,
-            SetDynamicSeoDatabase::class,
-            SubstituteBindings::class,
-        ];
-
-        $seoEditorSessionAcquireMiddleware = [
-            EncryptCookies::class,
-            AddQueuedCookiesToResponse::class,
-            StartSession::class,
-            LogEditorSessionAcquireMiddleware::class,
             AuthenticateSession::class,
             ShareErrorsFromSession::class,
             VerifyCsrfToken::class,
@@ -418,17 +434,22 @@ class SeoPanelProvider extends PanelProvider
                     ->name('seo.domain-cta.quick-templates.update');
             });
 
-        Route::middleware($seoEditorSessionAcquireMiddleware)
-            ->prefix('api/seo/articles')
-            ->group(function (): void {
-                Route::post('/{article}/editor-sessions', [ArticleEditorSessionController::class, 'store'])
-                    ->whereNumber('article')
-                    ->name('seo.articles.editor-sessions.store');
-            });
-
         Route::middleware($seoWebApiMiddleware)
             ->prefix('api/seo/articles')
             ->group(function (): void {
+                Route::post('/{article}/edit-lease', [ArticleEditorSessionController::class, 'store'])
+                    ->whereNumber('article')
+                    ->name('seo.articles.edit-lease.store');
+                Route::put('/{article}/edit-lease/{session}', [ArticleEditorSessionController::class, 'heartbeat'])
+                    ->whereNumber('article')
+                    ->name('seo.articles.edit-lease.renew');
+                Route::delete('/{article}/edit-lease/{session}', [ArticleEditorSessionController::class, 'destroy'])
+                    ->whereNumber('article')
+                    ->name('seo.articles.edit-lease.destroy');
+                // Compatibility aliases for clients deployed before the edit-lease cutover.
+                Route::post('/{article}/editor-sessions', [ArticleEditorSessionController::class, 'store'])
+                    ->whereNumber('article')
+                    ->name('seo.articles.editor-sessions.store');
                 Route::get('/{article}/outline', [ArticleOutlineController::class, 'index'])
                     ->whereNumber('article')
                     ->name('seo.articles.outline.index');
@@ -712,23 +733,19 @@ class SeoPanelProvider extends PanelProvider
                     ->name('seo.articles.wp-edit-redirect.legacy');
             });
 
-        // Hash sai format (không khớp 32–64 alnum) → about /seo (SeoPanelRedirectController).
-        // Hash đúng format nhưng không tồn tại: xử lý ở SetDynamicSeoDatabaseByHash.
-        Route::middleware(['web'])
-            ->get('/seo/{invalidHash}/{invalidPath?}', static fn () => redirect()->to('/seo', 301))
-            ->where([
-                'invalidHash' => '^(?![a-zA-Z0-9]{32,64}$)(?!oauth$)(?!articles$)(?!logout$)(?!wp-plugin$)[^/]+',
-                'invalidPath' => '.*',
-            ])
-            ->name('seo.panel.invalid-hash');
     }
 
     public function panel(Panel $panel): Panel
     {
+        return $this->configureSeoPanel(
+            $panel->id('seo')->path('seo/{connection_hash}'),
+            hashed: true,
+        );
+    }
+
+    private function configureSeoPanel(Panel $panel, bool $hashed): Panel
+    {
         $panel = $panel
-            ->id('seo')
-            ->path('seo/{connection_hash}')
-            ->login(\Omnichannel\Addons\Seo\Filament\Pages\Auth\SeoLogin::class)
             ->profile(SeoEditProfile::class, isSimple: false)
             ->brandLogo(asset('images/logo.png'))
             ->brandLogoHeight('2.5rem')
@@ -762,6 +779,16 @@ class SeoPanelProvider extends PanelProvider
                 for: 'App\\Addons\\SeoContentAi\\Filament\\Widgets'
             );
 
+        if ($hashed) {
+            $panel = $panel->login(SeoLogin::class);
+        } else {
+            // Short Main panel needs Filament auth routes (logout/profile) without URI rewrite.
+            // Login page lives at GET /seo/login (same SeoLogin class; no connection_hash).
+            $panel = $panel
+                ->login(SeoLogin::class)
+                ->homeUrl(static fn (): string => url('/seo'));
+        }
+
         foreach ($this->peerFilamentDiscoveries() as $discovery) {
             if (is_dir($discovery['resources'])) {
                 $panel = $panel->discoverResources(in: $discovery['resources'], for: $discovery['resourcesNs']);
@@ -774,6 +801,10 @@ class SeoPanelProvider extends PanelProvider
             }
         }
 
+        $contextMiddleware = $hashed
+            ? SetDynamicSeoDatabaseByHash::class
+            : ResolveSeoMainServiceContext::class;
+
         return $panel
             ->pages([
                 SeoChangePassword::class,
@@ -783,8 +814,7 @@ class SeoPanelProvider extends PanelProvider
                 EncryptCookies::class,
                 AddQueuedCookiesToResponse::class,
                 StartSession::class,
-                // Hash/URL defaults TRƯỚC AuthenticateSession — tránh generate login thiếu connection_hash.
-                SetDynamicSeoDatabaseByHash::class,
+                $contextMiddleware,
                 AuthenticateSession::class,
                 ShareErrorsFromSession::class,
                 VerifyCsrfToken::class,

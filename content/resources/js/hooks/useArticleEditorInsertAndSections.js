@@ -11,6 +11,7 @@ import {
     mergeBlockHtmlContents,
     outlineApiRequest,
     outlineHeadingKey,
+    sectionMovableBlockIds,
 } from '../utils/contentDocumentHelpers';
 import { applyReplaceBlocksAt } from '../utils/editorCommands/replaceBlocksAt';
 import { extractOutlineHeadingFromBlock, normalizeOutlineHeadingText } from '../utils/articleEditorClientOutline';
@@ -328,7 +329,7 @@ export default function useArticleEditorInsertAndSections({ activeBlockId, activ
         const result = reorderBlockWithinSection(working, {
             blockId,
             direction,
-            sectionBlockIds: liveSection.blockIds,
+            sectionBlockIds: sectionMovableBlockIds(liveSection),
             sectionId: liveSection.id,
         });
 

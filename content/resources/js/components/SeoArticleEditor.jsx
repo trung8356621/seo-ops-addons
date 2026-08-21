@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+﻿import React, { lazy, Suspense, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import BlockFormatToolbar from './BlockFormatToolbar';
 import { BlockInsertBar, BlockInsertMenuBar } from './BlockInsertMenu';
@@ -20,7 +20,7 @@ import {
     scrollToPlainTextInBlock,
 } from '../utils/articleLinkScroll';
 import { scanExistingLinksCompat } from '../utils/existingLinkScanner';
-import FeaturedSnippetPromptModal from '@seo-addon/components/FeaturedSnippetPromptModal.jsx';
+const FeaturedSnippetPromptModal = lazy(() => import('@seo-addon/components/FeaturedSnippetPromptModal.jsx'));
 import {
     wrapPlainTextWithLinkInBlocks,
     replaceFirstPlainTextWithLink,
@@ -87,6 +87,7 @@ import { composeImmediateArticleAnalysis } from '@seo-addon/utils/composeArticle
 import { getAnalysisPolicy, getExternalFacts } from '@seo-addon/utils/articleAnalysisOwnership.js';
 import { documentJsonFromEditorsOrBlocks } from '../utils/editorDocumentBridge';
 import { sanitizeViolations, scoreFromViolations, buildFailedViolationItems } from '@seo-addon/utils/seoScoreCalculator.js';
+import { isCompletedSeoAnalysis } from '../utils/seoAnalysisReadiness';
 import { loadFeaturedImage } from '@media-addon/utils/articleFeaturedImageStorage.js';
 import {
     isAbortError,
@@ -99,7 +100,7 @@ import { t } from '../utils/i18n';
 import { EditorHostApiProvider } from '../editor/host/EditorHostApiContext';
 import { EditorSidebarNavigation } from '../editor/host/EditorSidebarNavigation';
 import { EditorSidebarPortalHost } from '../editor/host/EditorSidebarPortalHost';
-import { SharedMediaPicker } from '@media-addon/editor/host/SharedMediaPicker.jsx';
+import { LazySharedMediaPicker } from '@media-addon/editor/host/LazySharedMediaPicker.jsx';
 import { installEditorShellCompatibilityBridge } from '../editor/runtime/editorShellCompatibilityBridge';
 import { installMediaPickerCompatibilityBridge } from '../editor/runtime/mediaPickerCompatibilityBridge';
 import {
@@ -136,7 +137,7 @@ import {
 } from '@media-addon/utils/articleProductAlbumStorage.js';
 import { clearFeaturedImageStorage, saveFeaturedImage } from '@media-addon/utils/articleFeaturedImageStorage.js';
 import { clearArticleMediaPickerCache } from '@media-addon/utils/articleMediaPickerCache.js';
-import GenerateImageModal from '@media-addon/components/GenerateImageModal.jsx';
+const GenerateImageModal = lazy(() => import('@media-addon/components/GenerateImageModal.jsx'));
 import EditorBusyOverlay from './EditorBusyOverlay';
 import {
     applyImagePatchToBlocks,
@@ -229,7 +230,6 @@ import {
     setEditorConflictTokens,
     applyEditorDocumentAck,
     logArticleEditorVersionDebug,
-    previewSeoScoreViaApi,
 } from '../utils/articleEditorApi';
 import { buildEditorDocumentEnvelope, blocksFromEditorDocumentEnvelope, isUsableTipTapDocument } from '../utils/articleEditorDocument';
 import {
@@ -313,7 +313,6 @@ import {
     stripLeadingH1FromHtml,
     requiresClassicInlineRegroup,
     extractSectionHeading,
-    blockHasOutlineHeading,
     truncateOutlineHeadingText,
     extractOutlineApiErrorMessage,
     outlineApiCsrfToken,
@@ -359,6 +358,13 @@ import {
 } from '../utils/contentDocumentHelpers';
 import SectionHeaderTitle from './SectionHeaderTitle';
 import BlockEditor from './BlockEditor';
+import ArticleContentSyncRequiredBlocker from './ArticleContentSyncRequiredBlocker';
+import {
+    CONTENT_LIFECYCLE,
+    emitContentLifecycle,
+    isContentSyncRequired,
+    normalizeContentLifecyclePayload,
+} from '../utils/articleEditorContentLifecycle';
 export default function SeoArticleEditor({
     articleId,
     siteId = null,
@@ -375,13 +381,14 @@ export default function SeoArticleEditor({
     expectedContentHash = '',
     documentVersion = 1,
     sessionReadOnly = false,
+    contentLifecycle: contentLifecycleProp = null,
     supportsProductGallery: supportsProductGalleryProp = false,
     isCanaryProduct: isCanaryProductProp = false,
     parentChildAllowed: parentChildAllowedProp = false,
     parentChildReason: parentChildReasonProp = '',
     productCategoryOptions = [],
     initialProductGallery = [],
-    initialFaqs = [],
+    initialFaqs = undefined,
     initialVirtualReviews = [],
     articleTitle = '',
     editorSettings = {},
@@ -391,6 +398,13 @@ export default function SeoArticleEditor({
     perfDebug = false,
 }) {
     const [supportsProductGallery, setSupportsProductGallery] = useState(() => Boolean(supportsProductGalleryProp));
+    const contentLifecycle = normalizeContentLifecyclePayload(
+        contentLifecycleProp
+        ?? window.__SEO_EDITOR_CONTENT_LIFECYCLE__
+        ?? { state: CONTENT_LIFECYCLE.CONTENT_LOADING },
+    );
+    const syncRequired = isContentSyncRequired(contentLifecycle.state);
+    const contentLoading = contentLifecycle.state === CONTENT_LIFECYCLE.CONTENT_LOADING;
     const isCanaryProduct = Boolean(isCanaryProductProp);
     const parentChildAllowed = Boolean(parentChildAllowedProp);
     const parentChildReason = String(parentChildReasonProp ?? '').trim();
@@ -409,6 +423,17 @@ export default function SeoArticleEditor({
     const perfDebugEnabled = Boolean(perfDebug || editorSettings?.perf_debug);
     // Stable bridge — domain-save effect runs before getExportHtml declaration (avoid TDZ).
     const getExportHtmlRef = useRef(() => '');
+
+    useEffect(() => {
+        emitContentLifecycle(contentLifecycle);
+    }, [
+        contentLifecycle.state,
+        contentLifecycle.wordpress_linked,
+        contentLifecycle.local_content_present,
+        contentLifecycle.wp_post_id,
+        contentLifecycle.observed_permalink,
+        contentLifecycle.allow_fetch_from_wordpress,
+    ]);
 
     useEffect(() => {
         window.__SEO_ARTICLE_MEDIA_PICKER_ENDPOINT__ = mediaPickerUrl;
@@ -655,7 +680,7 @@ export default function SeoArticleEditor({
         };
     }, [activeHeavyModule, articleId]);
 
-        const { analyzing, canGenerateFaq, canGenerateFeaturedSnippet, canGenerateOutlineHeading, canQuickCreateReviews, clientOutline, collapsedSectionIds, editorSearchMatchCount, faqCount, featuredHealthSnapshot, featuredSnippetGenerating, featuredSnippetPreviewHtml, featuredSnippetPromptContext, featuredSnippetPromptOpen, featuredSnippetTargetRef, generateImageModalInitialCustom, generateImageModalOpen, generateImageModalPrompt, generateImageModalTarget, generateImageTargetRef, generateQuickPostReviews, imageRenameBusy, imageRenameBusyCount, imagesReloadKey, imagesTabJumpTarget, insertMenu, isProductPost, outlineAppendDoneRef, outlineAppendInflightRef, outlineFingerprintRef, outlineHasSavedHeadings, outlineHeadingCommand, outlineHeadingIdsByBlockIdRef, outlineHeadingIdsByKeyRef, outlineHeadingKeys, outlineJumpTarget, outlineTreeSync, panelFaqs, panelFaqsRef, pendingFaqGenerateRef, pendingLocalRenameQueueRef, pendingLocalRenameResultsRef, pendingQuickFixKeywordRef, pendingWpRenameRequestRef, postImagesRef, productGalleryItems, publishEditorImagesCatalogRef, quickCreateReviewsConfigUrl, quickFixSlugAllBusy, quickReplaceFind, quickReplaceValue, refreshVirtualReviews, reviewsLoadWarning, reviewsLoading, saveStatus, sectionTitleEditRequest, seoAnalyzeError, seoPanelActive, setAnalyzing, setClientOutline, setCollapsedSectionIds, setEditorSearchMatchCount, setFaqCount, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptContext, setFeaturedSnippetPromptOpen, setGenerateImageModalInitialCustom, setGenerateImageModalOpen, setGenerateImageModalPrompt, setGenerateImageModalTarget, setImageRenameBusy, setImageRenameBusyCount, setImagesReloadKey, setImagesTabJumpTarget, setInsertMenu, setOutlineHasSavedHeadings, setOutlineHeadingCommand, setOutlineHeadingKeys, setOutlineJumpTarget, setOutlineTreeSync, setPanelFaqs, setQuickFixSlugAllBusy, setQuickReplaceFind, setQuickReplaceValue, setSaveStatus, setSectionTitleEditRequest, setSeoAnalyzeError, showConfigureReviewsLink, showReviewsTab, slugRenameManagedByBatchRef, supplementalImages, supplementalImagesRef, utilitySchedulerRef, virtualReviews } = useArticleEditorCoreState({ activeHeavyModule, activeHeavyModuleRef, articleId, blocks, blocksRef, editorSettings, initialFaqs, initialPostImages, initialProductGallery, initialSupplementalImages, initialVirtualReviews, perfDebug, reviewsAbortRef, setAssistantPortalRoots, setMediaPickerRoot, supportsProductGallery });
+        const { analyzing, canGenerateFaq, canGenerateFeaturedSnippet, canGenerateOutlineHeading, canQuickCreateReviews, clientOutline, collapsedSectionIds, editorSearchMatchCount, faqCount, faqsCanonicalKnownRef, featuredHealthSnapshot, featuredSnippetGenerating, featuredSnippetPreviewHtml, featuredSnippetPromptContext, featuredSnippetPromptOpen, featuredSnippetTargetRef, generateImageModalInitialCustom, generateImageModalOpen, generateImageModalPrompt, generateImageModalTarget, generateImageTargetRef, generateQuickPostReviews, imageRenameBusy, imageRenameBusyCount, imagesReloadKey, imagesTabJumpTarget, insertMenu, isProductPost, outlineAppendDoneRef, outlineAppendInflightRef, outlineFingerprintRef, outlineHasSavedHeadings, outlineHeadingCommand, outlineHeadingIdsByBlockIdRef, outlineHeadingIdsByKeyRef, outlineHeadingKeys, outlineJumpTarget, outlineTreeSync, panelFaqs, panelFaqsRef, pendingFaqGenerateRef, pendingLocalRenameQueueRef, pendingLocalRenameResultsRef, pendingQuickFixKeywordRef, pendingWpRenameRequestRef, postImagesRef, productGalleryItems, publishEditorImagesCatalogRef, quickCreateReviewsConfigUrl, quickFixSlugAllBusy, quickReplaceFind, quickReplaceValue, refreshVirtualReviews, reviewCount, reviewCountLoading, reviewsLoaded, reviewsLoadWarning, reviewsLoading, saveStatus, sectionTitleEditRequest, seoAnalyzeError, seoPanelActive, setAnalyzing, setClientOutline, setCollapsedSectionIds, setEditorSearchMatchCount, setFaqCount, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptContext, setFeaturedSnippetPromptOpen, setGenerateImageModalInitialCustom, setGenerateImageModalOpen, setGenerateImageModalPrompt, setGenerateImageModalTarget, setImageRenameBusy, setImageRenameBusyCount, setImagesReloadKey, setImagesTabJumpTarget, setInsertMenu, setOutlineHasSavedHeadings, setOutlineHeadingCommand, setOutlineHeadingKeys, setOutlineJumpTarget, setOutlineTreeSync, setPanelFaqs, setQuickFixSlugAllBusy, setQuickReplaceFind, setQuickReplaceValue, setSaveStatus, setSectionTitleEditRequest, setSeoAnalyzeError, showConfigureReviewsLink, showReviewsTab, slugRenameManagedByBatchRef, supplementalImages, supplementalImagesRef, utilitySchedulerRef, virtualReviews } = useArticleEditorCoreState({ activeHeavyModule, activeHeavyModuleRef, articleId, blocks, blocksRef, editorSettings, initialFaqs, initialPostImages, initialProductGallery, initialSupplementalImages, initialVirtualReviews, perfDebug, reviewsAbortRef, setAssistantPortalRoots, setMediaPickerRoot, supportsProductGallery });
 
     const parseGalleryItems = useCallback((items) => normalizeProductAlbumList(items), []);
 
@@ -705,7 +730,7 @@ export default function SeoArticleEditor({
         return () => window.removeEventListener('seo-product-gallery-updated', onGalleryUpdated);
     }, [articleId, parseGalleryItems, supportsProductGallery]);
 
-        const { analysis, articleType, domainLinkCatalogRef, extractedLinks, focusKeyword, hasHydratedSeoFromServerRef, lastSeoAnalysisRef, mediaHealthTick, savedSeoScore, scoringMessages, seoDomain, seoMetaRef, seoPreviewAbortRef, seoScoreSource, seoScoringRules, setArticleType, setExtractedLinks, setMediaHealthTick, setSavedSeoScore, setSeoScoreSource, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomain, siteDomainRef, suggestedExternalLinks, suggestedInternalLinks, suggestionExternalCatalogRef, suggestionKeywordCatalogRef, wikiTrustDomains } = useArticleEditorSeoAndLinksState({ activeHeavyModuleRef, articleId, articleTitle, editorSettings, initialPostType, initialSeo, seoPanelActive, seoSummaryAbortRef, seoSummaryLoadedRef, setSeoSummaryError, setSeoSummaryLoading });
+        const { analysis, articleType, domainLinkCatalogRef, extractedLinks, focusKeyword, hasHydratedSeoFromServerRef, lastSeoAnalysisRef, mediaHealthTick, savedSeoScore, scoringMessages, seoDomain, seoMetaRef, seoScoreSource, seoScoringRules, setArticleType, setExtractedLinks, setMediaHealthTick, setSavedSeoScore, setSeoScoreSource, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomain, siteDomainRef, suggestedExternalLinks, suggestedInternalLinks, suggestionExternalCatalogRef, suggestionKeywordCatalogRef, wikiTrustDomains } = useArticleEditorSeoAndLinksState({ articleTitle, editorSettings, initialPostType, initialSeo, setSeoSummaryError, setSeoSummaryLoading });
 
     const mainKeyword = useMemo(() => {
         const fromFocus = String(focusKeyword ?? '').trim();
@@ -734,14 +759,14 @@ export default function SeoArticleEditor({
 
             const preset = String(detail.prompt ?? detail.userBrief ?? '').trim();
             if (target === 'product-gallery') {
-                // Custom field ? loai_san_pham, Image prompt ? gallery_description (n?u c�)
-                setGenerateImageModalInitialCustom(
-                    String(detail.loaiSanPhamCustom ?? '').trim() || initialLoaiSanPham,
-                );
-                const galleryPrompt = String(detail.prompt ?? '').trim()
-                    || initialGalleryDescription
-                    || mainKeyword;
-                setGenerateImageModalPrompt(galleryPrompt);
+                const existingCustom = String(detail.loaiSanPhamCustom ?? '').trim() || String(initialLoaiSanPham ?? '').trim();
+                setGenerateImageModalInitialCustom(existingCustom || mainKeyword || '');
+
+                const explicitPrompt = String(detail.prompt ?? '').trim();
+                const savedDescription = String(initialGalleryDescription ?? '').trim();
+                const keyword = String(mainKeyword ?? '').trim();
+                const restoreDraft = savedDescription !== '' && savedDescription !== keyword;
+                setGenerateImageModalPrompt(explicitPrompt || (restoreDraft ? savedDescription : ''));
             } else {
                 setGenerateImageModalInitialCustom('');
                 setGenerateImageModalPrompt(preset || '');
@@ -1021,6 +1046,9 @@ export default function SeoArticleEditor({
     }, [scoringMessages]);
 
     const liveSeoScore = useMemo(() => {
+        if (!isCompletedSeoAnalysis(analysis)) {
+            return null;
+        }
         const violations = sanitizeViolations(
             Array.isArray(analysis?.violations) ? analysis.violations : [],
             seoScoringRules,
@@ -1030,6 +1058,9 @@ export default function SeoArticleEditor({
     }, [analysis, seoScoringRules]);
 
     const seoFailedItems = useMemo(() => {
+        if (!isCompletedSeoAnalysis(analysis)) {
+            return [];
+        }
         const violations = sanitizeViolations(
             Array.isArray(analysis?.violations) ? analysis.violations : [],
             seoScoringRules,
@@ -1091,15 +1122,16 @@ export default function SeoArticleEditor({
         const linksSource = extractedLinks
             ?? analysis?.extracted_links
             ?? null;
-        const seoIncomplete = analyzing && (!analysis || !Array.isArray(analysis?.violations));
+        const analysisReady = isCompletedSeoAnalysis(analysis);
+        const seoIncomplete = !analysisReady || analyzing;
         publishPartialRuntimeWidgetHealth(runtime, {
             seo: {
                 focusKeyword: keyword,
-                violations: analysis?.violations ?? [],
+                violations: analysisReady && Array.isArray(analysis?.violations) ? analysis.violations : [],
                 failedItems: seoFailedItems,
                 locale,
                 incomplete: seoIncomplete,
-                analysisReady: !seoIncomplete,
+                analysisReady: analysisReady && !analyzing,
             },
             images: {
                 rows: imageRows,
@@ -1115,7 +1147,9 @@ export default function SeoArticleEditor({
                 incomplete: linksSource == null,
             },
         }, {
-            reviewsBadge: showReviewsTab && isProductPost ? virtualReviews.length : null,
+            reviewsBadge: showReviewsTab && isProductPost && reviewCount !== null
+                ? reviewCount
+                : null,
         }, {
             articleId,
             generation: getDiagnosticsGeneration(),
@@ -1134,7 +1168,7 @@ export default function SeoArticleEditor({
         extractedLinks,
         showReviewsTab,
         isProductPost,
-        virtualReviews.length,
+        reviewCount,
         imageTabCount,
         mediaHealthTick,
     ]);
@@ -1247,8 +1281,12 @@ export default function SeoArticleEditor({
         };
     }, [articleId, parseGalleryItems]);
 
-        const { analyzedBlocksRef, applySeoAnalysisResult, createFaqFromShortcode, handleSeoViolationAction, markSeoStale, openFaqModule, requestAnalyze, resolveArticleFaqsSnapshot, runLocalSeoAnalysis, seoStale, setSeoStale } = useArticleEditorSeoAnalysis({ articleId, articleTitle, articleType, blockEditorsRef, blockFlushRef, blocksRef, canGenerateFaq, clientOutline, editorSettings, focusKeyword, getExportHtml, lastSeoAnalysisRef, panelFaqsRef, pendingFaqGenerateRef, publishExtractedLinks, requestAnalyzeRef, scoringMessages, seoDomain, seoMetaRef, seoPreviewAbortRef, seoScoringRules, setAnalyzing, setExtractedLinks, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptContext, setFeaturedSnippetPromptOpen, setSeoAnalyzeError, setSeoScoreSource, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomain, siteDomainRef, tempMergeRef, utilitySchedulerRef, wikiTrustDomains });
+        const { analyzedBlocksRef, applySeoAnalysisResult, createFaqFromShortcode, handleSeoViolationAction, markSeoAnalysisReady, markSeoStale, openFaqModule, requestAnalyze, resolveArticleFaqsSnapshot, runLocalSeoAnalysis, seoAnalysisReady, seoStale, setSeoStale } = useArticleEditorSeoAnalysis({ articleId, articleTitle, articleType, blockEditorsRef, blockFlushRef, blocksRef, canGenerateFaq, clientOutline, editorSettings, faqsCanonicalKnownRef, focusKeyword, getExportHtml, lastSeoAnalysisRef, panelFaqsRef, pendingFaqGenerateRef, publishExtractedLinks, requestAnalyzeRef, scoringMessages, seoDomain, seoMetaRef, seoScoringRules, setAnalyzing, setExtractedLinks, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptContext, setFeaturedSnippetPromptOpen, setSeoAnalyzeError, setSeoScoreSource, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomain, siteDomainRef, tempMergeRef, wikiTrustDomains });
         markSeoStaleRef.current = markSeoStale;
+
+        useEffect(() => {
+            markSeoAnalysisReady(isCompletedSeoAnalysis(analysis));
+        }, [analysis, markSeoAnalysisReady]);
 
     const autosaveIntervalSecondsRaw = Number(editorSettings?.autosave_interval_seconds);
     const autosaveIntervalSeconds = Number.isFinite(autosaveIntervalSecondsRaw)
@@ -1268,7 +1306,7 @@ export default function SeoArticleEditor({
 
         const { assertWritableDocumentNotWhitespaceCorrupted, canRedo, canUndo, cancelLocalDraftSave, clearTempMerge, historySteps, loadedArticleIdRef, redo, scheduleAutosave, skipNextAutosave, undo, updateBlocksWithoutHistory } = useArticleEditorSaveQueue({ articleId, blockEditorsRef, blocks, blocksRef, bootstrapBodyPlainRef, connectionHashRef, documentVersion, draftSaveDelayMs, draftSaveDisabled, getExportHtml, historyStep, lastAutosaveHashRef, markRecoveringClear, networkUnavailableRef, noteLocalRevisionChanged, scheduleAutosaveRef, scheduleServerAutosaveRef, serverAutosaveDebounceMs, serverAutosaveDirtyRef, serverAutosaveInFlightRef, serverAutosaveNeedsRetryRef, serverAutosaveSeqRef, sessionReadOnly, setActiveBlockId, setBlocks, setSaveStatus, setTempMerge, whitespaceCorruptionLockedRef, withDraftSite });
 
-        const { applyDraftRestore, discardDraftRestore, draftChoiceModalOpen, draftRestoreOffer, keepServerOverDraft, reconcileImagesTabWithBlocks } = useArticleEditorBootstrap({ analyzedBlocksRef, articleId, bootstrapBodyPlainRef, canRedo, canUndo, cancelLocalDraftSave, clearTempMerge, connectionHashRef, dismissedEditorImageMediaIdsRef, draftScope, expectedContentHash, expectedUpdatedAt, hasHydratedSeoFromServerRef, initialEditorDocument, initialEditorDocumentHash, initialHtml, initialPostImages, initialSeo, loadedArticleIdRef, postImagesRef, redo, requestAnalyze, sessionReadOnly, setActiveBlockId, setAnalyzing, setBlocks, setExtractedLinks, setGlobalEditor, setImagesReloadKey, setSeoStale, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomainRef, skipNextAutosave, suggestionExternalCatalogRef, undo, whitespaceCorruptionLockedRef, withDraftSite });
+        const { applyDraftRestore, discardDraftRestore, draftChoiceModalOpen, draftRestoreOffer, keepServerOverDraft, reconcileImagesTabWithBlocks } = useArticleEditorBootstrap({ analyzedBlocksRef, articleId, bootstrapBodyPlainRef, canRedo, canUndo, cancelLocalDraftSave, clearTempMerge, connectionHashRef, dismissedEditorImageMediaIdsRef, draftScope, expectedContentHash, expectedUpdatedAt, hasHydratedSeoFromServerRef, initialEditorDocument, initialEditorDocumentHash, initialHtml, initialPostImages, initialSeo, loadedArticleIdRef, markSeoAnalysisReady, postImagesRef, redo, requestAnalyze, sessionReadOnly, setActiveBlockId, setAnalyzing, setBlocks, setExtractedLinks, setGlobalEditor, setImagesReloadKey, setSeoStale, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomainRef, skipNextAutosave, suggestionExternalCatalogRef, undo, whitespaceCorruptionLockedRef, withDraftSite });
 
         const { commitActiveBlock, registerBlockEditor, registerBlockFlush, updateBlockContent } = useArticleEditorBlockContentCommands({ activeBlockIdRef, articleId, blockEditorsRef, blockFlushRef, documentVersion, editorHostActionsRef, editorSettings, globalEditorRef, initialEditorDocumentHash, initialPostType, perfDebug, reconcileImagesTabWithBlocks, markSeoStaleRef, scheduleAutosaveRef, sessionReadOnly, setBlocks, setRuntimeContextRevision, structureMutationRef, tempMergeRef });
 
@@ -1285,10 +1323,10 @@ export default function SeoArticleEditor({
     // �ang c�n placeholder spin � reconcile d?nh k? (poll miss / m?t pending map).
         const { deleteSection, handleOutlineDeleteHeading, handleOutlineMoveHeading, insertVideoAfterBlock, moveBlockToSection, startTempMerge, toggleInsertMenu } = useArticleEditorInsertAndSections({ activeBlockId, activeBlockIdRef, applyCompletedMediaToPlaceholder, articleId, blockEditorsRef, blockFlushRef, blocks, blocksRef, commitActiveBlock, deleteBlock, dismissedEditorImageMediaIdsRef, editorSections, insertBlockRelative, notifyIntroNoImages, outlineAppendDoneRef, outlineAppendInflightRef, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, patchImageInBlocks, pendingAiMediaRef, sectionHeadingBlockIds, setActiveBlockId, setBlocks, setGlobalEditor, setInsertMenu, setOutlineHeadingKeys, setOutlineTreeSync, setTempMerge, startMediaStatusPolling, structureMutationRef, tempMergeRef });
 
-        const { mergedDisplay, saveLabel } = useArticleEditorExternalEventsBridge({ activeBlockId, activeBlockIdRef, analyzedBlocksRef, applyCompletedMediaToPlaceholder, applyCompletedMediaToProductGallery, applySeoAnalysisResult, articleId, articleTitle, assertNoLocalSlugFixBeforeWpSync, assertWritableDocumentNotWhitespaceCorrupted, blockEditorsRef, blockFlushRef, blockOutsideClickGuardUntilRef, blocks, blocksRef, clearAwaitingClientImagePlaceholders, clearMediaPolling, clearOutlineFocus, clearTempMerge, connectionHashRef, dismissedEditorImageMediaIdsRef, editorHostActionsRef, findImageBlockByMediaId, generateImageTargetRef, getExportHtml, globalEditor, initialPostImages, insertImageAfterBlock, insertVideoAfterBlock, isDismissedEditorImageMedia, lastSeoAnalysisRef, mediaPollTimersRef, networkRecovering, networkUnavailable, outlineHasSavedHeadings, panelFaqsRef, patchImageInBlocks, pendingAiMediaRef, placeProcessingImagePlaceholder, postImagesRef, publishEditorImagesCatalogRef, reconcileImagesTabWithBlocks, requestAnalyze, requestGenerateArticleImage, resolveAiRefBlockId, resolveArticleFaqsSnapshot, runLocalSeoAnalysis, saveStatus, scheduleAutosave, markSeoStale, sectionByBlockId, seoDomain, seoMetaRef, setActiveBlockId, setArticleType, setBlocks, setFaqCount, setGlobalEditor, setImagesReloadKey, setInsertMenu, setPanelFaqs, setSaveStatus, setSavedSeoScore, setSeoStale, setSupportsProductGallery, skipNextAutosave, startMediaStatusPolling, supplementalImagesRef, tempMerge, tempMergeRef, updateBlockContent });
+        const { mergedDisplay, saveLabel } = useArticleEditorExternalEventsBridge({ activeBlockId, activeBlockIdRef, analyzedBlocksRef, applyCompletedMediaToPlaceholder, applyCompletedMediaToProductGallery, applySeoAnalysisResult, articleId, articleTitle, assertNoLocalSlugFixBeforeWpSync, assertWritableDocumentNotWhitespaceCorrupted, blockEditorsRef, blockFlushRef, blockOutsideClickGuardUntilRef, blocks, blocksRef, clearAwaitingClientImagePlaceholders, clearMediaPolling, clearOutlineFocus, clearTempMerge, connectionHashRef, dismissedEditorImageMediaIdsRef, editorHostActionsRef, faqsCanonicalKnownRef, findImageBlockByMediaId, generateImageTargetRef, getExportHtml, globalEditor, initialPostImages, insertImageAfterBlock, insertVideoAfterBlock, isDismissedEditorImageMedia, lastSeoAnalysisRef, mediaPollTimersRef, networkRecovering, networkUnavailable, outlineHasSavedHeadings, panelFaqsRef, patchImageInBlocks, pendingAiMediaRef, placeProcessingImagePlaceholder, postImagesRef, publishEditorImagesCatalogRef, reconcileImagesTabWithBlocks, requestAnalyze, requestGenerateArticleImage, resolveAiRefBlockId, resolveArticleFaqsSnapshot, runLocalSeoAnalysis, saveStatus, scheduleAutosave, markSeoStale, sectionByBlockId, seoDomain, seoMetaRef, setActiveBlockId, setArticleType, setBlocks, setFaqCount, setGlobalEditor, setImagesReloadKey, setInsertMenu, setPanelFaqs, setSaveStatus, setSavedSeoScore, setSeoStale, setSupportsProductGallery, skipNextAutosave, startMediaStatusPolling, supplementalImagesRef, tempMerge, tempMergeRef, updateBlockContent });
 
     // Sync text heading t? tab Outline v? block tuong ?ng trong editor ch�nh.
-        const { addOutlineNode, addSection, addSectionAfter, applyOutlineHeadingHtml, applyOutlineHeadingText, changeOutlineHeadingLevel, collapseAllSections, confirmFeaturedSnippetPromptInsert, deleteOutlineHeadingKeepContent, deleteOutlineHeadingWithContent, focusOutlineFromSectionHeader, handleOutlineHeadingFromEditor, handleOutlineLoaded, insertFeaturedSnippetAsNewSectionAfter, jumpToOutlineHeading, requestGenerateFeaturedSnippetAfterSection, resolveHeadingInnerHtml, runFeaturedSnippetPromptGenerate, saveSectionTitleFromHeader, toggleOutlineHeadingVisible, toggleSectionCollapse, updateOutlineHeadingTitle } = useArticleEditorOutline({ activeBlockId, activateBlock, articleId, articleTitle, blockEditorsRef, blockFlushRef, blocksRef, canGenerateFeaturedSnippet, collapseSectionsExcept, commitActiveBlock, editorSections, featuredSnippetGenerating, featuredSnippetPreviewHtml, featuredSnippetTargetRef, focusImageBlock, focusKeyword, focusedOutlineHeadingRef, outlineAppendDoneRef, outlineAppendInflightRef, outlineFingerprintRef, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, outlineHeadingIdsByKeyRef, outlineRailRef, markSeoStale, sectionByBlockId, sectionHeadingBlockIds, setActiveBlockId, setBlocks, setClientOutline, setCollapsedSectionIds, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptOpen, setGlobalEditor, setImagesTabJumpTarget, setInsertMenu, setOutlineHasSavedHeadings, setOutlineHeadingKeys, setOutlineJumpTarget, setOutlineTreeSync, setSectionTitleEditRequest, syncOutlineFocusFromBlock, tempMergeRef });
+        const { addOutlineNode, addSection, addSectionAfter, applyOutlineHeadingHtml, applyOutlineHeadingText, changeOutlineHeadingLevel, collapseAllSections, confirmFeaturedSnippetPromptInsert, convertOutlineHeading, deleteOutlineHeadingKeepContent, deleteOutlineHeadingWithContent, focusOutlineFromSectionHeader, handleOutlineHeadingFromEditor, handleOutlineLoaded, insertFeaturedSnippetAsNewSectionAfter, jumpToOutlineHeading, requestGenerateFeaturedSnippetAfterSection, resolveHeadingInnerHtml, runFeaturedSnippetPromptGenerate, saveSectionTitleFromHeader, toggleOutlineHeadingVisible, toggleSectionCollapse, updateOutlineHeadingTitle } = useArticleEditorOutline({ activeBlockId, activateBlock, articleId, articleTitle, blockEditorsRef, blockFlushRef, blocksRef, canGenerateFeaturedSnippet, collapseSectionsExcept, commitActiveBlock, editorSections, featuredSnippetGenerating, featuredSnippetPreviewHtml, featuredSnippetTargetRef, focusImageBlock, focusKeyword, focusedOutlineHeadingRef, outlineAppendDoneRef, outlineAppendInflightRef, outlineFingerprintRef, outlineHasSavedHeadings, outlineHeadingIdsByBlockIdRef, outlineHeadingIdsByKeyRef, outlineRailRef, markSeoStale, sectionByBlockId, sectionHeadingBlockIds, setActiveBlockId, setBlocks, setClientOutline, setCollapsedSectionIds, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptOpen, setGlobalEditor, setImagesTabJumpTarget, setInsertMenu, setOutlineHasSavedHeadings, setOutlineHeadingKeys, setOutlineJumpTarget, setOutlineTreeSync, setSectionTitleEditRequest, syncOutlineFocusFromBlock, tempMergeRef });
 
         const { handleEditorSearchAction } = useArticleEditorSearch({ blockById, clearTempMerge, commitActiveBlock, editorSections, featuredSnippetTargetRef, insertFeaturedSnippetAsNewSectionAfter, publishEditorImagesCatalogRef, quickReplaceFind, quickReplaceValue, setBlocks, setCollapsedSectionIds, setEditorSearchMatchCount, setFeaturedSnippetGenerating, setFeaturedSnippetPreviewHtml, setImagesReloadKey, tempMergeRef });
 
@@ -1301,25 +1339,36 @@ export default function SeoArticleEditor({
         },
         seo: {
             focusKeyword,
-            analysis,
+            analysis: syncRequired ? null : analysis,
             seoScoringRules,
             seoRuleMessages: scoringMessages,
-            loading: seoSummaryLoading,
-            analyzing,
-            stale: seoStale,
-            analyzeError: seoAnalyzeError,
+            loading: false,
+            analyzing: syncRequired ? false : analyzing,
+            stale: syncRequired ? false : seoStale,
+            ready: syncRequired ? false : seoAnalysisReady,
+            analyzeError: syncRequired ? null : seoAnalyzeError,
             error: seoSummaryError,
-            savedScore: savedSeoScore,
-            scoreSource: seoScoreSource,
+            savedScore: syncRequired ? null : savedSeoScore,
+            scoreSource: syncRequired ? 'unavailable' : seoScoreSource,
+            syncRequired,
+            unavailableMessage: syncRequired ? t('content_sync_required_seo') : null,
             onRetry: () => {
+                if (syncRequired) {
+                    return;
+                }
                 seoSummaryLoadedRef.current = false;
                 setSeoSummaryError(null);
                 seoDomain.clearAnalysis();
             },
-            onAnalyzeClick: requestAnalyze,
+            onAnalyzeClick: () => {
+                if (syncRequired) {
+                    return;
+                }
+                requestAnalyze();
+            },
             onViolationAction: handleSeoViolationAction,
-            canGenerateFaq,
-            canGenerateFeaturedSnippet,
+            canGenerateFaq: canGenerateFaq && !syncRequired,
+            canGenerateFeaturedSnippet: canGenerateFeaturedSnippet && !syncRequired,
         },
         ai: {
             debug: editorSettings?.ai_debug ?? null,
@@ -1362,6 +1411,9 @@ export default function SeoArticleEditor({
             initialReviews: virtualReviews,
             onRefresh: refreshVirtualReviews,
             loading: reviewsLoading,
+            loaded: reviewsLoaded,
+            count: reviewCount,
+            countLoading: reviewCountLoading,
             warning: reviewsLoadWarning,
             canQuickCreate: canQuickCreateReviews,
             showConfigureReviews: showConfigureReviewsLink,
@@ -1378,12 +1430,14 @@ export default function SeoArticleEditor({
         seoSummaryLoading,
         analyzing,
         seoStale,
+        seoAnalysisReady,
         seoAnalyzeError,
         savedSeoScore,
         seoScoreSource,
         seoSummaryError,
         requestAnalyze,
         handleSeoViolationAction,
+        syncRequired,
         canGenerateFaq,
         canGenerateFeaturedSnippet,
         imagesReloadKey,
@@ -1409,6 +1463,9 @@ export default function SeoArticleEditor({
         makeImageFeatured,
         virtualReviews,
         refreshVirtualReviews,
+        reviewCount,
+        reviewCountLoading,
+        reviewsLoaded,
         reviewsLoading,
         reviewsLoadWarning,
         canQuickCreateReviews,
@@ -1427,7 +1484,7 @@ export default function SeoArticleEditor({
                 widgetId="seo"
                 title="SEO Assistant"
                 icon={BarChart3}
-                badge={analyzing ? '�' : liveSeoScore}
+                badge={syncRequired ? null : (analyzing ? '…' : (liveSeoScore ?? null))}
                 defaultCollapsed={false}
                 className="seo-assistant-widget--seo"
             >
@@ -1451,14 +1508,14 @@ export default function SeoArticleEditor({
                 widgetId="reviews"
                 title={t('reviews_tab_label')}
                 icon={Star}
-                badge={virtualReviews.length}
+                badge={reviewCount}
                 defaultCollapsed
                 className="seo-assistant-widget--reviews"
             >
                 {children}
             </ArticleAssistantWidget>
         ),
-    }), [analyzing, liveSeoScore, imageTabCount, virtualReviews.length]);
+    }), [analyzing, liveSeoScore, imageTabCount, reviewCount, syncRequired]);
 
     return (
         <div
@@ -1509,11 +1566,15 @@ export default function SeoArticleEditor({
                             articleId={articleId}
                             headingCommand={outlineHeadingCommand}
                             outlineTreeSync={outlineTreeSync}
-                            canGenerateOutlineHeading={canGenerateOutlineHeading}
+                            canGenerateOutlineHeading={canGenerateOutlineHeading && !syncRequired}
                             resolveHeadingInnerHtml={resolveHeadingInnerHtml}
-                            preferClientSource
-                            clientOutline={clientOutline}
+                            preferClientSource={!syncRequired}
+                            clientOutline={syncRequired ? [] : clientOutline}
+                            syncRequired={syncRequired}
                             onClientRefresh={() => {
+                                if (syncRequired) {
+                                    return [];
+                                }
                                 outlineFingerprintRef.current = '';
                                 const tree = buildClientOutlineTree(blocksRef.current);
                                 outlineFingerprintRef.current = outlineHeadingFingerprint(blocksRef.current);
@@ -1530,7 +1591,7 @@ export default function SeoArticleEditor({
                             onOutlineAddSection={addSection}
                             onOutlineAddNode={addOutlineNode}
                             onOutlineChangeLevel={changeOutlineHeadingLevel}
-                            onOutlineDeleteKeepContent={deleteOutlineHeadingKeepContent}
+                            onOutlineConvert={convertOutlineHeading}
                             onOutlineDeleteWithContent={deleteOutlineHeadingWithContent}
                             onOutlineToggleVisible={toggleOutlineHeadingVisible}
                             onNotify={(payload) => {
@@ -1586,7 +1647,7 @@ export default function SeoArticleEditor({
                     <span className="seo-autosave-status seo-autosave-status--toolbar-hidden" aria-hidden="true">
                         {saveLabel}
                     </span>
-                    {analyzing ? (
+                    {syncRequired ? null : analyzing ? (
                         <span className="seo-analyze-stale-hint">{t('editor_seo_analyzing')}</span>
                     ) : seoAnalyzeError ? (
                         <button
@@ -1614,7 +1675,9 @@ export default function SeoArticleEditor({
                     <div className="max-w-none space-y-3">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                             <div className="text-xs font-medium text-gray-500 dark:text-gray-300">
-                                {t('editor_total_words')}: {totalWordCount}
+                                {syncRequired
+                                    ? t('content_sync_required_title')
+                                    : `${t('editor_total_words')}: ${totalWordCount}`}
                             </div>
                             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
                                 <button
@@ -1684,7 +1747,17 @@ export default function SeoArticleEditor({
                             </div>
                         </div>
 
-                        {blocks.length === 0 ? (
+                        {contentLoading ? (
+                            <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-10 text-center text-sm text-slate-600 animate-pulse dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300">
+                                {t('editor_loading_content')}
+                            </div>
+                        ) : syncRequired ? (
+                            <ArticleContentSyncRequiredBlocker
+                                allowFetch={contentLifecycle.allow_fetch_from_wordpress
+                                    && Boolean(editorSettings?.allow_wp_sync !== false)}
+                                observedPermalink={contentLifecycle.observed_permalink}
+                            />
+                        ) : blocks.length === 0 ? (
                             <p className="text-gray-400 text-center py-10 italic text-sm">
                                 {t('editor_loading_content')}
                             </p>
@@ -1861,13 +1934,10 @@ export default function SeoArticleEditor({
                                                         return null;
                                                     }
 
-                                                    const isOutlineLockedHeadingBlock =
-                                                        outlineHasSavedHeadings &&
-                                                        blockHasOutlineHeading(block) &&
-                                                        !sectionHeadingBlockIds.has(block.id);
                                                     const isActive = activeBlockId === block.id;
                                                     const showInsert = isActive && !tempMerge;
-                                                    const showMoveButtons = showInsert && !isOutlineLockedHeadingBlock;
+                                                    // Allow move past H3/table within section; only section H2 stays immovable here.
+                                                    const showMoveButtons = showInsert && !sectionHeadingBlockIds.has(block.id);
                                                     const canMovePrevSection = sectionIndex > 0;
                                                     const canMoveNextSection = sectionIndex < editorSections.length - 1;
                                                     const editorWritable = !sessionReadOnly
@@ -2036,39 +2106,47 @@ export default function SeoArticleEditor({
                     </div>
                 </div>
             </div>
-            <GenerateImageModal
-                open={generateImageModalOpen}
-                onClose={() => setGenerateImageModalOpen(false)}
-                onSubmit={submitGenerateImageFromModal}
-                initialPrompt={generateImageModalPrompt}
-                initialLoaiSanPhamCustom={generateImageModalInitialCustom}
-                mode={generateImageModalTarget === 'product-gallery' ? 'product-gallery' : 'editor'}
-                productCategoryOptions={productCategoryOptions}
-                articleId={articleId}
-                siteId={siteId}
-                productGalleryItems={productGalleryItems}
-                canaryProduct={isCanaryProduct}
-                parentChildAllowed={parentChildAllowed}
-                parentChildReason={parentChildReason}
-            />
-            <FeaturedSnippetPromptModal
-                open={featuredSnippetPromptOpen}
-                canGenerate={canGenerateFeaturedSnippet}
-                generating={featuredSnippetGenerating}
-                previewHtml={featuredSnippetPreviewHtml}
-                context={featuredSnippetPromptContext}
-                onClose={() => {
-                    setFeaturedSnippetPromptOpen(false);
-                    if (featuredSnippetTargetRef.current?.mode === 'prompt-preview'
-                        || featuredSnippetTargetRef.current?.mode === 'prompt-insert') {
-                        featuredSnippetTargetRef.current = null;
-                    }
-                }}
-                onGenerate={() => {
-                    void runFeaturedSnippetPromptGenerate();
-                }}
-                onConfirmInsert={confirmFeaturedSnippetPromptInsert}
-            />
+            {generateImageModalOpen ? (
+                <Suspense fallback={null}>
+                    <GenerateImageModal
+                        open={generateImageModalOpen}
+                        onClose={() => setGenerateImageModalOpen(false)}
+                        onSubmit={submitGenerateImageFromModal}
+                        initialPrompt={generateImageModalPrompt}
+                        initialLoaiSanPhamCustom={generateImageModalInitialCustom}
+                        mode={generateImageModalTarget === 'product-gallery' ? 'product-gallery' : 'editor'}
+                        productCategoryOptions={productCategoryOptions}
+                        articleId={articleId}
+                        siteId={siteId}
+                        productGalleryItems={productGalleryItems}
+                        canaryProduct={isCanaryProduct}
+                        parentChildAllowed={parentChildAllowed}
+                        parentChildReason={parentChildReason}
+                    />
+                </Suspense>
+            ) : null}
+            {featuredSnippetPromptOpen ? (
+                <Suspense fallback={null}>
+                    <FeaturedSnippetPromptModal
+                        open={featuredSnippetPromptOpen}
+                        canGenerate={canGenerateFeaturedSnippet}
+                        generating={featuredSnippetGenerating}
+                        previewHtml={featuredSnippetPreviewHtml}
+                        context={featuredSnippetPromptContext}
+                        onClose={() => {
+                            setFeaturedSnippetPromptOpen(false);
+                            if (featuredSnippetTargetRef.current?.mode === 'prompt-preview'
+                                || featuredSnippetTargetRef.current?.mode === 'prompt-insert') {
+                                featuredSnippetTargetRef.current = null;
+                            }
+                        }}
+                        onGenerate={() => {
+                            void runFeaturedSnippetPromptGenerate();
+                        }}
+                        onConfirmInsert={confirmFeaturedSnippetPromptInsert}
+                    />
+                </Suspense>
+            ) : null}
                 </div>
             </div>
 
@@ -2096,7 +2174,7 @@ export default function SeoArticleEditor({
                     }}
                 />
                 {mediaPickerRoot ? (
-                    <SharedMediaPicker
+                    <LazySharedMediaPicker
                         articleId={articleId}
                         siteId={siteId}
                         rootEl={mediaPickerRoot}

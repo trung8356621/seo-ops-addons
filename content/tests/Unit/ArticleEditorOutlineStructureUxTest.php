@@ -143,4 +143,42 @@ final class ArticleEditorOutlineStructureUxTest extends TestCase
         ));
         self::assertStringContainsString('document_changed !== true', $menu);
     }
+
+    public function test_outline_context_menu_convert_submenu_and_close_behavior(): void
+    {
+        $outline = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/components/ArticleOutlineTab.jsx',
+        );
+        $mutations = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/utils/articleEditorOutlineMutations.js',
+        );
+        $registry = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/utils/editorCommands/editorCommandRegistry.js',
+        );
+        $hook = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/hooks/useArticleEditorOutline.js',
+        );
+
+        self::assertStringContainsString("event.key === 'Escape'", $outline);
+        self::assertStringContainsString("document.addEventListener('mousedown'", $outline);
+        self::assertStringContainsString('OutlineMenuProvider', $outline);
+        self::assertStringContainsString('setOpenKey(menuOpen ? null : moreKey)', $outline);
+        self::assertStringNotContainsString("t('outline_ai_gen')", $outline);
+        self::assertStringNotContainsString('outline_delete_keep_content', $outline);
+        self::assertStringContainsString("t('outline_convert_to')", $outline);
+        self::assertStringContainsString("t('outline_hide_from_outline')", $outline);
+        self::assertStringContainsString("t('outline_delete_with_content')", $outline);
+        self::assertStringContainsString('is-danger', $outline);
+        self::assertStringContainsString("choose('h2')", $outline);
+        self::assertStringContainsString("choose('paragraph')", $outline);
+        self::assertStringContainsString("choose('bold')", $outline);
+        self::assertStringContainsString("choose('italic')", $outline);
+        self::assertStringContainsString('convertHeadingInHtml', $mutations);
+        self::assertStringContainsString('<p><strong>', $mutations);
+        self::assertStringContainsString('<p><em>', $mutations);
+        self::assertStringContainsString("mut('convert_heading'", $registry);
+        self::assertStringContainsString('convertOutlineHeading', $hook);
+        self::assertStringContainsString("data-outline-visible", $mutations);
+        self::assertStringContainsString('deleteHeadingWithContentInHtml', $mutations);
+    }
 }

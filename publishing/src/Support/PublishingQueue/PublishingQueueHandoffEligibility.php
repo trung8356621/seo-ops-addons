@@ -38,8 +38,9 @@ final class PublishingQueueHandoffEligibility
 
         // «improve» is manual-only by default:
         // - No generation completion prerequisite
+        // - Requires unpublished changes (same as published dirty gate above for clean WP)
         // - Still must not be already queued/scheduled
-        $type = strtolower(trim((string) ($row['type'] ?? $row['type_label'] ?? '')));
+        $type = SeoProjectTask::normalizeType($row['type'] ?? $row['type_label'] ?? '');
         $isImprove = ! empty($row['is_improve'])
             || $type === SeoProjectTask::TYPE_IMPROVE;
 
@@ -49,6 +50,10 @@ final class PublishingQueueHandoffEligibility
         }
 
         if ($isImprove) {
+            if (empty($row['has_unpublished_changes'])) {
+                return false;
+            }
+
             if (! empty($row['is_genuinely_running'])) {
                 return false;
             }

@@ -15,6 +15,7 @@ use Omnichannel\Addons\Seo\Support\LinkSuggestionValidator;
 use Omnichannel\Addons\Seo\Support\SeoSuggestionUrlNormalizer;
 use Illuminate\Support\Str;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordLinkTargetResolver;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * Thu thập + chấm điểm article candidates cho internal link suggestions.
@@ -233,96 +234,108 @@ final class ArticleLinkSuggestionCandidateRetriever
             return $this->siteIndexCache[$cacheKey];
         }
 
-        $articles = SeoArticle::query()
-            ->where('site_id', $siteId)
-            ->where('id', '!=', $excludeArticleId)
-            ->notContentArchived()
-            ->with([
-                'site:id,domain',
-                'articleMetas' => static function ($query): void {
-                    $query->whereIn('meta_key', [
-                        'wp_permalink',
-                        'seo_focus_keyword',
-                        'seo_meta_description',
-                        'seo_meta_title',
-                        '_yoast_wpseo_title',
-                        '_yoast_wpseo_metadesc',
-                        'rank_math_title',
-                        'rank_math_description',
-                        'rank_math_focus_keyword',
-                    ]);
-                },
-                'headings:id,article_id,heading_text,level',
-            ])
-            ->get(['id', 'title', 'slug', 'site_id', 'language']);
+        $persistentKey = 'article_link_suggest.site_index.v1.'.$siteId;
+        /** @var list<array<string, mixed>> $fullIndex */
+        $fullIndex = Cache::remember($persistentKey, 90, function () use ($siteId): array {
+            $articles = SeoArticle::query()
+                ->where('site_id', $siteId)
+                ->notContentArchived()
+                ->orderByDesc('id')
+                ->limit(600)
+                ->with([
+                    'site:id,domain',
+                    'articleMetas' => static function ($query): void {
+                        $query->whereIn('meta_key', [
+                            'wp_permalink',
+                            'seo_focus_keyword',
+                            'seo_meta_description',
+                            'seo_meta_title',
+                            '_yoast_wpseo_title',
+                            '_yoast_wpseo_metadesc',
+                            'rank_math_title',
+                            'rank_math_description',
+                            'rank_math_focus_keyword',
+                        ]);
+                    },
+                    'headings:id,article_id,heading_text,level',
+                ])
+                ->get(['id', 'title', 'slug', 'site_id', 'language']);
 
-        $articleIds = $articles->pluck('id')->map(static fn ($id): int => (int) $id)->all();
-        $keywordPhrasesByArticle = $this->keywordPhrasesByArticleId($articleIds);
+            $articleIds = $articles->pluck('id')->map(static fn ($id): int => (int) $id)->all();
+            $keywordPhrasesByArticle = $this->keywordPhrasesByArticleId($articleIds);
 
-        $index = [];
-        foreach ($articles as $article) {
-            if (! $article instanceof SeoArticle) {
-                continue;
-            }
-
-            $url = trim((string) ($this->linkTargetResolver->resolveArticlePublicUrl($article) ?? ''));
-            if ($url === '' || ! SeoSuggestionUrlNormalizer::isParsableTarget($url)) {
-                continue;
-            }
-
-            $metas = $article->articleMetas ?? collect();
-            $focus = trim((string) (
-                $metas->firstWhere('meta_key', 'seo_focus_keyword')?->meta_value
-                ?? $metas->firstWhere('meta_key', 'rank_math_focus_keyword')?->meta_value
-                ?? ''
-            ));
-            $metaTitle = trim((string) (
-                $metas->firstWhere('meta_key', 'seo_meta_title')?->meta_value
-                ?? $metas->firstWhere('meta_key', '_yoast_wpseo_title')?->meta_value
-                ?? $metas->firstWhere('meta_key', 'rank_math_title')?->meta_value
-                ?? ''
-            ));
-            $metaDesc = trim((string) (
-                $metas->firstWhere('meta_key', 'seo_meta_description')?->meta_value
-                ?? $metas->firstWhere('meta_key', '_yoast_wpseo_metadesc')?->meta_value
-                ?? $metas->firstWhere('meta_key', 'rank_math_description')?->meta_value
-                ?? ''
-            ));
-
-            $headingNorms = [];
-            foreach ($article->headings ?? [] as $heading) {
-                if (! $heading instanceof SeoArticleHeading) {
+            $index = [];
+            foreach ($articles as $article) {
+                if (! $article instanceof SeoArticle) {
                     continue;
                 }
-                $norm = KeywordPhraseMatcher::normalize((string) ($heading->heading_text ?? ''));
-                if ($norm !== '') {
-                    $headingNorms[] = $norm;
+
+                $url = trim((string) ($this->linkTargetResolver->resolveArticlePublicUrl($article) ?? ''));
+                if ($url === '' || ! SeoSuggestionUrlNormalizer::isParsableTarget($url)) {
+                    continue;
                 }
+
+                $metas = $article->articleMetas ?? collect();
+                $focus = trim((string) (
+                    $metas->firstWhere('meta_key', 'seo_focus_keyword')?->meta_value
+                    ?? $metas->firstWhere('meta_key', 'rank_math_focus_keyword')?->meta_value
+                    ?? ''
+                ));
+                $metaTitle = trim((string) (
+                    $metas->firstWhere('meta_key', 'seo_meta_title')?->meta_value
+                    ?? $metas->firstWhere('meta_key', '_yoast_wpseo_title')?->meta_value
+                    ?? $metas->firstWhere('meta_key', 'rank_math_title')?->meta_value
+                    ?? ''
+                ));
+                $metaDesc = trim((string) (
+                    $metas->firstWhere('meta_key', 'seo_meta_description')?->meta_value
+                    ?? $metas->firstWhere('meta_key', '_yoast_wpseo_metadesc')?->meta_value
+                    ?? $metas->firstWhere('meta_key', 'rank_math_description')?->meta_value
+                    ?? ''
+                ));
+
+                $headingNorms = [];
+                foreach ($article->headings ?? [] as $heading) {
+                    if (! $heading instanceof SeoArticleHeading) {
+                        continue;
+                    }
+                    $norm = KeywordPhraseMatcher::normalize((string) ($heading->heading_text ?? ''));
+                    if ($norm !== '') {
+                        $headingNorms[] = $norm;
+                    }
+                }
+
+                $secondary = $keywordPhrasesByArticle[(int) $article->id] ?? [];
+                $title = trim((string) ($article->title ?? ''));
+                $slug = trim((string) ($article->slug ?? ''), '/');
+
+                $index[] = [
+                    'id' => (int) $article->id,
+                    'title' => $title,
+                    'title_norm' => KeywordPhraseMatcher::normalize($title),
+                    'title_ascii' => $this->toAscii($title),
+                    'slug' => $slug,
+                    'slug_norm' => KeywordPhraseMatcher::normalize(str_replace(['-', '_'], ' ', $slug)),
+                    'focus_norm' => KeywordPhraseMatcher::normalize($focus),
+                    'secondary_norms' => array_values(array_unique(array_map(
+                        static fn (string $p): string => KeywordPhraseMatcher::normalize($p),
+                        $secondary,
+                    ))),
+                    'meta_title_norm' => KeywordPhraseMatcher::normalize($metaTitle),
+                    'meta_desc_norm' => KeywordPhraseMatcher::normalize($metaDesc),
+                    'heading_norms' => $headingNorms,
+                    'tag_norms' => [],
+                    'url' => $url,
+                ];
             }
 
-            $secondary = $keywordPhrasesByArticle[(int) $article->id] ?? [];
-            $title = trim((string) ($article->title ?? ''));
-            $slug = trim((string) ($article->slug ?? ''), '/');
+            return $index;
+        });
 
-            $index[] = [
-                'id' => (int) $article->id,
-                'title' => $title,
-                'title_norm' => KeywordPhraseMatcher::normalize($title),
-                'title_ascii' => $this->toAscii($title),
-                'slug' => $slug,
-                'slug_norm' => KeywordPhraseMatcher::normalize(str_replace(['-', '_'], ' ', $slug)),
-                'focus_norm' => KeywordPhraseMatcher::normalize($focus),
-                'secondary_norms' => array_values(array_unique(array_map(
-                    static fn (string $p): string => KeywordPhraseMatcher::normalize($p),
-                    $secondary,
-                ))),
-                'heading_norms' => $headingNorms,
-                'meta_title_norm' => KeywordPhraseMatcher::normalize($metaTitle),
-                'meta_desc_norm' => KeywordPhraseMatcher::normalize($metaDesc),
-                'tag_norms' => [],
-                'url' => $url,
-            ];
-        }
+        $index = array_values(array_filter(
+            $fullIndex,
+            static fn (array $row): bool => (int) ($row['id'] ?? 0) !== $excludeArticleId,
+        ));
 
         $this->siteIndexCache[$cacheKey] = $index;
 
