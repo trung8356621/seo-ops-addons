@@ -7,6 +7,11 @@ import {
     writeSyncedLocalSnapshot,
 } from './articleEditorStorage.js';
 import { getMediaSnapshot } from './articleEditorMediaSnapshot.js';
+import {
+    acknowledgeDocumentVersion,
+    getLastDocumentVersionAck,
+    logEditorDocumentRevision,
+} from './editorDocumentRevision.js';
 
 /**
  * Token conflict hiện tại (expected_updated_at / expected_content_hash) — bootstrap từ
@@ -70,9 +75,25 @@ export function applyEditorDocumentAck(ack) {
     }
 
     const version = Number(ack.document_version ?? ack.patch?.article?.document_version ?? 0);
+    let stale = false;
     if (Number.isFinite(version) && version > 0) {
-        window.__SEO_EDITOR_DOCUMENT_VERSION__ = version;
-        window.__seoEditorSessionClient?.setDocumentVersion?.(version);
+        const result = acknowledgeDocumentVersion(version, {
+            source: ack.noop ? 'save_noop_ack' : 'save_ack',
+        });
+        stale = result.stale;
+        window.__seoEditorSessionClient?.setDocumentVersion?.(result.version, {
+            source: ack.noop ? 'save_noop_ack' : 'save_ack',
+        });
+        if (stale) {
+            logEditorDocumentRevision('stale_save_ack_hashes_skipped', {
+                incoming_revision: version,
+                confirmed_revision: result.version,
+            });
+        }
+    }
+
+    if (stale) {
+        return;
     }
 
     const editorHash = String(
@@ -387,6 +408,16 @@ export async function saveArticleViaApi(articleId, payload) {
                 code: error.code,
                 expected: payload?.expected_document_version ?? null,
             });
+            const last = getLastDocumentVersionAck();
+            logEditorDocumentRevision('save_conflict', {
+                code: error.code,
+                operation: payload?.save_mode ?? 'save',
+                request_id: payload?.client_request_id ?? last.requestId,
+                base_revision: payload?.expected_document_version ?? null,
+                server_revision: saveResult.data?.conflict?.actual_document_version
+                    ?? saveResult.data?.document_version
+                    ?? null,
+            });
             throw error;
         }
 
@@ -460,7 +491,7 @@ export async function closeArticleViaSessionApi(articleId, payload, closeReason 
     }
 
     if (closeResult.data?.document_version != null) {
-        window.__SEO_EDITOR_DOCUMENT_VERSION__ = Number(closeResult.data.document_version);
+        acknowledgeDocumentVersion(closeResult.data.document_version, { source: 'close' });
     }
 
     return {

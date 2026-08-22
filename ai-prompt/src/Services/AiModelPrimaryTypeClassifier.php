@@ -271,6 +271,10 @@ final class AiModelPrimaryTypeClassifier
         $model->save();
     }
 
+    /**
+     * Classify primary type for free inventory only. Do NOT auto-enable into a
+     * capability route — free is metadata; user must Add / drag into Models.
+     */
     private function restoreAutoSource(SeoAiModel $model, AiModelArea $area): void
     {
         $model->refresh();
@@ -286,7 +290,10 @@ final class AiModelPrimaryTypeClassifier
         foreach (AiModelArea::textPrimaryCases() as $textArea) {
             $bag = is_array($areas[$textArea->value] ?? null) ? $areas[$textArea->value] : [];
             $bag['source'] = AiModelArea::SOURCE_AUTO;
-            $bag['enabled'] = $textArea === $area;
+            // Preserve explicit enable from Models Add/drag; never force-enable free.
+            if (! array_key_exists('enabled', $bag)) {
+                $bag['enabled'] = false;
+            }
             $bag['priority'] = (int) ($bag['priority'] ?? $model->priority ?: 100);
             $areas[$textArea->value] = $bag;
         }

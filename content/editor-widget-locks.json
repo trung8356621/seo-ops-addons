@@ -1,0 +1,392 @@
+{
+  "version": 1,
+  "description": "Single source of truth for Article Editor stable widget locks. Guard reads this dynamically — do not hard-code widget IDs in the guard. SEO remains unlocked for active development. Known issue: Featured Snippet table generation still requires separate investigation/test (out of scope for lock policy).",
+  "widgets": {
+    "seo": {
+      "label": "SEO",
+      "locked": false,
+      "note": "SEO Assistant intentionally unlocked for active development. Known issue: Featured Snippet table generation still requires separate investigation/test — do not treat lock policy as fixing that bug.",
+      "paths": [
+        {
+          "file": "seo/resources/js/editor/modules/seo/SeoSidebarPanel.jsx",
+          "fingerprint": "1faa63902ffa22efa2da33d5ecc4321444daf1d0a990af5eb03e5d41628adefc"
+        },
+        {
+          "file": "seo/resources/js/editor/modules/seo/index.js",
+          "fingerprint": "edc161c93aa40f9972a5192a9e3f662589862f0527be6bcb4cc55821e7343fc4"
+        },
+        {
+          "file": "seo/resources/js/modules/SeoModule.jsx",
+          "fingerprint": "a3256415f0b3bea2702b0c210ffbf77e9c9c41ded3cc65ec4c560fc91d63de0b"
+        },
+        {
+          "file": "seo/resources/js/components/SeoScorePanel.jsx",
+          "fingerprint": "983ce789c27c264652c6087c4280692f3fd6ef8ac5bda408458a8f8d9a121609"
+        },
+        {
+          "file": "ai-prompt/resources/js/utils/assistantWidgetHealth.js",
+          "start": "export function buildSeoWidgetHealth(",
+          "end": "export function buildLinksWidgetHealth(",
+          "fingerprint": "6337d128a8a133fe6cb1f611e47842d30eb752a14126a5a707195c62ba5a7168"
+        },
+        {
+          "file": "content/resources/js/editor/host/EditorSidebarNavigation.jsx",
+          "start": "    seo: { label: 'SEO', fullLabel: 'SEO Assistant' },",
+          "end": "    images: { label: 'Images', fullLabel: 'Image Assistant' },",
+          "fingerprint": "78e401bcb3ee8912b1232174c371b72c12f2fe0c435ffc979c8c9d356a9f2281"
+        }
+      ]
+    },
+    "featured": {
+      "label": "Featured",
+      "locked": true,
+      "note": "Stable Featured sidebar widget. Unlock only this id before intentional Featured changes.",
+      "paths": [
+        {
+          "file": "media/resources/js/editor/modules/featured/FeaturedSidebarPanel.jsx",
+          "fingerprint": "1d48be35604b9f47966298283fd836e98d7300bd8a5de7a20f06b1974de30e64"
+        },
+        {
+          "file": "media/resources/js/editor/modules/featured/index.js",
+          "fingerprint": "ebba2231c368610b99d44af6bfdf72a88e3c6f7de8f90e5cb0293828710b911e"
+        },
+        {
+          "file": "media/resources/js/utils/articleFeaturedImageStorage.js",
+          "fingerprint": "4d4345c8677756eb74344e4c1588cdcb6754a77b67fb3e723e94c5eb56cbee01"
+        },
+        {
+          "file": "ai-prompt/resources/js/utils/assistantWidgetHealth.js",
+          "start": "export function buildFeaturedWidgetHealth(",
+          "end": "export function buildGalleryWidgetHealth(",
+          "fingerprint": "6b9f738bec27cc5f1371f02744e55fa00d7ee57c96cd70e328ecc41f162084a3"
+        },
+        {
+          "file": "content/resources/js/editor/host/EditorSidebarNavigation.jsx",
+          "start": "    featured: { label: 'Featured', fullLabel: 'Featured Image' },",
+          "end": "    'product-album': { label: 'Gallery', fullLabel: 'Product Album' },",
+          "fingerprint": "1a2669fe2b460cb5a5857eb591582df1fd349ca2f596bed0b3610920e25fb41d"
+        },
+        {
+          "file": "content/resources/css/article-editor.css",
+          "start": ".wp-article-edit .wp-featured-image-picker {",
+          "end": "@import '../../../media/resources/css/seo-article-media-modal.css';",
+          "fingerprint": "47374cbd83f615602fc6e357e6ed1b17cb84599d9086357f78332bca458f6905"
+        }
+      ]
+    },
+    "images": {
+      "label": "Images",
+      "locked": true,
+      "note": "Stable Images sidebar widget. Unlock only this id before intentional Images changes.",
+      "paths": [
+        {
+          "file": "media/resources/js/editor/modules/media/ImagesSidebarPanel.jsx",
+          "fingerprint": "72d22ddc6f88a7ad022c27c9d7712c3278a02eb35465aaf23a7dbb87bff698d0"
+        },
+        {
+          "file": "media/resources/js/editor/modules/media/index.js",
+          "fingerprint": "66395949eb8c6d01db9237859a5bf1815cfee63e342622ae2961ee880b528c66"
+        },
+        {
+          "file": "media/resources/js/modules/ImagesModule.jsx",
+          "fingerprint": "418e3ff000c7be6e31362df9648d62abdc6667c27a3255689133689e6e588f6d"
+        },
+        {
+          "file": "ai-prompt/resources/js/utils/assistantWidgetHealth.js",
+          "start": "export function buildImagesWidgetHealth(",
+          "end": "export function buildSeoWidgetHealth(",
+          "fingerprint": "2fc81040d1b3c21d40a57898da2248df511b24039870601308c668e0169a65b2"
+        },
+        {
+          "file": "content/resources/js/editor/host/EditorSidebarNavigation.jsx",
+          "start": "    images: { label: 'Images', fullLabel: 'Image Assistant' },",
+          "end": "    featured: { label: 'Featured', fullLabel: 'Featured Image' },",
+          "fingerprint": "f605586ac444e7b38d09ee2802268a5c2889fd6760e40fd9185f9bbdc8b65945"
+        }
+      ]
+    },
+    "gallery": {
+      "label": "Gallery",
+      "locked": true,
+      "note": "Product album / gallery module. Runtime panelId is product-album; UI mounts via Featured chip (navChip false). Unlock only this id before intentional Gallery changes.",
+      "paths": [
+        {
+          "file": "media/resources/js/editor/modules/gallery/GallerySidebarPanel.jsx",
+          "fingerprint": "a7cbffe061326dc899a3dab35fb04cee5b55b9fa768afa8119d2d04f94e84495"
+        },
+        {
+          "file": "media/resources/js/editor/modules/gallery/index.js",
+          "fingerprint": "3613ac228dde6f4d2cda6cbc9954dd4ecf8a344c458ebbce8b96bc0c69af9aad"
+        },
+        {
+          "file": "ai-prompt/resources/js/utils/assistantWidgetHealth.js",
+          "start": "export function buildGalleryWidgetHealth(",
+          "end": "export function buildPublishingWidgetHealth(",
+          "fingerprint": "c09bd3fb1c253dfeee9f5f99f22d7038c2fa4294ef04b7a67cec3ef31208fbf3"
+        },
+        {
+          "file": "content/resources/js/editor/host/EditorSidebarNavigation.jsx",
+          "start": "    'product-album': { label: 'Gallery', fullLabel: 'Product Album' },",
+          "end": "    links: { label: 'Links', fullLabel: 'Link Assistant' },",
+          "fingerprint": "d9126a35c4886e2f9e6044a4af3a09ba13f4eb54e13b5f53e29863f0e3137b1a"
+        }
+      ]
+    },
+    "reviews": {
+      "label": "Reviews",
+      "locked": true,
+      "note": "Stable Reviews sidebar widget (product posts). Unlock only this id before intentional Reviews changes.",
+      "paths": [
+        {
+          "file": "content/resources/js/editor/modules/article-meta/ReviewsSidebarPanel.jsx",
+          "fingerprint": "245390dca1ab1e6e8847fc94d60b5683a2faf92ab77578cd220add231cd07d6c"
+        },
+        {
+          "file": "content/resources/js/editor/modules/article-meta/index.js",
+          "fingerprint": "eb69d1d0ef31bdc611ff5eb985e3fe92f3290feb8c6c19b125bb53c7c7d315e2"
+        },
+        {
+          "file": "content/resources/js/modules/ReviewsModule.jsx",
+          "fingerprint": "d58b8183f9119be1e29bbaa1e18202aa1a2f4d79d512bd2745b15b23e58783c3"
+        },
+        {
+          "file": "content/resources/js/components/ArticleReviewsTab.jsx",
+          "fingerprint": "4ca24e1164126881176c1730145ee672bf65c4d132e5ab36e69e9ce75321fbdb"
+        },
+        {
+          "file": "content/resources/js/editor/host/EditorSidebarNavigation.jsx",
+          "start": "    reviews: { label: 'Reviews', fullLabel: 'Reviews Assistant' },",
+          "end": "    cta: { label: 'CTA', fullLabel: 'CTA Assistant' },",
+          "fingerprint": "1249f4d38ed7a4ce4561b7d241c46b57f093c8d031e8bc775e534130af1ddf76"
+        },
+        {
+          "file": "seo-content-ai-compat/resources/views/filament/resources/article-resource/pages/edit-article.blade.php",
+          "start": "                                    <div\n                                        class=\"seo-assistant-panel-slot\"\n                                        data-assistant-panel-root=\"reviews\"",
+          "end": "                                    <div\n                                        class=\"seo-assistant-panel-slot\"\n                                        data-assistant-panel-root=\"links\"",
+          "fingerprint": "7d153024eb3bbe000989b2a5094d286e40bcfd4665ad44f5549b523f4fcf27a2"
+        }
+      ]
+    },
+    "links": {
+      "label": "Links",
+      "locked": true,
+      "note": "Stable Links sidebar widget. Unlock only this id before intentional Links changes.",
+      "paths": [
+        {
+          "file": "content/resources/js/editor/modules/links/LinksSidebarPanel.jsx",
+          "fingerprint": "bd0c4fc4923ff49c9eaab0dec79e014d8670261fcaa4c97f3b0c2e347abbe422"
+        },
+        {
+          "file": "content/resources/js/editor/modules/links/index.js",
+          "fingerprint": "ebbb417f9c16698c89b10d18d568ef677be83f477fb2995c92baafe2ae66f633"
+        },
+        {
+          "file": "content/resources/js/components/ArticleLinksSidebar.jsx",
+          "fingerprint": "fc1796c827751e3ebc8349e311d89beeb86eef1e6424ffca9babdb3064e50ef1"
+        },
+        {
+          "file": "ai-prompt/resources/js/utils/assistantWidgetHealth.js",
+          "start": "export function buildLinksWidgetHealth(",
+          "end": "export function buildFeaturedWidgetHealth(",
+          "fingerprint": "416ed29d866a6bcd8748db745354639b9dc90c25cb45d53c159b14369e9414e6"
+        },
+        {
+          "file": "content/resources/js/editor/host/EditorSidebarNavigation.jsx",
+          "start": "    links: { label: 'Links', fullLabel: 'Link Assistant' },",
+          "end": "    reviews: { label: 'Reviews', fullLabel: 'Reviews Assistant' },",
+          "fingerprint": "321c2b87847fd6004ffff638079cf03d05d7994b42016170b3f5476cbf0fc7d7"
+        }
+      ]
+    },
+    "cta": {
+      "label": "CTA",
+      "locked": true,
+      "note": "CTA chip aliases Links panel. Unlock only this id before intentional CTA/contact insert changes.",
+      "paths": [
+        {
+          "file": "content/resources/js/editor/modules/cta-contact/index.js",
+          "fingerprint": "ea1433f58799570ebb70dcc1fdb4a158327e6ef25cc5d8ccdbd54632446ea7ed"
+        },
+        {
+          "file": "content/resources/js/components/CtaContactInsertList.jsx",
+          "fingerprint": "bf70bbb49e41328cabf7e56fe8e5736a838f99a7403ce799db6a186dad36469c"
+        },
+        {
+          "file": "content/resources/js/utils/ctaContactUsability.js",
+          "fingerprint": "4dd8934ee4d4ba7865359a90c7d8a82ebb1659a4529398a3fa89c3732d1bf4fb"
+        },
+        {
+          "file": "content/resources/js/utils/ctaLinkFormat.js",
+          "fingerprint": "f216ac132ab434d6baa4972855f76ce887563c2a3f3ae81609b531c44e793a2e"
+        },
+        {
+          "file": "content/resources/js/utils/ctaQuickTemplates.js",
+          "fingerprint": "3d72730e10ac08f75b89ee46d6235b4f585dd0689c3202fc3aed2176d3cd864d"
+        },
+        {
+          "file": "content/resources/js/editor/host/EditorSidebarNavigation.jsx",
+          "start": "    cta: { label: 'CTA', fullLabel: 'CTA Assistant' },",
+          "end": "    faq: { label: 'FAQ', fullLabel: 'FAQ Assistant' },",
+          "fingerprint": "132ffc08c16b6b403b40eb46145103adcbaee941f2c675d629a3d21cc36f3de4"
+        }
+      ]
+    },
+    "vocabulary": {
+      "label": "Vocabulary",
+      "locked": true,
+      "note": "Stable Vocabulary sidebar widget. Unlock only this id before intentional Vocabulary changes.",
+      "paths": [
+        {
+          "file": "content/resources/js/editor/modules/vocabulary/VocabularySidebarPanel.jsx",
+          "fingerprint": "03af591656dec5e6499669ab2a56e17aff0e8a0d1d1543dd74efc067f9a4c1b5"
+        },
+        {
+          "file": "content/resources/js/editor/modules/vocabulary/index.js",
+          "fingerprint": "20b873c4568b2c9fe5974265a6e9c765e575ec827397573d2d45dc455508c91b"
+        },
+        {
+          "file": "seo-content-ai-compat/resources/views/filament/resources/article-resource/pages/edit-article.blade.php",
+          "start": "                                    <div\n                                        class=\"seo-assistant-panel-slot\"\n                                        data-assistant-panel-root=\"vocabulary\"",
+          "end": "                                            <div\n                                                class=\"seo-assistant-panel-slot\"\n                                                data-assistant-panel-root=\"publishing\"",
+          "fingerprint": "ad688508ca528ec8d1662aaa006f57bd1962415b33dc3527c025a0d4a0393a60"
+        }
+      ]
+    },
+    "faq": {
+      "label": "FAQ",
+      "locked": true,
+      "note": "FAQ Assistant (main-column / shortcode; navChip false). Unlock only this id before intentional FAQ widget changes.",
+      "paths": [
+        {
+          "file": "content/resources/js/editor/modules/faq/FaqSidebarPanel.jsx",
+          "fingerprint": "bdf2eedbe882f77dfda84ef8d240b9636cec812697a3915f0de974782b415772"
+        },
+        {
+          "file": "content/resources/js/editor/modules/faq/index.js",
+          "fingerprint": "0f9d34b046ec8bb2c33043d9dd5cbcdc15525ebe4aba2a3f2e699f17e87d151d"
+        },
+        {
+          "file": "content/resources/js/components/FaqAnswerEditor.jsx",
+          "fingerprint": "87a600cada6936a455aaf2f38dfb7bbe4cb4cb9d4fb1c2079a2715a3746a19be"
+        },
+        {
+          "file": "content/resources/js/components/FaqAccordionPreview.jsx",
+          "fingerprint": "6406229324e4efc585d27144d50fc703c09e53e3ad69b9ad1eea905048d2cec5"
+        },
+        {
+          "file": "content/resources/js/utils/editorCommands/faqCommands.js",
+          "fingerprint": "4bfa00fffda0330dd6a9d079b038c4fddd2485fd812d3a9c7586d198ae51bb99"
+        },
+        {
+          "file": "content/resources/js/editor/host/EditorSidebarNavigation.jsx",
+          "start": "    faq: { label: 'FAQ', fullLabel: 'FAQ Assistant' },",
+          "end": "function chipStatus(health) {",
+          "fingerprint": "aa0ad0ac5fe22006b5bc047d9ff7d41a3caa9e4716346250f99a63955e8c938a"
+        }
+      ]
+    },
+    "ai-chat": {
+      "label": "AI",
+      "locked": true,
+      "note": "AI Images & Videos panel (FAB / insert menu; navChip false). Unlock only this id before intentional AI chat widget changes.",
+      "paths": [
+        {
+          "file": "ai-prompt/resources/js/editor/modules/ai/AiChatSidebarPanel.jsx",
+          "fingerprint": "f8ddd4bb67daef55c01f22bb393bfcd9537a81ddc5dbe761fcd780cf8df89081"
+        },
+        {
+          "file": "ai-prompt/resources/js/editor/modules/ai/index.js",
+          "fingerprint": "62cc15a2ce3a24bdec310c2cbe6b51c51bde7500d0a5bacc95cabf2d63ebc2b2"
+        },
+        {
+          "file": "seo-content-ai-compat/resources/views/filament/resources/article-resource/pages/edit-article.blade.php",
+          "start": "                            <div\n                                x-show=\"aiChatOpen\"\n                                x-cloak\n                                wire:ignore\n                                id=\"seo-article-ai-chat-root\"",
+          "end": "                        </div>\n                    </div>\n                </div>\n            </aside>",
+          "fingerprint": "01252bdc735a122bb450150d5e559e3e1d2cd7227736adafcaa19de2ac89a6b8"
+        }
+      ]
+    },
+    "publishing": {
+      "label": "Publishing",
+      "locked": true,
+      "note": "Stable Publishing shell widget. Unlock only this id before intentional Publishing panel changes.",
+      "paths": [
+        {
+          "file": "content/resources/js/editor/runtime/editorShellNavItems.js",
+          "start": "    {\n        id: 'publishing',",
+          "end": "    {\n        id: 'article',",
+          "fingerprint": "9abaa3fd83eb6e2ee0382c974b6843b126519020aa5f490c8a41840590c50ff6"
+        },
+        {
+          "file": "seo-content-ai-compat/resources/views/filament/resources/article-resource/pages/edit-article.blade.php",
+          "start": "                                            <div\n                                                class=\"seo-assistant-panel-slot\"\n                                                data-assistant-panel-root=\"publishing\"",
+          "end": "                                            <div\n                                                class=\"seo-assistant-panel-slot\"\n                                                data-assistant-panel-root=\"article\"",
+          "fingerprint": "65f83fc7b024795215f904a6644617bd3ed3c82ca6d9e7adcca70f92f511162e"
+        },
+        {
+          "file": "seo-content-ai-compat/resources/views/filament/resources/article-resource/pages/partials/publish-categories.blade.php",
+          "fingerprint": "8cf07710a72b7383ed9c1cbf3900ab01052302b5d884c7ff13769b776ea428ca"
+        },
+        {
+          "file": "seo-content-ai-compat/resources/views/filament/resources/article-resource/pages/partials/publish-sync-panel.blade.php",
+          "fingerprint": "d37625aafc3de63b143fb60ba9668c46791533e5b21c24228c892aca32e08cdb"
+        },
+        {
+          "file": "publishing/resources/js/editor/domains/publishing/state.js",
+          "fingerprint": "76a0c38afc2da154610fbe070c9ae6a52c22b578d619a176c78ebabaf2c61450"
+        },
+        {
+          "file": "publishing/resources/js/editor/domains/publishing/usePublishingEditor.js",
+          "fingerprint": "1fe2fea994ae98b7c5d31d29a4245a8e7cc8350f8a9b6c0f983a5e62ce0beb52"
+        },
+        {
+          "file": "ai-prompt/resources/js/utils/assistantWidgetHealth.js",
+          "start": "export function buildPublishingWidgetHealth(",
+          "end": "export function buildNavigatorBadgesFromWidgetHealth(",
+          "fingerprint": "ab989b3890db8a3b6108c77cb0ef71ce10554f28e24b9bc4cf8be25991143018"
+        },
+        {
+          "file": "content/resources/js/editor/host/EditorSidebarNavigation.jsx",
+          "start": "        if (panelId === 'publishing') {\n            window.dispatchEvent(new CustomEvent('seo-assistant-open-publishing'));\n        }",
+          "end": "\n        if (hasIssues) {",
+          "fingerprint": "82fb707be70e7b7c10dc173ae403935bb239e55cb5ee870e7607b83c470ba2eb"
+        },
+        {
+          "file": "content/resources/css/article-editor.css",
+          "start": ".seo-assistant-widget--publishing .wp-postbox-header,",
+          "end": ".seo-editor-toolbar {",
+          "fingerprint": "8a42ad8d320e2e196f6cda74b3b8143208171ffa121fc68a2bc4a362ef9c0156"
+        }
+      ]
+    },
+    "status": {
+      "label": "Trạng thái",
+      "locked": true,
+      "note": "Current label is Vietnamese-only: Trạng thái. Known locale issue. Do not fix while locked. Technical id is status; runtime panelId remains article.",
+      "paths": [
+        {
+          "file": "content/resources/js/editor/runtime/editorShellNavItems.js",
+          "start": "    {\n        id: 'article',\n        panelId: 'article',\n        label: 'Trạng thái',\n        fullLabel: 'Trạng thái bài viết',",
+          "end": "]);",
+          "fingerprint": "449c9a584ac70c5ab80f0184e6e76aefe18c0784ae429bcdd701d84b98167dc8"
+        },
+        {
+          "file": "seo-content-ai-compat/resources/views/filament/resources/article-resource/pages/edit-article.blade.php",
+          "start": "                                            <div\n                                                class=\"seo-assistant-panel-slot\"\n                                                data-assistant-panel-root=\"article\"",
+          "end": "                                </div>\n                            </div>\n\n                            <div\n                                x-show=\"aiChatOpen\"",
+          "fingerprint": "597d178ad076f1d6d6c2c7e8416e0f40c6112d052bb52d42d33495d3a265ecbb"
+        },
+        {
+          "file": "seo-content-ai-compat/resources/views/filament/resources/article-resource/pages/partials/publish-sidebar.blade.php",
+          "fingerprint": "69e00462ec9921a04c24aeeaf9aebf2ee7b2240e13f91db93f8610764d04cb94"
+        },
+        {
+          "file": "content/resources/css/article-editor.css",
+          "start": ".seo-assistant-widget--article-info > .seo-assistant-widget__body {",
+          "end": ".seo-assistant-widget--publishing .wp-postbox-header,",
+          "fingerprint": "a05886e8066411c0bf9c40320aee989069619c7c83182674fbf5f4118ee6ba91"
+        }
+      ]
+    }
+  }
+}

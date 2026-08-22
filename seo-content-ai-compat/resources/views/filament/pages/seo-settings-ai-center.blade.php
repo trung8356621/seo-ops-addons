@@ -41,7 +41,7 @@
                         id="ai-center-models"
                         class="seo-ai-panel"
                         x-show="activeMainTab === 'models'"
-                        x-cloak
+                        style="display: none;"
                         wire:key="ai-center-models"
                     >
                         <div class="seo-ai-section-head">
@@ -164,7 +164,7 @@
                         @submit.prevent="submitRouting()"
                         class="seo-ai-routing seo-ai-panel"
                         x-show="activeMainTab === 'routing'"
-                        x-cloak
+                        style="display: none;"
                         wire:key="ai-center-routing"
                     >
                         <nav class="seo-ai-segment seo-ai-segment--wide" aria-label="{{ __('seo-content-ai::filament.ai_center.tab_routing') }}">
@@ -282,7 +282,7 @@
 
                 <div
                     class="seo-ai-panel-loading"
-                    x-show="activeMainTab === 'routing' && !routingHydrated"
+                    x-show="activeMainTab === 'routing' && (panelLoading || !routingHydrated)"
                     x-cloak
                     wire:key="ai-center-routing-loading"
                 >
@@ -507,6 +507,7 @@
                 })(),
                 modelsHydrated: initial.modelsHydrated !== false,
                 routingHydrated: !!initial.routingHydrated,
+                panelLoading: false,
                 editingProfile: initial.editingProfile || null,
                 routingUnsaved: !!initial.routingUnsaved,
                 modelsOrderDirty: false,
@@ -547,34 +548,59 @@
                         history.replaceState({}, '', url);
                     } catch (e) {}
                 },
+                routingGroupForCapability(capability) {
+                    return ['image', 'video'].includes(capability) ? capability : 'text';
+                },
+                markPanelHydrated(panel) {
+                    if (panel === 'routing') {
+                        this.routingHydrated = !!this.$root.querySelector('#ai-center-routing');
+                        return this.routingHydrated;
+                    }
+                    if (panel === 'models') {
+                        this.modelsHydrated = !!this.$root.querySelector('#ai-center-models') || this.modelsHydrated;
+                        return this.modelsHydrated;
+                    }
+                    return false;
+                },
                 async setTab(next) {
-                    if (this.activeMainTab === next) {
+                    if (this.panelLoading || this.activeMainTab === next) {
                         return;
                     }
                     this.activeMainTab = next;
+                    let areaForWire = null;
                     if (next === 'routing') {
-                        const group = ['image', 'video'].includes(this.activeCapability)
-                            ? this.activeCapability
-                            : 'text';
-                        if (this.activeCapability !== group) {
-                            this.activeCapability = group;
-                            this.$wire.setModelArea(group);
-                        }
+                        const group = this.routingGroupForCapability(this.activeCapability);
+                        this.activeCapability = group;
+                        areaForWire = group;
                     } else if (next === 'models' && this.activeCapability === 'text') {
                         this.activeCapability = 'fast_text';
-                        this.$wire.setModelArea('fast_text');
+                        areaForWire = 'fast_text';
                     }
                     this.replaceUrl();
-                    if (next === 'routing' && ! this.routingHydrated) {
-                        await this.$wire.loadPanel('routing');
-                        this.routingHydrated = true;
-                    } else if (next === 'models' && ! this.modelsHydrated) {
-                        await this.$wire.loadPanel('models');
-                        this.modelsHydrated = true;
+                    this.panelLoading = true;
+                    try {
+                        if (next === 'routing' && ! this.routingHydrated) {
+                            await this.$wire.openPanel('routing', areaForWire);
+                            await this.$nextTick();
+                            if (! this.markPanelHydrated('routing')) {
+                                await this.$wire.openPanel('routing', areaForWire);
+                                await this.$nextTick();
+                                this.markPanelHydrated('routing');
+                            }
+                        } else if (next === 'models' && ! this.modelsHydrated) {
+                            await this.$wire.openPanel('models', areaForWire ?? this.activeCapability);
+                            await this.$nextTick();
+                            this.markPanelHydrated('models');
+                        } else if (areaForWire !== null) {
+                            await this.$wire.setModelArea(areaForWire);
+                        }
+                    } catch (e) {
+                    } finally {
+                        this.panelLoading = false;
                     }
                 },
                 setArea(next) {
-                    if (this.activeCapability === next) {
+                    if (this.panelLoading || this.activeCapability === next) {
                         return;
                     }
                     this.activeCapability = next;

@@ -15,13 +15,15 @@ use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectLife
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Generate pending = chỉ item chưa từng có output/execution hợp lệ.
- * Không dựa vào project status hay completed counter đơn thuần.
+ * Generate pending = item chưa có output/execution hợp lệ trên chính item đó.
+ * Rewrite/improve: article_id là bài nguồn — không coi là đã generate.
+ * Working set only (không lấy item đã bàn giao Publishing Queue).
  */
 final class ContentProjectItemGenerationClassifier
 {
     public function __construct(
         private readonly ContentProjectLifecycle $lifecycle,
+        private readonly ?ContentProjectExecutionStalenessPolicy $staleness = null,
     ) {}
 
     public function preview(SeoProject $project): ContentProjectGeneratePendingPreview
@@ -30,6 +32,7 @@ final class ContentProjectItemGenerationClassifier
         $tasks = SeoProjectTask::query()
             ->where('project_id', $projectId)
             ->eligibleForGeneration()
+            ->inContentProjectWorkingSet()
             ->with(['article'])
             ->orderBy('id')
             ->get();
@@ -139,6 +142,7 @@ final class ContentProjectItemGenerationClassifier
      *     successful_execution?: bool,
      *     last_run_item_status?: string|null,
      *     generation_meta_complete?: bool,
+     *     stale_generation?: bool,
      * }  $snapshot
      */
     public function classifySnapshot(array $snapshot): ContentProjectItemGenerationDecision
@@ -149,6 +153,8 @@ final class ContentProjectItemGenerationClassifier
         $articleId = (int) ($snapshot['article_id'] ?? 0);
         $keyword = isset($snapshot['keyword']) ? (string) $snapshot['keyword'] : null;
         $evidence = [];
+        $requiresSourceArticle = in_array($type, SeoProjectTask::typesRequiringExistingArticle(), true);
+        $isStaleGeneration = ! empty($snapshot['stale_generation']);
 
         if (($snapshot['archived_at'] ?? null) !== null || $status === SeoProjectTask::STATUS_ARCHIVED) {
             return $this->decision($taskId, ContentProjectItemGenerationDecision::ACTION_SKIP, 'archived', $status, $type, $evidence, $keyword, $articleId);
@@ -162,13 +168,20 @@ final class ContentProjectItemGenerationClassifier
             return $this->decision($taskId, ContentProjectItemGenerationDecision::ACTION_SKIP, 'cancelled', $status, $type, $evidence, $keyword, $articleId);
         }
 
-        if (! empty($snapshot['article_manually_edited'])) {
+        // Manual edit bảo vệ output CREATE — không áp cho rewrite/improve (article_id = nguồn).
+        if (! $requiresSourceArticle && ! empty($snapshot['article_manually_edited'])) {
             $evidence[] = 'manually_edited';
 
             return $this->decision($taskId, ContentProjectItemGenerationDecision::ACTION_SKIP, 'manually_edited', $status, $type, $evidence, $keyword, $articleId);
         }
 
         $phase = (string) ($snapshot['lifecycle_phase'] ?? '');
+        if ($phase === ContentProjectLifecyclePhase::Generating->value && $isStaleGeneration) {
+            $evidence[] = 'stale_generation';
+
+            return $this->decision($taskId, ContentProjectItemGenerationDecision::ACTION_RUN, 'failed_without_output', $status, $type, $evidence, $keyword, $articleId > 0 ? $articleId : null);
+        }
+
         foreach ([
             ContentProjectLifecyclePhase::Review->value => 'lifecycle_review',
             ContentProjectLifecyclePhase::Approved->value => 'lifecycle_approved',
@@ -213,19 +226,14 @@ final class ContentProjectItemGenerationClassifier
             return $this->decision($taskId, ContentProjectItemGenerationDecision::ACTION_RUN, 'failed_without_output', $status, $type, $evidence, $keyword, $articleId > 0 ? $articleId : null);
         }
 
-        if ($articleId > 0 && ! empty($snapshot['article_has_body'])) {
+        // Output CREATE (body trên article kết quả). Rewrite/improve giữ article nguồn — không skip.
+        if (! $requiresSourceArticle && $articleId > 0 && ! empty($snapshot['article_has_body'])) {
             $evidence[] = 'valid_article_output';
 
             return $this->decision($taskId, ContentProjectItemGenerationDecision::ACTION_SKIP, 'valid_article_output', $status, $type, $evidence, $keyword, $articleId);
         }
 
-        if ($articleId > 0) {
-            $evidence[] = 'article_id:'.$articleId;
-
-            return $this->decision($taskId, ContentProjectItemGenerationDecision::ACTION_SKIP, 'article_linked', $status, $type, $evidence, $keyword, $articleId);
-        }
-
-        if (! empty($snapshot['generation_meta_complete'])) {
+        if (! $requiresSourceArticle && ! empty($snapshot['generation_meta_complete'])) {
             $evidence[] = 'generation_meta_complete';
 
             return $this->decision($taskId, ContentProjectItemGenerationDecision::ACTION_SKIP, 'generation_meta_complete', $status, $type, $evidence, $keyword, $articleId);
@@ -258,7 +266,7 @@ final class ContentProjectItemGenerationClassifier
 
         $body = '';
         if ($article instanceof SeoArticle) {
-            $body = trim((string) ($article->content ?? ''));
+            $body = trim((string) ($article->body ?? $article->content ?? ''));
         }
 
         $manuallyEdited = false;
@@ -271,8 +279,22 @@ final class ContentProjectItemGenerationClassifier
         }
 
         $generationMeta = (bool) ($evidenceBag['generation_meta_complete'] ?? false);
-        if ($article instanceof SeoArticle && $article->last_ai_content_at !== null) {
+        $requiresSourceArticle = in_array(
+            SeoProjectTask::normalizeType((string) ($task->type ?? '')),
+            SeoProjectTask::typesRequiringExistingArticle(),
+            true,
+        );
+        if (! $requiresSourceArticle && $article instanceof SeoArticle && $article->last_ai_content_at !== null) {
             $generationMeta = true;
+        }
+
+        $staleGeneration = (bool) ($evidenceBag['stale_generation'] ?? false);
+        if (
+            ! $staleGeneration
+            && $phase === ContentProjectLifecyclePhase::Generating
+            && $this->staleness instanceof ContentProjectExecutionStalenessPolicy
+        ) {
+            $staleGeneration = (bool) ($this->staleness->evaluateTask($task)['stale'] ?? false);
         }
 
         return $this->classifySnapshot([
@@ -290,6 +312,7 @@ final class ContentProjectItemGenerationClassifier
             'successful_execution' => (bool) ($evidenceBag['successful_execution'] ?? false),
             'last_run_item_status' => $evidenceBag['last_run_item_status'] ?? null,
             'generation_meta_complete' => $generationMeta,
+            'stale_generation' => $staleGeneration,
         ]);
     }
 

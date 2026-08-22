@@ -41,6 +41,7 @@ import {
 } from './utils/articleEditorSaveQueue';
 import { flushMediaSnapshotMutations } from './utils/articleEditorMediaSnapshot';
 import { EditorSessionClient, getOrCreateClientInstanceId } from './utils/editorSessionClient';
+import { bindEditorDocumentRevision } from './utils/editorDocumentRevision';
 import { createArticleEditorTabChannel } from './utils/articleEditorTabChannel';
 import {
     ARTICLE_EDITOR_SESSION_STATE_EVENT,
@@ -814,7 +815,12 @@ function ArticleEditorWithSession(props) {
     const applyClientState = React.useCallback((client, reasonCode = null) => {
         window.__seoEditorSessionClient = client;
         window.__SEO_EDITOR_SESSION_ID__ = client.sessionId || null;
-        window.__SEO_EDITOR_DOCUMENT_VERSION__ = Math.max(1, Number(client.documentVersion) || 1);
+        bindEditorDocumentRevision(articleId, client.documentVersion);
+        window.__SEO_EDITOR_DOCUMENT_VERSION__ = Math.max(
+            1,
+            Number(client.documentVersion) || 0,
+            Number(window.__SEO_EDITOR_DOCUMENT_VERSION__) || 0,
+        );
         const writable = !Boolean(client.readOnly);
         const status = resolveSessionStatusFromClient(
             reasonCode || client.lockStatus,
@@ -844,6 +850,7 @@ function ArticleEditorWithSession(props) {
         const previous = clientRef.current;
         previous?.destroy?.();
 
+        bindEditorDocumentRevision(articleId, documentVersion);
         emitArticleEditorSessionState({
             article_id: Number(articleId) || 0,
             session_id: null,
@@ -1432,7 +1439,12 @@ function mountArticleEditorPage() {
         expected_updated_at: expectedUpdatedAt || null,
         expected_content_hash: expectedContentHash || null,
     };
-    window.__SEO_EDITOR_DOCUMENT_VERSION__ = Math.max(1, Number(documentVersion) || 1);
+    bindEditorDocumentRevision(articleId, documentVersion);
+    window.__SEO_EDITOR_DOCUMENT_VERSION__ = Math.max(
+        1,
+        Number(documentVersion) || 0,
+        Number(window.__SEO_EDITOR_DOCUMENT_VERSION__) || 0,
+    );
     window.__SEO_EDITOR_CURRENT_USER_ID__ = currentUserId != null ? Number(currentUserId) || 0 : 0;
     window.__SEO_EDITOR_CONNECTION_HASH__ = connectionHash || '';
     window.__SEO_ARTICLE_SITE_ID__ = Number(siteId ?? 0) || 0;
@@ -1507,7 +1519,7 @@ function mountArticleEditorPage() {
                 parentChildReason={parentChildReason}
                 productCategoryOptions={productCategoryOptions}
                 initialProductGallery={initialProductGallery}
-                initialFaqs={[]}
+                initialFaqs={undefined}
                 initialVirtualReviews={[]}
                 articleTitle={articleTitle}
                 editorSettings={{

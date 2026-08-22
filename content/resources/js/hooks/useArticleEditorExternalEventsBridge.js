@@ -150,6 +150,12 @@ export default function useArticleEditorExternalEventsBridge({ activeBlockId, ac
                 return;
             }
 
+            // First empty emission while still unhydrated must not wipe bootstrap faqCount
+            // (would flip SEO FAQ schema PASS → missing when Edit FAQ mounts).
+            if (rows.length === 0 && faqsCanonicalKnownRef && faqsCanonicalKnownRef.current !== true) {
+                return;
+            }
+
             if (faqsCanonicalKnownRef) {
                 faqsCanonicalKnownRef.current = true;
             }

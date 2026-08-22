@@ -131,7 +131,11 @@ final class WordPressProductReviewService
         $author = mb_strtolower(trim((string) $review->author_name));
         $hash = (string) $review->content_hash;
         if ($hash === '') {
-            return false;
+            $hash = ProductReviewContentFingerprint::hash(
+                (string) $review->author_name,
+                (string) $review->content,
+                $review->rating,
+            );
         }
 
         foreach ($remoteItems as $row) {
@@ -139,12 +143,7 @@ final class WordPressProductReviewService
                 continue;
             }
             $remoteAuthor = mb_strtolower(trim((string) ($row['author'] ?? $row['author_name'] ?? '')));
-            $remoteContent = trim((string) ($row['content'] ?? $row['comment'] ?? ''));
-            $remoteRating = isset($row['rating']) && is_numeric($row['rating']) ? (int) $row['rating'] : null;
-            $remoteHash = hash(
-                'sha256',
-                $remoteAuthor."\0".mb_strtolower($remoteContent)."\0".(string) $remoteRating,
-            );
+            $remoteHash = ProductReviewContentFingerprint::fromRemoteItem($row);
             if ($remoteAuthor === $author && $remoteHash === $hash) {
                 return true;
             }
@@ -230,44 +229,140 @@ final class WordPressProductReviewService
             $this->pendingRepository->markSyncing($review, $wpPostId);
             $review = $review->fresh() ?? $review;
 
-            $remoteFetch = $this->fetchRemoteVirtualItems($article, $wpPostId);
-            $remoteItems = $remoteFetch['success'] ? $remoteFetch['items'] : [];
+            try {
+                $remoteFetch = $this->fetchRemoteVirtualItems($article, $wpPostId);
+                if (! ($remoteFetch['success'] ?? false)) {
+                    $errorCode = (string) ($remoteFetch['error_code'] ?? 'WORDPRESS_REVIEW_FETCH_FAILED');
+                    $message = (string) ($remoteFetch['message'] ?? 'Không đọc được review hiện có trên WordPress.');
+                    $this->pendingRepository->markFailed($review, $errorCode, $message);
 
-            if ($this->exists($review, $remoteItems)) {
-                $index = $this->findIndexByOmiReviewId($remoteItems, $reviewId)
-                    ?? $this->findIndexByIdempotency($remoteItems, (string) $review->idempotency_key)
-                    ?? 0;
-                $wpCommentId = $this->payloadFactory->syntheticWpCommentId($wpPostId, $index + 1);
+                    return [
+                        'success' => false,
+                        'message' => $message,
+                        'review_id' => $reviewId,
+                        'article_id' => $articleId,
+                        'wp_post_id' => $wpPostId,
+                        'status' => 'failed',
+                        'error_code' => $errorCode,
+                    ];
+                }
+
+                $remoteItems = is_array($remoteFetch['items'] ?? null) ? $remoteFetch['items'] : [];
+
+                if ($this->exists($review, $remoteItems)) {
+                    $canonical = $this->pendingRepository->findCanonicalByContentHash(
+                        $articleId,
+                        (string) $review->content_hash,
+                        $reviewId,
+                    );
+                    if ($canonical instanceof ArticleProductReview) {
+                        // Same logical review already fulfilled — do not count a second reviewed row.
+                        $this->pendingRepository->markCancelledDuplicate(
+                            $review,
+                            'Duplicate of already-synced review content.',
+                            (int) $canonical->id,
+                        );
+                        $this->invalidateFetchCache($article);
+
+                        return [
+                            'success' => true,
+                            'outcome' => 'DUPLICATE_CANCELLED',
+                            'message' => 'Review trùng nội dung review đã sync — đã hủy local trùng.',
+                            'review_id' => $reviewId,
+                            'article_id' => $articleId,
+                            'wp_post_id' => $wpPostId,
+                            'wp_comment_id' => (int) ($canonical->wp_comment_id ?? 0) ?: null,
+                            'status' => 'cancelled',
+                            'deduplicated' => true,
+                            'unique_fulfilled' => false,
+                            'canonical_review_id' => (int) $canonical->id,
+                        ];
+                    }
+
+                    $index = $this->findIndexByOmiReviewId($remoteItems, $reviewId)
+                        ?? $this->findIndexByIdempotency($remoteItems, (string) $review->idempotency_key)
+                        ?? $this->findIndexByContentFingerprint($remoteItems, $review)
+                        ?? 0;
+                    $wpCommentId = $this->payloadFactory->syntheticWpCommentId($wpPostId, $index + 1);
+                    $this->pendingRepository->markReviewed($review, $wpPostId, $wpCommentId);
+                    $this->invalidateFetchCache($article);
+
+                    return [
+                        'success' => true,
+                        'outcome' => 'DEDUPLICATED',
+                        'message' => 'Review đã tồn tại trên WordPress.',
+                        'review_id' => $reviewId,
+                        'article_id' => $articleId,
+                        'wp_post_id' => $wpPostId,
+                        'wp_comment_id' => $wpCommentId,
+                        'status' => 'reviewed',
+                        'deduplicated' => true,
+                        'unique_fulfilled' => true,
+                    ];
+                }
+
+                $item = $this->payloadFactory->makeItem($review);
+                $item['source_system'] = 'laravel';
+                $item['laravel_review_id'] = $reviewId;
+                $merged = $this->upsertByOmiReviewId($remoteItems, $item, $reviewId);
+                $postResult = $this->postMerged($article, $wpPostId, $merged, $sideEffect);
+
+                if (! ($postResult['success'] ?? false)) {
+                    $errorCode = (string) ($postResult['error_code'] ?? 'WORDPRESS_REVIEW_CREATE_FAILED');
+                    $message = (string) ($postResult['message'] ?? 'Tạo review trên WordPress thất bại.');
+                    $this->pendingRepository->markFailed($review, $errorCode, $message);
+
+                    return [
+                        'success' => false,
+                        'message' => $message,
+                        'review_id' => $reviewId,
+                        'article_id' => $articleId,
+                        'wp_post_id' => $wpPostId,
+                        'status' => 'failed',
+                        'error_code' => $errorCode,
+                    ];
+                }
+
+                $index = $this->findIndexByOmiReviewId($merged, $reviewId);
+                $wpCommentId = $index !== null
+                    ? $this->payloadFactory->syntheticWpCommentId($wpPostId, $index + 1)
+                    : $this->payloadFactory->syntheticWpCommentId($wpPostId, count($merged));
+
                 $this->pendingRepository->markReviewed($review, $wpPostId, $wpCommentId);
                 $this->invalidateFetchCache($article);
 
                 return [
                     'success' => true,
-                    'outcome' => 'DEDUPLICATED',
-                    'message' => 'Review đã tồn tại trên WordPress.',
+                    'outcome' => 'CREATED',
+                    'message' => 'Đã tạo review trên WordPress.',
                     'review_id' => $reviewId,
                     'article_id' => $articleId,
                     'wp_post_id' => $wpPostId,
                     'wp_comment_id' => $wpCommentId,
                     'status' => 'reviewed',
-                    'deduplicated' => true,
+                    'deduplicated' => false,
+                    'unique_fulfilled' => true,
                 ];
-            }
-
-            $item = $this->payloadFactory->makeItem($review);
-            $item['source_system'] = 'laravel';
-            $item['laravel_review_id'] = $reviewId;
-            $merged = $this->upsertByOmiReviewId($remoteItems, $item, $reviewId);
-            $postResult = $this->postMerged($article, $wpPostId, $merged, $sideEffect);
-
-            if (! ($postResult['success'] ?? false)) {
-                $errorCode = (string) ($postResult['error_code'] ?? 'WORDPRESS_REVIEW_CREATE_FAILED');
-                $message = (string) ($postResult['message'] ?? 'Tạo review trên WordPress thất bại.');
+            } catch (\Throwable $exception) {
+                // Never leave Syncing / never drop the row — keep retryable Failed.
+                $class = $exception::class;
+                if ($exception instanceof \Omnichannel\Addons\WordPress\Services\WordPressSlugFixRequiredException
+                    || str_contains($class, 'WordPressSlugFixRequiredException')
+                ) {
+                    $errorCode = 'SLUG_FIX_REQUIRED';
+                } elseif ($exception instanceof \Omnichannel\Addons\WordPress\Services\SideEffect\UnauthorizedWordPressSideEffectException
+                    || str_contains($class, 'UnauthorizedWordPressSideEffectException')
+                ) {
+                    $errorCode = 'WORDPRESS_SIDE_EFFECT_BLOCKED';
+                } else {
+                    $errorCode = 'WORDPRESS_REVIEW_CREATE_EXCEPTION';
+                }
+                $message = mb_substr($exception->getMessage(), 0, 2000);
                 $this->pendingRepository->markFailed($review, $errorCode, $message);
 
                 return [
                     'success' => false,
-                    'message' => $message,
+                    'message' => $message !== '' ? $message : 'Tạo review trên WordPress thất bại.',
                     'review_id' => $reviewId,
                     'article_id' => $articleId,
                     'wp_post_id' => $wpPostId,
@@ -275,26 +370,6 @@ final class WordPressProductReviewService
                     'error_code' => $errorCode,
                 ];
             }
-
-            $index = $this->findIndexByOmiReviewId($merged, $reviewId);
-            $wpCommentId = $index !== null
-                ? $this->payloadFactory->syntheticWpCommentId($wpPostId, $index + 1)
-                : $this->payloadFactory->syntheticWpCommentId($wpPostId, count($merged));
-
-            $this->pendingRepository->markReviewed($review, $wpPostId, $wpCommentId);
-            $this->invalidateFetchCache($article);
-
-            return [
-                'success' => true,
-                'outcome' => 'CREATED',
-                'message' => 'Đã tạo review trên WordPress.',
-                'review_id' => $reviewId,
-                'article_id' => $articleId,
-                'wp_post_id' => $wpPostId,
-                'wp_comment_id' => $wpCommentId,
-                'status' => 'reviewed',
-                'deduplicated' => false,
-            ];
         } finally {
             $lock->release();
         }
@@ -445,6 +520,37 @@ final class WordPressProductReviewService
                 continue;
             }
             if ((int) ($row['_omi_review_id'] ?? $row['laravel_review_id'] ?? 0) === $reviewId) {
+                return (int) $index;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     */
+    private function findIndexByContentFingerprint(array $items, ArticleProductReview $review): ?int
+    {
+        $hash = trim((string) $review->content_hash);
+        if ($hash === '') {
+            $hash = ProductReviewContentFingerprint::hash(
+                (string) $review->author_name,
+                (string) $review->content,
+                $review->rating,
+            );
+        }
+        $author = mb_strtolower(trim((string) $review->author_name));
+
+        foreach ($items as $index => $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $remoteAuthor = mb_strtolower(trim((string) ($row['author'] ?? $row['author_name'] ?? '')));
+            if ($remoteAuthor !== $author) {
+                continue;
+            }
+            if (ProductReviewContentFingerprint::fromRemoteItem($row) === $hash) {
                 return (int) $index;
             }
         }

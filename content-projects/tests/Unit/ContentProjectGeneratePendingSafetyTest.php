@@ -105,6 +105,8 @@ final class ContentProjectGeneratePendingSafetyTest extends TestCase
                 'task_id' => 3,
                 'type' => $type,
                 'status' => SeoProjectTask::STATUS_PENDING,
+                'article_id' => 88,
+                'article_has_body' => true,
                 'lifecycle_phase' => ContentProjectLifecyclePhase::Draft->value,
             ]);
 

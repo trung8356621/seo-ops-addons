@@ -16,7 +16,7 @@ final class WordPressWriteReadinessGuard
     public function assertCanWriteToWordPress(SeoArticle|Site $target, string $operation): void
     {
         $operation = trim($operation);
-        if ($this->isReadOnlyOperation($operation)) {
+        if ($this->isReadOnlyOperation($operation) || $this->isExemptFromMediaSlugFix($operation)) {
             return;
         }
 
@@ -86,6 +86,15 @@ final class WordPressWriteReadinessGuard
             'article.get_post',
             'article.find_by_operation_key',
         ], true);
+    }
+
+    /**
+     * Review sync writes virtual comments only — must not be blocked by media slug-fix
+     * readiness that applies to article/media publishing.
+     */
+    private function isExemptFromMediaSlugFix(string $operation): bool
+    {
+        return $operation === 'wordpress.product_review.sync';
     }
 
     /**

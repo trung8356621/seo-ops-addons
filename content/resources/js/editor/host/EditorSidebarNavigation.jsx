@@ -12,7 +12,14 @@ import {
     getRuntimeWidgetHealth,
     subscribeRuntimeWidgetHealth,
 } from '../runtime/editorRuntimeHealthStore';
+import { isMainColumnOnlyPanel } from '../runtime/mainColumnPanels';
 import { SHELL_BOUNDARY_NAV_ITEMS } from '../runtime/editorShellNavItems';
+import {
+    buildNavChipClassName,
+    isNavChipActive,
+    resolveNavChipHealthFlags,
+    resolveNavChipStatus,
+} from './editorSidebarNavChipState';
 
 const CHIP_LABELS = Object.freeze({
     seo: { label: 'SEO', fullLabel: 'SEO Assistant' },
@@ -25,24 +32,8 @@ const CHIP_LABELS = Object.freeze({
     faq: { label: 'FAQ', fullLabel: 'FAQ Assistant' },
 });
 
-function normalizeSearchText(value) {
-    return String(value ?? '').trim().toLowerCase();
-}
-
 function chipStatus(health) {
-    const status = String(health?.status || 'neutral');
-    const issues = Number(health?.issue_count ?? health?.error_count ?? 0);
-    // Red/warning only from canonical diagnostics — never from refresh/loading.
-    if (status === 'error' && issues > 0) {
-        return 'error';
-    }
-    if (status === 'warning' && issues > 0) {
-        return 'warning';
-    }
-    if (status === 'success' || status === 'info') {
-        return status;
-    }
-    return 'neutral';
+    return resolveNavChipStatus(health);
 }
 
 function chipIssueCount(chipId, health) {
@@ -186,11 +177,12 @@ export function EditorSidebarNavigation({
     const [activePanel, setActivePanel] = useState(() => getActivePanel());
     const [healthMap, setHealthMap] = useState(() => getRuntimeWidgetHealth());
     const [badges, setBadges] = useState(() => getRuntimeNavigatorBadges());
-    const [searchQuery, setSearchQuery] = useState('');
-    const [searchOpen, setSearchOpen] = useState(false);
-    const [searchHighlightIndex, setSearchHighlightIndex] = useState(0);
 
     useEffect(() => subscribeEditorNavigation((panelId) => {
+        // FAQ is main-column only — keep dock chip highlight on the last sidebar rail panel.
+        if (isMainColumnOnlyPanel(panelId)) {
+            return;
+        }
         setActivePanel(panelId);
     }), []);
 
@@ -214,41 +206,6 @@ export function EditorSidebarNavigation({
         const shell = (shellItems || []).map(resolveChipMeta);
         return [...registryChips, ...shell].sort((a, b) => a.order - b.order);
     }, [registryChips, shellItems]);
-
-    const searchCatalog = useMemo(() => {
-        const items = [];
-        chips.forEach((chip) => {
-            items.push({
-                label: chip.fullLabel,
-                panelId: chip.id,
-                keywords: [chip.id, chip.label, chip.fullLabel, ...(chip.keywords || [])]
-                    .map(normalizeSearchText),
-            });
-            (chip.keywords || []).forEach((keyword) => {
-                items.push({
-                    label: `${chip.fullLabel} — ${keyword}`,
-                    panelId: chip.id,
-                    keywords: [normalizeSearchText(keyword)],
-                });
-            });
-        });
-        return items;
-    }, [chips]);
-
-    const filteredSearchResults = useMemo(() => {
-        const q = normalizeSearchText(searchQuery);
-        if (q === '') {
-            return [];
-        }
-        const chipIds = new Set(chips.map((chip) => chip.id));
-        return searchCatalog
-            .filter((item) => chipIds.has(item.panelId))
-            .filter((item) => {
-                if (normalizeSearchText(item.label).includes(q)) return true;
-                return (item.keywords || []).some((keyword) => keyword.includes(q) || q.includes(keyword));
-            })
-            .slice(0, 14);
-    }, [chips, searchCatalog, searchQuery]);
 
     const selectChip = (panelId) => {
         const chip = chips.find((entry) => entry.id === panelId);
@@ -283,103 +240,28 @@ export function EditorSidebarNavigation({
         }
     };
 
-    const onSearchKeydown = (event) => {
-        const results = filteredSearchResults;
-        if (event.key === 'Escape') {
-            event.preventDefault();
-            setSearchQuery('');
-            setSearchOpen(false);
-            event.target.blur();
-            return;
-        }
-        if (!searchOpen || results.length === 0) {
-            return;
-        }
-        if (event.key === 'ArrowDown') {
-            event.preventDefault();
-            setSearchHighlightIndex((index) => (index + 1) % results.length);
-        } else if (event.key === 'ArrowUp') {
-            event.preventDefault();
-            setSearchHighlightIndex((index) => (index - 1 + results.length) % results.length);
-        } else if (event.key === 'Enter') {
-            event.preventDefault();
-            const item = results[searchHighlightIndex];
-            if (item) {
-                selectChip(item.panelId);
-                setSearchQuery('');
-                setSearchOpen(false);
-            }
-        }
-    };
-
     const body = (
         <div className="seo-assistant-dock" role="navigation" aria-label="Assistant Dock">
-            <div className="seo-assistant-dock__search-wrap">
-                <label className="sr-only" htmlFor="seo-assistant-dock-search">Search assistants</label>
-                <div className="seo-assistant-dock__search">
-                    <svg className="seo-assistant-dock__search-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="m21 21-4.35-4.35M11 18a7 7 0 1 0 0-14 7 7 0 0 0 0 14Z" />
-                    </svg>
-                    <input
-                        id="seo-assistant-dock-search"
-                        type="search"
-                        className="seo-assistant-dock__search-input"
-                        placeholder="Search assistants..."
-                        autoComplete="off"
-                        value={searchQuery}
-                        onChange={(event) => {
-                            const next = event.target.value;
-                            setSearchQuery(next);
-                            setSearchOpen(normalizeSearchText(next) !== '');
-                            setSearchHighlightIndex(0);
-                        }}
-                        onFocus={() => {
-                            if (normalizeSearchText(searchQuery) !== '') {
-                                setSearchOpen(true);
-                            }
-                        }}
-                        onKeyDown={onSearchKeydown}
-                    />
-                </div>
-                {searchOpen && filteredSearchResults.length > 0 ? (
-                    <div className="seo-assistant-dock__dropdown">
-                        {filteredSearchResults.map((item, index) => (
-                            <button
-                                key={`${item.label}-${index}`}
-                                type="button"
-                                className={`seo-assistant-dock__dropdown-item${searchHighlightIndex === index ? ' is-active' : ''}`}
-                                onClick={() => {
-                                    selectChip(item.panelId);
-                                    setSearchQuery('');
-                                    setSearchOpen(false);
-                                }}
-                            >
-                                <span className="seo-assistant-dock__dropdown-label">{item.label}</span>
-                            </button>
-                        ))}
-                    </div>
-                ) : null}
-            </div>
             <div className="seo-assistant-dock__tabs" role="tablist" aria-label="Assistant panels">
                 {chips.map((chip) => {
                     const health = resolveChipHealth(chip.id, healthMap);
-                    const status = chipStatus(health);
-                    const active = activePanel === chip.id;
+                    const { hasError, hasWarning, status } = resolveNavChipHealthFlags(health);
+                    // Selected state: canonical activePanel only — never from health/error.
+                    const isActive = isNavChipActive(activePanel, chip.id);
                     const badge = chipBadge(chip.id, health, badges);
                     const issue = chipIssueCount(chip.id, health);
                     const refreshing = isRefreshing(health);
                     const tooltip = chipReasonsTooltip(chip.id, health) || chip.fullLabel
                         || chip.disabledReason;
-                    const className = [
-                        'seo-assistant-dock__tab',
-                        active ? 'is-active' : '',
-                        status === 'error' ? 'is-status-error' : '',
-                        status === 'warning' ? 'is-status-warning' : '',
-                        status === 'success' ? 'is-status-success' : '',
-                        refreshing ? 'is-refreshing' : '',
-                        chip.shell ? 'is-shell-boundary' : '',
-                        chip.disabled ? 'is-disabled' : '',
-                    ].filter(Boolean).join(' ');
+                    const className = buildNavChipClassName({
+                        isActive,
+                        hasError,
+                        hasWarning,
+                        status,
+                        isRefreshing: refreshing,
+                        isShell: chip.shell,
+                        isDisabled: chip.disabled,
+                    });
 
                     return (
                         <button
@@ -387,13 +269,17 @@ export function EditorSidebarNavigation({
                             type="button"
                             className={className}
                             role="tab"
-                            aria-selected={active ? 'true' : 'false'}
+                            data-widget-id={chip.id}
+                            data-active={isActive ? '1' : '0'}
+                            data-has-error={hasError ? '1' : '0'}
+                            data-has-warning={hasWarning ? '1' : '0'}
+                            aria-selected={isActive ? 'true' : 'false'}
                             title={tooltip}
                             aria-label={tooltip !== chip.fullLabel ? `${chip.label}: ${tooltip}` : chip.fullLabel}
                             disabled={chip.disabled}
                             onClick={() => selectChip(chip.id)}
                         >
-                            {(status === 'error' || status === 'warning') ? (
+                            {(hasError || hasWarning) ? (
                                 <span className="seo-assistant-dock__tab-dot" aria-hidden="true" />
                             ) : null}
                             <span className="seo-assistant-dock__tab-label">{chip.label}</span>

@@ -22,6 +22,7 @@ final class WordPressCommentReviewPayloadFactory
             'date' => $review->review_date?->format('Y-m-d H:i:s')
                 ?? $review->created_at?->format('Y-m-d H:i:s')
                 ?? now()->format('Y-m-d H:i:s'),
+            'virtual' => true,
             'source' => 'seo_content_ai',
             'generated' => true,
             'laravel_review_id' => (int) $review->id,

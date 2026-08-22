@@ -33,7 +33,8 @@ final class SeoSettingsAiCenterNavigationTest extends TestCase
         $this->assertStringNotContainsString("'connections', 'models', 'routing'", $view);
         $this->assertStringNotContainsString("@if (\$tab === 'connections')", $view);
         $this->assertStringContainsString('seoAiCenter', $view);
-        $this->assertStringContainsString('loadPanel', $view);
+        $this->assertStringContainsString('openPanel', $view);
+        $this->assertStringContainsString('markPanelHydrated', $view);
         $this->assertStringContainsString('activeMainTab', $view);
         $this->assertStringContainsString('activeCapability', $view);
         $this->assertStringContainsString('wire:ignore.self', $view);

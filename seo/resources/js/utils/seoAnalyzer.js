@@ -30,6 +30,10 @@ import {
 import { selectFaqPlaceholders, selectLinks } from '@content-addon/utils/documentSelectors.js';
 import { blocksToDocumentJson, htmlToDocumentJson } from '@content-addon/utils/htmlDocumentCompat.js';
 import { createCurrentDraftAnalysisSnapshot } from '@content-addon/utils/currentDraftAnalysisSnapshot.js';
+import {
+    resolveFaqSeoViolationCodes,
+    selectCanonicalFaqState,
+} from './articleFaqCanonicalState.js';
 
 const RULE_KEYS = {
     missingFocusKeyword: 'missing_focus_keyword',
@@ -42,6 +46,7 @@ const RULE_KEYS = {
     imageAltMissing: 'image_alt_missing',
     wikiTrustMissing: 'wiki_trust_missing',
     faqMissing: 'faq_missing',
+    faqSchemaMissing: 'faq_schema_missing',
     keywordMissingInTitle: 'keyword_missing_in_title',
     keywordMissingInMeta: 'keyword_missing_in_meta',
     keywordMissingInSlug: 'keyword_missing_in_slug',
@@ -533,8 +538,8 @@ function resolveKeywordViolations({ html, keyword, seoTitle, metaDescription, sl
     return violations;
 }
 
-function sanitizeViolationList(violations, seoScoringRules = []) {
-    return sanitizeViolations(violations, seoScoringRules).filter((key) => isRuleEnabled(key, seoScoringRules));
+function sanitizeViolationList(violations, seoScoringRules = [], metrics = {}) {
+    return sanitizeViolations(violations, seoScoringRules, metrics).filter((key) => isRuleEnabled(key, seoScoringRules));
 }
 
 function computeViolations({
@@ -545,6 +550,7 @@ function computeViolations({
     metaDescription,
     siteDomain,
     faqs,
+    faqCountHint = 0,
     wikiTrustDomains,
     articleLengthTarget = 2000,
     featuredSnippetThresholds = {},
@@ -576,8 +582,35 @@ function computeViolations({
         violations.push(RULE_KEYS.wikiTrustMissing);
     }
 
-    if (resolveFaqsForScoring(content, faqs, model).length === 0) {
-        violations.push(RULE_KEYS.faqMissing);
+    const faqState = selectCanonicalFaqState({
+        faqs,
+        faqCountHint,
+        html: content,
+        documentHasFaqPlaceholder: selectFaqPlaceholders(model).length > 0,
+    });
+    if (!Array.isArray(faqs)) {
+        const fallbackRows = resolveFaqsForScoring(content, null, model);
+        const schemaReadyFallback = fallbackRows.filter((row) => {
+            const question = String(row?.question ?? '').trim();
+            const answer = String(row?.answer ?? '').trim();
+            return question !== '' && answer !== ''
+                && question !== '[omi_faq]'
+                && answer !== 'shortcode'
+                && answer !== 'detected';
+        });
+        if (schemaReadyFallback.length > 0 || faqState.has_faq_schema) {
+            // HTML-detected real Q/A OR bootstrap DB faqCount = schema present while unhydrated.
+            // no FAQ violation
+        } else {
+            violations.push(...resolveFaqSeoViolationCodes({
+                ...faqState,
+                has_faq_content: faqState.has_faq_content || fallbackRows.length > 0,
+                has_faq_schema: false,
+                faq_question_count: Math.max(faqState.faq_question_count, 0),
+            }));
+        }
+    } else {
+        violations.push(...resolveFaqSeoViolationCodes(faqState));
     }
 
     violations.push(
@@ -605,13 +638,25 @@ function computeViolations({
     }
 
     return {
-        violations: sanitizeViolationList(violations, seoScoringRules),
+        violations: sanitizeViolationList(violations, seoScoringRules, {
+            faq: {
+                faq_question_count: faqState.faq_question_count,
+                has_faq_content: faqState.has_faq_content,
+                has_faq_schema: faqState.has_faq_schema,
+            },
+            faq_question_count: faqState.faq_question_count,
+        }),
         extracted_links: extractedLinks,
         metrics: {
             image_ratio: imageMetrics,
             content_length: contentLengthMetrics,
             target_words_per_image: wordsPerImage,
             document_owner: 'tiptap_json',
+            faq: {
+                faq_question_count: faqState.faq_question_count,
+                has_faq_content: faqState.has_faq_content,
+                has_faq_schema: faqState.has_faq_schema,
+            },
         },
     };
 }
@@ -627,6 +672,7 @@ export function computeSeoAnalysis({
     slug = '',
     siteDomain = '',
     faqs = undefined,
+    faqCountHint = 0,
     wikiTrustDomains = DEFAULT_WIKI_TRUST_DOMAINS,
     scoringMessages = {},
     seoScoringRules = [],
@@ -727,6 +773,7 @@ export function computeSeoAnalysis({
         metaDescription,
         siteDomain,
         faqs,
+        faqCountHint,
         wikiTrustDomains,
         articleLengthTarget: lengthTarget,
         featuredSnippetThresholds: snippetThresholds,
@@ -749,7 +796,7 @@ export function computeSeoAnalysis({
         // Keep client HTML wiki check as primary; external fact only reinforces when present.
     }
 
-    const score = scoreFromViolations(violations, rules);
+    const score = scoreFromViolations(violations, rules, result.metrics);
     const metrics = {
         ...(result.metrics ?? {}),
         image_ratio: imageMetrics,

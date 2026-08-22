@@ -164,7 +164,8 @@ const DEFAULT_SEO_RULE_TEMPLATES = {
         image_ratio_suboptimal_detail: 'Bài viết :words từ hiện có :current ảnh; đề xuất khoảng :recommended ảnh.',
         image_alt_missing: 'Một hoặc nhiều ảnh thiếu thuộc tính ALT.',
         wiki_trust_missing: 'Thiếu liên kết ngoài wiki-trust.',
-        faq_missing: 'Thiếu FAQ schema (chưa có dữ liệu FAQ).',
+        faq_missing: 'Thiếu dữ liệu FAQ.',
+        faq_schema_missing: 'Đã có :count câu hỏi FAQ nhưng chưa có FAQ schema.',
         keyword_missing_in_title: 'Từ khóa chính chưa có trong tiêu đề SEO.',
         keyword_missing_in_meta: 'Từ khóa chính chưa có trong meta description.',
         keyword_missing_in_slug: 'Từ khóa chính chưa có trong slug URL.',
@@ -194,7 +195,8 @@ const DEFAULT_SEO_RULE_TEMPLATES = {
         image_ratio_suboptimal_detail: 'This :words-word article has :current images; about :recommended are recommended.',
         image_alt_missing: 'One or more images are missing ALT text.',
         wiki_trust_missing: 'Missing at least one outbound wiki-trust link.',
-        faq_missing: 'FAQ schema is missing (no FAQ data saved).',
+        faq_missing: 'FAQ content is missing.',
+        faq_schema_missing: 'There are :count FAQ questions but FAQ schema is missing.',
         keyword_missing_in_title: 'Focus keyword is missing from the SEO title.',
         keyword_missing_in_meta: 'Focus keyword is missing from the meta description.',
         keyword_missing_in_slug: 'Focus keyword is missing from the URL slug.',
@@ -220,7 +222,8 @@ const SAFE_FALLBACKS = {
         keyword_missing_in_meta: 'Từ khóa chính chưa có trong meta description',
         keyword_missing_in_slug: 'Từ khóa chính chưa có trong slug URL',
         h2_missing: 'Cần ít nhất 2 thẻ H2 trong bài viết',
-        faq_missing: 'Thiếu FAQ schema',
+        faq_missing: 'Thiếu dữ liệu FAQ',
+        faq_schema_missing: 'Đã có FAQ nhưng chưa có FAQ schema',
         image_alt_missing: 'Một hoặc nhiều ảnh thiếu ALT',
     },
     en: {
@@ -236,7 +239,8 @@ const SAFE_FALLBACKS = {
         keyword_missing_in_meta: 'Focus keyword is missing from the meta description',
         keyword_missing_in_slug: 'Focus keyword is missing from the URL slug',
         h2_missing: 'Need at least 2 H2 headings in the article',
-        faq_missing: 'FAQ schema is missing',
+        faq_missing: 'FAQ content is missing',
+        faq_schema_missing: 'FAQ content exists but FAQ schema is missing',
         image_alt_missing: 'One or more images are missing ALT text',
     },
 };
@@ -322,6 +326,15 @@ export function presentSeoReason(key, options = {}) {
     if (metrics.missing_word_count != null && vars.missing == null) {
         vars.missing = formatSeoCount(metrics.missing_word_count, locale);
     }
+    const faqCount = Number(
+        metrics.faq_question_count
+        ?? metrics.faq?.faq_question_count
+        ?? metrics.count
+        ?? 0,
+    );
+    if (Number.isFinite(faqCount) && faqCount > 0) {
+        vars.count = formatSeoCount(faqCount, locale);
+    }
 
     const looksLikeCode = (value) => /^[a-z0-9]+(?:_[a-z0-9]+)+$/i.test(String(value ?? '').trim());
     const isImageRatioKey = normalized.startsWith('image_ratio_');
@@ -339,6 +352,23 @@ export function presentSeoReason(key, options = {}) {
     let summary = rawSummary ? interpolateSeoReasonTemplate(rawSummary, vars) : '';
     let detail = rawDetail ? interpolateSeoReasonTemplate(rawDetail, vars) : '';
     let label = rawLabel ? interpolateSeoReasonTemplate(rawLabel, vars) : '';
+
+    if (normalized === 'faq_schema_missing' && (!summary || looksLikeCode(summary))) {
+        summary = locale === 'en'
+            ? (faqCount > 0
+                ? `There are ${faqCount} FAQ questions but FAQ schema is missing.`
+                : 'FAQ content exists but FAQ schema is missing.')
+            : (faqCount > 0
+                ? `Đã có ${faqCount} câu hỏi FAQ nhưng chưa có FAQ schema.`
+                : 'Đã có nội dung FAQ nhưng chưa có FAQ schema.');
+    }
+
+    // Legacy/server `faq_missing` must not claim "no FAQ data" when questions exist.
+    if (normalized === 'faq_missing' && faqCount > 0) {
+        summary = locale === 'en'
+            ? `There are ${faqCount} FAQ questions but FAQ schema is missing.`
+            : `Đã có ${faqCount} câu hỏi FAQ nhưng chưa có FAQ schema.`;
+    }
 
     if (useGenericImageRatioCopy) {
         summary = safeSeoReasonFallback(normalized, locale);

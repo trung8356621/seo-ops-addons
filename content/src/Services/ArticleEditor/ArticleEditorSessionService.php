@@ -225,7 +225,14 @@ final class ArticleEditorSessionService
                             ];
                         }
 
-                        $this->documentVersions->assertExpected($freshArticle, $expectedDocumentVersion);
+                        $this->documentVersions->assertExpected($freshArticle, $expectedDocumentVersion, [
+                            'operation' => 'save_document.'.$saveMode,
+                            'editor_session_id' => (string) $freshSession->id,
+                            'article_id' => $articleId,
+                            'request_id' => is_string($document['client_request_id'] ?? null)
+                                ? (string) $document['client_request_id']
+                                : null,
+                        ]);
                         $this->assertContentHash($freshArticle, $expectedContentHash, $expectedDocumentVersion);
 
                         $result = LocalArticleSaveTimer::measure(
@@ -322,7 +329,10 @@ final class ArticleEditorSessionService
                 }
 
                 $freshArticle = SeoArticle::query()->lockForUpdate()->findOrFail((int) $article->getKey());
-                $this->documentVersions->assertExpected($freshArticle, $expectedDocumentVersion);
+                $this->documentVersions->assertExpected($freshArticle, $expectedDocumentVersion, [
+                    'operation' => 'close_document',
+                    'editor_session_id' => (string) $freshSession->id,
+                ]);
                 $this->assertContentHash($freshArticle, $expectedContentHash, $expectedDocumentVersion);
 
                 $result = $persist($freshArticle, $document);
@@ -605,7 +615,10 @@ final class ArticleEditorSessionService
 
         $this->assertArticleEditable($article);
         $session = $this->requireOwnedActiveSession($article, $sessionId, $user);
-        $this->documentVersions->assertExpected($article->fresh() ?? $article, $expectedDocumentVersion);
+        $this->documentVersions->assertExpected($article->fresh() ?? $article, $expectedDocumentVersion, [
+            'operation' => 'owning_session_write',
+            'editor_session_id' => $sessionId,
+        ]);
 
         return $session;
     }

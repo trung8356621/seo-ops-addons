@@ -5,11 +5,24 @@
  */
 
 import { subscribeEditorNavigation } from '@content-addon/editor/runtime/editorRuntimeNavigation.js';
+import { isMainColumnOnlyPanel } from '@content-addon/editor/runtime/mainColumnPanels.js';
 
 function isProductPostType(postType) {
     const normalized = String(postType ?? '').trim().toLowerCase();
 
     return normalized === 'product' || normalized === 'e-commerce';
+}
+
+function resolveSidebarRailPanel(panelId, previous = 'seo') {
+    const id = String(panelId ?? '').trim();
+    if (id === '' || isMainColumnOnlyPanel(id)) {
+        return previous || 'seo';
+    }
+    if (id === 'cta') {
+        return 'links';
+    }
+
+    return id;
 }
 
 /**
@@ -24,6 +37,11 @@ export function createSeoAssistantNavigator(initial = {}) {
     return {
         /** Read-only mirror for x-show reactivity — SoT is runtime navigation. */
         runtimeActivePanel: 'seo',
+        /**
+         * Sidebar rail visibility SoT. FAQ (main-column) must not clear this,
+         * or SEO / FAQ-schema UI vanishes when Edit FAQ opens.
+         */
+        sidebarRailPanel: 'seo',
         panelFilterActive: true,
         editorPostType: initialPostType,
         supportsProductGalleryUi: initialSupportsGallery,
@@ -38,6 +56,7 @@ export function createSeoAssistantNavigator(initial = {}) {
             this._unsubNav = subscribeEditorNavigation((panelId, meta = {}) => {
                 this.runtimeActivePanel = panelId || '';
                 this.panelFilterActive = true;
+                this.sidebarRailPanel = resolveSidebarRailPanel(panelId, this.sidebarRailPanel);
 
                 // Keep Links section sync for ModuleHost until 6C.2.
                 if (typeof window !== 'undefined' && meta?.source !== 'react_nav') {
@@ -91,7 +110,7 @@ export function createSeoAssistantNavigator(initial = {}) {
                 return true;
             }
 
-            const active = this.runtimeActivePanel;
+            const active = this.sidebarRailPanel || 'seo';
             if (!active) {
                 return false;
             }

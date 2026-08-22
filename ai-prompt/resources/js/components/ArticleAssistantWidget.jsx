@@ -8,6 +8,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
  *   icon?: React.ComponentType<{ size?: number, className?: string, 'aria-hidden'?: boolean }>,
  *   badge?: string|number|null,
  *   defaultCollapsed?: boolean,
+ *   collapsible?: boolean,
  *   className?: string,
  *   children: React.ReactNode,
  * }} props
@@ -18,17 +19,27 @@ export default function ArticleAssistantWidget({
     icon: Icon,
     badge = null,
     defaultCollapsed = false,
+    collapsible = true,
     className = '',
     children,
 }) {
-    const [collapsed, setCollapsed] = useState(defaultCollapsed);
+    const [collapsed, setCollapsed] = useState(() => (
+        collapsible ? Boolean(defaultCollapsed) : false
+    ));
     const [highlighted, setHighlighted] = useState(false);
     const savedExpandedRef = useRef(null);
     const collapsedRef = useRef(collapsed);
+    const bodyCollapsed = collapsible && collapsed;
 
     useEffect(() => {
         collapsedRef.current = collapsed;
     }, [collapsed]);
+
+    useEffect(() => {
+        if (!collapsible && collapsed) {
+            setCollapsed(false);
+        }
+    }, [collapsible, collapsed]);
 
     useEffect(() => {
         if (!widgetId) {
@@ -49,6 +60,11 @@ export default function ArticleAssistantWidget({
             }
 
             if (detail.action !== 'set-collapsed') {
+                return;
+            }
+
+            if (!collapsible) {
+                setCollapsed(false);
                 return;
             }
 
@@ -74,25 +90,29 @@ export default function ArticleAssistantWidget({
         window.addEventListener('seo-assistant-widget-control', onControl);
 
         return () => window.removeEventListener('seo-assistant-widget-control', onControl);
-    }, [widgetId]);
+    }, [widgetId, collapsible]);
 
     return (
         <section
-            className={`seo-assistant-widget ${className}${highlighted ? ' seo-assistant-widget--highlight' : ''}${collapsed ? ' seo-assistant-widget--collapsed' : ''}`.trim()}
+            className={`seo-assistant-widget ${className}${highlighted ? ' seo-assistant-widget--highlight' : ''}${bodyCollapsed ? ' seo-assistant-widget--collapsed' : ''}`.trim()}
             data-assistant-widget-id={widgetId || undefined}
-            data-assistant-collapsed={collapsed ? '1' : '0'}
+            data-assistant-collapsed={bodyCollapsed ? '1' : '0'}
         >
             <header className="seo-assistant-widget__header">
                 <button
                     type="button"
                     className="seo-assistant-widget__toggle"
-                    aria-expanded={!collapsed}
+                    aria-expanded={!bodyCollapsed}
+                    disabled={!collapsible}
                     onClick={() => {
+                        if (!collapsible) {
+                            return;
+                        }
                         savedExpandedRef.current = null;
                         setCollapsed((value) => !value);
                     }}
                 >
-                    {collapsed ? (
+                    {bodyCollapsed ? (
                         <ChevronRight size={16} aria-hidden />
                     ) : (
                         <ChevronDown size={16} aria-hidden />
@@ -104,7 +124,16 @@ export default function ArticleAssistantWidget({
                     ) : null}
                 </button>
             </header>
-            {!collapsed ? <div className="seo-assistant-widget__body">{children}</div> : null}
+            {/*
+              Keep body mounted. Do NOT use the HTML `hidden` attribute — UA
+              `[hidden]{display:none!important}` races panel-filter CSS and blanked Reviews.
+            */}
+            <div
+                className="seo-assistant-widget__body"
+                aria-hidden={bodyCollapsed ? 'true' : undefined}
+            >
+                {children}
+            </div>
         </section>
     );
 }

@@ -3,6 +3,7 @@
  */
 
 import { seoArticleApiFetch } from '@seo-addon/utils/seoArticleApi.js';
+import { acknowledgeDocumentVersion } from './editorDocumentRevision.js';
 
 /** @type {Map<number, { snapshot_version: number, updatedAt: number }>} */
 const snapshotMeta = new Map();
@@ -151,10 +152,20 @@ export async function extractFaqFromSelection(articleId, html, articleHtml = '',
         throw err;
     }
     const snap = data?.faq_snapshot ? rememberFaqSnapshot(articleId, data.faq_snapshot) : null;
+    const nextVersion = Number(
+        data?.document_version
+        ?? snap?.document_version
+        ?? 0,
+    );
+    if (Number.isFinite(nextVersion) && nextVersion > 0) {
+        acknowledgeDocumentVersion(nextVersion, { source: 'faq_extract' });
+        window.__seoEditorSessionClient?.setDocumentVersion?.(nextVersion, { source: 'faq_extract' });
+    }
     return {
         faqs: Array.isArray(data?.faqs) ? data.faqs : itemsFromFaqSnapshot(snap),
         editor_html: String(data?.editor_html ?? ''),
         faq_snapshot: snap,
+        document_version: nextVersion || null,
     };
 }
 
@@ -185,9 +196,19 @@ export async function applyFaqSnapshot(articleId, items, editorHtml = '', { sign
         throw err;
     }
     const snap = rememberFaqSnapshot(articleId, data?.faq_snapshot);
+    const nextVersion = Number(
+        data?.document_version
+        ?? snap?.document_version
+        ?? 0,
+    );
+    if (Number.isFinite(nextVersion) && nextVersion > 0) {
+        acknowledgeDocumentVersion(nextVersion, { source: 'faq_apply' });
+        window.__seoEditorSessionClient?.setDocumentVersion?.(nextVersion, { source: 'faq_apply' });
+    }
     return {
         faq_snapshot: snap,
         editor_html: String(data?.editor_html ?? ''),
+        document_version: nextVersion || null,
     };
 }
 

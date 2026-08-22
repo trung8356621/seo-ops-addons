@@ -186,8 +186,10 @@ final class AiCenterTextTaxonomyFreeRoutingTest extends TestCase
         ]);
         (new AiModelPrimaryTypeClassifier())->classifyConnection($connection);
         $long->refresh();
-        $this->assertTrue($this->priorities->isAreaEnabled($long, AiModelArea::TextLongform, $connection));
+        // Free inventory is classified but not auto-enabled onto the route.
+        $this->assertFalse($this->priorities->isAreaEnabled($long, AiModelArea::TextLongform, $connection));
         $this->assertFalse($this->priorities->isAreaEnabled($long, AiModelArea::TextFast, $connection));
+        $this->assertSame(AiModelArea::TextLongform->value, $long->capabilities[AiModelArea::PRIMARY_TYPE_KEY] ?? null);
         $this->assertSame(AiModelArea::SOURCE_AUTO, $long->capabilities[AiModelArea::PRIMARY_TYPE_SOURCE_KEY] ?? null);
     }
 
@@ -226,7 +228,7 @@ final class AiCenterTextTaxonomyFreeRoutingTest extends TestCase
         $this->assertTrue((bool) $embed->is_hidden);
     }
 
-    public function test_default_policy_does_not_prepend_free_on_automatic(): void
+    public function test_default_policy_preserves_manual_order_including_free(): void
     {
         $connection = $this->openRouter(27);
         $free = $this->orModel($connection, 'nvidia/nemotron-3-super-free', [
@@ -248,7 +250,7 @@ final class AiCenterTextTaxonomyFreeRoutingTest extends TestCase
             new AiRoutingContext(userId: 27, costPolicy: AiCostPolicy::Default),
         );
         $models = array_map(static fn ($c): string => $c->model, $resolved);
-        $this->assertSame(['anthropic/claude-sonnet-4.6'], $models);
+        $this->assertSame(['nvidia/nemotron-3-super-free', 'anthropic/claude-sonnet-4.6'], $models);
     }
 
     public function test_free_only_skips_paid_and_falls_through_free_pool(): void

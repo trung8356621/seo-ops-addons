@@ -11133,14 +11133,30 @@ section[data-seo-section-id].is-outline-jump-highlight {
     flex-shrink: 0;
     display: flex;
     flex-direction: column;
-    gap: 0.45rem;
-    min-height: 3.5rem;
-    margin-bottom: 0.65rem;
+    margin-bottom: 0;
     padding: 0.5rem 0.55rem;
     border: 1px solid #e5e7eb;
     border-radius: 12px;
     background: #fff;
     box-shadow: 0 4px 14px rgba(15, 23, 42, 0.08);
+}
+
+/* Portal mount wrappers must not invent extra boxes in the flex column. */
+.seo-assistant-dock-react-root {
+    flex-shrink: 0;
+    display: contents;
+}
+
+/* Dead mount leftover from removed dock search — never paint a card chrome. */
+.seo-assistant-sidebar-panel-root,
+#article-editor-sidebar-panel-root {
+    display: none !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    min-height: 0 !important;
+    height: 0 !important;
+    overflow: hidden !important;
 }
 
 @media (min-width: 1024px) {
@@ -11157,21 +11173,6 @@ section[data-seo-section-id].is-outline-jump-highlight {
 
 .seo-assistant-widget-layer {
     width: 100%;
-}
-
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot {
-    border: 1px solid #e5e7eb;
-    border-radius: 12px;
-    background: #fff;
-    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
-    overflow: hidden;
-    animation: seo-assistant-panel-fade-in 0.15s ease;
-}
-
-.dark .seo-assistant-host.is-panel-filter .seo-assistant-panel-slot {
-    border-color: rgb(55 65 81);
-    background: rgb(17 24 39);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
 }
 
 @keyframes seo-assistant-panel-fade-in {
@@ -11203,6 +11204,12 @@ section[data-seo-section-id].is-outline-jump-highlight {
 
 .seo-assistant-host.is-panel-filter {
     --seo-assistant-filter-panel-max: min(32rem, calc(100dvh - var(--wp-article-sidebar-top, 4.75rem) - 8.5rem));
+    /* Kill Tailwind space-y margins that break the flex height chain / invent gaps. */
+    gap: 0.65rem;
+}
+
+.seo-assistant-host.is-panel-filter.space-y-3 > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 0 !important;
 }
 
 .seo-assistant-host.is-panel-filter .seo-assistant-widget-layer {
@@ -11211,94 +11218,98 @@ section[data-seo-section-id].is-outline-jump-highlight {
     display: flex;
     flex-direction: column;
     overflow: hidden;
+    gap: 0;
 }
 
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="seo"],
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="images"],
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="links"],
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="vocabulary"],
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="faq"],
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="publishing"],
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="article"] {
-    flex: 1 1 auto;
-    min-height: 0;
-    max-height: var(--seo-assistant-filter-panel-max);
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
+.seo-assistant-host.is-panel-filter .seo-assistant-widget-layer.space-y-3 > :not([hidden]) ~ :not([hidden]) {
+    margin-top: 0 !important;
 }
 
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="seo"] #seo-article-seo-assistant-root,
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="images"] #seo-article-image-assistant-root,
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="links"] #seo-article-links-root,
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="vocabulary"] #seo-article-vocabulary-root {
-    flex: 1 1 auto;
-    min-height: 0;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="seo"] .seo-assistant-widget--seo,
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="images"] .seo-assistant-widget--images,
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="links"] .seo-assistant-widget--links,
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="vocabulary"] .seo-assistant-widget--vocabulary,
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="publishing"] > .seo-assistant-widget--publishing {
+/*
+ * Shared panel scroll contract (slot owns overflow).
+ * Do NOT force height:100% on inner widgets — that created a large empty white
+ * region above SEO content. Children size to content; the active slot scrolls.
+ */
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active {
     flex: 1 1 auto;
     min-height: 0;
     max-height: 100%;
-    height: 100%;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="seo"] .seo-assistant-widget--seo > .seo-assistant-widget__body,
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="images"] .seo-assistant-widget--images > .seo-assistant-widget__body,
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="links"] .seo-assistant-widget--links > .seo-assistant-widget__body,
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="publishing"] > .seo-assistant-widget--publishing > .seo-assistant-widget__body {
-    flex: 1 1 auto;
-    min-height: 0;
-    max-height: var(--seo-assistant-filter-panel-max);
+    display: block;
     overflow-x: hidden;
     overflow-y: auto;
     overscroll-behavior: contain;
     -webkit-overflow-scrolling: touch;
     scrollbar-width: thin;
     scrollbar-color: #94a3b8 #e5e7eb;
+    border: 1px solid #e5e7eb;
+    border-radius: 12px;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+    animation: seo-assistant-panel-fade-in 0.15s ease;
 }
 
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="seo"] .seo-score-panel,
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="seo"] .seo-assistant-score {
+.dark .seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active {
+    border-color: rgb(55 65 81);
+    background: rgb(17 24 39);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+}
+
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active .seo-assistant-widget {
+    height: auto;
+    max-height: none;
+    border: 0;
+    border-radius: 0;
+    box-shadow: none;
+    background: transparent;
+    overflow: visible;
+}
+
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active .seo-assistant-widget > .seo-assistant-widget__body {
+    flex: none;
+    min-height: 0;
+    max-height: none;
+    overflow: visible;
+}
+
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-panel-root="seo"] .seo-score-panel,
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-panel-root="seo"] .seo-assistant-score {
     overflow-x: hidden;
 }
 
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="seo"] .seo-assistant-score__issue-label,
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="seo"] .seo-assistant-score__passed-label,
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="seo"] .seo-assistant-score__all-passed,
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="seo"] .seo-assistant-score__hint {
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-panel-root="seo"] .seo-assistant-score__issue-label,
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-panel-root="seo"] .seo-assistant-score__passed-label,
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-panel-root="seo"] .seo-assistant-score__all-passed,
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-panel-root="seo"] .seo-assistant-score__hint {
     overflow-wrap: anywhere;
     word-break: break-word;
 }
 
-/* Vocabulary keeps ONE internal scroll on .wp-article-vocabulary-scroll (not the widget body). */
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="vocabulary"] .seo-assistant-widget--vocabulary > .seo-assistant-widget__body {
+/* Vocabulary keeps ONE internal scroll on .wp-article-vocabulary-scroll (not the slot). */
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-panel-root="vocabulary"] {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-panel-root="vocabulary"] .seo-assistant-widget--vocabulary > .seo-assistant-widget__body {
     display: flex !important;
     flex-direction: column;
     flex: 1 1 auto;
     min-height: 0;
-    max-height: var(--seo-assistant-filter-panel-max);
     overflow: hidden;
     overscroll-behavior: contain;
 }
 
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="vocabulary"] .wp-article-vocabulary-scroll {
-    max-height: calc(var(--seo-assistant-filter-panel-max) - 3.25rem);
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-panel-root="vocabulary"] .wp-article-vocabulary-scroll {
+    flex: 1 1 auto;
+    min-height: 0;
+    max-height: none;
+    overflow-y: auto;
 }
 
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="vocabulary"] #seo-article-vocabulary-root > *,
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="vocabulary"] .seo-assistant-widget--vocabulary,
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="vocabulary"] .wp-article-vocabulary-panel-shell {
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-panel-root="vocabulary"] #seo-article-vocabulary-root > *,
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-panel-root="vocabulary"] .seo-assistant-widget--vocabulary,
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-panel-root="vocabulary"] .wp-article-vocabulary-panel-shell {
     flex: 1 1 auto;
     min-height: 0;
     height: 100%;
@@ -11316,7 +11327,7 @@ section[data-seo-section-id].is-outline-jump-highlight {
     overflow: hidden;
 }
 
-.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-widget-id="images"] .seo-article-images-list {
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-panel-root="images"] .seo-article-images-list {
     max-height: none;
     overflow-y: visible;
 }
@@ -11348,102 +11359,6 @@ section[data-seo-section-id].is-outline-jump-highlight {
     overflow: visible;
     scroll-margin-top: 0;
     box-shadow: none;
-}
-
-.seo-assistant-dock__search-wrap {
-    position: relative;
-}
-
-.seo-assistant-dock__search {
-    display: flex;
-    align-items: center;
-    gap: 0.4rem;
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    background: #f9fafb;
-    padding: 0.35rem 0.55rem;
-}
-
-.dark .seo-assistant-dock__search {
-    border-color: rgb(55 65 81);
-    background: rgb(31 41 55);
-}
-
-.seo-assistant-dock__search-icon {
-    width: 0.95rem;
-    height: 0.95rem;
-    flex-shrink: 0;
-    color: #94a3b8;
-}
-
-.seo-assistant-dock__search-input {
-    width: 100%;
-    border: 0;
-    background: transparent;
-    font-size: 0.8125rem;
-    line-height: 1.25rem;
-    color: #111827;
-    outline: none;
-}
-
-.seo-assistant-dock__search-input::placeholder {
-    color: #94a3b8;
-}
-
-.dark .seo-assistant-dock__search-input {
-    color: #f9fafb;
-}
-
-.seo-assistant-dock__search-input:focus {
-    outline: none;
-    box-shadow: none;
-}
-
-.seo-assistant-dock__dropdown {
-    position: absolute;
-    top: calc(100% + 0.25rem);
-    left: 0;
-    right: 0;
-    z-index: 40;
-    max-height: 12rem;
-    overflow-y: auto;
-    border: 1px solid #e5e7eb;
-    border-radius: 10px;
-    background: #fff;
-    box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
-}
-
-.dark .seo-assistant-dock__dropdown {
-    border-color: rgb(55 65 81);
-    background: rgb(17 24 39);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-}
-
-.seo-assistant-dock__dropdown-item {
-    display: block;
-    width: 100%;
-    padding: 0.45rem 0.65rem;
-    text-align: left;
-    font-size: 0.8125rem;
-    color: #334155;
-    background: transparent;
-    transition: background 0.15s ease;
-}
-
-.seo-assistant-dock__dropdown-item:hover,
-.seo-assistant-dock__dropdown-item.is-active {
-    background: #f1f5f9;
-    color: #0f172a;
-}
-
-.dark .seo-assistant-dock__dropdown-item {
-    color: #e2e8f0;
-}
-
-.dark .seo-assistant-dock__dropdown-item:hover,
-.dark .seo-assistant-dock__dropdown-item.is-active {
-    background: rgb(31 41 55);
-    color: #f8fafc;
 }
 
 .seo-assistant-dock__tabs {
@@ -11552,36 +11467,36 @@ section[data-seo-section-id].is-outline-jump-highlight {
     to { transform: rotate(360deg); }
 }
 
-.seo-assistant-dock__tab.is-status-warning .seo-assistant-dock__tab-issue {
+/*
+ * Health/error must NOT paint chip chrome like .is-active (filled bg + border).
+ * Error/warning: indicator only (dot + issue badge). Selection stays .is-active alone.
+ */
+.seo-assistant-dock__tab.is-status-error .seo-assistant-dock__tab-dot {
+    background: #dc2626;
+}
+
+.seo-assistant-dock__tab.is-status-warning .seo-assistant-dock__tab-dot {
     background: #d97706;
 }
 
-.seo-assistant-dock__tab.is-status-error {
-    color: #b91c1c;
-    border-color: #fecaca;
-    background: #fff7f7;
-}
-
-.seo-assistant-dock__tab.is-status-warning {
-    color: #b45309;
-    border-color: #fde68a;
-    background: #fffbeb;
+.seo-assistant-dock__tab.is-status-warning .seo-assistant-dock__tab-issue {
+    background: #d97706;
 }
 
 .seo-assistant-dock__tab.is-status-success .seo-assistant-dock__tab-label {
     color: #047857;
 }
 
-.dark .seo-assistant-dock__tab.is-status-error {
-    color: #fca5a5;
-    border-color: rgba(248, 113, 113, 0.45);
-    background: rgba(127, 29, 29, 0.35);
+.dark .seo-assistant-dock__tab.is-status-error .seo-assistant-dock__tab-dot {
+    background: #f87171;
 }
 
-.dark .seo-assistant-dock__tab.is-status-warning {
-    color: #fcd34d;
-    border-color: rgba(245, 158, 11, 0.45);
-    background: rgba(120, 53, 15, 0.35);
+.dark .seo-assistant-dock__tab.is-status-warning .seo-assistant-dock__tab-dot {
+    background: #fbbf24;
+}
+
+.dark .seo-assistant-dock__tab.is-status-warning .seo-assistant-dock__tab-issue {
+    background: #d97706;
 }
 
 .seo-assistant-score__issue-detail {
@@ -11701,6 +11616,22 @@ section[data-seo-section-id].is-outline-jump-highlight {
 .seo-assistant-widget--collapsed > .seo-assistant-widget__body,
 .seo-assistant-widget--collapsed .seo-assistant-widget__body {
     display: none !important;
+}
+
+/* Panel-filter must win over collapsed hide + UA [hidden] — Reviews blanked when
+ * body stayed mounted but later collapsed rules / hidden attr won the cascade. */
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active .seo-assistant-widget__body,
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active .seo-assistant-widget__body[hidden],
+.seo-assistant-host.is-panel-filter .seo-assistant-widget:not(.seo-assistant-widget--collapsed) > .seo-assistant-widget__body {
+    display: block !important;
+    visibility: visible !important;
+}
+
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-panel-root="reviews"] #seo-article-reviews-assistant-root,
+.seo-assistant-host.is-panel-filter .seo-assistant-panel-slot.is-active[data-assistant-panel-root="reviews"] .seo-reviews-tab {
+    display: block !important;
+    visibility: visible !important;
+    min-height: 3rem;
 }
 
 .seo-assistant-widget--collapsed .seo-assistant-widget__header {

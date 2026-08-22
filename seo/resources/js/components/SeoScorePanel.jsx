@@ -100,17 +100,18 @@ export default function SeoScorePanel({
         );
     }
 
+    const metrics = analysis?.metrics ?? {};
     const violations = sanitizeViolations(
         Array.isArray(analysis?.violations) ? analysis.violations : [],
         rules,
+        metrics,
     );
     const messages = Object.keys(seoRuleMessages).length > 0 ? seoRuleMessages : (analysis?.messages ?? {});
 
-    const score = scoreFromViolations(violations, rules);
-    const metrics = analysis?.metrics ?? {};
+    const score = scoreFromViolations(violations, rules, metrics);
     const locale = String(document?.documentElement?.lang ?? 'vi').startsWith('en') ? 'en' : 'vi';
     const failedItems = buildFailedViolationItems(violations, rules, messages, metrics, locale);
-    const passedItems = buildPassedRuleItems(violations, rules, messages);
+    const passedItems = buildPassedRuleItems(violations, rules, messages, metrics);
     const quality = scoreQualityLabel(score);
     const saved = savedScore === null || savedScore === undefined ? null : Number(savedScore);
     const showSavedDiff = Number.isFinite(saved) && saved !== score;

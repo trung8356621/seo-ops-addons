@@ -109,13 +109,24 @@ final class ArticleProductReviewStatusController extends Controller
             ]),
         );
 
+        $status = $this->statusService->statusForArticle(
+            $article->fresh() ?? $article,
+            $reviewSettings,
+        );
+
+        $failed = is_array($result['failed'] ?? null) ? $result['failed'] : [];
+        if ($failed !== []) {
+            $status['warning'] = sprintf(
+                'Đồng bộ một phần: %d review thất bại — local vẫn giữ để thử lại.',
+                count($failed),
+            );
+            $status['sync_failed_count'] = count($failed);
+        }
+
         return response()->json([
             'success' => ($result['status'] ?? '') !== 'failed',
             'data' => $result,
-            'status' => $this->statusService->statusForArticle(
-                $article->fresh() ?? $article,
-                $reviewSettings,
-            ),
+            'status' => $status,
         ]);
     }
 }

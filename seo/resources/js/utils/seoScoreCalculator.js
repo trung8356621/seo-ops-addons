@@ -24,6 +24,7 @@ const DEFAULT_KNOWN_VIOLATION_KEYS = new Set([
     'image_alt_missing',
     'wiki_trust_missing',
     'faq_missing',
+    'faq_schema_missing',
     'keyword_missing_in_title',
     'keyword_missing_in_meta',
     'keyword_missing_in_slug',
@@ -36,12 +37,21 @@ const DEFAULT_KNOWN_VIOLATION_KEYS = new Set([
 function resolveKnownViolationKeys(rules = []) {
     const map = rulesMap(rules);
     if (map.size > 0) {
-        return new Set([...map.keys()]);
+        const keys = new Set([...map.keys()]);
+        // Semantic split of FAQ content vs schema — keep visible when FAQ rule exists.
+        if (keys.has('faq_missing')) {
+            keys.add('faq_schema_missing');
+        }
+        return keys;
     }
 
     const fromWindow = rulesMap(window.__SEO_SCORING_RULES__ ?? []);
     if (fromWindow.size > 0) {
-        return new Set([...fromWindow.keys()]);
+        const keys = new Set([...fromWindow.keys()]);
+        if (keys.has('faq_missing')) {
+            keys.add('faq_schema_missing');
+        }
+        return keys;
     }
 
     return DEFAULT_KNOWN_VIOLATION_KEYS;
@@ -80,35 +90,83 @@ export function normalizeViolationKey(key) {
     return null;
 }
 
-export function sanitizeViolations(violations = [], rules = []) {
-    const knownKeys = resolveKnownViolationKeys(rules);
+/**
+ * When FAQ questions/content exist, never keep a bare `faq_missing` key —
+ * upgrade to `faq_schema_missing` so UI does not say "no FAQ data".
+ *
+ * @param {string[]} keys
+ * @param {Record<string, unknown>} [metrics]
+ * @returns {string[]}
+ */
+export function refineFaqViolationKeys(keys = [], metrics = {}) {
+    const faq = metrics?.faq && typeof metrics.faq === 'object' ? metrics.faq : {};
+    const count = Number(
+        faq.faq_question_count
+        ?? metrics?.faq_question_count
+        ?? metrics?.count
+        ?? 0,
+    );
+    const hasContent = faq.has_faq_content === true
+        || (Number.isFinite(count) && count > 0);
+
+    if (!hasContent) {
+        return keys;
+    }
 
     return [...new Set(
+        keys.map((key) => (key === 'faq_missing' ? 'faq_schema_missing' : key)),
+    )];
+}
+
+export function sanitizeViolations(violations = [], rules = [], metrics = {}) {
+    const knownKeys = resolveKnownViolationKeys(rules);
+
+    const normalized = [...new Set(
         (Array.isArray(violations) ? violations : [])
             .map((key) => normalizeViolationKey(key))
             .filter((key) => key !== null && knownKeys.has(key)),
     )];
+
+    return refineFaqViolationKeys(normalized, metrics);
 }
 
 export function isRuleEnabled(key, rules = []) {
-    const rule = rulesMap(rules).get(String(key));
+    const normalized = String(key);
+    if (normalized === 'faq_schema_missing') {
+        // Enabled whenever the FAQ rule is enabled (semantic sibling).
+        return isRuleEnabled('faq_missing', rules);
+    }
+    const rule = rulesMap(rules).get(normalized);
 
     return rule?.enabled !== false;
 }
 
 export function deductionFor(key, rules = []) {
-    if (!isRuleEnabled(key, rules)) {
+    const normalized = String(key);
+    if (normalized === 'faq_schema_missing') {
+        if (!isRuleEnabled('faq_missing', rules)) {
+            return 0;
+        }
+        const map = rulesMap(rules);
+        const schemaRule = map.get('faq_schema_missing');
+        if (schemaRule) {
+            return Number(schemaRule?.deduction ?? 0);
+        }
+        return Number(map.get('faq_missing')?.deduction ?? 10);
+    }
+
+    if (!isRuleEnabled(normalized, rules)) {
         return 0;
     }
 
     const map = rulesMap(rules);
-    const rule = map.get(String(key));
+    const rule = map.get(normalized);
 
     return Number(rule?.deduction ?? 0);
 }
 
-export function scoreFromViolations(violations = [], rules = []) {
-    const list = sanitizeViolations(violations, rules);
+export function scoreFromViolations(violations = [], rules = [], metrics = {}) {
+    const list = sanitizeViolations(violations, rules, metrics);
 
     if (
         list.includes('missing_focus_keyword')
@@ -137,6 +195,14 @@ function metricsForViolationKey(key, metrics = {}) {
         || normalized === 'image_ratio_suboptimal'
     ) {
         return metrics?.image_ratio ?? metrics?.imageRatio ?? {};
+    }
+    if (normalized === 'faq_missing' || normalized === 'faq_schema_missing') {
+        const faq = metrics?.faq && typeof metrics.faq === 'object' ? metrics.faq : {};
+        return {
+            ...faq,
+            faq_question_count: faq.faq_question_count ?? metrics?.faq_question_count ?? 0,
+            count: faq.faq_question_count ?? metrics?.faq_question_count ?? 0,
+        };
     }
 
     return {};
@@ -175,13 +241,13 @@ export function formatViolationLine(key, rules = [], messages = {}, metrics = {}
 }
 
 export function buildViolationLines(violations = [], rules = [], messages = {}, metrics = {}, locale = 'vi') {
-    return sanitizeViolations(violations, rules)
+    return sanitizeViolations(violations, rules, metrics)
         .map((key) => formatViolationLine(key, rules, messages, metrics, locale))
         .filter((line) => line !== null);
 }
 
 export function buildFailedViolationItems(violations = [], rules = [], messages = {}, metrics = {}, locale = 'vi') {
-    return sanitizeViolations(violations, rules)
+    return sanitizeViolations(violations, rules, metrics)
         .map((key) => {
             if (!isRuleEnabled(key, rules)) {
                 return null;
@@ -210,8 +276,8 @@ export function buildFailedViolationItems(violations = [], rules = [], messages 
         .filter((item) => item !== null);
 }
 
-export function buildPassedRuleItems(violations = [], rules = [], messages = {}) {
-    const failedKeys = new Set(sanitizeViolations(violations, rules));
+export function buildPassedRuleItems(violations = [], rules = [], messages = {}, metrics = {}) {
+    const failedKeys = new Set(sanitizeViolations(violations, rules, metrics));
     const list = Array.isArray(rules) ? rules : [];
     const enabledRules = list.filter((rule) => rule?.enabled !== false && rule?.key);
     const enabledKeySet = new Set(enabledRules.map((rule) => String(rule.key)));

@@ -97,9 +97,9 @@ final class AiModelRouterService
         AiRoutingContext $context,
         callable $executor,
     ): array {
+        $parsed = AiExecutionProfile::tryFrom($profile);
         $candidates = $this->resolveAll($profile, $context);
         if ($candidates === []) {
-            $parsed = AiExecutionProfile::tryFrom($profile);
             $capability = $parsed?->requiredCapabilityKeys()[0] ?? 'text.generate';
             throw AiRoutingException::noCandidate($profile, $capability);
         }
@@ -107,8 +107,20 @@ final class AiModelRouterService
         $fallbackCount = 0;
         $reasons = [];
         $lastException = null;
+        $routeRevision = null;
+        if ($parsed !== null) {
+            try {
+                if (function_exists('app')) {
+                    $routeRevision = app(CanonicalAiRouteResolver::class)
+                        ->routeRevision($context->userId ?? 0, $parsed);
+                }
+            } catch (\Throwable) {
+                $routeRevision = null;
+            }
+        }
 
         foreach ($candidates as $index => $candidate) {
+            $attemptNumber = $index + 1;
             try {
                 [$output, $usage] = $executor($candidate);
 
@@ -122,15 +134,15 @@ final class AiModelRouterService
                 }
 
                 $fallbackCount++;
-                $reasons[] = 'priority '.$candidate->priority.' '.$candidate->provider.'/'.$candidate->model.': '.$exception->getMessage();
-                logger()->warning('AI routing infrastructure fallback', [
-                    'profile' => $profile,
-                    'priority' => $candidate->priority,
-                    'provider' => $candidate->provider,
-                    'model' => $candidate->model,
-                    'error' => $exception->getMessage(),
-                    'next' => isset($candidates[$index + 1]),
-                ]);
+                $reasons[] = 'position '.$candidate->priority.' attempt '.$attemptNumber.' '
+                    .$candidate->provider.'/'.$candidate->model.': '.$exception->getMessage();
+                logger()->warning('AI routing infrastructure fallback', array_merge(
+                    $candidate->toAttemptLogContext($attemptNumber, $routeRevision),
+                    [
+                        'error' => $exception->getMessage(),
+                        'next' => isset($candidates[$index + 1]),
+                    ],
+                ));
 
                 if ($candidate->seoAiModelId !== null) {
                     if ($this->isQuotaOrRateLimitError($exception->getMessage())) {

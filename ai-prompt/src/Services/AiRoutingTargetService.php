@@ -145,16 +145,41 @@ final class AiRoutingTargetService
     }
 
     /**
+     * Executable route for a profile.
+     *
+     * Source of truth: Models capability-area order ({@see liveCompatibleCandidates}).
+     * Optional Custom membership filter narrows the set; never reorders.
+     * FreeOnly keeps free entries already on that route (same order).
+     *
      * @return list<RoutedAiCandidate>
      */
     public function eligibleCandidates(int $userId, AiExecutionProfile $profile, AiRoutingContext $context): array
     {
+        $canonical = $this->applyMembershipFilter(
+            $this->liveCompatibleCandidates($userId, $profile),
+            $userId,
+            $profile,
+            $context,
+        );
+
         $policy = $context->costPolicy ?? AiCostPolicyScope::current();
-        $live = $this->liveCompatibleCandidates($userId, $profile);
         if (! $profile->isMedia() && $policy === AiCostPolicy::FreeOnly) {
-            return (new FreeRoutingResolver())->resolve($live);
+            return (new FreeRoutingResolver())->resolve($canonical);
         }
 
+        return $canonical;
+    }
+
+    /**
+     * @param  list<RoutedAiCandidate>  $candidates
+     * @return list<RoutedAiCandidate>
+     */
+    private function applyMembershipFilter(
+        array $candidates,
+        int $userId,
+        AiExecutionProfile $profile,
+        AiRoutingContext $context,
+    ): array {
         $settings = $this->profileSettings($userId, $profile);
         $execAllowed = is_array($settings['allowed_execution_keys'] ?? null)
             ? array_values(array_filter(
@@ -163,8 +188,12 @@ final class AiRoutingTargetService
             ))
             : [];
         $allowed = $context->allowedFamilyKeys ?? $this->normalizedAllowedFamilies($settings);
+        if ($execAllowed === [] && $allowed === []) {
+            return $candidates;
+        }
+
         $out = [];
-        foreach ($live as $candidate) {
+        foreach ($candidates as $candidate) {
             $family = $this->families->familyForModelId($candidate->model)
                 ?? $this->families->aggregatorFamily($candidate->model);
             if ($family === null) {
@@ -178,13 +207,10 @@ final class AiRoutingTargetService
             if ($execAllowed === [] && $allowed !== [] && ! in_array($family->familyKey, $allowed, true)) {
                 continue;
             }
-            if ($execAllowed === [] && $candidate->isFree) {
-                continue;
-            }
             $out[] = $candidate;
         }
 
-        return $this->rankCandidates(array_values($out));
+        return array_values($out);
     }
 
     /**

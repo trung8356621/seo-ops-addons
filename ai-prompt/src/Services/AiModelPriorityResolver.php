@@ -12,11 +12,13 @@ use Omnichannel\Addons\AiPrompt\Support\AiModelArea;
 /**
  * Canonical Automatic/Custom candidate sequence for a profile.
  * Image hard rules stay in ImageRoutingStrategy (media); this only orders eligible targets.
+ *
+ * @deprecated Prefer {@see CanonicalAiRouteResolver}
  */
 final class AiModelPriorityResolver
 {
     public function __construct(
-        private readonly AiRoutingTargetService $targets,
+        private readonly CanonicalAiRouteResolver $canonical,
     ) {}
 
     /**
@@ -26,11 +28,11 @@ final class AiModelPriorityResolver
     {
         unset($userId);
 
-        return $this->targets->eligibleCandidates($context->userId ?? 0, $profile, $context);
+        return $this->canonical->resolveExecutable($context->userId ?? 0, $profile, $context);
     }
 
     public function areaFor(AiExecutionProfile $profile): AiModelArea
     {
-        return AiModelArea::fromProfile($profile);
+        return $this->canonical->areaFor($profile);
     }
 }

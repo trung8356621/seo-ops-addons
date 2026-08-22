@@ -133,7 +133,7 @@ final class ArticleEditorFalseVersionConflictRegressionTest extends TestCase
         $client = $this->js('utils/editorSessionClient.js');
         self::assertStringContainsString('expected_content_hash: ackHash', $client);
         self::assertStringContainsString('__SEO_EDITOR_DOCUMENT_VERSION__', $client);
-        self::assertStringContainsString('expected_document_version: this.documentVersion', $client);
+        self::assertStringContainsString('expected_document_version: confirmed', $client);
     }
 
     public function test_explicit_save_waits_inflight_rebuilds_payload_and_does_not_reload(): void
@@ -196,10 +196,8 @@ final class ArticleEditorFalseVersionConflictRegressionTest extends TestCase
     public function test_acquire_syncs_window_document_version(): void
     {
         $boot = $this->js('article-editor.jsx');
-        self::assertStringContainsString(
-            'window.__SEO_EDITOR_DOCUMENT_VERSION__ = Math.max(1, Number(client.documentVersion)',
-            $boot,
-        );
+        self::assertStringContainsString('bindEditorDocumentRevision(articleId, client.documentVersion)', $boot);
+        self::assertStringContainsString('bindEditorDocumentRevision(articleId, documentVersion)', $boot);
         self::assertStringContainsString('client.acquire(documentVersion)', $boot);
     }
 
@@ -213,10 +211,92 @@ final class ArticleEditorFalseVersionConflictRegressionTest extends TestCase
         self::assertStringNotContainsString('writeArticleRow', $heartbeat);
 
         $client = $this->js('utils/editorSessionClient.js');
-        // Client may sync version FROM lease renew response; it must not PUT a version bump.
         self::assertStringContainsString('/edit-lease/${this.sessionId}', $client);
         self::assertStringNotContainsString('/heartbeat', $client);
         self::assertStringContainsString('body: JSON.stringify({})', $client);
+        self::assertStringContainsString('observeServerDocumentVersion(data.document_version', $client);
+        self::assertStringContainsString("source: 'lease_renew'", $client);
+        $renewPos = strpos($client, 'async renewLeaseOnce()');
+        self::assertNotFalse($renewPos);
+        $renewSlice = substr($client, $renewPos, 1800);
+        self::assertStringNotContainsString('this.setDocumentVersion(data.document_version)', $renewSlice);
+    }
+
+    public function test_client_revision_apply_is_monotonic_and_stamps_confirmed_base(): void
+    {
+        $revision = $this->js('utils/editorDocumentRevision.js');
+        self::assertStringContainsString('export function acknowledgeDocumentVersion', $revision);
+        self::assertStringContainsString('export function observeServerDocumentVersion', $revision);
+        self::assertStringContainsString('export function stampExpectedDocumentVersion', $revision);
+        self::assertStringContainsString('stale_ack_ignored', $revision);
+        self::assertStringContainsString('external_version_observed', $revision);
+        self::assertStringContainsString('incoming < current', $revision);
+
+        $queue = $this->js('utils/articleEditorSaveQueue.js');
+        self::assertStringContainsString('stampExpectedDocumentVersion(payload)', $queue);
+
+        $api = $this->js('utils/articleEditorApi.js');
+        self::assertStringContainsString('acknowledgeDocumentVersion(version', $api);
+        self::assertStringContainsString('if (stale)', $api);
+        self::assertStringContainsString('stale_save_ack_hashes_skipped', $api);
+
+        $sessionState = $this->js('utils/editorSessionState.js');
+        self::assertStringContainsString('articleChanged', $sessionState);
+        self::assertStringContainsString('Math.max(lastState.document_version, incomingVersion)', $sessionState);
+    }
+
+    public function test_conflict_log_includes_session_operation_and_request_id(): void
+    {
+        $assert = $this->methodSource(new ReflectionMethod(ArticleDocumentVersionService::class, 'assertExpected'));
+        self::assertStringContainsString('base_revision', $assert);
+        self::assertStringContainsString('server_revision', $assert);
+        self::assertStringContainsString('editor_session_id', $assert);
+        self::assertStringContainsString('operation', $assert);
+        self::assertStringContainsString('request_id', $assert);
+        self::assertStringContainsString('last_bump', $assert);
+
+        $resolve = $this->methodSource(new ReflectionMethod(ArticleDocumentVersionService::class, 'resolveRequestId'));
+        self::assertStringContainsString('X-Editor-Save-Request-Id', $resolve);
+    }
+
+    public function test_faq_document_mutations_return_document_version(): void
+    {
+        $apply = $this->methodSource(new ReflectionMethod(
+            \Omnichannel\Addons\Content\Http\Controllers\ArticleEditorFaqSnapshotController::class,
+            'apply',
+        ));
+        self::assertStringContainsString("'document_version'", $apply);
+        $extract = $this->methodSource(new ReflectionMethod(
+            \Omnichannel\Addons\Content\Http\Controllers\ArticleEditorFaqSnapshotController::class,
+            'extract',
+        ));
+        self::assertStringContainsString("'document_version'", $extract);
+
+        $faqJs = $this->js('utils/articleEditorFaqSnapshot.js');
+        self::assertStringContainsString("source: 'faq_apply'", $faqJs);
+        self::assertStringContainsString("source: 'faq_extract'", $faqJs);
+        self::assertStringContainsString('acknowledgeDocumentVersion(nextVersion', $faqJs);
+    }
+
+    public function test_autosave_conflict_keeps_local_recovery_draft(): void
+    {
+        $queue = $this->js('hooks/useArticleEditorSaveQueue.js');
+        $conflictPos = strpos($queue, 'SAVE_FAILURE.REVISION_CONFLICT');
+        self::assertNotFalse($conflictPos);
+        self::assertStringContainsString('persistLocalRecoverySnapshot', $queue);
+        self::assertStringContainsString("setSaveStatus('conflict')", $queue);
+        $api = $this->js('utils/articleEditorApi.js');
+        self::assertStringContainsString("title: 'Xung đột khi lưu'", $api);
+        self::assertStringContainsString('seo-article-save-conflict', $api);
+    }
+
+    public function test_session_client_save_sends_request_id_and_max_expected_version(): void
+    {
+        $client = $this->js('utils/editorSessionClient.js');
+        self::assertStringContainsString('X-Editor-Save-Request-Id', $client);
+        self::assertStringContainsString('client_request_id: requestId', $client);
+        self::assertStringContainsString('Number(bundle?.expected_document_version)', $client);
+        self::assertStringContainsString('document_version_conflict', $client);
     }
 
     public function test_autosave_uses_apply_editor_document_ack(): void

@@ -76,11 +76,32 @@ final class LegacyProductReviewStateNormalizer
             ? $review->status
             : ArticleProductReviewStatus::tryFrom((string) $review->status);
 
+        // Canonical lifecycle (pending / syncing / reviewed / failed) must never be
+        // rewritten into legacy PendingPublish — that zeroed editor pending counters.
+        $canonical = [
+            ArticleProductReviewStatus::Pending,
+            ArticleProductReviewStatus::Syncing,
+            ArticleProductReviewStatus::Reviewed,
+            ArticleProductReviewStatus::Failed,
+            ArticleProductReviewStatus::Cancelled,
+        ];
+
         if ($review->wp_comment_id !== null && (int) $review->wp_comment_id !== 0) {
-            if ($status !== ArticleProductReviewStatus::Published) {
-                $review->status = ArticleProductReviewStatus::Published;
+            if ($status !== ArticleProductReviewStatus::Reviewed
+                && $status !== ArticleProductReviewStatus::Published
+            ) {
+                $review->status = ArticleProductReviewStatus::Reviewed;
                 $dirty = true;
             }
+        } elseif ($status !== null && in_array($status, $canonical, true)) {
+            // Reviewed without remote id is not confirmed — keep retryable.
+            if ($status === ArticleProductReviewStatus::Reviewed
+                && ($review->wp_comment_id === null || (int) $review->wp_comment_id === 0)
+            ) {
+                $review->status = ArticleProductReviewStatus::Pending;
+                $dirty = true;
+            }
+            // Keep other canonical rows intact.
         } elseif ($status === null
             || $status === ArticleProductReviewStatus::Draft
             || ! in_array($status, [
@@ -89,28 +110,33 @@ final class LegacyProductReviewStateNormalizer
                 ArticleProductReviewStatus::Scheduled,
                 ArticleProductReviewStatus::Publishing,
                 ArticleProductReviewStatus::Published,
-                ArticleProductReviewStatus::Failed,
                 ArticleProductReviewStatus::FailedDispatch,
-                ArticleProductReviewStatus::Cancelled,
             ], true)
         ) {
             $review->status = $articleWpPostId > 0
-                ? ArticleProductReviewStatus::PendingPublish
-                : ArticleProductReviewStatus::PendingArticle;
+                ? ArticleProductReviewStatus::Pending
+                : ArticleProductReviewStatus::Pending;
             $dirty = true;
         } elseif ($status === ArticleProductReviewStatus::PendingArticle && $articleWpPostId > 0) {
-            $review->status = ArticleProductReviewStatus::PendingPublish;
+            $review->status = ArticleProductReviewStatus::Pending;
             $dirty = true;
-        } elseif ($status === ArticleProductReviewStatus::PendingPublish && $articleWpPostId <= 0) {
-            $review->status = ArticleProductReviewStatus::PendingArticle;
+        } elseif ($status === ArticleProductReviewStatus::PendingPublish) {
+            // Legacy schedule queue status → canonical pending for direct Sync.
+            $review->status = ArticleProductReviewStatus::Pending;
+            $dirty = true;
+        } elseif ($status === ArticleProductReviewStatus::Scheduled
+            || $status === ArticleProductReviewStatus::Publishing
+            || $status === ArticleProductReviewStatus::FailedDispatch
+        ) {
+            $review->status = ArticleProductReviewStatus::Pending;
             $dirty = true;
         }
 
-        // Legacy "published" without remote id → cần reconcile, không tin mù.
-        if ($status === ArticleProductReviewStatus::Published && ($review->wp_comment_id === null || (int) $review->wp_comment_id === 0)) {
-            $review->status = $articleWpPostId > 0
-                ? ArticleProductReviewStatus::PendingPublish
-                : ArticleProductReviewStatus::PendingArticle;
+        // Legacy "published" without remote id → retryable pending (not silent drop).
+        if ($status === ArticleProductReviewStatus::Published
+            && ($review->wp_comment_id === null || (int) $review->wp_comment_id === 0)
+        ) {
+            $review->status = ArticleProductReviewStatus::Pending;
             $dirty = true;
         }
 

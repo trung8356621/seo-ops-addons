@@ -19,7 +19,7 @@ import {
  * useArticleEditorSeoAnalysis - local SEO analysis for Edit Article.
  * Empty violations must never imply READY/100 until a real analysis completed.
  */
-export default function useArticleEditorSeoAnalysis({ articleId, articleTitle, articleType, blockEditorsRef, blockFlushRef, blocksRef, canGenerateFaq, clientOutline, editorSettings, faqsCanonicalKnownRef, focusKeyword, getExportHtml, lastSeoAnalysisRef, panelFaqsRef, pendingFaqGenerateRef, publishExtractedLinks, requestAnalyzeRef, scoringMessages, seoDomain, seoMetaRef, seoScoringRules, setAnalyzing, setExtractedLinks, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptContext, setFeaturedSnippetPromptOpen, setSeoAnalyzeError, setSeoScoreSource, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomain, siteDomainRef, tempMergeRef, wikiTrustDomains }) {
+export default function useArticleEditorSeoAnalysis({ articleId, articleTitle, articleType, blockEditorsRef, blockFlushRef, blocksRef, canGenerateFaq, clientOutline, editorSettings, faqCount = 0, faqsCanonicalKnownRef, focusKeyword, getExportHtml, lastSeoAnalysisRef, panelFaqsRef, pendingFaqGenerateRef, publishExtractedLinks, requestAnalyzeRef, scoringMessages, seoDomain, seoMetaRef, seoScoringRules, setAnalyzing, setExtractedLinks, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptContext, setFeaturedSnippetPromptOpen, setSeoAnalyzeError, setSeoScoreSource, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomain, siteDomainRef, tempMergeRef, wikiTrustDomains }) {
     const [seoStale, setSeoStale] = useState(false);
     const [seoStaleRevision, setSeoStaleRevision] = useState(1);
     const [seoAnalysisReady, setSeoAnalysisReady] = useState(false);
@@ -58,18 +58,20 @@ export default function useArticleEditorSeoAnalysis({ articleId, articleTitle, a
         lastSeoAnalysisRef.current = payload;
 
         const violations = result.violations ?? payload?.violations ?? [];
+        const metrics = result.metrics ?? payload?.metrics ?? {};
         const score = Number.isFinite(Number(result.total_score ?? result.score ?? result.seo_score))
             ? Number(result.total_score ?? result.score ?? result.seo_score)
             : scoreFromViolations(
-                sanitizeViolations(violations, seoScoringRules),
+                sanitizeViolations(violations, seoScoringRules, metrics),
                 seoScoringRules,
+                metrics,
             );
 
         const nextAnalysis = {
             violations,
             score,
             seo_score: score,
-            metrics: result.metrics ?? payload?.metrics ?? {},
+            metrics,
             errors: result.errors ?? [],
             good: result.good ?? [],
             warnings: result.warnings ?? [],
@@ -167,6 +169,7 @@ export default function useArticleEditorSeoAnalysis({ articleId, articleTitle, a
             slug: meta.slug,
             siteDomain,
             faqs: resolveArticleFaqsSnapshot(),
+            faqCountHint: Number(faqCount) || 0,
             wikiTrustDomains,
             scoringMessages,
             seoScoringRules,
@@ -213,6 +216,7 @@ export default function useArticleEditorSeoAnalysis({ articleId, articleTitle, a
         editorSettings?.article_length_product,
         editorSettings?.external_facts,
         editorSettings?.featured_snippet_thresholds,
+        faqCount,
         focusKeyword,
         getExportHtml,
         resolveArticleFaqsSnapshot,

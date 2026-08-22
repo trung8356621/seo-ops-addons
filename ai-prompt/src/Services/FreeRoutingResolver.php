@@ -7,7 +7,8 @@ namespace Omnichannel\Addons\AiPrompt\Services;
 use Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate;
 
 /**
- * Internal free-only fallback order. Never persisted into global Routing rows.
+ * FreeOnly cost policy: keep free models that are already on the canonical route.
+ * Preserves manual order. Does not invent an external free pool or re-sort.
  */
 final class FreeRoutingResolver
 {
@@ -23,21 +24,6 @@ final class FreeRoutingResolver
                 $free[] = $candidate;
             }
         }
-
-        usort($free, static function (RoutedAiCandidate $a, RoutedAiCandidate $b): int {
-            $aRouter = OpenRouterModelEconomics::isOpenRouterFreeRouter($a->model) ? 1 : 0;
-            $bRouter = OpenRouterModelEconomics::isOpenRouterFreeRouter($b->model) ? 1 : 0;
-            $router = $aRouter <=> $bRouter;
-            if ($router !== 0) {
-                return $router;
-            }
-            $priority = $a->priority <=> $b->priority;
-            if ($priority !== 0) {
-                return $priority;
-            }
-
-            return ($a->seoAiModelId ?? 0) <=> ($b->seoAiModelId ?? 0);
-        });
 
         return array_values($free);
     }

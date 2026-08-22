@@ -50,20 +50,30 @@ let lastState = {
  */
 export function emitArticleEditorSessionState(partial = {}) {
     const writable = Boolean(partial.writable);
+    const nextArticleId = Number(partial.article_id ?? lastState.article_id ?? 0) || 0;
+    const articleChanged = nextArticleId !== lastState.article_id;
+    const incomingVersion = Math.max(1, Number(partial.document_version ?? lastState.document_version) || 1);
     lastState = {
-        article_id: Number(partial.article_id ?? lastState.article_id ?? 0) || 0,
+        article_id: nextArticleId,
         session_id: partial.session_id !== undefined ? partial.session_id : lastState.session_id,
         status: String(partial.status ?? lastState.status ?? EDITOR_SESSION_STATUS.READ_ONLY),
         writable,
         read_only: partial.read_only !== undefined ? Boolean(partial.read_only) : !writable,
-        document_version: Math.max(1, Number(partial.document_version ?? lastState.document_version) || 1),
+        document_version: articleChanged
+            ? incomingVersion
+            : Math.max(lastState.document_version, incomingVersion),
         reason_code: partial.reason_code !== undefined ? partial.reason_code : lastState.reason_code,
         lock: partial.lock !== undefined ? partial.lock : lastState.lock,
     };
 
     window.__SEO_EDITOR_READ_ONLY__ = !lastState.writable || Boolean(lastState.read_only);
     window.__SEO_EDITOR_SESSION_STATUS__ = lastState.status;
-    window.__SEO_EDITOR_DOCUMENT_VERSION__ = lastState.document_version;
+    window.__SEO_EDITOR_DOCUMENT_VERSION__ = articleChanged
+        ? lastState.document_version
+        : (Math.max(
+            lastState.document_version,
+            Number(window.__SEO_EDITOR_DOCUMENT_VERSION__) || 0,
+        ) || lastState.document_version);
     window.__SEO_EDITOR_SESSION_ID__ = lastState.session_id;
     window.__SEO_EDITOR_SESSION_STATE__ = lastState;
 

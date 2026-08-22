@@ -103,20 +103,77 @@ final class ProductReviewPendingRepository
         });
     }
 
-    public function deleteReviewedForArticle(SeoArticle $article): int
-    {
-        return $this->deleteLocalForArticle($article);
+    /**
+     * Cancel a local row that maps to an already-fulfilled unique review (same content_hash / remote).
+     */
+    public function markCancelledDuplicate(
+        ArticleProductReview $review,
+        string $reason,
+        ?int $canonicalReviewId = null,
+    ): ArticleProductReview {
+        return DB::connection('omi_seo_ai')->transaction(function () use ($review, $reason, $canonicalReviewId): ArticleProductReview {
+            $message = $canonicalReviewId !== null && $canonicalReviewId > 0
+                ? sprintf('%s (canonical_review_id=%d)', $reason, $canonicalReviewId)
+                : $reason;
+            $review->status = ArticleProductReviewStatus::Cancelled;
+            $review->last_error_code = 'DUPLICATE_CONTENT';
+            $review->last_error_message = mb_substr($message, 0, 2000);
+            $review->save();
+
+            return $review->fresh() ?? $review;
+        });
     }
 
     /**
-     * Remove all local product review rows after article is marked reviewed (WP = source of truth).
+     * Oldest reviewed/published row sharing the same content fingerprint (if any).
+     */
+    public function findCanonicalByContentHash(int $articleId, string $contentHash, ?int $exceptReviewId = null): ?ArticleProductReview
+    {
+        $hash = trim($contentHash);
+        if ($hash === '') {
+            return null;
+        }
+
+        $query = ArticleProductReview::query()
+            ->where('article_id', $articleId)
+            ->where('content_hash', $hash)
+            ->whereIn('status', [
+                ArticleProductReviewStatus::Reviewed->value,
+                ArticleProductReviewStatus::Published->value,
+            ])
+            ->whereNotNull('wp_comment_id')
+            ->where('wp_comment_id', '!=', 0)
+            ->orderBy('id');
+
+        if ($exceptReviewId !== null && $exceptReviewId > 0) {
+            $query->where('id', '!=', $exceptReviewId);
+        }
+
+        $row = $query->first();
+
+        return $row instanceof ArticleProductReview ? $row : null;
+    }
+
+    public function deleteReviewedForArticle(SeoArticle $article): int
+    {
+        // Only drop rows that already have remote confirmation — never wipe pending/failed.
+        return ArticleProductReview::query()
+            ->where('article_id', (int) $article->id)
+            ->whereIn('status', [
+                ArticleProductReviewStatus::Reviewed->value,
+                ArticleProductReviewStatus::Published->value,
+            ])
+            ->whereNotNull('wp_comment_id')
+            ->where('wp_comment_id', '!=', 0)
+            ->delete();
+    }
+
+    /**
+     * @deprecated Prefer deleteReviewedForArticle — must never delete unsynced rows.
      */
     public function deleteLocalForArticle(SeoArticle $article): int
     {
-        return ArticleProductReview::query()
-            ->where('article_id', (int) $article->id)
-            ->where('status', '!=', ArticleProductReviewStatus::Cancelled->value)
-            ->delete();
+        return $this->deleteReviewedForArticle($article);
     }
 
     /**

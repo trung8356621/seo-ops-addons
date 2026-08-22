@@ -32,15 +32,31 @@ final class RoutedAiCandidate
     {
         return [
             'profile' => $this->profile,
+            'capability' => $this->profile,
             'provider' => $this->provider,
             'connection_id' => (int) $this->connection->id,
             'connection_name' => (string) $this->connection->name,
             'model' => $this->model,
             'capabilities' => $this->capabilities,
             'priority' => $this->priority,
+            'route_position' => $this->priority,
             'legacy_fallback' => $this->legacyFallback,
             'seo_ai_model_id' => $this->seoAiModelId,
             'is_free' => $this->isFree,
+            'free' => $this->isFree,
         ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function toAttemptLogContext(int $attemptNumber, ?string $routeRevision = null): array
+    {
+        return array_filter([
+            ...$this->toLogContext(),
+            'attempt' => $attemptNumber,
+            'attempt_number' => $attemptNumber,
+            'route_revision' => $routeRevision,
+        ], static fn (mixed $value): bool => $value !== null && $value !== '');
     }
 }

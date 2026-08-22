@@ -1,27 +1,43 @@
 import React, { Suspense, useMemo } from 'react';
 import { createPortal } from 'react-dom';
 import { EditorModuleErrorBoundary } from '../runtime/EditorModuleErrorBoundary';
+import { isMainColumnOnlyPanel } from '../runtime/mainColumnPanels';
 import { getEditorCommandHost } from '../../utils/editorCommands';
 import { t } from '../../utils/i18n';
+import { ensureEditorSidebarPortalRoot } from './editorSidebarPortalRoots';
 
-function resolvePanelActive(activePanelId, entry) {
+function resolvePanelActive(activePanelId, entry, sidebarRailPanelId = 'seo') {
     const panelId = String(entry.panelId || '');
     const aliasOf = String(entry.aliasPanelId || '');
-    if (activePanelId === panelId) {
+    const active = String(activePanelId || '');
+    const railFallback = String(sidebarRailPanelId || 'seo');
+
+    // Main-column FAQ surface can be active while sidebar rail stays on SEO/etc.
+    if (isMainColumnOnlyPanel(panelId)) {
+        return active === panelId;
+    }
+
+    // When heavy module is cleared (close/shell) but Alpine rail still shows a panel,
+    // keep mounting that rail body — otherwise Reviews/SEO render an empty bordered slot.
+    const railId = isMainColumnOnlyPanel(active)
+        ? railFallback
+        : (active || railFallback);
+
+    if (railId === panelId) {
         return true;
     }
     // CTA chip aliases Links panel body (no duplicate portal).
-    if (aliasOf && activePanelId === panelId && entry.component) {
+    if (aliasOf && railId === panelId && entry.component) {
         return true;
     }
-    if (!entry.component && aliasOf && activePanelId === panelId) {
+    if (!entry.component && aliasOf && railId === panelId) {
         return false;
     }
     // When CTA active, Links entry (panelId links) must mount.
-    if (panelId === 'links' && (activePanelId === 'links' || activePanelId === 'cta')) {
+    if (panelId === 'links' && (railId === 'links' || railId === 'cta')) {
         return true;
     }
-    return activePanelId === panelId;
+    return railId === panelId;
 }
 
 /**
@@ -30,6 +46,7 @@ function resolvePanelActive(activePanelId, entry) {
 export function EditorSidebarPortalHost({
     runtime,
     activePanelId,
+    sidebarRailPanelId = 'seo',
     portalRoots = {},
     shells = {},
     isPanelAllowed = () => true,
@@ -39,7 +56,7 @@ export function EditorSidebarPortalHost({
     const entries = useMemo(() => {
         if (!runtime?.getSidebarEntries) return [];
         return runtime.getSidebarEntries().filter((entry) => entry.host === 'editor');
-    }, [runtime]);
+    }, [runtime, activePanelId, sidebarRailPanelId]);
 
     const hostArticleId = articleId ?? getEditorCommandHost()?.articleId ?? null;
     const hostSiteId = siteId ?? window.__SEO_EDITOR_SITE_ID__ ?? null;
@@ -49,29 +66,38 @@ export function EditorSidebarPortalHost({
             {entries.map((entry) => {
                 const panelId = String(entry.panelId || '');
                 const rootKey = String(entry.portalRootKey || panelId);
-                const root = portalRoots[rootKey] || null;
                 // Alias-only entries (CTA) share Links portal — skip empty component mount.
                 if (!entry.component) {
                     return null;
                 }
-                if (!root || !isPanelAllowed(panelId, entry)) {
+                if (!isPanelAllowed(panelId, entry)) {
+                    return null;
+                }
+
+                const preferred = portalRoots[rootKey] || portalRoots[panelId] || null;
+                const root = ensureEditorSidebarPortalRoot(rootKey, panelId, preferred);
+                if (!root) {
                     return null;
                 }
 
                 const Shell = shells[panelId] || shells.default || React.Fragment;
                 const Comp = entry.component;
-                const active = resolvePanelActive(activePanelId, entry);
+                const active = resolvePanelActive(activePanelId, entry, sidebarRailPanelId);
                 // Avoid double-portal when CTA + Links share root — only Links has component.
                 if (panelId === 'cta') {
                     return null;
                 }
-                const body = active && Comp
+                // Reviews always mounts its body (not lazy placeholder). Alpine can show the
+                // reviews slot as is-active while React heavy-id briefly lags — placeholder
+                // then looks like a blank white card under the chips.
+                const shouldMountBody = active || panelId === 'reviews';
+                const body = shouldMountBody && Comp
                     ? (
                         <EditorModuleErrorBoundary moduleId={entry.moduleId} slotName="sidebar.main">
                             <Suspense fallback={<div className="seo-module-loading p-3 text-sm">{t('editor_module_loading')}</div>}>
                                 <Comp
                                     entry={entry}
-                                    active={active}
+                                    active={active || panelId === 'reviews'}
                                     articleId={hostArticleId}
                                     siteId={hostSiteId}
                                 />

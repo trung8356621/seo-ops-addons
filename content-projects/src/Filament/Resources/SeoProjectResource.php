@@ -22,6 +22,8 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Comma
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectActionResultNotifier;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectCommandBus;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectPublicRef;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectProjectActionDecision;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectProjectGenerationGate;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectArchiveService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectKeywordAiGeneratorService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectKeywordListParser;
@@ -1420,18 +1422,56 @@ class SeoProjectResource extends SeoPanelResource
 
     public static function canGeneratePendingItems(SeoProject $project): bool
     {
-        if ($project->isProjectArchived() || $project->isArchive()) {
-            return false;
-        }
-
         if (! SeoAccessControl::canAccessContentProjectRun($project)) {
             return false;
         }
 
-        $preview = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectItemGenerationClassifier::class)
-            ->preview($project);
+        return app(ContentProjectProjectGenerationGate::class)
+            ->forGenerateWorkingItems($project)
+            ->enabled;
+    }
 
-        return $preview->runCount() > 0;
+    public static function canTestRun(SeoProject $project): bool
+    {
+        if (! SeoAccessControl::canAccessContentProjectRun($project)) {
+            return false;
+        }
+
+        return app(ContentProjectProjectGenerationGate::class)
+            ->forTestRun($project)
+            ->enabled;
+    }
+
+    public static function generatePendingDisabledReason(SeoProject $project): ?string
+    {
+        if (static::canGeneratePendingItems($project)) {
+            return null;
+        }
+
+        return static::projectActionDisabledMessage(
+            app(ContentProjectProjectGenerationGate::class)->forGenerateWorkingItems($project),
+        );
+    }
+
+    public static function testRunDisabledReason(SeoProject $project): ?string
+    {
+        if (static::canTestRun($project)) {
+            return null;
+        }
+
+        return static::projectActionDisabledMessage(
+            app(ContentProjectProjectGenerationGate::class)->forTestRun($project),
+        );
+    }
+
+    public static function projectActionDisabledMessage(ContentProjectProjectActionDecision $decision): string
+    {
+        return match ($decision->reasonCode) {
+            ContentProjectProjectActionDecision::REASON_ARCHIVED => __('seo-content-ai::filament.projects.generate_pending_disabled_archived'),
+            ContentProjectProjectActionDecision::REASON_BULK_ACTIVE => __('seo-content-ai::filament.projects.generate_pending_disabled_bulk_active'),
+            ContentProjectProjectActionDecision::REASON_TEST_ACTIVE => __('seo-content-ai::filament.projects.test_run_disabled_active'),
+            default => __('seo-content-ai::filament.projects.generate_pending_disabled_no_eligible'),
+        };
     }
 
     /**
@@ -1461,9 +1501,7 @@ class SeoProjectResource extends SeoPanelResource
             ->color('success')
             ->visible(fn (): bool => SeoAccessControl::canAccessContentProjectRun($project))
             ->disabled(fn (): bool => ! static::canGeneratePendingItems($project))
-            ->tooltip(fn (): ?string => static::canGeneratePendingItems($project)
-                ? null
-                : __('seo-content-ai::filament.projects.run_workflow_disabled'))
+            ->tooltip(fn (): ?string => static::generatePendingDisabledReason($project))
             ->modalHeading(__('seo-content-ai::filament.projects.generate_pending_preview_heading'))
             ->modalDescription(fn () => static::generatePendingPreviewHtml($project))
             ->form([
@@ -1503,10 +1541,26 @@ class SeoProjectResource extends SeoPanelResource
                         return;
                     }
 
-                    $taskIds = $preview->runnableTaskIds();
-                    if ($preview->failClosed && (bool) ($data['technical_confirm_full_rerun'] ?? false)) {
-                        // Technical override still only runs classifier-runnable IDs (never improve / evidence).
-                        $taskIds = $preview->runnableTaskIds();
+                    $taskIds = app(ContentProjectProjectGenerationGate::class)->eligibleTaskIds($project);
+                    if ($taskIds === []) {
+                        Notification::make()
+                            ->title(__('seo-content-ai::filament.projects.run_failed'))
+                            ->body(__('seo-content-ai::filament.projects.generate_pending_disabled_no_eligible'))
+                            ->danger()
+                            ->send();
+
+                        return;
+                    }
+
+                    $bulkConflict = app(ContentProjectProjectGenerationGate::class)->forGenerateWorkingItems($project);
+                    if (! $bulkConflict->enabled) {
+                        Notification::make()
+                            ->title(__('seo-content-ai::filament.projects.run_failed'))
+                            ->body(static::projectActionDisabledMessage($bulkConflict))
+                            ->danger()
+                            ->send();
+
+                        return;
                     }
 
                     $extra = is_callable($launchSettings) ? (array) $launchSettings() : [];
@@ -1590,7 +1644,8 @@ class SeoProjectResource extends SeoPanelResource
             ->color('warning')
             ->visible(fn (): bool => static::allowsDevTestGenerateUi()
                 && SeoAccessControl::canAccessContentProjectRun($project))
-            ->disabled(fn (): bool => ! static::canGeneratePendingItems($project))
+            ->disabled(fn (): bool => ! static::canTestRun($project))
+            ->tooltip(fn (): ?string => static::testRunDisabledReason($project))
             ->modalHeading(__('seo-content-ai::filament.projects.test_run_workflow_heading', [
                 'limit' => SeoProjectWorkflowRunService::TEST_RUN_LIMIT,
             ]))
@@ -1601,6 +1656,17 @@ class SeoProjectResource extends SeoPanelResource
             ->requiresConfirmation()
             ->action(function () use ($project, $launchSettings): void {
                 try {
+                    $gate = app(ContentProjectProjectGenerationGate::class)->forTestRun($project);
+                    if (! $gate->enabled) {
+                        Notification::make()
+                            ->title(__('seo-content-ai::filament.projects.run_failed'))
+                            ->body(static::projectActionDisabledMessage($gate))
+                            ->danger()
+                            ->send();
+
+                        return;
+                    }
+
                     $extra = is_callable($launchSettings) ? (array) $launchSettings() : [];
                     static::startGeneratePendingItems(
                         $project,
@@ -1608,6 +1674,7 @@ class SeoProjectResource extends SeoPanelResource
                         [
                             'generate_post_images' => (bool) ($extra['generate_post_images'] ?? false),
                             'use_php_engine' => true,
+                            'task_ids' => array_slice($gate->eligibleTaskIds, 0, SeoProjectWorkflowRunService::TEST_RUN_LIMIT),
                         ],
                     );
 

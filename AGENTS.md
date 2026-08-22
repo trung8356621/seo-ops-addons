@@ -24,3 +24,27 @@ search-foundation · seo · search-intelligence · ai-prompt · content · conte
 | AI/prompt | `ai-prompt/` |
 | Site Sync | `site-sync/` |
 | Agent/MCP | `agent/` |
+
+## EDITOR WIDGET LOCKS
+
+**SEO remains unlocked for active development.** All other registered Article Editor widgets are locked (manifest-driven; guard does not hard-code IDs).
+
+Typical locked ids include: `featured`, `images`, `gallery`, `reviews`, `links`, `cta`, `vocabulary`, `faq`, `ai-chat`, `publishing`, `status`.
+
+Before editing Editor code, check the widget lock manifest:
+`content/editor-widget-locks.json`
+
+Commands (from `omnichannel-client`):
+
+- `npm run check:editor-widget-locks`
+- `npm run widget-lock -- status`
+- `npm run widget-lock -- unlock <id>`
+- `npm run widget-lock -- lock <id>`
+
+Do not refactor, rename, localize, clean up, or indirectly modify
+locked widget behavior.
+
+`status` currently displays **Trạng thái**.
+Its missing locale is known and intentionally frozen.
+
+Manifest = policy. Guard = generic enforcement. Never hard-code widget IDs in the guard.

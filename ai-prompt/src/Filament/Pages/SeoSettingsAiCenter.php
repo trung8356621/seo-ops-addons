@@ -24,6 +24,7 @@ use Omnichannel\Addons\AiPrompt\Services\AiModelPriorityService;
 use Omnichannel\Addons\AiPrompt\Services\AiModelRouterService;
 use Omnichannel\Addons\AiPrompt\Services\AiRoutingBootstrapService;
 use Omnichannel\Addons\AiPrompt\Services\AiRoutingTargetService;
+use Omnichannel\Addons\AiPrompt\Services\CanonicalAiRouteResolver;
 use Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\AiProviderConnectionTester;
 use Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\AiProviderTemplateCatalog;
 use Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\AiProviderTemplateParser;
@@ -172,6 +173,20 @@ class SeoSettingsAiCenter extends Page
         if ($panel === 'routing') {
             $this->routingHydrated = true;
         }
+    }
+
+    /**
+     * Single Livewire round-trip for tab switch: avoid racing setModelArea + loadPanel
+     * (concurrent morph can leave Alpine routingHydrated=true while #ai-center-routing is missing).
+     */
+    public function openPanel(string $panel, ?string $area = null): void
+    {
+        if (is_string($area) && $area !== '') {
+            $value = AiModelArea::tryFromMixed($area)->value;
+            $this->modelArea = $value;
+            $this->routingGroup = AiModelArea::tryFromMixed($value)->routingGroup();
+        }
+        $this->loadPanel($panel);
     }
 
     #[Renderless]
@@ -998,6 +1013,9 @@ class SeoSettingsAiCenter extends Page
         app(AiModelInventory::class)->forget();
         app(AiConnectionPresenter::class)->forgetMemo();
         app(AiExecutionTargetPresenter::class)->forgetMemo();
+        app(AiCenterModelPresenter::class)->forgetMemo();
+        app(AiRoutingTargetService::class)->forgetMemo();
+        app(AiModelPriorityService::class)->forgetMemo();
     }
 
     private function resolvedOrderText(
@@ -1006,11 +1024,13 @@ class SeoSettingsAiCenter extends Page
     ): string {
         $presenter = app(AiExecutionTargetPresenter::class);
         $userId = (int) auth()->id();
+        $canonical = app(CanonicalAiRouteResolver::class);
         $rows = [];
-        foreach ($targets->eligibleCandidates($userId, $profile, new \Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext(userId: $userId)) as $index => $candidate) {
+        foreach ($canonical->resolveRoute($userId, $profile) as $index => $candidate) {
             $label = $presenter->present($candidate->connection, $candidate->model, null, $userId);
             $rows[] = ($index + 1).'. '.$label['full_label'];
         }
+        unset($targets);
 
         return $rows !== [] ? implode("\n", $rows) : (string) __('seo-content-ai::filament.prompt.routing_empty');
     }

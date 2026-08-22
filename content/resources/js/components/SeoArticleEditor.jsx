@@ -108,6 +108,7 @@ import {
     openPanel,
     subscribeEditorNavigation,
 } from '../editor/runtime/editorRuntimeNavigation';
+import { isMainColumnOnlyPanel } from '../editor/runtime/mainColumnPanels';
 import { publishPartialRuntimeWidgetHealth } from '../editor/runtime/composeRuntimeWidgetHealth';
 import {
     bindDiagnosticsArticleScope,
@@ -561,9 +562,11 @@ export default function SeoArticleEditor({
         featured: null,
         aiChat: null,
     });
-    // Phase 6C.2�6C.4: editor-hosted includes seo/images/reviews/links/faq/featured/ai-chat.
+    // Phase 6C.2–6C.4: editor-hosted includes seo/images/reviews/links/faq/featured/ai-chat.
     // Default SEO so right-rail SEO Assistant is not stuck on inactive placeholder.
     const [activeHeavyModule, setActiveHeavyModule] = useState('seo');
+    // FAQ mounts in main column — keep last sidebar rail panel mounted (SEO/FAQ-schema must not vanish).
+    const [sidebarRailPanelId, setSidebarRailPanelId] = useState('seo');
     const editorHostActionsRef = useRef({});
     const activeHeavyModuleRef = useRef(null);
     activeHeavyModuleRef.current = activeHeavyModule;
@@ -592,9 +595,21 @@ export default function SeoArticleEditor({
         }
         const unsubNav = subscribeEditorNavigation((panelId) => {
             const normalized = normalizeHeavyModuleId(panelId);
-            if (normalized && isEditorHostedModule(normalized)) {
+            if (normalized && isMainColumnOnlyPanel(normalized)) {
+                // Activate FAQ (etc.) without stealing the sidebar rail body.
                 setActiveHeavyModule(normalized);
                 return;
+            }
+            if (normalized && isEditorHostedModule(normalized)) {
+                setActiveHeavyModule(normalized);
+                setSidebarRailPanelId(normalized);
+                return;
+            }
+            // Shell boundary panels (publishing / article / cta→links) still drive the rail.
+            if (normalized === 'publishing' || normalized === 'article') {
+                setSidebarRailPanelId(normalized);
+            } else if (normalized === 'cta') {
+                setSidebarRailPanelId('links');
             }
             // External / Alpine-only / closed — unmount editor-hosted heavy body.
             setActiveHeavyModule(null);
@@ -1049,28 +1064,32 @@ export default function SeoArticleEditor({
         if (!isCompletedSeoAnalysis(analysis)) {
             return null;
         }
+        const metrics = analysis?.metrics ?? {};
         const violations = sanitizeViolations(
             Array.isArray(analysis?.violations) ? analysis.violations : [],
             seoScoringRules,
+            metrics,
         );
 
-        return scoreFromViolations(violations, seoScoringRules);
+        return scoreFromViolations(violations, seoScoringRules, metrics);
     }, [analysis, seoScoringRules]);
 
     const seoFailedItems = useMemo(() => {
         if (!isCompletedSeoAnalysis(analysis)) {
             return [];
         }
+        const metrics = analysis?.metrics ?? {};
         const violations = sanitizeViolations(
             Array.isArray(analysis?.violations) ? analysis.violations : [],
             seoScoringRules,
+            metrics,
         );
 
         return buildFailedViolationItems(
             violations,
             seoScoringRules,
             scoringMessages,
-            analysis?.metrics ?? {},
+            metrics,
         );
     }, [analysis, seoScoringRules, scoringMessages]);
 
@@ -1281,7 +1300,7 @@ export default function SeoArticleEditor({
         };
     }, [articleId, parseGalleryItems]);
 
-        const { analyzedBlocksRef, applySeoAnalysisResult, createFaqFromShortcode, handleSeoViolationAction, markSeoAnalysisReady, markSeoStale, openFaqModule, requestAnalyze, resolveArticleFaqsSnapshot, runLocalSeoAnalysis, seoAnalysisReady, seoStale, setSeoStale } = useArticleEditorSeoAnalysis({ articleId, articleTitle, articleType, blockEditorsRef, blockFlushRef, blocksRef, canGenerateFaq, clientOutline, editorSettings, faqsCanonicalKnownRef, focusKeyword, getExportHtml, lastSeoAnalysisRef, panelFaqsRef, pendingFaqGenerateRef, publishExtractedLinks, requestAnalyzeRef, scoringMessages, seoDomain, seoMetaRef, seoScoringRules, setAnalyzing, setExtractedLinks, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptContext, setFeaturedSnippetPromptOpen, setSeoAnalyzeError, setSeoScoreSource, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomain, siteDomainRef, tempMergeRef, wikiTrustDomains });
+        const { analyzedBlocksRef, applySeoAnalysisResult, createFaqFromShortcode, handleSeoViolationAction, markSeoAnalysisReady, markSeoStale, openFaqModule, requestAnalyze, resolveArticleFaqsSnapshot, runLocalSeoAnalysis, seoAnalysisReady, seoStale, setSeoStale } = useArticleEditorSeoAnalysis({ articleId, articleTitle, articleType, blockEditorsRef, blockFlushRef, blocksRef, canGenerateFaq, clientOutline, editorSettings, faqCount, faqsCanonicalKnownRef, focusKeyword, getExportHtml, lastSeoAnalysisRef, panelFaqsRef, pendingFaqGenerateRef, publishExtractedLinks, requestAnalyzeRef, scoringMessages, seoDomain, seoMetaRef, seoScoringRules, setAnalyzing, setExtractedLinks, setFeaturedSnippetPreviewHtml, setFeaturedSnippetPromptContext, setFeaturedSnippetPromptOpen, setSeoAnalyzeError, setSeoScoreSource, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomain, siteDomainRef, tempMergeRef, wikiTrustDomains });
         markSeoStaleRef.current = markSeoStale;
 
         useEffect(() => {
@@ -1509,7 +1528,8 @@ export default function SeoArticleEditor({
                 title={t('reviews_tab_label')}
                 icon={Star}
                 badge={reviewCount}
-                defaultCollapsed
+                defaultCollapsed={false}
+                collapsible={false}
                 className="seo-assistant-widget--reviews"
             >
                 {children}
@@ -2162,13 +2182,17 @@ export default function SeoArticleEditor({
                 <EditorSidebarPortalHost
                     runtime={getDefaultArticleEditorRuntime()}
                     activePanelId={activeHeavyModule}
+                    sidebarRailPanelId={sidebarRailPanelId}
                     portalRoots={assistantPortalRoots}
                     shells={editorPanelShells}
                     articleId={articleId}
                     siteId={siteId}
                     isPanelAllowed={(panelId) => {
+                        // Registry isVisible already gates product-only Reviews chip.
+                        // Do not re-gate on isProductPost here — mismatch left an empty
+                        // Alpine is-active slot with no React portal.
                         if (panelId === 'reviews') {
-                            return Boolean(isProductPost && showReviewsTab);
+                            return showReviewsTab !== false;
                         }
                         return true;
                     }}

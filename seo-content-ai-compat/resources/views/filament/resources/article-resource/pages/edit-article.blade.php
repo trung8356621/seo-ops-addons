@@ -880,10 +880,12 @@
                                     id="article-editor-sidebar-navigation-root"
                                     class="seo-assistant-dock-react-root"
                                 ></div>
+                                {{-- Legacy mount kept for contract tests; search UI removed — must stay non-visual. --}}
                                 <div
                                     wire:ignore
                                     id="article-editor-sidebar-panel-root"
                                     class="seo-assistant-sidebar-panel-root sr-only"
+                                    hidden
                                     aria-hidden="true"
                                 ></div>
 
@@ -892,7 +894,7 @@
                                         class="seo-assistant-panel-slot"
                                         data-assistant-panel-root="seo"
                                         x-show="isWidgetVisible('seo')"
-                                        x-bind:class="{ 'is-active': panelFilterActive && runtimeActivePanel === 'seo' }"
+                                        x-bind:class="{ 'is-active': panelFilterActive && sidebarRailPanel === 'seo' }"
                                     >
                                         <div wire:ignore id="seo-article-seo-assistant-root"></div>
                                     </div>
@@ -903,7 +905,7 @@
                                             data-assistant-panel-root="featured"
                                             x-show="isWidgetVisible('featured')"
                                             x-cloak
-                                            x-bind:class="{ 'is-active': panelFilterActive && runtimeActivePanel === 'featured' }"
+                                            x-bind:class="{ 'is-active': panelFilterActive && sidebarRailPanel === 'featured' }"
                                         >
                                             <div wire:ignore id="seo-article-featured-root"></div>
                                         </div>
@@ -912,7 +914,7 @@
                                         class="seo-assistant-panel-slot"
                                         data-assistant-panel-root="images"
                                         x-show="isWidgetVisible('images')"
-                                        x-bind:class="{ 'is-active': panelFilterActive && runtimeActivePanel === 'images' }"
+                                        x-bind:class="{ 'is-active': panelFilterActive && sidebarRailPanel === 'images' }"
                                     >
                                 <div wire:ignore id="seo-article-image-assistant-root"></div>
                                     </div>
@@ -920,18 +922,19 @@
                                     <div
                                         class="seo-assistant-panel-slot"
                                         data-assistant-panel-root="reviews"
+                                        wire:ignore
                                         x-show="supportsProductGalleryUi && isWidgetVisible('reviews')"
                                         x-cloak
-                                        x-bind:class="{ 'is-active': panelFilterActive && runtimeActivePanel === 'reviews' }"
+                                        x-bind:class="{ 'is-active': panelFilterActive && sidebarRailPanel === 'reviews' }"
                                     >
-                                <div wire:ignore id="seo-article-reviews-assistant-root"></div>
+                                <div id="seo-article-reviews-assistant-root"></div>
                                     </div>
 
                                     <div
                                         class="seo-assistant-panel-slot"
                                         data-assistant-panel-root="links"
                                         x-show="isWidgetVisible('links')"
-                                        x-bind:class="{ 'is-active': panelFilterActive && runtimeActivePanel === 'links' }"
+                                        x-bind:class="{ 'is-active': panelFilterActive && sidebarRailPanel === 'links' }"
                                     >
                                         <div wire:ignore id="seo-article-links-root"></div>
                                     </div>
@@ -940,7 +943,7 @@
                                         class="seo-assistant-panel-slot"
                                         data-assistant-panel-root="vocabulary"
                                         x-show="isWidgetVisible('vocabulary')"
-                                        x-bind:class="{ 'is-active': panelFilterActive && runtimeActivePanel === 'vocabulary' }"
+                                        x-bind:class="{ 'is-active': panelFilterActive && sidebarRailPanel === 'vocabulary' }"
                                     >
                                         <div wire:ignore id="seo-article-vocabulary-root"></div>
                                     </div>
@@ -950,7 +953,7 @@
                                                 data-assistant-panel-root="publishing"
                                                 data-assistant-shell-boundary="publishing"
                                                 x-show="isWidgetVisible('publishing')"
-                                                x-bind:class="{ 'is-active': panelFilterActive && runtimeActivePanel === 'publishing' }"
+                                                x-bind:class="{ 'is-active': panelFilterActive && sidebarRailPanel === 'publishing' }"
                                             >
                                                 <section
                                                     id="seo-publishing-assistant"
@@ -974,7 +977,7 @@
                                                 data-assistant-panel-root="article"
                                                 data-assistant-shell-boundary="article"
                                                 x-show="isWidgetVisible('article')"
-                                                x-bind:class="{ 'is-active': panelFilterActive && runtimeActivePanel === 'article' }"
+                                                x-bind:class="{ 'is-active': panelFilterActive && sidebarRailPanel === 'article' }"
                                             >
                                                 <section class="seo-assistant-widget seo-assistant-widget--article-info seo-assistant-widget--static">
                                                     <header class="seo-assistant-widget__header seo-assistant-widget__header--static">

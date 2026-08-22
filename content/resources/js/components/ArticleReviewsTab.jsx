@@ -59,6 +59,12 @@ function statusPresentation(review) {
     const errorCode = String(review?.last_error_code ?? '');
 
     switch (status) {
+        case 'pending':
+            return { label: 'Pending sync', hint: null };
+        case 'syncing':
+            return { label: 'Syncing to WordPress', hint: null };
+        case 'reviewed':
+            return { label: 'Synced', hint: null };
         case 'draft':
             return { label: 'Local draft', hint: null };
         case 'pending_article':
@@ -277,24 +283,36 @@ export default function ArticleReviewsTab({
 
     const handleSyncPending = useCallback(async () => {
         const id = Number(articleId) || 0;
-        if (id <= 0 || statusBusy) {
+        const syncable = Number(
+            status?.syncable_pending_count ?? status?.local_pending_count ?? 0,
+        );
+        if (id <= 0 || statusBusy || syncable <= 0) {
             return;
         }
         setStatusBusy(true);
         try {
             const result = await syncProductReviewsForArticle(id);
             if (result.status) {
-                setStatus(result.status);
+                const failed = Array.isArray(result.data?.failed) ? result.data.failed : [];
+                setStatus({
+                    ...result.status,
+                    warning: failed.length > 0
+                        ? `Đồng bộ một phần: ${failed.length} review thất bại — vẫn giữ local để thử lại.`
+                        : (result.status.warning ?? null),
+                    last_sync_failed_count: failed.length,
+                });
             } else {
                 await loadStatus();
             }
             if (typeof onRefresh === 'function') {
                 applyReviewsPayload(await onRefresh());
+            } else {
+                await loadStatus();
             }
         } finally {
             setStatusBusy(false);
         }
-    }, [articleId, applyReviewsPayload, loadStatus, onRefresh, statusBusy]);
+    }, [articleId, applyReviewsPayload, loadStatus, onRefresh, status?.local_pending_count, status?.syncable_pending_count, statusBusy]);
 
     const handleQuickCreate = useCallback(async () => {
         if (typeof onQuickCreate !== 'function' || quickCreating) {
@@ -312,9 +330,14 @@ export default function ArticleReviewsTab({
 
     return (
         <div className="seo-reviews-tab">
-            {loading || statusLoading || countLoading || !loaded ? (
+            {loading || statusLoading ? (
                 <p className="seo-reviews-tab__summary" role="status">
                     Đang tải đánh giá từ WordPress…
+                </p>
+            ) : null}
+            {!loading && !loaded ? (
+                <p className="seo-reviews-tab__summary" role="status">
+                    {warning || 'Chưa tải được đánh giá. Bấm Refresh để thử lại.'}
                 </p>
             ) : null}
             {warning || status?.warning ? (
@@ -326,10 +349,39 @@ export default function ArticleReviewsTab({
                 <div className="seo-reviews-tab__summary" style={{ marginBottom: 12 }}>
                     <div><strong>WordPress Reviews</strong></div>
                     <div>Real reviews: {Number(status.wordpress_real_review_count ?? 0)}</div>
-                    <div>Generated reviews: {Number(status.wordpress_generated_review_count ?? 0)}</div>
+                    <div>
+                        Generated reviews:
+                        {' '}
+                        {Number(
+                            status.generated_count
+                            ?? status.local_generated_count
+                            ?? status.wordpress_generated_review_count
+                            ?? 0,
+                        )}
+                        {Number(status.local_generated_count ?? 0) > 0
+                            || Number(status.wordpress_generated_review_count ?? 0) > 0
+                            ? (
+                                <span style={{ opacity: 0.75 }}>
+                                    {' '}
+                                    (WP:
+                                    {' '}
+                                    {Number(status.wordpress_generated_review_count ?? 0)}
+                                    {' '}
+                                    · Local:
+                                    {' '}
+                                    {Number(status.local_generated_count ?? 0)}
+                                    )
+                                </span>
+                            )
+                            : null}
+                    </div>
                     <div>Target count: {Number(status.target_count ?? 0)}</div>
                     <div>Missing: {Number(status.missing_count ?? 0)}</div>
-                    <div>Pending in Laravel: {Number(status.local_pending_count ?? 0)}</div>
+                    <div>
+                        Pending in Laravel:
+                        {' '}
+                        {Number(status.syncable_pending_count ?? status.local_pending_count ?? 0)}
+                    </div>
                     <div>Reviewed in Laravel: {Number(status.local_reviewed_count ?? 0)}</div>
                     {!status.can_create_reviews && status.create_block_reason ? (
                         <div style={{ color: '#b45309', marginTop: 6 }}>
@@ -351,7 +403,10 @@ export default function ArticleReviewsTab({
                         <button
                             type="button"
                             className="seo-reviews-tab__refresh"
-                            disabled={Number(status.local_pending_count ?? 0) <= 0 || statusBusy}
+                            disabled={
+                                Number(status.syncable_pending_count ?? status.local_pending_count ?? 0) <= 0
+                                || statusBusy
+                            }
                             onClick={handleSyncPending}
                         >
                             Sync pending reviews
@@ -428,10 +483,11 @@ export default function ArticleReviewsTab({
                                     <p className="seo-reviews-tab__hint">{presentation.hint}</p>
                                 ) : null}
                                 <p className="seo-reviews-tab__content">{content}</p>
-                                {status === 'published' ? (
+                                {status === 'published' || status === 'reviewed' ? (
                                     <p className="seo-reviews-tab__meta">
                                         WP Comment ID: {String(review?.wp_comment_id ?? '—')}
                                         {review?.published_at ? ` · ${formatReviewDate(review.published_at)}` : ''}
+                                        {review?.synced_at ? ` · synced ${formatReviewDate(review.synced_at)}` : ''}
                                     </p>
                                 ) : null}
                                 {status === 'failed' && review?.last_error_message ? (

@@ -34,6 +34,7 @@ final class AiModelInventoryContractTest extends TestCase
         );
         $this->assertStringContainsString('AiModelInventory', $page);
         $this->assertStringContainsString('loadPanel', $page);
+        $this->assertStringContainsString('openPanel', $page);
         $this->assertStringContainsString('setModelArea', $page);
         $this->assertStringNotContainsString('syncUiTab', $page);
         $this->assertStringNotContainsString('syncUiArea', $page);

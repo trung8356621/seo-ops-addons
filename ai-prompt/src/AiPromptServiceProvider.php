@@ -24,6 +24,7 @@ final class AiPromptServiceProvider extends ServiceProvider
         $this->registerCapabilities();
         $this->app->scoped(AiModelPriorityService::class);
         $this->app->scoped(AiRoutingTargetService::class);
+        $this->app->scoped(\Omnichannel\Addons\AiPrompt\Services\CanonicalAiRouteResolver::class);
         $this->app->scoped(AiCenterModelPresenter::class);
         $this->app->scoped(AiModelInventory::class);
         $this->app->scoped(\Omnichannel\Addons\AiPrompt\Services\AiConnectionPresenter::class);

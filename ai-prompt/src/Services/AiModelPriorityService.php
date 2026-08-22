@@ -431,7 +431,11 @@ final class AiModelPriorityService
             $max = max($max, $this->areaPriority($existing, $area, $existing->apiConnection));
         }
         $rank = max($max, 0) + 1;
-        foreach ($models as $model) {
+        foreach ($ids as $id) {
+            $model = $models->get((int) $id);
+            if (! $model instanceof SeoAiModel) {
+                continue;
+            }
             $this->writeAreaState($model, $area, true, $rank, AiModelArea::SOURCE_MANUAL);
             $rank++;
         }

@@ -485,6 +485,14 @@ class PromptRunnerService
             'fallback_count' => $fallbackCount,
             'fallback_reasons' => $reasons,
             'cost_policy' => (AiCostPolicyScope::current())->value,
+            'attempt' => $fallbackCount + 1,
+            'attempt_number' => $fallbackCount + 1,
+            'route_revision' => function_exists('app')
+                ? app(CanonicalAiRouteResolver::class)->routeRevision(
+                    (int) (auth()->id() ?? 0),
+                    $profile,
+                )
+                : null,
         ]);
 
         return [$output, $usage, $candidate->model];

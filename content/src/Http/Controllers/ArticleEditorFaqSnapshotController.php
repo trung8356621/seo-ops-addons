@@ -137,6 +137,7 @@ final class ArticleEditorFaqSnapshotController extends Controller
                 'faqs' => $result['faqs'] ?? [],
                 'editor_html' => (string) ($result['editor_html'] ?? ''),
                 'faq_snapshot' => $snapshot,
+                'document_version' => max(1, (int) ($article->document_version ?? 1)),
             ]);
         } catch (ArticleEditorSessionException $exception) {
             return $this->sessionError($exception);
@@ -185,11 +186,13 @@ final class ArticleEditorFaqSnapshotController extends Controller
                 $expectedDoc,
                 $expectedSnap,
             );
+            $article->refresh();
 
             return response()->json([
                 'success' => true,
                 'faq_snapshot' => $result['faq_snapshot'],
                 'editor_html' => $result['editor_html'],
+                'document_version' => max(1, (int) ($article->document_version ?? 1)),
             ]);
         } catch (ArticleEditorSessionException $exception) {
             return $this->sessionError($exception);

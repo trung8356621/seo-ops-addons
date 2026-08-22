@@ -13,7 +13,8 @@ use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
 /**
  * Single policy for Edit Article status, automation create action, manual create.
  *
- * Idempotent create: target_count = maintain total AI reviews, not "create N each run".
+ * Idempotent create: target_count = maintain total UNIQUE AI reviews, not "create N each run".
+ * Counters use unique content_hash / unique wp_comment_id — not raw row counts.
  */
 final class ProductReviewCreationPolicy
 {
@@ -34,7 +35,8 @@ final class ProductReviewCreationPolicy
      *     local_pending_count?: int,
      *     local_reviewed_count?: int,
      *     local_generated_count?: int,
-     *     local_real_count?: int
+     *     local_real_count?: int,
+     *     unique_fulfilled_count?: int
      * }  $localState
      * @param  array{target_count?: int, block_if_real_reviews_exist?: bool, enabled?: bool}  $settings
      */
@@ -53,9 +55,10 @@ final class ProductReviewCreationPolicy
         $localGenerated = max(0, (int) ($localState['local_generated_count'] ?? 0));
         $localReal = max(0, (int) ($localState['local_real_count'] ?? 0));
         $pendingCount = max(0, (int) ($localState['local_pending_count'] ?? 0));
+        $uniqueFulfilled = max(0, (int) ($localState['unique_fulfilled_count'] ?? 0));
 
-        // max() tránh double-count khi local mirror + WP cùng tồn tại sau sync.
-        $generatedCount = max($wpGenerated, $localGenerated);
+        // Unique generated = max(WP unique generated, local unique content fingerprints).
+        $generatedCount = max($wpGenerated, $localGenerated, $uniqueFulfilled);
         $realCount = max($wpReal, $localReal);
 
         if (! $featureEnabled) {
@@ -98,31 +101,69 @@ final class ProductReviewCreationPolicy
      *     local_pending_count: int,
      *     local_reviewed_count: int,
      *     local_generated_count: int,
-     *     local_real_count: int
+     *     local_real_count: int,
+     *     unique_fulfilled_count: int,
+     *     local_reviewed_row_count: int,
+     *     local_generated_row_count: int
      * }
      */
     public function localCounts(SeoArticle $article): array
     {
         $articleId = (int) $article->id;
 
+        $pendingStatuses = [
+            ArticleProductReviewStatus::Pending->value,
+            ArticleProductReviewStatus::Syncing->value,
+            ArticleProductReviewStatus::Failed->value,
+            ArticleProductReviewStatus::Draft->value,
+            ArticleProductReviewStatus::PendingArticle->value,
+            ArticleProductReviewStatus::PendingPublish->value,
+            ArticleProductReviewStatus::Scheduled->value,
+            ArticleProductReviewStatus::Publishing->value,
+            ArticleProductReviewStatus::FailedDispatch->value,
+        ];
+
         $pending = ArticleProductReview::query()
             ->where('article_id', $articleId)
-            ->whereIn('status', [
-                ArticleProductReviewStatus::Pending->value,
-                ArticleProductReviewStatus::Syncing->value,
-                ArticleProductReviewStatus::Failed->value,
-            ])
+            ->whereIn('status', $pendingStatuses)
             ->count();
 
-        $reviewed = ArticleProductReview::query()
+        $reviewedRows = ArticleProductReview::query()
             ->where('article_id', $articleId)
             ->whereIn('status', [
                 ArticleProductReviewStatus::Reviewed->value,
                 ArticleProductReviewStatus::Published->value,
             ])
-            ->count();
+            ->whereNotNull('wp_comment_id')
+            ->where('wp_comment_id', '!=', 0)
+            ->get(['id', 'content_hash', 'wp_comment_id']);
 
-        $generated = ArticleProductReview::query()
+        $uniqueRemoteIds = [];
+        $uniqueReviewedHashes = [];
+        foreach ($reviewedRows as $row) {
+            $remoteId = (int) ($row->wp_comment_id ?? 0);
+            if ($remoteId !== 0) {
+                $uniqueRemoteIds[(string) $remoteId] = true;
+            }
+            $hash = trim((string) ($row->content_hash ?? ''));
+            if ($hash !== '') {
+                $uniqueReviewedHashes[$hash] = true;
+            }
+        }
+        $reviewedUnique = max(count($uniqueRemoteIds), count($uniqueReviewedHashes));
+
+        $generatedHashes = ArticleProductReview::query()
+            ->where('article_id', $articleId)
+            ->whereNotIn('status', [ArticleProductReviewStatus::Cancelled->value])
+            ->where(function ($query): void {
+                $query->whereIn('source', self::GENERATED_SOURCES)
+                    ->orWhereNotNull('generation_batch_id');
+            })
+            ->whereNotNull('content_hash')
+            ->distinct()
+            ->count('content_hash');
+
+        $generatedRows = ArticleProductReview::query()
             ->where('article_id', $articleId)
             ->whereNotIn('status', [ArticleProductReviewStatus::Cancelled->value])
             ->where(function ($query): void {
@@ -141,12 +182,65 @@ final class ProductReviewCreationPolicy
             })
             ->count();
 
+        // Fulfilled unique = unique remote ids among reviewed (preferred) or unique reviewed hashes.
+        $uniqueFulfilled = $reviewedUnique;
+
         return [
             'local_pending_count' => $pending,
-            'local_reviewed_count' => $reviewed,
-            'local_generated_count' => $generated,
+            'local_reviewed_count' => $reviewedUnique,
+            'local_generated_count' => $generatedHashes,
             'local_real_count' => $real,
+            'unique_fulfilled_count' => $uniqueFulfilled,
+            'local_reviewed_row_count' => $reviewedRows->count(),
+            'local_generated_row_count' => $generatedRows,
         ];
+    }
+
+    /**
+     * Cancel duplicate local rows that share content_hash with an older reviewed canonical row.
+     *
+     * @return array{cancelled: list<int>, kept: list<int>}
+     */
+    public function cancelDuplicateReviewedRows(SeoArticle $article): array
+    {
+        $articleId = (int) $article->id;
+        $rows = ArticleProductReview::query()
+            ->where('article_id', $articleId)
+            ->whereIn('status', [
+                ArticleProductReviewStatus::Reviewed->value,
+                ArticleProductReviewStatus::Published->value,
+            ])
+            ->whereNotNull('content_hash')
+            ->orderBy('id')
+            ->get();
+
+        $keptByHash = [];
+        $cancelled = [];
+        $kept = [];
+
+        foreach ($rows as $row) {
+            /** @var ArticleProductReview $row */
+            $hash = trim((string) $row->content_hash);
+            if ($hash === '') {
+                $kept[] = (int) $row->id;
+                continue;
+            }
+            if (! isset($keptByHash[$hash])) {
+                $keptByHash[$hash] = (int) $row->id;
+                $kept[] = (int) $row->id;
+                continue;
+            }
+            $row->status = ArticleProductReviewStatus::Cancelled;
+            $row->last_error_code = 'DUPLICATE_CONTENT';
+            $row->last_error_message = sprintf(
+                'Duplicate content_hash of canonical_review_id=%d',
+                $keptByHash[$hash],
+            );
+            $row->save();
+            $cancelled[] = (int) $row->id;
+        }
+
+        return ['cancelled' => $cancelled, 'kept' => $kept];
     }
 
     private function blocked(

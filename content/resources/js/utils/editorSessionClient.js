@@ -3,6 +3,12 @@
  * React owns session state — Livewire must not duplicate.
  */
 import { seoArticleApiFetch } from '@seo-addon/utils/seoArticleApi.js';
+import {
+    acknowledgeDocumentVersion,
+    observeServerDocumentVersion,
+    logEditorDocumentRevision,
+    getLastDocumentVersionAck,
+} from './editorDocumentRevision.js';
 
 export const EDITOR_SESSION_ERROR = Object.freeze({
     LOCKED: 'article_editor_locked',
@@ -200,8 +206,18 @@ export class EditorSessionClient {
         };
     }
 
-    setDocumentVersion(version) {
-        const next = Math.max(1, Number(version) || this.documentVersion);
+    /**
+     * Monotonic document_version apply. Lease renew must not call this.
+     *
+     * @param {number|string|null|undefined} version
+     * @param {{ source?: string, requestId?: string|null }} [meta]
+     */
+    setDocumentVersion(version, meta = {}) {
+        const result = acknowledgeDocumentVersion(version, {
+            source: meta.source ?? 'session_client',
+            requestId: meta.requestId ?? null,
+        });
+        const next = Math.max(1, Number(result.version) || this.documentVersion);
         if (next !== this.documentVersion) {
             this.documentVersion = next;
             this.emit();
@@ -250,9 +266,9 @@ export class EditorSessionClient {
                 }
 
                 this.sessionId = String(data?.session?.id ?? '');
-                this.documentVersion = Math.max(
-                    1,
-                    Number(data?.article?.document_version ?? this.documentVersion) || 1,
+                this.setDocumentVersion(
+                    data?.article?.document_version ?? this.documentVersion,
+                    { source: 'acquire' },
                 );
                 this.lockStatus = 'owned';
                 this.readOnly = false;
@@ -305,9 +321,9 @@ export class EditorSessionClient {
         }
 
         this.sessionId = String(data?.session?.id ?? '');
-        this.documentVersion = Math.max(
-            1,
-            Number(data?.article?.document_version ?? this.documentVersion) || 1,
+        this.setDocumentVersion(
+            data?.article?.document_version ?? this.documentVersion,
+            { source: 'takeover' },
         );
         this.lockStatus = 'owned';
         this.readOnly = false;
@@ -429,7 +445,8 @@ export class EditorSessionClient {
             }
 
             if (data?.document_version != null) {
-                this.setDocumentVersion(data.document_version);
+                // Session lease only — never adopt as save-base revision.
+                observeServerDocumentVersion(data.document_version, { source: 'lease_renew' });
             }
             this.markLeaseRenewed(data?.expires_at);
             const wasOffline = this.offline;
@@ -510,17 +527,25 @@ export class EditorSessionClient {
             };
         }
 
+        const requestId = newUuid();
+        const confirmed = Math.max(
+            1,
+            Number(this.documentVersion) || 1,
+            Number(bundle?.expected_document_version) || 0,
+        );
         const body = {
             ...bundle,
-            expected_document_version: this.documentVersion,
+            expected_document_version: confirmed,
             editor_session_id: this.sessionId,
             save_mode: saveMode,
+            client_request_id: requestId,
         };
 
         const { response, data } = await seoArticleApiFetch(
             `/api/seo/articles/${this.articleId}/editor-sessions/${this.sessionId}/document`,
             {
                 method: 'PUT',
+                headers: { 'X-Editor-Save-Request-Id': requestId },
                 body: JSON.stringify(body),
             },
         );
@@ -539,16 +564,27 @@ export class EditorSessionClient {
                 EDITOR_SESSION_ERROR.DOCUMENT_VERSION_CONFLICT,
                 EDITOR_SESSION_ERROR.CONTENT_HASH_CONFLICT,
             ].includes(error.code)) {
-                // Owning session still holds the lock — sync version/hash from conflict
-                // payload when present so Fix Slug / autosave can recover without
-                // unmounting the editor into ExclusiveLockScreen.
                 const actualVersion = Number(
                     data?.conflict?.actual_document_version
                     ?? data?.document_version
                     ?? 0,
                 );
+                const last = getLastDocumentVersionAck();
+                logEditorDocumentRevision('document_version_conflict', {
+                    operation: saveMode,
+                    request_id: requestId,
+                    base_revision: this.documentVersion,
+                    server_revision: Number.isFinite(actualVersion) && actualVersion > 0
+                        ? actualVersion
+                        : null,
+                    last_ack_source: last.source,
+                    last_ack_request_id: last.requestId,
+                });
+                // Owning session still holds the lock — sync version/hash from conflict
+                // payload when present so Fix Slug / autosave can recover without
+                // unmounting the editor into ExclusiveLockScreen.
                 if (Number.isFinite(actualVersion) && actualVersion > 0) {
-                    this.setDocumentVersion(actualVersion);
+                    this.setDocumentVersion(actualVersion, { source: 'conflict_actual', requestId });
                 }
                 const actualHash = String(
                     data?.conflict?.actual_content_hash
@@ -578,15 +614,12 @@ export class EditorSessionClient {
         }
 
         if (data?.document_version != null) {
-            this.setDocumentVersion(data.document_version);
+            this.setDocumentVersion(data.document_version, { source: `save_${saveMode}`, requestId });
         }
         this.markLeaseRenewed(data?.lease_expires_at);
         if (typeof window !== 'undefined') {
             if (data?.document_version != null) {
-                window.__SEO_EDITOR_DOCUMENT_VERSION__ = Math.max(
-                    1,
-                    Number(data.document_version) || this.documentVersion,
-                );
+                window.__SEO_EDITOR_DOCUMENT_VERSION__ = this.documentVersion;
             }
             const ackHash = String(data?.content_hash ?? '').trim();
             if (ackHash !== '') {
@@ -625,7 +658,11 @@ export class EditorSessionClient {
 
         const body = {
             ...bundle,
-            expected_document_version: this.documentVersion,
+            expected_document_version: Math.max(
+                1,
+                Number(this.documentVersion) || 1,
+                Number(bundle?.expected_document_version) || 0,
+            ),
             editor_session_id: this.sessionId,
             close_reason: closeReason,
         };
@@ -648,7 +685,7 @@ export class EditorSessionClient {
         this.lockStatus = 'released';
         this.readOnly = true;
         if (data?.document_version != null) {
-            this.setDocumentVersion(data.document_version);
+            this.setDocumentVersion(data.document_version, { source: 'close' });
         }
         this.emit();
 

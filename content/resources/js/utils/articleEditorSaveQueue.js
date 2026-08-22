@@ -4,6 +4,7 @@ import {
     finishArticleSaveFromApi,
     saveArticleViaApi,
 } from './articleEditorApi';
+import { stampExpectedDocumentVersion } from './editorDocumentRevision';
 
 /** @typedef {'autosave' | 'explicit' | 'save-close'} SavePriority */
 
@@ -59,6 +60,7 @@ async function runSingleFlightSave() {
     const factory = latestPayloadFactory;
     const priority = latestPriority;
     const payload = typeof factory === 'function' ? await factory() : {};
+    stampExpectedDocumentVersion(payload);
 
     if (typeof window !== 'undefined' && payload?.html) {
         window.__SEO_EDITOR_LAST_SAVE_HTML__ = String(payload.html);

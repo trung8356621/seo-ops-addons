@@ -75,8 +75,18 @@ export default function useArticleEditorCoreState({ activeHeavyModule, activeHea
 
         refreshAssistantPortalRoots();
         window.addEventListener('load', refreshAssistantPortalRoots);
+        // Livewire/Alpine can replace sidebar nodes after first paint — refresh on panel open.
+        const onPanelOpen = () => {
+            window.requestAnimationFrame(refreshAssistantPortalRoots);
+        };
+        window.addEventListener('article-editor:module-open', onPanelOpen);
+        window.addEventListener('seo-assistant-switch-panel', onPanelOpen);
 
-        return () => window.removeEventListener('load', refreshAssistantPortalRoots);
+        return () => {
+            window.removeEventListener('load', refreshAssistantPortalRoots);
+            window.removeEventListener('article-editor:module-open', onPanelOpen);
+            window.removeEventListener('seo-assistant-switch-panel', onPanelOpen);
+        };
     }, []);
 
     useEffect(() => {
@@ -129,6 +139,8 @@ export default function useArticleEditorCoreState({ activeHeavyModule, activeHea
                 }
                 if (!result.success) {
                     setReviewsLoadWarning(String(result.message ?? 'Không thể tải đánh giá từ WordPress.'));
+                    setReviewsLoaded(true);
+                    reviewsLoadedRef.current = true;
                     return;
                 }
 
@@ -148,6 +160,8 @@ export default function useArticleEditorCoreState({ activeHeavyModule, activeHea
                     return;
                 }
                 setReviewsLoadWarning(String(error?.message ?? 'Không thể tải đánh giá từ WordPress.'));
+                setReviewsLoaded(true);
+                reviewsLoadedRef.current = true;
             } finally {
                 if (!cancelled && !controller.signal.aborted) {
                     setReviewsLoading(false);
@@ -210,6 +224,8 @@ export default function useArticleEditorCoreState({ activeHeavyModule, activeHea
             const result = await fetchWordPressProductReviews(articleId);
             if (!result.success) {
                 setReviewsLoadWarning(String(result.message ?? 'Không thể tải đánh giá từ WordPress.'));
+                setReviewsLoaded(true);
+                reviewsLoadedRef.current = true;
                 return [];
             }
             const data = result.data ?? {};
@@ -224,6 +240,8 @@ export default function useArticleEditorCoreState({ activeHeavyModule, activeHea
             return merged;
         } catch (error) {
             setReviewsLoadWarning(String(error?.message ?? 'Không thể tải đánh giá từ WordPress.'));
+            setReviewsLoaded(true);
+            reviewsLoadedRef.current = true;
             return [];
         } finally {
             setReviewsLoading(false);
@@ -306,8 +324,8 @@ export default function useArticleEditorCoreState({ activeHeavyModule, activeHea
     const [editorSearchMatchCount, setEditorSearchMatchCount] = useState(null);
     const panelFaqsRef = useRef(Array.isArray(initialFaqs) ? initialFaqs : []);
     const [panelFaqs, setPanelFaqs] = useState(() => (Array.isArray(initialFaqs) ? initialFaqs : []));
-    // Lazy FAQ: default [] from shell is unhydrated. Only mark known when bootstrap
-    // supplied an explicit array prop, or after FAQ editor/extract events.
+    // Lazy FAQ: omitted/undefined = unhydrated. Explicit array (including []) means owner-known.
+    // article-editor mounts with initialFaqs={undefined} so bootstrap faqCount can still signal content.
     const faqsCanonicalKnownRef = useRef(
         initialFaqs !== undefined && initialFaqs !== null && Array.isArray(initialFaqs),
     );

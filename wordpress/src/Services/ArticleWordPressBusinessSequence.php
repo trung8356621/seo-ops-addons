@@ -144,6 +144,7 @@ final class ArticleWordPressBusinessSequence
 
         $created = [];
         $deduplicated = [];
+        $duplicateCancelled = [];
         $failed = [];
         $skipped = [];
 
@@ -164,7 +165,9 @@ final class ArticleWordPressBusinessSequence
                 continue;
             }
 
-            if (($result['deduplicated'] ?? false) || ($result['outcome'] ?? '') === 'DEDUPLICATED') {
+            if (($result['outcome'] ?? '') === 'DUPLICATE_CANCELLED') {
+                $duplicateCancelled[] = $id;
+            } elseif (($result['deduplicated'] ?? false) || ($result['outcome'] ?? '') === 'DEDUPLICATED') {
                 $deduplicated[] = $id;
             } elseif (($result['outcome'] ?? '') === 'SKIPPED_REVIEWED') {
                 $skipped[] = $id;
@@ -181,6 +184,7 @@ final class ArticleWordPressBusinessSequence
             'status' => $failed === [] ? 'completed' : 'partial',
             'created' => $created,
             'deduplicated' => $deduplicated,
+            'duplicate_cancelled' => $duplicateCancelled,
             'failed' => $failed,
             'skipped' => $skipped,
         ];

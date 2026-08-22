@@ -19,6 +19,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Event
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectBusinessLock;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectPreviewToken;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectTenantGuard;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectActiveGenerationRunDetector;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectGenerationRecoveryService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectItemGenerationClassifier;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectImproveManualOnlyGenerationGuard;
@@ -42,6 +43,7 @@ final class GenerateProjectItemsHandler extends AbstractPublishingHandler
         private readonly ContentProjectGenerationRecoveryService $generationRecovery,
         private readonly ContentProjectItemGenerationClassifier $classifier,
         private readonly ContentProjectRunEngine $runEngine,
+        private readonly ContentProjectActiveGenerationRunDetector $activeRuns,
         private readonly ContentProjectItemActionGuard $actionGuard = new ContentProjectItemActionGuard,
     ) {
         parent::__construct($tenantGuard, $businessLock, $previewToken);
@@ -147,6 +149,25 @@ final class GenerateProjectItemsHandler extends AbstractPublishingHandler
                         ],
                     );
                 }
+            }
+
+            $isTestMode = $command->mode === SeoProjectRun::MODE_TEST;
+            $isProjectLevelBulk = ! $isTestMode && ($command->itemRefs === [] || count($itemIds) > 1);
+            if ($isTestMode && $this->activeRuns->hasActiveTestRun($projectId)) {
+                return ContentProjectActionResult::fail(
+                    ContentProjectActionCodes::VALIDATION_FAILED,
+                    'Test run đang chạy.',
+                    $projectId,
+                    metadata: ['conflict' => 'test_run_active'],
+                );
+            }
+            if ($isProjectLevelBulk && $this->activeRuns->hasActiveBulkGeneration($projectId)) {
+                return ContentProjectActionResult::fail(
+                    ContentProjectActionCodes::VALIDATION_FAILED,
+                    'Đang có một bulk generation chạy.',
+                    $projectId,
+                    metadata: ['conflict' => 'bulk_generation_active'],
+                );
             }
 
             $this->assertGenerateAllowed($itemIds);
