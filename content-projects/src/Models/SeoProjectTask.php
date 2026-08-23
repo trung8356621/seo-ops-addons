@@ -375,6 +375,11 @@ class SeoProjectTask extends Model
         return trim((string) $title);
     }
 
+    public function effectiveGenerationKeyword(): string
+    {
+        return \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGenerationKeyword::effective($this);
+    }
+
     /**
      * @return array{keyword: string, title: string, secondary_description: string}
      */

@@ -14,6 +14,7 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRunItem;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\LocalArticleAssociationGuard;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGenerationKeyword;
 use Omnichannel\Addons\ContentProjects\Support\ProjectRunIdempotencyKeyGenerator;
 use Omnichannel\Addons\ContentProjects\Support\ProjectRunItemLegacyJsonPresenter;
 use Illuminate\Database\QueryException;
@@ -53,6 +54,8 @@ final class SeoProjectRunItemService
             'post_type' => $task->post_type,
             'source_content' => (string) $task->source_content,
             'keyword' => $task->keyword,
+            'generation_keyword_override' => $task->generation_keyword_override,
+            ContentProjectGenerationKeyword::SNAPSHOT_EFFECTIVE_KEY => ContentProjectGenerationKeyword::effective($task),
             'title' => $task->title,
             'secondary_description' => $task->secondary_description,
             'rewrite_mode' => $task->rewrite_mode,
@@ -74,6 +77,7 @@ final class SeoProjectRunItemService
                 'rewrite_notes' => (string) ($task->rewrite_notes ?? ''),
                 'source_content' => (string) $task->source_content,
                 'keyword' => (string) ($task->keyword ?? ''),
+                'generation_keyword_override' => (string) ($task->generation_keyword_override ?? ''),
                 'title' => (string) ($task->title ?? ''),
                 'secondary_description' => (string) ($task->secondary_description ?? ''),
                 'description' => (string) ($task->description ?? ''),
@@ -93,6 +97,7 @@ final class SeoProjectRunItemService
                 'post_type' => SeoProjectTask::normalizePostType($task->post_type),
                 'source_content' => (string) $task->source_content,
                 'keyword' => (string) ($task->keyword ?? ''),
+                'generation_keyword_override' => (string) ($task->generation_keyword_override ?? ''),
                 'title' => (string) ($task->title ?? ''),
                 'secondary_description' => (string) ($task->secondary_description ?? ''),
                 'description' => (string) ($task->description ?? ''),

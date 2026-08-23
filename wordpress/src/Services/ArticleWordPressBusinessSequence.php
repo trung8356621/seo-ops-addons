@@ -76,13 +76,15 @@ final class ArticleWordPressBusinessSequence
     public function runCreate(SeoArticle $article, array $settings = []): array
     {
         $settings = $this->reviewSettingsResolver->resolve($settings);
-        $status = $this->statusService->statusForArticle($article, $settings);
+        // Always live-fetch WP reviews before create — never trust empty cache.
+        $status = $this->statusService->statusForArticle($article, $settings, fresh: true);
         $local = $this->policy->localCounts($article);
+        $connected = (bool) ($status['wordpress_connected'] ?? false);
         $decision = $this->policy->evaluate(
             $article,
             [
-                'wordpress_connected' => (bool) ($status['wordpress_connected'] ?? false),
-                'fetch_success' => ($status['warning'] ?? null) === null || (bool) ($status['wordpress_connected'] ?? false),
+                'wordpress_connected' => $connected,
+                'fetch_success' => $connected,
                 'wordpress_real_review_count' => (int) ($status['wordpress_real_review_count'] ?? 0),
                 'wordpress_generated_review_count' => (int) ($status['wordpress_generated_review_count'] ?? 0),
             ],
@@ -98,17 +100,31 @@ final class ArticleWordPressBusinessSequence
                 'pending_review_ids' => [],
                 'status' => 'skipped',
                 'reason' => $decision->reason,
+                'reason_label' => ProductReviewCreationPolicy::reasonLabel($decision->reason),
                 'policy' => $decision->toArray(),
             ];
         }
 
         $batch = $this->batchCreator->createPendingBatch($article, $decision->missingCount);
+        $createdCount = (int) ($batch['created_count'] ?? 0);
+        $pendingIds = is_array($batch['pending_review_ids'] ?? null) ? $batch['pending_review_ids'] : [];
+
+        if ($createdCount > 0) {
+            app(\Omnichannel\Addons\Commerce\Services\ProductReview\ProductReviewGenerationHistoryRecorder::class)
+                ->recordTemplateBatch(
+                    $article,
+                    $pendingIds,
+                    (string) ($batch['generation_batch_id'] ?? ''),
+                    $createdCount,
+                    $decision->targetCount,
+                );
+        }
 
         return [
             'article_id' => (int) $article->id,
             'wp_post_id' => (int) ($article->wordpressLink?->wp_post_id ?? 0) ?: null,
-            'created_count' => (int) ($batch['created_count'] ?? 0),
-            'pending_review_ids' => is_array($batch['pending_review_ids'] ?? null) ? $batch['pending_review_ids'] : [],
+            'created_count' => $createdCount,
+            'pending_review_ids' => $pendingIds,
             'generation_batch_id' => $batch['generation_batch_id'] ?? null,
             'status' => ($batch['success'] ?? false) ? 'completed' : 'failed',
             'message' => $batch['message'] ?? null,

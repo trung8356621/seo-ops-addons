@@ -425,9 +425,14 @@ class PromptRuntimeRulesPresenter
             $lines[] = 'max_previous_outputs_items: '.(string) $definition->limits->maxPreviousOutputsItems;
         }
 
+        $help = $this->t(
+            'seo-content-ai::filament.prompt.runtime_rules_limits_help',
+            'max_previous_outputs_* limits prior outputs in context — not comment_count.',
+        );
+
         return $this->section(
-            $this->t('seo-content-ai::filament.prompt.runtime_rules_limits', 'Limits'),
-            $this->list($lines),
+            $this->t('seo-content-ai::filament.prompt.runtime_rules_limits', 'Limits (context)'),
+            $this->list($lines).'<p class="mt-2 text-xs text-gray-500 dark:text-gray-400">'.e($help).'</p>',
         );
     }
 

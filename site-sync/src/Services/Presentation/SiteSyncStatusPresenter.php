@@ -15,6 +15,7 @@ use Omnichannel\Addons\SiteSync\Services\Capability\SiteCapabilityResolver;
 use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncSchema;
 use Omnichannel\Addons\SiteSync\Services\Orchestration\SiteSyncCutoverReadinessService;
 use Omnichannel\Addons\SiteSync\Services\Orchestration\SiteSyncFeatureFlags;
+use Omnichannel\Addons\SiteSync\Services\Orchestration\SiteSyncRunExecution;
 use Omnichannel\Addons\SiteSync\Services\Progress\SiteSyncProgressCopy;
 use Omnichannel\Addons\SiteSync\Services\Progress\SiteSyncProgressTracker;
 use Omnichannel\Addons\SiteSync\Services\Progress\SiteSyncStepCatalog;
@@ -232,6 +233,7 @@ final class SiteSyncStatusPresenter
             ],
             'cutover' => $this->safeCutover($site),
             'last_synced_at' => SystemDateTime::formatDateTime($run->finished_at ?? $run->updated_at),
+            'stopping' => $this->isStoppingAfterCancel($runStatus, $meta),
         ];
     }
 
@@ -598,5 +600,26 @@ final class SiteSyncStatusPresenter
         }
 
         return $msg;
+    }
+
+    /**
+     * @param  array<string, mixed>  $meta
+     */
+    private function isStoppingAfterCancel(string $runStatus, array $meta): bool
+    {
+        if (! in_array($runStatus, ['canceled', 'cancelled'], true)) {
+            return false;
+        }
+
+        $canceledAt = $meta[SiteSyncRunExecution::META_CANCELED_AT] ?? null;
+        if (! is_string($canceledAt) || trim($canceledAt) === '') {
+            return false;
+        }
+
+        try {
+            return \Carbon\Carbon::parse($canceledAt)->greaterThan(now()->subMinutes(3));
+        } catch (\Throwable) {
+            return false;
+        }
     }
 }

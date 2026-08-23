@@ -38,6 +38,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Comma
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\UnblockProjectItemGenerationCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\UnscheduleProjectItemsCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\UpdateContentProjectCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SetItemGenerationKeywordOverrideCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\UpdateContentProjectItemCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\AddContentProjectItemsHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\AcknowledgeProjectItemGenerationErrorHandler;
@@ -73,6 +74,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handl
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\UnblockProjectItemGenerationHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\UnscheduleProjectItemsHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\UpdateContentProjectHandler;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\SetItemGenerationKeywordOverrideHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\UpdateContentProjectItemHandler;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\AnalyzeKeywordWorkspaceCommand;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\AnalyzeSelectedKeywordsCommand;
@@ -152,6 +154,7 @@ final class ContentProjectCommandBusRegistrar
             SyncContentProjectItemsCommand::class => SyncContentProjectItemsHandler::class,
             AddContentProjectItemsCommand::class => AddContentProjectItemsHandler::class,
             UpdateContentProjectItemCommand::class => UpdateContentProjectItemHandler::class,
+            SetItemGenerationKeywordOverrideCommand::class => SetItemGenerationKeywordOverrideHandler::class,
             GenerateProjectItemsCommand::class => GenerateProjectItemsHandler::class,
             RerunProjectItemsCommand::class => RerunProjectItemsHandler::class,
             RerunProjectItemStepCommand::class => RerunProjectItemStepHandler::class,

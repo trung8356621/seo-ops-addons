@@ -13,6 +13,7 @@ use Omnichannel\Addons\Content\Services\ArticleWritingAssembler;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectExistingArticleReconciler;
 use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGenerationKeyword;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectFreshKeywordRestart;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemIdentity;
 use Omnichannel\Addons\ContentProjects\Support\ProjectTaskOriginVariables;
@@ -85,8 +86,9 @@ final class TaskTestInputResolver
         bool $cleanRestart = false,
     ): TaskTestContext {
         $type = SeoProjectTask::normalizeType($task->type);
+        $effectiveKeyword = ContentProjectGenerationKeyword::effective($task);
         $promptInputs = SeoProjectTask::promptInputFields(
-            isset($task->keyword) ? (string) $task->keyword : null,
+            $effectiveKeyword !== '' ? $effectiveKeyword : (isset($task->keyword) ? (string) $task->keyword : null),
             isset($task->title) ? (string) $task->title : null,
             isset($task->secondary_description) ? (string) $task->secondary_description : null,
         );
@@ -922,6 +924,8 @@ final class TaskTestInputResolver
         $variables = [
             'post_title' => $postTitle,
             'focus_keyword' => $focusKeyword,
+            // Align with product-review target default + comment prompt {{comment_count}}.
+            'comment_count' => '3',
         ];
 
         if ($articleId !== null) {

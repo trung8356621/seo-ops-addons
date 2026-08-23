@@ -20,12 +20,12 @@ final class DefaultCommentPromptInstaller
     public const MARKDOWN = <<<'MD'
 # Task
 
-Viết 3 bình luận seeding tự nhiên bằng Tiếng Việt để tăng tương tác và hỗ trợ SEO cho bài viết: "{{post_title}}".
+Viết {{comment_count}} bình luận seeding tự nhiên bằng Tiếng Việt để tăng tương tác và hỗ trợ SEO cho bài viết: "{{post_title}}".
 
 **Yêu cầu:**
 - Đóng vai độc giả thực, bình luận mang tính đóng góp hoặc đặt câu hỏi mở rộng.
 - Email phải khớp với Tên.
-- Không có câu chào, không giải thích. Chỉ xuất đúng 3 dòng theo định dạng phân tách dưới đây:
+- Không có câu chào, không giải thích. Chỉ xuất đúng {{comment_count}} dòng theo định dạng phân tách dưới đây:
 
 Họ và tên | Email | Nội dung bình luận
 MD;
@@ -57,6 +57,10 @@ MD;
                 'hook_version' => '0.1.0',
                 'variables' => [
                     ['name' => 'post_title', 'description' => 'Article title'],
+                    [
+                        'name' => 'comment_count',
+                        'description' => 'Số bình luận cần gen (mặc định 3 — khớp target_count product review)',
+                    ],
                 ],
                 'ai_connection_id' => $connectionId,
                 'tools' => 'default',

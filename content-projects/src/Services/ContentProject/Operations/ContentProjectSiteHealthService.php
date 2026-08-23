@@ -170,9 +170,9 @@ final class ContentProjectSiteHealthService
     private function collectEvidence(int $siteId, ?Site $site): array
     {
         $sources = [];
-        $lastSyncAt = SeoArticle::query()->where('site_id', $siteId)->max('last_synced_at');
+        $lastSyncAt = $this->resolveLastSyncAt($siteId);
         if ($lastSyncAt !== null) {
-            $sources[] = 'seo_articles.last_synced_at';
+            $sources[] = 'site_sync_runs_or_wordpress_links';
         }
 
         $syncStatus = null;
@@ -466,6 +466,36 @@ final class ContentProjectSiteHealthService
             'value' => 'yes',
             'reason' => 'Authenticated evidence at '.$authAt.'.',
         ];
+    }
+
+    /**
+     * Canonical last-sync: Site Sync run finished_at, then wordpress_article_links.last_synced_at.
+     */
+    private function resolveLastSyncAt(int $siteId): ?string
+    {
+        $candidates = [];
+
+        if (SiteSyncInfrastructure::tablesReady() && SiteSyncInfrastructure::hasTable('seo_site_sync_runs')) {
+            $finished = SeoSiteSyncRun::query()
+                ->where('site_id', $siteId)
+                ->whereIn('status', ['completed', 'completed_with_warnings'])
+                ->max('finished_at');
+            if ($finished !== null) {
+                $candidates[] = (string) $finished;
+            }
+        }
+
+        $schema = Schema::connection('omi_seo_ai');
+        if ($schema->hasTable('wordpress_article_links') && $schema->hasColumn('wordpress_article_links', 'last_synced_at')) {
+            $linkSync = \Omnichannel\Addons\WordPress\Models\WordpressArticleLink::query()
+                ->whereHas('article', static fn ($q) => $q->where('site_id', $siteId))
+                ->max('last_synced_at');
+            if ($linkSync !== null) {
+                $candidates[] = (string) $linkSync;
+            }
+        }
+
+        return $this->maxTimestamp($candidates);
     }
 
     /**

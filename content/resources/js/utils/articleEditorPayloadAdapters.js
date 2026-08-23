@@ -333,7 +333,11 @@ export function normalizeReviewStatus(payload) {
         count,
         warning: src.warning != null ? String(src.warning) : null,
         canCreateReviews: Boolean(src.can_create_reviews ?? src.canCreateReviews),
-        createBlockReason: src.create_block_reason ?? src.createBlockReason ?? null,
+        createBlockReason: src.create_block_reason_label
+            ?? src.createBlockReasonLabel
+            ?? src.create_block_reason
+            ?? src.createBlockReason
+            ?? null,
         raw: src,
     };
 }

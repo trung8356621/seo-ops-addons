@@ -121,20 +121,25 @@ final class ContentProjectFreshKeywordRestart
     }
 
     /**
-     * Persist canonical keyword only after a successful fresh-keyword generation.
-     * Updates task.keyword + article seo_focus_keyword (Edit Article «Từ khóa chính»).
+     * Persist generation keyword after successful fresh-keyword restart.
+     * Preserves original task.keyword; stores override + article seo_focus_keyword.
      */
     public static function commitCanonicalKeyword(
         \Omnichannel\Addons\ContentProjects\Models\SeoProjectTask $task,
         string $keyword,
         ?int $articleId = null,
     ): void {
-        $keyword = trim($keyword);
+        $keyword = ContentProjectGenerationKeyword::normalize($keyword);
         if ($keyword === '') {
             return;
         }
 
-        $task->keyword = $keyword;
+        $original = ContentProjectGenerationKeyword::originalKeyword($task);
+        if ($original !== '' && $keyword === $original) {
+            $task->generation_keyword_override = null;
+        } else {
+            $task->generation_keyword_override = $keyword;
+        }
         $task->save();
 
         $resolvedArticleId = $articleId !== null && $articleId > 0

@@ -35,6 +35,14 @@ final class ArticleDocumentVersionService
             return;
         }
 
+        if (
+            class_exists(\Omnichannel\Addons\SiteSync\Support\SiteSyncImportContext::class)
+            && \Omnichannel\Addons\SiteSync\Support\SiteSyncImportContext::isActive()
+            && (! $article->isDirty('body') || $article->body === null)
+        ) {
+            return;
+        }
+
         if (! $article->isDirty('body') && ! $article->isDirty('editor_document')) {
             return;
         }

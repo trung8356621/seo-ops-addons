@@ -17,6 +17,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Comma
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ArchiveContentProjectCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ArchiveProjectItemsCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RestartGenerationWithKeywordCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SetItemGenerationKeywordOverrideCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RerunProjectItemsCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RerunProjectItemStepCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ResumeProjectItemFromFailedStepCommand;
@@ -1454,6 +1455,84 @@ final class ViewSeoProject extends Page
     public function closeRestartWithKeyword(): void
     {
         $this->dispatch('close-restart-with-keyword');
+    }
+
+    /**
+     * @return array{ok: bool, message?: string}
+     */
+    public function saveGenerationKeywordOverride(int $taskId, string $keyword): array
+    {
+        $project = $this->requireProject();
+        if (! SeoAccessControl::canAccessContentProjectRun($project)) {
+            Notification::make()->title('Forbidden')->danger()->send();
+
+            return ['ok' => false, 'message' => 'Forbidden'];
+        }
+
+        if ($taskId <= 0) {
+            return ['ok' => false, 'message' => 'Invalid item.'];
+        }
+
+        $result = app(ContentProjectCommandBus::class)->dispatch(
+            new SetItemGenerationKeywordOverrideCommand($taskId, $keyword),
+            ActorContext::user(
+                auth()->id() !== null ? (int) auth()->id() : null,
+                (int) ($project->site_id ?? 0) ?: null,
+            ),
+        );
+
+        if (! $result->success) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.run_failed'))
+                ->body($result->message)
+                ->danger()
+                ->send();
+
+            return ['ok' => false, 'message' => $result->message];
+        }
+
+        $this->invalidateOpsCache();
+
+        return ['ok' => true];
+    }
+
+    /**
+     * @return array{ok: bool, message?: string}
+     */
+    public function revertGenerationKeywordOverride(int $taskId): array
+    {
+        $project = $this->requireProject();
+        if (! SeoAccessControl::canAccessContentProjectRun($project)) {
+            Notification::make()->title('Forbidden')->danger()->send();
+
+            return ['ok' => false, 'message' => 'Forbidden'];
+        }
+
+        if ($taskId <= 0) {
+            return ['ok' => false, 'message' => 'Invalid item.'];
+        }
+
+        $result = app(ContentProjectCommandBus::class)->dispatch(
+            new SetItemGenerationKeywordOverrideCommand($taskId, null),
+            ActorContext::user(
+                auth()->id() !== null ? (int) auth()->id() : null,
+                (int) ($project->site_id ?? 0) ?: null,
+            ),
+        );
+
+        if (! $result->success) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.run_failed'))
+                ->body($result->message)
+                ->danger()
+                ->send();
+
+            return ['ok' => false, 'message' => $result->message];
+        }
+
+        $this->invalidateOpsCache();
+
+        return ['ok' => true];
     }
 
     /**

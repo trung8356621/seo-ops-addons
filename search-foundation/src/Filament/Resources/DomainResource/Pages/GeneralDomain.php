@@ -144,6 +144,8 @@ class GeneralDomain extends Page
 
     public bool $siteSyncV2Stuck = false;
 
+    public bool $siteSyncV2Stopping = false;
+
     /** @var list<array{key: string, label: string, status: string, order: int}> */
     public array $siteSyncV2Steps = [];
 
@@ -276,6 +278,7 @@ class GeneralDomain extends Page
                 ? (string) $status['last_progress_at']
                 : null;
             $this->siteSyncV2Stuck = (bool) ($status['stuck'] ?? false);
+            $this->siteSyncV2Stopping = (bool) ($status['stopping'] ?? false);
             $this->siteSyncV2Steps = is_array($status['steps'] ?? null) ? $status['steps'] : [];
             $this->siteSyncV2Substeps = is_array($status['substeps'] ?? null) ? $status['substeps'] : [];
             $this->siteSyncV2Percentage = isset($status['percentage']) && $status['percentage'] !== null

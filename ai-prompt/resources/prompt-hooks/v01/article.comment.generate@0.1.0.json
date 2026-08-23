@@ -23,6 +23,14 @@
       "max_length": 500,
       "label": "Article title"
     },
+    "comment_count": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "default": "3",
+      "max_length": 8,
+      "label": "Number of comments to generate"
+    },
     "post_excerpt": {
       "type": "string",
       "required": false,
@@ -67,11 +75,13 @@
       "Only comment lines — no heading or surrounding prose."
     ],
     "notes": [
-      "The Prompt Markdown sets how many comments to request.",
+      "Số bình luận lấy từ biến {{comment_count}} (mặc định 3) — không dùng Limits.max_previous_outputs_items.",
+      "max_previous_outputs_items chỉ giới hạn số output trước được nhét vào context runtime.",
       "The parser accepts up to 10 valid lines and skips invalid ones."
     ],
     "variables": [
       { "key": "post_title", "required": true },
+      { "key": "comment_count", "required": false, "default": "3" },
       { "key": "post_excerpt", "required": false },
       { "key": "post_type", "required": false },
       { "key": "site_short_description", "required": false }

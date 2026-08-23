@@ -68,6 +68,8 @@ final class ProductReviewGenerationContinuityTest extends TestCase
         self::assertStringContainsString('unique_fulfilled_count', $src);
         self::assertStringContainsString('cancelDuplicateReviewedRows', $src);
         self::assertStringContainsString('UNIQUE AI reviews', $src);
+        self::assertStringContainsString('wordpress_not_synced', $src);
+        self::assertSame(3, ProductReviewCreationPolicy::DEFAULT_TARGET_COUNT);
     }
 
     public function test_f_g_remote_created_vs_duplicate_cancelled(): void
@@ -84,6 +86,8 @@ final class ProductReviewGenerationContinuityTest extends TestCase
         );
         self::assertStringContainsString('duplicate_cancelled', $seq);
         self::assertStringContainsString('DUPLICATE_CANCELLED', $seq);
+        self::assertStringContainsString('fresh: true', $seq);
+        self::assertStringContainsString('ProductReviewGenerationHistoryRecorder', $seq);
     }
 
     public function test_h_reviewed_invariant_helpers_exist(): void

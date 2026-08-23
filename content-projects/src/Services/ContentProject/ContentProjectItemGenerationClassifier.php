@@ -11,6 +11,7 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRunItem;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGenerationKeyword;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectLifecycle;
 use Illuminate\Support\Facades\Schema;
 
@@ -95,6 +96,11 @@ final class ContentProjectItemGenerationClassifier
             return false;
         }
 
+        // Keyword override dirty restarts — partial regen, not hazardous full-project rerun.
+        if ($this->allRunnableHaveReasons($decisions, [ContentProjectGenerationKeyword::REASON_DIRTY])) {
+            return false;
+        }
+
         return true;
     }
 
@@ -173,6 +179,31 @@ final class ContentProjectItemGenerationClassifier
             $evidence[] = 'manually_edited';
 
             return $this->decision($taskId, ContentProjectItemGenerationDecision::ACTION_SKIP, 'manually_edited', $status, $type, $evidence, $keyword, $articleId);
+        }
+
+        if (! empty($snapshot['generation_keyword_dirty'])) {
+            $phase = (string) ($snapshot['lifecycle_phase'] ?? '');
+            $blockedPhases = [
+                ContentProjectLifecyclePhase::Published->value,
+                ContentProjectLifecyclePhase::WaitingPublish->value,
+                ContentProjectLifecyclePhase::Archived->value,
+            ];
+            if (! in_array($phase, $blockedPhases, true)
+                && $phase !== ContentProjectLifecyclePhase::Generating->value
+            ) {
+                $evidence[] = ContentProjectGenerationKeyword::REASON_DIRTY;
+
+                return $this->decision(
+                    $taskId,
+                    ContentProjectItemGenerationDecision::ACTION_RUN,
+                    ContentProjectGenerationKeyword::REASON_DIRTY,
+                    $status,
+                    $type,
+                    $evidence,
+                    $keyword,
+                    $articleId > 0 ? $articleId : null,
+                );
+            }
         }
 
         $phase = (string) ($snapshot['lifecycle_phase'] ?? '');
@@ -297,12 +328,24 @@ final class ContentProjectItemGenerationClassifier
             $staleGeneration = (bool) ($this->staleness->evaluateTask($task)['stale'] ?? false);
         }
 
+        $lastGeneratedKeyword = isset($evidenceBag['last_generated_keyword'])
+            ? (string) $evidenceBag['last_generated_keyword']
+            : null;
+        $hasPriorGeneration = (bool) ($evidenceBag['successful_execution'] ?? false)
+            || ($article instanceof SeoArticle && trim((string) ($article->body ?? $article->content ?? '')) !== '')
+            || $generationMeta;
+        $generationKeywordDirty = ContentProjectGenerationKeyword::isDirty(
+            $task,
+            $lastGeneratedKeyword,
+            $hasPriorGeneration,
+        );
+
         return $this->classifySnapshot([
             'task_id' => (int) $task->id,
             'type' => (string) ($task->type ?? SeoProjectTask::TYPE_CREATE),
             'status' => (string) ($task->status ?? SeoProjectTask::STATUS_PENDING),
             'article_id' => (int) ($task->article_id ?? 0),
-            'keyword' => $task->keyword !== null ? (string) $task->keyword : ($task->title !== null ? (string) $task->title : null),
+            'keyword' => ContentProjectGenerationKeyword::effective($task),
             'archived_at' => $task->archived_at,
             'generation_blocked_at' => $task->isGenerationBlocked() ? ($task->generation_blocked_at ?? true) : null,
             'generation_blocked' => $task->isGenerationBlocked(),
@@ -313,6 +356,8 @@ final class ContentProjectItemGenerationClassifier
             'last_run_item_status' => $evidenceBag['last_run_item_status'] ?? null,
             'generation_meta_complete' => $generationMeta,
             'stale_generation' => $staleGeneration,
+            'generation_keyword_dirty' => $generationKeywordDirty,
+            'last_generated_keyword' => $lastGeneratedKeyword,
         ]);
     }
 
@@ -345,6 +390,7 @@ final class ContentProjectItemGenerationClassifier
                 'successful_execution' => false,
                 'last_run_item_status' => null,
                 'generation_meta_complete' => false,
+                'last_generated_keyword' => null,
             ];
         }
 
@@ -355,7 +401,7 @@ final class ContentProjectItemGenerationClassifier
         $rows = SeoProjectRunItem::query()
             ->whereIn('task_id', $taskIds)
             ->orderByDesc('id')
-            ->get(['id', 'task_id', 'status', 'article_id', 'output_snapshot']);
+            ->get(['id', 'task_id', 'status', 'article_id', 'output_snapshot', 'input_snapshot']);
 
         foreach ($rows as $row) {
             $tid = (int) $row->task_id;
@@ -378,6 +424,10 @@ final class ContentProjectItemGenerationClassifier
                 'completed',
             ], true)) {
                 $index[$tid]['successful_execution'] = true;
+                if ($index[$tid]['last_generated_keyword'] === null) {
+                    $inputSnapshot = is_array($row->input_snapshot) ? $row->input_snapshot : [];
+                    $index[$tid]['last_generated_keyword'] = ContentProjectGenerationKeyword::lastGeneratedFromSnapshot($inputSnapshot);
+                }
             }
         }
 

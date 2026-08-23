@@ -7,6 +7,7 @@
     $failed = $status === 'failed';
     $completed = in_array($status, ['completed', 'completed_with_warnings'], true);
     $canceled = in_array($status, ['canceled', 'cancelled'], true);
+    $stopping = (bool) ($siteSyncV2Stopping ?? false);
     $steps = $siteSyncV2Steps ?? [];
     $stepTotal = count($steps);
     $phaseLabel = $siteSyncV2PhaseLabel ?? null;
@@ -69,6 +70,12 @@
                 @endif
                 {{ $title }}
             </p>
+
+            @if ($canceled && $stopping)
+                <p class="mt-1 text-[13px] text-gray-600 dark:text-gray-400">
+                    {{ __('seo-content-ai::filament.domain.site_sync_stopping_chunk') }}
+                </p>
+            @endif
 
             @if (($running || $stuck || $failed) && ($phaseLabel || $activeOrder > 0))
                 <p class="mt-1 text-[14px] font-semibold leading-snug text-primary-700 dark:text-primary-300">

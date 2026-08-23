@@ -149,6 +149,100 @@ export function prettyPrintHtml(html) {
     return lines.join('\n');
 }
 
+/**
+ * Containers where whitespace-only text nodes are structural (pretty-print indent),
+ * not semantic content. TipTap parse with preserveWhitespace:'full' otherwise wraps
+ * those newlines into empty &lt;p&gt; (especially inside table cells).
+ */
+const STRUCTURAL_WHITESPACE_PARENTS = new Set([
+    'TABLE', 'THEAD', 'TBODY', 'TFOOT', 'TR', 'TD', 'TH',
+    'UL', 'OL', 'LI', 'DL', 'DT', 'DD',
+    'BLOCKQUOTE', 'FIGURE', 'SECTION', 'ARTICLE', 'DIV',
+    'BODY',
+]);
+
+/**
+ * @param {Element} el
+ * @returns {boolean}
+ */
+function isEmptyParagraphElement(el) {
+    if (!(el instanceof Element) || el.tagName !== 'P') {
+        return false;
+    }
+
+    const inner = (el.innerHTML || '')
+        .replace(/<br\s*\/?>/gi, '')
+        .replace(/&nbsp;/gi, ' ')
+        .trim();
+    const text = (el.textContent || '').replace(/\u00a0/g, ' ').trim();
+
+    return !text && !inner.replace(/<[^>]+>/gi, '').trim();
+}
+
+/**
+ * Drop pretty-print whitespace + redundant empty paragraphs before TipTap setContent.
+ * Round-trip: prettyPrintHtml → edit → prepareHtmlForTipTapApply → setContent.
+ *
+ * @param {string} html
+ * @returns {string}
+ */
+export function prepareHtmlForTipTapApply(html) {
+    const raw = String(html ?? '');
+    if (!raw.trim()) {
+        return raw;
+    }
+
+    const doc = new DOMParser().parseFromString(`<div id="tiptap-apply-root">${raw}</div>`, 'text/html');
+    const root = doc.getElementById('tiptap-apply-root');
+    if (!root) {
+        return raw;
+    }
+
+    const collapseWhitespace = (el) => {
+        const children = [...el.childNodes];
+        const hasElementChild = children.some((node) => node.nodeType === Node.ELEMENT_NODE);
+
+        for (const child of children) {
+            if (child.nodeType === Node.TEXT_NODE) {
+                const text = child.textContent ?? '';
+                if (
+                    text.trim() === ''
+                    && hasElementChild
+                    && STRUCTURAL_WHITESPACE_PARENTS.has(el.tagName)
+                ) {
+                    child.remove();
+                }
+                continue;
+            }
+
+            if (child.nodeType === Node.ELEMENT_NODE) {
+                collapseWhitespace(/** @type {Element} */ (child));
+            }
+        }
+    };
+
+    collapseWhitespace(root);
+
+    for (const cell of root.querySelectorAll('td, th')) {
+        const directParagraphs = [...cell.children].filter((child) => child.tagName === 'P');
+        if (directParagraphs.length <= 1) {
+            continue;
+        }
+
+        const emptyOnes = directParagraphs.filter((p) => isEmptyParagraphElement(p));
+        const meaningful = directParagraphs.length - emptyOnes.length;
+        if (meaningful === 0) {
+            // Keep a single empty paragraph so the cell stays valid for TipTap.
+            emptyOnes.slice(1).forEach((p) => p.remove());
+            continue;
+        }
+
+        emptyOnes.forEach((p) => p.remove());
+    }
+
+    return root.innerHTML;
+}
+
 function emptyAnalysis() {
     return {
         anchors: 0,

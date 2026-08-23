@@ -499,6 +499,57 @@
             color: rgb(17 24 39);
         }
         .dark .cp-ops-kw-count { color: rgb(243 244 246); }
+        .cp-ops-kw-cell { max-width: 100%; line-height: 1.25; }
+        .cp-ops-kw-cell--editable { cursor: text; }
+        .cp-ops-kw-display { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.125rem 0.25rem; }
+        .cp-ops-kw-original {
+            font-size: 0.6875rem;
+            color: rgb(107 114 128);
+            text-decoration: line-through;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .dark .cp-ops-kw-original { color: rgb(156 163 175); }
+        .cp-ops-kw-arrow { font-size: 0.625rem; color: rgb(156 163 175); }
+        .cp-ops-kw-effective { font-size: 0.75rem; font-weight: 500; color: rgb(17 24 39); }
+        .dark .cp-ops-kw-effective { color: rgb(243 244 246); }
+        .cp-ops-kw-text { font-size: 0.75rem; color: rgb(55 65 81); }
+        .dark .cp-ops-kw-text { color: rgb(209 213 219); }
+        .cp-ops-kw-badge, .cp-ops-kw-dirty {
+            font-size: 0.5625rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+            padding: 0.0625rem 0.25rem;
+            border-radius: 0.25rem;
+            background: rgb(243 244 246);
+            color: rgb(75 85 99);
+        }
+        .cp-ops-kw-dirty { background: rgb(254 243 199); color: rgb(146 64 14); }
+        .dark .cp-ops-kw-badge { background: rgb(55 65 81); color: rgb(209 213 219); }
+        .dark .cp-ops-kw-dirty { background: rgb(120 53 15 / 0.35); color: rgb(253 230 138); }
+        .cp-ops-kw-revert {
+            font-size: 0.625rem;
+            color: rgb(79 70 229);
+            text-decoration: underline;
+            background: none;
+            border: none;
+            padding: 0;
+            cursor: pointer;
+        }
+        .cp-ops-kw-revert:hover { color: rgb(67 56 202); }
+        .cp-ops-kw-input {
+            width: 100%;
+            min-width: 6rem;
+            font-size: 0.75rem;
+            padding: 0.125rem 0.375rem;
+            border-radius: 0.25rem;
+            border: 1px solid rgb(209 213 219);
+            background: #fff;
+        }
+        .dark .cp-ops-kw-input { border-color: rgb(75 85 99); background: rgb(17 24 39); color: rgb(243 244 246); }
         .cp-ops-muted {
             font-size: 0.75rem;
             color: rgb(75 85 99);

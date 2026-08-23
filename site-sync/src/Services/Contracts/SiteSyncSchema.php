@@ -76,6 +76,12 @@ final class SiteSyncSchema
         'operation_idempotency',
     ];
 
+    /** Max WP snapshot batches fetched per ProcessSiteSyncStepJob tick (25 posts/batch on WP). */
+    public const SNAPSHOT_BATCHES_PER_JOB = 8;
+
+    /** Max staged batches reconciled per ProcessSiteSyncStepJob tick. */
+    public const CATALOG_BATCHES_PER_JOB = 4;
+
     /** @var list<string> */
     public const ORCHESTRATOR_STEPS = [
         'detect_capability',

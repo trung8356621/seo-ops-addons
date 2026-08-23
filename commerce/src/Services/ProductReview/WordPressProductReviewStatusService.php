@@ -21,7 +21,7 @@ final class WordPressProductReviewStatusService
      * @param  array{target_count?: int, block_if_real_reviews_exist?: bool, enabled?: bool}  $settings
      * @return array<string, mixed>
      */
-    public function statusForArticle(SeoArticle $article, array $settings = []): array
+    public function statusForArticle(SeoArticle $article, array $settings = [], bool $fresh = false): array
     {
         $articleId = (int) $article->id;
         $postType = ArticlePostTypeResolver::resolve($article);
@@ -32,7 +32,7 @@ final class WordPressProductReviewStatusService
         if ($postType !== 'product') {
             $decision = $this->policy->evaluate($article, [
                 'wordpress_connected' => false,
-                'fetch_success' => true,
+                'fetch_success' => false,
                 'wordpress_real_review_count' => 0,
                 'wordpress_generated_review_count' => 0,
             ], $local, $settings);
@@ -55,7 +55,7 @@ final class WordPressProductReviewStatusService
         if ($wpPostId === null || $wpPostId <= 0) {
             $decision = $this->policy->evaluate($article, [
                 'wordpress_connected' => false,
-                'fetch_success' => true,
+                'fetch_success' => false,
                 'wordpress_real_review_count' => 0,
                 'wordpress_generated_review_count' => 0,
             ], $local, $settings);
@@ -71,11 +71,11 @@ final class WordPressProductReviewStatusService
                 local: $local,
                 decision: $decision,
                 checkedAt: $checkedAt,
-                warning: 'Product chưa có trên WordPress.',
+                warning: 'Product chưa có trên WordPress — chưa kiểm tra được comment gốc.',
             );
         }
 
-        $fetch = $this->wordpressReviews->fetchForProduct($article, useCache: true);
+        $fetch = $this->wordpressReviews->fetchForProduct($article, useCache: ! $fresh);
         if (! ($fetch['success'] ?? false)) {
             $decision = $this->policy->evaluate($article, [
                 'wordpress_connected' => false,
@@ -207,6 +207,7 @@ final class WordPressProductReviewStatusService
             'syncable_pending_count' => $local['local_pending_count'],
             'can_create_reviews' => $decision->allowed,
             'create_block_reason' => $decision->reason,
+            'create_block_reason_label' => ProductReviewCreationPolicy::reasonLabel($decision->reason),
             'recommended_action' => $decision->recommendedAction,
             'target_count' => $decision->targetCount,
             'missing_count' => $decision->missingCount,

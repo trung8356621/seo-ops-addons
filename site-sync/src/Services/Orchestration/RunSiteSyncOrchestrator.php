@@ -72,7 +72,7 @@ final class RunSiteSyncOrchestrator
                     'error_message' => 'Superseded by force_full run',
                 ])->save();
             } else {
-                ProcessSiteSyncStepJob::dispatch((int) $active->id);
+                ProcessSiteSyncStepJob::dispatch((int) $active->id, app(SiteSyncRunExecution::class)->readGeneration($active));
 
                 return [
                     'success' => true,
@@ -93,6 +93,7 @@ final class RunSiteSyncOrchestrator
                 'requested_steps' => array_values($steps),
                 'include_unchanged' => $forceFull,
                 'force_full' => $forceFull,
+                SiteSyncRunExecution::META_GENERATION => app(SiteSyncRunExecution::class)->initialGeneration(),
             ],
             is_array($options['meta'] ?? null) ? $options['meta'] : [],
         );
@@ -149,7 +150,7 @@ final class RunSiteSyncOrchestrator
             ];
         }
 
-        ProcessSiteSyncStepJob::dispatch((int) $run->id);
+        ProcessSiteSyncStepJob::dispatch((int) $run->id, app(SiteSyncRunExecution::class)->readGeneration($run));
 
         return [
             'success' => true,
@@ -170,6 +171,10 @@ final class RunSiteSyncOrchestrator
 
         if (in_array((string) $run->status, ['canceled', 'cancelled'], true)) {
             return ['success' => false, 'message' => 'Run canceled — cannot resume.'];
+        }
+
+        if (in_array((string) $run->status, ['completed', 'completed_with_warnings', 'needs_attention'], true)) {
+            return ['success' => false, 'message' => 'Run already finished — cannot resume.'];
         }
 
         // Failed resume must clear step/run error so the domain UI leaves the failed
@@ -207,7 +212,7 @@ final class RunSiteSyncOrchestrator
             ])->save();
         }
 
-        ProcessSiteSyncStepJob::dispatch((int) $run->id);
+        ProcessSiteSyncStepJob::dispatch((int) $run->id, app(SiteSyncRunExecution::class)->readGeneration($run));
 
         return [
             'success' => true,
@@ -223,6 +228,10 @@ final class RunSiteSyncOrchestrator
         if ($run === null) {
             return ['success' => false, 'message' => 'Run not found.'];
         }
+        if (in_array((string) $run->status, ['canceled', 'cancelled'], true)) {
+            return ['success' => false, 'message' => 'Run canceled — cannot retry step.'];
+        }
+
         $step = SeoSiteSyncRunStep::query()
             ->where('run_id', $runId)
             ->where('step_key', $stepKey)
@@ -242,7 +251,7 @@ final class RunSiteSyncOrchestrator
             'resumable' => true,
             'error_message' => null,
         ])->save();
-        ProcessSiteSyncStepJob::dispatch($runId);
+        ProcessSiteSyncStepJob::dispatch($runId, app(SiteSyncRunExecution::class)->readGeneration($run));
 
         return [
             'success' => true,
@@ -266,6 +275,16 @@ final class RunSiteSyncOrchestrator
                 'public_ref' => (string) $run->public_ref,
             ];
         }
+
+        $execution = app(SiteSyncRunExecution::class);
+        $newGeneration = $execution->stampCancel($run);
+
+        \App\Support\RuntimeLogger::warning('site_sync.cancel_requested', [
+            'run_id' => $runId,
+            'site_id' => (int) $run->site_id,
+            'run_generation' => $newGeneration,
+            'run_token_prefix' => is_string($run->run_token) ? substr($run->run_token, 0, 8) : null,
+        ]);
 
         // Pending + in-flight running steps must stop; otherwise a reserved job can
         // overwrite canceled → running and the UI looks "stuck forever".

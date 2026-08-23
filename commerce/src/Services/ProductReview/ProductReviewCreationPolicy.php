@@ -18,7 +18,8 @@ use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
  */
 final class ProductReviewCreationPolicy
 {
-    public const DEFAULT_TARGET_COUNT = 10;
+    /** Align with default comment prompt ("Viết 3 bình luận…"). */
+    public const DEFAULT_TARGET_COUNT = 3;
 
     /** @var list<string> */
     private const GENERATED_SOURCES = ['seo_content_ai', 'ai_generated', 'laravel'];
@@ -69,9 +70,16 @@ final class ProductReviewCreationPolicy
             return $this->blocked('not_product', $target, 0, $realCount, $generatedCount, $pendingCount);
         }
 
+        $wpPostId = (int) ($article->wordpressLink?->wp_post_id ?? 0);
         $wpConnected = (bool) ($wordpressState['wordpress_connected'] ?? false);
         $fetchOk = ($wordpressState['fetch_success'] ?? true) !== false;
-        if ((int) ($article->wordpressLink?->wp_post_id ?? 0) > 0 && (! $wpConnected || ! $fetchOk)) {
+
+        // Never invent reviews before WordPress post exists / review list is verified.
+        if ($wpPostId <= 0) {
+            return $this->blocked('wordpress_not_synced', $target, 0, $realCount, $generatedCount, $pendingCount);
+        }
+
+        if (! $wpConnected || ! $fetchOk) {
             return $this->blocked('wordpress_unavailable', $target, 0, $realCount, $generatedCount, $pendingCount);
         }
 
@@ -94,6 +102,21 @@ final class ProductReviewCreationPolicy
             wordpressGeneratedReviewCount: $generatedCount,
             localPendingCount: $pendingCount,
         );
+    }
+
+    public static function reasonLabel(?string $reason): ?string
+    {
+        return match (trim((string) $reason)) {
+            'wordpress_real_reviews_exist' => 'WordPress đã có review thật.',
+            'wordpress_not_synced' => 'Chưa có product trên WordPress — phải sync và kiểm tra comment gốc trước khi gen.',
+            'target_count_reached' => 'Đã đủ số review mục tiêu.',
+            'local_pending_reviews_exist' => 'Đang có review chờ đồng bộ.',
+            'wordpress_unavailable' => 'Không thể kiểm tra WordPress (fetch reviews thất bại).',
+            'not_product' => 'Chỉ áp dụng cho product.',
+            'feature_disabled' => 'Tính năng tạo review đang tắt.',
+            '' => null,
+            default => $reason,
+        };
     }
 
     /**

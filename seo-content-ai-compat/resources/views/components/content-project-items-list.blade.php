@@ -88,7 +88,7 @@
                                 {{ $row['last_activity'] ?? '' }}
                             </span>
                             @if (! $isPublishingQueue)
-                                <span class="cp-ops-kw-text" title="{{ $row['keyword'] ?? '—' }}">{{ $row['keyword'] ?? '—' }}</span>
+                                <x-seo-content-ai::content-project-keyword-cell :row="$row" />
                             @endif
                         </div>
                     </div>
@@ -244,10 +244,7 @@
                                     @endif
                                 </td>
                                 <td class="cp-ops-kw">
-                                    <span
-                                        class="cp-ops-kw-text"
-                                        title="{{ $row['keyword'] ?? '—' }}"
-                                    >{{ $row['keyword'] ?? '—' }}</span>
+                                    <x-seo-content-ai::content-project-keyword-cell :row="$row" />
                                 </td>
                                 <td>
                                     @if (! empty($row['workflow_badge']))

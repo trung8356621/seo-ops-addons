@@ -12,6 +12,7 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRunItem;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGenerationKeyword;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectFailedOpsDefinition;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectFailureTypeMapper;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectInReviewReportingDefinition;
@@ -111,10 +112,14 @@ final class ContentProjectItemOperationsReadModel
             $projectId,
             $taskIds,
         );
-        $generatePendingRunnable = array_fill_keys(
-            $this->generationClassifier->preview($project)->runnableTaskIds(),
-            true,
-        );
+        $preview = $this->generationClassifier->preview($project);
+        $generatePendingRunnable = array_fill_keys($preview->runnableTaskIds(), true);
+        $keywordDirtyByTask = [];
+        foreach ($preview->decisions as $decision) {
+            if ($decision->reason === ContentProjectGenerationKeyword::REASON_DIRTY) {
+                $keywordDirtyByTask[$decision->taskId] = true;
+            }
+        }
 
         $latestRun = SeoProjectRun::query()
             ->where('project_id', $projectId)
@@ -137,6 +142,7 @@ final class ContentProjectItemOperationsReadModel
                 $latestByTask[$tid] ?? null,
                 $viewed?->toIso8601String(),
                 isset($generatePendingRunnable[$tid]),
+                isset($keywordDirtyByTask[$tid]),
             );
         }
 
@@ -298,6 +304,7 @@ final class ContentProjectItemOperationsReadModel
         ?array $exec,
         ?string $viewedGenerationCompletedAt = null,
         bool $isGeneratePendingRunnable = false,
+        bool $isGenerationKeywordDirty = false,
     ): array {
         $tid = (int) $task->id;
         $article = $task->article;
@@ -320,7 +327,10 @@ final class ContentProjectItemOperationsReadModel
         $type = SeoProjectTask::normalizeType($task->type);
 
         $articleId = (int) ($task->article_id ?? 0);
-        $keyword = trim((string) ($task->keyword ?? ''));
+        $keywordOriginal = ContentProjectGenerationKeyword::originalKeyword($task);
+        $keywordEffective = ContentProjectGenerationKeyword::effective($task);
+        $hasKeywordOverride = ContentProjectGenerationKeyword::hasOverride($task);
+        $keyword = $keywordOriginal;
         $title = trim((string) ($task->title ?? ''));
         if ($articleId <= 0 || ! ($article instanceof SeoArticle)) {
             $title = '';
@@ -330,9 +340,15 @@ final class ContentProjectItemOperationsReadModel
         $source = trim((string) ($task->source_content ?? ''));
         if ($keyword === '' && $source !== '' && $type !== SeoProjectTask::TYPE_IMPROVE) {
             $keyword = $source;
+            if ($keywordOriginal === '') {
+                $keywordOriginal = $source;
+            }
+            if ($keywordEffective === '') {
+                $keywordEffective = $source;
+            }
         }
 
-        $primary = $title !== '' ? $title : ($keyword !== '' ? $keyword : '#'.$tid);
+        $primary = $title !== '' ? $title : ($keywordEffective !== '' ? $keywordEffective : ($keyword !== '' ? $keyword : '#'.$tid));
         $articleEmptyLabel = $articleId <= 0 || ! ($article instanceof SeoArticle)
             ? 'Chưa có bài viết'
             : null;
@@ -509,7 +525,12 @@ final class ContentProjectItemOperationsReadModel
             'article_empty_label' => $articleEmptyLabel,
             'thumbnail_url' => $thumbnailUrl,
             'has_featured_image' => $thumbnailUrl !== null,
-            'keyword' => $keyword !== '' ? $keyword : '—',
+            'keyword' => $keywordEffective !== '' ? $keywordEffective : ($keyword !== '' ? $keyword : '—'),
+            'keyword_original' => $keywordOriginal !== '' ? $keywordOriginal : ($keyword !== '' ? $keyword : '—'),
+            'keyword_effective' => $keywordEffective !== '' ? $keywordEffective : '—',
+            'has_keyword_override' => $hasKeywordOverride,
+            'generation_keyword_dirty' => $isGenerationKeywordDirty,
+            'can_edit_keyword_override' => $type !== SeoProjectTask::TYPE_IMPROVE && ! $task->isGenerationBlocked(),
             'title' => $title !== '' ? $title : '—',
             'article_id' => $articleId > 0 ? $articleId : null,
             'article_missing' => $articleId > 0 && ! ($article instanceof SeoArticle),
@@ -644,6 +665,8 @@ final class ContentProjectItemOperationsReadModel
                 $hay = strtolower(implode(' ', [
                     (string) $row['primary_label'],
                     (string) $row['keyword'],
+                    (string) ($row['keyword_original'] ?? ''),
+                    (string) ($row['keyword_effective'] ?? ''),
                     (string) $row['title'],
                     (string) ($row['article_slug'] ?? ''),
                     (string) $row['task_id'],

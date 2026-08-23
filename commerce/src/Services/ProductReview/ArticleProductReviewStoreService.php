@@ -24,6 +24,9 @@ final class ArticleProductReviewStoreService
         private readonly CommentReviewPayloadParser $parser,
         private readonly VirtualCommentService $virtualComments,
         private readonly CommentReviewRatingAssigner $ratingAssigner,
+        private readonly ProductReviewCreationPolicy $policy,
+        private readonly WordPressProductReviewStatusService $statusService,
+        private readonly ProductReviewAutomationSettingsResolver $settingsResolver,
     ) {}
 
     /**
@@ -64,6 +67,37 @@ final class ArticleProductReviewStoreService
      */
     public function storeItems(SeoArticle $article, array $items, string $source = 'ai_generated'): array
     {
+        $settings = $this->settingsResolver->resolve();
+        $wpStatus = $this->statusService->statusForArticle($article, $settings, fresh: true);
+        $local = $this->policy->localCounts($article);
+        $connected = (bool) ($wpStatus['wordpress_connected'] ?? false);
+        $decision = $this->policy->evaluate(
+            $article,
+            [
+                'wordpress_connected' => $connected,
+                'fetch_success' => $connected,
+                'wordpress_real_review_count' => (int) ($wpStatus['wordpress_real_review_count'] ?? 0),
+                'wordpress_generated_review_count' => (int) ($wpStatus['wordpress_generated_review_count'] ?? 0),
+            ],
+            $local,
+            $settings,
+        );
+
+        if (! $decision->allowed) {
+            return [
+                'success' => false,
+                'message' => ProductReviewCreationPolicy::reasonLabel($decision->reason)
+                    ?? 'Không được tạo review theo policy hiện tại.',
+                'created_count' => 0,
+                'review_ids' => [],
+                'policy' => $decision->toArray(),
+            ];
+        }
+
+        if ($decision->missingCount > 0 && count($items) > $decision->missingCount) {
+            $items = array_slice(array_values($items), 0, $decision->missingCount);
+        }
+
         $connectionId = (int) (SeoConnectionContext::current()?->id ?? 0);
         if ($connectionId <= 0) {
             return [
@@ -85,7 +119,7 @@ final class ArticleProductReviewStoreService
         }
 
         $wpPostId = (int) ($article->wordpressLink?->wp_post_id ?? 0);
-        $status = ArticleProductReviewStatus::Pending;
+        $pendingStatus = ArticleProductReviewStatus::Pending;
 
         $isProduct = ArticlePostTypeResolver::resolve($article) === 'product';
         $createdIds = [];
@@ -97,7 +131,7 @@ final class ArticleProductReviewStoreService
             $connectionId,
             $siteId,
             $wpPostId,
-            $status,
+            $pendingStatus,
             $isProduct,
             &$createdIds,
         ): void {
@@ -163,7 +197,7 @@ final class ArticleProductReviewStoreService
                     'rating' => $rating,
                     'review_date' => $reviewDate !== '' ? $reviewDate : now(),
                     'source' => $source,
-                    'status' => $status,
+                    'status' => $pendingStatus,
                     'publish_attempts' => 0,
                     'content_hash' => $contentHash,
                     'idempotency_key' => $idempotencyKey,

@@ -27,6 +27,7 @@ use Filament\Tables;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\HtmlString;
 
 class PromptResource extends SeoPanelResource
 {
@@ -283,8 +284,12 @@ class PromptResource extends SeoPanelResource
                                 Forms\Components\Section::make(__('seo-content-ai::filament.prompt.variables'))
                                     ->description(__('seo-content-ai::filament.prompt.variables_hint'))
                                     ->schema([
+                                        Forms\Components\Placeholder::make('system_default_variables')
+                                            ->label(__('seo-content-ai::filament.prompt.variables_system_title'))
+                                            ->content(fn (Get $get): \Illuminate\Support\HtmlString => self::systemDefaultVariablesHtml($get))
+                                            ->visible(fn (Get $get): bool => self::systemDefaultVariableRows($get) !== []),
                                         Forms\Components\Repeater::make('variables')
-                                            ->label('')
+                                            ->label(__('seo-content-ai::filament.prompt.variables_custom_title'))
                                             ->schema([
                                                 Forms\Components\TextInput::make('name')
                                                     ->label(__('seo-content-ai::filament.prompt.variable_name'))
@@ -299,7 +304,7 @@ class PromptResource extends SeoPanelResource
                                             ->reorderable()
                                             ->collapsible(),
                                     ])
-                                    ->collapsed()
+                                    ->collapsed(false)
                                     ->collapsible(),
 
                                 Forms\Components\Section::make(__('seo-content-ai::filament.prompt.post_processing.title'))
@@ -595,6 +600,102 @@ class PromptResource extends SeoPanelResource
     }
 
     /**
+     * Hook / markdown defaults shown read-only in Variables (not deletable).
+     *
+     * @return list<array{name: string, description: string, locked: bool}>
+     */
+    public static function systemDefaultVariableRows(Get $get): array
+    {
+        $hookKey = trim((string) ($get('hook_key') ?? ''));
+        $markdown = (string) ($get('markdown_content') ?? '');
+        $defaults = self::defaultVariableLabels();
+        $rows = [];
+
+        if ($hookKey !== '') {
+            try {
+                $presentation = app(\Omnichannel\Addons\AiPrompt\Services\PromptOwnership\PromptHookPresentationService::class)
+                    ->forHook($hookKey);
+            } catch (\Throwable) {
+                $presentation = null;
+            }
+            $inputs = is_array($presentation['inputs'] ?? null) ? $presentation['inputs'] : [];
+            foreach ($inputs as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+                $name = trim((string) ($row['key'] ?? $row['name'] ?? ''));
+                if ($name === '') {
+                    continue;
+                }
+                $desc = trim((string) ($row['label'] ?? $defaults[$name] ?? ''));
+                if (! empty($row['required'])) {
+                    $desc = $desc !== '' ? $desc.' (required)' : 'required';
+                }
+                $rows[$name] = [
+                    'name' => $name,
+                    'description' => $desc !== '' ? $desc : 'Hook default (không xóa được)',
+                    'locked' => true,
+                ];
+            }
+        }
+
+        foreach (self::extractVariableNamesFromMarkdown($markdown) as $name) {
+            if (isset($rows[$name])) {
+                continue;
+            }
+            if (PromptLoaiSanPhamVariable::isLoaiSanPhamName($name)
+                || PromptSiteContextVariable::isName($name)
+                || strtoupper($name) === 'PARENT_RESULT') {
+                continue;
+            }
+            $rows[$name] = [
+                'name' => $name,
+                'description' => (string) ($defaults[$name] ?? 'Từ Markdown — biến mặc định (không xóa được)'),
+                'locked' => true,
+            ];
+        }
+
+        foreach (self::defaultRuntimeVariableNames() as $name) {
+            if (isset($rows[$name])) {
+                continue;
+            }
+            $rows[$name] = [
+                'name' => $name,
+                'description' => (string) ($defaults[$name] ?? 'Runtime default (không xóa được)'),
+                'locked' => true,
+            ];
+        }
+
+        return array_values($rows);
+    }
+
+    public static function systemDefaultVariablesHtml(Get $get): HtmlString
+    {
+        $rows = self::systemDefaultVariableRows($get);
+        if ($rows === []) {
+            return new HtmlString('');
+        }
+
+        $items = [];
+        foreach ($rows as $row) {
+            $name = e('{{'.$row['name'].'}}');
+            $desc = e((string) $row['description']);
+            $items[] = '<li class="text-sm"><code class="text-xs">'.$name.'</code>'
+                .' <span class="text-gray-500 dark:text-gray-400">— '.$desc.'</span>'
+                .' <span class="ml-1 rounded bg-gray-100 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-gray-600 dark:bg-gray-800 dark:text-gray-300">'
+                .e((string) __('seo-content-ai::filament.prompt.variables_locked_badge'))
+                .'</span></li>';
+        }
+
+        $note = e((string) __('seo-content-ai::filament.prompt.variables_system_note'));
+
+        return new HtmlString(
+            '<p class="mb-2 text-xs text-gray-500 dark:text-gray-400">'.$note.'</p>'
+            .'<ul class="list-disc space-y-1 pl-5">'.implode('', $items).'</ul>',
+        );
+    }
+
+    /**
      * @return array<int, array{name: string, label: string, description: ?string}>
      */
     public static function variableDefinitionsForPrompt(SeoPrompt $prompt): array
@@ -657,6 +758,7 @@ class PromptResource extends SeoPanelResource
             'post_content' => 'Article content',
             'focus_keyword' => 'Focus keyword',
             'post_excerpt' => 'Excerpt',
+            'comment_count' => 'Số bình luận/review cần gen (mặc định 3; không liên quan Limits.max_previous_outputs_items)',
             'site_domain' => 'Website domain',
             'site_short_description' => 'Website short description (domain)',
             'site_cta' => 'Website CTA / contact (domain) — includes [phone], [website], … placeholders for AI',

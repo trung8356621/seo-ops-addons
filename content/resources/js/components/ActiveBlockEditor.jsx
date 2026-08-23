@@ -5,7 +5,11 @@ import BlockEditorResizeHandle, { useBlockEditorHeight } from './BlockEditorResi
 import { EditorInspectorBubbleHost } from '../editor/host/EditorInspectorBubbleHost';
 import ArticleHtmlInspectorModal from './ArticleHtmlInspectorModal';
 import { resolveLinkEditorAnchorRect } from '../utils/linkEditorAnchor';
-import { normalizeInlineLinks, analyzeInlineLinks } from '../utils/inlineLinkNormalizer';
+import {
+    normalizeInlineLinks,
+    analyzeInlineLinks,
+    prepareHtmlForTipTapApply,
+} from '../utils/inlineLinkNormalizer';
 import {
     captureEditorInsertionContext,
     getEditorInsertionContext,
@@ -464,7 +468,9 @@ function ActiveBlockEditor({
                         return { ok: false, error: t('html_inspector_invalid_html') };
                     }
                     try {
-                        const normalized = normalizeInlineLinks(String(nextHtml ?? ''));
+                        // prettyPrint indent + preserveWhitespace:full otherwise invents empty <p> in <td>.
+                        const prepared = prepareHtmlForTipTapApply(String(nextHtml ?? ''));
+                        const normalized = normalizeInlineLinks(prepared);
                         editor.commands.setContent(normalized || '<p></p>', {
                             emitUpdate: true,
                             parseOptions: TIPTAP_HTML_PARSE_OPTIONS,

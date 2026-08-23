@@ -368,12 +368,20 @@ final class ArticlePromptRunHistoryService
             $articleLinkedResults
                 ->filter(fn (PromptResult $result): bool => ! isset($seenResultIds[(int) $result->id]))
                 ->map(function (PromptResult $result): array {
+                    $snapshot = is_array($result->input_snapshot) ? $result->input_snapshot : [];
+                    $promptName = (string) ($result->prompt?->name ?? '');
+                    if (($snapshot['generation_source'] ?? '') === 'product_review_template') {
+                        $promptName = 'Review';
+                    }
+
                     return $this->normalizePromptItem(
                         [
-                            'prompt_name' => (string) ($result->prompt?->name ?? ''),
+                            'prompt_name' => $promptName,
                             'status' => (string) $result->status,
                             'output' => (string) ($result->output_text ?? ''),
                             'message' => (string) ($result->error_message ?? ''),
+                            'hook_key' => $snapshot['hook_key']
+                                ?? ($snapshot['variables']['hook_key'] ?? null),
                         ],
                         $result,
                         0,

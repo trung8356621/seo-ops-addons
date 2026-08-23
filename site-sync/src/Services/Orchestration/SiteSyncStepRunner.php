@@ -21,6 +21,7 @@ use Omnichannel\Addons\SiteSync\Services\Reconciliation\SiteSyncBatchReconciler;
 use Omnichannel\Addons\SiteSync\Services\Progress\SiteSyncProgressTracker;
 use Omnichannel\Addons\SiteSync\Services\Progress\SiteSyncStepCatalog;
 use Omnichannel\Addons\SiteSync\Services\Support\SiteSyncSiteMeta;
+use Omnichannel\Addons\SiteSync\Support\SiteSyncImportContext;
 use App\Models\Site as CoreSite;
 use App\Support\RuntimeLogger;
 use Illuminate\Support\Facades\Http;
@@ -35,6 +36,7 @@ final class SiteSyncStepRunner
         private readonly SiteSyncBatchReconciler $reconciler,
         private readonly WorkspaceFallbackRegistry $fallbacks,
         private readonly SiteSyncFeatureFlags $flags,
+        private readonly SiteSyncRunExecution $execution,
     ) {}
 
     private ?SiteSyncProgressTracker $progress = null;
@@ -44,10 +46,10 @@ final class SiteSyncStepRunner
         return $this->progress ??= new SiteSyncProgressTracker();
     }
 
-    public function runNext(int $runId, bool $dispatchContinue = true): void
+    public function runNext(int $runId, bool $dispatchContinue = true, int $jobGeneration = 0): void
     {
         $started = microtime(true);
-        $run = SeoSiteSyncRun::query()->with('steps')->find($runId);
+        $run = $this->execution->freshRun($runId);
         if ($run === null) {
             RuntimeLogger::warning('site_sync.step_claim_rejected', [
                 'run_id' => $runId,
@@ -57,7 +59,31 @@ final class SiteSyncStepRunner
             return;
         }
 
-        if (in_array($run->status, ['completed', 'cancelled', 'canceled'], true)) {
+        if ($this->execution->isCanceled($run)) {
+            RuntimeLogger::warning('site_sync.job_skipped_canceled', [
+                'run_id' => $runId,
+                'step' => (string) ($run->current_step ?? ''),
+                'job_generation' => $jobGeneration,
+                'run_generation' => $this->execution->readGeneration($run),
+            ]);
+            $this->persistClaimResult($run, null, SiteSyncStepClaimResult::Cancelled);
+
+            return;
+        }
+
+        if ($jobGeneration > 0 && $this->execution->readGeneration($run) !== $jobGeneration) {
+            RuntimeLogger::warning('site_sync.job_skipped_canceled', [
+                'run_id' => $runId,
+                'step' => (string) ($run->current_step ?? ''),
+                'job_generation' => $jobGeneration,
+                'run_generation' => $this->execution->readGeneration($run),
+                'reason' => 'stale_generation',
+            ]);
+
+            return;
+        }
+
+        if ((string) $run->status === 'completed') {
             $this->persistClaimResult($run, null, SiteSyncStepClaimResult::AlreadyCompleted);
 
             return;
@@ -99,6 +125,11 @@ final class SiteSyncStepRunner
                 ->first();
 
             if ($runningStep !== null) {
+                $run->refresh();
+                if ($this->execution->isCanceled($run)) {
+                    return;
+                }
+
                 $checkpoint = is_array($runningStep->checkpoint) ? $runningStep->checkpoint : [];
                 // Deferred poll (score_missing_articles) intentionally leaves status=running and
                 // re-dispatches ProcessSiteSyncStepJob. That continuation MUST reclaim immediately —
@@ -124,18 +155,19 @@ final class SiteSyncStepRunner
         }
 
         if ($step === null) {
-            $this->persistClaimResult($run, null, SiteSyncStepClaimResult::AlreadyCompleted);
-            $run->forceFill([
-                'status' => 'completed',
-                'current_step' => 'finalize',
-                'finished_at' => now(),
-            ])->save();
-            $this->checkpointProgress($run, 'finalize', [
-                'status' => 'completed',
-                'finished_at' => now()->toIso8601String(),
-            ], true);
-            $this->maybeMarkBootstrapComplete($site, $run);
+            $run->refresh();
+            if ($this->execution->isCanceled($run)) {
+                return;
+            }
 
+            $this->persistClaimResult($run, null, SiteSyncStepClaimResult::AlreadyCompleted);
+            $this->finalizeRunIfComplete($run, $site, is_array($run->counters) ? $run->counters : []);
+
+            return;
+        }
+
+        $run->refresh();
+        if ($this->execution->isCanceled($run)) {
             return;
         }
 
@@ -179,7 +211,7 @@ final class SiteSyncStepRunner
             $metrics = $this->executeStep($site, $run, (string) $step->step_key);
 
             $run->refresh();
-            if (in_array((string) $run->status, ['canceled', 'cancelled'], true)) {
+            if ($this->execution->isCanceled($run)) {
                 $step->refresh();
                 if ((string) $step->status === 'running') {
                     $step->forceFill([
@@ -188,6 +220,16 @@ final class SiteSyncStepRunner
                         'finished_at' => now(),
                     ])->save();
                 }
+
+                return;
+            }
+
+            if (! empty($metrics['__canceled_stop'])) {
+                $step->forceFill([
+                    'status' => 'skipped',
+                    'error_message' => 'Canceled by operator',
+                    'finished_at' => now(),
+                ])->save();
 
                 return;
             }
@@ -225,7 +267,13 @@ final class SiteSyncStepRunner
 
                 $delaySeconds = max(5, (int) ($metrics['defer_seconds'] ?? 20));
                 if ($dispatchContinue) {
-                    ProcessSiteSyncStepJob::dispatch($runId)->delay(now()->addSeconds($delaySeconds))->afterCommit();
+                    $this->execution->dispatchContinuation(
+                        $runId,
+                        $jobGeneration > 0 ? $jobGeneration : $this->execution->readGeneration($run),
+                        $delaySeconds,
+                        (string) $step->step_key,
+                        'defer_step',
+                    );
                 }
 
                 return;
@@ -274,15 +322,6 @@ final class SiteSyncStepRunner
                 ],
             ]);
 
-            $hasMoreBatches = (bool) ($metrics['has_more'] ?? false);
-            if ($hasMoreBatches && $step->step_key === 'request_snapshot_delta') {
-                $meta = is_array($run->meta) ? $run->meta : [];
-                $meta['pending_cursor'] = $metrics['cursor'] ?? null;
-                $meta['has_more_batches'] = true;
-                $run->meta = $meta;
-                $run->save();
-            }
-
             $next = SeoSiteSyncRunStep::query()
                 ->where('run_id', $runId)
                 ->where('status', 'pending')
@@ -290,30 +329,26 @@ final class SiteSyncStepRunner
                 ->first();
 
             if ($next === null) {
-                $failedScores = (int) ($counters['scoring_failed'] ?? 0);
-                $finalStatus = $failedScores > 0 || (is_array($run->warnings) && $run->warnings !== [])
-                    ? 'completed_with_warnings'
-                    : 'completed';
-                $run->forceFill([
-                    'status' => $finalStatus,
-                    'finished_at' => now(),
-                ])->save();
-                $this->checkpointProgress($run, 'finalize', [
-                    'status' => $finalStatus,
-                    'finished_at' => now()->toIso8601String(),
-                    'current' => (int) ($counters['checked'] ?? $counters['fetched'] ?? 0),
-                    'total' => (int) ($counters['total_to_check'] ?? 0) ?: null,
-                ], true);
+                $run->refresh();
+                if ($this->execution->isCanceled($run)) {
+                    return;
+                }
 
-                $this->notifySiteSyncTerminal($run, $finalStatus, $counters);
+                $this->finalizeRunIfComplete($run, $site, $counters);
 
                 return;
             }
 
             if ($dispatchContinue) {
-                ProcessSiteSyncStepJob::dispatch($runId)->afterCommit();
+                $this->execution->dispatchContinuation(
+                    $runId,
+                    $jobGeneration > 0 ? $jobGeneration : $this->execution->readGeneration($run),
+                    null,
+                    (string) $step->step_key,
+                    'next_step',
+                );
             } else {
-                $this->runNext($runId, false);
+                $this->runNext($runId, false, $jobGeneration);
             }
 
             RuntimeLogger::warning('site_sync.step_completed', [
@@ -331,6 +366,11 @@ final class SiteSyncStepRunner
                 'business_outcome' => 'step_completed_continue',
             ]);
         } catch (Throwable $e) {
+            $run->refresh();
+            if ($this->execution->isCanceled($run)) {
+                return;
+            }
+
             RuntimeLogger::warning('site_sync.step_failed', [
                 'run_id' => $runId,
                 'step' => $step->step_key,
@@ -353,6 +393,60 @@ final class SiteSyncStepRunner
 
             $this->notifySiteSyncFailed($run, $e->getMessage());
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $counters
+     */
+    private function finalizeRunIfComplete(SeoSiteSyncRun $run, CoreSite $site, array $counters): void
+    {
+        $run->refresh();
+        if ($this->execution->isCanceled($run)) {
+            return;
+        }
+
+        $validation = SiteSyncRunCompletionGuard::validate($run);
+        if (! $validation['ok']) {
+            $run->forceFill([
+                'status' => 'needs_attention',
+                'current_step' => 'finalize',
+                'error_message' => 'Force full sync incomplete: '.($validation['reason'] ?? 'unknown'),
+                'resumable' => true,
+            ])->save();
+            $this->checkpointProgress($run, 'finalize', [
+                'status' => 'needs_attention',
+                'current' => (int) (is_array($run->counters) ? ($run->counters['reconciled'] ?? $run->counters['checked'] ?? 0) : 0),
+                'total' => (int) (is_array($run->counters) ? ($run->counters['total_to_check'] ?? 0) : 0) ?: null,
+                'message' => $validation['reason'],
+            ], true);
+
+            RuntimeLogger::warning('site_sync.run_incomplete', [
+                'run_id' => (int) $run->id,
+                'site_id' => (int) $run->site_id,
+                'reason' => $validation['reason'],
+            ]);
+
+            return;
+        }
+
+        $failedScores = (int) ($counters['scoring_failed'] ?? 0);
+        $finalStatus = $failedScores > 0 || (is_array($run->warnings) && $run->warnings !== [])
+            ? 'completed_with_warnings'
+            : 'completed';
+        $runCounters = is_array($run->counters) ? $run->counters : [];
+        $run->forceFill([
+            'status' => $finalStatus,
+            'current_step' => 'finalize',
+            'finished_at' => now(),
+        ])->save();
+        $this->checkpointProgress($run, 'finalize', [
+            'status' => $finalStatus,
+            'finished_at' => now()->toIso8601String(),
+            'current' => (int) ($runCounters['reconciled'] ?? $runCounters['checked'] ?? 0),
+            'total' => (int) ($runCounters['total_to_check'] ?? 0) ?: null,
+        ], true);
+        $this->maybeMarkBootstrapComplete($site, $run);
+        $this->notifySiteSyncTerminal($run, $finalStatus, $counters);
     }
 
     private function persistClaimResult(
@@ -475,16 +569,29 @@ final class SiteSyncStepRunner
         $forceFull = $run->mode === SiteSyncSchema::MODE_FORCE_FULL
             || (bool) ($meta['force_full'] ?? false);
         $includeUnchanged = $forceFull || (bool) ($meta['include_unchanged'] ?? false);
+        $cursorBefore = $run->cursor;
+        $chunkStarted = microtime(true);
 
         $query = [
             'mode' => $forceFull ? SiteSyncSchema::MODE_FORCE_FULL : $run->mode,
-            'cursor' => $forceFull ? null : $run->cursor,
+            'cursor' => $forceFull ? $run->cursor : $run->cursor,
             'run_token' => $run->run_token,
             'include_unchanged' => $includeUnchanged,
             'fields' => SiteSyncSchema::FIELDS_METADATA,
         ];
 
-        // force_full / snapshot: paginated batches from start; never modified-since delta.
+        if ($forceFull && $run->cursor === null) {
+            $query['cursor'] = null;
+        }
+
+        RuntimeLogger::warning('site_sync.chunk_started', [
+            'run_id' => (int) $run->id,
+            'step' => 'request_snapshot_delta',
+            'cursor_before' => $cursorBefore,
+            'force_full' => $forceFull,
+        ]);
+
+        // force_full / snapshot: paginated batches; never modified-since delta.
         $result = ($forceFull || $run->mode === SiteSyncSchema::MODE_SNAPSHOT)
             ? $this->client->fetchBatches($site, $query)
             : $this->client->fetchDelta($site, $query);
@@ -506,9 +613,10 @@ final class SiteSyncStepRunner
         $run->meta = $meta;
 
         $counters = is_array($run->counters) ? $run->counters : [];
+        $fetchedAtStart = (int) ($counters['fetched'] ?? 0);
         $fetched = count($batch->articles);
-        $counters['fetched'] = (int) ($counters['fetched'] ?? 0) + $fetched;
-        $counters['checked'] = (int) ($counters['checked'] ?? 0) + $fetched;
+        $counters['fetched'] = $fetchedAtStart + $fetched;
+        $counters['checked'] = (int) ($counters['fetched']);
         $totalFromWp = (int) ($batch->raw['total_count'] ?? 0);
         if ($forceFull && $totalFromWp > 0) {
             $counters['total_to_check'] = max((int) ($counters['total_to_check'] ?? 0), $totalFromWp);
@@ -518,20 +626,23 @@ final class SiteSyncStepRunner
         $run->save();
         $this->checkpointBatch($run, 'request_snapshot_delta', $counters, 1, null, $fetched);
 
-        if ($forceFull && $totalFromWp === 0 && $fetched === 0) {
+        if ($forceFull && $totalFromWp === 0 && $fetched === 0 && $run->cursor === null) {
             $localArticles = SeoArticle::query()->where('site_id', (int) $site->id)->count();
             if ($localArticles > 0) {
                 throw new \RuntimeException("Force full sync discovered zero WordPress records while {$localArticles} local articles exist.");
             }
         }
 
-        // Keep pulling while has_more for force_full / snapshot within this step budget.
         $loops = 0;
-        while (($forceFull || $run->mode === SiteSyncSchema::MODE_SNAPSHOT) && $batch->hasMore && $loops < 40) {
+        $maxExtra = max(0, SiteSyncSchema::SNAPSHOT_BATCHES_PER_JOB - 1);
+        while (($forceFull || $run->mode === SiteSyncSchema::MODE_SNAPSHOT) && $batch->hasMore && $loops < $maxExtra) {
             $loops++;
+            if ($this->execution->isRunStopped((int) $run->id)) {
+                return $this->execution->chunkStoppedPayload((int) $run->id, 'request_snapshot_delta', 'snapshot_loop', $run->cursor);
+            }
             $run->refresh();
-            if (in_array((string) $run->status, ['canceled', 'cancelled'], true)) {
-                break;
+            if ($this->execution->isCanceled($run)) {
+                return $this->execution->chunkStoppedPayload((int) $run->id, 'request_snapshot_delta', 'snapshot_loop', $run->cursor);
             }
             $batchStarted = microtime(true);
             $more = $this->client->fetchBatches($site, [
@@ -554,7 +665,7 @@ final class SiteSyncStepRunner
             $counters = is_array($run->counters) ? $run->counters : [];
             $fetched = count($batch->articles);
             $counters['fetched'] = (int) ($counters['fetched'] ?? 0) + $fetched;
-            $counters['checked'] = (int) ($counters['checked'] ?? 0) + $fetched;
+            $counters['checked'] = (int) ($counters['fetched']);
             $totalFromWp = (int) ($batch->raw['total_count'] ?? 0);
             if ($forceFull && $totalFromWp > 0) {
                 $counters['total_to_check'] = max((int) ($counters['total_to_check'] ?? 0), $totalFromWp);
@@ -572,10 +683,55 @@ final class SiteSyncStepRunner
             );
         }
 
+        $recordsInChunk = (int) ($counters['fetched'] ?? 0) - $fetchedAtStart;
+        RuntimeLogger::warning('site_sync.chunk_completed', [
+            'run_id' => (int) $run->id,
+            'step' => 'request_snapshot_delta',
+            'cursor_before' => $cursorBefore,
+            'cursor_after' => $run->cursor,
+            'records_in_chunk' => $fetched,
+            'records_processed_total' => (int) ($counters['fetched'] ?? 0),
+            'records_total' => (int) ($counters['total_to_check'] ?? 0),
+            'has_more' => $batch->hasMore,
+            'duration_ms' => (int) round((microtime(true) - $chunkStarted) * 1000),
+            'memory_mb' => round(memory_get_peak_usage(true) / 1048576, 1),
+            'continuation_dispatched' => $batch->hasMore && ($forceFull || $run->mode === SiteSyncSchema::MODE_SNAPSHOT),
+        ]);
+
+        if ($batch->hasMore && ($forceFull || $run->mode === SiteSyncSchema::MODE_SNAPSHOT)) {
+            if ($this->execution->isRunStopped((int) $run->id)) {
+                return $this->execution->chunkStoppedPayload((int) $run->id, 'request_snapshot_delta', 'snapshot_defer', $run->cursor);
+            }
+
+            $meta = is_array($run->meta) ? $run->meta : [];
+            $meta['has_more_batches'] = true;
+            $meta['pending_cursor'] = $run->cursor;
+            unset($meta['snapshot_exhausted']);
+            $run->meta = $meta;
+            $run->save();
+
+            return [
+                '__defer_step' => true,
+                'defer_seconds' => 0,
+                'batches_staged' => count(is_array($run->meta['batch_ids'] ?? null) ? $run->meta['batch_ids'] : []),
+                'cursor' => $run->cursor,
+                'has_more' => true,
+                'articles_in_batch' => (int) ($counters['fetched'] ?? 0),
+                'force_full' => $forceFull,
+                'include_unchanged' => $includeUnchanged,
+            ];
+        }
+
+        $meta = is_array($run->meta) ? $run->meta : [];
+        $meta['snapshot_exhausted'] = true;
+        unset($meta['has_more_batches'], $meta['pending_cursor']);
+        $run->meta = $meta;
+        $run->save();
+
         return [
             'batches_staged' => count(is_array($run->meta['batch_ids'] ?? null) ? $run->meta['batch_ids'] : []),
             'cursor' => $run->cursor,
-            'has_more' => $batch->hasMore,
+            'has_more' => false,
             'urls_changed' => count($batch->links),
             'articles_in_batch' => (int) ($counters['fetched'] ?? 0),
             'force_full' => $forceFull,
@@ -633,6 +789,22 @@ final class SiteSyncStepRunner
         $meta = is_array($run->meta) ? $run->meta : [];
         $forceFull = $run->mode === SiteSyncSchema::MODE_FORCE_FULL || (bool) ($meta['force_full'] ?? false);
         $batchIds = is_array($meta['batch_ids'] ?? null) ? $meta['batch_ids'] : [];
+        $stepRow = SeoSiteSyncRunStep::query()
+            ->where('run_id', (int) $run->id)
+            ->where('step_key', 'sync_url_catalog')
+            ->first();
+        $checkpoint = is_array($stepRow?->checkpoint) ? $stepRow->checkpoint : [];
+        $appliedOffset = (int) ($checkpoint['catalog_applied_offset'] ?? 0);
+        $chunkStarted = microtime(true);
+
+        RuntimeLogger::warning('site_sync.chunk_started', [
+            'run_id' => (int) $run->id,
+            'step' => 'sync_url_catalog',
+            'catalog_applied_offset' => $appliedOffset,
+            'batch_total' => count($batchIds),
+            'force_full' => $forceFull,
+        ]);
+
         $totals = [
             'articles' => 0,
             'urls_synced' => 0,
@@ -646,15 +818,25 @@ final class SiteSyncStepRunner
 
         $applied = 0;
         $batchCount = count($batchIds);
-        foreach ($batchIds as $batchId) {
-            $batch = SeoSiteSyncBatch::query()->find((int) $batchId);
+        for ($index = $appliedOffset; $index < $batchCount && $applied < SiteSyncSchema::CATALOG_BATCHES_PER_JOB; $index++) {
+            if ($this->execution->isRunStopped((int) $run->id)) {
+                $checkpoint['catalog_applied_offset'] = $appliedOffset;
+                $stepRow?->forceFill(['checkpoint' => $checkpoint])->save();
+
+                return $this->execution->chunkStoppedPayload((int) $run->id, 'sync_url_catalog', 'catalog_batch', $run->cursor);
+            }
+
+            $batchId = (int) $batchIds[$index];
+            $batch = SeoSiteSyncBatch::query()->find($batchId);
             if ($batch === null) {
                 continue;
             }
             if ($batch->applied_at !== null && ! $forceFull) {
                 continue;
             }
-            $counters = $this->reconciler->apply($site, $batch);
+            $counters = SiteSyncImportContext::run(
+                fn (): array => $this->reconciler->apply($site, $batch),
+            );
             $totals['articles'] += (int) ($counters['articles'] ?? 0);
             $totals['urls_synced'] += (int) ($counters['urls_synced'] ?? 0);
             $totals['scores'] += (int) ($counters['scores'] ?? 0);
@@ -666,61 +848,143 @@ final class SiteSyncStepRunner
             $totals['wp_post_type_backfilled'] = (int) ($totals['wp_post_type_backfilled'] ?? 0)
                 + (int) ($counters['wp_post_type_backfilled'] ?? 0);
             $applied++;
-            $this->checkpointCatalog($run, $totals, $applied, $batchCount);
-        }
-
-        $cursor = $run->cursor;
-        $loops = 0;
-        while ($loops < 20) {
-            $loops++;
-            $run->refresh();
-            if (in_array((string) $run->status, ['canceled', 'cancelled'], true)) {
-                break;
-            }
-            $batchStarted = microtime(true);
-            $result = $this->client->fetchBatches($site, [
-                'mode' => $forceFull ? SiteSyncSchema::MODE_FORCE_FULL : $run->mode,
-                'cursor' => $cursor,
-                'run_token' => $run->run_token,
-                'include_unchanged' => $forceFull || (bool) ($meta['include_unchanged'] ?? false),
-            ]);
-            if (! ($result['success'] ?? false) || ! isset($result['batch'])) {
-                break;
-            }
-            $batchData = $result['batch'];
-            $staged = $this->staging->stage($site, $batchData, (int) $run->id, $forceFull);
-            $counters = $this->reconciler->apply($site, $staged);
-            $totals['articles'] += (int) ($counters['articles'] ?? 0);
-            $totals['urls_synced'] += (int) ($counters['urls_synced'] ?? 0);
-            $totals['scores'] += (int) ($counters['scores'] ?? 0);
-            $totals['provider_keywords'] += (int) ($counters['provider_keywords'] ?? 0);
-            $totals['created'] += (int) ($counters['created'] ?? 0);
-            $totals['updated'] += (int) ($counters['updated'] ?? 0);
-            $totals['unchanged'] += (int) ($counters['unchanged'] ?? 0);
-            $totals['failed'] += (int) ($counters['failed'] ?? 0);
-
-            $runCounters = is_array($run->counters) ? $run->counters : [];
-            $fetched = count($batchData->articles);
-            $runCounters['fetched'] = (int) ($runCounters['fetched'] ?? 0) + $fetched;
-            $runCounters['checked'] = (int) ($runCounters['checked'] ?? 0) + $fetched;
-            $run->counters = $runCounters;
-            $cursor = $batchData->cursor;
-            $run->cursor = $cursor;
-            $run->save();
-            $this->checkpointCatalog($run, $totals, $loops, null, round(microtime(true) - $batchStarted, 1), $fetched);
-
-            if (! $batchData->hasMore) {
-                break;
-            }
+            $appliedOffset = $index + 1;
+            $this->checkpointCatalog($run, $totals, $appliedOffset, $batchCount);
         }
 
         $run->refresh();
         $runCounters = is_array($run->counters) ? $run->counters : [];
+        $runCounters['reconciled'] = (int) ($runCounters['reconciled'] ?? 0) + (int) ($totals['articles'] ?? 0);
+        $runCounters['checked'] = max(
+            (int) ($runCounters['reconciled'] ?? 0),
+            (int) ($runCounters['fetched'] ?? 0),
+        );
         foreach (['created', 'updated', 'unchanged', 'failed', 'urls_synced', 'provider_keywords', 'scores'] as $key) {
             $runCounters[$key] = (int) ($runCounters[$key] ?? 0) + (int) ($totals[$key] ?? 0);
         }
         $run->counters = $runCounters;
         $run->save();
+
+        if ($appliedOffset < $batchCount) {
+            if ($this->execution->isRunStopped((int) $run->id)) {
+                $checkpoint['catalog_applied_offset'] = $appliedOffset;
+                $stepRow?->forceFill(['checkpoint' => $checkpoint])->save();
+
+                return $this->execution->chunkStoppedPayload((int) $run->id, 'sync_url_catalog', 'catalog_defer', $run->cursor);
+            }
+
+            $checkpoint['catalog_applied_offset'] = $appliedOffset;
+            $stepRow?->forceFill(['checkpoint' => $checkpoint])->save();
+
+            RuntimeLogger::warning('site_sync.chunk_completed', [
+                'run_id' => (int) $run->id,
+                'step' => 'sync_url_catalog',
+                'records_in_chunk' => (int) ($totals['articles'] ?? 0),
+                'records_processed_total' => (int) ($runCounters['reconciled'] ?? 0),
+                'records_total' => (int) ($runCounters['total_to_check'] ?? 0),
+                'has_more' => true,
+                'duration_ms' => (int) round((microtime(true) - $chunkStarted) * 1000),
+                'memory_mb' => round(memory_get_peak_usage(true) / 1048576, 1),
+                'continuation_dispatched' => true,
+                'catalog_applied_offset' => $appliedOffset,
+            ]);
+
+            return array_merge($totals, [
+                '__defer_step' => true,
+                'defer_seconds' => 0,
+                'catalog_pending_batches' => $batchCount - $appliedOffset,
+            ]);
+        }
+
+        unset($checkpoint['catalog_applied_offset']);
+        $stepRow?->forceFill(['checkpoint' => $checkpoint])->save();
+
+        // Delta-only fallback: inline fetch when snapshot was partial (legacy runs).
+        if (! $forceFull && $run->cursor !== null) {
+            $cursor = $run->cursor;
+            $inlineLoops = 0;
+            while ($inlineLoops < SiteSyncSchema::CATALOG_BATCHES_PER_JOB) {
+                $inlineLoops++;
+                if ($this->execution->isRunStopped((int) $run->id)) {
+                    return $this->execution->chunkStoppedPayload((int) $run->id, 'sync_url_catalog', 'catalog_inline', $cursor);
+                }
+                $run->refresh();
+                if ($this->execution->isCanceled($run)) {
+                    return $this->execution->chunkStoppedPayload((int) $run->id, 'sync_url_catalog', 'catalog_inline', $cursor);
+                }
+                $batchStarted = microtime(true);
+                $result = $this->client->fetchBatches($site, [
+                    'mode' => $run->mode,
+                    'cursor' => $cursor,
+                    'run_token' => $run->run_token,
+                    'include_unchanged' => (bool) ($meta['include_unchanged'] ?? false),
+                ]);
+                if (! ($result['success'] ?? false) || ! isset($result['batch'])) {
+                    break;
+                }
+                $batchData = $result['batch'];
+                $staged = $this->staging->stage($site, $batchData, (int) $run->id, false);
+                $counters = SiteSyncImportContext::run(
+                    fn (): array => $this->reconciler->apply($site, $staged),
+                );
+                $totals['articles'] += (int) ($counters['articles'] ?? 0);
+                $totals['urls_synced'] += (int) ($counters['urls_synced'] ?? 0);
+                $totals['scores'] += (int) ($counters['scores'] ?? 0);
+                $totals['provider_keywords'] += (int) ($counters['provider_keywords'] ?? 0);
+                $totals['created'] += (int) ($counters['created'] ?? 0);
+                $totals['updated'] += (int) ($counters['updated'] ?? 0);
+                $totals['unchanged'] += (int) ($counters['unchanged'] ?? 0);
+                $totals['failed'] += (int) ($counters['failed'] ?? 0);
+
+                $runCounters = is_array($run->counters) ? $run->counters : [];
+                $fetched = count($batchData->articles);
+                $runCounters['fetched'] = (int) ($runCounters['fetched'] ?? 0) + $fetched;
+                $runCounters['reconciled'] = (int) ($runCounters['reconciled'] ?? 0) + (int) ($counters['articles'] ?? 0);
+                $runCounters['checked'] = max(
+                    (int) ($runCounters['reconciled'] ?? 0),
+                    (int) ($runCounters['fetched'] ?? 0),
+                );
+                foreach (['created', 'updated', 'unchanged', 'failed', 'urls_synced', 'provider_keywords', 'scores'] as $key) {
+                    $runCounters[$key] = (int) ($runCounters[$key] ?? 0) + (int) ($counters[$key] ?? 0);
+                }
+                $run->counters = $runCounters;
+                $cursor = $batchData->cursor;
+                $run->cursor = $cursor;
+                $run->save();
+                $this->checkpointCatalog($run, $totals, $appliedOffset + $inlineLoops, null, round(microtime(true) - $batchStarted, 1), $fetched);
+
+                if ($batchData->hasMore) {
+                    RuntimeLogger::warning('site_sync.chunk_completed', [
+                        'run_id' => (int) $run->id,
+                        'step' => 'sync_url_catalog',
+                        'cursor_after' => $cursor,
+                        'has_more' => true,
+                        'continuation_dispatched' => true,
+                        'duration_ms' => (int) round((microtime(true) - $chunkStarted) * 1000),
+                    ]);
+
+                    return array_merge($totals, [
+                        '__defer_step' => true,
+                        'defer_seconds' => 0,
+                        'has_more' => true,
+                    ]);
+                }
+            }
+        }
+
+        $run->refresh();
+        $runCounters = is_array($run->counters) ? $run->counters : [];
+
+        RuntimeLogger::warning('site_sync.chunk_completed', [
+            'run_id' => (int) $run->id,
+            'step' => 'sync_url_catalog',
+            'records_processed_total' => (int) ($runCounters['reconciled'] ?? 0),
+            'records_total' => (int) ($runCounters['total_to_check'] ?? 0),
+            'has_more' => false,
+            'duration_ms' => (int) round((microtime(true) - $chunkStarted) * 1000),
+            'memory_mb' => round(memory_get_peak_usage(true) / 1048576, 1),
+            'continuation_dispatched' => false,
+        ]);
 
         return $totals;
     }
@@ -736,7 +1000,11 @@ final class SiteSyncStepRunner
         $skipped = 0;
         $keywordReconciler = app(ProviderKeywordReconciler::class);
 
-        foreach ($batchIds as $batchId) {
+        foreach ($batchIds as $batchIndex => $batchId) {
+            if ($batchIndex > 0 && $batchIndex % 10 === 0 && $this->execution->isRunStopped((int) $run->id)) {
+                return $this->execution->chunkStoppedPayload((int) $run->id, 'sync_provider_keywords', 'keyword_batch', $run->cursor);
+            }
+
             $batch = SeoSiteSyncBatch::query()->find((int) $batchId);
             if ($batch === null) {
                 continue;
@@ -1087,7 +1355,10 @@ final class SiteSyncStepRunner
         ?int $processed = null,
     ): void {
         $runCounters = is_array($run->counters) ? $run->counters : [];
-        $current = (int) ($totals['articles'] ?? 0) + (int) ($runCounters['checked'] ?? 0);
+        $reconciled = (int) ($runCounters['reconciled'] ?? 0);
+        $current = $reconciled > 0
+            ? $reconciled
+            : (int) ($runCounters['fetched'] ?? $totals['articles'] ?? 0);
         $total = (int) ($runCounters['total_to_check'] ?? 0) ?: null;
         $this->checkpointProgress($run, 'sync_url_catalog', [
             'status' => 'running',
@@ -1100,7 +1371,7 @@ final class SiteSyncStepRunner
                 'changed' => (int) ($totals['updated'] ?? 0),
                 'unchanged' => (int) ($totals['unchanged'] ?? 0),
                 'failed' => (int) ($totals['failed'] ?? 0),
-                'articles' => (int) ($totals['articles'] ?? 0),
+                'articles' => (int) ($runCounters['reconciled'] ?? $totals['articles'] ?? 0),
                 'processed' => $processed ?? (int) ($totals['articles'] ?? 0),
             ],
         ]);
