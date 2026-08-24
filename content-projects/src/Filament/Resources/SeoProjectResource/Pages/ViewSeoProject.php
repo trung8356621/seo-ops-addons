@@ -2178,6 +2178,7 @@ final class ViewSeoProject extends Page
             static fn (array $row): bool => ($row['reason'] ?? '') === 'manual_only_improve',
         ));
         if ($preview['valid'] <= 0) {
+            $this->dispatch('cp-ops-generation-failed', taskIds: $taskIds);
             if ($manualImproveSkipped > 0) {
                 Notification::make()
                     ->title(__('seo-content-ai::filament.projects.run_failed'))
@@ -2218,6 +2219,8 @@ final class ViewSeoProject extends Page
                     'generate_post_images' => $this->generatePostImages,
                 ],
             );
+            $this->invalidateOpsCache();
+            $this->dispatch('cp-ops-generation-started', taskIds: $eligible);
             Notification::make()
                 ->title(__('seo-content-ai::filament.projects.run_started'))
                 ->body($manualImproveSkipped > 0
@@ -2231,6 +2234,7 @@ final class ViewSeoProject extends Page
                 ->send();
         } catch (Throwable $e) {
             RuntimeLogger::report($e, ['endpoint' => 'content_project.operations.generate_engine']);
+            $this->dispatch('cp-ops-generation-failed', taskIds: $eligible);
             Notification::make()
                 ->title(__('seo-content-ai::filament.projects.run_failed'))
                 ->body($e->getMessage())

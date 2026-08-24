@@ -82,6 +82,8 @@
             restartKeywordBusy: false,
             restartKeywordError: '',
             restartKeywordPollTimer: null,
+            generationPollTimer: null,
+            generationPollIds: [],
             openSelectExistingArticleModal(taskId) {
                 const id = Number(taskId || 0);
                 if (id <= 0) return;
@@ -474,6 +476,53 @@
             rowProcessingKind(tid) {
                 return this.processingRows?.[Number(tid || 0)] || null;
             },
+            stopGenerationTablePoll() {
+                if (this.generationPollTimer) {
+                    clearTimeout(this.generationPollTimer);
+                    this.generationPollTimer = null;
+                }
+                this.generationPollIds = [];
+            },
+            async runGenerationTablePoll(attempt = 0) {
+                const ids = [...(this.generationPollIds || [])];
+                if (ids.length === 0) {
+                    this.stopGenerationTablePoll();
+                    return;
+                }
+                try {
+                    await this.doLazyRefresh(true);
+                } catch (e) {}
+                ids.forEach((id) => this.clearRowProcessing(Number(id)));
+                const running = Number(this.canonicalCounters?.running ?? 0);
+                if (running <= 0 && attempt >= 2) {
+                    this.stopGenerationTablePoll();
+                    return;
+                }
+                if (attempt >= 120) {
+                    this.stopGenerationTablePoll();
+                    return;
+                }
+                this.generationPollTimer = setTimeout(
+                    () => this.runGenerationTablePoll(attempt + 1),
+                    attempt === 0 ? 600 : 2500,
+                );
+            },
+            startGenerationTablePoll(taskIds) {
+                this.stopGenerationTablePoll();
+                this.generationPollIds = (Array.isArray(taskIds) ? taskIds : [])
+                    .map((id) => Number(id || 0))
+                    .filter((id) => id > 0);
+                if (this.generationPollIds.length === 0) {
+                    return;
+                }
+                this.markDirty();
+                this.runGenerationTablePoll(0);
+            },
+            clearGenerationProcessingRows(taskIds) {
+                (Array.isArray(taskIds) ? taskIds : []).forEach((id) => {
+                    this.clearRowProcessing(Number(id || 0));
+                });
+            },
             markRowRemoved(tid) {
                 const id = Number(tid || 0);
                 if (id <= 0) return;
@@ -713,6 +762,8 @@
         x-on:cp-ops-client-reset-optimistic.window="resetOptimistic()"
         x-on:cp-ops-row-processing.window="beginRowProcessing(($event.detail || {}).taskId, ($event.detail || {}).kind)"
         x-on:cp-ops-row-processing-clear.window="clearRowProcessing(($event.detail || {}).taskId)"
+        x-on:cp-ops-generation-started.window="startGenerationTablePoll(($event.detail || {}).taskIds)"
+        x-on:cp-ops-generation-failed.window="clearGenerationProcessingRows(($event.detail || {}).taskIds)"
         x-on:cp-ops-item-transition.window="handleItemTransition($event.detail || {})"
         x-on:cp-ops-debug-lifecycle.window="openDebugLifecycle($event.detail || {})"
         x-on:cp-ops-debug-lifecycle-bulk.window="openDebugBulk($event.detail || {})"

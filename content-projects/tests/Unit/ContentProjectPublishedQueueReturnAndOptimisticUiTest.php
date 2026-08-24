@@ -102,6 +102,9 @@ final class ContentProjectPublishedQueueReturnAndOptimisticUiTest extends TestCa
         self::assertStringContainsString('beginRowProcessing(tid, kind)', $ops);
         self::assertStringContainsString('isRowProcessing(tid)', $ops);
         self::assertStringContainsString('cp-ops-row-processing', $ops);
+        self::assertStringContainsString('cp-ops-generation-started', $ops);
+        self::assertStringContainsString('startGenerationTablePoll', $ops);
+        self::assertStringContainsString('doLazyRefresh(true)', $ops);
         self::assertStringNotContainsString("'retry', 'approve'", $ops);
 
         $list = (string) file_get_contents(
@@ -121,6 +124,7 @@ final class ContentProjectPublishedQueueReturnAndOptimisticUiTest extends TestCa
         self::assertStringContainsString('function shouldOptimisticRowExit', $page);
         self::assertStringContainsString('ACTION_RETRY', $page);
         self::assertStringContainsString('invalidateOpsCache()', $page);
+        self::assertStringContainsString("dispatch('cp-ops-generation-started'", $page);
     }
 
     public function test_generate_and_step_rerun_stamp_last_activity(): void
