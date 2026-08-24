@@ -93,7 +93,7 @@ export function buildFlowTheme(isDark) {
 
 export function nodeBorderClass(type, isSelected, isDark) {
   if (isSelected) {
-    if (type === 'article') return 'border-sky-500';
+    if (type === 'article' || type === 'execution_article_context') return 'border-sky-500';
     if (type === 'user_input') return 'border-orange-500';
     if (type === 'article_filter') return 'border-cyan-500';
     if (type === 'prompt') return 'border-violet-500';
@@ -181,13 +181,30 @@ export const FLOW_NODE_VERTICAL_PADDING = 12;
 /** Matches `w-[220px]` in ArticleFlowBuilder. */
 export const FLOW_NODE_OUTER_WIDTH = 220;
 
+/** Compact presentation-only node in Execution History simplified view. */
+export const FLOW_PRESENTATION_CONTEXT_NODE_WIDTH = 168;
+
+export function getFlowNodeOuterWidth(nodeType) {
+  if (nodeType === 'execution_article_context') {
+    return FLOW_PRESENTATION_CONTEXT_NODE_WIDTH;
+  }
+
+  return FLOW_NODE_OUTER_WIDTH;
+}
+
+export function isPresentationContextNode(nodeType) {
+  return nodeType === 'execution_article_context';
+}
+
 /** Port offset/size constants. */
 export const FLOW_PORT_OFFSET_OUTER = 12;
 export const FLOW_PORT_SIZE = 20;
 
 /** Output port center X from node left. */
-export function getOutputPortCenterX(nodeX) {
-  return nodeX + FLOW_NODE_OUTER_WIDTH + FLOW_PORT_OFFSET_OUTER - FLOW_PORT_SIZE / 2;
+export function getOutputPortCenterX(nodeX, nodeType = null) {
+  const width = nodeType ? getFlowNodeOuterWidth(nodeType) : FLOW_NODE_OUTER_WIDTH;
+
+  return nodeX + width + FLOW_PORT_OFFSET_OUTER - FLOW_PORT_SIZE / 2;
 }
 
 /** Input port center X from node left. */
@@ -241,7 +258,12 @@ export function getEndNodeHeight() {
   return 108;
 }
 
+export function getPresentationContextNodeHeight() {
+  return 84;
+}
+
 export function getDefaultNodeHeight(nodeType, outputPortsCount = 1) {
+  if (nodeType === 'execution_article_context') return getPresentationContextNodeHeight();
   if (nodeType === 'prompt') return getPromptNodeHeight(outputPortsCount);
   if (nodeType === 'article_filter') return getArticleFilterNodeHeight(outputPortsCount);
   if (nodeType === 'article') return getArticleNodeHeight();

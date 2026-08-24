@@ -1,17 +1,54 @@
 <x-filament-panels::page>
-    @vite('addons/content-projects/resources/css/project-run-step.css')
+    @vite([
+        'addons/content-projects/resources/css/project-run-step.css',
+        'addons/content/resources/js/article-execution-history.jsx',
+    ])
 
     @php
-        $groups = $this->getRunGroups();
+        $executionRuns = $this->getExecutionRuns();
+        $groups = $this->getAiCallGroups();
+        $promptsForCanvas = $this->getPromptsForWorkflowCanvas();
         $articleId = $this->getArticleId();
         $articleEditUrl = $this->getArticleEditUrl();
         $articleTitle = trim((string) ($this->articleRecord?->title ?? ''));
         $selectedCount = count($this->selectedRefs);
         $hasPendingConfirm = filled($this->pendingConfirmAction);
+        $executionHistoryProps = [
+            'runs' => $executionRuns,
+            'prompts' => $promptsForCanvas,
+            'labels' => [
+                'emptyWorkflow' => __('seo-content-ai::filament.article_ai_history.empty_workflow'),
+                'legacyUnmapped' => __('seo-content-ai::filament.article_ai_history.legacy_unmapped'),
+                'legacyDefinition' => __('seo-content-ai::filament.article_ai_history.legacy_workflow_definition'),
+                'selectNode' => __('seo-content-ai::filament.article_ai_history.select_node'),
+                'inspectorHeading' => __('seo-content-ai::filament.article_ai_history.inspector_heading'),
+                'prompt' => __('seo-content-ai::filament.article_ai_history.inspector_type_prompt'),
+                'action' => __('seo-content-ai::filament.article_ai_history.inspector_type_action'),
+                'filter' => __('seo-content-ai::filament.article_ai_history.inspector_type_filter'),
+                'aiCalls' => __('seo-content-ai::filament.article_ai_history.ai_calls_count'),
+                'currentArticle' => __('seo-content-ai::filament.article_ai_history.current_article'),
+                'articleContext' => __('seo-content-ai::filament.article_ai_history.context_inspector_heading'),
+                'showFullWorkflow' => __('seo-content-ai::filament.article_ai_history.show_full_workflow'),
+                'simplifiedWorkflow' => __('seo-content-ai::filament.article_ai_history.simplified_workflow'),
+                'contextInspectorHeading' => __('seo-content-ai::filament.article_ai_history.context_inspector_heading'),
+                'noContext' => __('seo-content-ai::filament.article_ai_history.no_context'),
+                'context_articleId' => __('seo-content-ai::filament.article_ai_history.context_articleId'),
+                'context_title' => __('seo-content-ai::filament.article_ai_history.context_title'),
+                'context_postType' => __('seo-content-ai::filament.article_ai_history.context_postType'),
+                'context_generationMode' => __('seo-content-ai::filament.article_ai_history.context_generationMode'),
+                'context_keyword' => __('seo-content-ai::filament.article_ai_history.context_keyword'),
+                'context_domain' => __('seo-content-ai::filament.article_ai_history.context_domain'),
+                'contextRouting' => __('seo-content-ai::filament.article_ai_history.context_routing'),
+            ],
+        ];
     @endphp
 
+    <script>
+        window.__SEO_PROMPTS__ = @json($promptsForCanvas);
+    </script>
+
     <div
-        class="seo-run-history-page"
+        class="seo-run-history-page {{ $activeTab === 'workflow' ? 'seo-run-history-page--workflow-tool' : '' }}"
         x-data="{
             drawerOpen: false,
             drawerTitle: '',
@@ -23,6 +60,18 @@
                 this.drawerPrompt = prompt || '';
                 this.drawerResult = result || '';
                 this.drawerMeta = meta || '';
+                this.drawerOpen = true;
+            },
+            async openRawAiCall(ref) {
+                if (!ref) {
+                    return;
+                }
+                const payload = await $wire.loadRawAiCallDetail(ref);
+                if (payload?.success) {
+                    this.openTwoCol(payload.title, payload.prompt, payload.output, payload.meta ?? '');
+                } else {
+                    this.openTwoCol('AI Call', payload?.message ?? 'Không tìm thấy AI call.', '', '');
+                }
                 this.drawerOpen = true;
             },
             closeDrawer() {
@@ -45,8 +94,44 @@
             }
         }"
         x-on:close-ai-history-drawer.window="closeDrawer()"
+        x-on:execution-history-preview.window="openRawAiCall($event.detail?.ref)"
         x-on:keydown.escape.window="if (drawerOpen) closeDrawer()"
     >
+        <nav class="mb-4 flex gap-2 border-b border-gray-200 dark:border-gray-700">
+            <button
+                type="button"
+                class="px-4 py-2 text-sm font-medium {{ $activeTab === 'workflow' ? 'border-b-2 border-primary-600 text-primary-600' : 'text-gray-500' }}"
+                wire:click="setActiveTab('workflow')"
+            >
+                {{ __('seo-content-ai::filament.article_ai_history.tab_workflow') }}
+            </button>
+            <button
+                type="button"
+                class="px-4 py-2 text-sm font-medium {{ $activeTab === 'ai_calls' ? 'border-b-2 border-primary-600 text-primary-600' : 'text-gray-500' }}"
+                wire:click="setActiveTab('ai_calls')"
+            >
+                {{ __('seo-content-ai::filament.article_ai_history.tab_ai_calls') }}
+            </button>
+        </nav>
+
+        @if ($activeTab === 'workflow')
+            <section class="seo-execution-history-workspace">
+                <div
+                    id="article-execution-history-root"
+                    class="seo-execution-history-workflow-shell"
+                    data-props='@json($executionHistoryProps)'
+                    wire:ignore
+                ></div>
+            </section>
+            <script>
+                document.addEventListener('DOMContentLoaded', () => {
+                    const el = document.getElementById('article-execution-history-root');
+                    if (el && typeof window.mountArticleExecutionHistory === 'function') {
+                        window.mountArticleExecutionHistory(el);
+                    }
+                });
+            </script>
+        @else
         <section class="seo-run-history-summary">
             <div>
                 <p class="seo-run-history-summary__eyebrow">ARTICLE #{{ $articleId }}</p>
@@ -375,6 +460,7 @@
                 {{ __('seo-content-ai::filament.article_ai_history.empty') }}
             </section>
         @endforelse
+        @endif
 
         {{-- Drawer 2 cột: Alpine mở ngay; Prompt | Kết quả như layout cũ --}}
         <div

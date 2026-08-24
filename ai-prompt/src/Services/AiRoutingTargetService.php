@@ -148,19 +148,22 @@ final class AiRoutingTargetService
      * Executable route for a profile.
      *
      * Source of truth: Models capability-area order ({@see liveCompatibleCandidates}).
-     * Optional Custom membership filter narrows the set; never reorders.
-     * FreeOnly keeps free entries already on that route (same order).
+     * Text profiles: manual order only — no Custom membership filter at runtime.
+     * Media profiles may still apply optional membership filter.
+     * FreeOnly keeps free entries already on that route (explicit policy only).
      *
      * @return list<RoutedAiCandidate>
      */
     public function eligibleCandidates(int $userId, AiExecutionProfile $profile, AiRoutingContext $context): array
     {
-        $canonical = $this->applyMembershipFilter(
-            $this->liveCompatibleCandidates($userId, $profile),
-            $userId,
-            $profile,
-            $context,
-        );
+        $canonical = $profile->isMedia()
+            ? $this->applyMembershipFilter(
+                $this->liveCompatibleCandidates($userId, $profile),
+                $userId,
+                $profile,
+                $context,
+            )
+            : $this->liveCompatibleCandidates($userId, $profile);
 
         $policy = $context->costPolicy ?? AiCostPolicyScope::current();
         if (! $profile->isMedia() && $policy === AiCostPolicy::FreeOnly) {

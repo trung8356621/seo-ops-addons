@@ -6,7 +6,7 @@ namespace Omnichannel\Addons\Content\Tests\Unit;
 
 
 use Tests\Support\LegacyAddonPath;
-use Omnichannel\Addons\AiPrompt\Filament\Resources\ArticleResource\Pages\ViewArticlePrompts;
+use Omnichannel\Addons\Content\Filament\Resources\ArticleResource\Pages\ViewArticlePrompts;
 use Omnichannel\Addons\Content\Services\ArticleAiHistory\ArticleAiHistoryApplicationService;
 use Omnichannel\Addons\Content\Services\ArticleAiHistory\ArticleAiHistoryLegacyClassifier;
 use PHPUnit\Framework\TestCase;

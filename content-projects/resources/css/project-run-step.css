@@ -10,6 +10,52 @@
     margin-inline: auto;
 }
 
+.seo-run-history-page--workflow-tool {
+    max-width: none !important;
+    margin-inline: 0 !important;
+    width: 100% !important;
+}
+
+/* Workflow tool workspace — use full Filament main area (keep sidebar/topbar). */
+body:has(.seo-run-history-page--workflow-tool) .fi-main-ctn,
+body:has(.seo-run-history-page--workflow-tool) .fi-main,
+body:has(.seo-run-history-page--workflow-tool) .fi-page,
+body:has(.seo-run-history-page--workflow-tool) .fi-width-full {
+    max-width: none !important;
+    width: 100% !important;
+}
+
+body:has(.seo-run-history-page--workflow-tool) .fi-page-content,
+body:has(.seo-run-history-page--workflow-tool) .fi-page-main {
+    max-width: none !important;
+    width: 100% !important;
+}
+
+body:has(.seo-run-history-page--workflow-tool) .fi-page-content > div {
+    max-width: none !important;
+}
+
+.seo-execution-history-workspace {
+    display: flex;
+    flex-direction: column;
+    min-height: calc(100dvh - 10rem);
+    height: calc(100dvh - 10rem);
+    width: 100%;
+}
+
+.seo-execution-history-workflow-shell {
+    display: flex;
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+}
+
+.seo-execution-history-workflow-panel {
+    flex: 1;
+    min-height: 0;
+    width: 100%;
+}
+
 .seo-run-history-summary,
 .seo-run-history-group {
     border: 1px solid #d1d5db;

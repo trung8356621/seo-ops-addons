@@ -21,6 +21,7 @@ use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
 use Omnichannel\Addons\Content\Services\ArticleEditorReadinessService;
 use Omnichannel\Addons\ContentProjects\Services\WorkflowRoles\WorkflowExecutionSnapshotBuilder;
 use Omnichannel\Addons\ContentProjects\Support\ContentProjectRunSettings;
+use Omnichannel\Addons\ContentProjects\Support\WorkflowExecutionTrace;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\ContentProjects\Support\SeoProjectRunErrorFormatter;
 use App\Support\RuntimeLogger;
@@ -767,8 +768,7 @@ final class SeoProjectWorkflowRunService
                     $articleId > 0 ? $articleId : null,
                     $message,
                     [
-                        'steps' => $this->promptSteps($steps),
-                        'step_stats' => $stepStats,
+                        ...$this->buildWorkflowOutputSnapshot($steps),
                     ],
                 );
 
@@ -840,7 +840,7 @@ final class SeoProjectWorkflowRunService
                 ContentProjectErrorCode::ExternalWorkflowFailed,
                 $error['error_detail'] ?? $error['message'],
                 $error['message'],
-                ['steps' => $this->promptSteps($steps), 'step_stats' => $stepStats],
+                $this->buildWorkflowOutputSnapshot($steps),
                 $failedArticleId > 0 ? $failedArticleId : null,
             );
             $this->safeTaskEvent($task, SeoProjectTaskEventType::TaskFailed, SeoProjectTask::STATUS_WRITING, SeoProjectTask::STATUS_FAILED, $run, $runItem);
@@ -1349,6 +1349,19 @@ final class SeoProjectWorkflowRunService
             ->filter(fn (mixed $step): bool => is_array($step) && ($step['type'] ?? '') === 'prompt')
             ->values()
             ->all();
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $steps
+     * @return array{steps: list<array<string, mixed>>, execution_trace: list<array<string, mixed>>, step_stats: array{completed: int, skipped: int, failed: int, total: int}}
+     */
+    private function buildWorkflowOutputSnapshot(array $steps): array
+    {
+        return [
+            'steps' => $this->promptSteps($steps),
+            'execution_trace' => WorkflowExecutionTrace::fromSteps($steps),
+            'step_stats' => $this->summarizeStepStats($steps),
+        ];
     }
 
     private function markTaskWriting(SeoProjectTask $task): void

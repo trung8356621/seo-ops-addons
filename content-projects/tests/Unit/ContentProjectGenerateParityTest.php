@@ -112,8 +112,36 @@ final class ContentProjectGenerateParityTest extends TestCase
         self::assertStringContainsString('GenerateProjectItemsCommand', $src);
         self::assertStringContainsString('$runSettings', $src);
         self::assertStringContainsString('unset($runSettings[\'task_ids\']', $src);
+        self::assertStringContainsString('resolvePrimaryExecutionRef', $src);
         self::assertStringNotContainsString('RunEngine', $src);
         self::assertStringNotContainsString('updateRunSettings', $src);
+    }
+
+    public function test_generate_handler_returns_primary_execution_ref(): void
+    {
+        $handler = $this->source(GenerateProjectItemsHandler::class);
+        self::assertStringContainsString("'execution_ref' => \$runsStarted[0] ?? null", $handler);
+        self::assertStringContainsString("'execution_refs' => \$runsStarted", $handler);
+    }
+
+    public function test_public_ref_resolves_primary_execution_ref_from_metadata(): void
+    {
+        $primary = \Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectPublicRef::execution(42);
+
+        self::assertSame(
+            $primary,
+            \Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectPublicRef::resolvePrimaryExecutionRef([
+                'execution_refs' => [$primary, 'cpx_999'],
+            ]),
+        );
+
+        self::assertSame(
+            $primary,
+            \Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectPublicRef::resolvePrimaryExecutionRef([
+                'execution_ref' => $primary,
+                'execution_refs' => ['cpx_999'],
+            ]),
+        );
     }
 
     /**

@@ -57,6 +57,30 @@ final class ContentProjectPublicRef
         return self::decode('cpx', $ref);
     }
 
+    /**
+     * @param  array<string, mixed>  $metadata
+     */
+    public static function resolvePrimaryExecutionRef(array $metadata): ?string
+    {
+        $ref = $metadata['execution_ref'] ?? null;
+        if (is_string($ref) && trim($ref) !== '') {
+            return trim($ref);
+        }
+
+        $refs = $metadata['execution_refs'] ?? null;
+        if (! is_array($refs)) {
+            return null;
+        }
+
+        foreach ($refs as $candidate) {
+            if (is_string($candidate) && trim($candidate) !== '') {
+                return trim($candidate);
+            }
+        }
+
+        return null;
+    }
+
     public static function decodeSite(string $ref): int
     {
         return self::decode('cps', $ref);

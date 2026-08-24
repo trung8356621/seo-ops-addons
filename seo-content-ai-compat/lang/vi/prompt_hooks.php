@@ -97,6 +97,35 @@ PROMPT,
         ],
     ],
 
+    'article_outline_structure_generate' => [
+        'label' => 'Tạo cấu trúc dàn ý',
+        'description' => 'Chỉ tạo outline markdown — provider call 1 trong flow split.',
+        'presentation' => [
+            'default_instructions' => [
+                'Dàn ý có cấu trúc rõ ràng, khớp search intent.',
+                'Không viết toàn bộ nội dung bài trong bước này.',
+                'Không bao gồm vocabulary — chỉ outline.',
+            ],
+            'output_format' => [
+                'Markdown outline only.',
+            ],
+        ],
+    ],
+
+    'article_vocabulary_generate' => [
+        'label' => 'Tạo từ vựng bài viết',
+        'description' => 'Chỉ tạo vocabulary / hướng dẫn viết — provider call 2 trong flow split.',
+        'presentation' => [
+            'default_instructions' => [
+                'Tạo nhóm từ vựng ngữ nghĩa và hướng dẫn viết theo outline.',
+                'Không viết lại dàn ý.',
+            ],
+            'output_format' => [
+                'Markdown vocabulary / writing guidance only.',
+            ],
+        ],
+    ],
+
     'article_outline_generate' => [
         'label' => 'Tạo dàn ý bài viết',
         'description' => 'Tạo dàn ý bài viết từ chủ đề, từ khóa và dữ liệu nguồn.',

@@ -21,6 +21,8 @@ final class PromptExecutionProfileResolver
         'article.featured_snippet.generate' => AiExecutionProfile::TextFast,
         'article.comment.generate' => AiExecutionProfile::TextFast,
         'article.outline.generate' => AiExecutionProfile::TextReasoning,
+        'article.outline.structure.generate' => AiExecutionProfile::TextReasoning,
+        'article.vocabulary.generate' => AiExecutionProfile::TextReasoning,
         'keyword.discovery.structured' => AiExecutionProfile::TextReasoning,
         'article.content.generate' => AiExecutionProfile::TextLongform,
         'article.content.rewrite' => AiExecutionProfile::TextLongform,

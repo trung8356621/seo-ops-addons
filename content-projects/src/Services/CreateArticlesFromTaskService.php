@@ -398,8 +398,7 @@ final class CreateArticlesFromTaskService
     }
 
     /**
-     * Tạo lại outline + bài: outline node trước → artifact mới → content node.
-     * Outline fail → article không chạy; không fallback outline cũ.
+     * Rerun từ Outline + downstream: graph runner từ Outline node (không shortcut Outline→Content).
      *
      * @return array{success: bool, article_id: ?int, message: string, steps: list<array<string, mixed>>}
      */
@@ -448,82 +447,60 @@ final class CreateArticlesFromTaskService
             $task,
             WorkflowExecutionRole::ArticleOutlineGenerate,
         );
-        $contentNodeId = $this->roleResolver->requireNodeId(
+
+        $steps = $this->workflowRunner->runFromNodeId(
             $task,
-            WorkflowExecutionRole::ArticleContentGenerate,
+            $context,
+            $outlineNodeId,
+            seedOutlineFromArticle: false,
         );
 
-        $outlineStep = $this->workflowRunner->runSingleStep($task, $context, $outlineNodeId);
-        $steps = [$outlineStep];
-        if (($outlineStep['status'] ?? '') === 'failed') {
+        return $this->finalizeWorkflowGraphRun($context, $task, $resolvedSiteId, $keyword, $steps);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $steps
+     * @return array{success: bool, article_id: ?int, message: string, steps: list<array<string, mixed>>}
+     */
+    private function finalizeWorkflowGraphRun(
+        TaskTestContext $context,
+        SeoTask $task,
+        int $resolvedSiteId,
+        string $keyword,
+        array $steps,
+    ): array {
+        $failed = collect($steps)->contains(
+            static fn (array $step): bool => in_array((string) ($step['status'] ?? ''), ['failed', 'blocked'], true),
+        );
+
+        if ($failed) {
+            $failure = $this->summarizeWorkflowFailure($steps);
+
             return [
                 'success' => false,
-                'article_id' => $context->article?->id,
+                'article_id' => $this->resolveArticleIdFromSteps($context, $steps),
                 'steps' => $steps,
-                'message' => 'Outline fail — article không chạy. '
-                    .trim((string) ($outlineStep['message'] ?? '')),
-                'article_blocked' => true,
+                'message' => $failure['message'],
+                'failed_step' => $failure['failed_step'],
             ];
         }
 
-        $artifact = $this->extractOutlineArtifactFromStep($outlineStep);
-        if ($artifact === null || ! $this->outlineResolver->isValidArtifact($artifact)) {
-            return [
-                'success' => false,
-                'article_id' => $context->article?->id,
-                'steps' => $steps,
-                'message' => 'Outline xong nhưng artifact không hợp lệ — article không chạy.',
-                'article_blocked' => true,
-            ];
-        }
-
-        // Persist canonical outline meta BEFORE content node — ContentNode seed must not depend on PromptResult alone.
-        $articleForOutline = $context->article;
-        if ($articleForOutline instanceof SeoArticle) {
-            $persisted = $this->articleOutlinePersist->persist($articleForOutline, $artifact);
-            if (! ($persisted['ok'] ?? false)) {
-                return [
-                    'success' => false,
-                    'article_id' => $articleForOutline->id,
-                    'steps' => $steps,
-                    'message' => 'Outline xong nhưng không lưu được seo_article_outline: '
-                        .trim((string) ($persisted['message'] ?? '')),
-                    'article_blocked' => true,
-                ];
-            }
-            $context = $context->withArticle($articleForOutline->fresh() ?? $articleForOutline);
-        }
-
-        $artifactHash = hash('sha256', $artifact);
-        $variables = array_merge($context->variables, [
-            'article_writing_source_type' => ArticleWritingSourceType::Outline->value,
-            'source_type' => ArticleWritingSourceType::Outline->value,
-            'article_writing_raw_input' => $artifact,
-            'input' => $artifact,
-            'direct_publish_outline_markdown' => $artifact,
-            'outline_artifact_hash' => $artifactHash,
-            'article_source_artifact_hash' => $artifactHash,
-            'outline_source_run_item_id' => $outlineStep['run_item_id'] ?? null,
-            'execution_role' => WorkflowExecutionRole::ArticleContentGenerate->value,
-        ]);
-        $context = $context->withVariables($variables);
-
-        $articleResult = $this->runArticleWritingForContext(
+        $article = $this->resolveArticleFromWorkflow(
             $context,
-            $task,
+            $steps,
             $resolvedSiteId,
             $keyword,
-            ArticleWritingExecutionMode::ContentNode,
-            ArticleWritingSourceType::Outline,
-            $contentNodeId,
+            $context->variables,
         );
+        $this->workflowRunner->applyParsedMetaFromSteps($article, $steps);
+        $this->syncFocusKeywordFromContext($article, $resolvedSiteId, $context);
 
-        $articleSteps = is_array($articleResult['steps'] ?? null) ? $articleResult['steps'] : [];
-        $articleResult['steps'] = array_merge($steps, $articleSteps);
-        $articleResult['outline_artifact_hash'] = $artifactHash;
-        $articleResult['article_source_artifact_hash'] = $artifactHash;
-
-        return $articleResult;
+        return [
+            'success' => true,
+            'article_id' => (int) $article->id,
+            'steps' => $steps,
+            'message' => 'Đã chạy quy trình và tạo/cập nhật bài.',
+        ];
     }
 
     /**

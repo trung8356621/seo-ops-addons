@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers;
 
-use Omnichannel\Addons\AiPrompt\Support\AiCostPolicy;
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectItemAction;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
@@ -294,6 +293,7 @@ final class GenerateProjectItemsHandler extends AbstractPublishingHandler
                 $projectId,
                 $allAffected,
                 metadata: [
+                    'execution_ref' => $runsStarted[0] ?? null,
                     'execution_refs' => $runsStarted,
                     'generate_task_ids' => $generateIds,
                     'restart_task_ids' => $restartIds,
@@ -322,7 +322,6 @@ final class GenerateProjectItemsHandler extends AbstractPublishingHandler
                 'task_ids' => $itemIds,
                 'technical_confirm_full_rerun' => $command->technicalConfirmFullRerun,
                 'use_php_engine' => true,
-                AiCostPolicy::SETTING_KEY => AiCostPolicy::FreeOnly->value,
             ],
         );
 

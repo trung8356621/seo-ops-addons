@@ -97,6 +97,35 @@ PROMPT,
         ],
     ],
 
+    'article_outline_structure_generate' => [
+        'label' => 'Generate outline structure',
+        'description' => 'Outline markdown only — provider call 1 in the split flow.',
+        'presentation' => [
+            'default_instructions' => [
+                'Build a clear outline structure that matches search intent.',
+                'Do not write the full article body in this step.',
+                'Do not include vocabulary — outline only.',
+            ],
+            'output_format' => [
+                'Markdown outline only.',
+            ],
+        ],
+    ],
+
+    'article_vocabulary_generate' => [
+        'label' => 'Generate article vocabulary',
+        'description' => 'Semantic vocabulary / writing guidance only — provider call 2 in the split flow.',
+        'presentation' => [
+            'default_instructions' => [
+                'Provide semantic vocabulary groups and writing guidance aligned with the outline.',
+                'Do not rewrite the outline.',
+            ],
+            'output_format' => [
+                'Markdown vocabulary / writing guidance only.',
+            ],
+        ],
+    ],
+
     'article_outline_generate' => [
         'label' => 'Generate article outline',
         'description' => 'Generate an article outline and writing vocabulary from the topic and keyword.',

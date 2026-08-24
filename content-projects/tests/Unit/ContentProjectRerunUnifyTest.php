@@ -143,9 +143,16 @@ final class ContentProjectRerunUnifyTest extends TestCase
         $fullPos = strpos($create, "variables['rerun_scope'] ?? ''");
         self::assertNotFalse($fullPos);
         $rewritePos = strpos($create, 'TYPE_REWRITE', $fullPos);
-        $outlinePos = strpos($create, 'runOutlineThenArticleForContext', $fullPos);
-        self::assertNotFalse($outlinePos);
-        self::assertTrue($rewritePos === false || $outlinePos < $rewritePos, 'CREATE full rerun must outline+article before rewrite-only branch');
+        $outlineCallPos = strpos($create, 'runOutlineThenArticleForContext', $fullPos);
+        self::assertNotFalse($outlineCallPos);
+        self::assertTrue($rewritePos === false || $outlineCallPos < $rewritePos, 'CREATE full rerun must outline+article before rewrite-only branch');
+        $outlineMethodPos = strpos($create, 'public function runOutlineThenArticleForContext');
+        self::assertNotFalse($outlineMethodPos);
+        $methodEnd = strpos($create, 'private function finalizeWorkflowGraphRun', $outlineMethodPos);
+        self::assertNotFalse($methodEnd);
+        $outlineChunk = substr($create, $outlineMethodPos, $methodEnd - $outlineMethodPos);
+        self::assertStringContainsString('runFromNodeId', $outlineChunk);
+        self::assertStringNotContainsString('runArticleWritingForContext', $outlineChunk);
         self::assertStringContainsString('withForcedAiRegenerate', $create);
     }
 

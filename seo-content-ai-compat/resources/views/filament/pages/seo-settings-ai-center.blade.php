@@ -203,6 +203,21 @@
                                             </label>
                                         </div>
                                         <div class="seo-ai-profile__body" x-show="editingProfile !== @js($card['key'])">
+                                            @if ($group === 'text')
+                                                <p class="seo-ai-muted text-sm">{{ __('seo-content-ai::filament.ai_center.text_routing_follows_models') }}</p>
+                                                <button
+                                                    type="button"
+                                                    class="mt-2 text-sm font-medium text-primary-600 hover:underline dark:text-primary-400"
+                                                    @click="setTab('models'); setArea(@js(match ($card['key']) {
+                                                        'text.fast' => 'fast_text',
+                                                        'text.longform' => 'long_form_text',
+                                                        'text.reasoning' => 'reasoning_text',
+                                                        default => 'fast_text',
+                                                    }))"
+                                                >
+                                                    {{ __('seo-content-ai::filament.ai_center.manage_model_order') }}
+                                                </button>
+                                            @else
                                             <div class="seo-ai-profile__summary" x-show="draftMode(@js($card['key']), @js($card['selection_mode'])) === 'custom'">
                                                 @if ($card['family_labels'] === [])
                                                     <span class="seo-ai-muted">{{ __('seo-content-ai::filament.ai_center.no_models') }}</span>
@@ -229,7 +244,9 @@
                                             >
                                                 <x-filament::icon icon="heroicon-o-pencil-square" class="h-4 w-4" />
                                             </button>
+                                            @endif
                                         </div>
+                                        @if ($group !== 'text')
                                         <div class="seo-ai-profile__edit" x-show="editingProfile === @js($card['key'])" x-cloak>
                                             <p class="seo-ai-profile__label">{{ __('seo-content-ai::filament.ai_center.model_selection') }}</p>
                                             <div class="seo-ai-strategy__choices">
@@ -262,6 +279,7 @@
                                                 </div>
                                             </div>
                                         </div>
+                                        @endif
                                         @if ($showRoutingTechnical && $card['resolved_order'] !== '')
                                             <pre class="seo-ai-tech">{{ $card['resolved_order'] }}</pre>
                                         @endif

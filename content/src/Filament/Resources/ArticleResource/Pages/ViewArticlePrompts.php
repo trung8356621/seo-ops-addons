@@ -8,11 +8,13 @@ use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Services\ArticleAiHistory\ArticleAiHistoryActionResult;
+use Omnichannel\Addons\ContentProjects\Filament\Resources\TaskResource\Pages\Concerns\InteractsWithTaskWorkflow;
 use Omnichannel\Addons\Content\Services\ArticleAiHistory\ArticleAiHistoryApplicationService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Filament\Actions;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\Page;
+use Filament\Support\Enums\MaxWidth;
 use Illuminate\Contracts\Support\Htmlable;
 
 /**
@@ -21,6 +23,8 @@ use Illuminate\Contracts\Support\Htmlable;
  */
 final class ViewArticlePrompts extends Page
 {
+    use InteractsWithTaskWorkflow;
+
     protected static string $resource = ArticleResource::class;
 
     protected static string $view = 'seo-content-ai::filament.resources.article-resource.pages.view-article-prompts';
@@ -30,6 +34,8 @@ final class ViewArticlePrompts extends Page
     public int|string $record;
 
     public ?SeoArticle $articleRecord = null;
+
+    public string $activeTab = 'workflow';
 
     public string $filterType = 'all';
 
@@ -62,8 +68,54 @@ final class ViewArticlePrompts extends Page
 
     public function getTitle(): string|Htmlable
     {
-        return __('seo-content-ai::filament.article_ai_history.page_title').' - '
-            .trim((string) ($this->articleRecord?->title ?? 'Bài viết'));
+        $title = trim((string) ($this->articleRecord?->title ?? 'Bài viết'));
+
+        return __('seo-content-ai::filament.article_ai_history.page_title').' — '.$title;
+    }
+
+    public function getMaxContentWidth(): MaxWidth|string|null
+    {
+        return $this->activeTab === 'workflow' ? MaxWidth::Full : MaxWidth::SevenExtraLarge;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function getExecutionRuns(): array
+    {
+        if (! $this->articleRecord instanceof SeoArticle) {
+            return [];
+        }
+
+        return app(ArticleAiHistoryApplicationService::class)->executionHistory(
+            $this->articleRecord,
+            $this->accessibleProjectIds(),
+        );
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function getAiCallGroups(): array
+    {
+        if (! $this->articleRecord instanceof SeoArticle) {
+            return [];
+        }
+
+        return app(ArticleAiHistoryApplicationService::class)->listAiCalls(
+            $this->articleRecord,
+            $this->accessibleProjectIds(),
+            [
+                'type' => $this->filterType,
+                'status' => $this->filterStatus,
+                'include_deleted' => $this->filterStatus === 'deleted',
+            ],
+        );
+    }
+
+    public function setActiveTab(string $tab): void
+    {
+        $this->activeTab = in_array($tab, ['workflow', 'ai_calls'], true) ? $tab : 'workflow';
     }
 
     /**
@@ -165,6 +217,25 @@ final class ViewArticlePrompts extends Page
             'metadata' => $result->metadata,
         ];
         $this->previewLoading = false;
+    }
+
+    /**
+     * @return array{success: bool, title?: string, prompt?: string, output?: string, meta?: string, message?: string, prompt_result_id?: int, artifact_ref?: string}
+     */
+    public function loadRawAiCallDetail(string $artifactRef): array
+    {
+        if (! $this->articleRecord instanceof SeoArticle) {
+            return [
+                'success' => false,
+                'message' => 'Article not found.',
+            ];
+        }
+
+        return app(ArticleAiHistoryApplicationService::class)->rawAiCallDetail(
+            $this->articleRecord,
+            trim($artifactRef),
+            $this->accessibleProjectIds(),
+        );
     }
 
     public function closePreview(): void
@@ -348,5 +419,18 @@ final class ViewArticlePrompts extends Page
                 ->icon('heroicon-o-arrow-left')
                 ->url(fn (): ?string => $this->getArticleEditUrl()),
         ];
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function getPromptsForWorkflowCanvas(): array
+    {
+        return $this->getPromptsForBuilder();
+    }
+
+    protected function persistTaskFlow(string $taskName, array $flowData): bool
+    {
+        return false;
     }
 }

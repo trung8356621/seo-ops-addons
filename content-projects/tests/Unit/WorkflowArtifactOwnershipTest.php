@@ -120,6 +120,7 @@ final class WorkflowArtifactOwnershipTest extends TestCase
         self::assertStringContainsString('article_content artifact hợp lệ', $src);
         self::assertStringContainsString('shouldBlockAfterContentFailure', $src);
         self::assertStringContainsString('registerArticleContentFromPromptOutput', $src);
+        self::assertStringContainsString('flushPendingArticleContentIfNeeded', $src);
         self::assertStringContainsString('SKIPPED_NOT_APPLICABLE', $src);
     }
 
@@ -137,6 +138,8 @@ final class WorkflowArtifactOwnershipTest extends TestCase
         self::assertStringContainsString('ContentProjectRerunFromStep::Article', $src);
         self::assertStringContainsString('withForcedAiRegenerate', $src);
         self::assertStringContainsString('force_ai_regenerate', $src);
+        self::assertStringContainsString('runFromNodeId', $src);
+        self::assertStringNotContainsString('runOutlineThenArticleForContext($context', $src);
     }
 
     public function test_runner_disables_reuse_on_forced_ai_regenerate(): void

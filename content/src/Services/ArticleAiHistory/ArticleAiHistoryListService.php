@@ -85,6 +85,36 @@ final class ArticleAiHistoryListService
     }
 
     /**
+     * AI Calls tab — only rows backed by a real PromptResult.
+     *
+     * @param  list<int>  $accessibleProjectIds
+     * @param  array{type?: string, status?: string, include_deleted?: bool}  $filters
+     * @return list<array<string, mixed>>
+     */
+    public function listAiCalls(SeoArticle $article, array $accessibleProjectIds, array $filters = []): array
+    {
+        $groups = $this->list($article, $accessibleProjectIds, $filters);
+        $aiGroups = [];
+
+        foreach ($groups as $group) {
+            $prompts = array_values(array_filter(
+                (array) ($group['prompts'] ?? []),
+                static fn (mixed $prompt): bool => is_array($prompt)
+                    && (int) ($prompt['result_id'] ?? 0) > 0,
+            ));
+
+            if ($prompts === []) {
+                continue;
+            }
+
+            $group['prompts'] = $prompts;
+            $aiGroups[] = $group;
+        }
+
+        return $aiGroups;
+    }
+
+    /**
      * Re-resolve artifact bằng chính list() — never trust client-provided type/ownership.
      *
      * @param  list<int>  $accessibleProjectIds

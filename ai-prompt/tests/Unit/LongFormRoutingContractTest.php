@@ -338,6 +338,90 @@ final class LongFormRoutingContractTest extends TestCase
         );
     }
 
+    public function test_claude_first_does_not_try_nemotron_when_claude_succeeds(): void
+    {
+        $openrouter = $this->connection(51, ApiConnectionProviders::OPENROUTER, 'OpenRouter');
+        $claude = $this->model($openrouter, 'anthropic/claude-sonnet-4.6', false);
+        $free = $this->model($openrouter, 'nvidia/nemotron-3-ultra-550b-a55b:free', true);
+        $this->grantText($openrouter, $claude);
+        $this->grantText($openrouter, $free);
+        $this->priorities->appendToArea(51, AiModelArea::TextLongform, [(int) $claude->id, (int) $free->id]);
+
+        $tried = [];
+        [$output, , $used] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextLongform->value,
+            new AiRoutingContext(userId: 51, costPolicy: AiCostPolicy::Default),
+            function ($candidate) use (&$tried): array {
+                $tried[] = $candidate->model;
+
+                return ['ok', null];
+            },
+        );
+        $this->assertSame('ok', $output);
+        $this->assertSame(['anthropic/claude-sonnet-4.6'], $tried);
+        $this->assertSame('anthropic/claude-sonnet-4.6', $used->model);
+    }
+
+    public function test_infrastructure_fail_steps_to_next_not_free_skip(): void
+    {
+        $openrouter = $this->connection(52, ApiConnectionProviders::OPENROUTER, 'OpenRouter');
+        $claude = $this->model($openrouter, 'anthropic/claude-sonnet-4.6', false);
+        $gemini = $this->model($openrouter, 'google/gemini-2.5-flash', false);
+        $free = $this->model($openrouter, 'nvidia/nemotron-3-ultra-550b-a55b:free', true);
+        $this->grantText($openrouter, $claude);
+        $this->grantText($openrouter, $gemini);
+        $this->grantText($openrouter, $free);
+        $this->priorities->appendToArea(52, AiModelArea::TextLongform, [(int) $claude->id, (int) $gemini->id, (int) $free->id]);
+
+        $tried = [];
+        [$output, , $used] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextLongform->value,
+            new AiRoutingContext(userId: 52),
+            function ($candidate) use (&$tried): array {
+                $tried[] = $candidate->model;
+                if ($candidate->model === 'anthropic/claude-sonnet-4.6') {
+                    throw new PromptRunException('429 rate limit', 429);
+                }
+
+                return ['ok', null];
+            },
+        );
+        $this->assertSame('ok', $output);
+        $this->assertSame(['anthropic/claude-sonnet-4.6', 'google/gemini-2.5-flash'], $tried);
+        $this->assertSame('google/gemini-2.5-flash', $used->model);
+    }
+
+    public function test_text_membership_filter_does_not_remove_manual_route_models(): void
+    {
+        $this->seedOrderedLongform(53, [
+            ['claude', 'anthropic/claude-sonnet-4.6', ApiConnectionProviders::OPENROUTER, false],
+            ['free', 'google/gemma-3-12b-it:free', ApiConnectionProviders::OPENROUTER, true],
+        ]);
+        $this->targets->writeProfileSettings(53, AiExecutionProfile::TextLongform, [
+            'allowed_execution_keys' => ['999|nonexistent-family'],
+            'allowed_family_keys' => ['nonexistent-family'],
+        ]);
+        $this->assertSame(
+            ['anthropic/claude-sonnet-4.6', 'google/gemma-3-12b-it:free'],
+            $this->runtimeModels(53),
+        );
+    }
+
+    public function test_reasoning_free_does_not_leak_into_content_generate_profile(): void
+    {
+        $openrouter = $this->connection(54, ApiConnectionProviders::OPENROUTER, 'OpenRouter');
+        $claude = $this->model($openrouter, 'anthropic/claude-sonnet-4.6', false);
+        $free = $this->model($openrouter, 'nvidia/nemotron-3-ultra-550b-a55b:free', true);
+        $this->grantText($openrouter, $claude);
+        $this->grantText($openrouter, $free);
+        $this->priorities->appendToArea(54, AiModelArea::TextReasoning, [(int) $free->id]);
+        $this->priorities->appendToArea(54, AiModelArea::TextLongform, [(int) $claude->id]);
+
+        $profile = (new PromptExecutionProfileResolver())->resolve(null, 'article.content.generate');
+        $this->assertSame(AiExecutionProfile::TextLongform, $profile);
+        $this->assertSame(['anthropic/claude-sonnet-4.6'], $this->runtimeModels(54));
+    }
+
     /**
      * @param  list<array{0: string, 1: string, 2: string, 3: bool}>  $rows
      * @return list<int>

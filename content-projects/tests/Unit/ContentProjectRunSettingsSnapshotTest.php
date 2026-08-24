@@ -56,4 +56,12 @@ final class ContentProjectRunSettingsSnapshotTest extends TestCase
             $src,
         );
     }
+
+    public function test_normal_generate_handler_does_not_inject_free_only(): void
+    {
+        $path = ProjectRoot::addonsPath().'/content-projects/src/Services/ContentProject/Application/Handlers/GenerateProjectItemsHandler.php';
+        $src = (string) file_get_contents($path);
+        self::assertStringNotContainsString('AiCostPolicy::FreeOnly', $src);
+        self::assertStringNotContainsString("'ai_cost_policy'", $src);
+    }
 }

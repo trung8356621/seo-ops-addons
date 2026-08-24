@@ -1737,7 +1737,7 @@ class SeoProjectResource extends SeoPanelResource
             throw new \RuntimeException($result->message);
         }
 
-        $executionRef = $result->metadata['execution_ref'] ?? null;
+        $executionRef = ContentProjectPublicRef::resolvePrimaryExecutionRef($result->metadata ?? []);
         if (! is_string($executionRef) || $executionRef === '') {
             throw new \RuntimeException('Generate command did not return execution_ref.');
         }

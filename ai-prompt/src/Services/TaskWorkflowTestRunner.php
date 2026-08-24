@@ -47,7 +47,7 @@ use Omnichannel\Addons\ContentProjects\Support\WorkflowExecutionState;
 use App\Models\Site;
 use Illuminate\Support\Str;
 use Omnichannel\Addons\Content\Services\ArticleMarkdownToHtmlService;
-use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
+use Omnichannel\Addons\AiPrompt\Support\WorkflowGraphReachability;
 
 final class TaskWorkflowTestRunner
 {
@@ -69,6 +69,7 @@ final class TaskWorkflowTestRunner
         private readonly ArticleWritingLegacyRewriteAdapter $legacyRewriteAdapter,
         private readonly ArtifactReusePolicy $artifactReusePolicy = new ArtifactReusePolicy,
         private readonly PromptHookUiFailureMapper $hookFailureMapper = new PromptHookUiFailureMapper,
+        private readonly ArticleOutlineVocabularySplitExecutor $outlineSplitExecutor,
     ) {}
 
     /**
@@ -118,7 +119,7 @@ final class TaskWorkflowTestRunner
             try {
                 $step = $this->executeNode($node, $context, $state, $edges);
                 $steps[] = $step;
-                if (($step['status'] ?? '') === 'failed' && $this->isOutlineRoleNode($node)) {
+                if (($step['status'] ?? '') === 'failed' && $this->isOutlineRoleNode($node, $step['hook_key'] ?? null)) {
                     $outlineFailed = true;
                 }
                 if (($step['status'] ?? '') === 'failed' && $this->isContentRoleNode($node)) {
@@ -141,6 +142,8 @@ final class TaskWorkflowTestRunner
                 }
             }
         }
+
+        $this->flushPendingArticleContentIfNeeded($state, $context);
 
         return $steps;
     }
@@ -190,7 +193,18 @@ final class TaskWorkflowTestRunner
     }
 
     /**
-     * Chạy workflow từ một prompt node (và mọi node phía sau theo thứ tự topo).
+     * Descendants reachable from a start node (directed edges source → target).
+     *
+     * @param  list<array<string, mixed>>  $edges
+     * @return list<string>
+     */
+    public function reachableNodeIdsFrom(string $startNodeId, array $edges): array
+    {
+        return WorkflowGraphReachability::reachableNodeIdsFrom($startNodeId, $edges);
+    }
+
+    /**
+     * Chạy từ node này và mọi downstream nodes theo directed graph (không phải topo index slice).
      * Node trước start được skip; khi $seedOutlineFromArticle=true, hydrate outline từ article hiện có.
      *
      * @return list<array<string, mixed>>
@@ -206,25 +220,18 @@ final class TaskWorkflowTestRunner
             throw new \InvalidArgumentException('Thiếu start node id.');
         }
 
-        $ordered = $this->orderedNodesForTask($task);
         $flow = is_array($task->flow_data) ? $task->flow_data : [];
         $nodes = is_array($flow['nodes'] ?? null) ? $flow['nodes'] : [];
         $edges = $this->normalizeWorkflowEdges(
             is_array($flow['edges'] ?? null) ? $flow['edges'] : [],
             $nodes,
         );
-
-        $startIndex = null;
-        foreach ($ordered as $index => $node) {
-            if ((string) ($node['id'] ?? '') === $startNodeId) {
-                $startIndex = $index;
-                break;
-            }
-        }
-
-        if ($startIndex === null) {
+        $ordered = $this->orderedNodes($nodes, $edges);
+        $reachableIds = $this->reachableNodeIdsFrom($startNodeId, $edges);
+        if ($reachableIds === [] || ! in_array($startNodeId, $reachableIds, true)) {
             throw new \InvalidArgumentException('Không tìm thấy bước bắt đầu: '.$startNodeId);
         }
+        $reachableLookup = array_fill_keys($reachableIds, true);
 
         $state = $this->initialState($context);
         $outlineMarkdown = '';
@@ -238,35 +245,113 @@ final class TaskWorkflowTestRunner
         }
 
         $steps = [];
-        foreach ($ordered as $index => $node) {
-            if ($index < $startIndex) {
+        $statusByNodeId = [];
+        $outlineFailed = false;
+        $contentFailed = false;
+
+        foreach ($ordered as $node) {
+            $nodeId = (string) ($node['id'] ?? '');
+            if ($nodeId === '') {
+                continue;
+            }
+
+            if (! isset($reachableLookup[$nodeId])) {
                 if ($outlineMarkdown !== '') {
                     $this->hydrateSkippedNodeWithOutline($node, $state, $outlineMarkdown);
                 }
 
                 $steps[] = [
-                    'node_id' => (string) ($node['id'] ?? ''),
+                    'node_id' => $nodeId,
                     'type' => (string) ($node['type'] ?? ''),
                     'title' => (string) ($node['title'] ?? 'Bước'),
                     'status' => 'skipped',
-                    'message' => 'Bỏ qua — nằm trước điểm bắt đầu rerun.',
+                    'message' => 'Bỏ qua — không thuộc downstream graph từ điểm bắt đầu.',
+                    'skip_reason' => 'not_reachable',
                 ];
+                $statusByNodeId[$nodeId] = 'not_reachable';
+
+                continue;
+            }
+
+            if (WorkflowGraphReachability::hasBlockedPredecessor($nodeId, $edges, $statusByNodeId, $reachableIds)) {
+                $steps[] = [
+                    'node_id' => $nodeId,
+                    'type' => (string) ($node['type'] ?? ''),
+                    'title' => (string) ($node['title'] ?? 'Bước'),
+                    'status' => 'skipped',
+                    'message' => 'Bỏ qua — bước upstream thất bại.',
+                    'skip_reason' => 'upstream_failed',
+                ];
+                $statusByNodeId[$nodeId] = 'skipped_upstream';
+
+                continue;
+            }
+
+            if ($outlineFailed && $this->shouldSkipAfterOutlineFailure($node)) {
+                $steps[] = [
+                    'node_id' => $nodeId,
+                    'type' => (string) ($node['type'] ?? ''),
+                    'title' => (string) ($node['title'] ?? 'Bước'),
+                    'status' => 'skipped',
+                    'message' => 'Không chạy vì bước Dàn ý thất bại.',
+                    'skip_reason' => 'outline_failed',
+                ];
+                $statusByNodeId[$nodeId] = 'skipped_upstream';
+
+                continue;
+            }
+
+            if ($contentFailed && $this->shouldBlockAfterContentFailure($node)) {
+                $steps[] = [
+                    'node_id' => $nodeId,
+                    'type' => (string) ($node['type'] ?? ''),
+                    'title' => (string) ($node['title'] ?? 'Bước'),
+                    'status' => 'blocked',
+                    'message' => 'Không ghi nội dung vì bước Viết bài chưa tạo được article_content artifact hợp lệ.',
+                    'skip_reason' => 'content_artifact_missing',
+                ];
+                $statusByNodeId[$nodeId] = 'blocked';
 
                 continue;
             }
 
             try {
-                $steps[] = $this->executeNode($node, $context, $state, $edges);
+                $step = $this->executeNode($node, $context, $state, $edges);
+                $steps[] = $step;
+                $status = (string) ($step['status'] ?? '');
+                if (in_array($status, ['failed', 'blocked'], true)) {
+                    $statusByNodeId[$nodeId] = $status;
+                } elseif ($status === 'skipped') {
+                    $statusByNodeId[$nodeId] = 'skipped_upstream';
+                } else {
+                    $statusByNodeId[$nodeId] = 'completed';
+                }
+
+                if ($status === 'failed' && $this->isOutlineRoleNode($node, $step['hook_key'] ?? null)) {
+                    $outlineFailed = true;
+                }
+                if ($status === 'failed' && $this->isContentRoleNode($node)) {
+                    $contentFailed = true;
+                }
             } catch (\Throwable $exception) {
                 $steps[] = [
-                    'node_id' => (string) ($node['id'] ?? ''),
+                    'node_id' => $nodeId,
                     'type' => (string) ($node['type'] ?? ''),
                     'title' => (string) ($node['title'] ?? 'Bước'),
                     'status' => 'failed',
                     'message' => $exception->getMessage(),
                 ];
+                $statusByNodeId[$nodeId] = 'failed';
+                if ($this->isOutlineRoleNode($node)) {
+                    $outlineFailed = true;
+                }
+                if ($this->isContentRoleNode($node)) {
+                    $contentFailed = true;
+                }
             }
         }
+
+        $this->flushPendingArticleContentIfNeeded($state, $context);
 
         return $steps;
     }
@@ -861,17 +946,97 @@ final class TaskWorkflowTestRunner
                 }
 
                 if ($hookBinding !== null && ! $isImagePipeline) {
+                    $nodeData = is_array($node['data'] ?? null) ? $node['data'] : [];
+                    $contextExtras = [
+                        'site_id' => $this->resolveMediaContextSiteId($context, $state),
+                        'article_id' => $state->article?->id ?? $context->article?->id,
+                        'node_id' => $nodeId,
+                        'task_id' => null,
+                        'locale' => $variables['language'] ?? $variables['locale'] ?? null,
+                    ];
+
+                    if ($this->isOutlineRoleNode($node, $hookBinding->hookKey)) {
+                        $splitResult = $this->outlineSplitExecutor->execute(
+                            $nodeData,
+                            $prompt,
+                            $variables,
+                            $contextExtras,
+                        );
+
+                        if (($splitResult['status'] ?? '') !== 'completed') {
+                            return [
+                                'node_id' => $nodeId,
+                                'type' => $type,
+                                'title' => $title,
+                                'status' => 'failed',
+                                'prompt_id' => $prompt->id,
+                                'prompt_name' => (string) $prompt->name,
+                                'hook_key' => $splitResult['hook_key'] ?? ArticleOutlineVocabularySplitExecutor::OUTLINE_STRUCTURE_HOOK,
+                                'hook_version' => $splitResult['hook_version'] ?? '0.1.0',
+                                'execution_source' => $splitResult['execution_source'] ?? 'split_outline_vocabulary',
+                                'execution_role' => $this->nodeExecutionRoleValue($node),
+                                'message' => (string) ($splitResult['message'] ?? 'Outline split failed.'),
+                                'result_id' => $splitResult['outline_result']['prompt_result_id']
+                                    ?? ($splitResult['prompt_result_ids'][0] ?? null),
+                                'outline_subtask' => isset($splitResult['vocabulary_result'])
+                                    ? 'vocabulary_failed'
+                                    : 'outline_failed',
+                            ];
+                        }
+
+                        $output = trim((string) ($splitResult['output'] ?? ''));
+                        $outlinePersistedMarkdown = '';
+                        if ($output !== '') {
+                            $output = $this->applyPromptPostProcessing($prompt, $output);
+                            $state->lastPromptOutput = $output;
+                            $state->nodeOutputs[$nodeId] = $this->buildPromptNodeOutputsFromHook(
+                                $prompt,
+                                $output,
+                                is_array($splitResult['ports'] ?? null) ? $splitResult['ports'] : [],
+                                is_array($splitResult['sections'] ?? null) ? $splitResult['sections'] : [],
+                                $state,
+                            );
+                            $this->refreshWorkflowSeoScore($state, $output);
+                            $outlinePersistedMarkdown = $this->captureOutlinePromptOutput($node, $prompt, $output, $state);
+                        }
+
+                        return [
+                            'node_id' => $nodeId,
+                            'type' => $type,
+                            'title' => $title,
+                            'status' => 'completed',
+                            'prompt_id' => $prompt->id,
+                            'prompt_name' => (string) $prompt->name,
+                            'hook_key' => $splitResult['hook_key'],
+                            'hook_version' => $splitResult['hook_version'],
+                            'execution_role' => $this->nodeExecutionRoleValue($node),
+                            'execution_source' => $splitResult['execution_source'],
+                            'correlation_id' => $splitResult['correlation_id'],
+                            'ai_model' => $splitResult['ai_model'],
+                            'raw_model_used' => $splitResult['ai_model'],
+                            'tools' => $imageTool->value,
+                            'input_used' => $input !== '' ? mb_substr($input, 0, 120).(mb_strlen($input) > 120 ? '…' : '') : null,
+                            'output' => $output,
+                            'outputs' => $state->nodeOutputs[$nodeId] ?? [],
+                            'outline_markdown' => $outlinePersistedMarkdown !== '' ? $outlinePersistedMarkdown : null,
+                            'persists_as_outline' => $outlinePersistedMarkdown !== '',
+                            'artifact_type' => $outlinePersistedMarkdown !== ''
+                                ? WorkflowArtifactType::ArticleOutline->value
+                                : null,
+                            'result_id' => $splitResult['prompt_result_ids'][1]
+                                ?? $splitResult['prompt_result_ids'][0]
+                                ?? null,
+                            'prompt_result_ids' => $splitResult['prompt_result_ids'],
+                            'duration_ms' => $splitResult['duration_ms'],
+                            'message' => (string) ($splitResult['message'] ?? 'Split outline completed.'),
+                        ];
+                    }
+
                     try {
                         $hookResult = $this->hookBindingExecutor->execute(
                             $prompt,
                             $variables,
-                            [
-                                'site_id' => $this->resolveMediaContextSiteId($context, $state),
-                                'article_id' => $state->article?->id ?? $context->article?->id,
-                                'node_id' => $nodeId,
-                                'task_id' => null,
-                                'locale' => $variables['language'] ?? $variables['locale'] ?? null,
-                            ],
+                            $contextExtras,
                         );
                     } catch (PromptHookFailure $exception) {
                         $mapped = $this->hookFailureMapper->map(
@@ -914,7 +1079,7 @@ final class TaskWorkflowTestRunner
                         $outlinePersistedMarkdown = $this->captureOutlinePromptOutput($node, $prompt, $output, $state);
                     }
 
-                    if ($this->shouldMergeOutlineToSave($node) && trim($output) !== '') {
+                    if ($output !== '' && $this->shouldRegisterArticleContentFromPrompt($node, (string) ($hookResult['hook_key'] ?? ''))) {
                         $this->registerArticleContentFromPromptOutput(
                             $node,
                             $prompt,
@@ -952,7 +1117,9 @@ final class TaskWorkflowTestRunner
                         'persists_as_outline' => $outlinePersistedMarkdown !== '',
                         'artifact_type' => $outlinePersistedMarkdown !== ''
                             ? WorkflowArtifactType::ArticleOutline->value
-                            : ($this->shouldMergeOutlineToSave($node) ? WorkflowArtifactType::ArticleContent->value : null),
+                            : ($this->shouldRegisterArticleContentFromPrompt($node, (string) ($hookResult['hook_key'] ?? ''))
+                                ? WorkflowArtifactType::ArticleContent->value
+                                : null),
                         'result_id' => $hookResult['prompt_result_id'],
                         'duration_ms' => $hookResult['duration_ms'],
                         'actual_word_count' => $hookResult['actual_word_count'] ?? null,
@@ -1607,6 +1774,22 @@ final class TaskWorkflowTestRunner
         try {
             $sync = $this->syncKeywordResearchForArticle($article, $context, $state);
         } catch (\InvalidArgumentException $exception) {
+            $message = trim($exception->getMessage());
+            if ($message !== '' && (
+                str_contains(strtolower($message), 'vocabulary save failed')
+                || str_contains(strtolower($message), 'save failed')
+            )) {
+                return [
+                    'node_id' => $nodeId,
+                    'type' => 'action',
+                    'title' => $title,
+                    'action_type' => $actionType,
+                    'status' => 'failed',
+                    'article_id' => $article->id,
+                    'message' => $message,
+                ];
+            }
+
             // Rerun từ article thường skip bước parse keywords → không có data mới.
             // Không fail cả pipeline; giữ từ khóa hiện có trên bài.
             return [
@@ -1786,6 +1969,75 @@ final class TaskWorkflowTestRunner
         }
 
         return $savedKeys;
+    }
+
+    /**
+     * When content prompt produced article_content but save_article was skipped (partial rerun),
+     * flush typed artifact to the article body so editor matches latest AI output.
+     */
+    private function flushPendingArticleContentIfNeeded(WorkflowExecutionState $state, TaskTestContext $context): void
+    {
+        if ((bool) ($state->meta['article_markdown_published'] ?? false)) {
+            return;
+        }
+
+        $article = $state->article ?? $context->article;
+        if (! $article instanceof SeoArticle) {
+            return;
+        }
+
+        $contentArtifact = $this->resolveTypedArtifact($state, WorkflowArtifactType::ArticleContent);
+        $markdown = $contentArtifact instanceof WorkflowTypedArtifact
+            ? trim($contentArtifact->payload)
+            : trim((string) ($state->meta['direct_publish_article_markdown'] ?? ''));
+
+        if ($markdown === '' || $this->artifactReusePolicy->looksLikeOutlineMarkerPayload($markdown)) {
+            return;
+        }
+
+        if (! $this->artifactReusePolicy->isValidArticleContentPayload($markdown)) {
+            return;
+        }
+
+        try {
+            $publish = $this->promptPublisher->publishArticle(
+                $article,
+                $markdown,
+                $context->variables,
+            );
+        } catch (\Throwable) {
+            return;
+        }
+
+        if (! ($publish['success'] ?? false)) {
+            return;
+        }
+
+        $article = $article->fresh() ?? $article;
+        $state->article = $article;
+        $state->meta['article_markdown_published'] = true;
+        $this->persistWorkflowMeta($article, $state);
+    }
+
+    /**
+     * @param  array<string, mixed>  $node
+     */
+    private function shouldRegisterArticleContentFromPrompt(array $node, string $hookKey): bool
+    {
+        if ($this->shouldMergeOutlineToSave($node)) {
+            return true;
+        }
+
+        $hookKey = trim($hookKey);
+        if ($hookKey !== '' && in_array($hookKey, [
+            ArticleWritingExecutionService::HOOK_KEY,
+            'article.content.rewrite',
+            'article.content.improve',
+        ], true)) {
+            return true;
+        }
+
+        return $this->isContentRoleNode($node);
     }
 
     private function persistMetaDescriptionFromMarkdown(SeoArticle $article, string $markdown): void
@@ -1975,8 +2227,16 @@ final class TaskWorkflowTestRunner
     /**
      * @param  array<string, mixed>  $node
      */
-    private function isOutlineRoleNode(array $node): bool
+    private function isOutlineRoleNode(array $node, ?string $promptHookKey = null): bool
     {
+        if ($promptHookKey === ArticleGenerationInputResolver::OUTLINE_HOOK_KEY) {
+            return true;
+        }
+
+        if ($promptHookKey === ArticleOutlineVocabularySplitExecutor::OUTLINE_STRUCTURE_HOOK) {
+            return true;
+        }
+
         $role = WorkflowExecutionRole::tryFromMixed($node['data']['execution_role'] ?? null);
         if ($role === WorkflowExecutionRole::ArticleOutlineGenerate) {
             return true;

@@ -18,7 +18,8 @@ use Omnichannel\Addons\AiPrompt\Support\AiModelArea;
  * ({@see AiModelPriorityService::areaEnabledModels}).
  *
  * Strategy (Economy / Quality) must not reorder at execution time.
- * Free is metadata; FreeOnly may filter to free subset without reordering.
+ * Free is metadata; FreeOnly may filter to free subset without reordering (explicit policy only).
+ * Text profiles ignore legacy Custom membership filters at runtime.
  */
 final class CanonicalAiRouteResolver
 {
@@ -75,3 +76,4 @@ final class CanonicalAiRouteResolver
         return $context->costPolicy ?? AiCostPolicyScope::current();
     }
 }
+

@@ -138,6 +138,8 @@ function defaultPromptNodeData(promptId) {
 
   return {
     promptId: config?.id ?? 'p1',
+    outline_prompt_id: '',
+    vocabulary_prompt_id: '',
     mergeOutlineToSave: false,
     execution_role: suggestExecutionRoleFromPrompt(config?.id ?? promptId),
   };
@@ -321,7 +323,7 @@ function normalizeNodes(nodes) {
   });
 }
 
-function normalizeFlowData(initialData = {}) {
+export function normalizeFlowData(initialData = {}) {
   const providedNodes = Array.isArray(initialData.nodes) ? initialData.nodes : [];
   const sourceNodes = providedNodes.length > 0
     ? providedNodes
@@ -1071,6 +1073,31 @@ export default function ArticleFlowBuilder({
                       );
                     })()}
                   </div>
+                  {String(selectedNode.data.execution_role ?? '').includes('outline') ? (
+                    <>
+                      <div>
+                        <label className={`text-xs block mb-1 ${t.label}`}>Outline Prompt (tuỳ chọn)</label>
+                        <SeoSelect
+                          value={selectedNode.data.outline_prompt_id ?? ''}
+                          onChange={(e) => updateNodeData(selectedNode.id, 'outline_prompt_id', e.target.value)}
+                          className="w-full"
+                          options={[{ value: '', label: '— Dùng Prompt Block chính —' }, ...mockPrompts.map((p) => ({ value: p.id, label: p.name }))]}
+                        />
+                      </div>
+                      <div>
+                        <label className={`text-xs block mb-1 ${t.label}`}>Vocabulary Prompt</label>
+                        <SeoSelect
+                          value={selectedNode.data.vocabulary_prompt_id ?? ''}
+                          onChange={(e) => updateNodeData(selectedNode.id, 'vocabulary_prompt_id', e.target.value)}
+                          className="w-full"
+                          options={[{ value: '', label: '— Chọn prompt từ vựng —' }, ...mockPrompts.map((p) => ({ value: p.id, label: p.name }))]}
+                        />
+                        <p className="mt-1 text-[11px] text-slate-500 dark:text-slate-400">
+                          Bắt buộc cho flow split: Outline và Vocabulary chạy 2 provider call riêng.
+                        </p>
+                      </div>
+                    </>
+                  ) : null}
                   {isWriteFromOutlinePrompt(selectedNode.data.promptId) ? (
                     <div className="bg-emerald-50 dark:bg-emerald-500/10 border border-emerald-200 dark:border-emerald-500/20 p-3 rounded-lg">
                       <label className="flex items-start gap-2 cursor-pointer">

@@ -880,7 +880,9 @@ class SeoSettingsAiCenter extends Page
                 if ($baseline !== [] && $this->routingProfileUnchanged($item, $baseline)) {
                     continue;
                 }
-                $automatic = ($item['selection_mode'] ?? 'automatic') !== 'custom';
+                $automatic = $profile->isMedia()
+                    ? (($item['selection_mode'] ?? 'automatic') !== 'custom')
+                    : true;
                 $familyKeys = $automatic
                     ? [AiModelFamilyCatalog::AUTOMATIC]
                     : array_values(array_filter(
