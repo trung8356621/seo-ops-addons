@@ -26,7 +26,7 @@ final class MonthlyMcpReportService
     {
         $this->policy->assertOpen($period);
         $report = $this->locateOrCreate($period, (int) $site->id);
-        $keys = $sourceKeys ?? [McpSourceKey::Site->value, McpSourceKey::Keywords->value];
+        $keys = $sourceKeys ?? [McpSourceKey::Site->value, McpSourceKey::Keywords->value, McpSourceKey::Gsc->value];
         $report->generation_status = 'running';
         $report->total_sources = count($keys);
         $report->completed_sources = 0;
@@ -53,7 +53,8 @@ final class MonthlyMcpReportService
         $report ??= $this->locateOrCreate($period, (int) $site->id);
         $siteSnap = $this->snapshots->find($period, (int) $site->id, McpSourceKey::Site);
         $kwSnap = $this->snapshots->find($period, (int) $site->id, McpSourceKey::Keywords);
-        $built = $this->builder->build($period, (int) $site->id, (string) ($site->domain ?? ''), $siteSnap, $kwSnap);
+        $gscSnap = $this->snapshots->find($period, (int) $site->id, McpSourceKey::Gsc);
+        $built = $this->builder->build($period, (int) $site->id, (string) ($site->domain ?? ''), $siteSnap, $kwSnap, $gscSnap);
 
         $report->revision = max(1, (int) $report->revision) + ($report->generated_at ? 1 : 0);
         $report->status = $built['status'];

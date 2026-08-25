@@ -181,7 +181,14 @@ final class ContentProjectAgentPolicy
 
         return match ($capability) {
             'content_project.create', 'content_project.update', 'content_project.add_items',
+            'content_project.fill_seo_audit_suggestions', 'content_project.generate_new_content_suggestions',
+            'content_project.split_draft',
             'content_project.update_item', 'content_project.restore' => 'content-project:write',
+            'content_project.planning_intelligence',
+            'content_project.list_projects', 'content_project.get_project', 'content_project.list_items',
+            'content_project.get_item', 'content_project.get_status', 'content_project.get_publishing_queue',
+            'content_project.get_timeline', 'content_project.get_daily_report', 'content_project.get_site_health',
+            'content_project.get_operation' => 'content-project:read',
             'content_project.generate', 'content_project.rerun', 'content_project.rerun_items' => 'content-project:generate',
             'content_project.start_review', 'content_project.approve' => 'content-project:review',
             'content_project.schedule', 'content_project.auto_schedule',

@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Services;
 
+use Omnichannel\Addons\AiPrompt\Exceptions\AiRoutesExhaustedException;
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
+use Omnichannel\Addons\AiPrompt\DataTransfer\AiFailureDecision;
 use Omnichannel\Addons\AiPrompt\Exceptions\AiRoutingException;
 use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext;
 use Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate;
@@ -90,7 +92,7 @@ final class AiModelRouterService
      * Infrastructure fallback across profile candidates. Does not retry on "quality".
      *
      * @param  callable(RoutedAiCandidate): array{0: string, 1: array<string, mixed>|null}  $executor
-     * @return array{0: string, 1: array<string, mixed>|null, 2: RoutedAiCandidate, 3: int, 4: list<string>}
+     * @return array{0: string, 1: array<string, mixed>|null, 2: RoutedAiCandidate, 3: int, 4: list<string>, 5?: list<array<string, mixed>>}
      */
     public function executeWithProfile(
         string $profile,
@@ -104,8 +106,28 @@ final class AiModelRouterService
             throw AiRoutingException::noCandidate($profile, $capability);
         }
 
+        $userId = $context->userId !== null && $context->userId > 0
+            ? $context->userId
+            : app(AiRoutingOwnerResolver::class)->resolve(
+                explicitUserId: null,
+                prompt: null,
+                connection: $candidates[0]->connection ?? null,
+            );
+        if ($userId <= 0) {
+            $userId = (int) (auth()->id() ?? 0);
+        }
+        $settings = $this->resilienceSettings()->get($userId);
+        $maxAiAttempts = (int) $settings[AiResilienceSettingsService::KEY_MAX_AI_ATTEMPTS];
+        $maxFreeAttempts = (int) $settings[AiResilienceSettingsService::KEY_MAX_FREE_ATTEMPTS];
+
+        $classifier = $this->failureClassifier();
+        $health = $this->runtimeHealth();
+
         $fallbackCount = 0;
         $reasons = [];
+        $routingAttempts = [];
+        $actualAttempts = 0;
+        $freeAttempts = 0;
         $lastException = null;
         $routeRevision = null;
         if ($parsed !== null) {
@@ -121,46 +143,130 @@ final class AiModelRouterService
 
         foreach ($candidates as $index => $candidate) {
             $attemptNumber = $index + 1;
+            $skipReason = $health->skipReason($userId, $candidate);
+            if ($skipReason !== null) {
+                $routingAttempts[] = $this->attemptLog($candidate, $attemptNumber, 'skipped', $skipReason);
+                continue;
+            }
+
+            if ($candidate->isFree && $freeAttempts >= $maxFreeAttempts) {
+                $routingAttempts[] = $this->attemptLog($candidate, $attemptNumber, 'skipped', 'free_attempt_budget_exhausted');
+                continue;
+            }
+
+            if ($actualAttempts >= $maxAiAttempts) {
+                break;
+            }
+
+            $actualAttempts++;
+            if ($candidate->isFree) {
+                $freeAttempts++;
+            }
+
             try {
                 [$output, $usage] = $executor($candidate);
+                $health->recordSuccess($userId, $candidate);
+                $routingAttempts[] = $this->attemptLog($candidate, $attemptNumber, 'success');
 
-                return [$output, $usage, $candidate, $fallbackCount, $reasons];
+                return [$output, $usage, $candidate, $fallbackCount, $reasons, $routingAttempts];
             } catch (\Throwable $exception) {
                 $lastException = $exception;
-                if (! $this->isInfrastructureFailure($exception->getMessage())) {
+                $decision = $classifier->classify($exception);
+
+                if (! $decision->shouldContinueRouting()) {
                     throw $exception instanceof PromptRunException
                         ? $exception
                         : new PromptRunException($exception->getMessage(), (int) $exception->getCode(), $exception);
                 }
 
+                $health->recordFailure($userId, $candidate, $decision);
+                $this->applyLegacyHealthSideEffects($candidate, $decision);
+
                 $fallbackCount++;
                 $reasons[] = 'position '.$candidate->priority.' attempt '.$attemptNumber.' '
-                    .$candidate->provider.'/'.$candidate->model.': '.$exception->getMessage();
+                    .$candidate->provider.'/'.$candidate->model.': '.$decision->safeMessage;
+                $routingAttempts[] = $this->attemptLog(
+                    $candidate,
+                    $attemptNumber,
+                    'failed',
+                    $decision->category->value,
+                    $decision->httpStatus,
+                );
+
                 logger()->warning('AI routing infrastructure fallback', array_merge(
                     $candidate->toAttemptLogContext($attemptNumber, $routeRevision),
                     [
-                        'error' => $exception->getMessage(),
+                        'failure_class' => $decision->category->value,
+                        'http_status' => $decision->httpStatus,
+                        'error' => $decision->safeMessage,
                         'next' => isset($candidates[$index + 1]),
                     ],
                 ));
-
-                if ($candidate->seoAiModelId !== null) {
-                    if ($this->isQuotaOrRateLimitError($exception->getMessage())) {
-                        $this->handleModelExhausted($candidate->seoAiModelId, $exception->getMessage());
-                    } elseif (GeminiModelVersionPolicy::isProviderUnavailableError($exception->getMessage())) {
-                        $this->markModelUnavailableForAutoRouting($candidate->seoAiModelId, $exception->getMessage());
-                    }
-                }
             }
         }
 
-        throw $lastException instanceof PromptRunException
-            ? $lastException
-            : new PromptRunException(
-                $lastException?->getMessage() ?? 'AI routing exhausted all candidates for profile '.$profile,
-            );
+        throw new AiRoutesExhaustedException(
+            attemptCount: $actualAttempts,
+            routingAttempts: $routingAttempts,
+            previous: $lastException instanceof \Throwable ? $lastException : null,
+        );
     }
 
+    /**
+     * @return array<string, mixed>
+     */
+    private function attemptLog(
+        RoutedAiCandidate $candidate,
+        int $attemptNumber,
+        string $result,
+        ?string $detail = null,
+        ?int $httpStatus = null,
+    ): array {
+        return array_filter([
+            'attempt' => $attemptNumber,
+            'connection_id' => (int) $candidate->connection->id,
+            'model' => $candidate->model,
+            'is_free' => $candidate->isFree,
+            'result' => $result,
+            'failure_class' => $result === 'failed' ? $detail : null,
+            'skip_reason' => $result === 'skipped' ? $detail : null,
+            'http_status' => $httpStatus,
+        ], static fn (mixed $value): bool => $value !== null && $value !== '');
+    }
+
+    private function applyLegacyHealthSideEffects(RoutedAiCandidate $candidate, AiFailureDecision $decision): void
+    {
+        if ($candidate->seoAiModelId === null) {
+            return;
+        }
+
+        if ($decision->markModelUnavailable) {
+            $this->markModelUnavailableForAutoRouting($candidate->seoAiModelId, $decision->safeMessage);
+        }
+    }
+
+    private function failureClassifier(): AiProviderFailureClassifier
+    {
+        return function_exists('app')
+            ? app(AiProviderFailureClassifier::class)
+            : new AiProviderFailureClassifier();
+    }
+
+    private function runtimeHealth(): AiRuntimeHealthService
+    {
+        return function_exists('app')
+            ? app(AiRuntimeHealthService::class)
+            : new AiRuntimeHealthService();
+    }
+
+    private function resilienceSettings(): AiResilienceSettingsService
+    {
+        return function_exists('app')
+            ? app(AiResilienceSettingsService::class)
+            : new AiResilienceSettingsService();
+    }
+
+    /** @deprecated Use AiProviderFailureClassifier via executeWithProfile resilience loop. */
     public function isInfrastructureFailure(string $message): bool
     {
         $lower = strtolower($message);

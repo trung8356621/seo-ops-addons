@@ -11,6 +11,7 @@ use Omnichannel\Addons\Seo\Filament\Resources\Pages\SeoEditRecord;
 use Omnichannel\Addons\SearchFoundation\Services\SiteMcp\SiteMcpDraft;
 use Omnichannel\Addons\SearchFoundation\Services\SiteMcp\SiteMcpGenerator;
 use Omnichannel\Addons\SearchFoundation\Services\SiteMcp\SiteMcpPreview;
+use Omnichannel\Addons\WordPress\Services\SitePrimaryLanguageService;
 use App\Models\Site;
 use App\Support\RuntimeLogger;
 use Filament\Actions\Action;
@@ -41,6 +42,9 @@ class EditDomain extends SeoEditRecord
     {
         /** @var Site $record */
         $record = $this->record;
+
+        app(SitePrimaryLanguageService::class)->seedIfEmpty($record);
+        $record->unsetRelation('metas');
 
         $data = $this->fillSeoMetaFormData($record, $data);
 

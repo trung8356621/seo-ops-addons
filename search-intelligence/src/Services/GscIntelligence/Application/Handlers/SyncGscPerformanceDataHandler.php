@@ -29,6 +29,7 @@ final class SyncGscPerformanceDataHandler extends AbstractGscIntelligenceHandler
         private readonly GscSyncOperationService $syncOperation,
         private readonly GscSyncDateRangeService $dateRangeService,
         private readonly GscSuggestedMappingPersistService $suggestedMappingPersist,
+        private readonly ?\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\GscKeywordIntelligenceIngestionService $keywordIngestion = null,
     ) {
         parent::__construct($tenantGuard, $previewToken);
     }
@@ -111,6 +112,18 @@ final class SyncGscPerformanceDataHandler extends AbstractGscIntelligenceHandler
                 is_array($result['mappings'] ?? null) ? $result['mappings'] : [],
             );
 
+            $kiIngest = ['ingested' => 0, 'skipped' => true];
+            if ($this->keywordIngestion !== null) {
+                $kiIngest = $this->keywordIngestion->ingestFromSyncMappingsSafe(
+                    (int) $property->site_id,
+                    is_array($result['mappings'] ?? null) ? $result['mappings'] : [],
+                    [
+                        'property_ref' => $property->public_ref,
+                        'sync_run_ref' => $syncRun->public_ref,
+                    ],
+                );
+            }
+
             $partial = ($result['stage'] ?? '') === GscSyncStage::PartiallyCompleted->value || ($result['partial'] ?? false) === true;
             $syncRun->status = $partial ? GscSyncRunStatus::PartiallyCompleted : GscSyncRunStatus::Completed;
             $syncRun->save();
@@ -127,6 +140,7 @@ final class SyncGscPerformanceDataHandler extends AbstractGscIntelligenceHandler
                     'sync_run_ref' => $syncRun->public_ref,
                     'operation_ref' => $result['operation_ref'] ?? null,
                     'mapping_persist' => $mappingStats,
+                    'keyword_intelligence_ingest' => $kiIngest,
                     'result' => $result,
                 ],
             );

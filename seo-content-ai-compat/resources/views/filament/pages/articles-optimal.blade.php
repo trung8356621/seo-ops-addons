@@ -149,6 +149,19 @@
     ></span>
 
     <div class="space-y-6">
+        <div class="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-100">
+            <p class="font-medium">{{ __('seo-content-ai::filament.articles_optimal.content_project_suggestions_notice_title') }}</p>
+            <p class="mt-1 text-sky-900/80 dark:text-sky-100/80">
+                {{ __('seo-content-ai::filament.articles_optimal.content_project_suggestions_notice_body') }}
+            </p>
+            <a
+                href="{{ \Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource::getUrl('index') }}"
+                class="mt-2 inline-flex text-sm font-medium text-sky-800 underline hover:text-sky-950 dark:text-sky-200"
+            >
+                {{ __('seo-content-ai::filament.articles_optimal.content_project_suggestions_notice_link') }}
+            </a>
+        </div>
+
         <x-filament::section>
             <x-slot name="heading">
                 {{ __('seo-content-ai::filament.articles_optimal.filters_heading') }}

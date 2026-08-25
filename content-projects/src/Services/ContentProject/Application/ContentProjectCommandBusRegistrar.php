@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\Application;
 
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\AddContentProjectItemsCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\AddSeoAuditSuggestionsCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\AcknowledgeProjectItemGenerationErrorCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ApproveProjectItemsCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ArchiveContentProjectCommand;
@@ -16,6 +17,11 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Comma
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ReconcilePublishingQueueRemoteTasksCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RecoverStuckPublishingCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\CreateContentProjectCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\DismissSeoAuditSuggestionsCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\FillSeoAuditSuggestionsCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\GenerateNewContentSuggestionsCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RestoreNewContentSuggestionsCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RestoreSeoAuditSuggestionsCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\GenerateProjectItemsCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\MoveProjectItemScheduleCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ProcessScheduledProjectItemPublishCommand;
@@ -32,6 +38,8 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Comma
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ScheduleProjectItemsCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SelectExistingArticleForProjectItemCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SkipProjectItemPublishingCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SkipSeoAuditArticlesCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SplitDraftContentProjectCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\StartReviewCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\StopProjectExecutionCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SyncContentProjectItemsCommand;
@@ -41,6 +49,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Comma
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SetItemGenerationKeywordOverrideCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\UpdateContentProjectItemCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\AddContentProjectItemsHandler;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\AddSeoAuditSuggestionsHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\AcknowledgeProjectItemGenerationErrorHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\ApproveProjectItemsHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\ArchiveContentProjectHandler;
@@ -50,6 +59,11 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handl
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\CancelProjectItemPublishingHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\ReconcilePublishingQueueRemoteTasksHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\CreateContentProjectHandler;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\DismissSeoAuditSuggestionsHandler;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\FillSeoAuditSuggestionsHandler;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\GenerateNewContentSuggestionsHandler;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\RestoreNewContentSuggestionsHandler;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\RestoreSeoAuditSuggestionsHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\RecoverStuckPublishingHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\DebugOverrideProjectItemLifecycleHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\GenerateProjectItemsHandler;
@@ -68,6 +82,8 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handl
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\SelectExistingArticleForProjectItemHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\ReturnToContentProjectHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\SkipProjectItemPublishingHandler;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\SkipSeoAuditArticlesHandler;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\SplitDraftContentProjectHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\StartReviewHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\StopProjectExecutionHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\SyncContentProjectItemsHandler;
@@ -153,6 +169,14 @@ final class ContentProjectCommandBusRegistrar
             UpdateContentProjectCommand::class => UpdateContentProjectHandler::class,
             SyncContentProjectItemsCommand::class => SyncContentProjectItemsHandler::class,
             AddContentProjectItemsCommand::class => AddContentProjectItemsHandler::class,
+            AddSeoAuditSuggestionsCommand::class => AddSeoAuditSuggestionsHandler::class,
+            FillSeoAuditSuggestionsCommand::class => FillSeoAuditSuggestionsHandler::class,
+            GenerateNewContentSuggestionsCommand::class => GenerateNewContentSuggestionsHandler::class,
+            DismissSeoAuditSuggestionsCommand::class => DismissSeoAuditSuggestionsHandler::class,
+            RestoreSeoAuditSuggestionsCommand::class => RestoreSeoAuditSuggestionsHandler::class,
+            RestoreNewContentSuggestionsCommand::class => RestoreNewContentSuggestionsHandler::class,
+            SkipSeoAuditArticlesCommand::class => SkipSeoAuditArticlesHandler::class,
+            SplitDraftContentProjectCommand::class => SplitDraftContentProjectHandler::class,
             UpdateContentProjectItemCommand::class => UpdateContentProjectItemHandler::class,
             SetItemGenerationKeywordOverrideCommand::class => SetItemGenerationKeywordOverrideHandler::class,
             GenerateProjectItemsCommand::class => GenerateProjectItemsHandler::class,
@@ -271,6 +295,8 @@ final class ContentProjectCommandBusRegistrar
             \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\AddGscQueriesToKeywordWorkspaceCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Handlers\AddGscQueriesToKeywordWorkspaceHandler::class,
             \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\PreviewCreateContentProjectFromGscOpportunitiesCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Handlers\PreviewCreateContentProjectFromGscOpportunitiesHandler::class,
             \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\CreateContentProjectFromGscOpportunitiesCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Handlers\CreateContentProjectFromGscOpportunitiesHandler::class,
+            \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\InspectArticleIndexWithGscCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Handlers\InspectArticleIndexWithGscHandler::class,
+            \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\InspectArticleIndexesWithGscCommand::class => \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Handlers\InspectArticleIndexesWithGscHandler::class,
 
             // Site Sync V2 — additive; shared handler.
             \Omnichannel\Addons\SiteSync\Services\Application\Commands\RunSiteSyncCommand::class => \Omnichannel\Addons\SiteSync\Services\Application\Handlers\SiteSyncCommandHandler::class,

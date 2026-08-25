@@ -14,7 +14,7 @@ final class GscOpportunityDetectionService
 {
     public const ALGORITHM_VERSION = '1.0.0';
 
-    /** @var list<array<string, mixed>> */
+    /** @var array<string, true> */
     private array $seenFingerprints = [];
 
     public function __construct(
@@ -30,7 +30,7 @@ final class GscOpportunityDetectionService
     /**
      * @param  list<array<string, mixed>>  $currentRows
      * @param  list<array<string, mixed>>  $baselineRows
-     * @param  array<string, mixed>  $context  normalized_query, keyword_ref?, first_seen_date?
+     * @param  array<string, mixed>  $context  normalized_query, keyword_ref?, first_seen_date?, has_published_page?
      * @return list<array<string, mixed>>
      */
     public function detect(array $currentRows, array $baselineRows = [], array $context = []): array
@@ -44,6 +44,7 @@ final class GscOpportunityDetectionService
         $keywordRef = $context['keyword_ref'] ?? null;
         $firstSeenDate = (string) ($context['first_seen_date'] ?? date('Y-m-d'));
         $maturity = $this->resolveMaturity($firstSeenDate);
+        $hasPublishedPage = ($context['has_published_page'] ?? false) === true;
 
         $minImpressions = $this->configInt('opportunity.min_impressions', 100);
         $nearPageOneMax = $this->configFloat('opportunity.near_page_one_max_position', 15.0);
@@ -65,6 +66,7 @@ final class GscOpportunityDetectionService
                         'expected_ctr' => $this->expectedCtr->expectedCtr($current['position']),
                         'ctr_gap' => $ctrGap,
                     ],
+                    $hasPublishedPage,
                 );
             }
         }
@@ -81,10 +83,16 @@ final class GscOpportunityDetectionService
                     'position' => $current['position'],
                     'impressions' => $current['impressions'],
                 ],
+                $hasPublishedPage,
             );
         }
 
-        if ($comparison['baseline_zero'] === false
+        $minCompareImpressions = GscIntelligencePolicy::minImpressionsForComparison();
+        $baselineImpressions = (int) ($baseline['impressions'] ?? 0);
+        $hasCompareEvidence = $comparison['baseline_zero'] === false
+            && $baselineImpressions >= $minCompareImpressions;
+
+        if ($hasCompareEvidence
             && (int) ($baseline['clicks'] ?? 0) > 0
             && (int) ($current['clicks'] ?? 0) < (int) ($baseline['clicks'] ?? 0)) {
             $dropPct = ((int) $baseline['clicks'] - (int) $current['clicks']) / (int) $baseline['clicks'];
@@ -97,12 +105,50 @@ final class GscOpportunityDetectionService
                     [
                         'clicks_delta' => $comparison['clicks_delta'],
                         'drop_pct' => round($dropPct, 4),
+                        'impressions' => $current['impressions'],
                     ],
+                    $hasPublishedPage,
+                );
+            } elseif ($dropPct >= 0.15) {
+                $opportunities[] = $this->buildOpportunity(
+                    GscOpportunityType::ClickDecline,
+                    $normalizedQuery,
+                    $keywordRef,
+                    $maturity,
+                    [
+                        'clicks_delta' => $comparison['clicks_delta'],
+                        'drop_pct' => round($dropPct, 4),
+                        'impressions' => $current['impressions'],
+                    ],
+                    $hasPublishedPage,
                 );
             }
         }
 
-        if ($comparison['impressions_growth_pct'] !== null && $comparison['impressions_growth_pct'] >= $growthPctMin) {
+        if ($hasCompareEvidence
+            && GscPositionSemantics::worsenedByAtLeast(
+                isset($current['position']) ? (float) $current['position'] : null,
+                isset($baseline['position']) ? (float) $baseline['position'] : null,
+                GscIntelligencePolicy::positionWorsenMin(),
+            )) {
+            $opportunities[] = $this->buildOpportunity(
+                GscOpportunityType::PositionDecline,
+                $normalizedQuery,
+                $keywordRef,
+                $maturity,
+                [
+                    'position' => $current['position'],
+                    'previous_position' => $baseline['position'],
+                    'position_delta' => $comparison['position_delta'],
+                    'impressions' => $current['impressions'],
+                ],
+                $hasPublishedPage,
+            );
+        }
+
+        if ($comparison['impressions_growth_pct'] !== null
+            && $comparison['impressions_growth_pct'] >= $growthPctMin
+            && ($current['impressions'] ?? 0) >= $minImpressions) {
             $opportunities[] = $this->buildOpportunity(
                 GscOpportunityType::ImpressionGrowth,
                 $normalizedQuery,
@@ -111,17 +157,23 @@ final class GscOpportunityDetectionService
                 [
                     'impressions_growth_pct' => $comparison['impressions_growth_pct'],
                     'impressions_delta' => $comparison['impressions_delta'],
+                    'impressions' => $current['impressions'],
                 ],
+                $hasPublishedPage,
             );
         }
 
-        if ($keywordRef === null && $normalizedQuery !== '' && ($current['impressions'] ?? 0) >= $minImpressions) {
+        if ($keywordRef === null
+            && ! $hasPublishedPage
+            && $normalizedQuery !== ''
+            && ($current['impressions'] ?? 0) >= $minImpressions) {
             $opportunities[] = $this->buildOpportunity(
                 GscOpportunityType::UnmappedQuery,
                 $normalizedQuery,
                 null,
                 $maturity,
                 ['impressions' => $current['impressions']],
+                false,
             );
         }
 
@@ -141,11 +193,13 @@ final class GscOpportunityDetectionService
         mixed $keywordRef,
         GscOpportunityMaturity $maturity,
         array $evidence,
+        bool $hasPublishedPage = false,
     ): array {
         return [
             'type' => $type->value,
             'normalized_query' => $normalizedQuery,
             'keyword_ref' => $keywordRef,
+            'has_published_page' => $hasPublishedPage,
             'maturity' => $maturity->value,
             'evidence' => $evidence,
             'algorithm_version' => self::ALGORITHM_VERSION,

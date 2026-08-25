@@ -223,9 +223,13 @@ final class ContentProjectPublicCapabilityContractTest extends TestCase
         $ops = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content-projects/src/Services/ContentProject/ContentProjectItemOperationsReadModel.php',
         );
+        // Public UI booleans still derive from availableActions (capability SSOT).
         self::assertStringContainsString("ContentProjectItemAction::Generate, \$state->availableActions", $ops);
         self::assertStringContainsString("ContentProjectItemAction::Rerun, \$state->availableActions", $ops);
-        self::assertStringNotContainsString('ContentProjectItemGenerationClassifier', $ops);
+        // Classifier is used only for preview/runnable ID consistency with Generate gate — not a second boolean SSOT.
+        self::assertStringContainsString('ContentProjectItemGenerationClassifier', $ops);
+        self::assertStringContainsString('generationClassifier->preview', $ops);
+        self::assertStringContainsString('runnableTaskIds', $ops);
     }
 
     /**

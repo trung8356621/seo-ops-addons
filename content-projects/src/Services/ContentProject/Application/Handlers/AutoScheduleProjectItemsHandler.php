@@ -14,6 +14,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Suppo
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectPreviewToken;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectTenantGuard;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectAutoScheduleService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectDraftExecutionGuard;
 use InvalidArgumentException;
 
 final class AutoScheduleProjectItemsHandler extends AbstractPublishingHandler
@@ -38,16 +39,29 @@ final class AutoScheduleProjectItemsHandler extends AbstractPublishingHandler
             $projectId = (int) $project->getKey();
             $this->tenantGuard->assertCanAccessProject($project, $actor);
 
+            $draftBlock = ContentProjectDraftExecutionGuard::rejectIfDraft($project, $projectId);
+            if ($draftBlock !== null) {
+                return $draftBlock;
+            }
+
             $itemIds = $this->resolveItemIds($command->itemRefs);
             if ($itemIds !== []) {
                 $this->tenantGuard->assertTasksBelongToProject($project, $itemIds);
             }
 
-            $allowReschedule = (bool) ($command->options['allow_reschedule'] ?? true);
+            $allowReschedule = array_key_exists('allow_reschedule', $command->options)
+                ? (bool) $command->options['allow_reschedule']
+                : (($command->options['mode'] ?? '') !== 'monthly_even');
             $preview = $this->autoScheduleService->preview($project, $itemIds, $command->options + [
                 'allow_reschedule' => $allowReschedule,
             ]);
             $resolvedItemIds = $preview['eligible_ids'];
+            $distributionMeta = is_array($preview['distribution_meta'] ?? null) ? $preview['distribution_meta'] : [];
+            $preservedCount = (int) ($distributionMeta['preserved_count'] ?? count(array_filter(
+                $preview['excluded'] ?? [],
+                static fn (array $row): bool => ($row['reason'] ?? '') === 'scheduled_locked',
+            )));
+            $newlyScheduledCount = count($preview['slots'] ?? []);
 
             $fingerprint = $this->buildFingerprint($command->name(), $projectId, [
                 'item_ids' => $resolvedItemIds,
@@ -72,12 +86,34 @@ final class AutoScheduleProjectItemsHandler extends AbstractPublishingHandler
                         'suggested_max_interval' => $preview['suggested_max_interval'],
                         'slots' => $preview['slots'],
                         'item_schedule_map' => $preview['item_schedule_map'] ?? [],
+                        'distribution_meta' => $distributionMeta,
+                        'preserved_count' => $preservedCount,
+                        'newly_scheduled_count' => $newlyScheduledCount,
                     ],
                     requiresConfirmation: false,
                 );
             }
 
             if ($resolvedItemIds === []) {
+                $modeEmpty = (string) ($command->options['mode'] ?? '');
+                if ($modeEmpty === 'monthly_even') {
+                    return ContentProjectActionResult::ok(
+                        ContentProjectActionCodes::ITEMS_SCHEDULED,
+                        '0 item(s) auto-scheduled.',
+                        $projectId,
+                        [],
+                        metadata: [
+                            'affected_count' => 0,
+                            'newly_scheduled_count' => 0,
+                            'preserved_count' => $preservedCount,
+                            'excluded' => $preview['excluded'],
+                            'timezone' => $preview['timezone'],
+                            'distribution_meta' => $distributionMeta,
+                            'wordpress_called' => false,
+                        ],
+                    );
+                }
+
                 return ContentProjectActionResult::fail(
                     ContentProjectActionCodes::VALIDATION_FAILED,
                     'Không có bài chưa lên lịch phù hợp.',
@@ -103,9 +139,20 @@ final class AutoScheduleProjectItemsHandler extends AbstractPublishingHandler
                 );
             }
 
-            return $this->businessLock->withLock(
-                $this->businessLock->projectSchedule($projectId),
-                function () use ($project, $projectId, $resolvedItemIds, $command): ContentProjectActionResult {
+            $mode = (string) ($command->options['mode'] ?? '');
+            $siteId = (int) ($project->site_id ?? 0);
+            $monthYm = $project->month instanceof \Carbon\Carbon
+                ? $project->month->format('Y-m')
+                : (is_string($project->month) && $project->month !== '' ? substr($project->month, 0, 7) : '');
+
+            $lockKeys = [$this->businessLock->projectSchedule($projectId)];
+            if ($mode === 'monthly_even' && $siteId > 0 && $monthYm !== '') {
+                $lockKeys[] = $this->businessLock->siteSchedule($siteId, $monthYm);
+            }
+
+            return $this->withScheduleLocks(
+                $lockKeys,
+                function () use ($project, $projectId, $resolvedItemIds, $command, $preview, $distributionMeta, $preservedCount, $newlyScheduledCount): ContentProjectActionResult {
                     $result = $this->autoScheduleService->schedule($project, $resolvedItemIds, $command->options);
 
                     return ContentProjectActionResult::ok(
@@ -121,11 +168,35 @@ final class AutoScheduleProjectItemsHandler extends AbstractPublishingHandler
                             'first_publish_at' => $result['first_publish_at'],
                             'last_publish_at' => $result['last_publish_at'],
                             'timezone' => $result['timezone'],
+                            'distribution_meta' => $result['distribution_meta'] ?? $distributionMeta,
+                            'preserved_count' => $preservedCount,
+                            'newly_scheduled_count' => $newlyScheduledCount,
                             'wordpress_called' => false,
                         ],
                     );
                 },
             );
+        });
+    }
+
+    /**
+     * @param  list<string>  $lockKeys
+     */
+    private function withScheduleLocks(array $lockKeys, callable $callback): ContentProjectActionResult
+    {
+        $keys = array_values(array_unique(array_filter($lockKeys, static fn (string $k): bool => $k !== '')));
+        if ($keys === []) {
+            return $callback();
+        }
+
+        $head = array_shift($keys);
+
+        return $this->businessLock->withLock($head, function () use ($keys, $callback): ContentProjectActionResult {
+            if ($keys === []) {
+                return $callback();
+            }
+
+            return $this->withScheduleLocks($keys, $callback);
         });
     }
 }

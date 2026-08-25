@@ -167,7 +167,7 @@ final class SeoProjectTaskMoveService
                 $lockedTarget->tasks()->orderBy('id')->lockForUpdate()->get(),
             );
 
-            $this->assertTargetHasCapacity($lockedTarget, $tasks->count());
+            $this->assertTargetAcceptsMoves($lockedTarget);
             $this->appendTasksToProject($lockedTarget, $tasks);
             $lockedSource->syncTotalTasksCounter();
 
@@ -202,19 +202,15 @@ final class SeoProjectTaskMoveService
             ->orderByDesc('month')
             ->orderBy('id')
             ->get()
-            ->filter(static fn (SeoProject $project): bool => $project->remainingTaskCapacity() > 0)
+            ->filter(static fn (SeoProject $project): bool => ! $project->isArchive())
             ->mapWithKeys(static function (SeoProject $project): array {
-                $remaining = $project->remainingTaskCapacity();
-                $max = $project->maxTasksAllowed();
                 $count = $project->registeredTaskCount();
 
                 return [
-                    (int) $project->getKey() => __('seo-content-ai::filament.projects.move_target_option', [
+                    (int) $project->getKey() => __('seo-content-ai::filament.projects.move_target_option_items', [
                         'name' => (string) $project->name,
                         'month' => $project->monthCarbon()->format('m/Y'),
                         'count' => $count,
-                        'max' => $max,
-                        'remaining' => $remaining,
                     ]),
                 ];
             })
@@ -240,25 +236,21 @@ final class SeoProjectTaskMoveService
         return $this->continuation()->findOrCreateContinuation($source, $month);
     }
 
+    /**
+     * @deprecated Capacity unlimited — only blocks archive vaults.
+     */
     public function assertTargetHasCapacity(SeoProject $target, int $incomingCount): void
     {
-        if ($incomingCount <= 0) {
-            return;
-        }
+        $this->assertTargetAcceptsMoves($target);
+    }
 
-        $remaining = $target->remainingTaskCapacity();
-        if ($incomingCount <= $remaining) {
-            return;
+    public function assertTargetAcceptsMoves(SeoProject $target): void
+    {
+        if ($target->isArchive()) {
+            throw ValidationException::withMessages([
+                'target_project_id' => __('seo-content-ai::filament.projects.move_target_archive'),
+            ]);
         }
-
-        throw ValidationException::withMessages([
-            'target_project_id' => __('seo-content-ai::filament.projects.move_target_full', [
-                'month' => $target->monthCarbon()->format('m/Y'),
-                'remaining' => $remaining,
-                'needed' => $incomingCount,
-                'max' => $target->maxTasksAllowed(),
-            ]),
-        ]);
     }
 
     /**

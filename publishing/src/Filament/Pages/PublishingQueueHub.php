@@ -78,13 +78,15 @@ final class PublishingQueueHub extends SeoPanelPage
 
     public bool $selectAllMatching = false;
 
-    public string $autoMode = 'project_month';
+    public string $autoMode = 'monthly_even';
 
     public string $autoStartAt = '';
 
     public int $autoIntervalMinutes = 15;
 
     public int $autoPerDay = 3;
+
+    public int $autoMinSpacingMinutes = 5;
 
     public string $autoDayStart = '09:00';
 
@@ -237,10 +239,11 @@ final class PublishingQueueHub extends SeoPanelPage
             $this->project,
             [],
             [
-                'mode' => 'project_month',
+                'mode' => 'monthly_even',
+                'min_spacing_minutes' => max(1, min(1440, $this->autoMinSpacingMinutes)),
                 'day_start' => $this->autoDayStart,
                 'day_end' => $this->autoDayEnd,
-                'allow_reschedule' => true,
+                'allow_reschedule' => false,
             ],
         );
     }
@@ -615,10 +618,11 @@ final class PublishingQueueHub extends SeoPanelPage
             (int) $this->requireProject()->getKey(),
             [],
             [
-                'mode' => 'project_month',
+                'mode' => 'monthly_even',
+                'min_spacing_minutes' => max(1, min(1440, $this->autoMinSpacingMinutes)),
                 'day_start' => $this->autoDayStart,
                 'day_end' => $this->autoDayEnd,
-                'allow_reschedule' => true,
+                'allow_reschedule' => false,
             ],
         ), 'auto_schedule');
     }

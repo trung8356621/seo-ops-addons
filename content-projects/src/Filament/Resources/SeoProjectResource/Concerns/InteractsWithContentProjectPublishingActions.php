@@ -33,7 +33,7 @@ use Throwable;
  * - public ?string $pendingPhase  updating|accepted|null
  * - public ?string $pendingOperationId
  * - public string $autoMode, $autoStartAt, $autoDayStart, $autoDayEnd
- * - public int $autoIntervalMinutes, $autoPerDay
+ * - public int $autoIntervalMinutes, $autoPerDay, $autoMinSpacingMinutes
  */
 trait InteractsWithContentProjectPublishingActions
 {
@@ -202,17 +202,24 @@ trait InteractsWithContentProjectPublishingActions
 
     public function runAutoSchedule(): void
     {
+        $options = [
+            'mode' => $this->autoMode,
+            'start_at' => $this->autoStartAt,
+            'interval_minutes' => $this->autoIntervalMinutes,
+            'per_day' => $this->autoPerDay,
+            'day_start' => $this->autoDayStart,
+            'day_end' => $this->autoDayEnd,
+        ];
+
+        if ($this->autoMode === 'monthly_even') {
+            $options['min_spacing_minutes'] = max(1, min(1440, (int) ($this->autoMinSpacingMinutes ?? 5)));
+            $options['allow_reschedule'] = false;
+        }
+
         $this->dispatchPublishingCommand(new AutoScheduleProjectItemsCommand(
             (int) $this->requireProject()->getKey(),
             $this->selectedItemIds(),
-            [
-                'mode' => $this->autoMode,
-                'start_at' => $this->autoStartAt,
-                'interval_minutes' => $this->autoIntervalMinutes,
-                'per_day' => $this->autoPerDay,
-                'day_start' => $this->autoDayStart,
-                'day_end' => $this->autoDayEnd,
-            ],
+            $options,
         ), 'auto_schedule');
     }
 

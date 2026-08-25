@@ -29,7 +29,7 @@ final class AiRoutingUxTest extends TestCase
         $this->assertStringNotContainsString('automatic_help_', $view);
         $this->assertStringContainsString('heroicon-o-pencil-square', $view);
         $this->assertStringContainsString("@if (\$group !== 'text')", $view);
-        $this->assertStringContainsString('manage_model_order', $view);
+        $this->assertStringNotContainsString('manage_model_order', $view);
         $this->assertStringContainsString('text_routing_follows_models', $view);
         $this->assertStringContainsString('seo-capability-matrix-backdrop', $view);
         $this->assertStringContainsString('picker_empty_available', $view);
@@ -45,6 +45,8 @@ final class AiRoutingUxTest extends TestCase
         $this->assertStringContainsString('wire:ignore.self', $view);
         $this->assertStringContainsString('ai-center-models', $view);
         $this->assertStringContainsString('ai-center-routing', $view);
+        $this->assertStringContainsString('ai-center-resilience', $view);
+        $this->assertStringContainsString('max_ai_attempts', $view);
         $this->assertStringNotContainsString('__seoAiCenterUi', $view);
         $this->assertStringNotContainsString('seo-ai-panel-hidden', $view);
         $this->assertStringNotContainsString('syncUiTab', $view);

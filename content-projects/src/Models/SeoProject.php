@@ -30,6 +30,9 @@ class SeoProject extends Model
 
     public const STATUS_APPROVED = 'approved';
 
+    /** Planning pool — generation / publishing / scheduling disabled. */
+    public const STATUS_DRAFT = 'draft';
+
     public const KIND_MONTHLY = 'monthly';
 
     public const KIND_ARCHIVE = 'archive';
@@ -44,6 +47,8 @@ class SeoProject extends Model
         'month' => 'date',
         'site_id' => 'integer',
         'total_tasks' => 'integer',
+        'user_id' => 'integer',
+        'source_draft_project_id' => 'integer',
         'archived_at' => 'datetime',
         'archived_by' => 'integer',
     ];
@@ -115,6 +120,35 @@ class SeoProject extends Model
     public function isArchive(): bool
     {
         return (string) ($this->kind ?? self::KIND_MONTHLY) === self::KIND_ARCHIVE;
+    }
+
+    /**
+     * Draft planning pool: unlimited items, no execution month gate, no generate/publish.
+     * Not a project kind — status only.
+     */
+    public function isDraftPlanning(): bool
+    {
+        return (string) ($this->status ?? '') === self::STATUS_DRAFT
+            && ! $this->isProjectArchived()
+            && ! $this->isArchive();
+    }
+
+    /**
+     * Compatibility month for Draft when UI does not ask for an execution month.
+     * Not an execution contract — capacity/gates must use isDraftPlanning().
+     */
+    public static function draftCompatibilityMonth(): string
+    {
+        return Carbon::now()->startOfMonth()->format('Y-m-d');
+    }
+
+    public static function defaultDraftName(?string $domain = null): string
+    {
+        $domain = trim((string) $domain);
+
+        return $domain !== ''
+            ? 'Content plan — '.$domain
+            : 'Content plan';
     }
 
     /**
@@ -208,18 +242,18 @@ class SeoProject extends Model
         return Carbon::parse($this->month)->startOfMonth();
     }
 
+    /**
+     * Soft capacity API — days-in-month is NOT a hard task limit.
+     * Month is execution/reporting period only. Callers must not block writes on this.
+     */
     public function maxTasksAllowed(): int
     {
-        if ($this->isArchive()) {
-            return PHP_INT_MAX;
-        }
-
-        return $this->monthCarbon()->daysInMonth;
+        return PHP_INT_MAX;
     }
 
     public function isExecutionMonthOpen(): bool
     {
-        if ($this->isArchive()) {
+        if ($this->isArchive() || $this->isDraftPlanning()) {
             return true;
         }
 
@@ -238,22 +272,20 @@ class SeoProject extends Model
         return (int) $this->tasks()->planned()->count();
     }
 
+    /**
+     * @deprecated Capacity is unlimited. Always PHP_INT_MAX for non-cancelled active items math.
+     */
     public function remainingTaskCapacity(): int
     {
-        if ($this->isArchive()) {
-            return PHP_INT_MAX;
-        }
-
-        return max(0, $this->maxTasksAllowed() - $this->registeredTaskCount());
+        return PHP_INT_MAX;
     }
 
+    /**
+     * @deprecated Capacity is unlimited. Always true when project is not an archive vault.
+     */
     public function canRegisterMoreTasks(): bool
     {
-        if ($this->isArchive()) {
-            return true;
-        }
-
-        return $this->remainingTaskCapacity() > 0;
+        return ! $this->isArchive();
     }
 
     public function syncTotalTasksCounter(): void
@@ -272,6 +304,20 @@ class SeoProject extends Model
         $carbon = Carbon::parse($month)->startOfMonth();
 
         return 'project '.$carbon->format('n/Y');
+    }
+
+    public static function defaultExecutionName(Carbon|string $month, ?string $domain = null): string
+    {
+        $carbon = Carbon::parse($month)->startOfMonth();
+        $label = 'Content execution — '.$carbon->format('m/Y');
+        $domain = trim((string) $domain);
+
+        return $domain !== '' ? $label.' — '.$domain : $label;
+    }
+
+    public function sourceDraft(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'source_draft_project_id');
     }
 
     public static function archiveProjectName(?string $domain = null): string
@@ -294,6 +340,7 @@ class SeoProject extends Model
     public static function statusOptions(): array
     {
         return [
+            self::STATUS_DRAFT => 'Draft',
             self::STATUS_APPROVED => 'Đã duyệt',
             self::STATUS_PENDING => 'Chờ duyệt',
             self::STATUS_MANUAL => 'Thủ công',

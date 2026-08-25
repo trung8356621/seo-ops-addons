@@ -11,14 +11,14 @@ use Tests\Support\ProjectRoot;
 
 final class SeoSettingsAiCenterNavigationTest extends TestCase
 {
-    public function test_ai_center_has_models_and_routing_tabs_only(): void
+    public function test_ai_center_has_models_routing_and_resilience_tabs(): void
     {
         $page = (string) file_get_contents((new \ReflectionClass(SeoSettingsAiCenter::class))->getFileName());
         $this->assertStringContainsString("protected static bool \$shouldRegisterNavigation = false", $page);
         $this->assertStringContainsString("settings/ai-center", $page);
         $this->assertStringContainsString("public string \$tab = 'models'", $page);
         $this->assertStringContainsString("'connections' => 'models'", $page);
-        $this->assertStringContainsString("'models', 'routing'", $page);
+        $this->assertStringContainsString("'models', 'routing', 'resilience', 'health'", $page);
         $this->assertStringNotContainsString("'connections', 'models', 'routing'", $page);
         $this->assertStringContainsString("PromptResource::getUrl()", $page);
         $this->assertStringContainsString('isSeo(', $page);
@@ -29,7 +29,14 @@ final class SeoSettingsAiCenterNavigationTest extends TestCase
         $this->assertStringContainsString('syncConnection', $page);
 
         $view = (string) file_get_contents(ProjectRoot::addonsPath().'/seo-content-ai-compat/resources/views/filament/pages/seo-settings-ai-center.blade.php');
-        $this->assertStringContainsString("'models', 'routing'", $view);
+        $this->assertStringContainsString("'models', 'routing', 'resilience', 'health'", $view);
+        $this->assertStringContainsString('ai-center-resilience', $view);
+        $this->assertStringContainsString('ai-center-health', $view);
+        $this->assertStringContainsString('maxAiAttempts', $view);
+        $this->assertStringContainsString('connectionHealthRows', $page);
+        $this->assertStringContainsString('modelHealthRows', $page);
+        $this->assertStringContainsString('saveResilienceSettings', $page);
+        $this->assertStringContainsString('healthHydrated', $page);
         $this->assertStringNotContainsString("'connections', 'models', 'routing'", $view);
         $this->assertStringNotContainsString("@if (\$tab === 'connections')", $view);
         $this->assertStringContainsString('seoAiCenter', $view);

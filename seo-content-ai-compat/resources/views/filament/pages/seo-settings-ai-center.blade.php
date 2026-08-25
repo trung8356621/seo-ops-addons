@@ -13,6 +13,8 @@
                     area: @js($modelArea),
                     modelsHydrated: @js($modelsHydrated),
                     routingHydrated: @js($routingHydrated),
+                    resilienceHydrated: @js($resilienceHydrated),
+                    healthHydrated: @js($healthHydrated),
                     editingProfile: @js($editingProfile),
                     routingUnsaved: @js($routingUnsaved),
                 })"
@@ -23,7 +25,7 @@
                 </header>
 
                 <nav class="seo-ai-segment" aria-label="{{ __('seo-content-ai::filament.ai_center.title') }}">
-                    @foreach (['models', 'routing'] as $tabKey)
+                    @foreach (['models', 'routing', 'resilience', 'health'] as $tabKey)
                         <button
                             type="button"
                             @click="setTab('{{ $tabKey }}')"
@@ -205,18 +207,6 @@
                                         <div class="seo-ai-profile__body" x-show="editingProfile !== @js($card['key'])">
                                             @if ($group === 'text')
                                                 <p class="seo-ai-muted text-sm">{{ __('seo-content-ai::filament.ai_center.text_routing_follows_models') }}</p>
-                                                <button
-                                                    type="button"
-                                                    class="mt-2 text-sm font-medium text-primary-600 hover:underline dark:text-primary-400"
-                                                    @click="setTab('models'); setArea(@js(match ($card['key']) {
-                                                        'text.fast' => 'fast_text',
-                                                        'text.longform' => 'long_form_text',
-                                                        'text.reasoning' => 'reasoning_text',
-                                                        default => 'fast_text',
-                                                    }))"
-                                                >
-                                                    {{ __('seo-content-ai::filament.ai_center.manage_model_order') }}
-                                                </button>
                                             @else
                                             <div class="seo-ai-profile__summary" x-show="draftMode(@js($card['key']), @js($card['selection_mode'])) === 'custom'">
                                                 @if ($card['family_labels'] === [])
@@ -297,6 +287,319 @@
                         </div>
                     </form>
                 @endif
+
+                @if ($resilienceHydrated)
+                    <div
+                        id="ai-center-resilience"
+                        class="seo-ai-panel"
+                        x-show="activeMainTab === 'resilience'"
+                        style="display: none;"
+                        wire:key="ai-center-resilience"
+                    >
+                        <section class="seo-ai-section-head">
+                            <div>
+                                <h2 class="seo-ai-section-title">{{ __('seo-content-ai::filament.ai_center.resilience_fallback_policy') }}</h2>
+                                <p class="seo-ai-section-help">{{ __('seo-content-ai::filament.ai_center.resilience_fallback_help') }}</p>
+                            </div>
+                        </section>
+
+                        <form wire:submit.prevent="saveResilienceSettings" class="seo-ai-resilience-policy space-y-4">
+                            <div class="grid gap-4 sm:grid-cols-2">
+                                <label class="block">
+                                    <span class="text-sm font-medium">{{ __('seo-content-ai::filament.ai_center.max_ai_attempts') }}</span>
+                                    <input type="number" min="1" max="20" wire:model="maxAiAttempts" class="mt-1 block w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-800" />
+                                </label>
+                                <label class="block">
+                                    <span class="text-sm font-medium">{{ __('seo-content-ai::filament.ai_center.max_free_attempts') }}</span>
+                                    <input type="number" min="0" max="20" wire:model="maxFreeAttempts" class="mt-1 block w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-800" />
+                                </label>
+                            </div>
+                            <x-seo-content-ai::form-save-button target="saveResilienceSettings" :label="__('Save settings')" />
+                        </form>
+                    </div>
+                @endif
+
+                @if ($healthHydrated)
+                    <div
+                        id="ai-center-health"
+                        class="seo-ai-panel seo-ai-health"
+                        x-show="activeMainTab === 'health'"
+                        style="display: none;"
+                        wire:key="ai-center-health"
+                        x-data="{
+                            q: '',
+                            provider: 'all',
+                            area: 'all',
+                            health: 'all',
+                            matchRow(el) {
+                                const q = this.q.trim().toLowerCase();
+                                const blob = (el.dataset.search || '');
+                                if (q && !blob.includes(q)) return false;
+                                if (this.provider !== 'all' && el.dataset.provider !== this.provider) return false;
+                                if (this.area !== 'all' && el.dataset.area !== this.area) return false;
+                                if (this.health !== 'all' && el.dataset.health !== this.health) return false;
+                                return true;
+                            }
+                        }"
+                    >
+                        <section class="seo-ai-section-head mb-4">
+                            <div>
+                                <h2 class="seo-ai-section-title">{{ __('seo-content-ai::filament.ai_center.health_page_title') }}</h2>
+                                <p class="seo-ai-section-help">{{ __('seo-content-ai::filament.ai_center.health_intro') }}</p>
+                                <p class="seo-ai-section-help">{{ __('seo-content-ai::filament.ai_center.health_intro_extra') }}</p>
+                            </div>
+                            <div class="seo-ai-section-actions">
+                                <x-filament::button wire:click="$refresh" size="sm" color="gray" icon="heroicon-o-arrow-path" wire:loading.attr="disabled" wire:target="$refresh">
+                                    {{ __('seo-content-ai::filament.ai_center.refresh_health') }}
+                                </x-filament::button>
+                            </div>
+                        </section>
+
+                        @php($healthSummary = $this->healthSummary())
+                        <div class="seo-ai-health-stats" aria-label="{{ __('seo-content-ai::filament.ai_center.health_summary') }}">
+                            <div class="seo-ai-health-stat">
+                                <span class="seo-ai-health-stat__label">{{ __('seo-content-ai::filament.ai_center.health_stat_healthy') }}</span>
+                                <span class="seo-ai-health-stat__value seo-ai-health-stat__value--success">{{ $healthSummary['healthy'] }}</span>
+                            </div>
+                            <div class="seo-ai-health-stat">
+                                <span class="seo-ai-health-stat__label">{{ __('seo-content-ai::filament.ai_center.health_stat_degraded') }}</span>
+                                <span class="seo-ai-health-stat__value seo-ai-health-stat__value--warning">{{ $healthSummary['degraded'] }}</span>
+                            </div>
+                            <div class="seo-ai-health-stat">
+                                <span class="seo-ai-health-stat__label">{{ __('seo-content-ai::filament.ai_center.health_stat_issues') }}</span>
+                                <span class="seo-ai-health-stat__value seo-ai-health-stat__value--danger">{{ $healthSummary['issues'] }}</span>
+                            </div>
+                            <div class="seo-ai-health-stat">
+                                <span class="seo-ai-health-stat__label">{{ __('seo-content-ai::filament.ai_center.health_stat_no_data') }}</span>
+                                <span class="seo-ai-health-stat__value">{{ $healthSummary['no_data'] }}</span>
+                            </div>
+                        </div>
+
+                        <section class="seo-ai-health-section">
+                            <div class="seo-ai-section-head">
+                                <div>
+                                    <h3 class="seo-ai-section-title">{{ __('seo-content-ai::filament.ai_center.connection_health') }}</h3>
+                                    <p class="seo-ai-section-help">{{ __('seo-content-ai::filament.ai_center.connection_health_help') }}</p>
+                                </div>
+                            </div>
+                            <div class="seo-ai-health-scroll">
+                                <table class="seo-ai-health-table">
+                                    <thead>
+                                        <tr>
+                                            <th class="seo-ai-health-col--name">{{ __('seo-content-ai::filament.ai_center.col_connection') }}</th>
+                                            <th class="seo-ai-health-col--provider">{{ __('seo-content-ai::filament.ai_center.col_provider') }}</th>
+                                            <th class="seo-ai-health-col--health">{{ __('seo-content-ai::filament.ai_center.col_health') }}</th>
+                                            <th class="seo-ai-health-col--num">{{ __('seo-content-ai::filament.ai_center.col_success') }}</th>
+                                            <th class="seo-ai-health-col--num">{{ __('seo-content-ai::filament.ai_center.col_failed') }}</th>
+                                            <th class="seo-ai-health-col--num">{{ __('seo-content-ai::filament.ai_center.col_consecutive') }}</th>
+                                            <th class="seo-ai-health-col--issue">{{ __('seo-content-ai::filament.ai_center.col_last_issue') }}</th>
+                                            <th class="seo-ai-health-col--time">{{ __('seo-content-ai::filament.ai_center.col_last_success') }}</th>
+                                            <th class="seo-ai-health-col--action">{{ __('seo-content-ai::filament.ai_center.col_action') }}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @forelse ($this->connectionHealthRows() as $row)
+                                            @php($badge = $row['status_badge'] ?? ['tone' => 'neutral', 'label' => '—'])
+                                            <tr wire:key="conn-health-{{ $row['connection_id'] }}">
+                                                <td class="seo-ai-health-col--name">
+                                                    <div class="seo-ai-health-primary">{{ $row['display_name'] ?? $row['connection_name'] }}</div>
+                                                    @if (($row['provider_key'] ?? '') !== '')
+                                                        <div class="seo-ai-health-secondary">{{ $row['provider_key'] }}</div>
+                                                    @endif
+                                                </td>
+                                                <td class="seo-ai-health-col--provider">
+                                                    @if (($row['short_code'] ?? '') !== '')
+                                                        <span class="seo-ai-code seo-ai-code--{{ $row['badge_variant'] ?? 'badge-1' }}">{{ $row['short_code'] }}</span>
+                                                        <span class="seo-ai-health-provider-label">{{ $row['provider_label'] ?: ($row['provider_key'] ?: '—') }}</span>
+                                                    @else
+                                                        {{ $row['provider_label'] ?: ($row['provider_key'] ?: '—') }}
+                                                    @endif
+                                                </td>
+                                                <td class="seo-ai-health-col--health">
+                                                    <span class="seo-ai-health-badge seo-ai-health-badge--{{ $badge['tone'] }}">{{ $badge['label'] }}</span>
+                                                    @if (($row['health_status'] ?? '') === 'budget_limited')
+                                                        <div class="seo-ai-health-secondary">{{ __('seo-content-ai::filament.ai_center.budget_limited_help') }}</div>
+                                                    @endif
+                                                </td>
+                                                <td class="seo-ai-health-col--num {{ ($row['success_count'] ?? 0) === 0 ? 'is-muted' : '' }}">{{ $row['success_count'] ?? 0 }}</td>
+                                                <td class="seo-ai-health-col--num {{ ($row['failure_count'] ?? 0) > 0 ? 'is-emphasis' : (($row['failure_count'] ?? 0) === 0 ? 'is-muted' : '') }}">{{ $row['failure_count'] ?? 0 }}</td>
+                                                <td class="seo-ai-health-col--num {{ ($row['consecutive_failures'] ?? 0) > 0 ? 'is-emphasis' : 'is-muted' }}">{{ $row['consecutive_failures'] ?? 0 }}</td>
+                                                <td class="seo-ai-health-col--issue">
+                                                    @if (($row['issue_primary'] ?? '—') !== '—')
+                                                        <div class="seo-ai-health-primary">{{ $row['issue_primary'] }}</div>
+                                                        @if (($row['issue_secondary'] ?? '') !== '' && ($row['health_status'] ?? '') !== 'budget_limited')
+                                                            <div class="seo-ai-health-secondary">{{ $row['issue_secondary'] }}</div>
+                                                        @endif
+                                                    @else
+                                                        <span class="is-muted">—</span>
+                                                    @endif
+                                                </td>
+                                                <td class="seo-ai-health-col--time">{{ $row['last_success_label'] ?? '—' }}</td>
+                                                <td class="seo-ai-health-col--action">
+                                                    @if (($row['action_name'] ?? '') === 'unlock_connection')
+                                                        <x-filament::button type="button" size="sm" color="gray" wire:click="unlockConnectionHealth({{ $row['connection_id'] }})" wire:loading.attr="disabled" wire:target="unlockConnectionHealth({{ $row['connection_id'] }})">
+                                                            {{ $row['action_label'] }}
+                                                        </x-filament::button>
+                                                    @elseif (($row['action_name'] ?? '') === 'enable_paid_routes')
+                                                        <x-filament::button type="button" size="sm" color="gray" wire:click="enablePaidRoutes({{ $row['connection_id'] }})" wire:loading.attr="disabled" wire:target="enablePaidRoutes({{ $row['connection_id'] }})">
+                                                            {{ $row['action_label'] }}
+                                                        </x-filament::button>
+                                                    @else
+                                                        <span class="is-muted">—</span>
+                                                    @endif
+                                                </td>
+                                            </tr>
+                                        @empty
+                                            <tr><td colspan="9" class="seo-ai-health-empty">{{ __('seo-content-ai::filament.ai_center.no_health_data') }}</td></tr>
+                                        @endforelse
+                                    </tbody>
+                                </table>
+                            </div>
+                        </section>
+
+                        <section class="seo-ai-health-section">
+                            <div class="seo-ai-section-head">
+                                <div>
+                                    <h3 class="seo-ai-section-title">{{ __('seo-content-ai::filament.ai_center.model_health') }}</h3>
+                                    <p class="seo-ai-section-help">{{ __('seo-content-ai::filament.ai_center.model_health_help') }}</p>
+                                </div>
+                                <div class="seo-ai-section-actions">
+                                    <a href="{{ \Omnichannel\Addons\AiPrompt\Filament\Pages\SeoSettingsAiCenter::getUrl(['tab' => 'models']) }}" class="seo-ai-health-link">{{ __('seo-content-ai::filament.ai_center.review_models') }}</a>
+                                </div>
+                            </div>
+
+                            <div class="seo-ai-toolbar seo-ai-health-toolbar">
+                                <input type="search" x-model="q" placeholder="{{ __('seo-content-ai::filament.ai_center.search_models') }}" />
+                                <select x-model="provider">
+                                    <option value="all">{{ __('seo-content-ai::filament.ai_center.filter_provider') }}</option>
+                                    @foreach ($this->healthProviderFilterOptions() as $providerKey)
+                                        <option value="{{ $providerKey }}">{{ \Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders::label((string) $providerKey) }}</option>
+                                    @endforeach
+                                </select>
+                                <select x-model="area">
+                                    <option value="all">{{ __('seo-content-ai::filament.ai_center.filter_area_all') }}</option>
+                                    @foreach ($this->healthAreaFilterOptions() as $areaLabel)
+                                        <option value="{{ $areaLabel }}">{{ $areaLabel }}</option>
+                                    @endforeach
+                                </select>
+                                <select x-model="health">
+                                    <option value="all">{{ __('seo-content-ai::filament.ai_center.filter_health_all') }}</option>
+                                    <option value="healthy">{{ __('seo-content-ai::filament.ai_center.health_status_healthy') }}</option>
+                                    <option value="degraded">{{ __('seo-content-ai::filament.ai_center.health_status_degraded') }}</option>
+                                    <option value="unavailable">{{ __('seo-content-ai::filament.ai_center.health_status_unavailable') }}</option>
+                                    <option value="no_data">{{ __('seo-content-ai::filament.ai_center.health_status_no_data') }}</option>
+                                </select>
+                            </div>
+
+                            <div class="seo-ai-health-scroll">
+                                <table class="seo-ai-health-table">
+                                    <thead>
+                                        <tr>
+                                            <th class="seo-ai-health-col--name">{{ __('seo-content-ai::filament.ai_center.col_model') }}</th>
+                                            <th class="seo-ai-health-col--provider">{{ __('seo-content-ai::filament.ai_center.col_provider') }}</th>
+                                            <th class="seo-ai-health-col--area">{{ __('seo-content-ai::filament.ai_center.col_area') }}</th>
+                                            <th class="seo-ai-health-col--health">{{ __('seo-content-ai::filament.ai_center.col_health') }}</th>
+                                            <th class="seo-ai-health-col--num">{{ __('seo-content-ai::filament.ai_center.col_success') }}</th>
+                                            <th class="seo-ai-health-col--num">{{ __('seo-content-ai::filament.ai_center.col_failed') }}</th>
+                                            <th class="seo-ai-health-col--num">{{ __('seo-content-ai::filament.ai_center.col_consecutive') }}</th>
+                                            <th class="seo-ai-health-col--issue">{{ __('seo-content-ai::filament.ai_center.col_last_issue') }}</th>
+                                            <th class="seo-ai-health-col--time">{{ __('seo-content-ai::filament.ai_center.col_last_success') }}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        @forelse ($this->modelHealthRows() as $row)
+                                            @php($badge = $row['status_badge'] ?? ['tone' => 'neutral', 'label' => '—'])
+                                            <tr
+                                                wire:key="model-health-{{ $row['model_id'] }}"
+                                                data-search="{{ $row['search_blob'] ?? '' }}"
+                                                data-provider="{{ $row['provider_key'] ?? '' }}"
+                                                data-area="{{ $row['area_label'] ?? '' }}"
+                                                data-health="{{ $row['health_status'] ?? 'no_data' }}"
+                                                x-show="matchRow($el)"
+                                            >
+                                                <td class="seo-ai-health-col--name">
+                                                    <div class="seo-ai-health-primary">{{ $row['model_name'] }}</div>
+                                                    @if (($row['raw_model_name'] ?? '') !== '' && ($row['raw_model_name'] ?? '') !== ($row['model_name'] ?? ''))
+                                                        <div class="seo-ai-health-secondary">{{ $row['raw_model_name'] }}</div>
+                                                    @elseif (($row['provider_label'] ?? '') !== '')
+                                                        <div class="seo-ai-health-secondary">{{ $row['provider_label'] }}</div>
+                                                    @endif
+                                                </td>
+                                                <td class="seo-ai-health-col--provider">
+                                                    @if (($row['short_code'] ?? '') !== '')
+                                                        <span class="seo-ai-code seo-ai-code--{{ $row['badge_variant'] ?? 'badge-1' }}">{{ $row['short_code'] }}</span>
+                                                        <span class="seo-ai-health-provider-label">{{ $row['provider_label'] ?: ($row['provider_key'] ?: '—') }}</span>
+                                                    @else
+                                                        {{ $row['provider_label'] ?: ($row['provider_key'] ?: '—') }}
+                                                    @endif
+                                                </td>
+                                                <td class="seo-ai-health-col--area">
+                                                    @if (($row['area_label'] ?? '—') !== '—')
+                                                        <span class="seo-ai-health-area">{{ $row['area_label'] }}</span>
+                                                    @else
+                                                        <span class="is-muted">—</span>
+                                                    @endif
+                                                </td>
+                                                <td class="seo-ai-health-col--health">
+                                                    <span class="seo-ai-health-badge seo-ai-health-badge--{{ $badge['tone'] }}">{{ $badge['label'] }}</span>
+                                                    @if (! empty($row['is_connection_budget_issue']))
+                                                        <div class="seo-ai-health-secondary">{{ $row['issue_secondary'] ?? '' }}</div>
+                                                    @endif
+                                                </td>
+                                                <td class="seo-ai-health-col--num {{ ($row['success_count'] ?? 0) === 0 ? 'is-muted' : '' }}">{{ $row['success_count'] ?? 0 }}</td>
+                                                <td class="seo-ai-health-col--num {{ ($row['failure_count'] ?? 0) > 0 ? 'is-emphasis' : 'is-muted' }}">{{ $row['failure_count'] ?? 0 }}</td>
+                                                <td class="seo-ai-health-col--num {{ ($row['consecutive_failures'] ?? 0) > 0 ? 'is-emphasis' : 'is-muted' }}">{{ $row['consecutive_failures'] ?? 0 }}</td>
+                                                <td class="seo-ai-health-col--issue">
+                                                    @if (! empty($row['is_connection_budget_issue']))
+                                                        <div class="seo-ai-health-primary">{{ $row['issue_primary'] }}</div>
+                                                        <div class="seo-ai-health-secondary">{{ $row['issue_secondary'] ?? '' }}</div>
+                                                    @elseif (($row['issue_primary'] ?? '—') !== '—')
+                                                        <div class="seo-ai-health-primary">{{ $row['issue_primary'] }}</div>
+                                                        @if (($row['issue_secondary'] ?? '') !== '')
+                                                            <div class="seo-ai-health-secondary">{{ $row['issue_secondary'] }}</div>
+                                                        @endif
+                                                    @else
+                                                        <span class="is-muted">—</span>
+                                                    @endif
+                                                </td>
+                                                <td class="seo-ai-health-col--time">{{ $row['last_success_label'] ?? '—' }}</td>
+                                            </tr>
+                                        @empty
+                                            <tr><td colspan="9" class="seo-ai-health-empty">{{ __('seo-content-ai::filament.ai_center.no_health_data') }}</td></tr>
+                                        @endforelse
+                                    </tbody>
+                                </table>
+                            </div>
+                            <p class="seo-ai-muted mt-4 text-sm">
+                                <a href="{{ \Omnichannel\Addons\AiPrompt\Filament\Pages\SeoSettingsAiCenter::getUrl(['tab' => 'routing']) }}" class="seo-ai-health-link">{{ __('seo-content-ai::filament.ai_center.review_routing') }}</a>
+                            </p>
+                        </section>
+                    </div>
+                @endif
+
+                <div
+                    class="seo-ai-panel-loading"
+                    x-show="activeMainTab === 'resilience' && (panelLoading || !resilienceHydrated)"
+                    x-cloak
+                    wire:key="ai-center-resilience-loading"
+                >
+                    <div class="animate-pulse space-y-3 py-6">
+                        <div class="h-4 w-1/3 rounded bg-gray-200 dark:bg-gray-700"></div>
+                        <div class="h-24 rounded bg-gray-200 dark:bg-gray-700"></div>
+                    </div>
+                </div>
+
+                <div
+                    class="seo-ai-panel-loading"
+                    x-show="activeMainTab === 'health' && (panelLoading || !healthHydrated)"
+                    x-cloak
+                    wire:key="ai-center-health-loading"
+                >
+                    <div class="animate-pulse space-y-3 py-6">
+                        <div class="h-4 w-1/3 rounded bg-gray-200 dark:bg-gray-700"></div>
+                        <div class="h-24 rounded bg-gray-200 dark:bg-gray-700"></div>
+                    </div>
+                </div>
 
                 <div
                     class="seo-ai-panel-loading"
@@ -510,7 +813,7 @@
     <script>
         function seoAiCenter(initial) {
             return {
-                activeMainTab: initial.tab === 'routing' ? 'routing' : 'models',
+                activeMainTab: ['routing', 'resilience', 'health'].includes(initial.tab) ? initial.tab : 'models',
                 activeCapability: (function () {
                     const modelAreas = ['fast_text', 'long_form_text', 'reasoning_text', 'image', 'video'];
                     const routingGroups = ['text', 'image', 'video'];
@@ -525,6 +828,8 @@
                 })(),
                 modelsHydrated: initial.modelsHydrated !== false,
                 routingHydrated: !!initial.routingHydrated,
+                resilienceHydrated: !!initial.resilienceHydrated,
+                healthHydrated: !!initial.healthHydrated,
                 panelLoading: false,
                 editingProfile: initial.editingProfile || null,
                 routingUnsaved: !!initial.routingUnsaved,
@@ -578,6 +883,14 @@
                         this.modelsHydrated = !!this.$root.querySelector('#ai-center-models') || this.modelsHydrated;
                         return this.modelsHydrated;
                     }
+                    if (panel === 'resilience') {
+                        this.resilienceHydrated = !!this.$root.querySelector('#ai-center-resilience');
+                        return this.resilienceHydrated;
+                    }
+                    if (panel === 'health') {
+                        this.healthHydrated = !!this.$root.querySelector('#ai-center-health');
+                        return this.healthHydrated;
+                    }
                     return false;
                 },
                 async setTab(next) {
@@ -609,6 +922,14 @@
                             await this.$wire.openPanel('models', areaForWire ?? this.activeCapability);
                             await this.$nextTick();
                             this.markPanelHydrated('models');
+                        } else if (next === 'resilience' && ! this.resilienceHydrated) {
+                            await this.$wire.openPanel('resilience');
+                            await this.$nextTick();
+                            this.markPanelHydrated('resilience');
+                        } else if (next === 'health' && ! this.healthHydrated) {
+                            await this.$wire.openPanel('health');
+                            await this.$nextTick();
+                            this.markPanelHydrated('health');
                         } else if (areaForWire !== null) {
                             await this.$wire.setModelArea(areaForWire);
                         }

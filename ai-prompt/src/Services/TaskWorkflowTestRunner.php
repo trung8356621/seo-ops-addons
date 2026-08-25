@@ -1821,7 +1821,7 @@ final class TaskWorkflowTestRunner
     }
 
     /**
-     * @param  array{parent_id: int, parent_phrase: string, children_count: int, suggest_count?: int, tags_count?: int}  $sync
+     * @param  array{parent_id: int, parent_phrase: string, children_count: int, suggest_count?: int, tags_count?: int, ki_feedback?: array<string, mixed>}  $sync
      */
     private function formatVocabularyResearchSyncMessage(array $sync, bool $includeParentId = false): string
     {
@@ -1830,8 +1830,17 @@ final class TaskWorkflowTestRunner
         $suggestCount = (int) ($sync['suggest_count'] ?? 0);
         $tagsCount = (int) ($sync['tags_count'] ?? 0);
         $parentPhrase = trim((string) ($sync['parent_phrase'] ?? ''));
+        $ki = is_array($sync['ki_feedback'] ?? null) ? $sync['ki_feedback'] : [];
 
-        if ($suggestCount > 0) {
+        if ($ki !== []) {
+            $parts[] = sprintf(
+                'Related topics: %d discovered · %d ingested · %d filtered · %d duplicates',
+                (int) ($ki['discovered'] ?? $suggestCount),
+                (int) ($ki['ingested'] ?? 0),
+                (int) ($ki['filtered'] ?? 0),
+                (int) ($ki['duplicates'] ?? 0),
+            );
+        } elseif ($suggestCount > 0) {
             $parts[] = sprintf('%d gợi ý chủ đề (Related topics)', $suggestCount);
         }
 
@@ -1877,6 +1886,18 @@ final class TaskWorkflowTestRunner
                 'article_id' => (int) $article->id,
                 'keyword_groups' => $groups,
                 'focus_phrase' => $focusPhrase,
+                'prompt_result_id' => isset($state->meta['last_prompt_result_id'])
+                    ? (int) $state->meta['last_prompt_result_id']
+                    : null,
+                'project_id' => isset($context->variables['project_id'])
+                    ? (int) $context->variables['project_id']
+                    : null,
+                'project_task_id' => isset($context->variables['project_task_id'])
+                    ? (int) $context->variables['project_task_id']
+                    : (isset($context->variables['task_id']) ? (int) $context->variables['task_id'] : null),
+                'workflow_node_id' => isset($state->meta['current_node_id'])
+                    ? (string) $state->meta['current_node_id']
+                    : null,
             ],
             $actionContext,
         );
@@ -1885,12 +1906,15 @@ final class TaskWorkflowTestRunner
             throw new \InvalidArgumentException((string) ($vocab->error['message'] ?? 'Vocabulary save failed.'));
         }
 
+        $ki = is_array($vocab->output['ki_feedback'] ?? null) ? $vocab->output['ki_feedback'] : [];
+
         return [
             'parent_id' => (int) ($vocab->output['parent_id'] ?? 0),
             'parent_phrase' => (string) ($vocab->output['parent_phrase'] ?? $focusPhrase ?? ''),
             'children_count' => (int) ($vocab->output['children_count'] ?? 0),
             'suggest_count' => (int) ($vocab->output['suggest_count'] ?? 0),
             'tags_count' => (int) ($vocab->output['tags_count'] ?? 0),
+            'ki_feedback' => $ki,
         ];
     }
 

@@ -50,14 +50,14 @@ final class McpAiContextBuilder
             '- Period: '.$periodLabel,
             '- MCP status: '.$periodStatus,
             '- Generated at: '.$generatedAt,
-            '- Source: combined MCP markdown (site + keywords + report synthesis)',
+            '- Source: combined MCP markdown (site + keywords + gsc + report synthesis)',
         ]);
     }
 
     private function resolveDomain(int $siteId, ?SeoMcpPeriod $period): string
     {
         if ($period instanceof SeoMcpPeriod) {
-            foreach ([McpSourceKey::Site, McpSourceKey::Keywords] as $source) {
+            foreach ([McpSourceKey::Site, McpSourceKey::Keywords, McpSourceKey::Gsc] as $source) {
                 $snap = $this->snapshots->find($period, $siteId, $source);
                 if (! $snap instanceof SeoMcpSourceSnapshot) {
                     continue;

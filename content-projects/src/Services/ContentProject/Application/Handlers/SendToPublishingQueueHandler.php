@@ -18,6 +18,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Contr
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectBusinessLock;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectPreviewToken;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectTenantGuard;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectDraftExecutionGuard;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectPublishingQueueService;
 use Omnichannel\Addons\Publishing\Services\Publishing\ContentPublishingStrategy;
 use Omnichannel\Addons\Publishing\Services\Publishing\ContentPublishingStrategyResolver;
@@ -59,6 +60,11 @@ final class SendToPublishingQueueHandler extends AbstractPublishingHandler
             $project = $this->resolveProject($command->projectRef);
             $projectId = (int) $project->getKey();
             $this->tenantGuard->assertCanAccessProject($project, $actor);
+
+            $draftBlock = ContentProjectDraftExecutionGuard::rejectIfDraft($project, $projectId);
+            if ($draftBlock !== null) {
+                return $draftBlock;
+            }
 
             $itemIds = $this->resolveItemIds($command->itemRefs);
             if ($itemIds === []) {

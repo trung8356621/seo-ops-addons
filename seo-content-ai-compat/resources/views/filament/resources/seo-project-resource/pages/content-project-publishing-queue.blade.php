@@ -122,13 +122,36 @@
                 <h3 class="mb-3 text-base font-semibold">{{ __('seo-content-ai::filament.projects.auto_schedule') }}</h3>
                 <div class="space-y-3 text-sm">
                     <label class="block">
-                        <span class="mb-1 block text-gray-600">Mode</span>
-                        <x-select wire:model="autoMode">
+                        <span class="mb-1 block text-gray-600">{{ __('seo-content-ai::filament.projects.auto_schedule_mode') }}</span>
+                        <x-select wire:model.live="autoMode">
+                            <option value="monthly_even">{{ __('seo-content-ai::filament.projects.evenly_across_month') }}</option>
                             <option value="interval">Interval</option>
                             <option value="per_day">Per day</option>
                             <option value="random_windows">Random windows</option>
+                            <option value="project_month">Project month (legacy)</option>
                         </x-select>
                     </label>
+
+                    @if ($this->autoMode === 'monthly_even')
+                        <div class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300">
+                            {{ __('seo-content-ai::filament.projects.publishing_window_label') }}:
+                            <strong>{{ $this->requireProject()->month?->format('F Y') ?? '—' }}</strong>
+                        </div>
+                        <label class="block">
+                            <span class="mb-1 block text-gray-600">{{ __('seo-content-ai::filament.projects.min_spacing_minutes') }}</span>
+                            <input type="number" min="1" max="1440" wire:model="autoMinSpacingMinutes" class="fi-input block w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-800" />
+                        </label>
+                        <div class="grid grid-cols-2 gap-2">
+                            <label>
+                                <span class="mb-1 block text-gray-600">{{ __('seo-content-ai::filament.projects.day_window_from') }}</span>
+                                <input type="time" wire:model="autoDayStart" class="fi-input block w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-800" />
+                            </label>
+                            <label>
+                                <span class="mb-1 block text-gray-600">{{ __('seo-content-ai::filament.projects.day_window_to') }}</span>
+                                <input type="time" wire:model="autoDayEnd" class="fi-input block w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-800" />
+                            </label>
+                        </div>
+                    @else
                     <label class="block">
                         <span class="mb-1 block text-gray-600">Start</span>
                         <input type="datetime-local" wire:model="autoStartAt" class="fi-input block w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-800" />
@@ -151,6 +174,7 @@
                             <input type="time" wire:model="autoDayEnd" class="fi-input block w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-800" />
                         </label>
                     </div>
+                    @endif
                 </div>
                 <div class="mt-4 flex justify-end gap-2">
                     <button type="button" @click="autoOpen = false" class="fi-btn fi-btn-color-gray fi-size-sm">

@@ -74,13 +74,23 @@ final class CreateContentProjectHandler extends AbstractPublishingHandler
             $userId = isset($attrs['user_id']) ? (int) $attrs['user_id'] : $actor->actorId;
             $totalTasks = isset($attrs['total_tasks']) ? (int) $attrs['total_tasks'] : 0;
 
-            $project = DB::connection('omi_seo_ai')->transaction(function () use ($attrs, $siteId, $name, $userId, $totalTasks): SeoProject {
+            $status = (string) ($attrs['status'] ?? SeoProject::STATUS_PENDING);
+            $kind = (string) ($attrs['kind'] ?? SeoProject::KIND_MONTHLY);
+            $month = $attrs['month'] ?? null;
+            if ($status === SeoProject::STATUS_DRAFT) {
+                if ($month === null || $month === '') {
+                    $month = SeoProject::draftCompatibilityMonth();
+                }
+                $kind = SeoProject::KIND_MONTHLY;
+            }
+
+            $project = DB::connection('omi_seo_ai')->transaction(function () use ($attrs, $siteId, $name, $userId, $totalTasks, $status, $kind, $month): SeoProject {
                 return SeoProject::query()->create([
                     'name' => $name,
                     'site_id' => $siteId,
-                    'month' => $attrs['month'] ?? null,
-                    'status' => $attrs['status'] ?? SeoProject::STATUS_PENDING,
-                    'kind' => $attrs['kind'] ?? SeoProject::KIND_MONTHLY,
+                    'month' => $month,
+                    'status' => $status,
+                    'kind' => $kind,
                     'user_id' => $userId,
                     'total_tasks' => $totalTasks,
                     'description' => $attrs['description'] ?? null,

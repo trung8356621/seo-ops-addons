@@ -42,17 +42,20 @@ final class DomainMonthlyIntelligenceContractTest extends TestCase
         self::assertStringContainsString('McpAiContextBuilder', $src);
         self::assertStringContainsString('periodKey', $src);
         self::assertStringContainsString('refreshKeywordSnapshot', $src);
-        self::assertStringContainsString('syncSiteFromGlobalContext', $src);
+        self::assertStringContainsString('refreshGscSnapshot', $src);
         self::assertStringContainsString('onDomainContextChanged', $src);
+        self::assertStringNotContainsString('syncSiteFromGlobalContext', $src);
 
         $blade = (string) file_get_contents(dirname(__DIR__, 3).'/seo-content-ai-compat/resources/views/filament/pages/mcp-intelligence.blade.php');
-        self::assertStringNotContainsString('wire:model.live="siteId"', $blade);
+        self::assertStringContainsString('wire:model.live="siteId"', $blade);
         self::assertStringContainsString('view_markdown', $blade);
         self::assertStringContainsString('view_ai_context', $blade);
         self::assertStringContainsString('markdownOpen', $blade);
         self::assertStringContainsString('domain-context-changed', $blade);
         self::assertStringContainsString('SITE OVERVIEW', $blade);
         self::assertStringContainsString('KEYWORD OVERVIEW', $blade);
+        self::assertStringContainsString('GSC', $blade);
+        self::assertStringContainsString('refreshGscSnapshot', $blade);
         self::assertStringContainsString('mcp-linked-section', $blade);
         self::assertStringContainsString('wire:key="mcp-dashboard-', $blade);
         self::assertStringNotContainsString('mcp-top-clusters', $blade);

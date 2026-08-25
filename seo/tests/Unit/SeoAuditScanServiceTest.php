@@ -57,7 +57,10 @@ final class SeoAuditScanServiceTest extends TestCase
 
         $this->assertStringContainsString('wire:model.live="filterSiteId"', $source);
         $this->assertStringContainsString('$canScan = $selectedSiteId > 0;', $source);
-        $this->assertStringContainsString('@disabled(! $canScan)', $source);
+        // Filament <x-filament::button> must use :disabled — Blade @disabled inside the
+        // component tag compiles to raw PHP and breaks the view (ParseError on @endif).
+        $this->assertStringContainsString(':disabled="! $canScan"', $source);
+        $this->assertStringNotContainsString('@disabled(! $canScan)', $source);
         $this->assertStringNotContainsString('x-bind:disabled="@js(! $canScan)"', $source);
         $this->assertStringContainsString("__('seo-content-ai::filament.articles_optimal.domain_placeholder')", $source);
         $this->assertStringContainsString("__('seo-content-ai::filament.articles_optimal.domain_required')", $source);

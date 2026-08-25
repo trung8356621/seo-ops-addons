@@ -58,10 +58,10 @@
             {{ __('seo-content-ai::filament.article_list.tab_skipped') }}
         </a>
         <a
-            href="{{ \Omnichannel\Addons\Content\Filament\Pages\ArticlesOptimal::getUrl() }}"
+            href="{{ \Omnichannel\Addons\ContentProjects\Filament\Pages\ContentProjectSeoAuditPlanner::getUrl() }}"
             class="seo-internal-tabs__audit"
         >
-            {{ __('seo-content-ai::filament.articles_optimal.navigation') }}
+            {{ __('seo-content-ai::filament.projects.seo_audit_nav_label') }}
         </a>
     </div>
 

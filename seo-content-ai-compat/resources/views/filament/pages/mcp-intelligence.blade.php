@@ -7,9 +7,12 @@
     $report = $state['report'];
     $siteCard = $state['site_card'];
     $kwCard = $state['keyword_card'];
+    $gscCard = is_array($state['gsc_card'] ?? null) ? $state['gsc_card'] : ['freshness' => 'missing', 'relative' => null, 'metrics' => []];
     $kwMetrics = is_array($kwCard['metrics'] ?? null) ? $kwCard['metrics'] : [];
     $siteMetrics = is_array($siteCard['metrics'] ?? null) ? $siteCard['metrics'] : [];
+    $gscMetrics = is_array($gscCard['metrics'] ?? null) ? $gscCard['metrics'] : [];
     $kwSummary = is_array($state['keyword_snap']?->summary_json) ? $state['keyword_snap']->summary_json : [];
+    $gscSummary = is_array($state['gsc_snap']?->summary_json) ? $state['gsc_snap']->summary_json : [];
     $groups = is_array($kwSummary['groups'] ?? null) ? $kwSummary['groups'] : [];
     $weakGroups = array_values(array_filter($groups, static fn ($g): bool => is_array($g) && (int) ($g['count'] ?? 0) > 0 && (int) ($g['count'] ?? 0) <= 6));
     $clusters = is_array($kwSummary['clusters'] ?? null) ? $kwSummary['clusters'] : [];
@@ -46,8 +49,12 @@
     $kwKpiFocus = array_key_exists('focus', $kwMetrics) ? $kwMetrics['focus'] : null;
     $kwKpiError = array_key_exists('error', $kwMetrics) ? $kwMetrics['error'] : null;
     $kwKpiClusters = array_key_exists('clusters', $kwMetrics) ? $kwMetrics['clusters'] : null;
+    $gscKpiClicks = array_key_exists('clicks', $gscMetrics) ? $gscMetrics['clicks'] : null;
+    $gscKpiImpressions = array_key_exists('impressions', $gscMetrics) ? $gscMetrics['impressions'] : null;
+    $gscKpiFalling = array_key_exists('falling_count', $gscMetrics) ? $gscMetrics['falling_count'] : null;
+    $gscKpiCtrOpp = array_key_exists('ctr_opportunity_count', $gscMetrics) ? $gscMetrics['ctr_opportunity_count'] : null;
     $markdown = is_array($state['markdown'] ?? null) ? $state['markdown'] : [];
-    $markdownPreview = is_array($markdown['preview'] ?? null) ? $markdown['preview'] : ['site' => '', 'keywords' => '', 'combined' => '', 'ai_context' => ''];
+    $markdownPreview = is_array($markdown['preview'] ?? null) ? $markdown['preview'] : ['site' => '', 'keywords' => '', 'gsc' => '', 'combined' => '', 'ai_context' => ''];
     $markdownTokens = is_array($markdown['tokens'] ?? null) ? $markdown['tokens'] : ['characters' => 0, 'estimated_tokens' => 0];
     $markdownUpdatedAt = $markdown['updated_at'] ?? null;
     $cssPath = base_path('addons/seo/resources/css/mcp-intelligence.css');
@@ -118,6 +125,9 @@
                                 </button>
                                 <button type="button" wire:click="refreshKeywordSnapshot" wire:loading.attr="disabled" @click="refreshOpen = false">
                                     {{ __('seo-content-ai::filament.mcp_intelligence.refresh_keywords') }}
+                                </button>
+                                <button type="button" wire:click="refreshGscSnapshot" wire:loading.attr="disabled" @click="refreshOpen = false">
+                                    Refresh GSC
                                 </button>
                                 <button type="button" wire:click="refreshAll" wire:loading.attr="disabled" @click="refreshOpen = false">
                                     {{ __('seo-content-ai::filament.mcp_intelligence.refresh_all') }}
@@ -198,15 +208,27 @@
                         </div>
                     </div>
 
+                    <div class="mcp-source-card">
+                        <div class="mcp-source-card__label">GSC</div>
+                        <div class="mcp-source-card__row">
+                            <span class="mcp-dot {{ $presenter->freshnessClass($gscCard['freshness'] ?? 'missing') }}"></span>
+                            <span>{{ __('seo-content-ai::filament.mcp_intelligence.freshness_'.($gscCard['freshness'] ?? 'missing')) }}</span>
+                        </div>
+                        <div class="mcp-source-card__meta">
+                            Cập nhật: {{ $gscCard['relative'] ?? $gscCard['absolute'] ?? '—' }}
+                        </div>
+                    </div>
+
                     @php
                         $siteReady = (bool) ($state['site_snap']?->isUsable() ?? false);
                         $kwReady = (bool) ($state['keyword_snap']?->isUsable() ?? false);
+                        $gscReady = (bool) ($state['gsc_snap']?->isUsable() ?? false);
                     @endphp
                     <div class="mcp-source-card">
                         <div class="mcp-source-card__label">{{ __('seo-content-ai::filament.mcp_intelligence.card_coverage') }}</div>
                         <div class="mcp-source-card__big">{{ $state['source_ready'] }} / {{ $state['source_total'] }}</div>
                         <div class="mcp-source-card__meta">
-                            Website {{ $siteReady ? '✓' : '—' }} · Keywords {{ $kwReady ? '✓' : '—' }}
+                            Website {{ $siteReady ? '✓' : '—' }} · Keywords {{ $kwReady ? '✓' : '—' }} · GSC {{ $gscReady ? '✓' : '—' }}
                         </div>
                     </div>
 
@@ -270,6 +292,28 @@
                                     <div class="mcp-kpi-item">
                                         <span class="mcp-kpi-item__label">{{ __('seo-content-ai::filament.mcp_intelligence.metric_clusters') }}</span>
                                         <strong class="mcp-kpi-item__value">{{ $metricOrDash($kwKpiClusters) }}</strong>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="mcp-kpi-group">
+                                <div class="mcp-kpi-group__title">GSC</div>
+                                <div class="mcp-kpi-grid">
+                                    <div class="mcp-kpi-item">
+                                        <span class="mcp-kpi-item__label">Clicks</span>
+                                        <strong class="mcp-kpi-item__value">{{ $metricOrDash($gscKpiClicks) }}</strong>
+                                    </div>
+                                    <div class="mcp-kpi-item">
+                                        <span class="mcp-kpi-item__label">GSC impressions</span>
+                                        <strong class="mcp-kpi-item__value">{{ $metricOrDash($gscKpiImpressions) }}</strong>
+                                    </div>
+                                    <div class="mcp-kpi-item">
+                                        <span class="mcp-kpi-item__label">Falling</span>
+                                        <strong class="mcp-kpi-item__value">{{ $metricOrDash($gscKpiFalling) }}</strong>
+                                    </div>
+                                    <div class="mcp-kpi-item">
+                                        <span class="mcp-kpi-item__label">CTR opportunities</span>
+                                        <strong class="mcp-kpi-item__value">{{ $metricOrDash($gscKpiCtrOpp) }}</strong>
                                     </div>
                                 </div>
                             </div>
@@ -679,6 +723,7 @@
                     <div class="mcp-md-modal__tabs">
                         <button type="button" class="mcp-btn" :class="{ 'mcp-btn--primary': markdownTab === 'site' }" @click="markdownTab = 'site'">{{ __('seo-content-ai::filament.mcp_intelligence.tab_site_mcp') }}</button>
                         <button type="button" class="mcp-btn" :class="{ 'mcp-btn--primary': markdownTab === 'keywords' }" @click="markdownTab = 'keywords'">{{ __('seo-content-ai::filament.mcp_intelligence.tab_keywords_mcp') }}</button>
+                        <button type="button" class="mcp-btn" :class="{ 'mcp-btn--primary': markdownTab === 'gsc' }" @click="markdownTab = 'gsc'">GSC</button>
                         <button type="button" class="mcp-btn" :class="{ 'mcp-btn--primary': markdownTab === 'combined' }" @click="markdownTab = 'combined'">{{ __('seo-content-ai::filament.mcp_intelligence.tab_combined') }}</button>
                         <div class="mcp-md-modal__view-toggle">
                             <button type="button" class="mcp-btn" :class="{ 'mcp-btn--primary': markdownView === 'raw' }" @click="markdownView = 'raw'">{{ __('seo-content-ai::filament.mcp_intelligence.raw_markdown') }}</button>
@@ -688,11 +733,11 @@
                     <div class="mcp-md-modal__body">
                         <template x-if="markdownView === 'raw'">
                             <pre class="mcp-md-modal__raw"
-                                x-text="markdownTab === 'site' ? @js($markdown['site'] ?? '') : (markdownTab === 'keywords' ? @js($markdown['keywords'] ?? '') : @js($markdown['combined'] ?? ''))"></pre>
+                                x-text="markdownTab === 'site' ? @js($markdown['site'] ?? '') : (markdownTab === 'keywords' ? @js($markdown['keywords'] ?? '') : (markdownTab === 'gsc' ? @js($markdown['gsc'] ?? '') : @js($markdown['combined'] ?? '')))"></pre>
                         </template>
                         <template x-if="markdownView === 'preview'">
                             <div class="mcp-md-modal__preview prose prose-sm max-w-none dark:prose-invert"
-                                x-html="markdownTab === 'site' ? @js($markdownPreview['site']) : (markdownTab === 'keywords' ? @js($markdownPreview['keywords']) : @js($markdownPreview['combined']))"></div>
+                                x-html="markdownTab === 'site' ? @js($markdownPreview['site']) : (markdownTab === 'keywords' ? @js($markdownPreview['keywords']) : (markdownTab === 'gsc' ? @js($markdownPreview['gsc'] ?? '') : @js($markdownPreview['combined'])))"></div>
                         </template>
                     </div>
                     <div class="mcp-md-modal__foot">
@@ -705,7 +750,7 @@
                         </div>
                         <div class="flex gap-2">
                             <button type="button" class="mcp-btn"
-                                @click="copyText(markdownTab === 'site' ? @js($markdown['site'] ?? '') : (markdownTab === 'keywords' ? @js($markdown['keywords'] ?? '') : @js($markdown['combined'] ?? '')))">
+                                @click="copyText(markdownTab === 'site' ? @js($markdown['site'] ?? '') : (markdownTab === 'keywords' ? @js($markdown['keywords'] ?? '') : (markdownTab === 'gsc' ? @js($markdown['gsc'] ?? '') : @js($markdown['combined'] ?? ''))))">
                                 <span x-show="!copied">{{ __('seo-content-ai::filament.mcp_intelligence.copy_markdown') }}</span>
                                 <span x-show="copied" x-cloak>{{ __('seo-content-ai::filament.mcp_intelligence.copied') }}</span>
                             </button>
@@ -760,18 +805,35 @@
                 </div>
             </div>
 
-            @if (in_array($this->previewSource, ['site', 'keywords'], true))
+            @if (in_array($this->previewSource, ['site', 'keywords', 'gsc'], true))
                 @php
-                    $preview = $this->previewSource === 'site' ? $siteCard : $kwCard;
-                    $previewJson = $this->previewSource === 'site' ? $state['site_preview_json'] : $state['keyword_preview_json'];
-                    $previewSnap = $this->previewSource === 'site' ? $state['site_snap'] : $state['keyword_snap'];
+                    $preview = match ($this->previewSource) {
+                        'site' => $siteCard,
+                        'gsc' => $gscCard,
+                        default => $kwCard,
+                    };
+                    $previewJson = match ($this->previewSource) {
+                        'site' => $state['site_preview_json'],
+                        'gsc' => $state['gsc_preview_json'] ?? '',
+                        default => $state['keyword_preview_json'],
+                    };
+                    $previewSnap = match ($this->previewSource) {
+                        'site' => $state['site_snap'],
+                        'gsc' => $state['gsc_snap'] ?? null,
+                        default => $state['keyword_snap'],
+                    };
                     $previewContext = is_array($previewSnap?->context_json) ? $previewSnap->context_json : [];
                     $previewSummary = is_array($previewSnap?->summary_json) ? $previewSnap->summary_json : [];
+                    $previewTitle = match ($this->previewSource) {
+                        'site' => __('seo-content-ai::filament.mcp_intelligence.site_intel'),
+                        'gsc' => 'GSC Intelligence',
+                        default => __('seo-content-ai::filament.mcp_intelligence.keyword_intel'),
+                    };
                 @endphp
                 <div class="fixed inset-0 z-40 flex justify-end bg-black/40" wire:click="closeDrawers">
                     <div class="h-full w-full max-w-xl overflow-y-auto bg-white p-4 dark:bg-gray-900" wire:click.stop>
                         <div class="mb-3 flex items-center justify-between">
-                            <h2 class="font-semibold">{{ $this->previewSource === 'site' ? __('seo-content-ai::filament.mcp_intelligence.site_intel') : __('seo-content-ai::filament.mcp_intelligence.keyword_intel') }}</h2>
+                            <h2 class="font-semibold">{{ $previewTitle }}</h2>
                             <button type="button" wire:click="closeDrawers">✕</button>
                         </div>
                         <h3 class="mcp-sub">{{ __('seo-content-ai::filament.mcp_intelligence.source_summary') }}</h3>

@@ -86,6 +86,49 @@ final class ContentProjectAgentCommandFactory
                 $this->projectRef($input),
                 is_array($input['items'] ?? null) ? $input['items'] : [],
             ),
+            'content_project.fill_seo_audit_suggestions' => new \Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\FillSeoAuditSuggestionsCommand(
+                $this->projectRef($input),
+                is_array($input['filters'] ?? null) ? $input['filters'] : [],
+                $input['limit'] ?? 20,
+            ),
+            'content_project.generate_new_content_suggestions' => new \Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\GenerateNewContentSuggestionsCommand(
+                $this->projectRef($input),
+                (int) ($input['quantity'] ?? $input['limit'] ?? 20),
+                array_merge(
+                    is_array($input['options'] ?? null) ? $input['options'] : [],
+                    array_filter([
+                        'focus' => $input['focus'] ?? null,
+                        'direction' => $input['direction'] ?? null,
+                        'post_type' => $input['post_type'] ?? null,
+                        'taxonomy' => $input['taxonomy'] ?? null,
+                        'quantity' => $input['quantity'] ?? $input['limit'] ?? null,
+                    ], static fn (mixed $v): bool => $v !== null && $v !== ''),
+                ),
+                (bool) ($input['dry_run'] ?? $input['preview'] ?? false),
+            ),
+            'content_project.restore_new_content_suggestions' => new \Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RestoreNewContentSuggestionsCommand(
+                $this->projectRef($input),
+                is_array($input['fingerprints'] ?? null) ? $input['fingerprints'] : [],
+            ),
+            'content_project.skip_seo_audit_articles' => new \Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SkipSeoAuditArticlesCommand(
+                $this->projectRef($input),
+                is_array($input['article_ids'] ?? null) ? $input['article_ids'] : [],
+            ),
+            'content_project.split_draft' => new \Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SplitDraftContentProjectCommand(
+                $this->projectRef($input),
+                (string) ($input['selection_mode'] ?? (
+                    isset($input['item_ids']) || isset($input['item_refs'])
+                        ? 'selected'
+                        : (isset($input['all']) && $input['all'] ? 'all' : 'first_n')
+                )),
+                isset($input['quantity']) ? (int) $input['quantity'] : (isset($input['limit']) ? (int) $input['limit'] : null),
+                is_array($input['item_refs'] ?? null)
+                    ? $input['item_refs']
+                    : (is_array($input['item_ids'] ?? null) ? $input['item_ids'] : []),
+                isset($input['target_month']) ? (string) $input['target_month'] : (isset($input['month']) ? (string) $input['month'] : null),
+                isset($input['project_name']) ? (string) $input['project_name'] : (isset($input['name']) ? (string) $input['name'] : null),
+                (bool) ($input['dry_run'] ?? $input['preview'] ?? false),
+            ),
             'content_project.update_item' => new UpdateContentProjectItemCommand(
                 $this->itemRef($input),
                 is_array($input['attributes'] ?? null) ? $input['attributes'] : [],
@@ -501,6 +544,17 @@ final class ContentProjectAgentCommandFactory
                 is_array($input['project_attributes'] ?? null) ? $input['project_attributes'] : [],
                 isset($input['confirmation_token']) ? (string) $input['confirmation_token'] : null,
                 isset($input['idempotency_key']) ? (string) $input['idempotency_key'] : null,
+            ),
+            'article.index_health.inspect_gsc' => new \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\InspectArticleIndexWithGscCommand(
+                (int) ($input['article_id'] ?? 0),
+            ),
+            'article.index_health.inspect_due_gsc' => new \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\InspectArticleIndexesWithGscCommand(
+                (int) ($input['site_id'] ?? $resolvedSiteId ?? 0),
+                is_array($input['article_ids'] ?? null)
+                    ? array_values(array_map('intval', $input['article_ids']))
+                    : [],
+                (bool) ($input['due_only'] ?? ! isset($input['article_ids'])),
+                isset($input['limit']) ? (int) $input['limit'] : null,
             ),
             'site.discover' => new \Omnichannel\Addons\SiteSync\Services\Application\Commands\DiscoverSiteCommand($resolvedSiteId),
             'site.sync' => new \Omnichannel\Addons\SiteSync\Services\Application\Commands\RunSiteSyncCommand(

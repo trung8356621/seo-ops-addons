@@ -50,9 +50,13 @@ final class SeoProjectTaskSyncService
         private readonly SeoProjectTaskUniqueWriter $uniqueWriter,
     ) {}
 
+    /**
+     * Soft compatibility API — month days are NOT a hard task limit.
+     * Prefer not using this for write gates.
+     */
     public function maxTasksForMonth(Carbon|string $month): int
     {
-        return $this->normalizeMonth($month)->daysInMonth;
+        return PHP_INT_MAX;
     }
 
     public function normalizeMonth(Carbon|string $month): Carbon
@@ -61,21 +65,13 @@ final class SeoProjectTaskSyncService
     }
 
     /**
+     * @deprecated Month is reporting period only — no hard day-based task cap.
+     *
      * @param  list<array{type?: string, site_id?: int|string|null, source_content?: string, loai_san_pham?: string|null, gallery_description?: string|null, description?: string|null, post_type?: string|null}>  $tasksData
      */
     public function assertWithinMonthlyLimit(Carbon|string $month, array $tasksData): void
     {
-        $carbonMonth = $this->normalizeMonth($month);
-
-        $count = $this->countEffectiveTasks($tasksData);
-        $max = $carbonMonth->daysInMonth;
-
-        if ($count > $max) {
-            throw ValidationException::withMessages([
-                'tasks_data' => "Tháng {$carbonMonth->format('m/Y')} chỉ có tối đa {$max} ngày. "
-                    ."Bạn không thể đăng ký {$count} bài viết/từ khóa.",
-            ]);
-        }
+        // Unlimited: intentionally no-op. Archive / generating locks remain elsewhere.
     }
 
     /**
@@ -121,7 +117,7 @@ final class SeoProjectTaskSyncService
         );
 
         $carbonMonth = $project->monthCarbon();
-        if (! $project->isArchive()) {
+        if (! $project->isArchive() && ! $project->isDraftPlanning()) {
             $this->assertWithinMonthlyLimit(
                 $carbonMonth,
                 array_map(static fn (SeoProjectTaskSyncData $row): array => $row->toSanitizedArray(), $rows),

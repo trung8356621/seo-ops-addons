@@ -9,6 +9,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext;
+use Omnichannel\Addons\AiPrompt\Exceptions\AiRoutesExhaustedException;
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\AiPrompt\Models\SeoAiModel;
 use Omnichannel\Addons\AiPrompt\Services\AiModelFamilyCatalog;
@@ -295,8 +296,8 @@ final class AiCenterTextTaxonomyFreeRoutingTest extends TestCase
                 },
             );
             $this->fail('Expected infrastructure exhaustion');
-        } catch (PromptRunException $exception) {
-            $this->assertStringContainsString('429', $exception->getMessage());
+        } catch (AiRoutesExhaustedException $exception) {
+            $this->assertStringContainsString('AI_ROUTES_EXHAUSTED', $exception->getMessage());
         }
         $this->assertNotContains('anthropic/claude-sonnet-4.6', $tried);
         $this->assertGreaterThanOrEqual(2, count($tried));

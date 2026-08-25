@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource\Pages\Concerns;
 
 use App\Models\Site;
+use Omnichannel\Addons\WordPress\Services\SitePrimaryLanguageService;
 use Illuminate\Support\Str;
 
 trait PersistsSeoDomainMetas
@@ -21,6 +22,7 @@ trait PersistsSeoDomainMetas
         $data['seo_domain_type'] = $site->getMeta('seo_domain_type') ?? 'news';
         $data['seo_read_token'] = $site->getMeta('seo_read_token') ?? '';
         $data['seo_migration_token'] = $site->getMeta('seo_migration_token') ?? '';
+        $data['seo_primary_language'] = app(SitePrimaryLanguageService::class)->resolvePrimaryLanguage($site);
 
         if (($data['seo_platform'] ?? '') === 'wordpress') {
             if ($data['seo_read_token'] === '' || $data['seo_read_token'] === null) {
@@ -52,6 +54,9 @@ trait PersistsSeoDomainMetas
         $domainType = isset($data['seo_domain_type']) ? (string) $data['seo_domain_type'] : 'news';
         $readToken = isset($data['seo_read_token']) ? (string) $data['seo_read_token'] : '';
         $migrationToken = isset($data['seo_migration_token']) ? (string) $data['seo_migration_token'] : '';
+        $primaryLanguage = array_key_exists('seo_primary_language', $data)
+            ? $data['seo_primary_language']
+            : null;
 
         if ($platform === 'wordpress') {
             if ($readToken === '') {
@@ -67,6 +72,7 @@ trait PersistsSeoDomainMetas
             $data['seo_domain_type'],
             $data['seo_read_token'],
             $data['seo_migration_token'],
+            $data['seo_primary_language'],
         );
 
         $site->metas()->updateOrCreate(
@@ -106,6 +112,15 @@ trait PersistsSeoDomainMetas
             $site->metas()->updateOrCreate(
                 ['meta_key' => 'seo_migration_token'],
                 ['meta_value' => ''],
+            );
+        }
+
+        $primaryCode = is_string($primaryLanguage) ? trim($primaryLanguage) : '';
+        $primarySvc = app(SitePrimaryLanguageService::class);
+        if ($primarySvc->hasPolylang($site)) {
+            $primarySvc->setPrimaryLanguage(
+                $site,
+                $primaryCode !== '' ? $primaryCode : null,
             );
         }
 

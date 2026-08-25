@@ -6,12 +6,14 @@ namespace Omnichannel\Addons\Seo\Services;
 
 
 use Omnichannel\Addons\SearchFoundation\Services\KeywordPersistenceService;
+use Omnichannel\Addons\SearchFoundation\Services\KeywordMetaRepository;
 use Omnichannel\Addons\SearchFoundation\Services\TagPersistenceService;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Models\Tag;
 use Omnichannel\Addons\Seo\Support\CtaKeywordBlacklistFilter;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordFocusAttach;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\VocabularyKeywordIntelligenceIngestionService;
 use Omnichannel\Addons\ContentProjects\Support\TaskTestContext;
 use Omnichannel\Addons\ContentProjects\Support\WorkflowExecutionState;
 
@@ -21,14 +23,29 @@ final class WorkflowKeywordResearchService
         private readonly CtaKeywordBlacklistFilter $ctaKeywordBlacklistFilter,
         private readonly KeywordPersistenceService $keywordPersistence,
         private readonly TagPersistenceService $tagPersistence,
+        private readonly ?VocabularyKeywordIntelligenceIngestionService $vocabularyKiIngestion = null,
     ) {}
 
     /**
      * @param  array<string, list<string>>  $keywordGroups
-     * @return array{parent_id: int, parent_phrase: string, children_count: int, suggest_count: int, tags_count: int}
+     * @param  array<string, mixed>  $provenance
+     * @return array{
+     *   parent_id: int,
+     *   parent_phrase: string,
+     *   children_count: int,
+     *   suggest_count: int,
+     *   tags_count: int,
+     *   related_topics: list<string>,
+     *   ki_feedback: array<string, mixed>|null
+     * }
      */
-    public function syncTopicCluster(SeoArticle $article, array $keywordGroups, ?string $focusPhrase = null): array
-    {
+    public function syncTopicCluster(
+        SeoArticle $article,
+        array $keywordGroups,
+        ?string $focusPhrase = null,
+        bool $ingestRelatedTopics = true,
+        array $provenance = [],
+    ): array {
         [$clusterGroups, $relatedTopics, $holonymyPhrases] = $this->partitionKeywordGroups($keywordGroups);
 
         if ($clusterGroups === [] && $relatedTopics === [] && $holonymyPhrases === []) {
@@ -36,7 +53,13 @@ final class WorkflowKeywordResearchService
         }
 
         $siteId = (int) $article->site_id;
-        $suggestCount = $this->syncRelatedTopicSuggestions($article, $relatedTopics, $siteId);
+        $kiFeedback = null;
+        $suggestCount = 0;
+
+        if ($ingestRelatedTopics && $relatedTopics !== []) {
+            $kiFeedback = $this->ingestRelatedTopicsSafe($article, $relatedTopics, $provenance);
+            $suggestCount = (int) (($kiFeedback['ingested'] ?? 0) + ($kiFeedback['duplicates'] ?? 0));
+        }
 
         if ($clusterGroups === [] && $holonymyPhrases === []) {
             return [
@@ -45,6 +68,8 @@ final class WorkflowKeywordResearchService
                 'children_count' => 0,
                 'suggest_count' => $suggestCount,
                 'tags_count' => 0,
+                'related_topics' => $relatedTopics,
+                'ki_feedback' => $kiFeedback,
             ];
         }
 
@@ -117,7 +142,37 @@ final class WorkflowKeywordResearchService
             'children_count' => $childrenCount,
             'suggest_count' => $suggestCount,
             'tags_count' => $tagsCount,
+            'related_topics' => $relatedTopics,
+            'ki_feedback' => $kiFeedback,
         ];
+    }
+
+    /**
+     * @param  list<string>  $phrases
+     * @param  array<string, mixed>  $provenance
+     * @return array<string, mixed>
+     */
+    public function ingestRelatedTopicsSafe(SeoArticle $article, array $phrases, array $provenance = []): array
+    {
+        $service = $this->vocabularyKiIngestion
+            ?? (app()->bound(VocabularyKeywordIntelligenceIngestionService::class)
+                ? app(VocabularyKeywordIntelligenceIngestionService::class)
+                : null);
+
+        if (! $service instanceof VocabularyKeywordIntelligenceIngestionService) {
+            return [
+                'discovered' => count($phrases),
+                'ingested' => 0,
+                'classified' => 0,
+                'filtered' => count($phrases),
+                'duplicates' => 0,
+                'source_preserved' => 0,
+                'groups' => [],
+                'errors' => ['ingestion_service_unavailable'],
+            ];
+        }
+
+        return $service->ingestRelatedTopics($article, $phrases, $provenance);
     }
 
     /**
@@ -160,42 +215,16 @@ final class WorkflowKeywordResearchService
     }
 
     /**
+     * @deprecated Use VocabularyKeywordIntelligenceIngestionService via ingestRelatedTopicsSafe().
+     *
      * @param  list<string>  $phrases
      */
     private function syncRelatedTopicSuggestions(SeoArticle $article, array $phrases, int $siteId): int
     {
-        $count = 0;
+        unset($siteId);
+        $feedback = $this->ingestRelatedTopicsSafe($article, $phrases);
 
-        foreach ($phrases as $keywordPhrase) {
-            $phrase = trim((string) $keywordPhrase);
-            if ($phrase === '' || $this->wordCount($phrase) < 2) {
-                continue;
-            }
-
-            if ($this->samePhrase($phrase, (string) $article->title)) {
-                continue;
-            }
-
-            if ($this->ctaKeywordBlacklistFilter->isBlocked($phrase)) {
-                continue;
-            }
-
-            $this->keywordPersistence->upsert(
-                $phrase,
-                Keyword::TYPE_SUGGEST,
-                $siteId,
-                null,
-                null,
-                [
-                    'source' => 'vocabulary_related_topics',
-                    Keyword::METRIC_RESCRAPE_KEEP => true,
-                ],
-            );
-
-            $count++;
-        }
-
-        return $count;
+        return (int) (($feedback['ingested'] ?? 0) + ($feedback['duplicates'] ?? 0));
     }
 
     /**

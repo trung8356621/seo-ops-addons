@@ -68,6 +68,28 @@ final class ContentProjectActionCodes
 
     public const PROJECT_ARCHIVED_BLOCK = 'project.archived';
 
+    /** Draft planning project cannot generate / publish / schedule. */
+    public const PROJECT_DRAFT_NOT_EXECUTABLE = 'PROJECT_DRAFT_NOT_EXECUTABLE';
+
+    public const SUGGESTIONS_ADDED = 'suggestions.added';
+
+    public const SUGGESTIONS_DISMISSED = 'suggestions.dismissed';
+
+    public const SUGGESTIONS_RESTORED = 'suggestions.restored';
+
+    public const SUGGESTIONS_PLANNING_DRAFT_ONLY = 'suggestions.planning_draft_only';
+
+    public const PROJECT_NOT_DRAFT = 'project.not_draft';
+
+    public const DRAFT_SPLIT = 'draft.split';
+
+    public const PRIMARY_LANGUAGE_MISSING = 'primary_language.missing';
+
+    public const NEW_CONTENT_SUGGESTIONS_QUEUED = 'new_content.suggestions_queued';
+
+    /** Global article_meta.skip_seo_audit — not project rejection. */
+    public const SEO_AUDIT_ARTICLES_SKIPPED = 'seo_audit.articles_skipped';
+
     public const ITEMS_NOT_FOUND = 'items.not_found';
 
     public const PROJECT_NOT_FOUND = 'project.not_found';

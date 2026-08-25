@@ -14,6 +14,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Contr
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectBusinessLock;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectPreviewToken;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectTenantGuard;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectDraftExecutionGuard;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectExistingArticleReconciler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectFailedStepResumeResolver;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectGenerationCapabilityResolver;
@@ -47,6 +48,11 @@ final class ResumeProjectItemFromFailedStepHandler extends AbstractPublishingHan
             $project = $this->resolveProject($command->projectRef);
             $projectId = (int) $project->getKey();
             $this->tenantGuard->assertCanAccessProject($project, $actor);
+
+            $draftBlock = ContentProjectDraftExecutionGuard::rejectIfDraft($project, $projectId);
+            if ($draftBlock !== null) {
+                return $draftBlock;
+            }
 
             $itemIds = $this->resolveItemIds($command->itemRefs);
             if ($itemIds === []) {

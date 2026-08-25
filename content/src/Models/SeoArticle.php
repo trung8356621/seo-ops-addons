@@ -283,6 +283,11 @@ class SeoArticle extends Model
         return $this->hasOne(\Omnichannel\Addons\WordPress\Models\WordpressArticleLink::class, 'article_id');
     }
 
+    public function indexHealth(): HasOne
+    {
+        return $this->hasOne(\Omnichannel\Addons\Seo\Models\SeoArticleIndexHealth::class, 'article_id');
+    }
+
     public function featuredMediaState(): HasOne
     {
         return $this->hasOne(\Omnichannel\Addons\Media\Models\ArticleMediaState::class, 'article_id')

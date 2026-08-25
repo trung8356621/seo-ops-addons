@@ -196,6 +196,81 @@ final class KeywordClassificationService
         ];
     }
 
+    /**
+     * Classify a single keyword deterministically (0 AI). Does not refresh landscape.
+     */
+    public function classifyOne(Keyword $keyword, int $siteId = 0): bool
+    {
+        if (! Schema::connection('omi_seo_ai')->hasTable('seo_keyword_classifications')) {
+            return false;
+        }
+
+        $keyword->loadCount('linkMaps');
+        $raw = (string) $keyword->phrase;
+        $norm = $this->normalizer->normalize($raw);
+        $sourceKind = $this->sources->normalize(is_string($keyword->source ?? null) ? (string) $keyword->source : null);
+        $inputHash = hash('sha256', $norm['normalized_text'].'|'.(string) ($keyword->source ?? ''));
+        $existing = SeoKeywordClassification::query()->find((int) $keyword->id);
+
+        if ($existing instanceof SeoKeywordClassification) {
+            $existingHash = (string) ($existing->input_hash ?? '');
+            $dirty = (bool) ($existing->is_dirty ?? false);
+            if ($existingHash === $inputHash && ! $dirty) {
+                return false;
+            }
+        }
+
+        $classified = $this->classifier->classify($raw, $norm['normalized_text'], [
+            'source_kind' => $sourceKind,
+            'occurrence_count' => max(1, (int) ($keyword->link_maps_count ?? 1)),
+        ]);
+
+        $payload = [
+            'raw_text' => $norm['raw_text'],
+            'normalized_text' => $norm['normalized_text'],
+            'folded_text' => $norm['folded_text'],
+            'phrase_kind' => $classified['phrase_kind'],
+            'seo_intent' => $classified['seo_intent'],
+            'canonical_keyword_id' => (int) $keyword->id,
+            'is_anchor_candidate' => $classified['is_anchor_candidate'],
+            'anchor_priority' => $classified['anchor_priority'],
+            'classification_confidence' => $classified['classification_confidence'],
+            'classified_at' => now(),
+            'is_dirty' => false,
+            'input_hash' => $inputHash,
+            'classification_hash' => hash('sha256', $classified['phrase_kind'].'|'.$classified['seo_intent'].'|'.$norm['folded_text']),
+        ];
+
+        $existingClusterKey = $existing instanceof SeoKeywordClassification
+            ? trim((string) ($existing->cluster_key ?? ''))
+            : '';
+        if ($existingClusterKey !== '') {
+            $payload['cluster_key'] = $existingClusterKey;
+        } else {
+            $payload['cluster_key'] = null;
+        }
+        if (Schema::connection('omi_seo_ai')->hasColumn('seo_keyword_classifications', 'source_kind')) {
+            $payload['source_kind'] = $sourceKind;
+            $payload['is_seo_keyword'] = $classified['is_seo_keyword'];
+            $payload['is_ambiguous'] = $classified['is_ambiguous'];
+            $payload['keyword_score'] = $classified['keyword_score'];
+            $payload['segments'] = $classified['segments'];
+        }
+
+        SeoKeywordClassification::query()->updateOrCreate(
+            ['keyword_id' => (int) $keyword->id],
+            $payload,
+        );
+
+        if (app()->bound(KeywordGroupMembershipService::class)) {
+            app(KeywordGroupMembershipService::class)->syncKeyword((int) $keyword->id, $raw);
+        }
+
+        unset($siteId);
+
+        return true;
+    }
+
     public function readProgress(int $siteId): ?LongRunningProgress
     {
         if ($siteId <= 0) {

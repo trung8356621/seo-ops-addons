@@ -11,6 +11,7 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ActorContext;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\GenerateProjectItemsCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RestartGenerationWithKeywordCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ResumeProjectItemFromFailedStepCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectCommandBus;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectActionCodes;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectActionResult;
@@ -23,6 +24,9 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Suppo
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectTenantGuard;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectBulkGenerationPlanner;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectActiveGenerationRunDetector;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectDraftExecutionGuard;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectGenerationCapabilityResolver;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectGenerationRecoveryDecision;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectGenerationRecoveryService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectItemGenerationClassifier;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectImproveManualOnlyGenerationGuard;
@@ -50,6 +54,7 @@ final class GenerateProjectItemsHandler extends AbstractPublishingHandler
         private readonly ContentProjectActiveGenerationRunDetector $activeRuns,
         private readonly ContentProjectBulkGenerationPlanner $bulkPlanner,
         private readonly ContentProjectCommandBus $commandBus,
+        private readonly ContentProjectGenerationCapabilityResolver $capability,
         private readonly ContentProjectItemActionGuard $actionGuard = new ContentProjectItemActionGuard,
     ) {
         parent::__construct($tenantGuard, $businessLock, $previewToken);
@@ -72,6 +77,11 @@ final class GenerateProjectItemsHandler extends AbstractPublishingHandler
                     'Project archived — generate blocked.',
                     $projectId,
                 );
+            }
+
+            $draftBlock = ContentProjectDraftExecutionGuard::rejectIfDraft($project, $projectId);
+            if ($draftBlock !== null) {
+                return $draftBlock;
             }
 
             try {
@@ -191,7 +201,14 @@ final class GenerateProjectItemsHandler extends AbstractPublishingHandler
             $generateIds = $partition['generate_ids'];
             $restartIds = $partition['restart_with_keyword_ids'];
 
-            if ($generateIds === [] && $restartIds === []) {
+            // Failed + resumable → Resume from failed step (reuse upstream); never-generated stay on generate.
+            $resumePartition = $this->partitionResumableFailed($project, $generateIds);
+            $generateIds = $resumePartition['generate_ids'];
+            /** @var array<string, list<int>> $resumeByStep */
+            $resumeByStep = $resumePartition['resume_by_step'];
+            $resumeIds = $resumePartition['resume_ids'];
+
+            if ($generateIds === [] && $restartIds === [] && $resumeIds === []) {
                 return ContentProjectActionResult::fail(
                     ContentProjectActionCodes::VALIDATION_FAILED,
                     'No truly pending items to generate.',
@@ -202,7 +219,32 @@ final class GenerateProjectItemsHandler extends AbstractPublishingHandler
 
             $runsStarted = [];
             $restartResults = [];
+            $resumeResults = [];
             $allAffected = [];
+
+            foreach ($resumeByStep as $fromStep => $stepTaskIds) {
+                $resumeResult = $this->commandBus->dispatch(
+                    new ResumeProjectItemFromFailedStepCommand(
+                        $projectId,
+                        $stepTaskIds,
+                        $command->mode,
+                    ),
+                    $actor,
+                );
+                $resumeResults[] = array_merge($resumeResult->toArray(), [
+                    'from_step' => $fromStep,
+                    'task_ids' => $stepTaskIds,
+                ]);
+                if ($resumeResult->success) {
+                    $allAffected = array_merge($allAffected, $stepTaskIds);
+                    $ref = is_string($resumeResult->metadata['execution_ref'] ?? null)
+                        ? (string) $resumeResult->metadata['execution_ref']
+                        : null;
+                    if ($ref !== null) {
+                        $runsStarted[] = $ref;
+                    }
+                }
+            }
 
             if ($generateIds !== []) {
                 $generateResult = $this->dispatchNormalGenerate(
@@ -255,7 +297,11 @@ final class GenerateProjectItemsHandler extends AbstractPublishingHandler
                 $restartResults,
                 static fn (array $row): bool => ! (bool) ($row['success'] ?? false),
             );
-            if ($generateIds === [] && $failedRestarts !== []) {
+            $failedResumes = array_filter(
+                $resumeResults,
+                static fn (array $row): bool => ! (bool) ($row['success'] ?? false),
+            );
+            if ($generateIds === [] && $failedRestarts !== [] && $resumeIds === []) {
                 $first = reset($failedRestarts);
 
                 return ContentProjectActionResult::fail(
@@ -266,11 +312,24 @@ final class GenerateProjectItemsHandler extends AbstractPublishingHandler
                     metadata: ['restart_results' => $restartResults],
                 );
             }
+            if ($generateIds === [] && $restartIds === [] && $failedResumes !== [] && $allAffected === []) {
+                $first = reset($failedResumes);
+
+                return ContentProjectActionResult::fail(
+                    ContentProjectActionCodes::FAILED,
+                    (string) ($first['message'] ?? 'Resume from failed step failed.'),
+                    $projectId,
+                    affectedItemIds: $resumeIds,
+                    metadata: ['resume_results' => $resumeResults],
+                );
+            }
 
             RuntimeLogger::info('content_project.generate_started', [
                 'project_id' => $projectId,
                 'generate_task_ids' => $generateIds,
                 'restart_task_ids' => $restartIds,
+                'resume_task_ids' => $resumeIds,
+                'resume_by_step' => $resumeByStep,
                 'execution_refs' => $runsStarted,
             ]);
 
@@ -280,6 +339,9 @@ final class GenerateProjectItemsHandler extends AbstractPublishingHandler
             }
 
             $messageParts = [];
+            if ($resumeIds !== []) {
+                $messageParts[] = 'Resume from failed step started for '.count($resumeIds).' item(s).';
+            }
             if ($generateIds !== []) {
                 $messageParts[] = 'Generate pending started for '.count($generateIds).' item(s).';
             }
@@ -297,11 +359,77 @@ final class GenerateProjectItemsHandler extends AbstractPublishingHandler
                     'execution_refs' => $runsStarted,
                     'generate_task_ids' => $generateIds,
                     'restart_task_ids' => $restartIds,
+                    'resume_task_ids' => $resumeIds,
+                    'resume_by_step' => $resumeByStep,
                     'restart_results' => $restartResults,
+                    'resume_results' => $resumeResults,
                     'engine_started' => true,
                 ],
             );
         });
+    }
+
+    /**
+     * Split generate-pending IDs: resumable Failed → Resume; rest stay on full generate.
+     *
+     * @param  list<int>  $generateIds
+     * @return array{
+     *     generate_ids: list<int>,
+     *     resume_ids: list<int>,
+     *     resume_by_step: array<string, list<int>>,
+     * }
+     */
+    private function partitionResumableFailed(SeoProject $project, array $generateIds): array
+    {
+        if ($generateIds === []) {
+            return [
+                'generate_ids' => [],
+                'resume_ids' => [],
+                'resume_by_step' => [],
+            ];
+        }
+
+        $stillGenerate = [];
+        $resumeByStep = [];
+        $resumeIds = [];
+
+        $tasks = SeoProjectTask::query()
+            ->whereIn('id', $generateIds)
+            ->with(['article'])
+            ->get()
+            ->keyBy(static fn (SeoProjectTask $t): int => (int) $t->getKey());
+
+        foreach ($generateIds as $rawId) {
+            $taskId = (int) $rawId;
+            $task = $tasks->get($taskId);
+            if (! $task instanceof SeoProjectTask) {
+                continue;
+            }
+
+            $decision = $this->capability->decide($project, $task, [
+                'recover_stale' => true,
+                'persist_article_repair' => true,
+            ]);
+
+            $fromStep = trim((string) ($decision->resumableFromStep ?? ''));
+            if (
+                $decision->action === ContentProjectGenerationRecoveryDecision::ACTION_RESUME
+                && $fromStep !== ''
+            ) {
+                $resumeByStep[$fromStep] ??= [];
+                $resumeByStep[$fromStep][] = $taskId;
+                $resumeIds[] = $taskId;
+                continue;
+            }
+
+            $stillGenerate[] = $taskId;
+        }
+
+        return [
+            'generate_ids' => array_values($stillGenerate),
+            'resume_ids' => array_values(array_unique($resumeIds)),
+            'resume_by_step' => $resumeByStep,
+        ];
     }
 
     /**

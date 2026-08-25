@@ -67,11 +67,18 @@ final class ContentProjectPublishingQueueBoundaryContractTest extends TestCase
             ProjectRoot::addonsPath().'/content-projects/src/Services/ContentProject/ContentProjectAutoScheduleService.php',
         );
         self::assertStringContainsString("'project_month'", $src);
+        self::assertStringContainsString("'monthly_even'", $src);
         self::assertStringContainsString("'quick'", $src);
         self::assertStringContainsString("'in_day'", $src);
         self::assertStringContainsString('Quick Mode', $src);
         self::assertStringContainsString('resolveEligible', $src);
         self::assertStringNotContainsString('Dev Mode', $src);
+
+        $handler = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content-projects/src/Services/ContentProject/Application/Handlers/AutoScheduleProjectItemsHandler.php',
+        );
+        self::assertStringContainsString('siteSchedule', $handler);
+        self::assertStringContainsString('withScheduleLocks', $handler);
     }
 
     public function test_cp_ops_ui_removed_scheduled_published_cards(): void

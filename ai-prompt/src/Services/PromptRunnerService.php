@@ -465,7 +465,7 @@ class PromptRunnerService
             ];
         }
 
-        [$output, $usage, $candidate, $fallbackCount, $reasons] = $this->aiModelRouter->executeWithProfile(
+        [$output, $usage, $candidate, $fallbackCount, $reasons, $routingAttempts] = $this->aiModelRouter->executeWithProfile(
             $profile->value,
             $context,
             fn (RoutedAiCandidate $routed): array => $this->callProvider(
@@ -484,6 +484,7 @@ class PromptRunnerService
         $usage['routing'] = array_merge($candidate->toLogContext(), [
             'fallback_count' => $fallbackCount,
             'fallback_reasons' => $reasons,
+            'routing_attempts' => $routingAttempts ?? [],
             'cost_policy' => (AiCostPolicyScope::current())->value,
             'attempt' => $fallbackCount + 1,
             'attempt_number' => $fallbackCount + 1,
@@ -1325,7 +1326,11 @@ class PromptRunnerService
         }
 
         return new AiRoutingContext(
-            userId: (int) (auth()->id() ?? $prompt->user_id ?? 0),
+            userId: app(AiRoutingOwnerResolver::class)->resolve(
+                explicitUserId: null,
+                prompt: $prompt,
+                connection: $connection,
+            ),
             legacyConnection: $connection,
             allowLegacyFallback: true,
             usageModeOverride: $isImagePipeline ? null : AiUsageMode::tryFromMixed($settings['usage_mode'] ?? null),

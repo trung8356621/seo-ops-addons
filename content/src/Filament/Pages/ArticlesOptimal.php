@@ -8,6 +8,7 @@ namespace Omnichannel\Addons\Content\Filament\Pages;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoPanelPage;
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\ContentProjects\Filament\Pages\ContentProjectSeoAuditPlanner;
 use Omnichannel\Addons\Seo\Services\SeoAuditKeywordFlagService;
 use Omnichannel\Addons\Seo\Services\SeoAuditScanService;
 use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
@@ -24,6 +25,10 @@ use Livewire\Attributes\Url;
 use Livewire\WithPagination;
 use Throwable;
 
+/**
+ * Legacy Article SEO audit page — kept for compatibility/tests.
+ * Primary UX cut over to ContentProjectSeoAuditPlanner; mount redirects.
+ */
 final class ArticlesOptimal extends SeoPanelPage
 {
     use WithPagination;
@@ -39,6 +44,8 @@ final class ArticlesOptimal extends SeoPanelPage
     protected static ?string $navigationParentItem = 'Articles';
 
     protected static ?int $navigationSort = 6;
+
+    protected static bool $shouldRegisterNavigation = false;
 
     protected static ?string $slug = 'articles/optimal';
 
@@ -332,8 +339,18 @@ final class ArticlesOptimal extends SeoPanelPage
 
     public function mount(): void
     {
-        $this->filterSiteId = $this->validatedFilterSiteId(throw: false);
-        $this->invalidateScanResults();
+        $siteId = $this->filterSiteId;
+        if ($siteId === null || $siteId <= 0) {
+            $querySite = (int) request()->query('site', 0);
+            $siteId = $querySite > 0 ? $querySite : null;
+        }
+
+        $params = [];
+        if ($siteId !== null && $siteId > 0) {
+            $params['site'] = $siteId;
+        }
+
+        $this->redirect(ContentProjectSeoAuditPlanner::getUrl($params), navigate: false);
     }
 
     public function loadDefaultAuditResults(): void

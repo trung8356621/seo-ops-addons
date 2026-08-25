@@ -14,6 +14,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Contr
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectBusinessLock;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectPreviewToken;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectTenantGuard;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectDraftExecutionGuard;
 use InvalidArgumentException;
 
 final class ResumeProjectExecutionHandler extends AbstractPublishingHandler
@@ -36,6 +37,11 @@ final class ResumeProjectExecutionHandler extends AbstractPublishingHandler
             $project = $this->resolveProject($command->projectRef);
             $projectId = (int) $project->getKey();
             $this->tenantGuard->assertCanAccessProject($project, $actor);
+
+            $draftBlock = ContentProjectDraftExecutionGuard::rejectIfDraft($project, $projectId);
+            if ($draftBlock !== null) {
+                return $draftBlock;
+            }
 
             $run = $this->resolveRun($projectId, $command->executionRef);
             if (! $run instanceof SeoProjectRun) {

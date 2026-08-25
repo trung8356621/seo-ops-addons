@@ -30,11 +30,9 @@ class SeoSettingsDateTime extends Page implements HasForms
     /** @var array<string, mixed> */
     public array $dateTimeSettingsData = [];
 
-    public function mount(SeoDateTimeSettingsService $settings): void
+    public function mount(): void
     {
-        abort_unless(static::canAccess(), 403);
-        $this->dateTimeSettingsData = $settings->getSettings();
-        $this->form->fill($this->dateTimeSettingsData);
+        $this->redirect(SeoSettingsGeneral::getUrl(), navigate: false);
     }
 
     public function form(Form $form): Form

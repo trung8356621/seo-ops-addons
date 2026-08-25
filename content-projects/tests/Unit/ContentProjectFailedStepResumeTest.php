@@ -156,6 +156,15 @@ final class ContentProjectFailedStepResumeTest extends TestCase
         self::assertSame('content_project.resume_failed_step', $cmd->name());
     }
 
+    public function test_generate_working_items_auto_routes_failed_to_resume(): void
+    {
+        $handler = $this->source(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\GenerateProjectItemsHandler::class);
+        self::assertStringContainsString('partitionResumableFailed', $handler);
+        self::assertStringContainsString('ResumeProjectItemFromFailedStepCommand', $handler);
+        self::assertStringContainsString('ACTION_RESUME', $handler);
+        self::assertStringContainsString('resume_by_step', $handler);
+    }
+
     /**
      * @param  class-string  $class
      */

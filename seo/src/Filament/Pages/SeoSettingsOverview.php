@@ -28,17 +28,9 @@ class SeoSettingsOverview extends Page implements HasForms
     /** @var array<string, mixed> */
     public array $teamChatSettingsData = [];
 
-    public function mount(SeoOverviewSettingsService $overviewSettings): void
+    public function mount(): void
     {
-        $overview = $overviewSettings->getSettings();
-        $this->teamChatSettingsData = [
-            SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS => $overviewSettings->extensionsToTextarea(
-                $overview[SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS],
-            ),
-            SeoOverviewSettingsService::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB => $overview[SeoOverviewSettingsService::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB],
-        ];
-
-        $this->teamChatForm->fill($this->teamChatSettingsData);
+        $this->redirect(SeoSettingsGeneral::getUrl(), navigate: false);
     }
 
     /**

@@ -292,4 +292,19 @@ final class ContentProjectGeneratePendingSafetyTest extends TestCase
         self::assertStringContainsString('technical_confirm_full_rerun', $src);
         self::assertStringContainsString('Rerun requires explicit item selection', $src);
     }
+
+    public function test_generate_pending_preview_lists_run_decisions_not_skips(): void
+    {
+        $resource = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content-projects/src/Filament/Resources/SeoProjectResource.php',
+        );
+
+        self::assertStringContainsString('function generatePendingPreviewHtml', $resource);
+        self::assertStringContainsString('runDecisions()', $resource);
+        self::assertStringContainsString('generate_pending_preview_resume_note', $resource);
+        self::assertStringContainsString('item_action_resume_failed_step', $resource);
+        // Regression: modal must not sample skipDecisions as the Will-run list.
+        self::assertStringNotContainsString('skipSample = array_slice($preview->skipDecisions()', $resource);
+        self::assertStringContainsString('runSample = array_slice($runDecisions', $resource);
+    }
 }

@@ -127,7 +127,8 @@ final class PublishingQueueCanonicalStateMachineTest extends TestCase
         $hub = (string) file_get_contents(
             (string) (new ReflectionClass(PublishingQueueHub::class))->getFileName(),
         );
-        self::assertStringContainsString("'mode' => 'project_month'", $hub);
+        self::assertStringContainsString("'mode' => 'monthly_even'", $hub);
+        self::assertStringContainsString('autoMinSpacingMinutes', $hub);
         self::assertStringContainsString('selectAllMatchingResults', $hub);
         self::assertStringContainsString('togglePageSelection', $hub);
         self::assertStringContainsString('RecoverStuckPublishingCommand', $hub);
@@ -144,6 +145,8 @@ final class PublishingQueueCanonicalStateMachineTest extends TestCase
             LegacyAddonPath::resolve('resources/views/filament/pages/publishing-queue-hub.blade.php'),
         );
         self::assertStringContainsString('Auto Schedule', $view);
+        self::assertStringContainsString('evenly_across_month', $view);
+        self::assertStringContainsString('min_spacing_minutes', $view);
         self::assertStringContainsString('Quick Mode', $view);
         self::assertStringContainsString('In Day', $view);
         self::assertStringContainsString('publishing_queue_timezone', $view);

@@ -9,7 +9,11 @@
     "provides":  [
                      "seo.audit",
                      "seo.onpage",
-                     "seo.enrichment"
+                     "seo.enrichment",
+                     "article.index_health.list_due",
+                     "article.index_health.record",
+                     "article.index_health.inspect_gsc",
+                     "article.index_health.inspect_due_gsc"
                  ],
     "requires":  [
                      "search.keyword"

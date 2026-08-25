@@ -13,6 +13,8 @@ final class ContentProjectProjectActionDecision
 
     public const REASON_ARCHIVED = 'archived';
 
+    public const REASON_DRAFT_PLANNING = 'draft_planning';
+
     public const REASON_NO_ELIGIBLE = 'no_eligible';
 
     public const REASON_BULK_ACTIVE = 'bulk_active';

@@ -35,6 +35,7 @@ final class ContentProjectAgentGateway
         'content_project.get_daily_report',
         'content_project.get_site_health',
         'content_project.get_operation',
+        'content_project.planning_intelligence',
 
         // Keyword Intelligence — additive read surface.
         'keyword_intelligence.list_workspaces',
@@ -357,6 +358,7 @@ final class ContentProjectAgentGateway
             'content_project.get_daily_report' => $this->reads->getDailyReport($context, $input),
             'content_project.get_site_health' => $this->reads->getSiteHealth($context, $input),
             'content_project.get_operation' => ['operation' => $this->reads->getOperation($context, $input)],
+            'content_project.planning_intelligence' => $this->reads->getPlanningIntelligence($context, $input),
 
             // Keyword Intelligence — additive read surface.
             'keyword_intelligence.list_workspaces' => $this->keywordReads->listWorkspaces($context, $input),

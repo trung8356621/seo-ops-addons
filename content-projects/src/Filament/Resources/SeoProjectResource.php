@@ -8,6 +8,7 @@ namespace Omnichannel\Addons\ContentProjects\Filament\Resources;
 
 use Omnichannel\Addons\Seo\Filament\Resources\SeoPanelResource;
 use Omnichannel\Addons\Publishing\Filament\Pages\PublishingQueueHub;
+use Omnichannel\Addons\ContentProjects\Filament\Pages\ContentProjectSeoAuditPlanner;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Pages;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
@@ -167,9 +168,12 @@ class SeoProjectResource extends SeoPanelResource
     }
 
     /**
-     * Parent stays active on project list/detail and nested Publishing Queue.
-     * Publishing Queue child is registered here (hub page does not self-register)
+     * Parent stays active on project list/detail, SEO Audit planner, and nested Publishing Queue.
+     * Child nav items are registered here (hub pages do not self-register)
      * so parentItem label always matches.
+     *
+     * Sort: Projects (parent) → Content Planning (3) → Publishing Queue (5).
+     * Legacy New Content route redirects into Content Planning (not a primary nav item).
      *
      * @return array<int, \Filament\Navigation\NavigationItem>
      */
@@ -187,11 +191,26 @@ class SeoProjectResource extends SeoPanelResource
                 ->group(static::getNavigationGroup())
                 ->sort(static::getNavigationSort())
                 ->url(static::getUrl())
-                ->isActiveWhen(fn (): bool => request()->routeIs([
+                ->isActiveWhen(fn (): bool => SeoPanelRoutes::is(
                     'filament.seo.resources.content-projects.*',
+                    'filament.seo.pages.content-projects-seo-audit',
+                    'filament.seo.pages.content-projects-new-content',
                     'filament.seo.pages.publishing-queue',
-                ])),
+                )),
         ];
+
+        if (ContentProjectSeoAuditPlanner::canAccess()) {
+            $items[] = \Filament\Navigation\NavigationItem::make(ContentProjectSeoAuditPlanner::getNavigationLabel())
+                ->icon('heroicon-o-sparkles')
+                ->group(null)
+                ->parentItem($parentLabel)
+                ->isActiveWhen(fn (): bool => SeoPanelRoutes::is(
+                    'filament.seo.pages.content-projects-seo-audit',
+                    'filament.seo.pages.content-projects-new-content',
+                ))
+                ->sort(3)
+                ->url(ContentProjectSeoAuditPlanner::getUrl());
+        }
 
         if (PublishingQueueHub::canAccess()) {
             $items[] = \Filament\Navigation\NavigationItem::make(PublishingQueueHub::getNavigationLabel())
@@ -412,7 +431,7 @@ class SeoProjectResource extends SeoPanelResource
                     Forms\Components\Placeholder::make('month_limit_hint')
                         ->label(fn (?SeoProject $record): string => $record instanceof SeoProject && $record->isArchive()
                             ? __('seo-content-ai::filament.projects.archive_capacity_label')
-                            : __('seo-content-ai::filament.projects.month_limit'))
+                            : __('seo-content-ai::filament.projects.item_count_label'))
                         ->content(function (Get $get, ?SeoProject $record): string {
                             $count = app(SeoProjectTaskSyncService::class)
                                 ->countEffectiveTasks(is_array($get('tasks_data')) ? $get('tasks_data') : []);
@@ -425,14 +444,15 @@ class SeoProjectResource extends SeoPanelResource
 
                             $month = $get('month');
                             if (! $month) {
-                                return __('seo-content-ai::filament.projects.choose_month_to_view_limit');
+                                return __('seo-content-ai::filament.projects.item_count_hint', [
+                                    'count' => $count,
+                                ]);
                             }
 
                             $carbon = Carbon::parse($month)->startOfMonth();
-                            $max = $carbon->daysInMonth;
-                            return __('seo-content-ai::filament.projects.month_limit_hint', [
+
+                            return __('seo-content-ai::filament.projects.item_count_month_hint', [
                                 'month' => $carbon->format('m/Y'),
-                                'max' => $max,
                                 'count' => $count,
                             ]);
                         })
@@ -1422,6 +1442,10 @@ class SeoProjectResource extends SeoPanelResource
 
     public static function canGeneratePendingItems(SeoProject $project): bool
     {
+        if ($project->isDraftPlanning()) {
+            return false;
+        }
+
         if (! SeoAccessControl::canAccessContentProjectRun($project)) {
             return false;
         }
@@ -1433,6 +1457,10 @@ class SeoProjectResource extends SeoPanelResource
 
     public static function canTestRun(SeoProject $project): bool
     {
+        if ($project->isDraftPlanning()) {
+            return false;
+        }
+
         if (! SeoAccessControl::canAccessContentProjectRun($project)) {
             return false;
         }
@@ -1499,7 +1527,8 @@ class SeoProjectResource extends SeoPanelResource
             ->label(__('seo-content-ai::filament.projects.generate_working_items'))
             ->icon('heroicon-o-play')
             ->color('success')
-            ->visible(fn (): bool => SeoAccessControl::canAccessContentProjectRun($project))
+            ->visible(fn (): bool => SeoAccessControl::canAccessContentProjectRun($project)
+                && ! $project->isDraftPlanning())
             ->disabled(fn (): bool => ! static::canGeneratePendingItems($project))
             ->tooltip(fn (): ?string => static::generatePendingDisabledReason($project))
             ->modalHeading(__('seo-content-ai::filament.projects.generate_pending_preview_heading'))
@@ -1604,9 +1633,10 @@ class SeoProjectResource extends SeoPanelResource
         $preview = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectItemGenerationClassifier::class)
             ->preview($project);
 
+        $runDecisions = $preview->runDecisions();
         $lines = [
             __('seo-content-ai::filament.projects.generate_pending_preview_total', ['count' => $preview->totalItems]),
-            __('seo-content-ai::filament.projects.generate_pending_preview_run', ['count' => $preview->runCount()]),
+            __('seo-content-ai::filament.projects.generate_pending_preview_run', ['count' => count($runDecisions)]),
             __('seo-content-ai::filament.projects.generate_pending_preview_skip', ['count' => count($preview->skipDecisions())]),
             __('seo-content-ai::filament.projects.generate_pending_preview_anomaly', ['count' => count($preview->anomalyDecisions())]),
         ];
@@ -1615,10 +1645,33 @@ class SeoProjectResource extends SeoPanelResource
             $lines[] = __('seo-content-ai::filament.projects.generate_pending_fail_closed');
         }
 
-        $skipSample = array_slice($preview->skipDecisions(), 0, 8);
-        foreach ($skipSample as $decision) {
-            $lines[] = '#'.$decision->taskId.' — '.$decision->reason
-                .($decision->keyword ? ' ('.$decision->keyword.')' : '');
+        $hasFailedRunnable = false;
+        foreach ($runDecisions as $decision) {
+            if ($decision->reason === 'failed_without_output') {
+                $hasFailedRunnable = true;
+                break;
+            }
+        }
+        if ($hasFailedRunnable) {
+            $lines[] = __('seo-content-ai::filament.projects.generate_pending_preview_resume_note');
+        }
+
+        // List items that Will run (not skips) — Needs Review / In Review stay in Skipped.
+        $runSample = array_slice($runDecisions, 0, 12);
+        foreach ($runSample as $decision) {
+            $label = '#'.$decision->taskId.' — '.$decision->reason;
+            if ($decision->reason === 'failed_without_output') {
+                $label .= ' → '.__('seo-content-ai::filament.projects.item_action_resume_failed_step');
+            }
+            if ($decision->keyword) {
+                $label .= ' ('.$decision->keyword.')';
+            }
+            $lines[] = $label;
+        }
+        if (count($runDecisions) > count($runSample)) {
+            $lines[] = __('seo-content-ai::filament.projects.generate_pending_preview_more', [
+                'count' => count($runDecisions) - count($runSample),
+            ]);
         }
 
         $html = '<ul class="list-disc pl-5 space-y-1">';
@@ -1643,7 +1696,8 @@ class SeoProjectResource extends SeoPanelResource
             ->icon('heroicon-o-beaker')
             ->color('warning')
             ->visible(fn (): bool => static::allowsDevTestGenerateUi()
-                && SeoAccessControl::canAccessContentProjectRun($project))
+                && SeoAccessControl::canAccessContentProjectRun($project)
+                && ! $project->isDraftPlanning())
             ->disabled(fn (): bool => ! static::canTestRun($project))
             ->tooltip(fn (): ?string => static::testRunDisabledReason($project))
             ->modalHeading(__('seo-content-ai::filament.projects.test_run_workflow_heading', [
@@ -2037,18 +2091,6 @@ class SeoProjectResource extends SeoPanelResource
             $keywords,
         );
 
-        try {
-            app(SeoProjectTaskSyncService::class)->assertWithinMonthlyLimit($month, $merged);
-        } catch (ValidationException $exception) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.projects.monthly_limit_exceeded'))
-                ->body($exception->validator->errors()->first('tasks_data') ?? '')
-                ->danger()
-                ->send();
-
-            return;
-        }
-
         $set('tasks_data', $merged);
 
         Notification::make()
@@ -2059,41 +2101,12 @@ class SeoProjectResource extends SeoPanelResource
 
     public static function canAddTaskRowToForm(Get $get, ?SeoProject $record = null): bool
     {
-        if ($record instanceof SeoProject && $record->isArchive()) {
-            return true;
-        }
-
-        $month = $get('month');
-        if (! $month) {
-            return true;
-        }
-
-        try {
-            $max = app(SeoProjectTaskSyncService::class)->maxTasksForMonth($month);
-        } catch (\Throwable) {
-            return true;
-        }
-
-        $tasksData = is_array($get('tasks_data')) ? $get('tasks_data') : [];
-        $count = app(SeoProjectTaskSyncService::class)->countEffectiveTasks($tasksData);
-
-        return $count < $max;
+        return true;
     }
 
     public static function addTaskRowTooltip(Get $get, ?SeoProject $record = null): ?string
     {
-        if (static::canAddTaskRowToForm($get, $record)) {
-            return null;
-        }
-
-        $month = $get('month');
-        try {
-            $max = $month ? app(SeoProjectTaskSyncService::class)->maxTasksForMonth($month) : 0;
-        } catch (\Throwable) {
-            $max = 0;
-        }
-
-        return __('seo-content-ai::filament.projects.maximum_items', ['max' => $max]);
+        return null;
     }
 
     /**
@@ -2112,21 +2125,7 @@ class SeoProjectResource extends SeoPanelResource
         }
 
         $existing = is_array($get('tasks_data')) ? $get('tasks_data') : [];
-        $syncService = app(SeoProjectTaskSyncService::class);
-        $maxMonth = $syncService->maxTasksForMonth($month);
-        $remaining = max(0, $maxMonth - $syncService->countEffectiveTasks($existing));
-
-        if ($remaining === 0) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.projects.monthly_capacity_reached'))
-                ->body(__('seo-content-ai::filament.projects.maximum_items', ['max' => $maxMonth]))
-                ->warning()
-                ->send();
-
-            return;
-        }
-
-        $requested = min($remaining, max(1, (int) ($data['count'] ?? 10)));
+        $requested = max(1, (int) ($data['count'] ?? 10));
 
         try {
             $keywords = app(SeoProjectKeywordAiGeneratorService::class)->generate(
@@ -2146,19 +2145,6 @@ class SeoProjectResource extends SeoPanelResource
         }
 
         $merged = app(SeoProjectKeywordListParser::class)->appendKeywordsToTasks($existing, $keywords);
-
-        try {
-            app(SeoProjectTaskSyncService::class)->assertWithinMonthlyLimit($month, $merged);
-        } catch (ValidationException $exception) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.projects.monthly_limit_exceeded'))
-                ->body($exception->validator->errors()->first('tasks_data') ?? '')
-                ->danger()
-                ->send();
-
-            return;
-        }
-
         $set('tasks_data', $merged);
 
         Notification::make()

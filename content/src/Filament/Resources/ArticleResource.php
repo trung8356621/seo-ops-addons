@@ -2395,6 +2395,14 @@ class ArticleResource extends SeoPanelResource
                     && request()->query('tab') === Pages\ListArticles::TAB_SKIPPED)
                 ->sort(5)
                 ->url(static::getUrl('index', ['tab' => Pages\ListArticles::TAB_SKIPPED])),
+            \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.index_health.nav'))
+                ->icon('heroicon-o-globe-alt')
+                ->group(null)
+                ->parentItem($parentLabel)
+                ->isActiveWhen(fn (): bool => SeoPanelRoutes::is('filament.seo.pages.articles.index-health')
+                    || request()->is('*/articles/index-health*'))
+                ->sort(6)
+                ->url(\Omnichannel\Addons\Content\Filament\Pages\ArticleIndexHealth::getUrl()),
         ];
     }
 

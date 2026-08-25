@@ -6,7 +6,6 @@ namespace Omnichannel\Addons\ContentProjects\Tests\Unit;
 
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
-use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectItemAllocator;
 use Omnichannel\Addons\ContentProjects\Services\KeywordProjectAssignmentService;
@@ -17,6 +16,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Tests\TestCase;
 
+/**
+ * Month is reporting period only — allocation stays on the source project (unlimited capacity).
+ */
 final class ContentProjectItemAllocatorTest extends TestCase
 {
     use DatabaseTransactions;
@@ -30,6 +32,10 @@ final class ContentProjectItemAllocatorTest extends TestCase
     {
         parent::setUp();
 
+        if (! filter_var(env('SEO_TEST_USE_MYSQL', false), FILTER_VALIDATE_BOOL)) {
+            $this->markTestSkipped('Set SEO_TEST_USE_MYSQL=true to run against local omi_seo_ai.');
+        }
+
         if (! Schema::connection('omi_seo_ai')->hasTable('seo_projects')
             || ! Schema::connection('omi_seo_ai')->hasTable('seo_project_tasks')
         ) {
@@ -37,173 +43,52 @@ final class ContentProjectItemAllocatorTest extends TestCase
         }
     }
 
-    public function test_source_with_enough_capacity_does_not_create_continuation(): void
+    public function test_capacity_api_is_unlimited_for_monthly_projects(): void
     {
-        $source = $this->createMonthlyProject(userId: 91001, siteId: 92001, month: '2026-07-01');
-        $max = $source->maxTasksAllowed();
-        $this->fillProject($source, $max - 5);
+        $source = $this->createMonthlyProject(userId: 91001, siteId: 92001, month: '2026-09-01');
+        self::assertSame(PHP_INT_MAX, $source->maxTasksAllowed());
+        self::assertSame(PHP_INT_MAX, $source->remainingTaskCapacity());
+        self::assertTrue($source->canRegisterMoreTasks());
+    }
 
-        $summary = $this->allocateNewTasks($source, 5);
+    public function test_large_batch_stays_on_source_without_month_continuation(): void
+    {
+        $source = $this->createMonthlyProject(userId: 91002, siteId: 92002, month: '2026-09-01');
+        $this->fillProject($source, 10);
+
+        $summary = $this->allocateNewTasks($source, 60);
 
         $source->refresh();
-        self::assertSame($max, $source->registeredTaskCount());
+        self::assertSame(70, $source->registeredTaskCount());
         self::assertCount(1, $summary);
         self::assertSame((int) $source->id, (int) $summary[0]['project_id']);
-        self::assertSame(1, $this->chainProjectCount(91001, 92001));
+        self::assertSame(60, $summary[0]['added']);
+        self::assertSame(1, $this->chainProjectCount(91002, 92002));
+        self::assertNull($this->findChainMonth(91002, 92002, '2026-10-01'));
     }
 
-    public function test_partial_overflow_fills_source_then_next_month_clone(): void
+    public function test_ninety_items_valid_in_thirty_day_month(): void
     {
-        $source = $this->createMonthlyProject(userId: 91002, siteId: 92002, month: '2026-07-01');
-        $max = $source->maxTasksAllowed();
-        $this->fillProject($source, $max - 5);
-
-        $summary = $this->allocateNewTasks($source, 14);
-
-        $source->refresh();
-        self::assertSame($max, $source->registeredTaskCount());
-        self::assertSame(5, $summary[0]['added']);
-        self::assertSame(9, $summary[1]['added'] ?? 0);
-        self::assertSame('08/2026', $summary[1]['month'] ?? null);
-
-        $august = $this->findChainMonth(91002, 92002, '2026-08-01');
-        self::assertInstanceOf(SeoProject::class, $august);
-        self::assertSame(91002, (int) $august->user_id);
-        self::assertSame(92002, (int) $august->site_id);
-        self::assertSame(9, $august->registeredTaskCount());
-    }
-
-    public function test_full_source_sends_all_items_to_next_month(): void
-    {
-        $source = $this->createMonthlyProject(userId: 91003, siteId: 92003, month: '2026-07-01');
-        $this->fillProject($source, $source->maxTasksAllowed());
-
-        $this->allocateNewTasks($source, 14);
-
-        $source->refresh();
-        self::assertSame($source->maxTasksAllowed(), $source->registeredTaskCount());
-        $august = $this->findChainMonth(91003, 92003, '2026-08-01');
-        self::assertInstanceOf(SeoProject::class, $august);
-        self::assertSame(14, $august->registeredTaskCount());
-    }
-
-    public function test_multiple_months_split_across_capacity(): void
-    {
-        $source = $this->createMonthlyProject(userId: 91004, siteId: 92004, month: '2026-07-01');
-        $julyMax = $source->maxTasksAllowed();
+        $source = $this->createMonthlyProject(userId: 91003, siteId: 92003, month: '2026-09-01');
+        self::assertSame(30, $source->monthCarbon()->daysInMonth);
 
         $this->allocateNewTasks($source, 90);
 
-        $july = $source->fresh();
-        $august = $this->findChainMonth(91004, 92004, '2026-08-01');
-        $september = $this->findChainMonth(91004, 92004, '2026-09-01');
-
-        self::assertSame($julyMax, $july?->registeredTaskCount());
-        self::assertInstanceOf(SeoProject::class, $august);
-        self::assertSame($august->maxTasksAllowed(), $august->registeredTaskCount());
-        self::assertInstanceOf(SeoProject::class, $september);
-        self::assertSame(90 - $julyMax - $august->maxTasksAllowed(), $september->registeredTaskCount());
-        self::assertNull($this->findChainMonth(91004, 92004, '2026-10-01'));
-    }
-
-    public function test_december_overflow_rolls_to_january_next_year(): void
-    {
-        $source = $this->createMonthlyProject(userId: 91005, siteId: 92005, month: '2026-12-01');
-        $this->fillProject($source, $source->maxTasksAllowed());
-
-        $this->allocateNewTasks($source, 3);
-
-        $january = $this->findChainMonth(91005, 92005, '2027-01-01');
-        self::assertInstanceOf(SeoProject::class, $january);
-        self::assertSame('project 1/2027', $january->name);
-        self::assertSame(3, $january->registeredTaskCount());
-    }
-
-    public function test_continuation_keeps_source_owner_site_and_description(): void
-    {
-        $source = $this->createMonthlyProject(
-            userId: 91006,
-            siteId: 92006,
-            month: '2026-07-01',
-            description: 'writer-a-config',
-        );
-        $this->fillProject($source, $source->maxTasksAllowed());
-
-        $this->allocateNewTasks($source, 2);
-
-        $august = $this->findChainMonth(91006, 92006, '2026-08-01');
-        self::assertInstanceOf(SeoProject::class, $august);
-        self::assertSame(91006, (int) $august->user_id);
-        self::assertSame(92006, (int) $august->site_id);
-        self::assertSame('writer-a-config', $august->description);
-        self::assertSame(SeoProject::KIND_MONTHLY, (string) $august->kind);
-        self::assertSame(SeoProject::STATUS_MANUAL, (string) $august->status);
-    }
-
-    public function test_does_not_use_another_users_project_on_same_domain(): void
-    {
-        $source = $this->createMonthlyProject(userId: 91007, siteId: 92007, month: '2026-07-01');
-        $userBAugust = $this->createMonthlyProject(userId: 91077, siteId: 92007, month: '2026-08-01');
-        $this->fillProject($source, $source->maxTasksAllowed());
-        $userBBefore = $userBAugust->registeredTaskCount();
-
-        $this->allocateNewTasks($source, 4);
-
-        $userAAugust = $this->findChainMonth(91007, 92007, '2026-08-01');
-        self::assertInstanceOf(SeoProject::class, $userAAugust);
-        self::assertNotSame((int) $userBAugust->id, (int) $userAAugust->id);
-        self::assertSame(91007, (int) $userAAugust->user_id);
-        self::assertSame(4, $userAAugust->registeredTaskCount());
-        self::assertSame($userBBefore, $userBAugust->fresh()?->registeredTaskCount());
-    }
-
-    public function test_reuses_existing_same_chain_continuation(): void
-    {
-        $source = $this->createMonthlyProject(userId: 91008, siteId: 92008, month: '2026-07-01');
-        $existingAugust = $this->createMonthlyProject(userId: 91008, siteId: 92008, month: '2026-08-01');
-        $this->fillProject($source, $source->maxTasksAllowed());
-        $this->fillProject($existingAugust, 2);
-
-        $this->allocateNewTasks($source, 3);
-
-        self::assertSame(1, $this->chainMonthCount(91008, 92008, '2026-08-01'));
-        self::assertSame(5, $existingAugust->fresh()?->registeredTaskCount());
-    }
-
-    public function test_full_continuation_continues_to_following_month(): void
-    {
-        $source = $this->createMonthlyProject(userId: 91009, siteId: 92009, month: '2026-07-01');
-        $august = $this->createMonthlyProject(userId: 91009, siteId: 92009, month: '2026-08-01');
-        $this->fillProject($source, $source->maxTasksAllowed());
-        $this->fillProject($august, $august->maxTasksAllowed());
-
-        $this->allocateNewTasks($source, 6);
-
-        $september = $this->findChainMonth(91009, 92009, '2026-09-01');
-        self::assertInstanceOf(SeoProject::class, $september);
-        self::assertSame(6, $september->registeredTaskCount());
-        self::assertSame($august->maxTasksAllowed(), $august->fresh()?->registeredTaskCount());
-    }
-
-    public function test_sequential_allocations_recount_and_never_exceed_capacity(): void
-    {
-        $source = $this->createMonthlyProject(userId: 91010, siteId: 92010, month: '2026-07-01');
-        $max = $source->maxTasksAllowed();
-        $this->fillProject($source, $max - 1);
-
-        $this->allocateNewTasks($source, 1);
-        $this->allocateNewTasks($source, 1);
-
         $source->refresh();
-        self::assertSame($max, $source->registeredTaskCount());
-        $august = $this->findChainMonth(91010, 92010, '2026-08-01');
-        self::assertInstanceOf(SeoProject::class, $august);
-        self::assertSame(1, $august->registeredTaskCount());
-        self::assertLessThanOrEqual($max, $source->registeredTaskCount());
-        self::assertLessThanOrEqual($august->maxTasksAllowed(), $august->registeredTaskCount());
+        self::assertSame(90, $source->registeredTaskCount());
+        self::assertSame(1, $this->chainProjectCount(91003, 92003));
     }
 
-    public function test_duplicate_retry_does_not_readd_or_create_extra_month(): void
+    public function test_multiple_execution_projects_same_month_allowed(): void
+    {
+        $a = $this->createMonthlyProject(userId: 91004, siteId: 92004, month: '2026-09-01', name: 'Batch A');
+        $b = $this->createMonthlyProject(userId: 91004, siteId: 92004, month: '2026-09-01', name: 'Batch B');
+
+        self::assertNotSame((int) $a->id, (int) $b->id);
+        self::assertSame(2, $this->chainMonthCount(91004, 92004, '2026-09-01'));
+    }
+
+    public function test_duplicate_retry_does_not_readd(): void
     {
         $source = $this->createMonthlyProject(userId: 91011, siteId: 92011, month: '2026-07-01');
         $phrases = ['retry-kw-one', 'retry-kw-two'];
@@ -226,44 +111,14 @@ final class ContentProjectItemAllocatorTest extends TestCase
         self::assertSame(1, $this->chainProjectCount(91011, 92011));
     }
 
-    public function test_continuation_does_not_clone_runtime_state(): void
-    {
-        $source = $this->createMonthlyProject(userId: 91012, siteId: 92012, month: '2026-07-01');
-        $this->fillProject($source, $source->maxTasksAllowed());
-        SeoProjectRun::query()->create([
-            'project_id' => (int) $source->id,
-            'user_id' => 91012,
-            'mode' => SeoProjectRun::MODE_FULL,
-            'status' => SeoProjectRun::STATUS_RUNNING,
-            'total' => 1,
-            'succeeded' => 0,
-            'failed' => 0,
-            'items' => [['task_id' => 1]],
-            'settings' => ['generate_post_images' => true],
-        ]);
-
-        $this->allocateNewTasks($source, 2);
-
-        $august = $this->findChainMonth(91012, 92012, '2026-08-01');
-        self::assertInstanceOf(SeoProject::class, $august);
-        self::assertSame(2, $august->registeredTaskCount());
-        self::assertSame(0, $august->runs()->count());
-        self::assertSame(2, (int) $august->total_tasks);
-        self::assertNull($august->archived_at);
-        self::assertFalse(
-            $august->tasks()->where('source_content', 'like', 'filler-%')->exists(),
-            'Continuation must not inherit source filler items.',
-        );
-    }
-
-    public function test_ignore_monthly_capacity_flag_cannot_exceed_source_capacity(): void
+    public function test_ignore_monthly_capacity_flag_still_adds_to_source(): void
     {
         if (! Schema::connection('omi_seo_ai')->hasTable('articles')) {
             $this->markTestSkipped('articles table is not available.');
         }
 
         $source = $this->createMonthlyProject(userId: 91013, siteId: 92013, month: '2026-07-01');
-        $this->fillProject($source, $source->maxTasksAllowed() - 1);
+        $this->fillProject($source, 5);
 
         $articles = Collection::make([
             $this->createArticle(92013, 'Cap article A'),
@@ -278,11 +133,9 @@ final class ContentProjectItemAllocatorTest extends TestCase
         );
 
         $source->refresh();
-        self::assertSame($source->maxTasksAllowed(), $source->registeredTaskCount());
+        self::assertSame(7, $source->registeredTaskCount());
         self::assertSame(2, $summary['added']);
-        $august = $this->findChainMonth(91013, 92013, '2026-08-01');
-        self::assertInstanceOf(SeoProject::class, $august);
-        self::assertSame(1, $august->registeredTaskCount());
+        self::assertNull($this->findChainMonth(91013, 92013, '2026-08-01'));
     }
 
     /**
@@ -297,7 +150,7 @@ final class ContentProjectItemAllocatorTest extends TestCase
             for ($i = 0; $i < $count; $i++) {
                 $target = $session->projectWithRemainingCapacity();
                 self::assertInstanceOf(SeoProject::class, $target);
-                self::assertGreaterThan(0, (int) $target->getKey());
+                self::assertSame((int) $source->id, (int) $target->getKey());
 
                 $token = 'alloc-'.$this->seq++;
                 SeoProjectTask::query()->create([
@@ -320,12 +173,17 @@ final class ContentProjectItemAllocatorTest extends TestCase
         return $allocations;
     }
 
-    private function createMonthlyProject(int $userId, int $siteId, string $month, ?string $description = null): SeoProject
-    {
+    private function createMonthlyProject(
+        int $userId,
+        int $siteId,
+        string $month,
+        ?string $description = null,
+        ?string $name = null,
+    ): SeoProject {
         $carbon = \Carbon\Carbon::parse($month)->startOfMonth();
 
         return SeoProject::query()->create([
-            'name' => SeoProject::defaultNameFromMonth($carbon),
+            'name' => $name ?? SeoProject::defaultNameFromMonth($carbon),
             'user_id' => $userId,
             'site_id' => $siteId,
             'month' => $carbon->format('Y-m-d'),

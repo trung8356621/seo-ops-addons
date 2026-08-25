@@ -1,0 +1,132 @@
+<?php
+
+declare(strict_types=1);
+
+namespace Omnichannel\Addons\ContentProjects\Tests\Unit;
+
+use Omnichannel\Addons\ContentProjects\Filament\Pages\ContentProjectNewContentPlanner;
+use Omnichannel\Addons\ContentProjects\Filament\Pages\ContentProjectSeoAuditPlanner;
+use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SplitDraftContentProjectCommand;
+use PHPUnit\Framework\TestCase;
+use ReflectionClass;
+use Tests\Support\LegacyAddonPath;
+use Tests\Support\ProjectRoot;
+
+/**
+ * UI contract: unified Content Planning / Draft Planner presentation.
+ */
+final class ContentPlanningUxContractTest extends TestCase
+{
+    public function test_primary_planner_title_is_content_planning_not_seo_audit(): void
+    {
+        $page = (string) file_get_contents(
+            (string) (new ReflectionClass(ContentProjectSeoAuditPlanner::class))->getFileName(),
+        );
+        $en = (string) file_get_contents(ProjectRoot::addonsPath().'/seo-content-ai-compat/lang/en/filament.php');
+        $vi = (string) file_get_contents(ProjectRoot::addonsPath().'/seo-content-ai-compat/lang/vi/filament.php');
+
+        self::assertStringContainsString('content_planning_title', $page);
+        self::assertStringContainsString("'content_planning_title' => 'Content Planning'", $en);
+        self::assertStringContainsString("'content_planning_title' => 'Lập kế hoạch nội dung'", $vi);
+        self::assertStringNotContainsString("return __('seo-content-ai::filament.projects.seo_audit_title');", $page);
+    }
+
+    public function test_context_header_and_contextual_publish_create_draft(): void
+    {
+        $blade = LegacyAddonPath::read('resources/views/filament/pages/content-project-seo-audit-planner.blade.php');
+
+        self::assertStringContainsString('data-content-planning-context="1"', $blade);
+        self::assertStringContainsString('content_planning_draft_label', $blade);
+        self::assertStringContainsString('seo_audit_site_label', $blade);
+        self::assertStringContainsString('data-content-planning-action="publish"', $blade);
+        self::assertStringContainsString('data-content-planning-action="create-draft"', $blade);
+        self::assertStringContainsString('openPublishFromPlanner', $blade);
+        self::assertStringContainsString('createDraftForPlanner', $blade);
+        self::assertStringNotContainsString('<h1', $blade);
+    }
+
+    public function test_main_page_has_two_planner_cards_without_giant_candidate_table(): void
+    {
+        $blade = LegacyAddonPath::read('resources/views/filament/pages/content-project-seo-audit-planner.blade.php');
+        $draft = LegacyAddonPath::read('resources/views/components/content-project-draft-planner.blade.php');
+
+        self::assertStringContainsString('content-project-draft-planner', $blade);
+        self::assertStringContainsString('content-project-draft-items', $blade);
+        self::assertStringContainsString('data-planner-card="improve"', $draft);
+        self::assertStringContainsString('content-project-new-content-card', $draft);
+        self::assertStringContainsString('filtersOpen', $draft);
+        self::assertStringContainsString('data-planner-filters="improve"', $draft);
+        self::assertStringContainsString('seoAuditPlannerCardState', $draft);
+        self::assertStringNotContainsString('planner_matched_count', $draft);
+        self::assertStringNotContainsString('data-seo-audit-filter-row', $blade);
+        self::assertStringContainsString('advanced', $blade);
+        self::assertStringContainsString('content-project-seo-audit-planner', $blade);
+    }
+
+    public function test_publish_opens_split_draft_not_wordpress_publish(): void
+    {
+        $page = (string) file_get_contents(
+            (string) (new ReflectionClass(ContentProjectSeoAuditPlanner::class))->getFileName(),
+        );
+        $trait = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content-projects/src/Filament/Resources/SeoProjectResource/Concerns/InteractsWithDraftSplit.php',
+        );
+
+        self::assertStringContainsString('InteractsWithDraftSplit', $page);
+        self::assertStringContainsString('openDraftSplitModal', $page);
+        self::assertStringContainsString('SplitDraftContentProjectCommand', $trait);
+        self::assertSame('content_project.split_draft', (new SplitDraftContentProjectCommand(1))->name());
+        self::assertStringNotContainsString('WordPressPublish', $page);
+        self::assertStringNotContainsString('publishToWordPress', $page);
+    }
+
+    public function test_nav_orders_content_planning_then_publishing_queue(): void
+    {
+        $resource = (string) file_get_contents(
+            (string) (new ReflectionClass(SeoProjectResource::class))->getFileName(),
+        );
+
+        self::assertStringContainsString('ContentProjectSeoAuditPlanner::getUrl()', $resource);
+        self::assertStringContainsString('PublishingQueueHub::getUrl()', $resource);
+        self::assertStringContainsString('->sort(3)', $resource);
+        self::assertStringContainsString('->sort(5)', $resource);
+        self::assertStringNotContainsString('ContentProjectNewContentPlanner::getUrl()', $resource);
+
+        $auditPos = strpos($resource, 'ContentProjectSeoAuditPlanner::getUrl()');
+        $queuePos = strpos($resource, 'PublishingQueueHub::getUrl()');
+        self::assertNotFalse($auditPos);
+        self::assertNotFalse($queuePos);
+        self::assertLessThan($queuePos, $auditPos);
+    }
+
+    public function test_legacy_new_content_redirects_to_content_planning(): void
+    {
+        $page = (string) file_get_contents(
+            (string) (new ReflectionClass(ContentProjectNewContentPlanner::class))->getFileName(),
+        );
+
+        self::assertStringContainsString("slug = 'content-projects/new-content'", $page);
+        self::assertStringContainsString('ContentProjectSeoAuditPlanner::getUrl', $page);
+        self::assertStringContainsString('redirect', $page);
+        self::assertStringContainsString('shouldRegisterNavigation = false', $page);
+    }
+
+    public function test_lang_keys_exist_for_content_planning(): void
+    {
+        $en = (string) file_get_contents(ProjectRoot::addonsPath().'/seo-content-ai-compat/lang/en/filament.php');
+        $vi = (string) file_get_contents(ProjectRoot::addonsPath().'/seo-content-ai-compat/lang/vi/filament.php');
+
+        foreach ([
+            'content_planning_nav_label',
+            'content_planning_title',
+            'content_planning_subtitle',
+            'content_planning_publish',
+            'content_planning_open_advanced',
+            'planner_primary_language_missing_compact',
+        ] as $key) {
+            self::assertStringContainsString("'".$key."'", $en);
+            self::assertStringContainsString("'".$key."'", $vi);
+        }
+    }
+}

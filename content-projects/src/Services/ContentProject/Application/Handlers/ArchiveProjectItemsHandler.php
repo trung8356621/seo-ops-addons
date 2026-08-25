@@ -15,6 +15,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Suppo
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectPreviewToken;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectTenantGuard;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectArchiveService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\SeoAudit\SeoAuditSuggestionDecisionService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemActionGuard;
 use InvalidArgumentException;
 
@@ -28,6 +29,7 @@ final class ArchiveProjectItemsHandler extends AbstractPublishingHandler
         ContentProjectBusinessLock $businessLock,
         ContentProjectPreviewToken $previewToken,
         private readonly SeoProjectArchiveService $archiveService,
+        private readonly SeoAuditSuggestionDecisionService $suggestionDecisions,
         private readonly ContentProjectItemActionGuard $actionGuard = new ContentProjectItemActionGuard,
     ) {
         parent::__construct($tenantGuard, $businessLock, $previewToken);
@@ -106,13 +108,70 @@ final class ArchiveProjectItemsHandler extends AbstractPublishingHandler
 
             $result = $this->businessLock->withLock(
                 $this->businessLock->projectArchive($projectId),
-                function () use ($project, $projectId, $itemIds, $command, $userId): ContentProjectActionResult {
+                function () use ($project, $projectId, $itemIds, $command, $userId, $actor): ContentProjectActionResult {
+                    $rejectArticleIds = [];
+                    $rejectFingerprints = [];
+                    if ($project->isDraftPlanning()) {
+                        $tasks = SeoProjectTask::query()
+                            ->where('project_id', $projectId)
+                            ->whereIn('id', $itemIds)
+                            ->with('itemOrigin')
+                            ->get();
+
+                        foreach ($tasks as $task) {
+                            if (! $task instanceof SeoProjectTask) {
+                                continue;
+                            }
+                            $articleId = (int) ($task->article_id ?? 0);
+                            if ($articleId > 0) {
+                                $rejectArticleIds[] = $articleId;
+                            }
+
+                            $origin = $task->itemOrigin;
+                            if ($origin instanceof \Omnichannel\Addons\ContentProjects\Models\SeoContentProjectItemOrigin
+                                && (string) $origin->source_type === \Omnichannel\Addons\ContentProjects\Models\SeoContentProjectItemOrigin::SOURCE_AI_NEW_CONTENT
+                            ) {
+                                $fp = trim((string) ($origin->source_fingerprint ?? ''));
+                                if ($fp !== '') {
+                                    $rejectFingerprints[] = [
+                                        'fingerprint' => $fp,
+                                        'keyword' => (string) ($task->keyword ?? ''),
+                                        'title' => (string) ($task->title ?? ''),
+                                    ];
+                                }
+                            }
+                        }
+
+                        $rejectArticleIds = array_values(array_unique(array_filter(
+                            $rejectArticleIds,
+                            static fn (int $id): bool => $id > 0,
+                        )));
+                    }
+
+                    // Soft-archive planning item: sets archived_at + TaskArchived event.
+                    // Without article_id there is no article workspace / WP mirror cleanup.
                     $archiveResult = $this->archiveService->archiveTasks(
                         $project,
                         $itemIds,
                         $userId,
                         $command->note,
                     );
+
+                    // Project-scoped rejection only — never skip_seo_audit.
+                    if ($rejectArticleIds !== []) {
+                        $this->suggestionDecisions->dismissArticles(
+                            $project,
+                            $rejectArticleIds,
+                            $actor->actorId,
+                        );
+                    }
+                    if ($rejectFingerprints !== []) {
+                        $this->suggestionDecisions->dismissFingerprints(
+                            $project,
+                            $rejectFingerprints,
+                            $actor->actorId,
+                        );
+                    }
 
                     return ContentProjectActionResult::ok(
                         ContentProjectActionCodes::ITEMS_ARCHIVED,
@@ -122,6 +181,8 @@ final class ArchiveProjectItemsHandler extends AbstractPublishingHandler
                         metadata: [
                             'affected_count' => (int) ($archiveResult['archived'] ?? 0),
                             'wordpress_post_deleted' => false,
+                            'rejected_article_ids' => $rejectArticleIds,
+                            'rejected_fingerprints' => array_column($rejectFingerprints, 'fingerprint'),
                         ],
                     );
                 },

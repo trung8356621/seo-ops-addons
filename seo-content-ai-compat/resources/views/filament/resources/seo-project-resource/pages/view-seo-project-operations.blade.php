@@ -788,6 +788,73 @@
             </div>
         @endif
 
+        @if ($project?->isDraftPlanning())
+            <div class="flex flex-wrap items-center gap-2 rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950 dark:border-sky-500/30 dark:bg-sky-500/10 dark:text-sky-100">
+                <span class="inline-flex items-center rounded-md bg-sky-600 px-2 py-0.5 text-xs font-semibold text-white">
+                    {{ __('seo-content-ai::filament.projects.suggestions_draft_badge') }}
+                </span>
+                <span>{{ __('seo-content-ai::filament.projects.suggestions_draft_planning_note') }}</span>
+            </div>
+
+            <x-seo-content-ai::content-project-draft-planner />
+
+            <h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                {{ __('seo-content-ai::filament.projects.planner_draft_items') }}
+            </h3>
+        @else
+            @php
+                $sourceDraft = $project?->source_draft_project_id
+                    ? \Omnichannel\Addons\ContentProjects\Models\SeoProject::query()->find((int) $project->source_draft_project_id)
+                    : null;
+            @endphp
+            @if ($sourceDraft)
+                <div class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:border-white/10 dark:bg-gray-900/40 dark:text-gray-300">
+                    {{ __('seo-content-ai::filament.projects.created_from_draft', ['name' => (string) $sourceDraft->name]) }}
+                    —
+                    <a
+                        href="{{ \Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource::getUrl('view', ['record' => $sourceDraft]) }}"
+                        class="font-medium text-primary-600 hover:underline dark:text-primary-400"
+                    >{{ __('seo-content-ai::filament.projects.open_source_draft') }}</a>
+                </div>
+            @endif
+            <div
+                class="inline-flex rounded-lg border border-gray-200 bg-white p-1 dark:border-white/10 dark:bg-gray-900"
+                role="tablist"
+                aria-label="{{ __('seo-content-ai::filament.projects.workspace_tabs') }}"
+            >
+                <button
+                    type="button"
+                    role="tab"
+                    wire:click="setWorkspaceTab('items')"
+                    aria-selected="{{ $this->workspaceTab === 'items' ? 'true' : 'false' }}"
+                    @class([
+                        'rounded-md px-3 py-1.5 text-sm font-medium transition',
+                        'bg-primary-600 text-white shadow-sm' => $this->workspaceTab === 'items',
+                        'text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-white/5' => $this->workspaceTab !== 'items',
+                    ])
+                >
+                    {{ __('seo-content-ai::filament.projects.workspace_tab_items') }}
+                </button>
+                <button
+                    type="button"
+                    role="tab"
+                    wire:click="setWorkspaceTab('suggestions')"
+                    aria-selected="{{ $this->workspaceTab === 'suggestions' ? 'true' : 'false' }}"
+                    @class([
+                        'rounded-md px-3 py-1.5 text-sm font-medium transition',
+                        'bg-primary-600 text-white shadow-sm' => $this->workspaceTab === 'suggestions',
+                        'text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-white/5' => $this->workspaceTab !== 'suggestions',
+                    ])
+                >
+                    {{ __('seo-content-ai::filament.projects.workspace_tab_suggestions') }}
+                </button>
+            </div>
+        @endif
+
+        @if (! ($project?->isDraftPlanning()) && $this->workspaceTab === 'suggestions')
+            <x-seo-content-ai::content-project-seo-audit-planner :show-full-planner-link="true" />
+        @else
+
         @php
             $kpiCardsResolved = array_map(static function (array $card) use ($summarySnapshot, $stats): array {
                 $countKey = $card['count_key'] ?? null;
@@ -1274,8 +1341,13 @@
             @if ($totalItems === 0)
                 <div class="rounded-xl border border-dashed border-gray-300 bg-white px-4 py-12 text-center dark:border-gray-600 dark:bg-gray-900">
                     <x-filament::icon icon="heroicon-o-inbox" class="mx-auto h-8 w-8 text-gray-400" />
-                    <p class="mt-2 text-sm font-medium text-gray-700 dark:text-gray-200">{{ __('seo-content-ai::filament.projects.item_empty') }}</p>
-                    <p class="mt-1 text-xs text-gray-500">Add items in Edit project, then Generate working items.</p>
+                    @if ($this->project?->isDraftPlanning())
+                        <p class="mt-2 text-sm font-medium text-gray-700 dark:text-gray-200">{{ __('seo-content-ai::filament.projects.draft_empty_title') }}</p>
+                        <p class="mt-1 text-xs text-gray-500">{{ __('seo-content-ai::filament.projects.draft_empty_body') }}</p>
+                    @else
+                        <p class="mt-2 text-sm font-medium text-gray-700 dark:text-gray-200">{{ __('seo-content-ai::filament.projects.item_empty') }}</p>
+                        <p class="mt-1 text-xs text-gray-500">Add items in Edit project, then Generate working items.</p>
+                    @endif
                 </div>
             @else
                 <x-seo-content-ai::content-project-items-list
@@ -1291,6 +1363,8 @@
         @if ($paginator && count($rows) > 0)
             <div class="mt-2">{{ $paginator->links() }}</div>
         @endif
+
+        @endif {{-- workspaceTab items --}}
 
         {{-- Execution details drawer --}}
         <div

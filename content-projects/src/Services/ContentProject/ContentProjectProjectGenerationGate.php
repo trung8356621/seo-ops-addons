@@ -36,6 +36,10 @@ final class ContentProjectProjectGenerationGate
             return [];
         }
 
+        if ($project->isDraftPlanning()) {
+            return [];
+        }
+
         $preview = $this->classifier->preview($project);
         $ids = $preview->runnableTaskIds();
         $typesById = [];
@@ -58,6 +62,10 @@ final class ContentProjectProjectGenerationGate
             return self::resolve([], false, $conflictReason, archived: true);
         }
 
+        if ($project->isDraftPlanning()) {
+            return self::resolve([], false, $conflictReason, draftPlanning: true);
+        }
+
         $eligible = $this->eligibleTaskIds($project);
         $conflictActive = $conflictReason === ContentProjectProjectActionDecision::REASON_BULK_ACTIVE
             ? $this->activeRuns->hasActiveBulkGeneration((int) $project->getKey())
@@ -76,11 +84,20 @@ final class ContentProjectProjectGenerationGate
         bool $conflictActive,
         string $conflictReason,
         bool $archived = false,
+        bool $draftPlanning = false,
     ): ContentProjectProjectActionDecision {
         if ($archived) {
             return new ContentProjectProjectActionDecision(
                 false,
                 ContentProjectProjectActionDecision::REASON_ARCHIVED,
+                [],
+            );
+        }
+
+        if ($draftPlanning) {
+            return new ContentProjectProjectActionDecision(
+                false,
+                ContentProjectProjectActionDecision::REASON_DRAFT_PLANNING,
                 [],
             );
         }

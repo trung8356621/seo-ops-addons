@@ -255,6 +255,11 @@ final class McpIntelligence extends SeoPanelPage
         $this->runGenerate([McpSourceKey::Keywords->value]);
     }
 
+    public function refreshGscSnapshot(): void
+    {
+        $this->runGenerate([McpSourceKey::Gsc->value]);
+    }
+
     public function refreshAll(): void
     {
         $this->runGenerate(null);
@@ -347,14 +352,21 @@ final class McpIntelligence extends SeoPanelPage
             $kwSnap = ($period instanceof SeoMcpPeriod && $site instanceof Site)
                 ? app(MonthlyMcpSnapshotService::class)->find($period, (int) $site->id, McpSourceKey::Keywords)
                 : null;
+            $gscSnap = ($period instanceof SeoMcpPeriod && $site instanceof Site)
+                ? app(MonthlyMcpSnapshotService::class)->find($period, (int) $site->id, McpSourceKey::Gsc)
+                : null;
 
             $siteStatus = $this->sourceCardStatus($siteSnap, $site, McpSourceKey::Site);
             $kwStatus = $this->sourceCardStatus($kwSnap, $site, McpSourceKey::Keywords);
-            $readyCount = (($siteSnap?->isUsable() ?? false) ? 1 : 0) + (($kwSnap?->isUsable() ?? false) ? 1 : 0);
+            $gscStatus = $this->sourceCardStatus($gscSnap, $site, McpSourceKey::Gsc);
+            $readyCount = (($siteSnap?->isUsable() ?? false) ? 1 : 0)
+                + (($kwSnap?->isUsable() ?? false) ? 1 : 0)
+                + (($gscSnap?->isUsable() ?? false) ? 1 : 0);
             $changedAfterFinalize = false;
             if ($period?->isFinalized() && $site instanceof Site) {
                 $changedAfterFinalize = in_array($siteStatus['freshness'], ['stale'], true)
-                    || in_array($kwStatus['freshness'], ['stale'], true);
+                    || in_array($kwStatus['freshness'], ['stale'], true)
+                    || in_array($gscStatus['freshness'], ['stale'], true);
             }
 
             $aiContext = is_array($report?->ai_context_json) ? $report->ai_context_json : [];
@@ -390,11 +402,13 @@ final class McpIntelligence extends SeoPanelPage
                 'report' => $report,
                 'site_snap' => $siteSnap,
                 'keyword_snap' => $kwSnap,
+                'gsc_snap' => $gscSnap,
                 'site_card' => $siteStatus,
                 'keyword_card' => $kwStatus,
+                'gsc_card' => $gscStatus,
                 'site_summary' => $siteSummary,
                 'source_ready' => $readyCount,
-                'source_total' => 2,
+                'source_total' => 3,
                 'changed_after_finalize' => $changedAfterFinalize,
                 'markdown' => $markdown,
                 'ai_json' => $aiContext === [] ? '' : (string) json_encode($aiContext, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT),
@@ -403,6 +417,9 @@ final class McpIntelligence extends SeoPanelPage
                     : '',
                 'keyword_preview_json' => $kwSnap instanceof SeoMcpSourceSnapshot
                     ? (string) json_encode($kwSnap->preparedPayload(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)
+                    : '',
+                'gsc_preview_json' => $gscSnap instanceof SeoMcpSourceSnapshot
+                    ? (string) json_encode($gscSnap->preparedPayload(), JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT)
                     : '',
                 'coverage' => $period instanceof SeoMcpPeriod
                     ? [
@@ -422,11 +439,13 @@ final class McpIntelligence extends SeoPanelPage
                 'report' => null,
                 'site_snap' => null,
                 'keyword_snap' => null,
+                'gsc_snap' => null,
                 'site_card' => ['freshness' => 'failed', 'relative' => null, 'metrics' => [], 'failed' => true],
                 'keyword_card' => ['freshness' => 'failed', 'relative' => null, 'metrics' => [], 'failed' => true],
+                'gsc_card' => ['freshness' => 'failed', 'relative' => null, 'metrics' => [], 'failed' => true],
                 'site_summary' => [],
                 'source_ready' => 0,
-                'source_total' => 2,
+                'source_total' => 3,
                 'changed_after_finalize' => false,
                 'markdown' => [
                     'site' => '',
@@ -440,6 +459,7 @@ final class McpIntelligence extends SeoPanelPage
                 'ai_json' => '',
                 'site_preview_json' => '',
                 'keyword_preview_json' => '',
+                'gsc_preview_json' => '',
                 'coverage' => ['kind' => 'unknown', 'available' => 0, 'expected' => 0],
                 'linked_articles_total' => null,
                 'linked_articles_rows' => [],
@@ -637,6 +657,7 @@ final class McpIntelligence extends SeoPanelPage
         $converter = app(SimpleMarkdownHtmlConverter::class);
         $site = $renderer->renderSite($siteId, $periodKey);
         $keywords = $renderer->renderKeywords($siteId, $periodKey);
+        $gsc = $renderer->renderGsc($siteId, $periodKey);
         $combined = $renderer->renderCombined($siteId, $periodKey);
         $aiContext = $builder->build($siteId, $periodKey);
         $tokens = $this->tokenEstimator()->estimate($aiContext);
@@ -648,11 +669,13 @@ final class McpIntelligence extends SeoPanelPage
         return [
             'site' => $site,
             'keywords' => $keywords,
+            'gsc' => $gsc,
             'combined' => $combined,
             'ai_context' => $aiContext,
             'preview' => [
                 'site' => $converter->toHtml($site),
                 'keywords' => $converter->toHtml($keywords),
+                'gsc' => $converter->toHtml($gsc),
                 'combined' => $converter->toHtml($combined),
                 'ai_context' => $converter->toHtml($aiContext),
             ],

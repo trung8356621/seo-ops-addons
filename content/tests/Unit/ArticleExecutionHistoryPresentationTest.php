@@ -83,7 +83,7 @@ final class ArticleExecutionHistoryPresentationTest extends TestCase
         $blade = (string) file_get_contents(
             ProjectRoot::addonsPath().'/seo-content-ai-compat/resources/views/filament/pages/seo-settings-ai-center.blade.php',
         );
-        self::assertStringContainsString('manage_model_order', $blade);
+        self::assertStringNotContainsString('manage_model_order', $blade);
         self::assertStringContainsString('text_routing_follows_models', $blade);
         self::assertStringContainsString("@if (\$group !== 'text')", $blade);
     }

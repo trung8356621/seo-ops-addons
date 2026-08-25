@@ -42,6 +42,11 @@
     @if ($showKeyword)
         <div class="mt-0.5 line-clamp-1 text-[11px] text-gray-400 dark:text-gray-500">{{ $keyword }}</div>
     @endif
+    @if (! empty($row['suggestion_reason']))
+        <div class="mt-0.5 line-clamp-1 text-[11px] text-gray-400 dark:text-gray-500" title="{{ $row['suggestion_reason'] }}">
+            {{ __('seo-content-ai::filament.projects.planner_why') }}: {{ $row['suggestion_reason'] }}
+        </div>
+    @endif
     @if (! empty($row['project_name']))
         <div class="mt-0.5 line-clamp-1 text-[11px] text-gray-400 dark:text-gray-500">
             @if (! empty($row['project_url']))

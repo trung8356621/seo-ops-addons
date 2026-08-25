@@ -45,7 +45,7 @@ final class SeoProjectKeywordAiGeneratorService
         }
 
         $carbonMonth = Carbon::parse($month)->startOfMonth();
-        $count = max(1, min($count, $carbonMonth->daysInMonth));
+        $count = max(1, $count);
 
         $variables = [
             'project_month' => $carbonMonth->format('m/Y'),

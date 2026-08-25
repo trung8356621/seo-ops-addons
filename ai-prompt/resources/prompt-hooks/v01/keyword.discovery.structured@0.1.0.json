@@ -18,7 +18,8 @@
   "input_schema": {
     "seed_topic": { "type": "string", "required": true, "max_length": 1000 },
     "count": { "type": "integer", "required": false, "default": 10 },
-    "brief": { "type": "string", "required": false, "nullable": true, "max_length": 5000 }
+    "brief": { "type": "string", "required": false, "nullable": true, "max_length": 5000 },
+    "primary_language": { "type": "string", "required": false, "nullable": true, "max_length": 16 }
   },
   "output_schema": {
     "type": "json",
@@ -26,8 +27,8 @@
     "validation": { "not_empty": true, "json_object": true }
   },
   "template": {
-    "system": "Return JSON only. No markdown fences.",
-    "user": "Topic: {{seed_topic}}\nCount: {{count}}\nBrief: {{brief}}"
+    "system": "Return JSON only. No markdown fences. Prefer a JSON array of objects with keyword and suggested_title. Optional compact fields: suggestion_reason (short why) and source_signal (keyword_gap|cluster_gap|mcp_signal|related_topic|manual_focus). Write keyword and suggested_title in the requested primary language when provided. Callers may still accept a list of keyword strings for backward compatibility.",
+    "user": "Topic: {{seed_topic}}\nCount: {{count}}\nPrimary language: {{primary_language}}\nBrief: {{brief}}"
   },
   "presentation": {
     "description": "Propose structured keyword data for Content Project planning.",
@@ -35,20 +36,23 @@
       "Keep results on-topic for the seed topic and brief.",
       "Follow the structured JSON contract — no free-form essays.",
       "Avoid duplicate keywords.",
+      "Include suggested_title with each keyword when possible.",
       "Return JSON only — no markdown fences."
     ],
     "output_format": [
-      "A JSON object of structured keyword recommendations.",
-      "Caller currently reads list entries as strings or objects with a keyword field."
+      "A JSON array/object of structured keyword recommendations.",
+      "Preferred item shape: {\"keyword\":\"...\",\"suggested_title\":\"...\",\"suggestion_reason\":\"...\",\"source_signal\":\"keyword_gap\"}.",
+      "Caller also accepts list entries as strings or objects with a keyword field."
     ],
     "notes": [
       "This Hook does not write keywords to the domain database — callers persist results.",
-      "Field-level keys beyond keyword are not fixed in the Hook schema yet — keep the JSON object generic."
+      "New Content Planner persists planning items only; it does not upsert Keyword Intelligence."
     ],
     "variables": [
       { "key": "seed_topic", "required": true },
       { "key": "count", "required": false },
-      { "key": "brief", "required": false }
+      { "key": "brief", "required": false },
+      { "key": "primary_language", "required": false }
     ]
   },
   "retry": { "max": 0 },

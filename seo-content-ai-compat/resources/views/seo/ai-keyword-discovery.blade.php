@@ -36,6 +36,12 @@
                         <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                             {{ __('seo-content-ai::filament.keyword.discovery_form_hint') }}
                         </p>
+                        <p class="mt-2 rounded-md bg-emerald-50 px-2 py-1.5 text-xs text-emerald-800 dark:bg-emerald-500/10 dark:text-emerald-200">
+                            For new content planning, use
+                            <a class="font-medium underline" href="{{ \Omnichannel\Addons\ContentProjects\Filament\Pages\ContentProjectNewContentPlanner::getUrl() }}">
+                                Content Projects → New content
+                            </a>.
+                        </p>
                     </div>
 
                     <form wire:submit="generateAiKeywords" class="space-y-4 p-4">

@@ -138,6 +138,8 @@ final class ContentProjectPublishingLifecyclePolishTest extends TestCase
         self::assertStringContainsString("'interval'", $source);
         self::assertStringContainsString("'per_day'", $source);
         self::assertStringContainsString("'random_windows'", $source);
+        self::assertStringContainsString("'monthly_even'", $source);
+        self::assertStringContainsString('MonthlyPublishDistributionService', $source);
     }
 
     public function test_queue_health_widget_exists(): void

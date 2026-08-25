@@ -32,6 +32,13 @@ enum OperationalNotificationEventCode: string
     case RunnerUnhealthy = 'runner.unhealthy';
     case RunnerRecovered = 'runner.recovered';
 
+    // AI runtime health
+    case AiModelDegraded = 'ai.model_degraded';
+    case AiModelUnavailable = 'ai.model_unavailable';
+    case AiConnectionLocked = 'ai.connection_locked';
+    case AiConnectionBudgetLimited = 'ai.connection_budget_limited';
+    case AiHealthRecovered = 'ai.health_recovered';
+
     // WordPress
     case WordpressConnectionFailed = 'wordpress.connection_failed';
     case WordpressConnectionRecovered = 'wordpress.connection_recovered';
@@ -46,6 +53,9 @@ enum OperationalNotificationEventCode: string
     case SiteSyncStuck = 'site_sync.stuck';
     case SiteSyncFailed = 'site_sync.failed';
     case SiteSyncRecovered = 'site_sync.recovered';
+
+    // Article Index Health
+    case ArticleIndexDropped = 'article.index_dropped';
 
     public function module(): string
     {

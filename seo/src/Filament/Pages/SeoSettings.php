@@ -25,12 +25,12 @@ class SeoSettings extends Page
 
     public static function getNavigationUrl(): string
     {
-        return SeoSettingsOverview::getUrl();
+        return SeoSettingsGeneral::getUrl();
     }
 
     public function mount(): void
     {
-        $this->redirect(SeoSettingsOverview::getUrl(), navigate: false);
+        $this->redirect(SeoSettingsGeneral::getUrl(), navigate: false);
     }
 
     public static function canAccess(): bool

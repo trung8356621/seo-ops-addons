@@ -30,6 +30,7 @@ final class PublishingSchedulePlan
         public readonly ?int $suggestedMaxInterval = null,
         public readonly ?string $firstPublishAt = null,
         public readonly ?string $lastPublishAt = null,
+        public readonly ?array $distributionMeta = null,
     ) {}
 
     /**
@@ -44,6 +45,7 @@ final class PublishingSchedulePlan
         string $timezone,
         ?string $blocked = null,
         ?int $suggestedMaxInterval = null,
+        ?array $distributionMeta = null,
     ): self {
         if (count($eligibleIds) !== count($slotCarbons) && $blocked === null && $slotCarbons !== []) {
             throw new InvalidArgumentException('Schedule plan slot count must match eligible ids.');
@@ -62,7 +64,7 @@ final class PublishingSchedulePlan
         }
 
         return new self(
-            eligibleIds: array_values(array_map('intval', $eligibleIds)),
+            eligibleIds: array_values(array_map('intval', array_slice($eligibleIds, 0, count($slots)))),
             slots: $slots,
             itemScheduleMap: $map,
             excluded: $excluded,
@@ -71,6 +73,7 @@ final class PublishingSchedulePlan
             suggestedMaxInterval: $suggestedMaxInterval,
             firstPublishAt: $slots[0] ?? null,
             lastPublishAt: $slots !== [] ? $slots[array_key_last($slots)] : null,
+            distributionMeta: $distributionMeta,
         );
     }
 
@@ -114,6 +117,7 @@ final class PublishingSchedulePlan
             'timezone' => $this->timezone,
             'blocked' => $this->blocked,
             'suggested_max_interval' => $this->suggestedMaxInterval,
+            'distribution_meta' => $this->distributionMeta,
         ];
     }
 

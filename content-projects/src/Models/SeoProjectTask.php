@@ -269,6 +269,11 @@ class SeoProjectTask extends Model
         return $this->belongsTo(SeoArticle::class, 'article_id');
     }
 
+    public function itemOrigin(): \Illuminate\Database\Eloquent\Relations\HasOne
+    {
+        return $this->hasOne(SeoContentProjectItemOrigin::class, 'project_task_id');
+    }
+
     public function runItems(): HasMany
     {
         return $this->hasMany(SeoProjectRunItem::class, 'task_id');

@@ -31,14 +31,20 @@ final class MonthlyMcpReportBuilder
         string $domain,
         ?SeoMcpSourceSnapshot $siteSnap,
         ?SeoMcpSourceSnapshot $keywordSnap,
+        ?SeoMcpSourceSnapshot $gscSnap = null,
     ): array {
         $siteOk = $siteSnap?->isUsable() === true;
         $kwOk = $keywordSnap?->isUsable() === true;
+        $gscOk = $gscSnap?->isUsable() === true
+            && ! (($gscSnap->metrics_json['absent'] ?? false) === true);
         $siteMetrics = $siteOk ? (array) $siteSnap->metrics_json : [];
         $siteSummary = $siteOk ? (array) $siteSnap->summary_json : [];
         $kwMetrics = $kwOk ? (array) $keywordSnap->metrics_json : [];
         $kwSummary = $kwOk ? (array) $keywordSnap->summary_json : [];
         $kwContext = $kwOk ? (array) $keywordSnap->context_json : [];
+        $gscMetrics = $gscOk ? (array) $gscSnap->metrics_json : [];
+        $gscSummary = $gscOk ? (array) $gscSnap->summary_json : [];
+        $gscContext = $gscOk ? (array) $gscSnap->context_json : [];
 
         $highlights = [];
         $risks = [];
@@ -136,6 +142,36 @@ final class MonthlyMcpReportBuilder
             ];
         }
 
+        if ($gscOk) {
+            $falling = (int) ($gscMetrics['falling_count'] ?? 0);
+            $ctrOpp = (int) ($gscMetrics['ctr_opportunity_count'] ?? 0);
+            $decay = (int) ($gscMetrics['content_decay_count'] ?? 0);
+            $newOpp = (int) ($gscMetrics['new_content_opportunity_count'] ?? 0);
+            if ($falling > 0 || $decay > 0) {
+                $risks[] = [
+                    'key' => 'gsc_falling_or_decay',
+                    'falling' => $falling,
+                    'content_decay' => $decay,
+                ];
+                $actions[] = [
+                    'key' => 'review_gsc_falling_queries',
+                    'count' => $falling + $decay,
+                ];
+            }
+            if ($ctrOpp > 0) {
+                $opportunities[] = [
+                    'key' => 'gsc_ctr_opportunity',
+                    'count' => $ctrOpp,
+                ];
+            }
+            if ($newOpp > 0) {
+                $opportunities[] = [
+                    'key' => 'gsc_new_content_opportunity',
+                    'count' => $newOpp,
+                ];
+            }
+        }
+
         $highlights = array_slice($highlights, 0, self::MAX_ITEMS);
         $risks = array_slice($risks, 0, self::MAX_ITEMS);
         $opportunities = array_slice($opportunities, 0, self::MAX_ITEMS);
@@ -151,9 +187,12 @@ final class MonthlyMcpReportBuilder
             'unclustered' => (int) ($kwMetrics['unclustered'] ?? 0),
             'article_total' => (int) ($siteMetrics['article_total'] ?? 0),
             'article_published' => (int) ($siteMetrics['article_published'] ?? 0),
+            'gsc_clicks' => (int) ($gscMetrics['clicks'] ?? 0),
+            'gsc_impressions' => (int) ($gscMetrics['impressions'] ?? 0),
             'sources' => [
                 'site' => $siteOk,
                 'keywords' => $kwOk,
+                'gsc' => $gscOk,
             ],
         ];
 
@@ -167,9 +206,9 @@ final class MonthlyMcpReportBuilder
                 'indexability_warnings' => (int) ($siteMetrics['noindex'] ?? 0),
             ],
             'coverage' => [
-                'sources_ready' => ($siteOk ? 1 : 0) + ($kwOk ? 1 : 0),
-                'sources_total' => 2,
-                'sources' => ['site', 'keywords'],
+                'sources_ready' => ($siteOk ? 1 : 0) + ($kwOk ? 1 : 0) + ($gscOk ? 1 : 0),
+                'sources_total' => 3,
+                'sources' => ['site', 'keywords', 'gsc'],
             ],
             'site_intelligence' => $siteOk ? [
                 'metrics' => $siteMetrics,
@@ -187,12 +226,20 @@ final class MonthlyMcpReportBuilder
                 'intent_gaps' => array_slice((array) (($kwContext['generation_context']['intent_gaps'] ?? [])), 0, 10),
                 'missing_directions' => array_slice((array) (($kwContext['generation_context']['missing_directions'] ?? [])), 0, 10),
             ] : null,
+            'gsc_intelligence' => $gscOk ? [
+                'metrics' => $gscMetrics,
+                'partial' => (bool) ($gscMetrics['partial'] ?? false),
+                'planning_signals' => array_slice((array) ($gscContext['planning_signals'] ?? []), 0, 30),
+                'ai_lines' => array_slice((array) ($gscContext['ai_lines'] ?? []), 0, 40),
+                'note' => (string) ($gscContext['note'] ?? 'GSC impressions ≠ search volume'),
+            ] : null,
             'highlights' => $highlights,
             'risks' => $risks,
             'opportunities' => $opportunities,
             'recommended_actions' => $actions,
         ];
 
+        // Ready still requires site+keywords; GSC is optional evidence.
         $status = ($siteOk && $kwOk)
             ? McpReportStatus::Ready->value
             : (($siteOk || $kwOk) ? McpReportStatus::Incomplete->value : McpReportStatus::Missing->value);

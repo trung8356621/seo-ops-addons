@@ -13,7 +13,12 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Comma
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\CancelProjectItemPublishingCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RecoverStuckPublishingCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\CreateContentProjectCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\FillSeoAuditSuggestionsCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\GenerateNewContentSuggestionsCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RestoreNewContentSuggestionsCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\GenerateProjectItemsCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SkipSeoAuditArticlesCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SplitDraftContentProjectCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\MoveProjectItemScheduleCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\PublishProjectItemsNowCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RerunProjectItemsCommand;
@@ -176,6 +181,119 @@ final class ContentProjectCapabilityRegistry
                     ContentProjectLifecyclePhase::Approved->value,
                 ],
                 confirmation: false,
+            ),
+            $this->cap(
+                'content_project.fill_seo_audit_suggestions',
+                'Fill a Draft Content Project with existing-content SEO Audit suggestions using quantity and optional filter snapshot. Does not generate articles or publish.',
+                FillSeoAuditSuggestionsCommand::class,
+                'content_project.fill_seo_audit_suggestions',
+                riskLevel: 'write',
+                idempotencySupport: false,
+                dryRunSupport: false,
+                inputSchema: [
+                    'project_ref' => ['type' => 'string', 'required' => true],
+                    'limit' => ['type' => 'integer', 'required' => false],
+                    'filters' => ['type' => 'object', 'required' => false],
+                ],
+                phases: [
+                    ContentProjectLifecyclePhase::Draft->value,
+                ],
+                confirmation: false,
+                presentation: [
+                    'description' => 'Fill Draft with SEO Audit candidates. Agent-safe — no Filament dependency.',
+                    'required_context' => ['site_ref', 'project_ref'],
+                    'side_effect_level' => 'write',
+                ],
+            ),
+            $this->cap(
+                'content_project.generate_new_content_suggestions',
+                'Generate planning suggestions for new articles with AI and add create items to a Draft Content Project. Does not generate articles, upsert Keyword Intelligence, or publish.',
+                GenerateNewContentSuggestionsCommand::class,
+                'content_project.generate_new_content_suggestions',
+                riskLevel: 'write',
+                idempotencySupport: true,
+                dryRunSupport: true,
+                inputSchema: [
+                    'project_ref' => ['type' => 'string', 'required' => true],
+                    'quantity' => ['type' => 'integer', 'required' => false],
+                    'options' => ['type' => 'object', 'required' => false],
+                    'focus' => ['type' => 'string', 'required' => false],
+                    'direction' => ['type' => 'string', 'required' => false],
+                    'idempotency_key' => ['type' => 'string', 'required' => false],
+                ],
+                phases: [
+                    ContentProjectLifecyclePhase::Draft->value,
+                ],
+                confirmation: false,
+                presentation: [
+                    'description' => 'Generate planning suggestions and add them to a Draft project. Not article generation.',
+                    'required_context' => ['site_ref', 'project_ref'],
+                    'side_effect_level' => 'write',
+                ],
+            ),
+            $this->cap(
+                'content_project.restore_new_content_suggestions',
+                'Restore project-scoped rejected AI new-content suggestion fingerprints so they may be eligible again.',
+                RestoreNewContentSuggestionsCommand::class,
+                'content_project.restore_new_content_suggestions',
+                riskLevel: 'write',
+                idempotencySupport: true,
+                dryRunSupport: false,
+                inputSchema: [
+                    'project_ref' => ['type' => 'string', 'required' => true],
+                    'fingerprints' => ['type' => 'array', 'required' => true],
+                ],
+                phases: [
+                    ContentProjectLifecyclePhase::Draft->value,
+                ],
+                confirmation: false,
+            ),
+            $this->cap(
+                'content_project.skip_seo_audit_articles',
+                'Globally skip articles from SEO Audit suggestions (article_meta.skip_seo_audit). Not project rejection.',
+                SkipSeoAuditArticlesCommand::class,
+                'content_project.skip_seo_audit_articles',
+                riskLevel: 'write',
+                idempotencySupport: true,
+                dryRunSupport: false,
+                inputSchema: [
+                    'project_ref' => ['type' => 'string', 'required' => true],
+                    'article_ids' => ['type' => 'array', 'required' => true],
+                ],
+                phases: null,
+                confirmation: false,
+                presentation: [
+                    'description' => 'Sets global skip_seo_audit on articles. Distinct from Draft remove/reject.',
+                    'required_context' => ['site_ref', 'project_ref'],
+                    'side_effect_level' => 'write',
+                ],
+            ),
+            $this->cap(
+                'content_project.split_draft',
+                'Move Draft planning items into a new execution Content Project. Does not generate articles or publish. Activate all = selection_mode all.',
+                SplitDraftContentProjectCommand::class,
+                'content_project.split_draft',
+                riskLevel: 'write',
+                idempotencySupport: true,
+                dryRunSupport: true,
+                inputSchema: [
+                    'project_ref' => ['type' => 'string', 'required' => true],
+                    'selection_mode' => ['type' => 'string', 'enum' => ['first_n', 'selected', 'all'], 'required' => false],
+                    'quantity' => ['type' => 'integer', 'required' => false],
+                    'item_refs' => ['type' => 'array', 'required' => false],
+                    'target_month' => ['type' => 'string', 'required' => false],
+                    'project_name' => ['type' => 'string', 'required' => false],
+                    'idempotency_key' => ['type' => 'string', 'required' => false],
+                ],
+                phases: [
+                    ContentProjectLifecyclePhase::Draft->value,
+                ],
+                confirmation: false,
+                presentation: [
+                    'description' => 'Split N / selected / all Draft items into a pending execution project. Month is reporting period only.',
+                    'required_context' => ['site_ref', 'project_ref'],
+                    'side_effect_level' => 'write',
+                ],
             ),
             $this->cap(
                 'content_project.update_item',
@@ -394,7 +512,26 @@ final class ContentProjectCapabilityRegistry
                 inputSchema: [
                     'project_ref' => ['type' => 'string', 'required' => true],
                     'item_refs' => ['type' => 'array', 'required' => false],
-                    'options' => ['type' => 'object', 'required' => false],
+                    'options' => [
+                        'type' => 'object',
+                        'required' => false,
+                        'properties' => [
+                            'mode' => [
+                                'type' => 'string',
+                                'enum' => ['monthly_even', 'interval', 'per_day', 'random_windows', 'project_month', 'quick', 'in_day'],
+                                'default' => 'monthly_even',
+                            ],
+                            'min_spacing_minutes' => ['type' => 'integer', 'minimum' => 1, 'maximum' => 1440, 'default' => 5],
+                            'allow_reschedule' => ['type' => 'boolean', 'default' => false],
+                            'day_start' => ['type' => 'string', 'default' => '09:00'],
+                            'day_end' => ['type' => 'string', 'default' => '17:00'],
+                            'start_at' => ['type' => 'string', 'format' => 'date-time'],
+                            'interval_minutes' => ['type' => 'integer', 'minimum' => 5],
+                            'per_day' => ['type' => 'integer', 'minimum' => 1],
+                            'days' => ['type' => 'integer', 'minimum' => 1],
+                            'windows' => ['type' => 'array'],
+                        ],
+                    ],
                     'dry_run' => ['type' => 'boolean', 'required' => false],
                 ],
                 phases: [
@@ -1399,6 +1536,8 @@ final class ContentProjectCapabilityRegistry
             $this->cap('gsc_intelligence.add_queries_to_workspace', 'Add GSC queries to keyword workspace', \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\AddGscQueriesToKeywordWorkspaceCommand::class, 'gsc_intelligence.add_queries_to_workspace', riskLevel: 'write', idempotencySupport: true, dryRunSupport: false, inputSchema: ['property_ref' => ['type' => 'string', 'required' => true], 'workspace_ref' => ['type' => 'string', 'required' => true], 'query_refs' => ['type' => 'array', 'required' => false], 'keep_duplicates' => ['type' => 'boolean', 'required' => false]], phases: null, confirmation: false),
             $this->cap('gsc_intelligence.preview_create_content_project', 'Preview content project from GSC opportunities', \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\PreviewCreateContentProjectFromGscOpportunitiesCommand::class, 'gsc_intelligence.preview_create_content_project', riskLevel: 'write', idempotencySupport: false, dryRunSupport: true, inputSchema: ['property_ref' => ['type' => 'string', 'required' => true], 'opportunity_refs' => ['type' => 'array', 'required' => true], 'project_attributes' => ['type' => 'object', 'required' => false]], phases: null, confirmation: false),
             $this->cap('gsc_intelligence.create_content_project', 'Create content project from approved GSC opportunities', \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\CreateContentProjectFromGscOpportunitiesCommand::class, 'gsc_intelligence.create_content_project', riskLevel: 'write', idempotencySupport: true, dryRunSupport: false, inputSchema: ['property_ref' => ['type' => 'string', 'required' => true], 'opportunity_refs' => ['type' => 'array', 'required' => true], 'project_attributes' => ['type' => 'object', 'required' => false], 'confirmation_token' => ['type' => 'string', 'required' => false]], phases: null, confirmation: true),
+            $this->cap('article.index_health.inspect_gsc', 'Inspect one article URL with GSC URL Inspection → Index Health', \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\InspectArticleIndexWithGscCommand::class, 'article.index_health.inspect_gsc', riskLevel: 'write', idempotencySupport: false, dryRunSupport: false, inputSchema: ['article_id' => ['type' => 'integer', 'required' => true]], phases: null, confirmation: false),
+            $this->cap('article.index_health.inspect_due_gsc', 'Queue bounded due Index Health batch via GSC URL Inspection', \Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\Application\Commands\InspectArticleIndexesWithGscCommand::class, 'article.index_health.inspect_due_gsc', riskLevel: 'write', idempotencySupport: false, dryRunSupport: false, inputSchema: ['site_id' => ['type' => 'integer', 'required' => true], 'article_ids' => ['type' => 'array', 'required' => false], 'limit' => ['type' => 'integer', 'required' => false], 'due_only' => ['type' => 'boolean', 'required' => false]], phases: null, confirmation: false),
 
             // Site Sync V2
             $this->cap('site.discover', 'Discover SEO provider and site feature availability for the explicitly supplied site_ref. Returns site_feature flags — not MCP system actions.', \Omnichannel\Addons\SiteSync\Services\Application\Commands\DiscoverSiteCommand::class, 'site.discover', riskLevel: 'write', idempotencySupport: true, dryRunSupport: false, inputSchema: [], phases: null, confirmation: false, presentation: [

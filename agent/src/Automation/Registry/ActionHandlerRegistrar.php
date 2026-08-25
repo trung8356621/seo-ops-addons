@@ -6,6 +6,8 @@ namespace Omnichannel\Addons\Agent\Automation\Registry;
 
 use Omnichannel\Addons\Agent\Automation\Actions\Article\ApproveArticleAction;
 use Omnichannel\Addons\Agent\Automation\Actions\Article\CreateArticleAction;
+use Omnichannel\Addons\Agent\Automation\Actions\Article\InspectArticleIndexWithGscAction;
+use Omnichannel\Addons\Agent\Automation\Actions\Article\InspectDueArticleIndexesWithGscAction;
 use Omnichannel\Addons\Agent\Automation\Actions\Article\UpdateArticleContentAction;
 use Omnichannel\Addons\Agent\Automation\Actions\Article\UpdateArticleSeoMetaAction;
 use Omnichannel\Addons\Agent\Automation\Actions\Foundation\PingAction;
@@ -44,6 +46,8 @@ final class ActionHandlerRegistrar
             SyncKeywordTopicClusterAction::class,
             SyncKeywordDomainLinkListAction::class,
             AttachPromptResultAction::class,
+            InspectArticleIndexWithGscAction::class,
+            InspectDueArticleIndexesWithGscAction::class,
         ];
     }
 

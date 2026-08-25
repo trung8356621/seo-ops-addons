@@ -70,6 +70,34 @@ final class OperationalNotificationDeepLinks
         return $this->panel('domains/'.$domainId.'/edit');
     }
 
+    public function aiCenterResilience(): string
+    {
+        return $this->panel('settings/ai-center', ['tab' => 'resilience']);
+    }
+
+    public function aiCenterHealth(): string
+    {
+        return $this->panel('settings/ai-center', ['tab' => 'health']);
+    }
+
+    public function aiConnectionEdit(int $connectionId): string
+    {
+        return $this->panel('ai-connections/'.$connectionId.'/edit');
+    }
+
+    public function articleIndexHealth(?int $articleId = null, ?int $siteId = null): string
+    {
+        $query = ['tab' => 'needs_review'];
+        if ($siteId !== null && $siteId > 0) {
+            $query['site'] = $siteId;
+        }
+        if ($articleId !== null && $articleId > 0) {
+            $query['focus'] = $articleId;
+        }
+
+        return $this->panel('articles/index-health', $query);
+    }
+
     /**
      * @param  array<string, scalar|null>  $query
      */

@@ -139,6 +139,8 @@ final class ContentProjectGenerationKeywordOverrideTest extends TestCase
         self::assertStringContainsString('ContentProjectBulkGenerationPlanner', $handler);
         self::assertStringContainsString('RestartGenerationWithKeywordCommand', $handler);
         self::assertStringContainsString('ContentProjectGenerationKeyword::effective', $handler);
+        self::assertStringContainsString('ResumeProjectItemFromFailedStepCommand', $handler);
+        self::assertStringContainsString('partitionResumableFailed', $handler);
     }
 
     public function test_commit_canonical_keyword_preserves_original_task_keyword(): void

@@ -386,8 +386,8 @@
             {{-- Auto Schedule modal --}}
             <div x-show="autoOpen" x-cloak class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
                 <div class="w-full max-w-lg rounded-xl bg-white p-4 shadow-xl dark:bg-gray-900" @click.outside="autoOpen = false">
-                    <h3 class="mb-1 text-sm font-semibold">Auto Schedule</h3>
-                    <p class="mb-3 text-xs text-gray-500">Phân bố đều eligible items theo tháng dự án. Không cần tick checkbox.</p>
+                    <h3 class="mb-1 text-sm font-semibold">{{ __('seo-content-ai::filament.projects.auto_schedule') }}</h3>
+                    <p class="mb-3 text-xs text-gray-500">{{ __('seo-content-ai::filament.projects.evenly_across_month') }} — {{ __('seo-content-ai::filament.projects.publishing_window_label') }}: <strong>{{ $this->project?->month?->format('F Y') ?? '—' }}</strong></p>
                     <p class="mb-3 text-xs font-medium text-gray-700 dark:text-gray-200">
                         {{ __('seo-content-ai::filament.projects.publishing_queue_all_times_use', ['tz' => $tz]) }}
                     </p>
@@ -397,6 +397,22 @@
                         <div class="rounded border border-gray-200 p-2 dark:border-gray-700">First: <strong>{{ $autoPreview['first_publish_at'] ? \Omnichannel\Addons\Content\Support\SystemDateTime::formatDateTime($autoPreview['first_publish_at']) : '—' }}</strong></div>
                         <div class="rounded border border-gray-200 p-2 dark:border-gray-700">Last: <strong>{{ $autoPreview['last_publish_at'] ? \Omnichannel\Addons\Content\Support\SystemDateTime::formatDateTime($autoPreview['last_publish_at']) : '—' }}</strong></div>
                     </div>
+                    @php
+                        $distMeta = is_array($autoPreview['distribution_meta'] ?? null) ? $autoPreview['distribution_meta'] : [];
+                        $density = (float) ($distMeta['density_approx'] ?? 0);
+                    @endphp
+                    @if (($distMeta['available_days'] ?? 0) > 0)
+                        <p class="mb-3 text-xs text-gray-600 dark:text-gray-300">
+                            ~{{ $density }} / day · {{ __('seo-content-ai::filament.projects.min_spacing_minutes') }}: {{ (int) ($distMeta['min_spacing_minutes'] ?? $this->autoMinSpacingMinutes) }}
+                            @if ($density >= 10)
+                                · High publishing density (informational)
+                            @endif
+                        </p>
+                    @endif
+                    <label class="mb-3 block text-xs">
+                        <span class="mb-1 block text-gray-600">{{ __('seo-content-ai::filament.projects.min_spacing_minutes') }}</span>
+                        <input type="number" min="1" max="1440" wire:model.live="autoMinSpacingMinutes" class="fi-input block w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-800" />
+                    </label>
                     <div class="mb-3 grid grid-cols-2 gap-2">
                         <x-select wire:model.live="autoDayStart" class="!w-full">
                             @foreach (['08:00','09:00','10:00','11:00'] as $t)
@@ -423,7 +439,7 @@
                             wire:click="runProjectMonthAutoSchedule"
                             @click="autoOpen = false"
                             @disabled($autoEligible === 0 || ! empty($autoPreview['blocked']))
-                        >Apply</button>
+                        >{{ __('seo-content-ai::filament.projects.auto_schedule') }}</button>
                     </div>
                 </div>
             </div>

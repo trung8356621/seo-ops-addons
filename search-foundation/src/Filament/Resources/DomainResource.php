@@ -12,6 +12,7 @@ use Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource\Pages;
 use Omnichannel\Addons\Seo\Services\SeoMainDomainService;
 use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\WordPress\Services\SitePrimaryLanguageService;
 use App\Models\Site;
 use Filament\Forms;
 use Filament\Forms\Components\Actions\Action as FormInputAction;
@@ -127,6 +128,60 @@ class DomainResource extends SeoPanelResource
                             ->icon('heroicon-o-arrow-path')
                             ->action(fn (Set $set) => $set('seo_migration_token', Str::random(60)))
                     ),
+                Forms\Components\Section::make(__('seo-content-ai::filament.domain.primary_language_section'))
+                    ->schema([
+                        Forms\Components\Select::make('seo_primary_language')
+                            ->label(__('seo-content-ai::filament.domain.primary_language'))
+                            ->options(function ($livewire): array {
+                                $record = method_exists($livewire, 'getRecord') ? $livewire->getRecord() : null;
+                                if (! $record instanceof Site) {
+                                    return [];
+                                }
+
+                                return app(SitePrimaryLanguageService::class)->formLanguageOptions($record);
+                            })
+                            ->disabled(function ($livewire): bool {
+                                $record = method_exists($livewire, 'getRecord') ? $livewire->getRecord() : null;
+                                if (! $record instanceof Site) {
+                                    return true;
+                                }
+
+                                return ! app(SitePrimaryLanguageService::class)->hasPolylang($record);
+                            })
+                            ->dehydrated(function ($livewire): bool {
+                                $record = method_exists($livewire, 'getRecord') ? $livewire->getRecord() : null;
+                                if (! $record instanceof Site) {
+                                    return false;
+                                }
+
+                                return app(SitePrimaryLanguageService::class)->hasPolylang($record);
+                            })
+                            ->helperText(function ($livewire): string {
+                                $record = method_exists($livewire, 'getRecord') ? $livewire->getRecord() : null;
+                                if (! $record instanceof Site) {
+                                    return (string) __('seo-content-ai::filament.domain.primary_language_none_synced');
+                                }
+
+                                $svc = app(SitePrimaryLanguageService::class);
+                                if (! $svc->hasPolylang($record)) {
+                                    if ($svc->resolvePrimaryLanguage($record) !== null) {
+                                        return (string) __('seo-content-ai::filament.domain.primary_language_no_polylang');
+                                    }
+
+                                    return (string) __('seo-content-ai::filament.domain.primary_language_undetected');
+                                }
+
+                                if ($svc->syncedLanguageOptions($record) === []) {
+                                    return (string) __('seo-content-ai::filament.domain.primary_language_none_synced');
+                                }
+
+                                return (string) __('seo-content-ai::filament.domain.primary_language_hint');
+                            })
+                            ->native(false)
+                            ->nullable()
+                            ->columnSpanFull(),
+                    ])
+                    ->columnSpanFull(),
                 ...DomainTechnicalSeoForm::schema(),
             ]);
     }

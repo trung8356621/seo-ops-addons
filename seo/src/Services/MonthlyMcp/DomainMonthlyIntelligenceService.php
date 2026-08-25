@@ -62,6 +62,7 @@ final class DomainMonthlyIntelligenceService
                 'sources' => [
                     McpSourceKey::Site->value,
                     McpSourceKey::Keywords->value,
+                    McpSourceKey::Gsc->value,
                 ],
             ],
         ];

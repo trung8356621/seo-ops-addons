@@ -26,6 +26,7 @@ final class SeoServiceProvider extends ServiceProvider
                 return new \Omnichannel\Addons\Seo\Services\MonthlyMcp\MonthlyMcpSourceRegistry([
                     $app->make(\Omnichannel\Addons\Seo\Services\MonthlyMcp\Sources\SiteMonthlyMcpSource::class),
                     $app->make(\Omnichannel\Addons\Seo\Services\MonthlyMcp\Sources\KeywordMonthlyMcpSource::class),
+                    $app->make(\Omnichannel\Addons\Seo\Services\MonthlyMcp\Sources\GscMonthlyMcpSource::class),
                 ]);
             },
         );

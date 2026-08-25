@@ -4,10 +4,11 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject;
 
-use Omnichannel\Addons\ContentProjects\Enums\ContentProjectPublishQueueStatus;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Publishing\MonthlyPublishDistributionService;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\Publishing\Services\Publishing\ContentPublishingStrategyResolver;
+use Omnichannel\Addons\ContentProjects\Enums\ContentProjectPublishQueueStatus;
 use Omnichannel\Addons\Content\Support\SystemDateTime;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Schema;
@@ -30,6 +31,7 @@ final class ContentProjectAutoScheduleService
     public function __construct(
         private readonly ContentProjectPublishingQueueService $queue,
         private readonly ContentPublishingStrategyResolver $strategyResolver = new ContentPublishingStrategyResolver,
+        private readonly MonthlyPublishDistributionService $monthlyDistribution = new MonthlyPublishDistributionService,
     ) {}
 
     /**
@@ -91,7 +93,10 @@ final class ContentProjectAutoScheduleService
     public function buildPlan(SeoProject $project, array $taskIds, array $options): PublishingSchedulePlan
     {
         $tz = SystemDateTime::timezone();
-        $allowReschedule = (bool) ($options['allow_reschedule'] ?? true);
+        $mode = (string) ($options['mode'] ?? 'interval');
+        $allowReschedule = array_key_exists('allow_reschedule', $options)
+            ? (bool) $options['allow_reschedule']
+            : ($mode !== 'monthly_even');
         $resolved = $this->resolveEligible($project, $taskIds, $allowReschedule);
         $ids = $resolved['eligible_ids'];
 
@@ -102,7 +107,9 @@ final class ContentProjectAutoScheduleService
         $mode = (string) ($options['mode'] ?? 'interval');
 
         try {
+            $monthlyMeta = null;
             $slots = match ($mode) {
+                'monthly_even' => $this->buildMonthlyEvenSlots($project, count($ids), $options, $tz, $monthlyMeta),
                 'interval' => $this->buildIntervalSlots(
                     $this->parseStartAt($options['start_at'] ?? null, $tz),
                     count($ids),
@@ -166,7 +173,35 @@ final class ContentProjectAutoScheduleService
             );
         }
 
-        return PublishingSchedulePlan::fromSlots($ids, $slots, $resolved['excluded'], $tz);
+        $excluded = $resolved['excluded'];
+        $schedulableIds = $ids;
+
+        if ($mode === 'monthly_even' && is_array($monthlyMeta)) {
+            $monthlyMeta['preserved_count'] = count(array_filter(
+                $resolved['excluded'],
+                static fn (array $row): bool => ($row['reason'] ?? '') === 'scheduled_locked',
+            ));
+        }
+
+        if ($mode === 'monthly_even' && is_array($monthlyMeta) && ($monthlyMeta['unscheduled_count'] ?? 0) > 0) {
+            $fitCount = count($slots);
+            $overflowIds = array_slice($ids, $fitCount);
+            foreach ($overflowIds as $overflowId) {
+                $excluded[] = [
+                    'id' => (int) $overflowId,
+                    'reason' => 'window_overflow',
+                ];
+            }
+            $schedulableIds = array_slice($ids, 0, $fitCount);
+        }
+
+        return PublishingSchedulePlan::fromSlots(
+            $schedulableIds,
+            $slots,
+            $excluded,
+            $tz,
+            distributionMeta: is_array($monthlyMeta) ? $monthlyMeta : null,
+        );
     }
 
     /**
@@ -244,6 +279,70 @@ final class ContentProjectAutoScheduleService
         }
 
         return ['eligible_ids' => $eligible, 'excluded' => $excluded];
+    }
+
+    /**
+     * @param  array<string, mixed>  $options
+     * @param  array<string, mixed>|null  $distributionMeta  populated on success
+     * @return list<Carbon>
+     */
+    private function buildMonthlyEvenSlots(
+        SeoProject $project,
+        int $count,
+        array $options,
+        string $tz,
+        ?array &$distributionMeta = null,
+    ): array {
+        $month = $project->month;
+        if ($month === null) {
+            throw new RuntimeException('Project month missing — cannot use monthly_even distribution.');
+        }
+
+        $window = $this->monthlyDistribution->resolveProjectMonthWindow($month, $tz);
+        $siteId = (int) ($project->site_id ?? 0);
+        if ($siteId <= 0) {
+            throw new RuntimeException('Project site_id missing — cannot use monthly_even distribution.');
+        }
+
+        $windowStartUtc = $window['start']->copy()->utc();
+        $windowEndUtc = $window['end']->copy()->utc();
+
+        $existingIso = SeoProjectTask::query()
+            ->where('site_id', $siteId)
+            ->whereNotNull('scheduled_publish_at')
+            ->whereBetween('scheduled_publish_at', [$windowStartUtc, $windowEndUtc])
+            ->orderBy('scheduled_publish_at')
+            ->pluck('scheduled_publish_at')
+            ->map(static fn ($at): string => $at instanceof Carbon
+                ? $at->copy()->utc()->toIso8601String()
+                : Carbon::parse((string) $at)->utc()->toIso8601String())
+            ->values()
+            ->all();
+
+        $minSpacing = $this->monthlyDistribution->resolveMinSpacing($options);
+
+        $result = $this->monthlyDistribution->allocate(
+            $window['start'],
+            $window['end'],
+            $count,
+            $options + ['min_spacing_minutes' => $minSpacing],
+            $existingIso,
+            $tz,
+            $window['label'],
+        );
+
+        $distributionMeta = [
+            'mode' => 'monthly_even',
+            'window_label' => $result['window_label'],
+            'available_days' => $result['available_days'],
+            'density_approx' => $result['density_approx'],
+            'min_spacing_minutes' => $minSpacing,
+            'unscheduled_count' => $result['unscheduled_count'],
+            'unscheduled_reason' => $result['unscheduled_reason'],
+            'existing_anchor_count' => count($existingIso),
+        ];
+
+        return $result['slots'];
     }
 
     /**

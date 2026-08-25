@@ -78,6 +78,12 @@ final class McpMarkdownRenderer
             $bundle['keyword_snap'],
             $bundle['period'],
         );
+        $gscMd = $this->renderGscFromSnapshot(
+            $bundle['domain'],
+            $periodKey,
+            $bundle['gsc_snap'],
+            $bundle['period'],
+        );
 
         return $this->renderCombinedBody(
             $bundle['domain'],
@@ -86,8 +92,25 @@ final class McpMarkdownRenderer
             $bundle['report'],
             $bundle['site_snap'],
             $bundle['keyword_snap'],
+            $bundle['gsc_snap'],
             $siteMd,
             $kwMd,
+            $gscMd,
+        );
+    }
+
+    public function renderGsc(int $siteId, string $periodKey): string
+    {
+        $bundle = $this->resolve($siteId, $periodKey);
+        if ($bundle === null) {
+            return $this->missingSource('GSC Intelligence', $siteId, $periodKey);
+        }
+
+        return $this->renderGscFromSnapshot(
+            $bundle['domain'],
+            $periodKey,
+            $bundle['gsc_snap'],
+            $bundle['period'],
         );
     }
 
@@ -97,6 +120,7 @@ final class McpMarkdownRenderer
      *   domain: string,
      *   site_snap: ?SeoMcpSourceSnapshot,
      *   keyword_snap: ?SeoMcpSourceSnapshot,
+     *   gsc_snap: ?SeoMcpSourceSnapshot,
      *   report: ?SeoMcpReport
      * }|null
      */
@@ -111,7 +135,8 @@ final class McpMarkdownRenderer
         }
         $siteSnap = $this->snapshots->find($period, $siteId, McpSourceKey::Site);
         $keywordSnap = $this->snapshots->find($period, $siteId, McpSourceKey::Keywords);
-        $domain = $this->domainFromSnapshots($siteSnap, $keywordSnap);
+        $gscSnap = $this->snapshots->find($period, $siteId, McpSourceKey::Gsc);
+        $domain = $this->domainFromSnapshots($siteSnap, $keywordSnap, $gscSnap);
         if ($domain === '') {
             $site = Site::query()->find($siteId);
             $domain = $site instanceof Site ? (string) ($site->domain ?? '') : '';
@@ -125,13 +150,17 @@ final class McpMarkdownRenderer
             'domain' => $domain,
             'site_snap' => $siteSnap,
             'keyword_snap' => $keywordSnap,
+            'gsc_snap' => $gscSnap,
             'report' => $this->reports->find($period, $siteId),
         ];
     }
 
-    private function domainFromSnapshots(?SeoMcpSourceSnapshot $siteSnap, ?SeoMcpSourceSnapshot $keywordSnap): string
-    {
-        foreach ([$siteSnap, $keywordSnap] as $snap) {
+    private function domainFromSnapshots(
+        ?SeoMcpSourceSnapshot $siteSnap,
+        ?SeoMcpSourceSnapshot $keywordSnap,
+        ?SeoMcpSourceSnapshot $gscSnap = null,
+    ): string {
+        foreach ([$siteSnap, $keywordSnap, $gscSnap] as $snap) {
             if (! $snap instanceof SeoMcpSourceSnapshot) {
                 continue;
             }
@@ -430,6 +459,98 @@ final class McpMarkdownRenderer
         return implode("\n", $lines);
     }
 
+    private function renderGscFromSnapshot(
+        string $domain,
+        string $periodKey,
+        ?SeoMcpSourceSnapshot $snap,
+        SeoMcpPeriod $period,
+    ): string {
+        if (! $snap instanceof SeoMcpSourceSnapshot) {
+            return implode("\n", [
+                '# GSC Intelligence',
+                '',
+                'No GSC Search Performance snapshot for '.$domain.' / '.$this->periodLabel($periodKey).'.',
+                '',
+                '_GSC is optional — Planning Intelligence still works without it._',
+            ]);
+        }
+
+        $metrics = is_array($snap->metrics_json) ? $snap->metrics_json : [];
+        $summary = is_array($snap->summary_json) ? $snap->summary_json : [];
+        $context = is_array($snap->context_json) ? $snap->context_json : [];
+        $partial = ($metrics['partial'] ?? false) === true;
+        $absent = ($metrics['absent'] ?? false) === true;
+
+        $lines = [
+            '# GSC Intelligence',
+            '',
+            '- Domain: '.$domain,
+            '- Period: '.$this->periodLabel($periodKey).($partial ? ' (partial month)' : ''),
+            '- Property: '.(string) (($summary['identity']['property_uri'] ?? '') ?: '—'),
+            '',
+            '## Totals',
+            '',
+            '- Clicks: '.$this->num((int) ($metrics['clicks'] ?? 0)),
+            '- GSC impressions: '.$this->num((int) ($metrics['impressions'] ?? 0)).' _(not search volume)_',
+            '- CTR: '.($metrics['ctr'] !== null ? round(((float) $metrics['ctr']) * 100, 2).'%' : '—'),
+            '- Avg position: '.($metrics['avg_position'] !== null ? (string) $metrics['avg_position'] : '—'),
+            '- Queries: '.$this->num((int) ($metrics['query_count'] ?? 0)),
+            '- Pages: '.$this->num((int) ($metrics['page_count'] ?? 0)),
+        ];
+
+        if ($absent) {
+            $lines[] = '';
+            $lines[] = '_No GSC facts for this site ('.trim((string) ($metrics['absent_reason'] ?? 'absent')).')._';
+
+            return implode("\n", $lines);
+        }
+
+        $buckets = [
+            'Rising' => (array) ($summary['rising_queries'] ?? []),
+            'Falling' => (array) ($summary['falling_queries'] ?? []),
+            'CTR opportunities' => (array) ($summary['high_impression_low_ctr'] ?? []),
+            'Near page one' => (array) ($summary['near_page_one'] ?? []),
+            'Content decay' => (array) ($summary['content_decay'] ?? []),
+            'Possible cannibalization' => (array) ($summary['possible_cannibalization'] ?? []),
+        ];
+        foreach ($buckets as $title => $rows) {
+            if ($rows === []) {
+                continue;
+            }
+            $lines[] = '';
+            $lines[] = '## '.$title;
+            $lines[] = '';
+            foreach (array_slice($rows, 0, self::MAX_LIST_ITEMS) as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+                $label = trim((string) ($row['label'] ?? $row['query'] ?? $row['key'] ?? ''));
+                if ($label === '') {
+                    continue;
+                }
+                $lines[] = '- '.$label;
+            }
+        }
+
+        $aiLines = is_array($context['ai_lines'] ?? null) ? $context['ai_lines'] : [];
+        if ($aiLines !== []) {
+            $lines[] = '';
+            $lines[] = '## AI context lines';
+            $lines[] = '';
+            foreach (array_slice($aiLines, 0, self::MAX_LIST_ITEMS) as $line) {
+                if (is_string($line) && trim($line) !== '') {
+                    $lines[] = '- '.trim($line);
+                }
+            }
+        }
+
+        $lines[] = '';
+        $lines[] = '_Snapshot: '.$this->snapshotMeta($snap, $period).'_';
+        $lines[] = '_Note: GSC impressions ≠ global search volume. No keyword difficulty._';
+
+        return implode("\n", $lines);
+    }
+
     private function renderCombinedBody(
         string $domain,
         string $periodKey,
@@ -437,11 +558,14 @@ final class McpMarkdownRenderer
         ?SeoMcpReport $report,
         ?SeoMcpSourceSnapshot $siteSnap,
         ?SeoMcpSourceSnapshot $keywordSnap,
+        ?SeoMcpSourceSnapshot $gscSnap,
         string $siteMd,
         string $kwMd,
+        string $gscMd,
     ): string {
         $siteStatus = $this->snapshotStatusLabel($siteSnap);
         $keywordStatus = $this->snapshotStatusLabel($keywordSnap);
+        $gscStatus = $this->snapshotStatusLabel($gscSnap);
         $periodStatus = $period->isFinalized() ? 'Finalized' : 'Open';
         $reportStatus = $report instanceof SeoMcpReport ? (string) ($report->status ?? 'missing') : 'missing';
 
@@ -456,6 +580,7 @@ final class McpMarkdownRenderer
             '- Report status: '.$reportStatus,
             '- Website snapshot: '.$siteStatus,
             '- Keyword snapshot: '.$keywordStatus,
+            '- GSC snapshot: '.$gscStatus,
             '',
             '---',
             '',
@@ -468,6 +593,12 @@ final class McpMarkdownRenderer
             '# 2. Keyword Intelligence',
             '',
             $this->stripTopHeading($kwMd, '# Keyword Intelligence'),
+            '',
+            '---',
+            '',
+            '# 3. GSC Intelligence',
+            '',
+            $this->stripTopHeading($gscMd, '# GSC Intelligence'),
         ];
 
         if ($report instanceof SeoMcpReport) {

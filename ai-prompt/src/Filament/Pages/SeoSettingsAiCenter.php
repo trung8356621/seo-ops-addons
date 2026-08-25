@@ -22,6 +22,9 @@ use Omnichannel\Addons\AiPrompt\Services\AiModelInventory;
 use Omnichannel\Addons\AiPrompt\Services\AiModelPrimaryTypeClassifier;
 use Omnichannel\Addons\AiPrompt\Services\AiModelPriorityService;
 use Omnichannel\Addons\AiPrompt\Services\AiModelRouterService;
+use Omnichannel\Addons\AiPrompt\Services\AiResilienceSettingsService;
+use Omnichannel\Addons\AiPrompt\Services\AiHealthUiPresenter;
+use Omnichannel\Addons\AiPrompt\Services\AiRuntimeHealthService;
 use Omnichannel\Addons\AiPrompt\Services\AiRoutingBootstrapService;
 use Omnichannel\Addons\AiPrompt\Services\AiRoutingTargetService;
 use Omnichannel\Addons\AiPrompt\Services\CanonicalAiRouteResolver;
@@ -78,6 +81,14 @@ class SeoSettingsAiCenter extends Page
     public bool $modelsHydrated = true;
 
     public bool $routingHydrated = false;
+
+    public bool $resilienceHydrated = false;
+
+    public bool $healthHydrated = false;
+
+    public int $maxAiAttempts = 6;
+
+    public int $maxFreeAttempts = 3;
 
     public bool $routingUnsaved = false;
 
@@ -151,18 +162,21 @@ class SeoSettingsAiCenter extends Page
 
             return;
         }
-        $allowed = ['models', 'routing'];
+        $allowed = ['models', 'routing', 'resilience', 'health'];
         if (! in_array($this->tab, $allowed, true)) {
             $this->tab = 'models';
         }
         // Models panel always present; Routing lazy-hydrates once. Tab visibility is Alpine-only.
         $this->modelsHydrated = true;
         $this->routingHydrated = $this->tab === 'routing';
+        $this->resilienceHydrated = $this->tab === 'resilience';
+        $this->healthHydrated = $this->tab === 'health';
         $userId = (int) auth()->id();
         app(AiModelPrimaryTypeClassifier::class)->classifyForUser($userId);
         $bootstrap->bootstrapForUser($userId);
         $this->globalUsageMode = $articleSettings->getDefaultAiUsageMode();
         $this->fillRouting($targets, $userId);
+        $this->fillResilience($userId);
     }
 
     public function loadPanel(string $panel): void
@@ -172,6 +186,12 @@ class SeoSettingsAiCenter extends Page
         }
         if ($panel === 'routing') {
             $this->routingHydrated = true;
+        }
+        if ($panel === 'resilience') {
+            $this->resilienceHydrated = true;
+        }
+        if ($panel === 'health') {
+            $this->healthHydrated = true;
         }
     }
 
@@ -1054,6 +1074,105 @@ class SeoSettingsAiCenter extends Page
         }
 
         return $connection;
+    }
+
+    private function fillResilience(int $userId): void
+    {
+        $settings = app(AiResilienceSettingsService::class)->get($userId);
+        $this->maxAiAttempts = (int) $settings[AiResilienceSettingsService::KEY_MAX_AI_ATTEMPTS];
+        $this->maxFreeAttempts = (int) $settings[AiResilienceSettingsService::KEY_MAX_FREE_ATTEMPTS];
+    }
+
+    public function saveResilienceSettings(AiResilienceSettingsService $settings): void
+    {
+        $this->assertManager();
+        $userId = (int) auth()->id();
+        try {
+            $saved = $settings->save($userId, [
+                AiResilienceSettingsService::KEY_MAX_AI_ATTEMPTS => $this->maxAiAttempts,
+                AiResilienceSettingsService::KEY_MAX_FREE_ATTEMPTS => $this->maxFreeAttempts,
+            ]);
+        } catch (\InvalidArgumentException $exception) {
+            Notification::make()->title($exception->getMessage())->danger()->send();
+
+            return;
+        }
+        $this->maxAiAttempts = $saved[AiResilienceSettingsService::KEY_MAX_AI_ATTEMPTS];
+        $this->maxFreeAttempts = $saved[AiResilienceSettingsService::KEY_MAX_FREE_ATTEMPTS];
+        Notification::make()->title(__('seo-content-ai::filament.ai_center.resilience_saved'))->success()->send();
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function connectionHealthRows(): array
+    {
+        return app(AiHealthUiPresenter::class)->presentConnections(
+            app(AiRuntimeHealthService::class)->connectionHealthRows((int) auth()->id()),
+        );
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function modelHealthRows(): array
+    {
+        return app(AiHealthUiPresenter::class)->presentModels(
+            app(AiRuntimeHealthService::class)->modelHealthRows((int) auth()->id()),
+        );
+    }
+
+    /**
+     * @return array{healthy: int, degraded: int, issues: int, no_data: int}
+     */
+    public function healthSummary(): array
+    {
+        return app(AiHealthUiPresenter::class)->summary(
+            $this->connectionHealthRows(),
+            $this->modelHealthRows(),
+        );
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function healthProviderFilterOptions(): array
+    {
+        return collect($this->modelHealthRows())
+            ->pluck('provider_key')
+            ->filter(static fn (mixed $value): bool => is_string($value) && $value !== '')
+            ->unique()
+            ->sort()
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function healthAreaFilterOptions(): array
+    {
+        return collect($this->modelHealthRows())
+            ->pluck('area_label')
+            ->filter(static fn (mixed $value): bool => is_string($value) && $value !== '' && $value !== '—')
+            ->unique()
+            ->sort()
+            ->values()
+            ->all();
+    }
+
+    public function unlockConnectionHealth(int $connectionId, AiRuntimeHealthService $health): void
+    {
+        $this->assertManager();
+        $health->unlockConnection((int) auth()->id(), $connectionId);
+        Notification::make()->title(__('seo-content-ai::filament.ai_center.connection_enabled'))->success()->send();
+    }
+
+    public function enablePaidRoutes(int $connectionId, AiRuntimeHealthService $health): void
+    {
+        $this->assertManager();
+        $health->enablePaidRoutes((int) auth()->id(), $connectionId);
+        Notification::make()->title(__('seo-content-ai::filament.ai_center.paid_routes_enabled'))->success()->send();
     }
 
     private function assertManager(): void

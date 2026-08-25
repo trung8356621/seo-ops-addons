@@ -113,6 +113,11 @@ final class ContentProjectBusinessLock
         return "project:{$projectId}:schedule";
     }
 
+    public function siteSchedule(int $siteId, string $ym): string
+    {
+        return "site:{$siteId}:schedule:{$ym}";
+    }
+
     public function itemPublish(int $itemId): string
     {
         return "item:{$itemId}:publish";

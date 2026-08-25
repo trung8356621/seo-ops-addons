@@ -109,7 +109,7 @@ final class PromptExecutionOrchestrationTest extends TestCase
         $resolved = $resolver->resolve(new SeoProjectTask, 'article', 'node_1780563019334');
 
         self::assertFalse($resolved['ok']);
-        self::assertStringContainsString('Ä‘Ã£ thay Ä‘á»•i', (string) $resolved['message']);
+        self::assertStringContainsString('đã thay đổi', (string) $resolved['message']);
         self::assertStringNotContainsString('node_1780563019334', (string) $resolved['message']);
     }
 

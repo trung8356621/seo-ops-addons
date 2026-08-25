@@ -7,6 +7,9 @@ namespace Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResour
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithContentProjectPublishingActions;
+use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithDraftSplit;
+use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithNewContentSuggestions;
+use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithSeoAuditSuggestions;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
@@ -63,6 +66,9 @@ use Throwable;
 final class ViewSeoProject extends Page
 {
     use InteractsWithContentProjectPublishingActions;
+    use InteractsWithDraftSplit;
+    use InteractsWithNewContentSuggestions;
+    use InteractsWithSeoAuditSuggestions;
     use WithPagination;
 
     protected static string $resource = SeoProjectResource::class;
@@ -155,13 +161,15 @@ final class ViewSeoProject extends Page
 
     public ?string $pendingOperationId = null;
 
-    public string $autoMode = 'interval';
+    public string $autoMode = 'monthly_even';
 
     public string $autoStartAt = '';
 
     public int $autoIntervalMinutes = 15;
 
     public int $autoPerDay = 3;
+
+    public int $autoMinSpacingMinutes = 5;
 
     public string $autoDayStart = '09:00';
 
@@ -194,6 +202,7 @@ final class ViewSeoProject extends Page
 
     /** @var array<string, mixed> */
     protected $queryString = [
+        'workspaceTab' => ['except' => 'items', 'as' => 'workspace'],
         'search' => ['except' => ''],
         'typeFilter' => ['except' => '', 'as' => 'type'],
         'generationFilter' => ['except' => '', 'as' => 'generation'],
@@ -233,6 +242,10 @@ final class ViewSeoProject extends Page
             $this->workflowFilter = ContentProjectRecentlyCompletedDefinition::FILTER;
             $this->reportingFilter = ContentProjectRecentlyCompletedDefinition::FILTER;
         }
+
+        $this->mountInteractsWithSeoAuditSuggestions();
+        $this->mountInteractsWithNewContentSuggestions();
+        $this->mountInteractsWithDraftSplit();
     }
 
     public function getTitle(): string|Htmlable
@@ -253,9 +266,17 @@ final class ViewSeoProject extends Page
             'queue' => $queue,
         ]);
 
+        $draftBadge = '';
+        if ($this->project?->isDraftPlanning()) {
+            $draftBadge = '<span class="inline-flex items-center rounded-md bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-inset ring-amber-600/20 dark:bg-amber-500/10 dark:text-amber-200 dark:ring-amber-400/30">'
+                .e((string) __('seo-content-ai::filament.projects.suggestions_draft_badge'))
+                .'</span>';
+        }
+
         return new HtmlString(
             '<span class="inline-flex flex-wrap items-center gap-2">'
             .'<span>'.e($name).'</span>'
+            .$draftBadge
             .'<span class="inline-flex items-center rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 ring-1 ring-inset ring-gray-500/20 dark:bg-gray-800 dark:text-gray-200 dark:ring-gray-400/30">'
             .e(is_string($badge) ? $badge : $total.' Items')
             .'</span>'
@@ -947,18 +968,6 @@ final class ViewSeoProject extends Page
         return $this->normalizeSelectedIds($this->selectedTaskIds);
     }
 
-    /**
-     * @param  list<int|string>  $ids
-     * @return list<int>
-     */
-    private function normalizeSelectedIds(array $ids): array
-    {
-        return array_values(array_unique(array_filter(
-            array_map(static fn (mixed $id): int => (int) $id, $ids),
-            static fn (int $id): bool => $id > 0,
-        )));
-    }
-
     public function archiveSelected(): void
     {
         $this->dispatchArchive($this->selectedItemIds());
@@ -967,6 +976,46 @@ final class ViewSeoProject extends Page
     public function archiveOne(int $taskId): void
     {
         $this->dispatchArchive([$taskId]);
+    }
+
+    public function skipSeoAuditOne(int $taskId): void
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+
+        $project = $this->requireProject();
+        $task = SeoProjectTask::query()
+            ->where('project_id', (int) $project->getKey())
+            ->whereKey($taskId)
+            ->first();
+
+        $articleId = (int) ($task?->article_id ?? 0);
+        if ($articleId <= 0) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.queue_select_required'))
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        $result = app(ContentProjectCommandBus::class)->dispatch(
+            new \Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SkipSeoAuditArticlesCommand(
+                (int) $project->getKey(),
+                [$articleId],
+            ),
+            ActorContext::user(
+                auth()->id() !== null ? (int) auth()->id() : null,
+                (int) ($project->site_id ?? 0) ?: null,
+            ),
+        );
+
+        Notification::make()
+            ->title($result->success
+                ? __('seo-content-ai::filament.article_list.seo_audit_skipped_on')
+                : 'Failed')
+            ->body($result->message)
+            ->{$result->success ? 'success' : 'danger'}()
+            ->send();
     }
 
     /**
@@ -2567,7 +2616,7 @@ final class ViewSeoProject extends Page
         return $project;
     }
 
-    private function requireProject(): SeoProject
+    protected function requireProject(): SeoProject
     {
         if (! $this->project instanceof SeoProject) {
             $this->project = $this->resolveProject($this->record);

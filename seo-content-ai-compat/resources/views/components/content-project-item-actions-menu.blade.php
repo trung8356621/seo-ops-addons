@@ -182,6 +182,32 @@
                         <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_open_article') }}</span>
                     </a>
                 @endif
+                @if (! empty($a['check_index']) && ! empty($row['check_index_url']))
+                    <a
+                        role="menuitem"
+                        href="{{ $row['check_index_url'] }}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        @click="open = false"
+                        class="{{ $itemClass }}"
+                    >
+                        <x-filament::icon icon="heroicon-o-magnifying-glass" class="cp-ops-menu__icon" />
+                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.suggestions_check_index') }}</span>
+                    </a>
+                @endif
+                @if (! empty($row['article_public_url']))
+                    <a
+                        role="menuitem"
+                        href="{{ $row['article_public_url'] }}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        @click="open = false"
+                        class="{{ $itemClass }}"
+                    >
+                        <x-filament::icon icon="heroicon-o-globe-alt" class="cp-ops-menu__icon" />
+                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_open_public') }}</span>
+                    </a>
+                @endif
                 @if (! empty($a['create_or_rerun']))
                     @php
                         $menuCreateOrRerunLabel = __('seo-content-ai::filament.projects.item_action_run_generation');
@@ -336,9 +362,21 @@
                     </button>
                 @endif
                 @if ($a['archive_item'])
-                    <button role="menuitem" type="button" wire:click="archiveOne({{ $tid }})" wire:confirm="{{ __('seo-content-ai::filament.projects.archive_item_confirm') }}" @click="open = false" class="{{ $dangerClass }}" title="{{ __('seo-content-ai::filament.projects.item_action_archive') }}">
+                    <button role="menuitem" type="button" wire:click="archiveOne({{ $tid }})" wire:confirm="{{ ! empty($a['remove_from_draft']) ? __('seo-content-ai::filament.projects.item_action_remove_from_draft_confirm') : __('seo-content-ai::filament.projects.archive_item_confirm') }}" @click="open = false" class="{{ $dangerClass }}" title="{{ ! empty($a['remove_from_draft']) ? __('seo-content-ai::filament.projects.item_action_remove_from_draft') : __('seo-content-ai::filament.projects.item_action_archive') }}">
                         <x-filament::icon icon="heroicon-o-archive-box" class="cp-ops-menu__icon" />
-                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_archive') }}</span>
+                        <span class="cp-ops-menu__label">{{ ! empty($a['remove_from_draft']) ? __('seo-content-ai::filament.projects.item_action_remove_from_draft') : __('seo-content-ai::filament.projects.item_action_archive') }}</span>
+                    </button>
+                @endif
+                @if (! empty($a['skip_seo_audit']))
+                    <button role="menuitem" type="button" wire:click="skipSeoAuditOne({{ $tid }})" wire:confirm="{{ __('seo-content-ai::filament.projects.seo_audit_skip_confirm') }}" @click="open = false" class="{{ $dangerClass }}">
+                        <x-filament::icon icon="heroicon-o-eye-slash" class="cp-ops-menu__icon" />
+                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_skip_seo_audit') }}</span>
+                    </button>
+                @endif
+                @if (! empty($a['view_generation_run']) && ! empty($a['planner_run_id']))
+                    <button role="menuitem" type="button" wire:click="viewNewContentHistoryResults({{ (int) $a['planner_run_id'] }})" @click="open = false" class="{{ $itemClass }}">
+                        <x-filament::icon icon="heroicon-o-clock" class="cp-ops-menu__icon" />
+                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_view_generation_run') }}</span>
                     </button>
                 @endif
                 @if (! empty($a['has_debug']))

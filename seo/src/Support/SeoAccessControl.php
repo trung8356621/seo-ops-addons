@@ -227,8 +227,15 @@ final class SeoAccessControl
         }
 
         if (
-            SeoPanelRoutes::is('filament.seo.pages.articles-optimal')
-            || request()->is('seo/*/articles/optimal', 'seo/*/articles/optimal/*')
+            SeoPanelRoutes::is('filament.seo.pages.articles-optimal', 'filament.seo.pages.content-projects-seo-audit')
+            || request()->is(
+                'seo/*/articles/optimal',
+                'seo/*/articles/optimal/*',
+                'seo/*/content-projects/seo-audit',
+                'seo/*/content-projects/seo-audit/*',
+                'seo/content-projects/seo-audit',
+                'seo/content-projects/seo-audit/*',
+            )
         ) {
             return false;
         }

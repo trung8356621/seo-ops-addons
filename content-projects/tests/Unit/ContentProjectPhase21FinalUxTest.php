@@ -25,7 +25,7 @@ final class ContentProjectPhase21FinalUxTest extends TestCase
         self::assertStringContainsString('genericStepOpen', $js);
         self::assertStringContainsString('confirmGenericStepRerun', $js);
         self::assertStringContainsString('genericStepOpen', $blade);
-        self::assertStringContainsString('Cháº¡y láº¡i bÆ°á»›c...', $blade);
+        self::assertStringContainsString('Chạy lại bước...', $blade);
     }
 
     public function test_history_wires_execution_type(): void
@@ -37,10 +37,10 @@ final class ContentProjectPhase21FinalUxTest extends TestCase
             LegacyAddonPath::resolve('resources/views/filament/resources/article-resource/pages/view-article-prompts.blade.php'),
         );
         self::assertStringContainsString('execution_type_label', $history);
-        self::assertStringContainsString('Cháº¡y láº¡i', $history);
-        self::assertStringContainsString('Thá»­ láº¡i', $history);
-        self::assertStringContainsString('Láº§n cháº¡y Ä‘áº§u', $history);
-        self::assertStringContainsString('Bá» qua vÃ¬ bÃ i Ä‘Ã£ thay Ä‘á»•i', $history);
+        self::assertStringContainsString('Chạy lại', $history);
+        self::assertStringContainsString('Thử lại', $history);
+        self::assertStringContainsString('Lần chạy đầu', $history);
+        self::assertStringContainsString('Bỏ qua vì bài đã thay đổi', $history);
         self::assertStringContainsString('execution_type_label', $view);
     }
 

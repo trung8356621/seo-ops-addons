@@ -7,10 +7,9 @@ namespace Omnichannel\Addons\Seo\Support;
 use Omnichannel\Addons\AiPrompt\Filament\Pages\SeoSettingsAiCenter;
 use Omnichannel\Addons\AiPrompt\Filament\Resources\AiConnectionResource;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsConfigurationTransfer;
-use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsDateTime;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsEditor;
 use Omnichannel\Addons\SearchIntelligence\Filament\Pages\SeoSettingsKeywords;
-use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsOverview;
+use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsGeneral;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsRecommendations;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsScoring;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsWorkflows;
@@ -24,16 +23,10 @@ final class SeoSettingsMenu
     {
         return [
             [
-                'id' => 'overview',
-                'label' => 'Overview',
-                'icon' => 'heroicon-o-home',
-                'url' => SeoSettingsOverview::getUrl(),
-            ],
-            [
-                'id' => 'date-time',
-                'label' => 'Date & Time',
-                'icon' => 'heroicon-o-clock',
-                'url' => SeoSettingsDateTime::getUrl(),
+                'id' => 'general',
+                'label' => 'seo-content-ai::filament.settings_general.nav',
+                'icon' => 'heroicon-o-cog-6-tooth',
+                'url' => SeoSettingsGeneral::getUrl(),
             ],
             [
                 'id' => 'workflows',

@@ -144,13 +144,11 @@ final class ContentProjectAllocationSession
     private function remainingOn(SeoProject $project): int
     {
         if ($project->isArchive()) {
-            return PHP_INT_MAX;
+            return 0;
         }
 
-        $max = $project->maxTasksAllowed();
-        $used = $this->occupiedCount($project);
-
-        return max(0, $max - $used);
+        // Month is reporting period only — no day-based hard capacity.
+        return PHP_INT_MAX;
     }
 
     private function lockProject(SeoProject $project): SeoProject

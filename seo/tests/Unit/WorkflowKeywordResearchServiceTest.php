@@ -24,6 +24,7 @@ final class WorkflowKeywordResearchServiceTest extends TestCase
             ),
             new KeywordPersistenceService(new KeywordMetaRepository),
             new TagPersistenceService,
+            null,
         );
     }
 

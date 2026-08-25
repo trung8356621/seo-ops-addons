@@ -87,6 +87,32 @@ final class SeoAuditScanService
     }
 
     /**
+     * Map already-loaded articles to audit suggestion rows (no re-query).
+     *
+     * @param  \Illuminate\Support\Collection<int, SeoArticle>|list<SeoArticle>  $articles
+     * @return list<array<string, mixed>>
+     */
+    public function mapLoadedArticles(iterable $articles): array
+    {
+        $rows = [];
+        foreach ($articles as $article) {
+            if (! $article instanceof SeoArticle) {
+                continue;
+            }
+            $article->loadMissing([
+                'site:id,domain',
+                'seoProfile',
+                'articleMetas' => static function ($relation): void {
+                    $relation->whereIn('meta_key', self::AUDIT_META_KEYS);
+                },
+            ]);
+            $rows[] = $this->mapArticleRow($article);
+        }
+
+        return $rows;
+    }
+
+    /**
      * @param  Builder<SeoArticle>  $baseQuery
      * @return array{
      *   total: int,

@@ -255,8 +255,10 @@ final class McpMarkdownRendererTest extends TestCase
             $report,
             $siteSnap,
             $keywordSnap,
+            null,
             $siteMd,
             $kwMd,
+            '# GSC Intelligence'."\n\n".'No GSC snapshot.',
         );
     }
 

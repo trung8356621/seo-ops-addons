@@ -99,6 +99,28 @@ final class ArticleLanguageCode
         return $normalized !== '' ? $normalized : $default;
     }
 
+    /**
+     * Map a WordPress locale (e.g. vi_VN, en_US) to a primary language code (vi, en).
+     * Does not invent a language from domain names or prose.
+     */
+    public static function fromWordpressLocale(?string $locale): string
+    {
+        $raw = trim((string) $locale);
+        if ($raw === '') {
+            return '';
+        }
+
+        $normalized = self::normalize($raw);
+        if ($normalized !== '' && ! str_contains($normalized, '-')) {
+            return $normalized;
+        }
+
+        $primary = preg_split('/[_-]/', str_replace(' ', '', $raw), 2)[0] ?? '';
+        $primary = self::normalize(is_string($primary) ? $primary : '');
+
+        return $primary;
+    }
+
     public static function isCanonicalCode(string $value): bool
     {
         $trimmed = trim($value);

@@ -8,10 +8,12 @@ use Omnichannel\Addons\ContentProjects\Enums\ContentProjectItemAction;
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\Content\Support\ArticleKeywordDistinctCounter;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectItemOrigin;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRunItem;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\SeoAudit\SeoAuditCheckIndexUrl;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGenerationKeyword;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectFailedOpsDefinition;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectFailureTypeMapper;
@@ -95,12 +97,14 @@ final class ContentProjectItemOperationsReadModel
             ->with([
                 'article.articleMetas' => static fn ($q) => $q->whereIn('meta_key', [
                     'wp_featured_image_url',
+                    'wp_permalink',
                     ArticleKeywordDistinctCounter::META_KEY,
                     ArticleWordPressSyncFlagService::META_LOCAL_EDIT_PENDING,
                     ArticleWordPressSyncFlagService::META_LOCAL_CONTENT_HASH,
                     ArticleWordPressSyncFlagService::META_PUBLISHED_CONTENT_HASH,
                 ]),
                 'article.wordpressLink',
+                'itemOrigin',
             ])
             ->orderBy('id')
             ->get();
@@ -532,6 +536,7 @@ final class ContentProjectItemOperationsReadModel
             'generation_keyword_dirty' => $isGenerationKeywordDirty,
             'can_edit_keyword_override' => $type !== SeoProjectTask::TYPE_IMPROVE && ! $task->isGenerationBlocked(),
             'title' => $title !== '' ? $title : '—',
+            'suggestion_reason' => $this->resolveSuggestionReason($task),
             'article_id' => $articleId > 0 ? $articleId : null,
             'article_missing' => $articleId > 0 && ! ($article instanceof SeoArticle),
             'stale_missing_article' => SeoProjectTask::isNewArticleType($type)
@@ -540,6 +545,20 @@ final class ContentProjectItemOperationsReadModel
             'article_edit_url' => ($articleId > 0 && $article instanceof SeoArticle)
                 ? ArticleResource::getUrl('edit', ['record' => $articleId])
                 : null,
+            'article_public_url' => $this->resolveArticlePublicUrl($article),
+            'check_index_url' => SeoAuditCheckIndexUrl::forCanonicalUrl($this->resolveArticlePublicUrl($article)),
+            'suggestion_source' => $this->resolveSuggestionSource($task),
+            'suggestion_source_label' => $this->resolveSuggestionSourceLabel($task),
+            'planner_run_id' => ($task->relationLoaded('itemOrigin') && $task->itemOrigin)
+                ? ((int) ($task->itemOrigin->planner_run_id ?? 0) ?: null)
+                : null,
+            'can_skip_seo_audit' => $articleId > 0
+                && $article instanceof SeoArticle
+                && $this->resolveSuggestionSource($task) === SeoContentProjectItemOrigin::SOURCE_SEO_AUDIT,
+            'can_view_generation_run' => $this->resolveSuggestionSource($task) === SeoContentProjectItemOrigin::SOURCE_AI_NEW_CONTENT
+                && ($task->relationLoaded('itemOrigin') && $task->itemOrigin)
+                && (int) ($task->itemOrigin->planner_run_id ?? 0) > 0,
+            'project_is_draft' => $project->isDraftPlanning(),
             'article_slug' => $article instanceof SeoArticle ? (string) ($article->slug ?? '') : '',
             'generation_status' => $displayGenStatus,
             'execution_status' => $exec['status'] ?? null,
@@ -857,5 +876,68 @@ final class ContentProjectItemOperationsReadModel
         }
 
         return $map;
+    }
+
+    private function resolveArticlePublicUrl(?SeoArticle $article): ?string
+    {
+        if (! $article instanceof SeoArticle) {
+            return null;
+        }
+
+        if ($article->relationLoaded('articleMetas')) {
+            $permalink = trim((string) ($article->articleMetas->firstWhere('meta_key', 'wp_permalink')?->meta_value ?? ''));
+            if ($permalink !== '') {
+                return $permalink;
+            }
+        }
+
+        return null;
+    }
+
+    private function resolveSuggestionReason(SeoProjectTask $task): ?string
+    {
+        if ($this->resolveSuggestionSource($task) !== SeoContentProjectItemOrigin::SOURCE_AI_NEW_CONTENT) {
+            return null;
+        }
+        $reason = trim((string) ($task->description ?? ''));
+        if ($reason === '') {
+            return null;
+        }
+        if (mb_strlen($reason) > 120) {
+            return mb_substr($reason, 0, 117).'…';
+        }
+
+        return $reason;
+    }
+
+    private function resolveSuggestionSource(SeoProjectTask $task): string
+    {
+        $origin = $task->relationLoaded('itemOrigin') ? $task->itemOrigin : null;
+        if ($origin instanceof SeoContentProjectItemOrigin) {
+            return (string) ($origin->source_type ?: SeoContentProjectItemOrigin::SOURCE_MANUAL);
+        }
+
+        return SeoContentProjectItemOrigin::SOURCE_MANUAL;
+    }
+
+    private function resolveSuggestionSourceLabel(SeoProjectTask $task): string
+    {
+        $source = $this->resolveSuggestionSource($task);
+        $type = strtolower(trim((string) ($task->type ?? '')));
+
+        return match ($source) {
+            SeoContentProjectItemOrigin::SOURCE_SEO_AUDIT => match ($type) {
+                SeoProjectTask::TYPE_REWRITE => 'Rewrite · SEO Audit',
+                SeoProjectTask::TYPE_IMPROVE => 'Improve · SEO Audit',
+                default => 'SEO Audit',
+            },
+            SeoContentProjectItemOrigin::SOURCE_AI_NEW_CONTENT => 'Create · AI Suggestion',
+            default => match ($type) {
+                SeoProjectTask::TYPE_CREATE => 'Create · Manual',
+                SeoProjectTask::TYPE_REWRITE => 'Rewrite · Manual',
+                SeoProjectTask::TYPE_IMPROVE => 'Improve · Manual',
+                default => 'Manual',
+            },
+        };
     }
 }

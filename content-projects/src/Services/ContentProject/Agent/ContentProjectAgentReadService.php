@@ -208,6 +208,78 @@ final class ContentProjectAgentReadService
     }
 
     /**
+     * Compact Planning Intelligence summary (0 AI calls, no writes).
+     *
+     * @param  array<string, mixed>  $input
+     * @return array<string, mixed>
+     */
+    public function getPlanningIntelligence(AgentExecutionContext $context, array $input): array
+    {
+        $project = $this->findProject($input, $context);
+        $siteId = (int) ($project->site_id ?? $context->resolvedSiteId ?? 0);
+        $site = $siteId > 0 ? \App\Models\Site::query()->find($siteId) : null;
+        if (! $site instanceof \App\Models\Site) {
+            throw new RuntimeException('Project domain is required.');
+        }
+
+        $language = '';
+        if (app()->bound(\Omnichannel\Addons\WordPress\Services\SitePrimaryLanguageService::class)) {
+            $resolved = app(\Omnichannel\Addons\WordPress\Services\SitePrimaryLanguageService::class)
+                ->resolvePrimaryLanguage($site);
+            $language = is_string($resolved) ? trim($resolved) : '';
+        }
+
+        $summary = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\NewContent\ContentPlanningIntelligenceService::class)
+            ->summarize($project, $site, $language);
+
+        return [
+            'project_ref' => ContentProjectPublicRef::project((int) $project->getKey()),
+            'principal_keyword_count' => (int) ($summary['principal_keyword_count'] ?? 0),
+            'cluster_count' => (int) ($summary['cluster_count'] ?? 0),
+            'missing_direction_count' => (int) ($summary['missing_direction_count'] ?? 0),
+            'mcp_period' => $summary['mcp_period'] ?? null,
+            'coverage' => is_array($summary['coverage'] ?? null) ? $summary['coverage'] : [],
+            'covered_clusters' => array_slice(array_map(
+                static fn (array $c): array => [
+                    'label' => (string) ($c['label'] ?? ''),
+                    'coverage' => (string) ($c['coverage'] ?? ''),
+                    'article_count' => (int) ($c['article_count'] ?? 0),
+                ],
+                is_array($summary['covered_clusters'] ?? null) ? $summary['covered_clusters'] : [],
+            ), 0, 15),
+            'weak_clusters' => array_slice(array_map(
+                static fn (array $c): array => [
+                    'label' => (string) ($c['label'] ?? ''),
+                    'coverage' => (string) ($c['coverage'] ?? ''),
+                    'article_count' => (int) ($c['article_count'] ?? 0),
+                ],
+                is_array($summary['weak_clusters'] ?? null) ? $summary['weak_clusters'] : [],
+            ), 0, 15),
+            'missing_directions' => array_slice(
+                is_array($summary['missing_directions'] ?? null) ? $summary['missing_directions'] : [],
+                0,
+                20,
+            ),
+            'gsc_signal_count' => (int) ($summary['gsc_signal_count'] ?? 0),
+            'gsc_signals' => array_slice(
+                is_array($summary['gsc_signals'] ?? null) ? $summary['gsc_signals'] : [],
+                0,
+                20,
+            ),
+            'improvement_signals' => array_slice(
+                is_array($summary['improvement_signals'] ?? null) ? $summary['improvement_signals'] : [],
+                0,
+                15,
+            ),
+            'new_content_gsc_signals' => array_slice(
+                is_array($summary['new_content_gsc_signals'] ?? null) ? $summary['new_content_gsc_signals'] : [],
+                0,
+                15,
+            ),
+        ];
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function getSiteHealth(AgentExecutionContext $context, array $input = []): array
