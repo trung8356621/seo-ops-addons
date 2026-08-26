@@ -5,11 +5,13 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Content\Support;
 
 /**
- * Canonical article language codes for storage (`articles.language`).
+ * Canonical content language codes (ISO 639-1 lowercase) for SEO-Ops business fields.
  *
- * Storage = machine codes (vi, en, …). UI labels are resolved separately.
- * WordPress/Polylang detection remains in wp-seo-ai; this class only normalizes
- * known aliases/labels into codes and never invents language from content.
+ * Storage / comparisons = machine codes (`vi`, `en`, …).
+ * Locales (`vi_VN`, `en_US`) are external metadata — normalize at the boundary.
+ * UI labels are resolved via {@see ContentLanguageRegistry} / {@see label()}.
+ *
+ * Prefer {@see ContentLanguageCodeNormalizer} at write/read boundaries.
  */
 final class ArticleLanguageCode
 {
@@ -74,6 +76,7 @@ final class ArticleLanguageCode
             $folded === 'en'
             || $folded === 'en-us'
             || $folded === 'en-gb'
+            || str_starts_with(str_replace('-', '_', $folded), 'en_')
             || $folded === 'english' => 'en',
 
             default => null,
@@ -124,12 +127,15 @@ final class ArticleLanguageCode
     public static function isCanonicalCode(string $value): bool
     {
         $trimmed = trim($value);
-        if ($trimmed === '') {
+        if ($trimmed === '' || $trimmed !== strtolower($trimmed)) {
             return false;
         }
 
-        return self::normalize($trimmed) === strtolower($trimmed)
-            || self::normalize($trimmed) === $trimmed;
+        if (str_contains($trimmed, '_') || str_contains($trimmed, '-')) {
+            return false;
+        }
+
+        return self::normalize($trimmed) === $trimmed;
     }
 
     private static function looksLikeCorruptedLabel(string $raw): bool

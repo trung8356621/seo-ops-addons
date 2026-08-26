@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\SeoAudit;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\Content\Services\ArticleSeoAuditSkipService;
+use Omnichannel\Addons\Content\Services\ContentLanguageLegacyRepair;
 use Omnichannel\Addons\Content\Support\ArticleLanguageCode;
 use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectSuggestionDecision;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
@@ -478,7 +479,8 @@ final class SeoAuditExistingContentSuggestionService
         if ($language !== '' && strtolower($language) !== 'all') {
             $code = ArticleLanguageCode::normalize($language);
             if ($code !== '') {
-                $base->where('articles.language', $code);
+                $variants = ContentLanguageLegacyRepair::knownStoredVariants($code);
+                $base->whereIn('articles.language', $variants !== [] ? $variants : [$code]);
             }
 
             return;
@@ -504,7 +506,8 @@ final class SeoAuditExistingContentSuggestionService
             return;
         }
 
-        $base->where('articles.language', $code);
+        $variants = ContentLanguageLegacyRepair::knownStoredVariants($code);
+        $base->whereIn('articles.language', $variants !== [] ? $variants : [$code]);
     }
 
     /**

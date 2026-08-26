@@ -11,8 +11,6 @@
     $primaryConfigured = (bool) ($payload['primary_configured'] ?? false);
     $primaryLanguageLabel = $payload['primary_language_label'] ?? null;
     $domainEditUrl = $payload['domain_edit_url'] ?? null;
-    $history = $this->newContentHistory ?? [];
-    $viewResults = $this->newContentViewResults;
     $draftOptions = $showDraftSelector ? ($this->draftProjectOptions ?? []) : [];
     $siteOptions = $showDraftSelector ? ($this->siteFilterOptions ?? []) : [];
 @endphp
@@ -20,7 +18,6 @@
 <div
     class="space-y-4"
     wire:key="cp-new-content-planner"
-    x-data="{ optionsOpen: false, historyOpen: false, resultsOpen: {{ $viewResults ? 'true' : 'false' }} }"
     @if ($isGenerating)
         wire:poll.3s="refreshNewContentRun"
     @endif

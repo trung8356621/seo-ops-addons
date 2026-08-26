@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Services;
 
+use Omnichannel\Addons\AiPrompt\Exceptions\AiRoutesExhaustedException;
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\AiPrompt\Exceptions\AiRoutingException;
 use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext;
@@ -16,11 +17,13 @@ use Omnichannel\Addons\AiPrompt\Services\Ai\DeepSeekChatClient;
 use Omnichannel\Addons\AiPrompt\Services\Ai\GeminiGenerateContentClient;
 use Omnichannel\Addons\AiPrompt\Support\AiCostPolicyScope;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
-use Omnichannel\Addons\AiPrompt\Support\AiUsageMode;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
 use Omnichannel\Addons\Media\Services\MediaGenerationService;
 use Omnichannel\Addons\Media\Support\ImageToolType;
+use Omnichannel\Addons\AiPrompt\Support\AiFailureClass;
 use Omnichannel\Addons\AiPrompt\Support\PromptPostProcessing;
+use Omnichannel\Addons\Content\Services\GeneratedContentQualityValidator;
+use Omnichannel\Addons\Content\Support\ArticleLanguageCode;
 use Omnichannel\Addons\Content\Support\Utf8Sanitizer;
 use App\Models\ApiConnection;
 use RuntimeException;
@@ -216,9 +219,7 @@ class PromptRunnerService
                 'finished_at' => now(),
             ]);
 
-            throw $exception instanceof PromptRunException
-                ? $exception
-                : new PromptRunException($exception->getMessage(), (int) $exception->getCode(), $exception);
+            throw $this->rethrowWithPromptResultId($exception, (int) $result->id);
         }
 
         return $result->fresh();
@@ -295,9 +296,7 @@ class PromptRunnerService
                 'finished_at' => now(),
             ]);
 
-            throw $exception instanceof PromptRunException
-                ? $exception
-                : new PromptRunException($exception->getMessage(), (int) $exception->getCode(), $exception);
+            throw $this->rethrowWithPromptResultId($exception, (int) $result->id);
         }
 
         return $result->fresh();
@@ -404,9 +403,7 @@ class PromptRunnerService
                 'finished_at' => now(),
             ]);
 
-            throw $exception instanceof PromptRunException
-                ? $exception
-                : new PromptRunException($exception->getMessage(), (int) $exception->getCode(), $exception);
+            throw $this->rethrowWithPromptResultId($exception, (int) $result->id);
         }
 
         return $result->fresh();
@@ -468,16 +465,21 @@ class PromptRunnerService
         [$output, $usage, $candidate, $fallbackCount, $reasons, $routingAttempts] = $this->aiModelRouter->executeWithProfile(
             $profile->value,
             $context,
-            fn (RoutedAiCandidate $routed): array => $this->callProvider(
-                $routed->connection,
-                $prompt,
-                $compiled,
-                $routed->model,
-                $variables,
-                $isTaskMode,
-                $toolType,
-                $routed->options,
-            ),
+            function (RoutedAiCandidate $routed) use ($prompt, $compiled, $variables, $isTaskMode, $toolType): array {
+                [$output, $usage] = $this->callProvider(
+                    $routed->connection,
+                    $prompt,
+                    $compiled,
+                    $routed->model,
+                    $variables,
+                    $isTaskMode,
+                    $toolType,
+                    $routed->options,
+                );
+                $this->assertGeneratedContentQuality($output, $prompt, $variables);
+
+                return [$output, $usage];
+            },
         );
 
         $usage = is_array($usage) ? $usage : [];
@@ -582,9 +584,7 @@ class PromptRunnerService
                 'finished_at' => now(),
             ]);
 
-            throw $exception instanceof PromptRunException
-                ? $exception
-                : new PromptRunException($exception->getMessage(), (int) $exception->getCode(), $exception);
+            throw $this->rethrowWithPromptResultId($exception, (int) $result->id);
         }
 
         return $result->fresh();
@@ -665,9 +665,7 @@ class PromptRunnerService
                 'finished_at' => now(),
             ]);
 
-            throw $exception instanceof PromptRunException
-                ? $exception
-                : new PromptRunException($exception->getMessage(), (int) $exception->getCode(), $exception);
+            throw $this->rethrowWithPromptResultId($exception, (int) $result->id);
         }
 
         return $result->fresh();
@@ -779,9 +777,7 @@ class PromptRunnerService
                 'finished_at' => now(),
             ]);
 
-            throw $exception instanceof PromptRunException
-                ? $exception
-                : new PromptRunException($exception->getMessage(), (int) $exception->getCode(), $exception);
+            throw $this->rethrowWithPromptResultId($exception, (int) $result->id);
         }
 
         return $result->fresh();
@@ -1318,13 +1314,10 @@ class PromptRunnerService
 
     private function routingContextForPrompt(SeoPrompt $prompt, ?ApiConnection $connection, bool $isImagePipeline): AiRoutingContext
     {
-        $settings = is_array($prompt->settings ?? null) ? $prompt->settings : [];
-        $familyKey = trim((string) ($settings['routing_family_key'] ?? ''));
-        $allowed = null;
-        if (! $isImagePipeline && $familyKey !== '' && $familyKey !== AiModelFamilyCatalog::AUTOMATIC) {
-            $allowed = [$familyKey];
-        }
-
+        unset($isImagePipeline);
+        // Modern hooks: AI Center model order is SSOT. Prompt-level
+        // routing_family_key / usage_mode must not filter or reorder candidates.
+        // legacyConnection remains last-resort only when resolveAll has no targets.
         return new AiRoutingContext(
             userId: app(AiRoutingOwnerResolver::class)->resolve(
                 explicitUserId: null,
@@ -1333,8 +1326,8 @@ class PromptRunnerService
             ),
             legacyConnection: $connection,
             allowLegacyFallback: true,
-            usageModeOverride: $isImagePipeline ? null : AiUsageMode::tryFromMixed($settings['usage_mode'] ?? null),
-            allowedFamilyKeys: $allowed,
+            usageModeOverride: null,
+            allowedFamilyKeys: null,
             costPolicy: AiCostPolicyScope::current(),
         );
     }
@@ -1381,5 +1374,101 @@ class PromptRunnerService
         }
 
         return $firstLine;
+    }
+
+    /**
+     * Reject clearly corrupted full-article AI output so executeWithProfile can try the next candidate.
+     *
+     * @param  array<string, mixed>  $variables
+     */
+    private function assertGeneratedContentQuality(string $output, SeoPrompt $prompt, array $variables): void
+    {
+        $hookKey = trim((string) ($prompt->hook_key ?? ''));
+        if (! in_array($hookKey, [
+            'article.content.generate',
+            'article.content.rewrite',
+            'article.content.improve',
+        ], true)) {
+            return;
+        }
+
+        $language = ArticleLanguageCode::normalize((string) (
+            $variables['language']
+            ?? $variables['content_language']
+            ?? $variables['article_language']
+            ?? ''
+        ));
+
+        $result = app(GeneratedContentQualityValidator::class)->validate($output, [
+            'language' => $language !== '' ? $language : 'vi',
+            'hook_key' => $hookKey,
+            'is_html' => false,
+        ]);
+
+        if ($result->passed) {
+            // Warnings stay soft — do not fail the attempt.
+            if ($result->issues !== []) {
+                logger()->info('AI content quality warnings', [
+                    'hook_key' => $hookKey,
+                    'issues' => array_map(
+                        static fn (array $issue): array => [
+                            'rule' => $issue['rule'] ?? '',
+                            'severity' => $issue['severity'] ?? '',
+                            'sample' => mb_substr((string) ($issue['sample'] ?? ''), 0, 80),
+                        ],
+                        $result->issues,
+                    ),
+                ]);
+            }
+
+            return;
+        }
+
+        $rules = $result->rejectRules();
+        $sample = $result->primarySample();
+
+        throw new PromptRunException(
+            'Content quality rejected: '.implode(',', $rules !== [] ? $rules : ['output_quality'])
+                .($sample !== '' ? ' — '.$sample : ''),
+            0,
+            null,
+            [
+                'classification' => AiFailureClass::OutputQuality->value,
+                'retryable' => true,
+                'quality_rules' => $rules,
+                'quality_sample' => $sample,
+                'user_message' => 'AI output failed content quality checks; trying next model.',
+            ],
+        );
+    }
+
+    private function rethrowWithPromptResultId(\Throwable $exception, int $promptResultId): PromptRunException
+    {
+        if ($exception instanceof AiRoutesExhaustedException) {
+            return new AiRoutesExhaustedException(
+                attemptCount: (int) ($exception->context['attempt_count'] ?? 0),
+                routingAttempts: is_array($exception->context['routing_attempts'] ?? null)
+                    ? $exception->context['routing_attempts']
+                    : [],
+                previous: $exception,
+                promptResultId: $promptResultId > 0 ? $promptResultId : null,
+            );
+        }
+
+        if ($exception instanceof PromptRunException) {
+            return new PromptRunException(
+                $exception->getMessage(),
+                (int) $exception->getCode(),
+                $exception,
+                array_merge($exception->context, $promptResultId > 0 ? ['prompt_result_id' => $promptResultId] : []),
+            );
+        }
+
+        return new PromptRunException(
+            $exception->getMessage(),
+            (int) $exception->getCode(),
+            $exception,
+            $promptResultId > 0 ? ['prompt_result_id' => $promptResultId] : [],
+        );
     }
 }

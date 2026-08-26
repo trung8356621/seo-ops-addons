@@ -38,12 +38,17 @@ class CreatePrompt extends SeoCreateRecord
             $data['variables'] ?? [],
         );
 
-        // model_category không còn trên form — lưu default provider nếu cột còn; không dùng để route image.
-        if (blank($data['model_category'] ?? null) && filled($data['ai_connection_id'] ?? null)) {
-            $data['model_category'] = PromptResource::defaultModelCategoryForConnection($data['ai_connection_id']);
-        }
+        // Legacy routing columns are not collected on modern create form.
+        unset(
+            $data['model_category'],
+            $data['routing_mode'],
+            $data['routing_profile_key'],
+            $data['ai_connection_id'],
+        );
 
         $settings = is_array($data['settings'] ?? null) ? $data['settings'] : [];
+        // Do not seed obsolete prompt-level routing keys.
+        unset($settings['routing_family_key'], $settings['usage_mode']);
         $data['settings'] = PromptPostProcessing::mergeIntoSettings(
             $settings,
             is_array($settings['post_processing'] ?? null) ? $settings['post_processing'] : [],

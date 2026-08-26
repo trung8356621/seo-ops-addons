@@ -25,6 +25,7 @@ final readonly class AiFailureDecision
         public bool $markModelUnavailable = false,
         public bool $lockConnection = false,
         public bool $lockConnectionPaid = false,
+        public bool $affectsRuntimeHealth = true,
     ) {}
 
     public function shouldContinueRouting(): bool

@@ -20,6 +20,7 @@ final class ArticleHtmlInspectorApplyTableContractTest extends TestCase
         );
 
         self::assertStringContainsString('export function prepareHtmlForTipTapApply', $js);
+        self::assertStringContainsString('collapseHtmlSoftNewlines', $js);
         self::assertStringContainsString('STRUCTURAL_WHITESPACE_PARENTS', $js);
         self::assertStringContainsString("querySelectorAll('td, th')", $js);
         self::assertStringContainsString('isEmptyParagraphElement', $js);
@@ -34,6 +35,10 @@ final class ArticleHtmlInspectorApplyTableContractTest extends TestCase
         self::assertStringContainsString('prepareHtmlForTipTapApply', $jsx);
         self::assertMatchesRegularExpression(
             '/prepareHtmlForTipTapApply[\s\S]{0,200}setContent/',
+            $jsx,
+        );
+        self::assertMatchesRegularExpression(
+            '/initialEditorContent[\s\S]{0,400}prepareHtmlForTipTapApply/',
             $jsx,
         );
     }

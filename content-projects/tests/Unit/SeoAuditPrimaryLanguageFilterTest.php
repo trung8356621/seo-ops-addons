@@ -18,7 +18,9 @@ final class SeoAuditPrimaryLanguageFilterTest extends TestCase
         );
 
         $this->assertStringContainsString('applyLanguageFilter', $src);
-        $this->assertStringContainsString("where('articles.language'", $src);
+        $this->assertStringContainsString('whereIn(\'articles.language\'', $src);
+        $this->assertStringContainsString('ContentLanguageLegacyRepair', $src);
+        $this->assertStringContainsString('knownStoredVariants', $src);
         $this->assertStringContainsString('language_scope', $src);
         $this->assertStringContainsString('SitePrimaryLanguageService', $src);
         $this->assertStringContainsString('resolvePrimaryLanguage', $src);

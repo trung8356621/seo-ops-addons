@@ -201,8 +201,8 @@ final class DomainTechnicalSeoForm
                             return 'Chưa có site.';
                         }
 
-                        return app(\Omnichannel\Addons\SiteSync\Services\Presentation\SiteLinkCatalogSummaryPresenter::class)
-                            ->forSite($site)['label'];
+                        return app(\Omnichannel\Addons\Seo\Services\EffectiveDomainLinkResolver::class)
+                            ->catalogSummary($site)['label'];
                     }),
                 Forms\Components\Repeater::make('links')
                     ->label('Liên kết thủ công (prompt / override)')

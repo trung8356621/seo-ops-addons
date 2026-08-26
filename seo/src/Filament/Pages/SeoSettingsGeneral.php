@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Seo\Filament\Pages;
 
+use Omnichannel\Addons\Content\Support\ContentLanguageRegistry;
 use Omnichannel\Addons\Content\Support\SystemDateTime;
+use Omnichannel\Addons\Seo\Services\SeoContentLanguageSettingsService;
 use Omnichannel\Addons\Seo\Services\SeoDateTimeSettingsService;
 use Omnichannel\Addons\Seo\Services\SeoOverviewSettingsService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
@@ -38,10 +40,14 @@ class SeoSettingsGeneral extends Page implements HasForms
     public function mount(
         SeoDateTimeSettingsService $dateTimeSettings,
         SeoOverviewSettingsService $overviewSettings,
+        SeoContentLanguageSettingsService $contentLanguageSettings,
     ): void {
         abort_unless(static::canAccess(), 403);
 
-        $this->dateTimeSettingsData = $dateTimeSettings->getSettings();
+        $this->dateTimeSettingsData = array_merge(
+            $dateTimeSettings->getSettings(),
+            $contentLanguageSettings->getSettings(),
+        );
         $this->form->fill($this->dateTimeSettingsData);
 
         $overview = $overviewSettings->getSettings();
@@ -121,6 +127,17 @@ class SeoSettingsGeneral extends Page implements HasForms
                             ->columnSpanFull(),
                     ])
                     ->columns(1),
+                Forms\Components\Section::make(__('seo-content-ai::filament.settings_general.default_content_language'))
+                    ->schema([
+                        Forms\Components\Select::make(SeoContentLanguageSettingsService::KEY_DEFAULT_CONTENT_LANGUAGE)
+                            ->label(__('seo-content-ai::filament.settings_general.default_content_language'))
+                            ->helperText(__('seo-content-ai::filament.settings_general.default_content_language_hint'))
+                            ->options(fn (): array => ContentLanguageRegistry::selectOptions())
+                            ->required()
+                            ->native(false)
+                            ->in(ContentLanguageRegistry::codes()),
+                    ])
+                    ->columns(1),
             ])
             ->statePath('dateTimeSettingsData');
     }
@@ -152,18 +169,34 @@ class SeoSettingsGeneral extends Page implements HasForms
             ->statePath('teamChatSettingsData');
     }
 
-    public function save(SeoDateTimeSettingsService $settings): void
-    {
+    public function save(
+        SeoDateTimeSettingsService $settings,
+        SeoContentLanguageSettingsService $contentLanguageSettings,
+    ): void {
         $data = $this->form->getState();
         $settings->save([
             SeoDateTimeSettingsService::KEY_TIMEZONE => (string) ($data[SeoDateTimeSettingsService::KEY_TIMEZONE] ?? ''),
             SeoDateTimeSettingsService::KEY_PRESET => (string) ($data[SeoDateTimeSettingsService::KEY_PRESET] ?? ''),
         ]);
 
-        $this->dateTimeSettingsData = $settings->getSettings();
+        $contentLanguageSettings->save([
+            SeoContentLanguageSettingsService::KEY_DEFAULT_CONTENT_LANGUAGE => (string) (
+                $data[SeoContentLanguageSettingsService::KEY_DEFAULT_CONTENT_LANGUAGE] ?? ''
+            ),
+        ]);
+
+        $this->dateTimeSettingsData = array_merge(
+            $settings->getSettings(),
+            $contentLanguageSettings->getSettings(),
+        );
         $this->form->fill($this->dateTimeSettingsData);
 
         $this->dispatch('seo-datetime-settings-updated', config: SystemDateTime::frontendConfig());
+
+        Notification::make()
+            ->title(__('seo-content-ai::filament.settings_general.default_content_language_saved'))
+            ->success()
+            ->send();
     }
 
     public function saveTeamChatSettings(SeoOverviewSettingsService $overviewSettings): void

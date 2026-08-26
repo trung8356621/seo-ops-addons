@@ -21,7 +21,7 @@ final class SiteSyncV2Wave3PatchIntegrityTest extends TestCase
         $src = (string) file_get_contents((new ReflectionClass(DomainTechnicalSeoForm::class))->getFileName());
         self::assertSame(1, substr_count($src, '->content(function'));
         self::assertStringContainsString('Forms\\Components\\Placeholder $component', $src);
-        self::assertStringContainsString('SiteLinkCatalogSummaryPresenter', $src);
+        self::assertStringContainsString('EffectiveDomainLinkResolver', $src);
         self::assertStringNotContainsString('->content(function ($livewire)', $src);
     }
 

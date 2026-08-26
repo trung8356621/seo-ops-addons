@@ -373,12 +373,6 @@
                         <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_skip_seo_audit') }}</span>
                     </button>
                 @endif
-                @if (! empty($a['view_generation_run']) && ! empty($a['planner_run_id']))
-                    <button role="menuitem" type="button" wire:click="viewNewContentHistoryResults({{ (int) $a['planner_run_id'] }})" @click="open = false" class="{{ $itemClass }}">
-                        <x-filament::icon icon="heroicon-o-clock" class="cp-ops-menu__icon" />
-                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_view_generation_run') }}</span>
-                    </button>
-                @endif
                 @if (! empty($a['has_debug']))
                     <p class="cp-ops-menu__heading cp-ops-menu__heading--nested">Debug lifecycle</p>
                     @if (! empty($a['debug_to_approved']))

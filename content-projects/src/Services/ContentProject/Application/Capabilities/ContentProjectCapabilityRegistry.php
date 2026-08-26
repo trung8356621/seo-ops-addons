@@ -216,9 +216,12 @@ final class ContentProjectCapabilityRegistry
                 inputSchema: [
                     'project_ref' => ['type' => 'string', 'required' => true],
                     'quantity' => ['type' => 'integer', 'required' => false],
+                    'content_type' => ['type' => 'string', 'required' => false],
+                    'notes' => ['type' => 'string', 'required' => false],
                     'options' => ['type' => 'object', 'required' => false],
                     'focus' => ['type' => 'string', 'required' => false],
                     'direction' => ['type' => 'string', 'required' => false],
+                    'post_type' => ['type' => 'string', 'required' => false],
                     'idempotency_key' => ['type' => 'string', 'required' => false],
                 ],
                 phases: [

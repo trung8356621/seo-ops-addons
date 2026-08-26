@@ -24,6 +24,7 @@ final class NewContentSuggestionContextBuilder
      *   brief: string,
      *   primary_language: string,
      *   planned_fingerprints: array<string, true>,
+     *   planned_keyword_norms: array<string, true>,
      *   rejected_fingerprints: array<string, true>,
      *   existing_keywords: array<string, true>,
      *   covered_keyword_norms: array<string, true>,
@@ -36,8 +37,8 @@ final class NewContentSuggestionContextBuilder
     {
         $options = NewContentSuggestionOptions::normalize($options);
         $domain = trim((string) ($site->domain ?? ''));
-        $focus = $options['focus'];
-        $seed = $focus !== '' ? $focus : ($domain !== '' ? $domain : 'new content ideas');
+        $notes = trim((string) ($options['notes'] ?? ''));
+        $seed = $notes !== '' ? $notes : ($domain !== '' ? $domain : 'new content ideas');
 
         $ctx = $this->planning->build($project, $site, $options, $primaryLanguage);
         $covered = $ctx['covered_keyword_norms'];
@@ -50,6 +51,14 @@ final class NewContentSuggestionContextBuilder
             }
         }
 
+        $plannedKeywordNorms = [];
+        foreach ($ctx['planned_topics'] as $row) {
+            $norm = NewContentSuggestionIdentity::normalize((string) ($row['keyword'] ?? ''));
+            if ($norm !== '') {
+                $plannedKeywordNorms[$norm] = true;
+            }
+        }
+
         $mcpUsed = $ctx['mcp_signals'] !== [] || ($ctx['mcp_period'] ?? null) !== null;
 
         return [
@@ -57,8 +66,9 @@ final class NewContentSuggestionContextBuilder
             'brief' => $this->planning->renderBrief($ctx, $options),
             'primary_language' => $primaryLanguage,
             'planned_fingerprints' => $ctx['planned_fingerprints'],
+            'planned_keyword_norms' => $plannedKeywordNorms,
             'rejected_fingerprints' => $ctx['rejected_fingerprints'],
-            // Backward-compatible key: now means "covered content norms", not KI inventory.
+            // Backward-compatible key: means "covered content norms", not KI inventory.
             'existing_keywords' => $covered,
             'covered_keyword_norms' => $covered,
             'context_flags' => [

@@ -14,6 +14,28 @@ final class SimpleMarkdownHtmlConverterTest extends TestCase
         return new SimpleMarkdownHtmlConverter;
     }
 
+    public function test_markdown_soft_breaks_become_spaces_not_newlines(): void
+    {
+        $md = "✅ Độ tin cậy cao: Tốt.\n✅ Công nghệ hiện đại: Hiện đại.\n✅ Hỗ trợ tùy biến: Linh hoạt.";
+        $html = $this->converter()->toHtml($md);
+
+        self::assertSame(1, substr_count(strtolower($html), '<p'));
+        self::assertStringNotContainsString('<br', strtolower($html));
+        // Soft break must not leave a literal newline before the next emoji.
+        self::assertDoesNotMatchRegularExpression('/\n\s*✅/u', $html);
+        self::assertStringContainsString('Tốt. ✅ Công nghệ', $html);
+        self::assertStringContainsString('Hiện đại. ✅ Hỗ trợ', $html);
+    }
+
+    public function test_markdown_blank_line_keeps_two_paragraphs(): void
+    {
+        $html = $this->converter()->toHtml("Dòng thứ nhất.\n\nDòng thứ hai.");
+
+        self::assertSame(2, substr_count(strtolower($html), '<p'));
+        self::assertStringContainsString('<p>Dòng thứ nhất.</p>', $html);
+        self::assertStringContainsString('<p>Dòng thứ hai.</p>', $html);
+    }
+
     public function test_h2_renders_as_h2(): void
     {
         $html = $this->converter()->toHtml("## Tiêu đề phần\n\nĐoạn.");

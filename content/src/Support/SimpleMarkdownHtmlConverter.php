@@ -238,10 +238,16 @@ final class SimpleMarkdownHtmlConverter
             return $this->converter;
         }
 
+        // Soft breaks (single \n inside a Markdown paragraph) must render as a
+        // space — not a literal newline. TipTap preserveWhitespace:'full' would
+        // otherwise promote those newlines into hardBreak nodes.
         $environment = new Environment([
             'html_input' => 'strip',
             'allow_unsafe_links' => false,
             'max_nesting_level' => 100,
+            'renderer' => [
+                'soft_break' => ' ',
+            ],
         ]);
         $environment->addExtension(new CommonMarkCoreExtension);
         $environment->addExtension(new TableExtension);

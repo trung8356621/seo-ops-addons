@@ -8,16 +8,15 @@ use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Support\KeywordPhraseMatcher;
 use App\Models\Site;
-use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
 
 final class DomainLinkListEditorService
 {
     public function __construct(
-        private readonly SiteDomainPromptContextService $promptContext,
+        private readonly EffectiveDomainLinkResolver $effectiveLinks,
     ) {}
 
     /**
-     * Link list của domain kèm số bài đã chèn link (anchor) tương ứng.
+     * Effective Domain Link List (custom + product_cat + main domain) kèm usage count.
      *
      * @return list<array{
      *     text: string,
@@ -26,6 +25,8 @@ final class DomainLinkListEditorService
      *     keyword_id: int|null,
      *     article_count: int,
      *     can_insert: bool,
+     *     source: string,
+     *     priority: int,
      * }>
      */
     public function forSite(Site|int|null $site): array
@@ -40,7 +41,7 @@ final class DomainLinkListEditorService
         }
 
         $siteId = (int) $site->getKey();
-        $links = $this->promptContext->getForSite($site)['links'] ?? [];
+        $links = $this->effectiveLinks->forSite($site);
         if ($links === []) {
             return [];
         }
@@ -86,6 +87,8 @@ final class DomainLinkListEditorService
                 'keyword_id' => $keyword !== null ? (int) $keyword->id : null,
                 'article_count' => (int) ($keyword->linked_articles_count ?? 0),
                 'can_insert' => true,
+                'source' => (string) ($row['source'] ?? EffectiveDomainLinkResolver::SOURCE_CUSTOM),
+                'priority' => (int) ($row['priority'] ?? 1),
             ];
         }
 
@@ -93,7 +96,7 @@ final class DomainLinkListEditorService
     }
 
     /**
-     * Chỉ trả link domain khi cụm anchor có trong nội dung bài (giống gợi ý internal link).
+     * Effective catalog đã lọc: chỉ keyword/anchor có trong nội dung bài (giống Internal suggestions).
      *
      * @return list<array{
      *     text: string,
@@ -102,6 +105,8 @@ final class DomainLinkListEditorService
      *     keyword_id: int|null,
      *     article_count: int,
      *     can_insert: bool,
+     *     source: string,
+     *     priority: int,
      * }>
      */
     public function forArticle(SeoArticle $article, ?string $contentHtml = null): array

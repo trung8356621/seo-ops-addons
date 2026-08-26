@@ -2,8 +2,8 @@
   "spec_version": "0.1",
   "key": "keyword.discovery.structured",
   "version": "0.1.0",
-  "name": "Structured keyword discovery",
-  "description": "NORMALIZE_NOW — JSON keywords. No domain write in hook.",
+  "name": "Keyword Discovery",
+  "description": "Generate structured topic and article ideas for Content Planning.",
   "enabled": true,
   "status": "experimental",
   "settings_visible": true,
@@ -16,10 +16,12 @@
   },
   "locale": { "mode": "site", "fallback": "en" },
   "input_schema": {
-    "seed_topic": { "type": "string", "required": true, "max_length": 1000 },
-    "count": { "type": "integer", "required": false, "default": 10 },
-    "brief": { "type": "string", "required": false, "nullable": true, "max_length": 5000 },
-    "primary_language": { "type": "string", "required": false, "nullable": true, "max_length": 16 }
+    "seed_topic": { "type": "string", "required": true, "max_length": 1000, "label": "Seed topic" },
+    "count": { "type": "integer", "required": false, "default": 10, "label": "Requested quantity" },
+    "brief": { "type": "string", "required": false, "nullable": true, "max_length": 5000, "label": "Planning brief / notes" },
+    "primary_language": { "type": "string", "required": false, "nullable": true, "max_length": 16, "label": "Effective primary language" },
+    "content_type": { "type": "string", "required": false, "nullable": true, "default": "post", "max_length": 32, "label": "Content type (post|product)" },
+    "post_type": { "type": "string", "required": false, "nullable": true, "default": "post", "max_length": 32, "label": "Post type (post|product)" }
   },
   "output_schema": {
     "type": "json",
@@ -27,32 +29,43 @@
     "validation": { "not_empty": true, "json_object": true }
   },
   "template": {
-    "system": "Return JSON only. No markdown fences. Prefer a JSON array of objects with keyword and suggested_title. Optional compact fields: suggestion_reason (short why) and source_signal (keyword_gap|cluster_gap|mcp_signal|related_topic|manual_focus). Write keyword and suggested_title in the requested primary language when provided. Callers may still accept a list of keyword strings for backward compatibility.",
-    "user": "Topic: {{seed_topic}}\nCount: {{count}}\nPrimary language: {{primary_language}}\nBrief: {{brief}}"
+    "source": "legacy_prompt_content",
+    "system": null,
+    "user": null
+  },
+  "canonical_default": {
+    "markdown": "You are generating planning suggestions for new content (Draft planning items), not writing articles and not publishing.\n\nUse the supplied Planning Intelligence brief to identify useful uncovered directions rather than duplicating existing published content. If existing coverage is weak or falling, treat that as improvement territory — do not propose an obvious duplicate article.\n\nPrefer uncovered / missing directions over topics already in Draft or previously rejected. Server-side dedup remains authoritative; still avoid those topics when listed.\n\nThe user may provide no notes at all. In that case, independently select the most useful new directions from the supplied evidence (site context, principal keywords, clusters, MCP, GSC, coverage gaps).\n\nRespect content_type: post = ordinary content article ideas; product = product-oriented content ideas for a product flow. Do not create Products at planning stage.\n\nFor every suggestion return JSON fields:\n- keyword\n- suggested_title\n- description (required: concise 1–3 sentence article brief that disambiguates short/ambiguous SEO keywords for later writing — not a full outline, not the same as suggestion_reason)\n- suggestion_reason (short user-facing why, e.g. \"Weak cluster coverage\" — no chain-of-thought)\n- source_signal (one of: keyword_gap|cluster_gap|mcp_signal|gsc_signal|related_topic|manual_note|manual_focus)\n\nWrite keyword, suggested_title, and description in the requested primary language when provided. Do not auto-detect language.\nAim for approximately the requested count in one structured JSON response. Return JSON only — no markdown fences.\nCallers may still accept a list of keyword strings for backward compatibility.\n\nTopic: {{seed_topic}}\nCount: {{count}}\nContent type: {{content_type}}\nPrimary language: {{primary_language}}\nPlanning brief / notes:\n{{brief}}"
   },
   "presentation": {
-    "description": "Propose structured keyword data for Content Project planning.",
+    "description": "Generate structured topic and article ideas for Content Planning.",
     "default_instructions": [
-      "Keep results on-topic for the seed topic and brief.",
-      "Follow the structured JSON contract — no free-form essays.",
-      "Avoid duplicate keywords.",
-      "Include suggested_title with each keyword when possible.",
+      "Generate content ideas that become Draft planning items — not full articles.",
+      "Use Planning Intelligence evidence; notes are optional.",
+      "Prefer uncovered / missing directions; avoid obvious duplicates of strong existing content.",
+      "Always include description (1–3 sentence planning brief) to disambiguate short keywords.",
+      "Keep suggestion_reason short and user-facing — no hidden chain-of-thought.",
+      "Respect content_type (post|product) and effective primary language.",
       "Return JSON only — no markdown fences."
     ],
     "output_format": [
-      "A JSON array/object of structured keyword recommendations.",
-      "Preferred item shape: {\"keyword\":\"...\",\"suggested_title\":\"...\",\"suggestion_reason\":\"...\",\"source_signal\":\"keyword_gap\"}.",
-      "Caller also accepts list entries as strings or objects with a keyword field."
+      "A JSON array/object of structured planning suggestions.",
+      "Preferred item shape: {\"keyword\":\"...\",\"suggested_title\":\"...\",\"description\":\"...\",\"suggestion_reason\":\"...\",\"source_signal\":\"keyword_gap\"}.",
+      "source_signal must be one of: keyword_gap|cluster_gap|mcp_signal|gsc_signal|related_topic|manual_note (manual_focus accepted for compatibility).",
+      "Caller also accepts list entries as strings or objects with a keyword field.",
+      "description may be omitted on legacy outputs (nullable)."
     ],
     "notes": [
-      "This Hook does not write keywords to the domain database — callers persist results.",
-      "New Content Planner persists planning items only; it does not upsert Keyword Intelligence."
+      "This Hook does not write keywords to the domain database — No domain write in hook; callers persist Draft planning items only.",
+      "New Content Planner does not upsert Keyword Intelligence and does not create Articles.",
+      "Canonical default text lives in this Hook definition (canonical_default.markdown); Settings Prompt Markdown is the editable runtime body."
     ],
     "variables": [
       { "key": "seed_topic", "required": true },
       { "key": "count", "required": false },
       { "key": "brief", "required": false },
-      { "key": "primary_language", "required": false }
+      { "key": "primary_language", "required": false },
+      { "key": "content_type", "required": false },
+      { "key": "post_type", "required": false }
     ]
   },
   "retry": { "max": 0 },

@@ -146,16 +146,14 @@ class DomainResource extends SeoPanelResource
                                     return true;
                                 }
 
-                                return ! app(SitePrimaryLanguageService::class)->hasPolylang($record);
-                            })
-                            ->dehydrated(function ($livewire): bool {
-                                $record = method_exists($livewire, 'getRecord') ? $livewire->getRecord() : null;
-                                if (! $record instanceof Site) {
-                                    return false;
+                                $svc = app(SitePrimaryLanguageService::class);
+                                if ($svc->hasPolylang($record)) {
+                                    return $svc->syncedLanguageOptions($record) === [];
                                 }
 
-                                return app(SitePrimaryLanguageService::class)->hasPolylang($record);
+                                return $svc->formLanguageOptions($record) === [];
                             })
+                            ->dehydrated(true)
                             ->helperText(function ($livewire): string {
                                 $record = method_exists($livewire, 'getRecord') ? $livewire->getRecord() : null;
                                 if (! $record instanceof Site) {
@@ -164,11 +162,7 @@ class DomainResource extends SeoPanelResource
 
                                 $svc = app(SitePrimaryLanguageService::class);
                                 if (! $svc->hasPolylang($record)) {
-                                    if ($svc->resolvePrimaryLanguage($record) !== null) {
-                                        return (string) __('seo-content-ai::filament.domain.primary_language_no_polylang');
-                                    }
-
-                                    return (string) __('seo-content-ai::filament.domain.primary_language_undetected');
+                                    return (string) __('seo-content-ai::filament.domain.primary_language_no_polylang');
                                 }
 
                                 if ($svc->syncedLanguageOptions($record) === []) {

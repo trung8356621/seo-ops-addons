@@ -161,7 +161,9 @@ final class DraftContentPlannerCoreContractTest extends TestCase
         self::assertStringContainsString('planner_improve_heading', $draftPlanner);
         self::assertStringContainsString('content-project-new-content-card', $draftPlanner);
         self::assertStringContainsString('filtersOpen', $draftPlanner);
-        self::assertStringContainsString('historyOpen', $draftPlanner);
+        self::assertStringNotContainsString('historyOpen', $draftPlanner);
+        self::assertStringNotContainsString('planner_history', $draftPlanner);
+        self::assertStringContainsString('content_planning_recent_filters', $draftPlanner);
         self::assertStringContainsString('data-draft-action="split"', $draftPlanner);
         self::assertStringContainsString('data-draft-action="activate-all"', $draftPlanner);
         self::assertStringContainsString('seoAuditPlannerCardState', $draftPlanner);
@@ -182,9 +184,9 @@ final class DraftContentPlannerCoreContractTest extends TestCase
         self::assertStringContainsString('skipSuggestionFromSeoAudit', $auditPlanner);
         self::assertStringContainsString('public_url', $auditPlanner);
 
-        self::assertStringContainsString('seo_audit_advanced_help', $auditPage);
         self::assertStringContainsString('content-project-draft-planner', $auditPage);
         self::assertStringContainsString('content_planning_subtitle', $auditPage);
+        self::assertStringNotContainsString('seo_audit_advanced_help', $auditPage);
         self::assertStringNotContainsString('<h1', $auditPage);
 
         self::assertStringContainsString('content-project-draft-planner', $ops);

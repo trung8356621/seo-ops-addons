@@ -826,7 +826,9 @@
         .cp-plan-btn--create {
             background: var(--cp-plan-blue);
             color: #fff;
-            flex: 1 1 12rem;
+            /* Column card child: do not flex-grow or grid equal-height stretches the button. */
+            flex: 0 0 auto;
+            align-self: stretch;
             min-height: 2.625rem;
             width: 100%;
         }
@@ -834,6 +836,7 @@
         .cp-plan-grid {
             display: grid;
             gap: 1rem;
+            align-items: start;
         }
         @media (min-width: 1024px) {
             .cp-plan-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -913,6 +916,11 @@
             width: 5.5rem;
             flex-shrink: 0;
         }
+        .cp-plan-type {
+            min-width: 8rem;
+            max-width: 12rem;
+            flex: 1 1 8rem;
+        }
         .cp-plan-qty__label {
             display: block;
             margin-bottom: 0.35rem;
@@ -987,16 +995,144 @@
             border-color: rgb(255 255 255 / 0.08);
             background: rgb(3 7 18 / 0.45);
         }
-        .cp-plan-advanced {
-            margin-top: auto;
-            padding-top: 0.25rem;
+        .cp-plan-filters-grid {
+            display: grid;
+            gap: 0.875rem 1rem;
+            grid-template-columns: minmax(0, 1fr);
+        }
+        @media (min-width: 640px) {
+            .cp-plan-filters-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+        }
+        @media (min-width: 1024px) {
+            .cp-plan-filters-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        }
+        .cp-plan-filters-grid__field { min-width: 0; }
+        .cp-plan-filters-grid__actions {
+            display: flex;
+            align-items: flex-end;
+            justify-content: flex-end;
+            min-width: 0;
+        }
+        @media (min-width: 1024px) {
+            .cp-plan-filters-grid__actions {
+                grid-column: 3;
+                grid-row: 3;
+            }
+        }
+        .cp-plan-draft--full {
+            width: 100%;
+            max-width: none;
+        }
+        .cp-plan-draft-table-wrap {
+            width: 100%;
+            overflow-x: auto;
+        }
+        .cp-plan-inline-input,
+        .cp-plan-inline-textarea {
+            width: 100%;
+            border-radius: 0.375rem;
+            border: 1px solid #86efac;
+            background: #fff;
+            padding: 0.35rem 0.5rem;
+            font-size: 0.875rem;
+            line-height: 1.35;
+            box-shadow: 0 0 0 2px rgb(16 185 129 / 0.15);
+        }
+        .dark .cp-plan-inline-input,
+        .dark .cp-plan-inline-textarea {
+            border-color: #34d399;
+            background: rgb(17 24 39);
+            color: #f3f4f6;
+        }
+        .cp-plan-inline-textarea { min-height: 4.5rem; resize: vertical; }
+        .cp-plan-badge {
+            display: inline-flex;
+            align-items: center;
+            border-radius: 9999px;
+            padding: 0.125rem 0.5rem;
+            font-size: 0.6875rem;
+            font-weight: 650;
+            letter-spacing: 0.01em;
+        }
+        .cp-plan-badge--rewrite {
+            background: #ecfdf5;
+            color: #047857;
+        }
+        .cp-plan-badge--improve {
+            background: #fffbeb;
+            color: #b45309;
+        }
+        .cp-plan-badge--create {
+            background: #eff6ff;
+            color: #1d4ed8;
+        }
+        .dark .cp-plan-badge--rewrite { background: rgb(16 185 129 / 0.15); color: #6ee7b7; }
+        .dark .cp-plan-badge--improve { background: rgb(245 158 11 / 0.15); color: #fcd34d; }
+        .dark .cp-plan-badge--create { background: rgb(37 99 235 / 0.2); color: #93c5fd; }
+        .cp-plan-row-actions {
+            display: inline-flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.25rem;
+        }
+        .cp-plan-row-actions--under {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.15rem 0.65rem;
+            margin-top: 0.4rem;
+            font-size: 0.75rem;
+            line-height: 1.35;
+        }
+        .cp-plan-row-action {
+            display: inline;
+            padding: 0;
+            border: 0;
+            background: transparent;
+            color: #2563eb;
+            font-size: inherit;
+            font-weight: 500;
+            cursor: pointer;
+            text-decoration: none;
+        }
+        .cp-plan-row-action:hover { text-decoration: underline; }
+        .cp-plan-row-action--warn { color: #b45309; }
+        .cp-plan-row-action--danger { color: #b91c1c; }
+        .cp-plan-title-line {
+            display: inline;
+            font-size: 0.875rem;
+            line-height: 1.35;
+        }
+        .cp-plan-seo-inline {
             font-size: 0.75rem;
             font-weight: 500;
-            color: var(--cp-plan-muted);
+            color: #9ca3af;
+            white-space: nowrap;
         }
-        .cp-plan-advanced:hover {
-            color: var(--cp-plan-green);
-            text-decoration: underline;
+        .dark .cp-plan-seo-inline { color: #6b7280; }
+        .cp-plan-icon-btn {
+            display: inline-flex;
+            height: 1.75rem;
+            width: 1.75rem;
+            align-items: center;
+            justify-content: center;
+            border-radius: 0.375rem;
+            color: #4b5563;
+            transition: background-color 0.15s, color 0.15s;
+        }
+        .cp-plan-icon-btn:hover {
+            background: #f3f4f6;
+            color: #111827;
+        }
+        .cp-plan-icon-btn--warn:hover { color: #b45309; background: #fffbeb; }
+        .cp-plan-icon-btn--danger:hover { color: #b91c1c; background: #fef2f2; }
+        .dark .cp-plan-icon-btn { color: #9ca3af; }
+        .dark .cp-plan-icon-btn:hover { background: rgb(255 255 255 / 0.08); color: #f3f4f6; }
+        @media (max-width: 1100px) {
+            .cp-plan-draft-table__col-added { display: none; }
+        }
+        @media (max-width: 900px) {
+            .cp-plan-draft-table__col-post-type { display: none; }
         }
         .cp-plan-draft {
             border: 1px solid var(--cp-plan-border);
@@ -1042,6 +1178,137 @@
         .cp-plan-draft__empty {
             padding: 1.5rem 1.125rem;
             text-align: left;
+        }
+        .cp-plan-draft-name {
+            min-height: 2.5rem;
+            display: flex;
+            align-items: center;
+            padding: 0.5rem 0.75rem;
+            border-radius: 0.5rem;
+            border: 1px solid var(--cp-plan-border);
+            background: #f9fafb;
+            font-size: 0.875rem;
+            font-weight: 500;
+            color: #111827;
+        }
+        .dark .cp-plan-draft-name {
+            border-color: rgb(255 255 255 / 0.1);
+            background: rgb(3 7 18 / 0.4);
+            color: #f3f4f6;
+        }
+        .cp-plan-segment {
+            display: inline-flex;
+            flex-wrap: wrap;
+            gap: 0.25rem;
+            width: 100%;
+            border-radius: 0.5rem;
+            border: 1px solid #e5e7eb;
+            background: #fff;
+            padding: 0.25rem;
+        }
+        .dark .cp-plan-segment {
+            border-color: rgb(255 255 255 / 0.1);
+            background: rgb(17 24 39);
+        }
+        .cp-plan-segment__btn {
+            border: 0;
+            border-radius: 0.375rem;
+            background: transparent;
+            padding: 0.35rem 0.6rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #4b5563;
+            cursor: pointer;
+        }
+        .cp-plan-segment__btn:hover { background: #f3f4f6; }
+        .cp-plan-segment__btn.is-active {
+            background: #059669;
+            color: #fff;
+        }
+        .dark .cp-plan-segment__btn { color: #9ca3af; }
+        .dark .cp-plan-segment__btn:hover { background: rgb(255 255 255 / 0.06); }
+        .dark .cp-plan-segment__btn.is-active { background: #059669; color: #fff; }
+        .cp-plan-draft__tabs {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.35rem;
+            padding: 0.75rem 1.125rem 0;
+        }
+        .cp-plan-draft__tab {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            border: 1px solid transparent;
+            border-radius: 9999px;
+            background: transparent;
+            padding: 0.3rem 0.7rem;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: #6b7280;
+            cursor: pointer;
+        }
+        .cp-plan-draft__tab:hover { background: #f3f4f6; }
+        .cp-plan-draft__tab.is-active {
+            background: #ecfdf5;
+            color: #047857;
+            border-color: #a7f3d0;
+        }
+        .cp-plan-draft__tab-count {
+            border-radius: 9999px;
+            background: rgb(0 0 0 / 0.06);
+            padding: 0 0.35rem;
+            font-variant-numeric: tabular-nums;
+        }
+        .cp-plan-draft__tab.is-active .cp-plan-draft__tab-count { background: rgb(4 120 87 / 0.12); }
+        .cp-plan-draft__type-filter {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.35rem;
+            padding: 0.5rem 1.125rem 0.75rem;
+        }
+        .cp-plan-chip.is-active {
+            background: #059669;
+            color: #fff;
+            border-color: #059669;
+        }
+        .cp-plan-article-cell {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.55rem;
+        }
+        .cp-plan-article-icon {
+            display: inline-flex;
+            height: 1.75rem;
+            width: 1.75rem;
+            flex-shrink: 0;
+            align-items: center;
+            justify-content: center;
+            border-radius: 9999px;
+            margin-top: 0.1rem;
+        }
+        .cp-plan-article-icon--improve { background: #ecfdf5; color: #059669; }
+        .cp-plan-article-icon--create { background: #eff6ff; color: #2563eb; }
+        .cp-plan-article-icon--manual { background: #f3f4f6; color: #6b7280; }
+        .cp-plan-review-toggle {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 1.75rem;
+            height: 1.75rem;
+            border-radius: 0.375rem;
+            border: 1px solid #e5e7eb;
+            background: #fff;
+            font-size: 0.875rem;
+            font-weight: 700;
+            color: #9ca3af;
+            cursor: pointer;
+        }
+        .cp-plan-review-toggle.is-unreviewed:hover { border-color: #d1d5db; color: #6b7280; }
+        .cp-plan-review-toggle.is-reviewed {
+            border-color: #a7f3d0;
+            background: #ecfdf5;
+            color: #047857;
         }
     </style>
 @endonce

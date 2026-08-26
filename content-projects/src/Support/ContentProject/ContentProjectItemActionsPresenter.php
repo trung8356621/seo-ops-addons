@@ -334,9 +334,6 @@ final class ContentProjectItemActionsPresenter
             'archive_item' => $archiveItem,
             'remove_from_draft' => $archiveItem && (($row['project_is_draft'] ?? false) === true),
             'skip_seo_audit' => (bool) ($row['can_skip_seo_audit'] ?? false),
-            'view_generation_run' => (bool) ($row['can_view_generation_run'] ?? false)
-                && (int) ($row['planner_run_id'] ?? 0) > 0,
-            'planner_run_id' => (int) ($row['planner_run_id'] ?? 0) ?: null,
             'check_index' => trim((string) ($row['check_index_url'] ?? '')) !== '',
             'view_details' => true,
             'debug_to_approved' => $debugToApproved,

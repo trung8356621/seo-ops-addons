@@ -161,4 +161,186 @@ final class ArticleCtaPlaceholderServiceTest extends TestCase
         $this->assertStringContainsString('Mon-Fri 8-17', $html);
         $this->assertStringNotContainsString('[working_hours]', $html);
     }
+
+    public function test_website_glued_right_inserts_space(): void
+    {
+        $html = $this->replaceWithCta(
+            '[website]hoặc liên hệ',
+            [],
+            'maytuicanvas.com',
+        );
+
+        $this->assertSame('maytuicanvas.com hoặc liên hệ', $this->visible($html));
+        $this->assertStringNotContainsString('comhoặc', $html);
+    }
+
+    public function test_email_glued_right_inserts_space(): void
+    {
+        $html = $this->replaceWithCta(
+            '[email]để nhận báo giá',
+            [['type' => 'email_1', 'value' => 'info@example.com']],
+        );
+
+        $this->assertSame('info@example.com để nhận báo giá', $this->visible($html));
+        $this->assertStringNotContainsString('comđể', $html);
+    }
+
+    public function test_left_and_right_glue(): void
+    {
+        $html = $this->replaceWithCta(
+            'email[email]để nhận báo giá',
+            [['type' => 'email_1', 'value' => 'info@example.com']],
+        );
+
+        $this->assertSame('email info@example.com để nhận báo giá', $this->visible($html));
+    }
+
+    public function test_website_punctuation_no_extra_space(): void
+    {
+        $html = $this->replaceWithCta(
+            'Website: [website].',
+            [],
+            'maytuicanvas.com',
+        );
+
+        $this->assertSame('Website: maytuicanvas.com.', $this->visible($html));
+        $this->assertStringNotContainsString('com .', $this->visible($html));
+    }
+
+    public function test_phone_comma_no_extra_space(): void
+    {
+        $html = $this->replaceWithCta(
+            'Hotline: [phone], gọi ngay.',
+            [['type' => 'phone_1', 'value' => '0901234567']],
+        );
+
+        $this->assertSame('Hotline: 0901234567, gọi ngay.', $this->visible($html));
+    }
+
+    public function test_phone_parentheses_no_extra_space(): void
+    {
+        $html = $this->replaceWithCta(
+            '([phone])',
+            [['type' => 'phone_1', 'value' => '0901234567']],
+        );
+
+        $this->assertSame('(0901234567)', $this->visible($html));
+    }
+
+    public function test_address_comma_no_extra_space(): void
+    {
+        $html = $this->replaceWithCta(
+            '[address], TP.HCM',
+            [['type' => 'address', 'value' => '123 Nguyễn Văn A']],
+        );
+
+        $this->assertSame('123 Nguyễn Văn A, TP.HCM', $this->visible($html));
+    }
+
+    public function test_existing_spaces_not_doubled(): void
+    {
+        $html = $this->replaceWithCta(
+            '[website] hoặc [email]',
+            [['type' => 'email_1', 'value' => 'info@example.com']],
+            'maytuicanvas.com',
+        );
+
+        $this->assertSame('maytuicanvas.com hoặc info@example.com', $this->visible($html));
+        $this->assertStringNotContainsString('  ', $this->visible($html));
+    }
+
+    public function test_multiple_tokens_with_glue(): void
+    {
+        $html = $this->replaceWithCta(
+            'Gọi[phone]hoặc email[email]để được hỗ trợ.',
+            [
+                ['type' => 'phone_1', 'value' => '0901234567'],
+                ['type' => 'email_1', 'value' => 'info@example.com'],
+            ],
+        );
+
+        $this->assertSame(
+            'Gọi 0901234567 hoặc email info@example.com để được hỗ trợ.',
+            $this->visible($html),
+        );
+    }
+
+    public function test_address_vietnamese_unicode_glue(): void
+    {
+        $html = $this->replaceWithCta(
+            '[address]để nhận tư vấn.',
+            [['type' => 'address', 'value' => '12 Nguyễn Thị Minh Khai']],
+        );
+
+        $this->assertSame('12 Nguyễn Thị Minh Khai để nhận tư vấn.', $this->visible($html));
+    }
+
+    public function test_url_value_remains_atomic(): void
+    {
+        $url = 'https://example.com/a,b?q=x.y';
+        $html = $this->replaceWithCta(
+            'Xem [facebook] ngay',
+            [['type' => 'facebook', 'value' => $url]],
+        );
+
+        $this->assertSame('Xem '.$url.' ngay', $this->visible($html));
+        $this->assertStringContainsString('href="'.htmlspecialchars($url, ENT_QUOTES | ENT_HTML5, 'UTF-8').'"', $html);
+        $this->assertStringNotContainsString('a, b', $this->visible($html));
+    }
+
+    public function test_email_value_remains_atomic(): void
+    {
+        $html = $this->replaceWithCta(
+            'Mail [email] now',
+            [['type' => 'email_1', 'value' => 'support.sales@example.com']],
+        );
+
+        $this->assertSame('Mail support.sales@example.com now', $this->visible($html));
+        $this->assertStringContainsString('support.sales@example.com', $html);
+    }
+
+    public function test_unrelated_missing_space_not_mutated(): void
+    {
+        $html = $this->replaceWithCta(
+            'Đây là nội dung,bị thiếu space nhưng không liên quan placeholder.',
+            [['type' => 'phone_1', 'value' => '0901234567']],
+        );
+
+        $this->assertSame(
+            'Đây là nội dung,bị thiếu space nhưng không liên quan placeholder.',
+            $this->visible($html),
+        );
+    }
+
+    public function test_real_glued_website_and_email_case(): void
+    {
+        $html = $this->replaceWithCta(
+            'Bạn có thể truy cập [website]hoặc email[email]để nhận báo giá.',
+            [['type' => 'email_1', 'value' => 'info.mayhopphat@gmail.com']],
+            'maytuicanvas.com',
+        );
+
+        $visible = $this->visible($html);
+        $this->assertStringContainsString('maytuicanvas.com hoặc', $visible);
+        $this->assertStringContainsString('email info.mayhopphat@gmail.com để', $visible);
+        $this->assertStringNotContainsString('comhoặc', $visible);
+        $this->assertStringNotContainsString('comđể', $visible);
+    }
+
+    /**
+     * @param  list<array{type: string, value: string}>  $cta
+     */
+    private function replaceWithCta(string $html, array $cta, string $domain = 'example.com'): string
+    {
+        $site = new \App\Models\Site(['domain' => $domain]);
+        $promptContext = SiteDomainPromptContextService::withTestPayload(['cta' => $cta]);
+        $service = new ArticleCtaPlaceholderService($promptContext);
+
+        return $service->replaceInHtml($html, $site);
+    }
+
+    private function visible(string $html): string
+    {
+        return html_entity_decode(strip_tags($html), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+    }
 }

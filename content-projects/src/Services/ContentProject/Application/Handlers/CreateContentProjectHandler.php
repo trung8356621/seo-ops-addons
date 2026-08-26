@@ -16,6 +16,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Quota
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectBusinessLock;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectPreviewToken;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectTenantGuard;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftResolver;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectTaskSyncService;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -29,6 +30,7 @@ final class CreateContentProjectHandler extends AbstractPublishingHandler
         private readonly ContentProjectQuotaGuard $quota,
         private readonly ContentProjectDomainEvents $domainEvents,
         private readonly SeoProjectTaskSyncService $taskSync,
+        private readonly PlanningDraftResolver $planningDrafts,
     ) {
         parent::__construct($tenantGuard, $businessLock, $previewToken);
     }
@@ -82,6 +84,21 @@ final class CreateContentProjectHandler extends AbstractPublishingHandler
                     $month = SeoProject::draftCompatibilityMonth();
                 }
                 $kind = SeoProject::KIND_MONTHLY;
+
+                // Product invariant: one reusable Planning Draft per site.
+                $existing = $this->planningDrafts->findPlanningDraftForSite($siteId);
+                if ($existing instanceof SeoProject) {
+                    return ContentProjectActionResult::ok(
+                        ContentProjectActionCodes::PROJECT_CREATED,
+                        'Planning Draft already exists for this domain.',
+                        (int) $existing->getKey(),
+                        metadata: [
+                            'site_id' => $siteId,
+                            'reused_existing_draft' => true,
+                            'tasks_synced' => false,
+                        ],
+                    );
+                }
             }
 
             $project = DB::connection('omi_seo_ai')->transaction(function () use ($attrs, $siteId, $name, $userId, $totalTasks, $status, $kind, $month): SeoProject {

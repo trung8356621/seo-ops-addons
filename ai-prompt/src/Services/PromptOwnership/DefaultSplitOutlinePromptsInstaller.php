@@ -8,7 +8,6 @@ use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\Services\ArticleOutlineVocabularySplitExecutor;
 use Omnichannel\Addons\AiPrompt\Services\PromptPack\PromptPortableIdentity;
 use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
-use App\Models\ApiConnection;
 
 /**
  * Idempotent install: Outline structure + Vocabulary prompts + Settings bindings.
@@ -140,7 +139,6 @@ MD;
                 'hook_key' => $hookKey,
                 'hook_version' => '0.1.0',
                 'variables' => $variables,
-                'ai_connection_id' => $this->defaultAiConnectionId(),
                 'tools' => 'default',
                 'is_active' => true,
                 'user_id' => $this->systemUserId(),
@@ -190,17 +188,6 @@ MD;
             ->first();
 
         return $byName instanceof SeoPrompt ? $byName : null;
-    }
-
-    private function defaultAiConnectionId(): ?int
-    {
-        try {
-            $id = ApiConnection::query()->orderBy('id')->value('id');
-
-            return $id !== null ? (int) $id : null;
-        } catch (\Throwable) {
-            return null;
-        }
     }
 
     private function systemUserId(): int

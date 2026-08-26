@@ -35,7 +35,7 @@ use Throwable;
  *   mcp_signals: list<array{type: string, label: string}>,
  *   gsc_signals: list<array{type: string, label: string, query?: string, lane?: string}>,
  *   mcp_period: string|null,
- *   covered_keyword_norms: array<string, true>,
+ *   covered_keyword_norms: array<string, true>, // published/covered only — not weakly_covered / bare KI
  *   planned_fingerprints: array<string, true>,
  *   rejected_fingerprints: array<string, true>,
  *   diagnostics: array{
@@ -166,13 +166,8 @@ final class ContentPlanningIntelligenceService
             $this->applyGscCoverageToPrincipal($principal, $coveredNorms, $coverageCounts, $gscSignals);
         }
 
-        // Planned create keywords count as covered for AI exclusion list.
-        foreach ($planned as $row) {
-            $norm = NewContentSuggestionIdentity::normalize($row['keyword']);
-            if ($norm !== '') {
-                $coveredNorms[$norm] = true;
-            }
-        }
+        // Active Draft Create items are excluded via planned_fingerprints / planned_keyword_norms
+        // in the dedup layer — not via covered_keyword_norms (content coverage SSOT).
 
         return [
             'site' => [
@@ -217,8 +212,11 @@ final class ContentPlanningIntelligenceService
             'Primary language (write ALL keyword and suggested_title values in this language): '.$ctx['site']['primary_language'],
             'Domain: '.($ctx['site']['domain'] !== '' ? $ctx['site']['domain'] : '(unknown)'),
             'Direction: '.$options['direction'],
+            'Content type: '.$options['content_type'],
             'Post type target: '.$options['post_type'],
-            'Return JSON array of objects: {"keyword":"...","suggested_title":"...","suggestion_reason":"...","source_signal":"keyword_gap|cluster_gap|mcp_signal|gsc_signal|related_topic|manual_focus"} — about '.$options['quantity'].' items.',
+            'Return JSON array of objects: {"keyword":"...","suggested_title":"...","description":"...","suggestion_reason":"...","source_signal":"keyword_gap|cluster_gap|mcp_signal|gsc_signal|related_topic|manual_focus"} — about '.$options['quantity'].' items.',
+            'description = concise 1–3 sentence article brief that disambiguates short SEO keywords so later writing understands intended scope (not a full outline).',
+            'suggestion_reason = short why this topic was suggested (gap/signal). Keep distinct from description.',
             'Prefer uncovered / weak-coverage directions. Do not invent ranking/volume data.',
             'Prefer NOT to create duplicates for topics already covered by existing published articles — those belong to Rewrite/Improve lanes.',
             'GSC falling/weak CTR on an existing published page is an improvement signal, not a Create duplicate.',
@@ -227,11 +225,17 @@ final class ContentPlanningIntelligenceService
             'Do not invent articles; propose planning suggestions only.',
         ];
 
-        if ($options['focus'] !== '') {
-            $lines[] = 'Focus: '.$options['focus'];
+        $notes = trim((string) ($options['notes'] ?? ''));
+        if ($notes === '') {
+            $notes = trim((string) ($options['focus'] ?? ''));
         }
-        if ($options['taxonomy'] !== '') {
-            $lines[] = 'Taxonomy direction (planning only, do not create terms): '.$options['taxonomy'];
+        if ($notes !== '') {
+            $lines[] = 'Additional user instructions:';
+            $lines[] = $notes;
+        }
+        $taxonomy = trim((string) ($options['taxonomy'] ?? ''));
+        if ($taxonomy !== '') {
+            $lines[] = 'Taxonomy direction (planning only, do not create terms): '.$taxonomy;
         }
 
         if ($ctx['missing_directions'] !== []) {
@@ -432,12 +436,9 @@ final class ContentPlanningIntelligenceService
                     $coveredNorms[$norm] = true;
                 }
             } elseif ($kid > 0 && isset($linkedAny[$kid])) {
+                // Weak link / KI presence is a planning signal — not Create hard-blocker coverage.
                 $row['coverage'] = 'weakly_covered';
                 $counts['weakly_covered']++;
-                $norm = NewContentSuggestionIdentity::normalize($row['phrase']);
-                if ($norm !== '') {
-                    $coveredNorms[$norm] = true;
-                }
             } else {
                 $row['coverage'] = 'uncovered';
                 $counts['uncovered']++;

@@ -4,10 +4,9 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SiteSync\Services\Presentation;
 
+use Omnichannel\Addons\Seo\Services\EffectiveDomainLinkResolver;
 use Omnichannel\Addons\SiteSync\Models\SeoSiteLinkCatalog;
 use Omnichannel\Addons\SiteSync\Models\SeoSiteLinkExclusion;
-use Omnichannel\Addons\SiteSync\Models\SeoSiteManualLink;
-use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncSchema;
 use App\Models\Site;
 
 /**
@@ -16,17 +15,21 @@ use App\Models\Site;
 final class SiteLinkCatalogSummaryPresenter
 {
     /**
-     * @return array{wordpress_active: int, manual: int, exclusions: int, inactive: int, label: string}
+     * @return array{
+     *     wordpress_active: int,
+     *     manual: int,
+     *     product_categories: int,
+     *     effective: int,
+     *     exclusions: int,
+     *     inactive: int,
+     *     label: string
+     * }
      */
     public function forSite(Site $site): array
     {
+        $effectiveSummary = app(EffectiveDomainLinkResolver::class)->catalogSummary($site);
+
         $siteId = (int) $site->id;
-        $wp = SeoSiteLinkCatalog::query()
-            ->forSite($siteId)
-            ->where('source', SiteSyncSchema::SOURCE_WORDPRESS)
-            ->whereNull('inactive_at')
-            ->count();
-        $manual = SeoSiteManualLink::query()->where('site_id', $siteId)->count();
         $excluded = SeoSiteLinkExclusion::query()->where('site_id', $siteId)->count();
         $inactive = SeoSiteLinkCatalog::query()
             ->forSite($siteId)
@@ -34,17 +37,13 @@ final class SiteLinkCatalogSummaryPresenter
             ->count();
 
         return [
-            'wordpress_active' => $wp,
-            'manual' => $manual,
+            'wordpress_active' => (int) $effectiveSummary['wordpress_active'],
+            'manual' => (int) $effectiveSummary['manual'],
+            'product_categories' => (int) $effectiveSummary['product_categories'],
+            'effective' => (int) $effectiveSummary['effective'],
             'exclusions' => $excluded,
             'inactive' => $inactive,
-            'label' => sprintf(
-                'WordPress active: %d · Manual: %d · Exclusions: %d · Inactive/deleted: %d. Effective = WP + Manual − Exclusions. Đồng bộ lại qua nút «Đồng bộ & kiểm tra website».',
-                $wp,
-                $manual,
-                $excluded,
-                $inactive,
-            ),
+            'label' => (string) $effectiveSummary['label'],
         ];
     }
 }

@@ -116,6 +116,10 @@ final class AiRuntimeHealthService
 
     public function recordFailure(int $userId, RoutedAiCandidate $candidate, AiFailureDecision $decision): void
     {
+        if (! $decision->affectsRuntimeHealth) {
+            return;
+        }
+
         if (! $this->tableReady()) {
             return;
         }

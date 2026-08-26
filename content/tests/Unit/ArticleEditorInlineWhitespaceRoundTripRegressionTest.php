@@ -213,6 +213,8 @@ final class ArticleEditorInlineWhitespaceRoundTripRegressionTest extends TestCas
         self::assertStringContainsString('repairGluedInlineMarkBoundaryWhitespace', $guard);
         self::assertStringContainsString('countGluedInlineMarkBoundaries', $guard);
         self::assertStringContainsString("preserveWhitespace: 'full'", $guard);
+        self::assertStringContainsString('collapseHtmlSoftNewlines', $guard);
+        self::assertStringContainsString('export function collapseHtmlSoftNewlines', $guard);
         self::assertStringContainsString('TIPTAP_HTML_PARSE_OPTIONS', $editor);
         self::assertStringContainsString('parseOptions: TIPTAP_HTML_PARSE_OPTIONS', $blockEditor);
         self::assertStringContainsString('acceptUpdatesRef', $blockEditor);

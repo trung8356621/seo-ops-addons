@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\NewContent;
 
 use Omnichannel\Addons\AiPrompt\Exceptions\AiRoutesExhaustedException;
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
+use Omnichannel\Addons\AiPrompt\Models\PromptResult;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\PromptHookFailure;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookCallerBridge;
@@ -36,6 +37,8 @@ final class NewContentSuggestionPlannerService
 {
     private int $logicalDiscoveryCalls = 0;
 
+    private ?int $lastDiscoveryPromptResultId = null;
+
     public function __construct(
         private readonly PromptHookCallerBridge $promptHookBridge,
         private readonly PromptRunnerService $promptRunner,
@@ -56,6 +59,98 @@ final class NewContentSuggestionPlannerService
     public function resetLogicalDiscoveryCallCount(): void
     {
         $this->logicalDiscoveryCalls = 0;
+        $this->lastDiscoveryPromptResultId = null;
+    }
+
+    /**
+     * Import Draft create items from an existing planner run's PromptResult.
+     * 0 AI calls. Does not mutate historical result_summary on the run.
+     *
+     * @return array<string, mixed>
+     */
+    public function importFromExistingRun(SeoProject $project, SeoContentProjectPlannerRun $run, ?int $actorId = null): array
+    {
+        if (! $project->isDraftPlanning()) {
+            throw new InvalidArgumentException('Import AI suggestions into a Draft project.');
+        }
+
+        if ((int) $run->project_id !== (int) $project->getKey()) {
+            throw new InvalidArgumentException('Planner run does not belong to this Draft.');
+        }
+
+        if ((string) $run->source_type !== SeoContentProjectPlannerRun::SOURCE_AI_NEW_CONTENT) {
+            throw new InvalidArgumentException('Only AI New Content planner runs can be imported.');
+        }
+
+        $promptResultId = (int) ($run->prompt_result_id ?? 0);
+        if ($promptResultId <= 0) {
+            throw new InvalidArgumentException('Planner run has no PromptResult to import.');
+        }
+
+        $promptResult = PromptResult::query()->find($promptResultId);
+        if (! $promptResult instanceof PromptResult) {
+            throw new InvalidArgumentException('PromptResult #'.$promptResultId.' was not found.');
+        }
+
+        $raw = trim((string) ($promptResult->output_text ?? ''));
+        if ($raw === '') {
+            throw new InvalidArgumentException('PromptResult #'.$promptResultId.' has empty output.');
+        }
+
+        $decoded = json_decode($raw, true);
+        $value = json_last_error() === JSON_ERROR_NONE ? $decoded : $raw;
+
+        $site = $this->resolveSite($project);
+        $snapshot = is_array($run->configuration_snapshot) ? $run->configuration_snapshot : [];
+        $options = NewContentSuggestionOptions::fromSnapshot($snapshot);
+        $language = (string) ($snapshot['primary_language'] ?? $this->requirePrimaryLanguage($site));
+        $requested = max(1, (int) ($run->requested_quantity ?: $options['quantity'] ?: 20));
+
+        $context = $this->contextBuilder->build($project, $site, $options, $language);
+        $parsed = $this->parser->parse($value, $requested);
+        $filtered = $this->dedup->filter(
+            $parsed['candidates'],
+            $context['planned_fingerprints'],
+            $context['rejected_fingerprints'],
+            $context['covered_keyword_norms'] ?? $context['existing_keywords'] ?? [],
+            is_array($context['planned_keyword_norms'] ?? null) ? $context['planned_keyword_norms'] : [],
+        );
+
+        $taskIds = $this->persistCreateItems(
+            $project,
+            $filtered['accepted'],
+            NewContentSuggestionOptions::taskPostType((string) ($options['post_type'] ?? $options['content_type'] ?? 'post')),
+            (int) $run->getKey(),
+            $actorId,
+        );
+
+        $breakdown = is_array($filtered['duplicate_breakdown'] ?? null)
+            ? $filtered['duplicate_breakdown']
+            : ['in_batch' => 0, 'in_batch_keyword' => 0, 'active_draft' => 0, 'covered_content' => 0];
+
+        return [
+            'imported' => true,
+            'logical_ai_calls' => 0,
+            'planner_run_id' => (int) $run->getKey(),
+            'prompt_result_id' => $promptResultId,
+            'requested' => $requested,
+            'parsed' => count($parsed['candidates']),
+            'added' => count($taskIds),
+            'duplicate_skipped' => (int) $filtered['duplicate_skipped'],
+            'rejected_skipped' => (int) $filtered['rejected_skipped'],
+            'invalid' => (int) $parsed['invalid'],
+            'duplicate_breakdown' => $breakdown,
+            'task_ids' => $taskIds,
+            'candidates' => array_slice($filtered['results'], 0, 100),
+            'message' => sprintf(
+                'Imported from PromptResult #%d · %d added · %d duplicates skipped · %d rejected · %d invalid (0 AI calls)',
+                $promptResultId,
+                count($taskIds),
+                (int) $filtered['duplicate_skipped'],
+                (int) $filtered['rejected_skipped'],
+                (int) $parsed['invalid'],
+            ),
+        ];
     }
 
     /**
@@ -123,6 +218,7 @@ final class NewContentSuggestionPlannerService
             throw new RuntimeException('Project not found for planner run.');
         }
 
+        $this->resetLogicalDiscoveryCallCount();
         $this->plannerRuns->markStatus($run, SeoContentProjectPlannerRun::STATUS_RUNNING);
 
         try {
@@ -131,8 +227,9 @@ final class NewContentSuggestionPlannerService
 
             return $summary;
         } catch (Throwable $e) {
+            $promptResultId = $this->extractPromptResultId($e);
             $safe = $this->failureSummary($run, $e);
-            $this->plannerRuns->failRun($run, $safe, $this->extractPromptResultId($e));
+            $this->plannerRuns->failRun($run, $safe, $promptResultId);
 
             return $safe;
         }
@@ -158,6 +255,7 @@ final class NewContentSuggestionPlannerService
             $snapshot,
             $actorId,
         );
+        $this->resetLogicalDiscoveryCallCount();
         $this->plannerRuns->markStatus($run, SeoContentProjectPlannerRun::STATUS_RUNNING);
 
         try {
@@ -166,8 +264,9 @@ final class NewContentSuggestionPlannerService
 
             return $summary;
         } catch (Throwable $e) {
+            $promptResultId = $this->extractPromptResultId($e);
             $safe = $this->failureSummary($run, $e);
-            $this->plannerRuns->failRun($run, $safe, $this->extractPromptResultId($e));
+            $this->plannerRuns->failRun($run, $safe, $promptResultId);
 
             return $safe;
         }
@@ -190,8 +289,10 @@ final class NewContentSuggestionPlannerService
             count: $requested,
             brief: $context['brief'],
             primaryLanguage: $language,
+            contentType: NewContentSuggestionOptions::normalizeContentType((string) ($options['post_type'] ?? $options['content_type'] ?? 'post')),
             actorId: $actorId,
             siteId: (int) $site->getKey(),
+            notes: trim((string) ($options['notes'] ?? '')),
         );
 
         $parsed = $this->parser->parse($discovery['value'], $requested);
@@ -199,19 +300,23 @@ final class NewContentSuggestionPlannerService
             $parsed['candidates'],
             $context['planned_fingerprints'],
             $context['rejected_fingerprints'],
-            $context['covered_keyword_norms'] ?? $context['existing_keywords'],
+            $context['covered_keyword_norms'] ?? $context['existing_keywords'] ?? [],
+            is_array($context['planned_keyword_norms'] ?? null) ? $context['planned_keyword_norms'] : [],
         );
 
         $taskIds = $this->persistCreateItems(
             $project,
             $filtered['accepted'],
-            $options['post_type'],
+            NewContentSuggestionOptions::taskPostType((string) $options['post_type']),
             (int) $run->getKey(),
             $actorId,
         );
 
         $results = $filtered['results'];
         $diagnostics = is_array($context['diagnostics'] ?? null) ? $context['diagnostics'] : [];
+        $breakdown = is_array($filtered['duplicate_breakdown'] ?? null)
+            ? $filtered['duplicate_breakdown']
+            : ['in_batch' => 0, 'in_batch_keyword' => 0, 'active_draft' => 0, 'covered_content' => 0];
 
         return [
             'requested' => $requested,
@@ -221,6 +326,7 @@ final class NewContentSuggestionPlannerService
             'duplicate_skipped' => (int) $filtered['duplicate_skipped'],
             'rejected_skipped' => (int) $filtered['rejected_skipped'],
             'invalid' => (int) $parsed['invalid'],
+            'duplicate_breakdown' => $breakdown,
             'task_ids' => $taskIds,
             'planner_run_id' => (int) $run->getKey(),
             'prompt_result_id' => $discovery['prompt_result_id'],
@@ -257,10 +363,32 @@ final class NewContentSuggestionPlannerService
         int $count,
         string $brief,
         string $primaryLanguage,
+        string $contentType,
         ?int $actorId,
         int $siteId,
+        string $notes = '',
     ): array {
         $this->logicalDiscoveryCalls++;
+
+        $contentType = in_array($contentType, ['post', 'product'], true) ? $contentType : 'post';
+        $quantity = (string) max(1, $count);
+        $notesValue = trim($notes);
+
+        // Hook schema: seed_topic/count/brief/…
+        // Content Planning Assistant (Prompt Management): requested_quantity/planning_context/notes/…
+        $legacyVariables = [
+            'seed_topic' => $seedTopic,
+            'count' => $quantity,
+            'keyword_count' => $quantity,
+            'requested_quantity' => $quantity,
+            'brief' => $brief,
+            'user_brief' => $brief,
+            'planning_context' => $brief,
+            'notes' => $notesValue,
+            'primary_language' => $primaryLanguage,
+            'post_type' => $contentType,
+            'content_type' => $contentType,
+        ];
 
         $context = array_filter([
             'site_id' => $siteId > 0 ? $siteId : null,
@@ -273,9 +401,11 @@ final class NewContentSuggestionPlannerService
             'context' => $context,
             'input' => [
                 'seed_topic' => $seedTopic,
-                'count' => $count,
+                'count' => max(1, $count),
                 'brief' => $brief,
                 'primary_language' => $primaryLanguage,
+                'post_type' => $contentType,
+                'content_type' => $contentType,
             ],
             'previous_outputs' => [],
             'settings' => [],
@@ -287,24 +417,19 @@ final class NewContentSuggestionPlannerService
             hookKey: 'keyword.discovery.structured',
             version: '0.1.0',
             envelope: $envelope,
-            legacyExecute: function () use ($seedTopic, $count, $brief, $primaryLanguage, &$promptResultId): mixed {
+            legacyExecute: function () use ($legacyVariables, &$promptResultId): mixed {
                 $promptId = $this->workflowSettings->getProjectKeywordsPromptId();
                 if ($promptId === null) {
                     throw new InvalidArgumentException(
-                        'Keyword discovery prompt is not bound. Configure SEO → Settings → Workflow.',
+                        'Keyword Discovery prompt is not bound. Open Settings → Prompt Management / Workflows and ensure Keyword Discovery is provisioned.',
                     );
                 }
                 $prompt = SeoPrompt::query()->find($promptId);
                 if (! $prompt instanceof SeoPrompt) {
-                    throw new InvalidArgumentException('Keyword discovery prompt is missing.');
+                    throw new InvalidArgumentException('Keyword Discovery prompt record is missing.');
                 }
 
-                $result = $this->promptRunner->run($prompt, [
-                    'keyword_count' => (string) $count,
-                    'user_brief' => $brief,
-                    'seed_topic' => $seedTopic,
-                    'primary_language' => $primaryLanguage,
-                ]);
+                $result = $this->promptRunner->run($prompt, $legacyVariables);
                 $promptResultId = $result->id !== null ? (int) $result->id : null;
 
                 return (string) ($result->output_text ?? '');
@@ -319,6 +444,10 @@ final class NewContentSuggestionPlannerService
             },
         );
 
+        $this->lastDiscoveryPromptResultId = ($promptResultId !== null && $promptResultId > 0)
+            ? $promptResultId
+            : null;
+
         return [
             'value' => $value,
             'prompt_result_id' => $promptResultId,
@@ -326,7 +455,7 @@ final class NewContentSuggestionPlannerService
     }
 
     /**
-     * @param  list<array{keyword: string, title: string, description: string, fingerprint: string, suggestion_reason?: string, source_signal?: string}>  $candidates
+     * @param  list<array{keyword: string, title: string, description: string, product_type?: string, gallery_description?: string, fingerprint: string, suggestion_reason?: string, source_signal?: string}>  $candidates
      * @return list<int>
      */
     private function persistCreateItems(
@@ -363,9 +492,22 @@ final class NewContentSuggestionPlannerService
                     continue;
                 }
 
-                $reason = trim((string) ($candidate['suggestion_reason'] ?? $candidate['description'] ?? ''));
+                $reason = trim((string) ($candidate['suggestion_reason'] ?? ''));
                 if (mb_strlen($reason) > 200) {
                     $reason = mb_substr($reason, 0, 197).'…';
+                }
+                $brief = trim((string) ($candidate['description'] ?? ''));
+                if (mb_strlen($brief) > 2000) {
+                    $brief = mb_substr($brief, 0, 1997).'…';
+                }
+                $isProduct = $postType === SeoProjectTask::POST_TYPE_PRODUCT;
+                $productType = $isProduct ? trim((string) ($candidate['product_type'] ?? '')) : '';
+                if (mb_strlen($productType) > 500) {
+                    $productType = mb_substr($productType, 0, 497).'…';
+                }
+                $gallery = $isProduct ? trim((string) ($candidate['gallery_description'] ?? '')) : '';
+                if (mb_strlen($gallery) > 4000) {
+                    $gallery = mb_substr($gallery, 0, 3997).'…';
                 }
                 $signal = trim((string) ($candidate['source_signal'] ?? ''));
                 $reasonCodes = ['ai_new_content'];
@@ -379,9 +521,12 @@ final class NewContentSuggestionPlannerService
                     'site_id' => (int) ($target->site_id ?? $project->site_id ?? 0),
                     'type' => SeoProjectTask::TYPE_CREATE,
                     'post_type' => $postType !== '' ? $postType : SeoProjectTask::POST_TYPE_ARTICLE,
+                    'source_content' => $keyword !== '' ? $keyword : $title,
                     'keyword' => $keyword !== '' ? $keyword : null,
                     'title' => $title !== '' ? $title : null,
-                    'description' => $reason !== '' ? $reason : null,
+                    'secondary_description' => $brief !== '' ? $brief : null,
+                    'description' => $isProduct && $gallery !== '' ? $gallery : null,
+                    'loai_san_pham' => $isProduct && $productType !== '' ? $productType : null,
                     'status' => SeoProjectTask::STATUS_PENDING,
                     'article_id' => null,
                     'target_date' => $target->monthCarbon()->copy()->addDays($occupied)->format('Y-m-d'),
@@ -440,16 +585,11 @@ final class NewContentSuggestionPlannerService
     private function failureSummary(SeoContentProjectPlannerRun $run, Throwable $e): array
     {
         $requested = (int) ($run->requested_quantity ?? 0);
-        $message = 'AI providers unavailable';
-        if ($e instanceof AiRoutesExhaustedException
+        $message = $this->failureMessage($e);
+        $errorCode = $e instanceof AiRoutesExhaustedException
             || str_contains($e->getMessage(), AiRoutesExhaustedException::CLASSIFICATION)
-        ) {
-            $message = 'AI providers unavailable';
-        } elseif ($e instanceof InvalidArgumentException) {
-            $message = $e->getMessage();
-        } elseif ($e instanceof PromptRunException || $e instanceof PromptHookFailure) {
-            $message = 'Generation failed';
-        }
+            ? AiRoutesExhaustedException::CLASSIFICATION
+            : 'generation_failed';
 
         return [
             'requested' => $requested,
@@ -461,18 +601,78 @@ final class NewContentSuggestionPlannerService
             'invalid' => 0,
             'task_ids' => [],
             'planner_run_id' => (int) $run->getKey(),
+            'prompt_result_id' => $this->lastDiscoveryPromptResultId,
             'logical_ai_calls' => $this->logicalDiscoveryCalls > 0 ? 1 : 0,
             'status' => SeoContentProjectPlannerRun::STATUS_FAILED,
             'message' => $message,
-            'error_code' => $e instanceof AiRoutesExhaustedException
-                ? AiRoutesExhaustedException::CLASSIFICATION
-                : 'generation_failed',
+            'error_code' => $errorCode,
+            'error_class' => $e::class,
             'candidates' => [],
         ];
     }
 
+    private function failureMessage(Throwable $e): string
+    {
+        if ($e instanceof AiRoutesExhaustedException
+            || str_contains($e->getMessage(), AiRoutesExhaustedException::CLASSIFICATION)
+        ) {
+            if ($e instanceof AiRoutesExhaustedException) {
+                $user = trim($e->userMessage());
+                if ($user !== '') {
+                    return $user;
+                }
+            }
+
+            return 'AI routes exhausted — all configured providers failed. Check AI Center routing/keys, then retry.';
+        }
+
+        if ($e instanceof InvalidArgumentException) {
+            return $e->getMessage();
+        }
+
+        if ($e instanceof PromptRunException) {
+            $user = trim($e->userMessage());
+            if ($user !== '' && $user !== 'false' && strtolower($user) !== 'false') {
+                return $user;
+            }
+
+            $raw = trim($e->getMessage());
+
+            return $raw !== '' && strtolower($raw) !== 'false' ? $raw : 'Generation failed';
+        }
+
+        if ($e instanceof PromptHookFailure) {
+            return 'Generation failed';
+        }
+
+        $raw = trim($e->getMessage());
+        if ($raw === '' || strtolower($raw) === 'false') {
+            return 'Generation failed';
+        }
+
+        // Persist / DB failures must surface — do not mask as provider outage.
+        if (str_contains($raw, 'source_content') || str_contains($raw, 'SQLSTATE')) {
+            return 'Draft persist failed: '.$raw;
+        }
+
+        return mb_strlen($raw) > 240 ? mb_substr($raw, 0, 237).'…' : $raw;
+    }
+
     private function extractPromptResultId(Throwable $e): ?int
     {
+        if ($this->lastDiscoveryPromptResultId !== null && $this->lastDiscoveryPromptResultId > 0) {
+            return $this->lastDiscoveryPromptResultId;
+        }
+
+        if ($e instanceof PromptRunException) {
+            $fromContext = (int) ($e->context['prompt_result_id'] ?? 0);
+            if ($fromContext > 0) {
+                $this->lastDiscoveryPromptResultId = $fromContext;
+
+                return $fromContext;
+            }
+        }
+
         if ($e instanceof PromptHookFailure) {
             $id = $e->promptResultId();
 

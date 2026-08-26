@@ -3,6 +3,8 @@
  * Logic đối xứng với InlineLinkNormalizer.php.
  */
 
+import { collapseHtmlSoftNewlines } from './inlineWhitespaceGuard';
+
 const BLOCK_TAGS = new Set([
     'P', 'DIV', 'H1', 'H2', 'H3', 'H4', 'H5', 'H6',
     'LI', 'TD', 'TH', 'BLOCKQUOTE', 'PRE', 'FIGURE', 'SECTION', 'ARTICLE',
@@ -187,7 +189,8 @@ function isEmptyParagraphElement(el) {
  * @returns {string}
  */
 export function prepareHtmlForTipTapApply(html) {
-    const raw = String(html ?? '');
+    // Soft \n inside <p> must become spaces before preserveWhitespace:'full'.
+    const raw = collapseHtmlSoftNewlines(String(html ?? ''));
     if (!raw.trim()) {
         return raw;
     }

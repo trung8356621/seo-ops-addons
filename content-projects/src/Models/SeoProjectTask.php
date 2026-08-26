@@ -88,6 +88,8 @@ class SeoProjectTask extends Model
         'completed_at' => 'datetime',
         'content_manager_reviewed_at' => 'datetime',
         'content_manager_reviewed_by' => 'integer',
+        'planning_reviewed_at' => 'datetime',
+        'planning_reviewed_by' => 'integer',
         'publishing_queued_at' => 'datetime',
         'publishing_queued_by' => 'integer',
         'generation_blocked_at' => 'datetime',

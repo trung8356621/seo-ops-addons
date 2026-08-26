@@ -97,9 +97,11 @@ final class ContentProjectAgentCommandFactory
                 array_merge(
                     is_array($input['options'] ?? null) ? $input['options'] : [],
                     array_filter([
+                        'notes' => $input['notes'] ?? null,
+                        'content_type' => $input['content_type'] ?? null,
                         'focus' => $input['focus'] ?? null,
                         'direction' => $input['direction'] ?? null,
-                        'post_type' => $input['post_type'] ?? null,
+                        'post_type' => $input['post_type'] ?? $input['content_type'] ?? null,
                         'taxonomy' => $input['taxonomy'] ?? null,
                         'quantity' => $input['quantity'] ?? $input['limit'] ?? null,
                     ], static fn (mixed $v): bool => $v !== null && $v !== ''),

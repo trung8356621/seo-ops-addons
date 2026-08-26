@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns;
 
+use Omnichannel\Addons\ContentProjects\Filament\Pages\ContentProjectDraftAiHistory;
+use Omnichannel\Addons\ContentProjects\Filament\Pages\ContentProjectPlannerRunDetail;
 use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectPlannerRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ActorContext;
@@ -11,6 +13,8 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Comma
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RestoreNewContentSuggestionsCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectActionCodes;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectCommandBus;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\NewContent\NewContentGenerationReadiness;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\NewContent\NewContentGenerationReadinessService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\NewContent\NewContentSuggestionOptions;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Planner\ContentProjectPlannerRunService;
 use Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource;
@@ -28,13 +32,9 @@ trait InteractsWithNewContentSuggestions
 {
     public int|string $newContentQuantity = 20;
 
-    public string $newContentDirection = NewContentSuggestionOptions::DIRECTION_AUTOMATIC;
+    public string $newContentNotes = '';
 
-    public string $newContentFocus = '';
-
-    public string $newContentPostType = NewContentSuggestionOptions::POST_TYPE_ARTICLE;
-
-    public string $newContentTaxonomy = '';
+    public string $newContentPostType = NewContentSuggestionOptions::CONTENT_TYPE_POST;
 
     public string $newContentLastResult = '';
 
@@ -42,13 +42,22 @@ trait InteractsWithNewContentSuggestions
 
     public string $newContentActiveStatus = '';
 
+    /**
+     * Livewire snapshot compat only — inline results drawer was replaced by
+     * ContentProjectPlannerRunDetail. Keep declared so stale client snapshots
+     * do not break unrelated actions (e.g. send to publishing queue).
+     */
     public ?int $newContentViewRunId = null;
 
-    /** @var list<array<string, mixed>> */
-    public array $newContentHistory = [];
-
-    /** @var array<string, mixed>|null */
+    /** @var array<string, mixed>|null Livewire snapshot compat — see $newContentViewRunId. */
     public ?array $newContentViewResults = null;
+
+    /**
+     * Livewire snapshot compat only — inline planner history drawer removed.
+     *
+     * @var list<array<string, mixed>>
+     */
+    public array $newContentHistory = [];
 
     /** @var array<string, mixed>|null */
     public ?array $newContentPlanningPreview = null;
@@ -76,14 +85,11 @@ trait InteractsWithNewContentSuggestions
             return;
         }
 
-        $snapshot = app(ContentProjectPlannerRunService::class)
-            ->latestConfigurationSnapshot($project, SeoContentProjectPlannerRun::SOURCE_AI_NEW_CONTENT);
-        if (is_array($snapshot)) {
-            $this->applyNewContentOptions(NewContentSuggestionOptions::fromSnapshot($snapshot));
-        }
+        $this->newContentQuantity = 20;
+        $this->newContentNotes = '';
+        $this->newContentPostType = NewContentSuggestionOptions::CONTENT_TYPE_POST;
 
         $this->refreshNewContentRunState();
-        $this->reloadNewContentHistory();
         $this->refreshNewContentPlanningPreview();
     }
 
@@ -136,20 +142,13 @@ trait InteractsWithNewContentSuggestions
             return;
         }
 
-        $primary = $this->newContentPrimaryLanguagePayload($project);
-        if (! (bool) ($primary['primary_configured'] ?? false)) {
+        $readiness = $this->resolveNewContentReadiness($project);
+        if (! $readiness->generateEnabled) {
+            $reason = $readiness->blockReasons[0]
+                ?? (string) __('seo-content-ai::filament.projects.planner_generate_busy');
             Notification::make()
-                ->title(__('seo-content-ai::filament.projects.planner_primary_language_missing'))
-                ->body(__('seo-content-ai::filament.projects.planner_primary_language_missing_help'))
-                ->warning()
-                ->send();
-
-            return;
-        }
-
-        if ($this->newContentActiveRunId !== null && $this->newContentActiveRunId > 0) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.projects.planner_generate_busy'))
+                ->title(__('seo-content-ai::filament.projects.planner_generate_blocked'))
+                ->body($reason)
                 ->warning()
                 ->send();
 
@@ -198,7 +197,6 @@ trait InteractsWithNewContentSuggestions
         $this->newContentLastResult = $result->message;
         $this->newContentActiveRunId = (int) ($result->metadata['planner_run_id'] ?? 0) ?: null;
         $this->newContentActiveStatus = (string) ($result->metadata['status'] ?? 'queued');
-        $this->reloadNewContentHistory();
 
         Notification::make()
             ->title($result->success
@@ -216,112 +214,45 @@ trait InteractsWithNewContentSuggestions
         $after = $this->newContentActiveStatus;
 
         if ($before !== '' && $before !== $after && in_array($after, ['completed', 'failed', ''], true)) {
-            $this->reloadNewContentHistory();
             if (method_exists($this, 'dispatch')) {
                 $this->dispatch('cp-ops-refresh');
             }
             if ($this->newContentLastResult !== '') {
+                $emptySuccess = $after === 'completed'
+                    && (preg_match('/\b0 added\b/i', $this->newContentLastResult) === 1
+                        || preg_match('/·\s*0\s+added/i', $this->newContentLastResult) === 1);
+
                 Notification::make()
                     ->title($after === 'failed'
                         ? __('seo-content-ai::filament.projects.planner_generate_failed')
-                        : __('seo-content-ai::filament.projects.planner_generate_done'))
+                        : ($emptySuccess
+                            ? __('seo-content-ai::filament.projects.planner_generate_empty')
+                            : __('seo-content-ai::filament.projects.planner_generate_done')))
                     ->body($this->newContentLastResult)
-                    ->{$after === 'failed' ? 'danger' : 'success'}()
+                    ->{$after === 'failed' || $emptySuccess ? 'warning' : 'success'}()
                     ->send();
             }
         }
     }
 
-    public function saveNewContentOptions(): void
+    public function newContentPlannerRunDetailUrl(int $runId): string
+    {
+        $project = $this->resolveNewContentProject();
+        if (! $project instanceof SeoProject || $runId <= 0) {
+            return '#';
+        }
+
+        return ContentProjectPlannerRunDetail::urlFor($project, $runId);
+    }
+
+    public function newContentDraftAiHistoryUrl(): string
     {
         $project = $this->resolveNewContentProject();
         if (! $project instanceof SeoProject) {
-            $this->notifyNewContentProjectRequired();
-
-            return;
+            return '#';
         }
 
-        $primary = $this->newContentPrimaryLanguagePayload($project);
-        $language = (string) ($primary['primary_language'] ?? '');
-        app(ContentProjectPlannerRunService::class)->recordSavedConfig(
-            $project,
-            SeoContentProjectPlannerRun::SOURCE_AI_NEW_CONTENT,
-            NewContentSuggestionOptions::snapshot($this->buildNewContentOptions(), $language !== '' ? $language : 'und'),
-            auth()->id() !== null ? (int) auth()->id() : null,
-        );
-
-        Notification::make()
-            ->title(__('seo-content-ai::filament.projects.planner_options_saved'))
-            ->success()
-            ->send();
-        $this->reloadNewContentHistory();
-    }
-
-    public function loadNewContentHistory(int $runId): void
-    {
-        $project = $this->resolveNewContentProject();
-        if (! $project instanceof SeoProject) {
-            $this->notifyNewContentProjectRequired();
-
-            return;
-        }
-
-        $run = app(ContentProjectPlannerRunService::class)->findForProject($project, $runId);
-        if ($run === null || ! is_array($run->configuration_snapshot)) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.projects.planner_history_missing'))
-                ->warning()
-                ->send();
-
-            return;
-        }
-
-        $this->applyNewContentOptions(NewContentSuggestionOptions::fromSnapshot($run->configuration_snapshot));
-        if ((int) ($run->requested_quantity ?? 0) > 0) {
-            $this->newContentQuantity = (int) $run->requested_quantity;
-        }
-
-        Notification::make()
-            ->title(__('seo-content-ai::filament.projects.planner_options_loaded'))
-            ->success()
-            ->send();
-    }
-
-    public function runNewContentHistory(int $runId): void
-    {
-        $this->loadNewContentHistory($runId);
-        $this->generateNewContentSuggestions();
-    }
-
-    public function viewNewContentHistoryResults(int $runId): void
-    {
-        $project = $this->resolveNewContentProject();
-        if (! $project instanceof SeoProject) {
-            $this->notifyNewContentProjectRequired();
-
-            return;
-        }
-
-        $run = app(ContentProjectPlannerRunService::class)->findForProject($project, $runId);
-        if ($run === null) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.projects.planner_history_missing'))
-                ->warning()
-                ->send();
-
-            return;
-        }
-
-        $summary = is_array($run->result_summary) ? $run->result_summary : [];
-        $this->newContentViewRunId = (int) $run->getKey();
-        $this->newContentViewResults = [
-            'run_id' => (int) $run->getKey(),
-            'requested' => (int) ($run->requested_quantity ?? ($summary['requested'] ?? 0)),
-            'status' => (string) ($summary['status'] ?? ''),
-            'message' => (string) ($summary['message'] ?? ''),
-            'candidates' => is_array($summary['candidates'] ?? null) ? $summary['candidates'] : [],
-            'configuration' => is_array($run->configuration_snapshot) ? $run->configuration_snapshot : [],
-        ];
+        return ContentProjectDraftAiHistory::urlForProject($project);
     }
 
     public function restoreNewContentFingerprint(string $fingerprint): void
@@ -356,33 +287,73 @@ trait InteractsWithNewContentSuggestions
     {
         $project = $this->resolveNewContentProject();
         if (! $project instanceof SeoProject) {
+            $readiness = $this->resolveNewContentReadiness(null);
+
             return [
                 'can_write' => false,
+                'quantity_enabled' => false,
+                'generate_enabled' => false,
                 'has_project' => false,
                 'is_draft' => false,
                 'primary_configured' => false,
                 'primary_language_label' => null,
                 'domain_edit_url' => null,
                 'is_generating' => false,
+                'block_reasons' => $readiness->blockReasons,
+                'readiness' => $readiness->toArray(),
             ];
         }
 
-        $primary = $this->newContentPrimaryLanguagePayload($project);
-        $generating = $this->newContentActiveRunId !== null
-            && in_array($this->newContentActiveStatus, ['queued', 'running'], true);
+        $readiness = $this->resolveNewContentReadiness($project);
+        $generating = $readiness->generation['active'] === true;
+        if ($generating) {
+            $this->newContentActiveRunId = (int) ($readiness->generation['run_id'] ?? 0) ?: null;
+            $this->newContentActiveStatus = (string) ($readiness->generation['status'] ?? 'queued');
+        } elseif ($this->newContentActiveRunId !== null
+            && ! in_array($this->newContentActiveStatus, ['queued', 'running'], true)
+        ) {
+            $this->newContentActiveRunId = null;
+        }
+
+        if ($this->newContentLastResult === '') {
+            $latest = app(ContentProjectPlannerRunService::class)
+                ->listExecuted($project, SeoContentProjectPlannerRun::SOURCE_AI_NEW_CONTENT, 1)
+                ->first();
+            if ($latest instanceof SeoContentProjectPlannerRun) {
+                $summary = is_array($latest->result_summary) ? $latest->result_summary : [];
+                $message = trim((string) ($summary['message'] ?? ''));
+                if ($message !== '') {
+                    $this->newContentLastResult = $message;
+                }
+            }
+        }
 
         return [
-            'can_write' => $project->isDraftPlanning() && (bool) $primary['primary_configured'],
+            'can_write' => $readiness->generateEnabled,
+            'quantity_enabled' => $readiness->quantityEnabled,
+            'generate_enabled' => $readiness->generateEnabled,
             'has_project' => true,
             'is_draft' => $project->isDraftPlanning(),
-            'primary_configured' => (bool) $primary['primary_configured'],
-            'primary_language_label' => $primary['primary_language_label'],
-            'domain_edit_url' => $primary['domain_edit_url'],
+            'primary_configured' => $readiness->language['ready'],
+            'primary_language_label' => $readiness->language['label'] ?? null,
+            'domain_edit_url' => $readiness->language['domain_edit_url'] ?? null,
             'is_generating' => $generating,
             'active_run_id' => $this->newContentActiveRunId,
             'active_status' => $this->newContentActiveStatus,
             'last_result' => $this->newContentLastResult,
+            'supports_product' => $this->newContentSiteSupportsProduct($project),
+            'content_type_options' => $this->newContentContentTypeOptions($project),
+            'block_reasons' => $readiness->blockReasons,
+            'readiness' => $readiness->toArray(),
         ];
+    }
+
+    protected function resolveNewContentReadiness(?SeoProject $project): NewContentGenerationReadiness
+    {
+        return app(NewContentGenerationReadinessService::class)->evaluate(
+            $project,
+            auth()->id() !== null ? (int) auth()->id() : null,
+        );
     }
 
     /**
@@ -390,12 +361,24 @@ trait InteractsWithNewContentSuggestions
      */
     protected function buildNewContentOptions(): array
     {
+        $postType = NewContentSuggestionOptions::normalizeContentType($this->newContentPostType);
+        $project = $this->resolveNewContentProject();
+        if ($postType === NewContentSuggestionOptions::CONTENT_TYPE_PRODUCT
+            && $project instanceof SeoProject
+            && ! $this->newContentSiteSupportsProduct($project)
+        ) {
+            $postType = NewContentSuggestionOptions::CONTENT_TYPE_POST;
+            $this->newContentPostType = $postType;
+        }
+
         return NewContentSuggestionOptions::normalize([
             'quantity' => (int) $this->newContentQuantity,
-            'direction' => $this->newContentDirection,
-            'focus' => $this->newContentFocus,
-            'post_type' => $this->newContentPostType,
-            'taxonomy' => $this->newContentTaxonomy,
+            'direction' => NewContentSuggestionOptions::DIRECTION_AUTOMATIC,
+            'notes' => $this->newContentNotes,
+            'focus' => '',
+            'post_type' => $postType,
+            'content_type' => $postType,
+            'taxonomy' => '',
         ]);
     }
 
@@ -406,10 +389,16 @@ trait InteractsWithNewContentSuggestions
     {
         $normalized = NewContentSuggestionOptions::normalize($options);
         $this->newContentQuantity = $normalized['quantity'];
-        $this->newContentDirection = $normalized['direction'];
-        $this->newContentFocus = $normalized['focus'];
-        $this->newContentPostType = $normalized['post_type'];
-        $this->newContentTaxonomy = $normalized['taxonomy'];
+        $this->newContentNotes = $normalized['notes'];
+        $this->newContentPostType = $normalized['content_type'];
+
+        $project = $this->resolveNewContentProject();
+        if ($project instanceof SeoProject
+            && $this->newContentPostType === NewContentSuggestionOptions::CONTENT_TYPE_PRODUCT
+            && ! $this->newContentSiteSupportsProduct($project)
+        ) {
+            $this->newContentPostType = NewContentSuggestionOptions::CONTENT_TYPE_POST;
+        }
     }
 
     protected function refreshNewContentRunState(): void
@@ -421,6 +410,8 @@ trait InteractsWithNewContentSuggestions
 
             return;
         }
+
+        app(NewContentGenerationReadinessService::class)->reconcileStaleActiveRun($project);
 
         $runs = app(ContentProjectPlannerRunService::class);
         $active = $runs->findActive($project, SeoContentProjectPlannerRun::SOURCE_AI_NEW_CONTENT);
@@ -445,47 +436,53 @@ trait InteractsWithNewContentSuggestions
         }
     }
 
-    protected function reloadNewContentHistory(): void
+    /**
+     * @return array<string, string>
+     */
+    protected function newContentContentTypeOptions(SeoProject $project): array
     {
-        $project = $this->resolveNewContentProject();
-        if (! $project instanceof SeoProject) {
-            $this->newContentHistory = [];
-
-            return;
+        $options = [
+            NewContentSuggestionOptions::CONTENT_TYPE_POST => (string) __('seo-content-ai::filament.projects.planner_content_type_post'),
+        ];
+        if ($this->newContentSiteSupportsProduct($project)) {
+            $options[NewContentSuggestionOptions::CONTENT_TYPE_PRODUCT] = (string) __('seo-content-ai::filament.projects.planner_content_type_product');
         }
 
-        $rows = [];
-        foreach (app(ContentProjectPlannerRunService::class)->listExecuted(
-            $project,
-            SeoContentProjectPlannerRun::SOURCE_AI_NEW_CONTENT,
-            20,
-        ) as $run) {
-            $summary = is_array($run->result_summary) ? $run->result_summary : [];
-            $config = is_array($run->configuration_snapshot) ? $run->configuration_snapshot : [];
-            $planning = is_array($summary['planning_context'] ?? null) ? $summary['planning_context'] : [];
-            $contextSummary = '';
-            if ($planning !== []) {
-                $contextSummary = sprintf(
-                    'KI: %d · Clusters: %d · MCP: %s',
-                    (int) ($planning['principal_keywords_count'] ?? 0),
-                    (int) ($planning['cluster_count'] ?? 0),
-                    (string) ($planning['mcp_period'] ?? '—'),
-                );
+        return $options;
+    }
+
+    protected function newContentSiteSupportsProduct(SeoProject $project): bool
+    {
+        $siteId = (int) ($project->site_id ?? 0);
+        if ($siteId <= 0) {
+            return false;
+        }
+
+        try {
+            $catalog = app(\Omnichannel\Addons\Content\Support\PublishCategoryOptionsAssembler::class)->forSite($siteId);
+            if ((bool) ($catalog['status']['product_category']['ok'] ?? false)) {
+                return true;
             }
-            $rows[] = [
-                'id' => (int) $run->getKey(),
-                'created_at' => $run->created_at?->format('d M H:i') ?? '',
-                'requested' => (int) ($run->requested_quantity ?? ($summary['requested'] ?? 0)),
-                'added' => (int) ($summary['added'] ?? 0),
-                'status' => (string) ($summary['status'] ?? ''),
-                'direction' => (string) ($config['direction'] ?? 'automatic'),
-                'focus' => (string) ($config['focus'] ?? ''),
-                'primary_language' => (string) ($config['primary_language'] ?? ''),
-                'message' => (string) ($summary['message'] ?? ''),
-                'context_summary' => $contextSummary,
-            ];
+            if (($catalog['product_category'] ?? []) !== []) {
+                return true;
+            }
+        } catch (Throwable) {
+            // Fall through to synced article evidence.
         }
-        $this->newContentHistory = $rows;
+
+        try {
+            return \Omnichannel\Addons\Content\Models\SeoArticle::query()
+                ->where('site_id', $siteId)
+                ->where(static function ($q): void {
+                    $q->where('type', 'product')
+                        ->orWhereHas('articleMetas', static function ($meta): void {
+                            $meta->where('meta_key', 'wp_post_type')->where('meta_value', 'product');
+                        });
+                })
+                ->exists();
+        } catch (Throwable) {
+            return false;
+        }
     }
 
     /**
@@ -494,7 +491,10 @@ trait InteractsWithNewContentSuggestions
     protected function newContentPrimaryLanguagePayload(SeoProject $project): array
     {
         $siteId = (int) ($project->site_id ?? 0);
-        $site = $siteId > 0 ? Site::query()->find($siteId) : null;
+        $site = $project->site instanceof Site ? $project->site : null;
+        if (! $site instanceof Site && $siteId > 0) {
+            $site = Site::query()->find($siteId);
+        }
         if (! $site instanceof Site) {
             return [
                 'primary_configured' => false,

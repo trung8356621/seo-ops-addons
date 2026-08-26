@@ -1,6 +1,7 @@
 import { stripEditorTransientMarkup } from './articleEditorTransientMarkup';
 import { normalizeInlineLinks } from './inlineLinkNormalizer';
 import { liftHeadingsOutOfListItems } from './listItemHeadingSanitize.js';
+import { collapseHtmlSoftNewlines } from './inlineWhitespaceGuard';
 
 export { liftHeadingsOutOfListItems } from './listItemHeadingSanitize.js';
 
@@ -228,9 +229,11 @@ export function stripEmptyParagraphsFromHtml(html) {
 
 /**
  * Chuẩn hóa HTML block để hiển thị / lưu nháp (không thêm <p></p> sau heading).
+ * Collapses CommonMark soft newlines so TipTap preserveWhitespace:'full' does not
+ * invent hardBreaks; explicit <br> stays intact.
  */
 export function cleanBlockHtmlForEditorDisplay(html) {
-    return normalizeSectionHeadingBlockHtml(html);
+    return normalizeSectionHeadingBlockHtml(collapseHtmlSoftNewlines(html));
 }
 
 /**

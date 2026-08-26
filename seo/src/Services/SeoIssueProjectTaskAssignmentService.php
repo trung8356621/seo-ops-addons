@@ -171,12 +171,14 @@ final class SeoIssueProjectTaskAssignmentService
 
                 if (! $dryRun) {
                     $occupied = $session->occupiedCount($target);
+                    $planningDescription = trim((string) ($rewriteNotes ?? ''));
                     $payload = [
                         'project_id' => (int) $target->getKey(),
                         'site_id' => $siteId > 0 ? $siteId : null,
                         'type' => $normalizedTaskType,
                         'source_content' => $sourceContent,
-                        'description' => null,
+                        // Canonical planning brief (Draft UI + generation context).
+                        'description' => $planningDescription !== '' ? $planningDescription : null,
                         'target_date' => $target->monthCarbon()->copy()->addDays($occupied)->format('Y-m-d'),
                         'status' => SeoProjectTask::STATUS_PENDING,
                     ];

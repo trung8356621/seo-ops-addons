@@ -87,8 +87,13 @@ class EditPrompt extends SeoEditRecord
             $this->record->variables ?? [],
         );
 
-        // Field model_category đã gỡ khỏi form — không đẩy vào state (tránh clear cột khi save).
-        unset($data['model_category']);
+        // Field model_category / routing overrides đã gỡ khỏi form — không đẩy vào state.
+        unset(
+            $data['model_category'],
+            $data['routing_mode'],
+            $data['routing_profile_key'],
+            $data['ai_connection_id'],
+        );
 
         $settings = is_array($data['settings'] ?? null) ? $data['settings'] : [];
         $data['settings'] = PromptPostProcessing::mergeIntoSettings(
@@ -143,15 +148,22 @@ class EditPrompt extends SeoEditRecord
             $data['variables'] ?? [],
         );
 
-        // Giữ giá trị DB cũ — không cập nhật từ form.
-        unset($data['model_category']);
+        // Legacy routing columns kept in DB — never mutate from modern Prompt form.
+        unset(
+            $data['model_category'],
+            $data['routing_mode'],
+            $data['routing_profile_key'],
+            $data['ai_connection_id'],
+        );
 
-        $settings = is_array($data['settings'] ?? null) ? $data['settings'] : [];
+        $existingSettings = is_array($this->record->settings ?? null) ? $this->record->settings : [];
+        $formSettings = is_array($data['settings'] ?? null) ? $data['settings'] : [];
+        // Preserve historical keys (routing_family_key, usage_mode, ownership, …).
+        $settings = array_merge($existingSettings, $formSettings);
         $postProcessing = is_array($settings['post_processing'] ?? null) ? $settings['post_processing'] : [];
 
         if (! ImageToolType::fromMixed($data['tools'] ?? 'default')->isImagePipeline()
             && $postProcessing === []) {
-            $existingSettings = is_array($this->record->settings ?? null) ? $this->record->settings : [];
             $postProcessing = is_array($existingSettings['post_processing'] ?? null)
                 ? $existingSettings['post_processing']
                 : [];

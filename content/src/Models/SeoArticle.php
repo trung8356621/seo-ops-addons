@@ -67,6 +67,20 @@ class SeoArticle extends Model
     }
 
     /**
+     * Normalize legacy aliases on read so callers always see ISO 639-1.
+     */
+    public function getLanguageAttribute(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        $normalized = ArticleLanguageCode::normalize((string) $value);
+
+        return $normalized !== '' ? $normalized : (string) $value;
+    }
+
+    /**
      * saveQuietly skips model events — still route extension attributes.
      */
     public function saveQuietly(array $options = [])

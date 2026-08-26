@@ -12,6 +12,8 @@ namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\NewContent;
  *   keyword: string,
  *   title: string,
  *   description: string,
+ *   product_type: string,
+ *   gallery_description: string,
  *   fingerprint: string,
  *   suggestion_reason: string,
  *   source_signal: string
@@ -23,8 +25,10 @@ final class NewContentSuggestionParser
         'keyword_gap',
         'cluster_gap',
         'mcp_signal',
+        'gsc_signal',
         'related_topic',
-        'manual_focus',
+        'manual_note',
+        'manual_focus', // legacy alias
     ];
 
     /**
@@ -113,6 +117,8 @@ final class NewContentSuggestionParser
         $keyword = '';
         $title = '';
         $description = '';
+        $productType = '';
+        $galleryDescription = '';
         $suggestionReason = '';
         $sourceSignal = '';
 
@@ -123,13 +129,15 @@ final class NewContentSuggestionParser
             $title = trim((string) ($row['suggested_title'] ?? $row['title_idea'] ?? $row['title'] ?? ''));
             $suggestionReason = trim((string) ($row['suggestion_reason'] ?? $row['why'] ?? ''));
             $sourceSignal = strtolower(trim((string) ($row['source_signal'] ?? '')));
-            $description = trim((string) ($row['description'] ?? $row['reason'] ?? $row['topic'] ?? ''));
-            if ($suggestionReason === '' && $description !== '') {
-                $suggestionReason = $description;
+            $description = trim((string) ($row['description'] ?? ''));
+            // Legacy may use brief as planning description when dedicated field absent.
+            if ($description === '') {
+                $description = trim((string) ($row['brief'] ?? ''));
             }
-            if ($description === '' && $suggestionReason !== '') {
-                $description = $suggestionReason;
-            }
+            $productType = trim((string) ($row['product_type'] ?? $row['loai_san_pham'] ?? ''));
+            $galleryDescription = trim((string) ($row['gallery_description'] ?? ''));
+            // Do NOT invent description from suggestion_reason (separate semantics).
+            // Do NOT copy keyword/description into product_type/gallery_description.
             if (! in_array($sourceSignal, self::SOURCE_SIGNALS, true)) {
                 $sourceSignal = '';
             }
@@ -154,6 +162,8 @@ final class NewContentSuggestionParser
             'keyword' => $keyword,
             'title' => $title,
             'description' => $description,
+            'product_type' => $productType,
+            'gallery_description' => $galleryDescription,
             'fingerprint' => NewContentSuggestionIdentity::fingerprint($keyword, $title),
             'suggestion_reason' => $suggestionReason,
             'source_signal' => $sourceSignal,

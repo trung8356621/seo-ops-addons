@@ -24,13 +24,12 @@
     $draftOptions = $showDraftSelector ? ($this->draftProjectOptions ?? []) : [];
     $siteOptions = $showDraftSelector ? ($this->siteFilterOptions ?? []) : [];
     $filterOptions = $this->suggestionFilterOptions ?? ['post_types' => [], 'taxonomies' => [], 'terms' => []];
-    $history = $this->seoAuditFilterHistory ?? [];
 @endphp
 
 <div
     class="space-y-4"
     wire:key="cp-seo-audit-planner"
-    x-data="{ filtersOpen: false, historyOpen: false }"
+    x-data="{ filtersOpen: false }"
 >
     <x-seo-content-ai::content-project-ops-styles />
 
@@ -99,9 +98,6 @@
             </p>
         </div>
         <div class="flex flex-wrap items-center gap-2">
-            <button type="button" @click="historyOpen = true" class="fi-btn fi-btn-color-gray fi-size-sm">
-                {{ __('seo-content-ai::filament.projects.planner_history') }}
-            </button>
             <div class="inline-flex items-center gap-1 rounded-lg border border-gray-200 bg-white p-1 dark:border-white/10 dark:bg-gray-900">
                 <x-select
                     wire:model.live="fillLimit"
@@ -419,35 +415,4 @@
     @if ($paginator && count($rows) > 0)
         <div class="mt-2">{{ $paginator->links() }}</div>
     @endif
-
-    {{-- History drawer (client open) --}}
-    <div x-show="historyOpen" x-cloak class="fixed inset-0 z-[70] flex justify-end bg-black/40" @keydown.escape.window="historyOpen = false">
-        <div class="h-full w-full max-w-md overflow-y-auto bg-white p-5 shadow-xl dark:bg-gray-900" @click.outside="historyOpen = false">
-            <div class="mb-4 flex items-center justify-between">
-                <h3 class="text-base font-semibold">{{ __('seo-content-ai::filament.projects.planner_seo_audit_history') }}</h3>
-                <button type="button" class="text-sm text-gray-500" @click="historyOpen = false">×</button>
-            </div>
-            <div class="space-y-3">
-                @forelse ($history as $item)
-                    <div class="rounded-lg border border-gray-200 p-3 dark:border-white/10">
-                        <p class="text-xs text-gray-500">{{ $item['created_at'] }}</p>
-                        <p class="mt-1 text-sm font-medium">
-                            {{ __('seo-content-ai::filament.projects.planner_history_counts', ['requested' => $item['requested'], 'added' => $item['added']]) }}
-                        </p>
-                        <p class="mt-0.5 text-xs text-gray-500">{{ $item['label'] }}</p>
-                        <div class="mt-2 flex gap-2">
-                            <button type="button" class="fi-btn fi-btn-color-gray fi-size-sm" wire:click="loadSeoAuditFilterHistory({{ (int) $item['id'] }})" @click="historyOpen = false">
-                                {{ __('seo-content-ai::filament.projects.planner_load_filters') }}
-                            </button>
-                            <button type="button" class="fi-btn fi-btn-color-primary fi-size-sm" wire:click="runSeoAuditFilterHistory({{ (int) $item['id'] }})" @click="historyOpen = false" @disabled(! $canWrite)>
-                                {{ __('seo-content-ai::filament.projects.planner_run_again') }}
-                            </button>
-                        </div>
-                    </div>
-                @empty
-                    <p class="text-sm text-gray-500">{{ __('seo-content-ai::filament.projects.planner_history_empty') }}</p>
-                @endforelse
-            </div>
-        </div>
-    </div>
 </div>

@@ -43,6 +43,7 @@ final class ContentPlanningUxContractTest extends TestCase
         self::assertStringContainsString('data-content-planning-action="create-draft"', $blade);
         self::assertStringContainsString('openPublishFromPlanner', $blade);
         self::assertStringContainsString('createDraftForPlanner', $blade);
+        self::assertStringContainsString('data-planning-draft-display', $blade);
         self::assertStringNotContainsString('<h1', $blade);
     }
 
@@ -60,8 +61,64 @@ final class ContentPlanningUxContractTest extends TestCase
         self::assertStringContainsString('seoAuditPlannerCardState', $draft);
         self::assertStringNotContainsString('planner_matched_count', $draft);
         self::assertStringNotContainsString('data-seo-audit-filter-row', $blade);
-        self::assertStringContainsString('advanced', $blade);
-        self::assertStringContainsString('content-project-seo-audit-planner', $blade);
+        self::assertStringNotContainsString('content-project-seo-audit-planner', $blade);
+        self::assertStringNotContainsString('content_planning_open_advanced', $draft);
+        self::assertStringNotContainsString('data-advanced-seo-audit', $draft);
+        self::assertStringContainsString('cp-plan-filters-grid', $draft);
+        self::assertStringContainsString('cp-plan-grid', $draft);
+        self::assertStringNotContainsString('historyOpen', $draft);
+        self::assertStringNotContainsString('planner_history', $draft);
+        self::assertStringNotContainsString('planner_load_filters', $draft);
+        self::assertStringNotContainsString('planner_run_again', $draft);
+    }
+
+    public function test_legacy_advanced_param_redirects_to_canonical_planner(): void
+    {
+        $page = (string) file_get_contents(
+            (string) (new ReflectionClass(ContentProjectSeoAuditPlanner::class))->getFileName(),
+        );
+        $blade = LegacyAddonPath::read('resources/views/filament/pages/content-project-seo-audit-planner.blade.php');
+
+        self::assertStringContainsString('shouldRedirectLegacyAdvancedParam', $page);
+        self::assertStringContainsString('canonicalPlannerQueryParams', $page);
+        self::assertStringNotContainsString("Url(as: 'advanced')", $page);
+        self::assertStringNotContainsString('$this->advanced', $blade);
+        self::assertStringNotContainsString('content-project-seo-audit-planner', $blade);
+        self::assertStringNotContainsString('suggestions_add_to_draft', $blade);
+        self::assertStringNotContainsString('content_planning_open_advanced', $blade);
+        self::assertStringNotContainsString('planner_matched_count', $blade);
+    }
+
+    public function test_draft_items_table_uses_read_model_and_icon_actions(): void
+    {
+        $page = (string) file_get_contents(
+            (string) (new ReflectionClass(ContentProjectSeoAuditPlanner::class))->getFileName(),
+        );
+        $items = LegacyAddonPath::read('resources/views/components/content-project-draft-items.blade.php');
+
+        self::assertStringContainsString('ContentProjectDraftPlanningItemsReadModel', $page);
+        self::assertStringContainsString('archiveOne', $page);
+        self::assertStringContainsString('skipSeoAuditOne', $page);
+        self::assertStringContainsString('setPlanningReviewed', $page);
+        self::assertStringContainsString('cp-plan-seo-inline', $items);
+        self::assertStringContainsString('planning_col_post_type', $items);
+        self::assertStringContainsString('planning_col_added', $items);
+        self::assertStringContainsString('suggestions_col_plan', $items);
+        self::assertStringContainsString('planning_col_keywords', $items);
+        self::assertStringContainsString('cp-plan-row-actions--under', $items);
+        self::assertStringContainsString('cp-plan-article-icon', $items);
+        self::assertStringContainsString('item_action_remove_from_draft', $items);
+        self::assertStringContainsString('item_action_edit_article', $items);
+        self::assertStringContainsString('updatePlanningField', $items);
+        self::assertStringNotContainsString('suggestions_col_seo', $items);
+        self::assertStringNotContainsString('suggestions_col_check_index', $items);
+        self::assertStringNotContainsString('suggestions_col_actions', $items);
+        self::assertStringNotContainsString('suggestions_col_issues', $items);
+        self::assertStringNotContainsString('content_planning_col_source', $items);
+        self::assertStringNotContainsString('suggestions_col_state', $items);
+        self::assertStringNotContainsString('openPlanningItemEdit', $items);
+        self::assertStringNotContainsString('Add to Draft', $items);
+        self::assertStringNotContainsString('Dismiss from this Draft', $items);
     }
 
     public function test_publish_opens_split_draft_not_wordpress_publish(): void

@@ -191,6 +191,7 @@ final class AiModelRouterService
                     'failed',
                     $decision->category->value,
                     $decision->httpStatus,
+                    $this->qualityAttemptMeta($exception),
                 );
 
                 logger()->warning('AI routing infrastructure fallback', array_merge(
@@ -201,6 +202,7 @@ final class AiModelRouterService
                         'error' => $decision->safeMessage,
                         'next' => isset($candidates[$index + 1]),
                     ],
+                    $this->qualityAttemptMeta($exception),
                 ));
             }
         }
@@ -213,6 +215,7 @@ final class AiModelRouterService
     }
 
     /**
+     * @param  array<string, mixed>  $extra
      * @return array<string, mixed>
      */
     private function attemptLog(
@@ -221,8 +224,9 @@ final class AiModelRouterService
         string $result,
         ?string $detail = null,
         ?int $httpStatus = null,
+        array $extra = [],
     ): array {
-        return array_filter([
+        return array_filter(array_merge([
             'attempt' => $attemptNumber,
             'connection_id' => (int) $candidate->connection->id,
             'model' => $candidate->model,
@@ -231,11 +235,33 @@ final class AiModelRouterService
             'failure_class' => $result === 'failed' ? $detail : null,
             'skip_reason' => $result === 'skipped' ? $detail : null,
             'http_status' => $httpStatus,
-        ], static fn (mixed $value): bool => $value !== null && $value !== '');
+        ], $extra), static fn (mixed $value): bool => $value !== null && $value !== '' && $value !== []);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function qualityAttemptMeta(\Throwable $exception): array
+    {
+        if (! $exception instanceof PromptRunException) {
+            return [];
+        }
+
+        $rules = $exception->context['quality_rules'] ?? null;
+        $sample = $exception->context['quality_sample'] ?? null;
+
+        return array_filter([
+            'quality_rules' => is_array($rules) ? array_values(array_map('strval', $rules)) : null,
+            'quality_sample' => is_string($sample) && $sample !== '' ? mb_substr($sample, 0, 120) : null,
+        ], static fn (mixed $value): bool => $value !== null && $value !== []);
     }
 
     private function applyLegacyHealthSideEffects(RoutedAiCandidate $candidate, AiFailureDecision $decision): void
     {
+        if (! $decision->affectsRuntimeHealth) {
+            return;
+        }
+
         if ($candidate->seoAiModelId === null) {
             return;
         }

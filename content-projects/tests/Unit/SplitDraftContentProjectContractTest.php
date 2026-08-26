@@ -62,6 +62,9 @@ final class SplitDraftContentProjectContractTest extends TestCase
         self::assertStringContainsString('SeoContentProjectItemOrigin', $src);
         self::assertStringContainsString('orderBy(\'id\')', $src);
         self::assertStringContainsString('auto_generate', $src);
+        // Split moves the same task row — Product Type / Gallery Description columns stay untouched.
+        self::assertStringContainsString('forceFill([', $src);
+        self::assertStringNotContainsString("'loai_san_pham' =>", $src);
         self::assertStringNotContainsString('GenerateProjectItems', $src);
         self::assertStringNotContainsString('dispatch(new Generate', $src);
     }

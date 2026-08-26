@@ -21,6 +21,18 @@ final class AiProviderFailureClassifier
      */
     public function classify(Throwable $exception, array $context = []): AiFailureDecision
     {
+        if ($this->isOutputQualityFailure($exception, $context)) {
+            return new AiFailureDecision(
+                category: AiFailureClass::OutputQuality,
+                scope: AiFailureScope::Model,
+                recoverable: true,
+                runtimeAction: AiFailureRuntimeAction::Continue,
+                errorCode: 'output_quality',
+                safeMessage: 'Provider output failed content quality checks.',
+                affectsRuntimeHealth: false,
+            );
+        }
+
         if ($this->isSystemFailure($exception, $context)) {
             return new AiFailureDecision(
                 category: AiFailureClass::SystemError,
@@ -213,6 +225,31 @@ final class AiProviderFailureClassifier
             safeMessage: $this->sanitizeMessage($message),
             httpStatus: $httpStatus > 0 ? $httpStatus : null,
         );
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     */
+    private function isOutputQualityFailure(Throwable $exception, array $context): bool
+    {
+        if (($context['classification'] ?? null) === AiFailureClass::OutputQuality->value) {
+            return true;
+        }
+
+        if ($exception instanceof PromptRunException) {
+            if ($exception->classification() === AiFailureClass::OutputQuality->value) {
+                return true;
+            }
+            if (($exception->context['classification'] ?? null) === AiFailureClass::OutputQuality->value) {
+                return true;
+            }
+        }
+
+        $lower = strtolower($exception->getMessage());
+
+        return str_contains($lower, 'output quality')
+            || str_contains($lower, 'content quality rejected')
+            || str_contains($lower, 'failed content quality');
     }
 
     /**

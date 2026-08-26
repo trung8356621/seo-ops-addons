@@ -555,9 +555,6 @@ final class ContentProjectItemOperationsReadModel
             'can_skip_seo_audit' => $articleId > 0
                 && $article instanceof SeoArticle
                 && $this->resolveSuggestionSource($task) === SeoContentProjectItemOrigin::SOURCE_SEO_AUDIT,
-            'can_view_generation_run' => $this->resolveSuggestionSource($task) === SeoContentProjectItemOrigin::SOURCE_AI_NEW_CONTENT
-                && ($task->relationLoaded('itemOrigin') && $task->itemOrigin)
-                && (int) ($task->itemOrigin->planner_run_id ?? 0) > 0,
             'project_is_draft' => $project->isDraftPlanning(),
             'article_slug' => $article instanceof SeoArticle ? (string) ($article->slug ?? '') : '',
             'generation_status' => $displayGenStatus,

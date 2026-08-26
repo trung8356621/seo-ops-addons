@@ -1,13 +1,65 @@
 /**
- * Inline mark boundary whitespace — semantic content, must round-trip.
- *
  * TipTap/ProseMirror HTML parse defaults to preserveWhitespace=false which can
  * drop spaces around <strong>/<em>/<a> on hydrate. Always pass FULL for HTML.
+ *
+ * IMPORTANT: preserveWhitespace:'full' also promotes literal newlines inside
+ * phrasing content into hardBreak nodes. HTML soft breaks (CommonMark single \n
+ * inside a <p>) must be collapsed to spaces before TipTap parse — without
+ * touching explicit <br> elements.
  */
 
 export const TIPTAP_HTML_PARSE_OPTIONS = Object.freeze({
     preserveWhitespace: 'full',
 });
+
+const SOFT_NEWLINE_SKIP_TAGS = new Set(['PRE', 'CODE', 'SCRIPT', 'STYLE', 'KBD', 'SAMP', 'TEXTAREA']);
+
+/**
+ * Collapse soft newlines in text nodes to spaces (HTML phrasing semantics).
+ * Preserves <br> / structure; does not merge paragraphs or lists.
+ *
+ * @param {string} html
+ * @returns {string}
+ */
+export function collapseHtmlSoftNewlines(html) {
+    const raw = String(html ?? '');
+    if (raw === '' || !/[\r\n]/.test(raw)) {
+        return raw;
+    }
+
+    if (typeof DOMParser === 'undefined') {
+        // Node/phpunit source contracts — only collapse newlines outside tags.
+        return raw.replace(/>([^<]*)</g, (full, text) => `>${String(text).replace(/\r\n|\r|\n/g, ' ')}<`);
+    }
+
+    const doc = new DOMParser().parseFromString(`<div id="omi-soft-nl-root">${raw}</div>`, 'text/html');
+    const root = doc.getElementById('omi-soft-nl-root');
+    if (!root) {
+        return raw;
+    }
+
+    const walk = (node) => {
+        if (node.nodeType === Node.TEXT_NODE) {
+            const text = String(node.textContent ?? '');
+            if (/[\r\n]/.test(text)) {
+                node.textContent = text.replace(/\r\n|\r|\n/g, ' ');
+            }
+            return;
+        }
+        if (node.nodeType !== Node.ELEMENT_NODE) {
+            return;
+        }
+        const el = /** @type {Element} */ (node);
+        if (SOFT_NEWLINE_SKIP_TAGS.has(el.tagName)) {
+            return;
+        }
+        Array.from(el.childNodes).forEach((child) => walk(child));
+    };
+
+    walk(root);
+
+    return root.innerHTML;
+}
 
 /**
  * @param {string} value

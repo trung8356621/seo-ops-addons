@@ -118,7 +118,6 @@ final class PromptOwnershipModelTest extends TestCase
             'article.meta_description_suggestion',
             'article.faq.generate',
             'article.featured_snippet.generate',
-            'keyword.discovery.structured',
         ] as $hookKey) {
             $view = $service->forHook($hookKey);
             self::assertNotNull($view);
@@ -141,6 +140,7 @@ final class PromptOwnershipModelTest extends TestCase
             'article.comment.generate',
             'product.gallery.generate',
             'article.featured_image.generate',
+            'keyword.discovery.structured',
         ] as $hookKey) {
             $view = $service->forHook($hookKey);
             self::assertNotNull($view);

@@ -5,6 +5,9 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\WordPress\Services;
 
 use Omnichannel\Addons\Content\Support\ArticleLanguageCode;
+use Omnichannel\Addons\Content\Support\ContentLanguageCodeNormalizer;
+use Omnichannel\Addons\Content\Support\ContentLanguageRegistry;
+use Omnichannel\Addons\Seo\Services\SeoContentLanguageSettingsService;
 use App\Models\Site;
 use Illuminate\Validation\ValidationException;
 
@@ -12,11 +15,12 @@ use Illuminate\Validation\ValidationException;
  * Domain-level primary content language (site meta seo_primary_language).
  *
  * Canonical effective language precedence:
- * 1. Explicit saved primary when valid for current Polylang languages
- * 2. Polylang default (when Polylang active)
- * 3. Sole Polylang language (when Polylang active with one language)
- * 4. WordPress site locale (when Polylang absent)
- * 5. unresolved
+ * 1. Explicit saved primary (normalized ISO 639-1), valid for source
+ * 2. Polylang default / sole language (when Polylang active)
+ * 3. Global Default Content Language (Settings → General)
+ * 4. unresolved
+ *
+ * WordPress locale is metadata only — never used as content-language fallback.
  */
 final class SitePrimaryLanguageService
 {
@@ -28,7 +32,10 @@ final class SitePrimaryLanguageService
     }
 
     /**
-     * @return array<string, string> slug => label — synced Polylang languages only; empty if none
+     * Synced Polylang languages → canonical code => label (deduped).
+     * Allows Polylang-managed codes even when outside ContentLanguageRegistry.
+     *
+     * @return array<string, string>
      */
     public function syncedLanguageOptions(Site $site): array
     {
@@ -52,21 +59,28 @@ final class SitePrimaryLanguageService
                 continue;
             }
 
-            $slug = ArticleLanguageCode::normalize((string) ($language['slug'] ?? ''));
-            if ($slug === '') {
+            $code = $this->normalizePolylangLanguageEntry($language);
+            if ($code === null) {
                 continue;
             }
 
-            $name = trim((string) ($language['name'] ?? $slug));
-            $options[$slug] = ArticleLanguageCode::defaultLabels()[$slug]
-                ?? ($name !== '' ? $name : $slug);
+            if (isset($options[$code])) {
+                continue;
+            }
+
+            $name = trim((string) ($language['name'] ?? ''));
+            $options[$code] = ContentLanguageRegistry::isSupported($code)
+                ? ContentLanguageRegistry::label($code)
+                : (ArticleLanguageCode::defaultLabels()[$code]
+                    ?? ($name !== '' ? $name : $code));
         }
 
         return $options;
     }
 
     /**
-     * Options for Domain Edit select: Polylang languages, or a single WP-locale option when no Polylang.
+     * Domain Edit select options.
+     * Polylang → synced only. Non-Polylang → ContentLanguageRegistry.
      *
      * @return array<string, string>
      */
@@ -76,29 +90,22 @@ final class SitePrimaryLanguageService
             return $this->syncedLanguageOptions($site);
         }
 
-        $code = $this->languageFromWordpressLocale($site);
-        if ($code === null) {
-            return [];
-        }
-
-        $label = ArticleLanguageCode::label($code);
-        $suffix = (string) __('seo-content-ai::filament.domain.primary_language_wordpress_suffix');
-
-        return [
-            $code => trim($label.($suffix !== '' ? ' '.$suffix : '')),
-        ];
+        return ContentLanguageRegistry::selectOptions();
     }
 
     public function getStoredPrimaryLanguage(Site $site): ?string
     {
         $raw = $site->getMeta(self::META_KEY);
-        $normalized = ArticleLanguageCode::normalize(is_string($raw) ? $raw : '');
+        if (! is_string($raw) && ! is_numeric($raw)) {
+            return null;
+        }
 
-        return $normalized !== '' ? $normalized : null;
+        return ContentLanguageCodeNormalizer::normalize((string) $raw);
     }
 
     /**
      * Raw WordPress locale from synced site_info (e.g. vi_VN), or null.
+     * External metadata only — not content-language identity.
      */
     public function wordpressLocale(Site $site): ?string
     {
@@ -112,11 +119,13 @@ final class SitePrimaryLanguageService
         return $locale !== '' ? $locale : null;
     }
 
+    /**
+     * Map WP locale → language code for display/metadata helpers.
+     * Not used as resolvePrimaryLanguage fallback.
+     */
     public function languageFromWordpressLocale(Site $site): ?string
     {
-        $code = ArticleLanguageCode::fromWordpressLocale($this->wordpressLocale($site));
-
-        return $code !== '' ? $code : null;
+        return ContentLanguageCodeNormalizer::fromLocale($this->wordpressLocale($site));
     }
 
     /**
@@ -131,21 +140,30 @@ final class SitePrimaryLanguageService
                 return $stored;
             }
 
-            return $this->polylangFallbackLanguage($site, $options);
+            $fallback = $this->polylangFallbackLanguage($site, $options);
+            if ($fallback !== null) {
+                return $fallback;
+            }
+
+            return $this->globalDefaultContentLanguage();
         }
 
-        // Backward compatibility: keep an explicit stored code on non-Polylang sites when present.
         $stored = $this->getStoredPrimaryLanguage($site);
-        if ($stored !== null) {
+        if ($stored !== null && ContentLanguageRegistry::isSupported($stored)) {
             return $stored;
         }
 
-        return $this->languageFromWordpressLocale($site);
+        // Legacy explicit code outside registry still honored if structurally canonical.
+        if ($stored !== null && ContentLanguageCodeNormalizer::isCanonical($stored)) {
+            return $stored;
+        }
+
+        return $this->globalDefaultContentLanguage();
     }
 
     /**
      * Candidate when stored is empty: Polylang default if synced, else sole synced language.
-     * Does not write. Does not apply WP locale (non-Polylang sites must not seed meta).
+     * Does not write. Does not apply WP locale.
      */
     public function seedCandidate(Site $site): ?string
     {
@@ -184,15 +202,12 @@ final class SitePrimaryLanguageService
     }
 
     /**
-     * @throws ValidationException when non-empty code is not in synced options
+     * Persist canonical primary language for Polylang and non-Polylang domains.
+     *
+     * @throws ValidationException when code is not allowed for the domain source
      */
     public function setPrimaryLanguage(Site $site, ?string $code): void
     {
-        if (! $this->hasPolylang($site)) {
-            // Non-Polylang sites derive language from WP locale — do not persist a fake primary.
-            return;
-        }
-
         if ($code === null || trim($code) === '') {
             $site->metas()->updateOrCreate(
                 ['meta_key' => self::META_KEY],
@@ -202,12 +217,23 @@ final class SitePrimaryLanguageService
             return;
         }
 
-        $normalized = ArticleLanguageCode::normalize($code);
-        $options = $this->syncedLanguageOptions($site);
-
-        if ($normalized === '' || ! isset($options[$normalized])) {
+        $normalized = ContentLanguageCodeNormalizer::normalize($code);
+        if ($normalized === null) {
             throw ValidationException::withMessages([
                 'seo_primary_language' => __('seo-content-ai::filament.domain.primary_language_invalid'),
+            ]);
+        }
+
+        if ($this->hasPolylang($site)) {
+            $options = $this->syncedLanguageOptions($site);
+            if (! isset($options[$normalized])) {
+                throw ValidationException::withMessages([
+                    'seo_primary_language' => __('seo-content-ai::filament.domain.primary_language_invalid'),
+                ]);
+            }
+        } elseif (! ContentLanguageRegistry::isSupported($normalized)) {
+            throw ValidationException::withMessages([
+                'seo_primary_language' => __('seo-content-ai::filament.domain.primary_language_invalid_registry'),
             ]);
         }
 
@@ -224,11 +250,56 @@ final class SitePrimaryLanguageService
             return null;
         }
 
-        $options = $this->hasPolylang($site)
-            ? $this->syncedLanguageOptions($site)
-            : $this->formLanguageOptions($site);
+        $options = $this->formLanguageOptions($site);
 
-        return $options[$resolved] ?? ArticleLanguageCode::label($resolved);
+        return $options[$resolved]
+            ?? ContentLanguageRegistry::label($resolved);
+    }
+
+    public function globalDefaultContentLanguage(): ?string
+    {
+        try {
+            $code = app(SeoContentLanguageSettingsService::class)->getDefaultContentLanguage();
+        } catch (\Throwable) {
+            $code = ContentLanguageRegistry::defaultCode();
+        }
+
+        $normalized = ContentLanguageCodeNormalizer::normalize($code);
+
+        return $normalized !== null && ContentLanguageRegistry::isSupported($normalized)
+            ? $normalized
+            : ContentLanguageRegistry::defaultCode();
+    }
+
+    /**
+     * @param  array<string, mixed>  $language
+     */
+    private function normalizePolylangLanguageEntry(array $language): ?string
+    {
+        $fromSlug = ContentLanguageCodeNormalizer::normalize(
+            isset($language['slug']) ? (string) $language['slug'] : null,
+        );
+        if ($fromSlug !== null && ContentLanguageCodeNormalizer::isCanonical($fromSlug)) {
+            return $fromSlug;
+        }
+
+        $fromLocale = ContentLanguageCodeNormalizer::fromLocale(
+            isset($language['locale']) ? (string) $language['locale'] : null,
+        );
+        if ($fromLocale !== null && ContentLanguageCodeNormalizer::isCanonical($fromLocale)) {
+            return $fromLocale;
+        }
+
+        // Prefer slug-normalized short code even when not yet in registry (e.g. ja).
+        if ($fromSlug !== null && preg_match('/^[a-z]{2}$/', $fromSlug) === 1) {
+            return $fromSlug;
+        }
+
+        if ($fromLocale !== null && preg_match('/^[a-z]{2}$/', $fromLocale) === 1) {
+            return $fromLocale;
+        }
+
+        return null;
     }
 
     /**
@@ -242,11 +313,12 @@ final class SitePrimaryLanguageService
 
         $info = app(WordPressSiteInfoService::class)->getStoredSiteInfo($site);
         $polylang = is_array($info) ? ($info['polylang'] ?? null) : null;
-        $default = is_array($polylang)
-            ? ArticleLanguageCode::normalize((string) ($polylang['default'] ?? ''))
-            : '';
+        $rawDefault = is_array($polylang) ? (string) ($polylang['default'] ?? '') : '';
 
-        if ($default !== '' && isset($options[$default])) {
+        $default = ContentLanguageCodeNormalizer::normalize($rawDefault)
+            ?? ContentLanguageCodeNormalizer::fromLocale($rawDefault);
+
+        if ($default !== null && isset($options[$default])) {
             return $default;
         }
 

@@ -195,9 +195,11 @@ final class ContentPlanningIntelligenceContractTest extends TestCase
     public function test_ui_exposes_planning_context_preview(): void
     {
         $card = \Tests\Support\LegacyAddonPath::read('resources/views/components/content-project-new-content-card.blade.php');
+        $detail = \Tests\Support\LegacyAddonPath::read('resources/views/filament/pages/content-project-planner-run-detail.blade.php');
         self::assertStringContainsString('planner_planning_context', $card);
         self::assertStringContainsString('newContentPlanningPreview', $card);
-        self::assertStringContainsString('context_summary', $card);
-        self::assertStringContainsString('suggestion_reason', $card);
+        self::assertStringContainsString('data-planning-intelligence="1"', $card);
+        self::assertStringContainsString('suggestion_reason', $detail);
+        self::assertStringContainsString('planner_decision', $detail);
     }
 }

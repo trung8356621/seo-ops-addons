@@ -731,73 +731,6 @@ trait InteractsWithSeoAuditSuggestions
             ->send();
     }
 
-    public function loadSeoAuditFilterHistory(int $runId): void
-    {
-        $project = $this->resolvePlannerProject();
-        if (! $project instanceof SeoProject) {
-            $this->notifyPlannerProjectRequired();
-
-            return;
-        }
-
-        $run = app(ContentProjectPlannerRunService::class)->findForProject($project, $runId);
-        if ($run === null || ! is_array($run->configuration_snapshot)) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.projects.planner_history_missing'))
-                ->warning()
-                ->send();
-
-            return;
-        }
-
-        $this->applySuggestionFilters(SeoAuditSuggestionFilterSet::fromSnapshot($run->configuration_snapshot));
-        if ((int) ($run->requested_quantity ?? 0) > 0) {
-            $this->fillLimit = (int) $run->requested_quantity;
-        }
-
-        Notification::make()
-            ->title(__('seo-content-ai::filament.projects.planner_filters_loaded'))
-            ->success()
-            ->send();
-    }
-
-    public function runSeoAuditFilterHistory(int $runId): void
-    {
-        $this->loadSeoAuditFilterHistory($runId);
-        $this->fillSuggestions();
-    }
-
-    /**
-     * @return list<array<string, mixed>>
-     */
-    public function getSeoAuditFilterHistoryProperty(): array
-    {
-        $project = $this->resolvePlannerProject();
-        if (! $project instanceof SeoProject) {
-            return [];
-        }
-
-        $out = [];
-        foreach (app(ContentProjectPlannerRunService::class)->listExecuted(
-            $project,
-            SeoContentProjectPlannerRun::SOURCE_SEO_AUDIT,
-            25,
-        ) as $run) {
-            $summary = is_array($run->result_summary) ? $run->result_summary : [];
-            $snapshot = is_array($run->configuration_snapshot) ? $run->configuration_snapshot : [];
-            $out[] = [
-                'id' => (int) $run->getKey(),
-                'created_at' => $run->created_at?->format('d M H:i'),
-                'requested' => (int) ($run->requested_quantity ?? 0),
-                'added' => (int) ($summary['added_count'] ?? 0),
-                'matched' => (int) ($summary['matched_count'] ?? 0),
-                'label' => $this->formatFilterHistoryLabel($snapshot),
-            ];
-        }
-
-        return $out;
-    }
-
     /**
      * @return array{post_types: array<string, string>, taxonomies: array<string, string>, terms: list<array{id:int,label:string}>}
      */
@@ -894,6 +827,17 @@ trait InteractsWithSeoAuditSuggestions
             return;
         }
 
+        $existing = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftResolver::class)
+            ->findPlanningDraftForSite($siteId);
+        if ($existing instanceof SeoProject) {
+            $this->redirect(SeoProjectResource::getUrl('view', [
+                'record' => (int) $existing->getKey(),
+                'workspace' => 'suggestions',
+            ]));
+
+            return;
+        }
+
         $domain = (string) ($project->site?->domain ?? '');
         try {
             $result = app(ContentProjectCommandBus::class)->dispatch(
@@ -934,7 +878,9 @@ trait InteractsWithSeoAuditSuggestions
         }
 
         Notification::make()
-            ->title(__('seo-content-ai::filament.projects.suggestions_draft_created'))
+            ->title(! empty($result->metadata['reused_existing_draft'])
+                ? __('seo-content-ai::filament.projects.suggestions_draft_reused')
+                : __('seo-content-ai::filament.projects.suggestions_draft_created'))
             ->success()
             ->send();
 
@@ -1019,37 +965,6 @@ trait InteractsWithSeoAuditSuggestions
         }
 
         $this->applySuggestionFilters(SeoAuditSuggestionFilterSet::fromSnapshot($snapshot));
-    }
-
-    /**
-     * @param  array<string, mixed>  $snapshot
-     */
-    protected function formatFilterHistoryLabel(array $snapshot): string
-    {
-        $parts = [];
-        $scope = (string) ($snapshot['language_scope'] ?? 'primary');
-        $parts[] = $scope === 'all' ? 'All languages' : 'Primary';
-        $mode = (string) ($snapshot['post_type_mode'] ?? '');
-        $postTypes = is_array($snapshot['post_types'] ?? null) ? $snapshot['post_types'] : [];
-        if ($mode === SeoAuditSuggestionFilterSet::POST_TYPE_MODE_SPECIFIC && $postTypes !== []) {
-            $parts[] = (string) $postTypes[0];
-        } elseif ($mode === SeoAuditSuggestionFilterSet::POST_TYPE_MODE_ALL) {
-            $parts[] = 'All types';
-        } else {
-            $parts[] = 'Except page';
-        }
-        $scoreMax = $snapshot['seo_score']['score_max'] ?? null;
-        if ($scoreMax !== null && $scoreMax !== '') {
-            $parts[] = 'Score <'.$scoreMax;
-        }
-        $taxonomy = (string) ($snapshot['taxonomy'] ?? '');
-        if ($taxonomy !== '') {
-            $parts[] = $taxonomy.((isset($snapshot['term_id']) && (int) $snapshot['term_id'] > 0)
-                ? '='.(int) $snapshot['term_id']
-                : '');
-        }
-
-        return implode(' · ', $parts);
     }
 
     /**

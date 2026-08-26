@@ -57,6 +57,13 @@ final class SitePolylangService
 
             $slug = ArticleLanguageCode::normalize((string) ($language['slug'] ?? ''));
             if ($slug === '') {
+                $slug = ArticleLanguageCode::fromWordpressLocale((string) ($language['locale'] ?? ''));
+            }
+            if ($slug === '') {
+                continue;
+            }
+
+            if (isset($options[$slug])) {
                 continue;
             }
 
@@ -96,6 +103,9 @@ final class SitePolylangService
         }
 
         $default = ArticleLanguageCode::normalize((string) ($polylang['default'] ?? ''));
+        if ($default === '') {
+            $default = ArticleLanguageCode::fromWordpressLocale((string) ($polylang['default'] ?? ''));
+        }
 
         return $default !== '' ? $default : 'vi';
     }

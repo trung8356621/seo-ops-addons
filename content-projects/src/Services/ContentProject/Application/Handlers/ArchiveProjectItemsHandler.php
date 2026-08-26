@@ -111,7 +111,8 @@ final class ArchiveProjectItemsHandler extends AbstractPublishingHandler
                 function () use ($project, $projectId, $itemIds, $command, $userId, $actor): ContentProjectActionResult {
                     $rejectArticleIds = [];
                     $rejectFingerprints = [];
-                    if ($project->isDraftPlanning()) {
+                    $recordDismissal = $command->shouldRecordSuggestionDismissal();
+                    if ($project->isDraftPlanning() && $recordDismissal) {
                         $tasks = SeoProjectTask::query()
                             ->where('project_id', $projectId)
                             ->whereIn('id', $itemIds)
@@ -158,14 +159,15 @@ final class ArchiveProjectItemsHandler extends AbstractPublishingHandler
                     );
 
                     // Project-scoped rejection only — never skip_seo_audit.
-                    if ($rejectArticleIds !== []) {
+                    // Global Skip archives without dismissal so Restore can Fill again.
+                    if ($recordDismissal && $rejectArticleIds !== []) {
                         $this->suggestionDecisions->dismissArticles(
                             $project,
                             $rejectArticleIds,
                             $actor->actorId,
                         );
                     }
-                    if ($rejectFingerprints !== []) {
+                    if ($recordDismissal && $rejectFingerprints !== []) {
                         $this->suggestionDecisions->dismissFingerprints(
                             $project,
                             $rejectFingerprints,
@@ -181,6 +183,7 @@ final class ArchiveProjectItemsHandler extends AbstractPublishingHandler
                         metadata: [
                             'affected_count' => (int) ($archiveResult['archived'] ?? 0),
                             'wordpress_post_deleted' => false,
+                            'remove_reason' => $command->removeReason,
                             'rejected_article_ids' => $rejectArticleIds,
                             'rejected_fingerprints' => array_column($rejectFingerprints, 'fingerprint'),
                         ],

@@ -1,6 +1,5 @@
 @props([
     'showProjectActions' => true,
-    'advancedUrl' => null,
 ])
 
 @php
@@ -8,7 +7,6 @@
     $card = $this->seoAuditPlannerCardState ?? [];
     $canWrite = (bool) ($card['can_write'] ?? false);
     $primaryLanguageLabel = $card['primary_language_label'] ?? null;
-    $history = $this->seoAuditFilterHistory ?? [];
     $filterOptions = $this->suggestionFilterOptions ?? ['post_types' => [], 'taxonomies' => [], 'terms' => []];
     $issueOptions = \Omnichannel\Addons\Seo\Support\SeoScoringRulesRegistry::auditFilterDefinitions();
     $scoreMax = $this->suggestionScoreMax ?? null;
@@ -21,12 +19,6 @@
     }
     $visibleChips = array_slice($chips, 0, 4);
     $extraChipCount = max(0, count($chips) - count($visibleChips));
-    $resolvedAdvancedUrl = is_string($advancedUrl) && $advancedUrl !== ''
-        ? $advancedUrl
-        : \Omnichannel\Addons\ContentProjects\Filament\Pages\ContentProjectSeoAuditPlanner::getUrl(array_filter([
-            'project' => (int) ($this->project?->getKey() ?? 0) ?: null,
-            'advanced' => 1,
-        ]));
     $splitUi = method_exists($this, 'draftSplitUiState') ? $this->draftSplitUiState() : ['count' => 0, 'selected' => 0, 'month_options' => []];
     $draftItemCount = (int) ($splitUi['count'] ?? 0);
     $selectedCount = (int) ($splitUi['selected'] ?? 0);
@@ -36,7 +28,7 @@
 <div
     class="space-y-4"
     wire:key="cp-draft-content-planner"
-    x-data="{ filtersOpen: false, historyOpen: false }"
+    x-data="{ filtersOpen: false }"
 >
     @if ($showProjectActions)
         <div class="flex flex-wrap items-end justify-between gap-3">
@@ -141,9 +133,6 @@
                     @if ($extraChipCount > 0)
                         <span class="cp-plan-chip">+{{ $extraChipCount }}</span>
                     @endif
-                    <button type="button" class="cp-plan-link cp-plan-link--improve" @click="historyOpen = true">
-                        {{ __('seo-content-ai::filament.projects.planner_history') }}
-                    </button>
                 </div>
 
                 <button
@@ -156,48 +145,56 @@
                     <svg class="h-3.5 w-3.5 transition" :class="filtersOpen && 'rotate-180'" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 111.06 1.06l-4.24 4.24a.75.75 0 01-1.06 0L5.21 8.29a.75.75 0 01.02-1.08z" clip-rule="evenodd"/></svg>
                 </button>
 
-                <div x-show="filtersOpen" x-cloak class="cp-plan-filters-panel space-y-3" data-planner-filters="improve">
-                    <div>
-                        <label class="cp-plan-qty__label">{{ __('seo-content-ai::filament.projects.suggestions_filter_score_max') }}</label>
-                        <div class="inline-flex items-center gap-0.5 rounded-lg border border-gray-200 bg-white p-0.5 dark:border-white/10 dark:bg-gray-900">
-                            @foreach (['all' => __('seo-content-ai::filament.projects.seo_audit_score_all'), '80' => '<80', '60' => '<60', '40' => '<40'] as $presetKey => $presetLabel)
-                                <button type="button" wire:click="setSuggestionScorePreset('{{ $presetKey }}')" @class(['rounded-md px-2 py-1 text-xs font-medium', 'bg-emerald-600 text-white' => $scorePreset === $presetKey, 'text-gray-600' => $scorePreset !== $presetKey])>
-                                    {{ $presetLabel }}
-                                </button>
-                            @endforeach
-                        </div>
-                    </div>
-
-                    <div>
-                        <label class="cp-plan-qty__label">{{ __('seo-content-ai::filament.projects.suggestions_filter_issue') }}</label>
-                        <x-select wire:model.live="suggestionIssueKey" wrapClass="cp-ops-select">
-                            <option value="">{{ __('seo-content-ai::filament.projects.suggestions_filter_issue_all') }}</option>
-                            @foreach ($issueOptions as $def)
-                                <option value="{{ $def['key'] ?? '' }}">{{ $def['label'] ?? ($def['key'] ?? '') }}</option>
-                            @endforeach
-                        </x-select>
-                    </div>
-
-                    <div>
-                        <label class="cp-plan-qty__label">{{ __('seo-content-ai::filament.projects.planner_post_type') }}</label>
-                        <x-select wire:model.live="suggestionPostTypeMode" wrapClass="cp-ops-select">
-                            <option value="all_except_page">{{ __('seo-content-ai::filament.projects.planner_post_type_except_page') }}</option>
-                            <option value="all">{{ __('seo-content-ai::filament.article_list.all_post_types') }}</option>
-                            <option value="specific">{{ __('seo-content-ai::filament.projects.planner_post_type_specific') }}</option>
-                        </x-select>
-                        @if (($this->suggestionPostTypeMode ?? '') === 'specific')
-                            <div class="mt-2">
-                                <x-select wire:model.live="suggestionPostType" wrapClass="cp-ops-select">
-                                    @foreach (($filterOptions['post_types'] ?? []) as $slug => $label)
-                                        <option value="{{ $slug }}">{{ $label }}</option>
-                                    @endforeach
-                                </x-select>
+                <div x-show="filtersOpen" x-cloak class="cp-plan-filters-panel" data-planner-filters="improve">
+                    <div class="cp-plan-filters-grid">
+                        <div
+                            class="cp-plan-filters-grid__field"
+                            data-seo-score-segment="1"
+                            x-data="{ selected: @js($scorePreset === 'all' ? 'all' : $scorePreset) }"
+                        >
+                            <label class="cp-plan-qty__label">{{ __('seo-content-ai::filament.projects.suggestions_filter_score_max') }}</label>
+                            <div class="cp-plan-segment">
+                                @foreach (['all' => __('seo-content-ai::filament.projects.seo_audit_score_all'), '80' => '<80', '60' => '<60', '40' => '<40'] as $presetKey => $presetLabel)
+                                    <button
+                                        type="button"
+                                        @click="selected = '{{ $presetKey }}'; $wire.setSuggestionScorePreset('{{ $presetKey }}')"
+                                        :class="selected === '{{ $presetKey }}' ? 'cp-plan-segment__btn is-active' : 'cp-plan-segment__btn'"
+                                    >
+                                        {{ $presetLabel }}
+                                    </button>
+                                @endforeach
                             </div>
-                        @endif
-                    </div>
+                        </div>
 
-                    <div class="grid gap-3 sm:grid-cols-2">
-                        <div>
+                        <div class="cp-plan-filters-grid__field">
+                            <label class="cp-plan-qty__label">{{ __('seo-content-ai::filament.projects.suggestions_filter_issue') }}</label>
+                            <x-select wire:model.live="suggestionIssueKey" wrapClass="cp-ops-select">
+                                <option value="">{{ __('seo-content-ai::filament.projects.suggestions_filter_issue_all') }}</option>
+                                @foreach ($issueOptions as $def)
+                                    <option value="{{ $def['key'] ?? '' }}">{{ $def['label'] ?? ($def['key'] ?? '') }}</option>
+                                @endforeach
+                            </x-select>
+                        </div>
+
+                        <div class="cp-plan-filters-grid__field">
+                            <label class="cp-plan-qty__label">{{ __('seo-content-ai::filament.projects.planner_post_type') }}</label>
+                            <x-select wire:model.live="suggestionPostTypeMode" wrapClass="cp-ops-select">
+                                <option value="all_except_page">{{ __('seo-content-ai::filament.projects.planner_post_type_except_page') }}</option>
+                                <option value="all">{{ __('seo-content-ai::filament.article_list.all_post_types') }}</option>
+                                <option value="specific">{{ __('seo-content-ai::filament.projects.planner_post_type_specific') }}</option>
+                            </x-select>
+                            @if (($this->suggestionPostTypeMode ?? '') === 'specific')
+                                <div class="mt-2">
+                                    <x-select wire:model.live="suggestionPostType" wrapClass="cp-ops-select">
+                                        @foreach (($filterOptions['post_types'] ?? []) as $slug => $label)
+                                            <option value="{{ $slug }}">{{ $label }}</option>
+                                        @endforeach
+                                    </x-select>
+                                </div>
+                            @endif
+                        </div>
+
+                        <div class="cp-plan-filters-grid__field">
                             <label class="cp-plan-qty__label">{{ __('seo-content-ai::filament.projects.planner_taxonomy') }}</label>
                             <x-select wire:model.live="suggestionTaxonomy" wrapClass="cp-ops-select">
                                 <option value="">{{ __('seo-content-ai::filament.article_list.all_taxonomies') }}</option>
@@ -206,7 +203,8 @@
                                 @endforeach
                             </x-select>
                         </div>
-                        <div>
+
+                        <div class="cp-plan-filters-grid__field">
                             <label class="cp-plan-qty__label">{{ __('seo-content-ai::filament.projects.planner_term_all') }}</label>
                             <x-select wire:model.live="suggestionTermId" wrapClass="cp-ops-select" :disabled="($this->suggestionTaxonomy ?? '') === ''">
                                 <option value="">{{ __('seo-content-ai::filament.projects.planner_term_all') }}</option>
@@ -215,10 +213,8 @@
                                 @endforeach
                             </x-select>
                         </div>
-                    </div>
 
-                    <div class="grid gap-3 sm:grid-cols-2">
-                        <div>
+                        <div class="cp-plan-filters-grid__field">
                             <label class="cp-plan-qty__label">{{ __('seo-content-ai::filament.projects.suggestions_filter_language') }}</label>
                             <x-select wire:model.live="suggestionLanguageScope" wrapClass="cp-ops-select">
                                 <option value="primary">
@@ -231,25 +227,22 @@
                                 <option value="all">{{ __('seo-content-ai::filament.projects.suggestions_filter_language_all') }}</option>
                             </x-select>
                         </div>
-                        <div>
+
+                        <div class="cp-plan-filters-grid__field">
                             <label class="cp-plan-qty__label">{{ __('seo-content-ai::filament.projects.suggestions_col_state') }}</label>
                             <x-select wire:model.live="suggestionStateFilter" wrapClass="cp-ops-select">
                                 <option value="available">{{ __('seo-content-ai::filament.projects.suggestions_state_available') }}</option>
                             </x-select>
                         </div>
-                    </div>
 
-                    <div class="flex flex-wrap justify-end gap-2">
-                        <button type="button" class="fi-btn fi-btn-color-gray fi-size-sm" wire:click="saveSeoAuditFilters">
-                            {{ __('seo-content-ai::filament.projects.planner_save_filters') }}
-                        </button>
+                        <div class="cp-plan-filters-grid__actions">
+                            <button type="button" class="fi-btn fi-btn-color-gray fi-size-sm" wire:click="saveSeoAuditFilters">
+                                {{ __('seo-content-ai::filament.projects.planner_save_filters') }}
+                            </button>
+                        </div>
                     </div>
                 </div>
             </div>
-
-            <a href="{{ $resolvedAdvancedUrl }}" class="cp-plan-advanced" data-advanced-seo-audit="1">
-                {{ __('seo-content-ai::filament.projects.content_planning_open_advanced') }}
-            </a>
         </div>
 
         <x-seo-content-ai::content-project-new-content-card />
@@ -261,6 +254,14 @@
             <div class="w-full max-w-lg rounded-xl bg-white p-5 shadow-xl dark:bg-gray-900" wire:click.stop>
                 <h3 class="text-base font-semibold">{{ __('seo-content-ai::filament.projects.draft_split_modal_title') }}</h3>
                 <p class="mt-1 text-xs text-gray-500">{{ __('seo-content-ai::filament.projects.draft_split_modal_help') }}</p>
+                @php
+                    $unreviewedSelected = method_exists($this, 'selectedUnreviewedCount') ? (int) $this->selectedUnreviewedCount() : 0;
+                @endphp
+                @if ($unreviewedSelected > 0 && ($this->draftSplitMode ?? '') === 'selected')
+                    <p class="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100" data-split-unreviewed-warning="1">
+                        {{ __('seo-content-ai::filament.projects.draft_split_unreviewed_warning', ['count' => $unreviewedSelected]) }}
+                    </p>
+                @endif
 
                 <div class="mt-4 space-y-3">
                     <p class="text-xs font-medium text-gray-500">{{ __('seo-content-ai::filament.projects.draft_split_items') }}</p>
@@ -342,34 +343,4 @@
         </div>
     @endif
 
-    {{-- History drawer --}}
-    <div x-show="historyOpen" x-cloak class="fixed inset-0 z-[70] flex justify-end bg-black/40" @keydown.escape.window="historyOpen = false">
-        <div class="h-full w-full max-w-md overflow-y-auto bg-white p-5 shadow-xl dark:bg-gray-900" @click.outside="historyOpen = false">
-            <div class="mb-4 flex items-center justify-between">
-                <h3 class="text-base font-semibold">{{ __('seo-content-ai::filament.projects.planner_seo_audit_history') }}</h3>
-                <button type="button" class="text-sm text-gray-500" @click="historyOpen = false">×</button>
-            </div>
-            <div class="space-y-3">
-                @forelse ($history as $item)
-                    <div class="rounded-lg border border-gray-200 p-3 dark:border-white/10">
-                        <p class="text-xs text-gray-500">{{ $item['created_at'] }}</p>
-                        <p class="mt-1 text-sm font-medium">
-                            {{ __('seo-content-ai::filament.projects.planner_history_counts', ['requested' => $item['requested'], 'added' => $item['added']]) }}
-                        </p>
-                        <p class="mt-0.5 text-xs text-gray-500">{{ $item['label'] }}</p>
-                        <div class="mt-2 flex gap-2">
-                            <button type="button" class="fi-btn fi-btn-color-gray fi-size-sm" wire:click="loadSeoAuditFilterHistory({{ (int) $item['id'] }})" @click="historyOpen = false">
-                                {{ __('seo-content-ai::filament.projects.planner_load_filters') }}
-                            </button>
-                            <button type="button" class="fi-btn fi-btn-color-primary fi-size-sm" wire:click="runSeoAuditFilterHistory({{ (int) $item['id'] }})" @click="historyOpen = false" @disabled(! $canWrite)>
-                                {{ __('seo-content-ai::filament.projects.planner_run_again') }}
-                            </button>
-                        </div>
-                    </div>
-                @empty
-                    <p class="text-sm text-gray-500">{{ __('seo-content-ai::filament.projects.planner_history_empty') }}</p>
-                @endforelse
-            </div>
-        </div>
-    </div>
 </div>

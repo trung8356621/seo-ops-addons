@@ -81,6 +81,10 @@ final class ArticleAiCallRawDetailService
     {
         $prompt = trim((string) ($artifact['prompt'] ?? ''));
         $output = trim((string) ($artifact['result'] ?? ''));
+        $error = \Omnichannel\Addons\Content\Support\PromptAiCallErrorNormalizer::display($artifact['message'] ?? null);
+        if ($output === '' && $error !== null) {
+            $output = $error;
+        }
 
         if ($prompt === '') {
             $prompt = 'Không còn dữ liệu prompt.';
@@ -100,6 +104,7 @@ final class ArticleAiCallRawDetailService
             trim((string) ($artifact['provider'] ?? '')),
             trim((string) ($artifact['status'] ?? '')),
             'PromptResult #'.$promptResultId,
+            $error,
         ]));
 
         return [

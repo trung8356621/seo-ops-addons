@@ -228,6 +228,8 @@ final class ArticleEditorDocumentHtmlIngest
             if ($child instanceof DOMText) {
                 $text = (string) $child->textContent;
                 if ($text !== '') {
+                    // Soft newlines → spaces. Explicit <br> remains hardBreak below.
+                    $text = str_replace(["\r\n", "\r", "\n"], ' ', $text);
                     $content[] = ['type' => 'text', 'text' => $text];
                 }
                 continue;

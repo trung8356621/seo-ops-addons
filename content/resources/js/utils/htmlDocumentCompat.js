@@ -266,7 +266,8 @@ function convertInlineChildren(el) {
         if (child.nodeType === Node.TEXT_NODE) {
             const text = String(child.textContent ?? '');
             if (text !== '') {
-                content.push({ type: 'text', text });
+                // Soft newlines → spaces (HTML phrasing). Explicit <br> stays hardBreak.
+                content.push({ type: 'text', text: text.replace(/\r\n|\r|\n/g, ' ') });
             }
             return;
         }

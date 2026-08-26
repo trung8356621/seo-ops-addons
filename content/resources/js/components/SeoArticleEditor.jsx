@@ -282,7 +282,8 @@ import {
     stripEditorTransientMarkup,
 } from '../utils/articleEditorTransientMarkup';
 import FaqAccordionPreview from './FaqAccordionPreview';
-import { Undo2, Redo2, Plus, ChevronDown, ChevronRight, ImageIcon, Table, Link2, AlertTriangle, Search, ListPlus, Sparkles, ListCollapse, Trash2, BarChart3, Star } from 'lucide-react';
+import { Undo2, Redo2, Plus, ChevronDown, ChevronRight, ImageIcon, Table, Link2, AlertTriangle, Search, ListPlus, ListCollapse, Trash2, BarChart3, Star, Copy, Check, ImagePlus } from 'lucide-react';
+import { extractSectionPlainText, writeTextToClipboard } from '../utils/sectionPlainTextCopy';
 import {
     getSelectionHtmlFromEditor,
     getSelectionTextFromEditor,
@@ -927,6 +928,50 @@ export default function SeoArticleEditor({
 
         return map;
     }, [blocks]);
+
+    const [copiedSectionId, setCopiedSectionId] = useState(null);
+    const copiedSectionTimerRef = useRef(null);
+
+    const copySectionText = useCallback(
+        async (section) => {
+            const text = extractSectionPlainText(section, blockById);
+            if (text === '') {
+                window.dispatchEvent(
+                    new CustomEvent('seo-article-editor-notify', {
+                        detail: {
+                            title: t('editor_copy_section_empty_title'),
+                            body: t('editor_copy_section_empty_body'),
+                            status: 'warning',
+                        },
+                    }),
+                );
+                return;
+            }
+
+            try {
+                await writeTextToClipboard(text);
+                setCopiedSectionId(section.id);
+                if (copiedSectionTimerRef.current) {
+                    window.clearTimeout(copiedSectionTimerRef.current);
+                }
+                copiedSectionTimerRef.current = window.setTimeout(() => {
+                    setCopiedSectionId(null);
+                    copiedSectionTimerRef.current = null;
+                }, 1500);
+            } catch {
+                window.dispatchEvent(
+                    new CustomEvent('seo-article-editor-notify', {
+                        detail: {
+                            title: t('editor_copy_section_failed_title'),
+                            body: t('editor_copy_section_failed_body'),
+                            status: 'warning',
+                        },
+                    }),
+                );
+            }
+        },
+        [blockById],
+    );
 
     const blockIndexMap = useMemo(() => {
         const map = new Map();
@@ -1881,6 +1926,28 @@ export default function SeoArticleEditor({
                                                     <span>{stats.wordCount}</span>
                                                 </span>
 
+                                                <button
+                                                    type="button"
+                                                    onClick={() => copySectionText(section)}
+                                                    className="seo-section-header-icon-btn ml-1 border-gray-300 bg-white text-gray-700 hover:bg-gray-100 dark:border-gray-600 dark:bg-slate-800 dark:text-gray-200 dark:hover:bg-slate-700"
+                                                    title={
+                                                        copiedSectionId === section.id
+                                                            ? t('editor_copy_section_done')
+                                                            : t('editor_copy_section')
+                                                    }
+                                                    aria-label={
+                                                        copiedSectionId === section.id
+                                                            ? t('editor_copy_section_done')
+                                                            : t('editor_copy_section')
+                                                    }
+                                                >
+                                                    {copiedSectionId === section.id ? (
+                                                        <Check size={12} />
+                                                    ) : (
+                                                        <Copy size={12} />
+                                                    )}
+                                                </button>
+
                                                 {!section.isIntro ? (
                                                     <button
                                                         type="button"
@@ -1889,7 +1956,7 @@ export default function SeoArticleEditor({
                                                         title={t('ai_visual_section')}
                                                         aria-label={t('ai_visual')}
                                                     >
-                                                        <Sparkles size={12} />
+                                                        <ImagePlus size={12} />
                                                     </button>
                                                 ) : null}
 
@@ -1926,7 +1993,7 @@ export default function SeoArticleEditor({
                                                         title={t('editor_generate_featured_snippet')}
                                                         aria-label={t('editor_generate_featured_snippet')}
                                                     >
-                                                        <Sparkles size={12} />
+                                                        <Star size={12} />
                                                     </button>
                                                 ) : null}
 

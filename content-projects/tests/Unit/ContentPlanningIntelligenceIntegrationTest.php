@@ -161,7 +161,10 @@ final class ContentPlanningIntelligenceIntegrationTest extends TestCase
         ], 'vi');
 
         self::assertNotEmpty($ctx['planned_topics']);
-        self::assertArrayHasKey(
+        $plannedFp = NewContentSuggestionIdentity::fingerprint('already planned topic', 'Already planned title');
+        self::assertArrayHasKey($plannedFp, $ctx['planned_fingerprints']);
+        // Draft planned ≠ content coverage; dedup uses planned fingerprints / planned keyword norms.
+        self::assertArrayNotHasKey(
             NewContentSuggestionIdentity::normalize('already planned topic'),
             $ctx['covered_keyword_norms'],
         );
@@ -203,6 +206,49 @@ final class ContentPlanningIntelligenceIntegrationTest extends TestCase
 
         self::assertArrayHasKey($fp, $ctxA['rejected_fingerprints']);
         self::assertArrayNotHasKey($fp, $ctxB['rejected_fingerprints']);
+    }
+
+    public function test_weakly_covered_ki_phrase_not_in_covered_keyword_norms(): void
+    {
+        [$site, $project] = $this->seedSiteProject();
+        $siteId = (int) $site->getKey();
+
+        $weakId = $this->seedKeyword($siteId, 'weak only kw', true, 0.9, 'product');
+        $article = SeoArticle::query()->create([
+            'site_id' => $siteId,
+            'user_id' => 1,
+            'title' => 'Draft-only article '.$this->seq,
+            'slug' => 'weak-'.$this->seq,
+            'type' => 'article',
+            'status' => 'draft',
+            'language' => 'vi',
+        ]);
+        DB::connection('omi_seo_ai')->table('seo_link_maps')->insert([
+            'keyword_id' => $weakId,
+            'source_article_id' => (int) $article->id,
+            'target_article_id' => null,
+            'anchor_text' => 'weak only kw',
+            'link_type' => 'internal',
+            'status' => 'active',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $ctx = app(ContentPlanningIntelligenceService::class)->build($project, $site, [
+            'use_keyword_intelligence' => true,
+            'use_site_context' => true,
+            'use_mcp_context' => false,
+        ], 'vi');
+
+        $byPhrase = [];
+        foreach ($ctx['principal_keywords'] as $row) {
+            $byPhrase[$row['phrase']] = $row['coverage'];
+        }
+        self::assertSame('weakly_covered', $byPhrase['weak only kw'] ?? null);
+        self::assertArrayNotHasKey(
+            NewContentSuggestionIdentity::normalize('weak only kw'),
+            $ctx['covered_keyword_norms'],
+        );
     }
 
     public function test_mcp_absent_still_builds_context(): void

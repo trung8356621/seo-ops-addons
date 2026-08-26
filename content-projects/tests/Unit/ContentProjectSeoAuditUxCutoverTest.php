@@ -88,8 +88,8 @@ final class ContentProjectSeoAuditUxCutoverTest extends TestCase
         );
 
         self::assertStringContainsString('content-project-draft-planner', $global);
-        self::assertStringContainsString('content-project-seo-audit-planner', $global);
-        self::assertStringContainsString('advanced', $global);
+        self::assertStringNotContainsString('content-project-seo-audit-planner', $global);
+        self::assertStringNotContainsString('advanced', $global);
         self::assertStringContainsString('content-project-draft-planner', $viewOps);
         self::assertStringContainsString('suggestions_add_to_draft', $shared);
         self::assertStringContainsString('suggestionStateFilter', $shared);

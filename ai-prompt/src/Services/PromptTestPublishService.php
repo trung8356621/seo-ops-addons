@@ -15,6 +15,7 @@ use Omnichannel\Addons\Agent\Automation\Migration\ProjectArticleSeoMetaCallerBri
 use Omnichannel\Addons\Agent\Automation\Runtime\ActionRunner;
 use Omnichannel\Addons\Agent\Automation\Support\ArticleContentConflictGuard;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Services\AiGeneratedContentNormalizer;
 use Omnichannel\Addons\Content\Services\ArticleContentFaqService;
 use Omnichannel\Addons\Content\Services\ArticleCtaPlaceholderService;
 use Omnichannel\Addons\Content\Services\ArticleEditorReadinessService;
@@ -81,7 +82,8 @@ final class PromptTestPublishService
             $import['html'],
             $import['faqs'],
         );
-        $html = $cta['html'];
+        // Shared safety net for Generate / Rewrite / Improve / Rerun (all use publishArticle).
+        $html = app(AiGeneratedContentNormalizer::class)->normalizeHtml($cta['html']);
         $faqs = $cta['faqs'];
 
         if ($faqs !== []) {

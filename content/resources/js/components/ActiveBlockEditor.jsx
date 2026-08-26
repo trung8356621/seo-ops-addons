@@ -75,7 +75,9 @@ function ActiveBlockEditor({
             return block.editorDocument;
         }
 
-        return normalizeOrphanQuoteCharacters(ensureTiptapHeadingCursorParagraph(sourceHtml) || '<p></p>');
+        return prepareHtmlForTipTapApply(
+            normalizeOrphanQuoteCharacters(ensureTiptapHeadingCursorParagraph(sourceHtml) || '<p></p>'),
+        );
     }, [block.id]);
     const { minHeight, setMinHeight, persistHeight, minH, maxH } = useBlockEditorHeight(block.id);
 
@@ -204,8 +206,10 @@ function ActiveBlockEditor({
             return;
         }
 
-        const nextHtml = normalizeOrphanQuoteCharacters(
-            ensureTiptapHeadingCursorParagraph(sourceHtml) || '<p></p>',
+        const nextHtml = prepareHtmlForTipTapApply(
+            normalizeOrphanQuoteCharacters(
+                ensureTiptapHeadingCursorParagraph(sourceHtml) || '<p></p>',
+            ),
         );
         // Khi user đang gõ, parent state đổi theo từng key stroke. Nếu hydrate lại
         // bằng setContent dù HTML tương đương, Tiptap sẽ reset selection/caret về cuối đoạn.

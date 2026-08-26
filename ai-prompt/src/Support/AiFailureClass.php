@@ -17,6 +17,7 @@ enum AiFailureClass: string
     case ProviderRefusal = 'provider_refusal';
     case ProviderEmptyOutput = 'provider_empty_output';
     case ProviderInvalidOutput = 'provider_invalid_output';
+    case OutputQuality = 'output_quality';
     case SystemError = 'system_error';
     case RoutesExhausted = 'routes_exhausted';
 }

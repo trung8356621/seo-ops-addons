@@ -6,9 +6,14 @@ namespace Omnichannel\Addons\AiPrompt\Services;
 
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
-use Omnichannel\Addons\AiPrompt\Support\AiRoutingMode;
 use Omnichannel\Addons\Media\Support\ImageToolType;
 
+/**
+ * SSOT for modern Prompt Hook → execution profile.
+ *
+ * Prompt DB fields (routing_mode, routing_profile_key) must NOT override this map.
+ * Model order / fallback live in AI Center via AiModelRouterService.
+ */
 final class PromptExecutionProfileResolver
 {
     /**
@@ -33,14 +38,6 @@ final class PromptExecutionProfileResolver
 
     public function resolve(?SeoPrompt $prompt, ?string $hookKey = null, ?string $toolType = null): AiExecutionProfile
     {
-        $mode = AiRoutingMode::tryFrom((string) ($prompt?->routing_mode ?? '')) ?? AiRoutingMode::Auto;
-        if ($mode === AiRoutingMode::Override) {
-            $override = AiExecutionProfile::tryFrom(trim((string) ($prompt?->routing_profile_key ?? '')));
-            if ($override !== null) {
-                return $override;
-            }
-        }
-
         $hook = trim($hookKey ?? (string) ($prompt?->hook_key ?? ''));
         if ($hook !== '' && isset(self::HOOK_MAP[$hook])) {
             return self::HOOK_MAP[$hook];

@@ -8,12 +8,15 @@ use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithDraftSplit;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithNewContentSuggestions;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithSeoAuditSuggestions;
-use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectItemOrigin;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ActorContext;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ArchiveProjectItemsCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\CreateContentProjectCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SkipSeoAuditArticlesCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectCommandBus;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectDraftPlanningItemsReadModel;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftResolver;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoPanelPage;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Models\Site;
@@ -21,7 +24,7 @@ use App\Support\RuntimeLogger;
 use Filament\Notifications\Notification;
 use Filament\Support\Exceptions\Halt;
 use Illuminate\Contracts\Support\Htmlable;
-use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\Schema;
 use Livewire\Attributes\Url;
 use Livewire\WithPagination;
 use Throwable;
@@ -52,14 +55,16 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
     #[Url(as: 'site')]
     public ?int $filterSiteId = null;
 
-    /** Advanced SEO Audit candidate table (not primary workflow). */
-    #[Url(as: 'advanced')]
-    public bool $advanced = false;
-
     public ?SeoProject $project = null;
 
     /** @var list<int> */
     public array $selectedTaskIds = [];
+
+    /** all|unreviewed|reviewed */
+    public string $draftReviewFilter = 'all';
+
+    /** all|rewrite|improve|create */
+    public string $draftTypeFilter = 'all';
 
     public static function getNavigationLabel(): string
     {
@@ -79,8 +84,16 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
     public function mount(): void
     {
         abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+
+        if ($this->shouldRedirectLegacyAdvancedParam()) {
+            $this->redirect(static::getUrl($this->canonicalPlannerQueryParams()), navigate: false);
+
+            return;
+        }
+
         $this->workspaceTab = 'suggestions';
         $this->resolveSelectedProject();
+        $this->autoSelectSiteDraftIfNeeded();
         $this->mountInteractsWithSeoAuditSuggestions();
         $this->mountInteractsWithNewContentSuggestions();
         $this->mountInteractsWithDraftSplit();
@@ -88,10 +101,6 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
 
     public function getTitle(): string|Htmlable
     {
-        if ($this->advanced) {
-            return __('seo-content-ai::filament.projects.seo_audit_advanced_heading');
-        }
-
         return __('seo-content-ai::filament.projects.content_planning_title');
     }
 
@@ -119,57 +128,53 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
 
     public function updatedFilterSiteId(): void
     {
-        if ($this->project instanceof SeoProject) {
-            $siteId = (int) ($this->filterSiteId ?? 0);
-            if ($siteId > 0 && (int) ($this->project->site_id ?? 0) !== $siteId) {
-                $this->projectId = null;
-                $this->project = null;
-            }
-        }
-
-        $this->clearSuggestionSelection();
+        $this->projectId = null;
+        $this->project = null;
         $this->selectedTaskIds = [];
+        $this->clearSuggestionSelection();
         $this->resetPage('suggestionsPage');
+
+        $this->autoSelectSiteDraftIfNeeded();
+        $this->mountInteractsWithSeoAuditSuggestions();
         $this->mountInteractsWithNewContentSuggestions();
+        $this->mountInteractsWithDraftSplit();
     }
 
     /**
-     * @return list<array{id: int, name: string, site_id: int, domain: string}>
+     * @return array{id: int, name: string, site_id: int, domain: string}|null
      */
-    public function getDraftProjectOptionsProperty(): array
+    public function getCanonicalPlanningDraftProperty(): ?array
     {
-        $query = SeoProjectResource::getRecordRouteBindingEloquentQuery()
-            ->with('site:id,domain')
-            ->where('status', SeoProject::STATUS_DRAFT)
-            ->activeProjects()
-            ->where(function (Builder $q): void {
-                $q->whereNull('kind')->orWhere('kind', '!=', SeoProject::KIND_ARCHIVE);
-            })
-            ->orderByDesc('updated_at');
-
         $siteId = (int) ($this->filterSiteId ?? 0);
         if ($siteId <= 0 && $this->project instanceof SeoProject) {
             $siteId = (int) ($this->project->site_id ?? 0);
         }
-
-        if ($siteId > 0) {
-            $query->where('site_id', $siteId);
+        if ($siteId <= 0) {
+            return null;
         }
 
-        $out = [];
-        foreach ($query->limit(100)->get() as $draft) {
-            if (! $draft instanceof SeoProject || ! $draft->isDraftPlanning()) {
-                continue;
-            }
-            $out[] = [
-                'id' => (int) $draft->getKey(),
-                'name' => (string) $draft->name,
-                'site_id' => (int) ($draft->site_id ?? 0),
-                'domain' => (string) ($draft->site?->domain ?? ''),
-            ];
+        $draft = app(PlanningDraftResolver::class)->findPlanningDraftForSite($siteId);
+        if (! $draft instanceof SeoProject) {
+            return null;
         }
 
-        return $out;
+        return [
+            'id' => (int) $draft->getKey(),
+            'name' => (string) $draft->name,
+            'site_id' => (int) ($draft->site_id ?? 0),
+            'domain' => (string) ($draft->site?->domain ?? ''),
+        ];
+    }
+
+    /**
+     * @deprecated Prefer canonicalPlanningDraft — kept for blade/test compatibility.
+     * @return list<array{id: int, name: string, site_id: int, domain: string}>
+     */
+    public function getDraftProjectOptionsProperty(): array
+    {
+        $canonical = $this->canonicalPlanningDraft;
+
+        return $canonical !== null ? [$canonical] : [];
     }
 
     /**
@@ -187,72 +192,258 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
     }
 
     /**
-     * Compact Draft items for the Content Planning page (not SEO Audit candidates).
-     *
-     * @return list<array{
-     *   id: int,
-     *   title: string,
-     *   type: string,
-     *   type_label: string,
-     *   source_label: string,
-     *   why: string|null,
-     *   updated_label: string,
-     * }>
+     * @return array{
+     *   rows: list<array<string, mixed>>,
+     *   counts: array{all: int, unreviewed: int, reviewed: int}
+     * }
      */
-    public function getDraftPlanningItemsProperty(): array
+    public function getDraftPlanningPayloadProperty(): array
     {
         if (! $this->project instanceof SeoProject || ! $this->project->isDraftPlanning()) {
-            return [];
-        }
-
-        $projectId = (int) $this->project->getKey();
-        $tasks = SeoProjectTask::query()
-            ->where('project_id', $projectId)
-            ->planned()
-            ->inContentProjectWorkingSet()
-            ->with(['itemOrigin'])
-            ->orderByDesc('updated_at')
-            ->orderByDesc('id')
-            ->limit(50)
-            ->get();
-
-        $out = [];
-        foreach ($tasks as $task) {
-            if (! $task instanceof SeoProjectTask) {
-                continue;
-            }
-            $type = strtolower(trim((string) ($task->type ?? '')));
-            $origin = $task->itemOrigin;
-            $source = $origin instanceof SeoContentProjectItemOrigin
-                ? (string) ($origin->source_type ?? '')
-                : '';
-            $meta = is_array($origin?->metadata) ? $origin->metadata : [];
-            $why = isset($meta['suggestion_reason']) ? trim((string) $meta['suggestion_reason']) : '';
-            if ($why === '' && isset($meta['source_signal'])) {
-                $why = trim((string) $meta['source_signal']);
-            }
-
-            $out[] = [
-                'id' => (int) $task->getKey(),
-                'title' => (string) ($task->title !== '' ? $task->title : ('#'.$task->getKey())),
-                'type' => $type,
-                'type_label' => match ($type) {
-                    SeoProjectTask::TYPE_REWRITE => 'Rewrite',
-                    SeoProjectTask::TYPE_IMPROVE => 'Improve',
-                    SeoProjectTask::TYPE_CREATE => 'Create',
-                    default => ucfirst($type !== '' ? $type : 'Item'),
-                },
-                'source_label' => match ($source) {
-                    SeoContentProjectItemOrigin::SOURCE_SEO_AUDIT => 'SEO Audit',
-                    SeoContentProjectItemOrigin::SOURCE_AI_NEW_CONTENT => 'AI Suggestion',
-                    default => $source !== '' ? $source : 'Manual',
-                },
-                'why' => $why !== '' ? $why : null,
-                'updated_label' => $task->updated_at?->diffForHumans() ?? '—',
+            return [
+                'rows' => [],
+                'counts' => ['all' => 0, 'unreviewed' => 0, 'reviewed' => 0],
             ];
         }
 
-        return $out;
+        return app(ContentProjectDraftPlanningItemsReadModel::class)->forProject($this->project, [
+            'review' => $this->draftReviewFilter,
+            'type' => $this->draftTypeFilter,
+        ]);
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function getDraftPlanningItemsProperty(): array
+    {
+        return $this->draftPlanningPayload['rows'] ?? [];
+    }
+
+    /**
+     * @return array{all: int, unreviewed: int, reviewed: int}
+     */
+    public function getDraftPlanningCountsProperty(): array
+    {
+        $counts = $this->draftPlanningPayload['counts'] ?? [];
+
+        return [
+            'all' => (int) ($counts['all'] ?? 0),
+            'unreviewed' => (int) ($counts['unreviewed'] ?? 0),
+            'reviewed' => (int) ($counts['reviewed'] ?? 0),
+        ];
+    }
+
+    public function setDraftReviewFilter(string $filter): void
+    {
+        $normalized = strtolower(trim($filter));
+        $this->draftReviewFilter = in_array($normalized, ['all', 'unreviewed', 'reviewed'], true)
+            ? $normalized
+            : 'all';
+        $this->selectedTaskIds = [];
+    }
+
+    public function setDraftTypeFilter(string $filter): void
+    {
+        $normalized = strtolower(trim($filter));
+        $this->draftTypeFilter = in_array($normalized, ['all', 'rewrite', 'improve', 'create'], true)
+            ? $normalized
+            : 'all';
+        $this->selectedTaskIds = [];
+    }
+
+    public function setPlanningReviewed(int $taskId, bool $reviewed): void
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+
+        if (! Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'planning_reviewed_at')) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.planning_review_unavailable'))
+                ->body(__('seo-content-ai::filament.projects.planning_review_migration_required'))
+                ->danger()
+                ->send();
+
+            throw new Halt;
+        }
+
+        $project = $this->requireProject();
+        $task = SeoProjectTask::query()
+            ->where('project_id', (int) $project->getKey())
+            ->whereKey($taskId)
+            ->first();
+
+        if (! $task instanceof SeoProjectTask) {
+            throw new Halt;
+        }
+
+        if ($reviewed) {
+            $task->planning_reviewed_at = now();
+            $task->planning_reviewed_by = auth()->id() !== null ? (int) auth()->id() : null;
+        } else {
+            $task->planning_reviewed_at = null;
+            $task->planning_reviewed_by = null;
+        }
+        $task->save();
+    }
+
+    /**
+     * Inline Draft metadata save (Title / Keyword / Description).
+     */
+    public function updatePlanningField(int $taskId, string $field, string $value): void
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+
+        $field = strtolower(trim($field));
+        if (! in_array($field, ['title', 'keyword', 'description'], true)) {
+            return;
+        }
+
+        $project = $this->requireProject();
+        $task = SeoProjectTask::query()
+            ->where('project_id', (int) $project->getKey())
+            ->whereKey($taskId)
+            ->first();
+
+        if (! $task instanceof SeoProjectTask) {
+            return;
+        }
+
+        $trimmed = trim($value);
+
+        match ($field) {
+            'title' => $task->title = $trimmed !== '' ? $trimmed : $task->title,
+            'keyword' => $this->applyPlanningKeyword($task, $trimmed),
+            'description' => $this->applyPlanningDescription($task, $trimmed),
+        };
+
+        $task->save();
+    }
+
+    public function archiveOne(int $taskId): void
+    {
+        $this->dispatchDraftArchive([$taskId]);
+    }
+
+    public function skipSeoAuditOne(int $taskId): void
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+
+        $project = $this->requireProject();
+        $task = SeoProjectTask::query()
+            ->where('project_id', (int) $project->getKey())
+            ->whereKey($taskId)
+            ->first();
+
+        $articleId = (int) ($task?->article_id ?? 0);
+        if ($articleId <= 0 || ! $task instanceof SeoProjectTask) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.queue_select_required'))
+                ->warning()
+                ->send();
+
+            throw new Halt;
+        }
+
+        $actor = ActorContext::user(
+            auth()->id() !== null ? (int) auth()->id() : null,
+            (int) ($project->site_id ?? 0) ?: null,
+        );
+
+        $skipResult = app(ContentProjectCommandBus::class)->dispatch(
+            new SkipSeoAuditArticlesCommand(
+                (int) $project->getKey(),
+                [$articleId],
+            ),
+            $actor,
+        );
+
+        if (! $skipResult->success) {
+            Notification::make()
+                ->title('Failed')
+                ->body($skipResult->message)
+                ->danger()
+                ->send();
+
+            throw new Halt;
+        }
+
+        // Soft-remove from Draft without project-scoped dismissal (Restore → Fill again).
+        $archiveResult = app(ContentProjectCommandBus::class)->dispatch(
+            new ArchiveProjectItemsCommand(
+                (int) $project->getKey(),
+                [(int) $task->getKey()],
+                note: 'global_skip_seo_audit',
+                removeReason: ArchiveProjectItemsCommand::REASON_GLOBAL_SKIP,
+            ),
+            $actor,
+        );
+
+        if ($archiveResult->success) {
+            $archived = [(int) $task->getKey() => true];
+            $this->selectedTaskIds = array_values(array_filter(
+                $this->normalizeSelectedIds($this->selectedTaskIds),
+                static fn (int $id): bool => ! isset($archived[$id]),
+            ));
+        }
+
+        Notification::make()
+            ->title(__('seo-content-ai::filament.article_list.seo_audit_skipped_on'))
+            ->body($archiveResult->success
+                ? $skipResult->message
+                : $skipResult->message.' · '.$archiveResult->message)
+            ->{$archiveResult->success ? 'success' : 'warning'}()
+            ->send();
+
+        if (! $archiveResult->success) {
+            throw new Halt;
+        }
+    }
+
+    public function plannerRunDetailUrl(int $plannerRunId): string
+    {
+        $project = $this->project;
+        if (! $project instanceof SeoProject || $plannerRunId <= 0) {
+            return '#';
+        }
+
+        return ContentProjectPlannerRunDetail::urlFor($project, $plannerRunId);
+    }
+
+    public function draftAiHistoryUrl(): string
+    {
+        $project = $this->project;
+        if (! $project instanceof SeoProject) {
+            return '#';
+        }
+
+        return ContentProjectDraftAiHistory::urlForProject($project);
+    }
+
+    private function applyPlanningKeyword(SeoProjectTask $task, string $keyword): void
+    {
+        if ($keyword === '') {
+            return;
+        }
+
+        $task->keyword = $keyword;
+        // Keep Create identity / list source aligned with Content Project Edit Keyword.
+        if (SeoProjectTask::isNewArticleType($task->type) || trim((string) ($task->source_content ?? '')) === '') {
+            $task->source_content = $keyword;
+        }
+    }
+
+    private function applyPlanningDescription(SeoProjectTask $task, string $description): void
+    {
+        $value = $description !== '' ? $description : null;
+        // Create planning brief lives on secondary_description (Project Edit → Description).
+        // Product gallery brief stays on description (Project Edit → Gallery description).
+        if (SeoProjectTask::isNewArticleType($task->type)) {
+            $task->secondary_description = $value;
+
+            return;
+        }
+
+        $task->description = $value;
     }
 
     public function createDraftForPlanner(): void
@@ -263,6 +454,16 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
                 ->title(__('seo-content-ai::filament.projects.seo_audit_draft_site_required'))
                 ->warning()
                 ->send();
+
+            return;
+        }
+
+        $existing = app(PlanningDraftResolver::class)->findPlanningDraftForSite($siteId);
+        if ($existing instanceof SeoProject) {
+            $this->redirect(static::getUrl([
+                'project' => (int) $existing->getKey(),
+                'site' => $siteId,
+            ]));
 
             return;
         }
@@ -307,8 +508,11 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
             return;
         }
 
+        $reused = (bool) ($result->metadata['reused_existing_draft'] ?? false);
         Notification::make()
-            ->title(__('seo-content-ai::filament.projects.suggestions_draft_created'))
+            ->title($reused
+                ? __('seo-content-ai::filament.projects.suggestions_draft_reused')
+                : __('seo-content-ai::filament.projects.suggestions_draft_created'))
             ->success()
             ->send();
 
@@ -321,6 +525,27 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
     public function openPublishFromPlanner(): void
     {
         $this->openDraftSplitModal();
+    }
+
+    /**
+     * Unreviewed count among currently selected Draft rows (warning only).
+     */
+    public function selectedUnreviewedCount(): int
+    {
+        $selected = array_flip($this->normalizeSelectedIds($this->selectedTaskIds));
+        if ($selected === []) {
+            return 0;
+        }
+
+        $count = 0;
+        foreach ($this->draftPlanningItems as $row) {
+            $id = (int) ($row['id'] ?? 0);
+            if ($id > 0 && isset($selected[$id]) && empty($row['planning_reviewed'])) {
+                $count++;
+            }
+        }
+
+        return $count;
     }
 
     protected function requireProject(): SeoProject
@@ -343,6 +568,24 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         return $this->project instanceof SeoProject ? $this->project : null;
     }
 
+    private function autoSelectSiteDraftIfNeeded(): void
+    {
+        $siteId = (int) ($this->filterSiteId ?? 0);
+        if ($siteId <= 0) {
+            return;
+        }
+
+        $draft = app(PlanningDraftResolver::class)->findPlanningDraftForSite($siteId);
+        if (! $draft instanceof SeoProject) {
+            return;
+        }
+
+        if ($this->projectId === null || $this->projectId <= 0 || (int) $this->projectId !== (int) $draft->getKey()) {
+            $this->projectId = (int) $draft->getKey();
+            $this->resolveSelectedProject();
+        }
+    }
+
     private function resolveSelectedProject(): void
     {
         $this->project = null;
@@ -360,10 +603,131 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
             return;
         }
 
+        if (! $project->isDraftPlanning()) {
+            // Prefer canonical planning draft for the site instead of execution project.
+            $siteId = (int) ($project->site_id ?? 0);
+            $canonical = $siteId > 0
+                ? app(PlanningDraftResolver::class)->findPlanningDraftForSite($siteId)
+                : null;
+            if ($canonical instanceof SeoProject) {
+                $this->projectId = (int) $canonical->getKey();
+                $this->project = $canonical;
+                $this->filterSiteId = $siteId ?: $this->filterSiteId;
+
+                return;
+            }
+            $this->projectId = null;
+
+            return;
+        }
+
         $this->project = $project;
 
         if ($this->filterSiteId === null || $this->filterSiteId <= 0) {
             $this->filterSiteId = (int) ($project->site_id ?? 0) ?: null;
+        }
+    }
+
+    private function shouldRedirectLegacyAdvancedParam(): bool
+    {
+        $advanced = request()->query('advanced');
+
+        return in_array(strtolower(trim((string) $advanced)), ['1', 'true'], true);
+    }
+
+    /**
+     * @return array<string, int|string>
+     */
+    private function canonicalPlannerQueryParams(): array
+    {
+        $params = [];
+
+        $projectId = (int) ($this->projectId ?? 0);
+        if ($projectId > 0) {
+            $params['project'] = $projectId;
+        }
+
+        $siteId = (int) ($this->filterSiteId ?? 0);
+        if ($siteId > 0) {
+            $params['site'] = $siteId;
+        }
+
+        $domain = trim((string) request()->query('domain', ''));
+        if ($domain !== '') {
+            $params['domain'] = $domain;
+        }
+
+        return $params;
+    }
+
+    /**
+     * @param  list<int>  $taskIds
+     */
+    private function dispatchDraftArchive(array $taskIds): void
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+
+        $ids = $this->normalizeSelectedIds($taskIds);
+        if ($ids === []) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.queue_select_required'))
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        $project = $this->requireProject();
+
+        try {
+            $result = app(ContentProjectCommandBus::class)->dispatch(
+                new ArchiveProjectItemsCommand(
+                    (int) $project->getKey(),
+                    $ids,
+                ),
+                ActorContext::user(
+                    auth()->id() !== null ? (int) auth()->id() : null,
+                    (int) ($project->site_id ?? 0) ?: null,
+                ),
+            );
+
+            Notification::make()
+                ->title($result->success
+                    ? __('seo-content-ai::filament.projects.archive_item_completed')
+                    : __('seo-content-ai::filament.projects.archive_failed'))
+                ->body($result->success
+                    ? __('seo-content-ai::filament.projects.archive_item_completed_body', [
+                        'archived' => (int) ($result->metadata['affected_count'] ?? count($ids)),
+                    ])
+                    : $result->message)
+                ->{$result->success ? 'success' : 'danger'}()
+                ->send();
+
+            if ($result->success) {
+                $archived = array_flip($ids);
+                $this->selectedTaskIds = array_values(array_filter(
+                    $this->normalizeSelectedIds($this->selectedTaskIds),
+                    static fn (int $id): bool => ! isset($archived[$id]),
+                ));
+
+                return;
+            }
+
+            throw new Halt;
+        } catch (Halt $e) {
+            throw $e;
+        } catch (Throwable $e) {
+            RuntimeLogger::report($e, [
+                'endpoint' => 'content_project.content_planning.archive',
+                'project_id' => (int) $project->getKey(),
+            ]);
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.archive_failed'))
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+
+            throw new Halt;
         }
     }
 }

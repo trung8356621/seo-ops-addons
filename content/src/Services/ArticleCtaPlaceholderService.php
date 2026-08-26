@@ -356,28 +356,18 @@ final class ArticleCtaPlaceholderService
         $emailPool = $values['_email_pool'] ?? [];
         unset($values['_phone_pool'], $values['_email_pool']);
 
-        if ($phonePool !== []) {
-            $html = (string) preg_replace_callback(
-                '/\[phone\]/iu',
-                function () use ($phonePool): string {
-                    $picked = $phonePool[array_rand($phonePool)];
-
-                    return $this->buildReplacement('phone', $picked);
-                },
-                $html,
-            );
+        if (is_array($phonePool) && $phonePool !== []) {
+            /** @var list<string> $phonePool */
+            $html = $this->replaceTokenWithBoundary($html, 'phone', function () use ($phonePool): string {
+                return (string) $phonePool[array_rand($phonePool)];
+            });
         }
 
-        if ($emailPool !== []) {
-            $html = (string) preg_replace_callback(
-                '/\[email\]/iu',
-                function () use ($emailPool): string {
-                    $picked = $emailPool[array_rand($emailPool)];
-
-                    return $this->buildReplacement('email', $picked);
-                },
-                $html,
-            );
+        if (is_array($emailPool) && $emailPool !== []) {
+            /** @var list<string> $emailPool */
+            $html = $this->replaceTokenWithBoundary($html, 'email', function () use ($emailPool): string {
+                return (string) $emailPool[array_rand($emailPool)];
+            });
         }
 
         foreach (array_keys(self::PLACEHOLDER_TYPES) as $type) {
@@ -390,10 +380,7 @@ final class ArticleCtaPlaceholderService
                 continue;
             }
 
-            $pattern = '/\['.preg_quote($type, '/').'\]/iu';
-            $replacement = $this->buildReplacement($type, $value);
-
-            $html = (string) preg_replace($pattern, $replacement, $html);
+            $html = $this->replaceTokenWithBoundary($html, $type, static fn (): string => $value);
         }
 
         foreach (SiteDomainPromptContextService::PHONE_SLOT_TYPES as $slot) {
@@ -402,10 +389,7 @@ final class ArticleCtaPlaceholderService
                 continue;
             }
 
-            $pattern = '/\['.preg_quote($slot, '/').'\]/iu';
-            $replacement = $this->buildReplacement('phone', $value);
-
-            $html = (string) preg_replace($pattern, $replacement, $html);
+            $html = $this->replaceTokenWithBoundary($html, $slot, static fn (): string => $value, 'phone');
         }
 
         foreach (SiteDomainPromptContextService::EMAIL_SLOT_TYPES as $slot) {
@@ -414,13 +398,101 @@ final class ArticleCtaPlaceholderService
                 continue;
             }
 
-            $pattern = '/\['.preg_quote($slot, '/').'\]/iu';
-            $replacement = $this->buildReplacement('email', $value);
-
-            $html = (string) preg_replace($pattern, $replacement, $html);
+            $html = $this->replaceTokenWithBoundary($html, $slot, static fn (): string => $value, 'email');
         }
 
         return $html;
+    }
+
+    /**
+     * Expand [token] while preserving/repairing lexical spacing at the token boundary only.
+     * Replacement values are atomic — never mutated internally.
+     *
+     * @param  callable(): string  $pickValue
+     */
+    private function replaceTokenWithBoundary(
+        string $html,
+        string $tokenType,
+        callable $pickValue,
+        ?string $linkType = null,
+    ): string {
+        $pattern = '/\['.preg_quote($tokenType, '/').'\]/iu';
+        $offset = 0;
+        $out = '';
+
+        while (preg_match($pattern, $html, $match, PREG_OFFSET_CAPTURE, $offset) === 1) {
+            $matched = (string) $match[0][0];
+            $start = (int) $match[0][1];
+            $out .= substr($html, $offset, $start - $offset);
+
+            $value = trim($pickValue());
+            if ($value === '') {
+                $out .= $matched;
+                $offset = $start + strlen($matched);
+
+                continue;
+            }
+
+            $renderType = $linkType ?? $tokenType;
+            $replacement = $this->buildReplacement($renderType, $value);
+            $left = $this->charBefore($html, $start);
+            $right = $this->charAfter($html, $start + strlen($matched));
+            $out .= $this->withLexicalBoundary($left, $replacement, $value, $right);
+            $offset = $start + strlen($matched);
+        }
+
+        return $out.substr($html, $offset);
+    }
+
+    private function withLexicalBoundary(string $left, string $replacement, string $value, string $right): string
+    {
+        $prefix = '';
+        $suffix = '';
+        $valueStart = mb_substr($value, 0, 1, 'UTF-8');
+        $valueEnd = mb_substr($value, -1, 1, 'UTF-8');
+
+        if ($this->isLexicalChar($left) && $this->isLexicalChar($valueStart)) {
+            $prefix = ' ';
+        }
+
+        if ($this->isLexicalChar($valueEnd) && $this->isLexicalChar($right)) {
+            $suffix = ' ';
+        }
+
+        return $prefix.$replacement.$suffix;
+    }
+
+    private function isLexicalChar(string $char): bool
+    {
+        if ($char === '') {
+            return false;
+        }
+
+        return preg_match('/^[\p{L}\p{N}]$/u', $char) === 1;
+    }
+
+    private function charBefore(string $html, int $byteOffset): string
+    {
+        if ($byteOffset <= 0) {
+            return '';
+        }
+
+        $before = substr($html, 0, $byteOffset);
+        if ($before === '') {
+            return '';
+        }
+
+        return mb_substr($before, -1, 1, 'UTF-8');
+    }
+
+    private function charAfter(string $html, int $byteOffset): string
+    {
+        $after = substr($html, $byteOffset);
+        if ($after === '') {
+            return '';
+        }
+
+        return mb_substr($after, 0, 1, 'UTF-8');
     }
 
     /**

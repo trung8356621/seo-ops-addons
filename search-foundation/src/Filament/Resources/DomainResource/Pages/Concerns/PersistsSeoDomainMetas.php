@@ -116,13 +116,10 @@ trait PersistsSeoDomainMetas
         }
 
         $primaryCode = is_string($primaryLanguage) ? trim($primaryLanguage) : '';
-        $primarySvc = app(SitePrimaryLanguageService::class);
-        if ($primarySvc->hasPolylang($site)) {
-            $primarySvc->setPrimaryLanguage(
-                $site,
-                $primaryCode !== '' ? $primaryCode : null,
-            );
-        }
+        app(SitePrimaryLanguageService::class)->setPrimaryLanguage(
+            $site,
+            $primaryCode !== '' ? $primaryCode : null,
+        );
 
         return $data;
     }

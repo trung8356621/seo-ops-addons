@@ -110,8 +110,12 @@ final class AiExecutionService
         try {
             $response = $client->messages()->create($payload);
 
+            // Preserve whitespace-only text blocks — do not use filled()/blank()
+            // (Laravel blank(' ') === true would drop meaningful spacing).
             $text = collect($response->content)
-                ->filter(static fn ($chunk): bool => $chunk->type === 'text' && filled($chunk->text))
+                ->filter(static fn ($chunk): bool => $chunk->type === 'text'
+                    && is_string($chunk->text)
+                    && $chunk->text !== '')
                 ->map(static fn ($chunk): string => (string) $chunk->text)
                 ->implode("\n");
 

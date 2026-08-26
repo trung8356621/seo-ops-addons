@@ -14,12 +14,10 @@ use Omnichannel\Addons\AiPrompt\Filament\Resources\PromptResource\Pages;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\PromptHooks\PromptHookFormSchema;
 use Omnichannel\Addons\AiPrompt\Services\AiModelsReadinessService;
-use Omnichannel\Addons\Seo\Support\AiModelCategory;
 use Omnichannel\Addons\AiPrompt\Support\PromptLoaiSanPhamVariable;
 use Omnichannel\Addons\AiPrompt\Support\PromptSiteContextVariable;
 use Omnichannel\Addons\AiPrompt\Support\PromptVariableSync;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
-use App\Models\ApiConnection;
 use Filament\Forms;
 use Filament\Forms\Form;
 use Filament\Forms\Get;
@@ -103,70 +101,21 @@ class PromptResource extends SeoPanelResource
                                             ->label(__('seo-content-ai::filament.prompt.description'))
                                             ->rows(2)
                                             ->columnSpanFull(),
-                                        Forms\Components\Select::make('settings.routing_family_key')
-                                            ->label(__('seo-content-ai::filament.ai_model_ux.model'))
-                                            ->options(function (Get $get): array {
-                                                $profile = app(\Omnichannel\Addons\AiPrompt\Services\PromptExecutionProfileResolver::class)
-                                                    ->resolve(
-                                                        null,
-                                                        (string) ($get('hook_key') ?? ''),
-                                                        (string) ($get('tools') ?? 'default'),
-                                                    );
-
-                                                return app(\Omnichannel\Addons\AiPrompt\Services\AiModelFamilyCatalog::class)
-                                                    ->optionMapForProfile($profile);
-                                            })
-                                            ->default(\Omnichannel\Addons\AiPrompt\Services\AiModelFamilyCatalog::AUTOMATIC)
-                                            ->native(false)
-                                            ->searchable(),
-                                        Forms\Components\Radio::make('settings.usage_mode')
-                                            ->label(__('seo-content-ai::filament.ai_model_ux.mode'))
-                                            ->options(fn (): array => \Omnichannel\Addons\AiPrompt\Support\AiUsageMode::selectOptions())
-                                            ->default(\Omnichannel\Addons\AiPrompt\Support\AiUsageMode::Economy->value)
-                                            ->inline(),
-                                        Forms\Components\Radio::make('routing_mode')
-                                            ->label(__('seo-content-ai::filament.prompt.ai_execution'))
-                                            ->options([
-                                                'auto' => __('seo-content-ai::filament.prompt.routing_auto'),
-                                                'override' => __('seo-content-ai::filament.prompt.routing_override'),
-                                            ])
-                                            ->default('auto')
-                                            ->inline()
-                                            ->live()
-                                            ->visible(fn (): bool => \Omnichannel\Addons\Seo\Support\SeoAccessControl::canAccessManagerFeatures()),
-                                        Forms\Components\Select::make('routing_profile_key')
-                                            ->label(__('seo-content-ai::filament.prompt.routing_profile'))
-                                            ->options(fn (): array => collect(\Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile::cases())
-                                                ->mapWithKeys(static fn ($profile): array => [$profile->value => $profile->displayName()])
-                                                ->all())
-                                            ->visible(fn (Get $get): bool => $get('routing_mode') === 'override'
-                                                && \Omnichannel\Addons\Seo\Support\SeoAccessControl::canAccessManagerFeatures())
-                                            ->native(false),
-                                        Forms\Components\Placeholder::make('resolved_routing')
-                                            ->label(__('seo-content-ai::filament.prompt.resolved_profile'))
-                                            ->visible(fn (): bool => \Omnichannel\Addons\Seo\Support\SeoAccessControl::canAccessManagerFeatures())
-                                            ->content(function (Get $get): string {
-                                                return PromptResource::resolvedRoutingSummary(
-                                                    (string) ($get('hook_key') ?? ''),
-                                                    (string) ($get('tools') ?? 'default'),
-                                                    (string) ($get('routing_mode') ?? 'auto'),
-                                                    (string) ($get('routing_profile_key') ?? ''),
-                                                );
-                                            }),
-                                        Forms\Components\Select::make('ai_connection_id')
-                                            ->label(__('seo-content-ai::filament.prompt.ai_connection_legacy'))
-                                            ->options(fn (): array => self::aiConnectionOptions())
-                                            ->searchable()
-                                            ->native(false)
-                                            ->nullable()
-                                            ->visible(fn (): bool => \Omnichannel\Addons\Seo\Support\SeoAccessControl::canAccessManagerFeatures())
-                                            ->helperText(__('seo-content-ai::filament.prompt.ai_connection_legacy_hint')),
                                         Forms\Components\Radio::make('tools')
                                             ->label(__('seo-content-ai::filament.prompt.tool'))
                                             ->options(fn (): array => \Omnichannel\Addons\Media\Support\ImageToolType::promptSelectOptions())
                                             ->default('default')
                                             ->inline()
                                             ->live(),
+                                    ]),
+                                Forms\Components\Section::make(__('seo-content-ai::filament.prompt.execution_profile_section'))
+                                    ->schema([
+                                        Forms\Components\Placeholder::make('execution_profile_display')
+                                            ->label(__('seo-content-ai::filament.prompt.execution_profile'))
+                                            ->content(fn (Get $get): HtmlString => self::executionProfileDisplayHtml(
+                                                (string) ($get('hook_key') ?? ''),
+                                                (string) ($get('tools') ?? 'default'),
+                                            )),
                                     ]),
                                 ...PromptHookFormSchema::section(),
                             ])
@@ -439,105 +388,37 @@ class PromptResource extends SeoPanelResource
         ];
     }
 
-    /**
-     * @return array<int|string, string>
-     */
-    private static function aiConnectionOptions(): array
+    public static function executionProfileDisplayHtml(string $hookKey, string $toolType = 'default'): HtmlString
     {
-        return ApiConnection::query()
-            ->where('status', 'active')
-            ->when(
-                SeoAccessControl::shouldScopeToAccountOwner(),
-                fn ($query) => $query->where(function ($q): void {
-                    $userId = SeoAccessControl::accountSiteOwnerId();
-                    $q->where('user_id', $userId)->orWhere('is_global', true);
-                })
-            )
-            ->orderBy('name')
-            ->get()
-            ->mapWithKeys(function (ApiConnection $ai): array {
-                $providerName = match ($ai->provider) {
-                    'gemini' => 'Gemini',
-                    'claude' => 'Claude',
-                    'deepseek' => 'DeepSeek',
-                    default => (string) $ai->provider,
-                };
-
-                $label = $ai->name.' ('.$providerName.')';
-
-                return [$ai->id => $label];
-            })
-            ->all();
-    }
-
-    public static function resolvedRoutingSummary(
-        string $hookKey,
-        string $toolType,
-        string $routingMode,
-        string $overrideProfile,
-    ): string {
-        $fake = new SeoPrompt();
-        $fake->hook_key = $hookKey !== '' ? $hookKey : null;
-        $fake->tools = $toolType;
-        $fake->routing_mode = $routingMode !== '' ? $routingMode : 'auto';
-        $fake->routing_profile_key = $overrideProfile !== '' ? $overrideProfile : null;
-
         $profile = app(\Omnichannel\Addons\AiPrompt\Services\PromptExecutionProfileResolver::class)
-            ->resolve($fake, $hookKey !== '' ? $hookKey : null, $toolType);
+            ->resolve(null, $hookKey !== '' ? $hookKey : null, $toolType);
 
-        $lines = [$profile->displayName()];
+        $aiCenterUrl = '';
         try {
-            $candidates = app(\Omnichannel\Addons\AiPrompt\Services\AiModelRouterService::class)->resolveAll(
-                $profile->value,
-                new \Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext(
-                    userId: (int) auth()->id(),
-                    allowLegacyFallback: false,
-                ),
-            );
-            $labels = new \Omnichannel\Addons\AiPrompt\Support\AiModelLabelPresenter();
-            foreach ($candidates as $index => $candidate) {
-                $lines[] = ($index + 1).'. '.$labels->normal($candidate->model);
-            }
-            if ($candidates === []) {
-                $lines[] = (string) __('seo-content-ai::filament.prompt.routing_empty');
-            }
+            $aiCenterUrl = (string) \Omnichannel\Addons\AiPrompt\Filament\Pages\SeoSettingsAiCenter::getUrl();
         } catch (\Throwable) {
-            $lines[] = (string) __('seo-content-ai::filament.prompt.routing_empty');
+            $aiCenterUrl = '';
         }
 
-        return implode("\n", $lines);
-    }
+        $html = '<div class="space-y-2">'
+            .'<span class="inline-flex items-center rounded-md bg-gray-100 dark:bg-gray-800 px-2.5 py-1 text-sm font-medium text-gray-800 dark:text-gray-100">'
+            .e($profile->displayName())
+            .'</span>'
+            .'<p class="text-sm text-gray-600 dark:text-gray-300">'
+            .e((string) __('seo-content-ai::filament.prompt.execution_profile_hint'))
+            .'</p>';
 
-    /**
-     * @return array<string, string>
-     */
-    public static function modelCategoryOptionsForConnection(mixed $connectionId): array
-    {
-        if (blank($connectionId)) {
-            return AiModelCategory::promptSelectOptions();
+        if ($aiCenterUrl !== '') {
+            $html .= '<p class="text-sm">'
+                .'<a href="'.e($aiCenterUrl).'" class="text-primary-600 dark:text-primary-400 hover:underline font-medium">'
+                .e((string) __('seo-content-ai::filament.prompt.open_ai_center'))
+                .'</a>'
+                .'</p>';
         }
 
-        $connection = ApiConnection::query()->find((int) $connectionId);
-        if ($connection === null) {
-            return AiModelCategory::promptSelectOptions();
-        }
+        $html .= '</div>';
 
-        $options = AiModelCategory::connectionSelectOptions((string) $connection->provider);
-
-        return $options !== [] ? $options : AiModelCategory::promptSelectOptions();
-    }
-
-    public static function defaultModelCategoryForConnection(mixed $connectionId): ?string
-    {
-        if (blank($connectionId)) {
-            return AiModelCategory::GEMINI_FLASH;
-        }
-
-        $connection = ApiConnection::query()->find((int) $connectionId);
-
-        return $connection !== null
-            ? \Omnichannel\Addons\Seo\Support\AiModelCatalog::defaultForConnection($connection)
-            : AiModelCategory::GEMINI_FLASH;
+        return new HtmlString($html);
     }
 
     public static function markdownFromParts(Collection $parts): string
