@@ -3,7 +3,7 @@
   "key": "keyword.discovery.structured",
   "version": "0.1.0",
   "name": "Keyword Discovery",
-  "description": "Generate structured topic and article ideas for Content Planning.",
+  "description": "Generate structured Draft planning suggestions for Content Planning (Post article ideas or Product page candidates).",
   "enabled": true,
   "status": "experimental",
   "settings_visible": true,
@@ -18,7 +18,7 @@
   "input_schema": {
     "seed_topic": { "type": "string", "required": true, "max_length": 1000, "label": "Seed topic" },
     "count": { "type": "integer", "required": false, "default": 10, "label": "Requested quantity" },
-    "brief": { "type": "string", "required": false, "nullable": true, "max_length": 5000, "label": "Planning brief / notes" },
+    "brief": { "type": "string", "required": false, "nullable": true, "max_length": 12000, "label": "Planning brief / notes" },
     "primary_language": { "type": "string", "required": false, "nullable": true, "max_length": 16, "label": "Effective primary language" },
     "content_type": { "type": "string", "required": false, "nullable": true, "default": "post", "max_length": 32, "label": "Content type (post|product)" },
     "post_type": { "type": "string", "required": false, "nullable": true, "default": "post", "max_length": 32, "label": "Post type (post|product)" }
@@ -34,30 +34,35 @@
     "user": null
   },
   "canonical_default": {
-    "markdown": "You are generating planning suggestions for new content (Draft planning items), not writing articles and not publishing.\n\nUse the supplied Planning Intelligence brief to identify useful uncovered directions rather than duplicating existing published content. If existing coverage is weak or falling, treat that as improvement territory — do not propose an obvious duplicate article.\n\nPrefer uncovered / missing directions over topics already in Draft or previously rejected. Server-side dedup remains authoritative; still avoid those topics when listed.\n\nThe user may provide no notes at all. In that case, independently select the most useful new directions from the supplied evidence (site context, principal keywords, clusters, MCP, GSC, coverage gaps).\n\nRespect content_type: post = ordinary content article ideas; product = product-oriented content ideas for a product flow. Do not create Products at planning stage.\n\nFor every suggestion return JSON fields:\n- keyword\n- suggested_title\n- description (required: concise 1–3 sentence article brief that disambiguates short/ambiguous SEO keywords for later writing — not a full outline, not the same as suggestion_reason)\n- suggestion_reason (short user-facing why, e.g. \"Weak cluster coverage\" — no chain-of-thought)\n- source_signal (one of: keyword_gap|cluster_gap|mcp_signal|gsc_signal|related_topic|manual_note|manual_focus)\n\nWrite keyword, suggested_title, and description in the requested primary language when provided. Do not auto-detect language.\nAim for approximately the requested count in one structured JSON response. Return JSON only — no markdown fences.\nCallers may still accept a list of keyword strings for backward compatibility.\n\nTopic: {{seed_topic}}\nCount: {{count}}\nContent type: {{content_type}}\nPrimary language: {{primary_language}}\nPlanning brief / notes:\n{{brief}}"
+    "markdown": "You are generating planning suggestions for new content (Draft planning items), not writing full articles/products and not publishing.\n\nUse the supplied Planning Intelligence brief to identify useful uncovered directions rather than duplicating existing published content. If existing coverage is weak or falling, treat that as improvement territory — do not propose an obvious duplicate.\n\nPrefer uncovered / missing directions over topics already in Draft or previously rejected. Server-side dedup remains authoritative; still avoid those topics when listed.\n\nThe user may provide no notes at all. In that case, independently select the most useful new directions from the supplied evidence (site context, principal keywords, clusters, MCP, GSC, coverage gaps).\n\nDo all evaluation internally. Do not explain reasoning, analyze keywords in prose, or describe how you selected items.\n\nRespect content_type / post_type ({{content_type}}):\n\nPOST mode (content_type=post):\n- Ordinary content article planning ideas that later become blog/article pages.\n- suggested_title = article/page title, not a product name.\n- description = concise 1–3 sentence article planning brief that disambiguates short/ambiguous SEO keywords for later writing — not a full outline, not the same as suggestion_reason.\n- Do NOT request or invent product_type or gallery_description.\n- Preferred item shape: {\"keyword\":\"...\",\"suggested_title\":\"...\",\"description\":\"...\",\"suggestion_reason\":\"...\",\"source_signal\":\"...\"}\n- Do not invent articles; propose planning suggestions only.\n\nPRODUCT mode (content_type=product):\n- Product-page Draft planning candidates for a future WooCommerce/product flow — NOT blog posts about products and NOT product-oriented article topics.\n- Do NOT create or publish a WordPress Product at planning stage.\n- suggested_title must suit a product / product-page title (commercial), not a blog headline.\n- Prefer commercial/product intent when supported by supplied evidence.\n- Do not fabricate prices, SKU, inventory, dimensions, technical specifications, availability, certifications, or other factual product data not present in context.\n- Do not create taxonomy terms.\n- description = concise 1–3 sentence PRODUCT CONTENT BRIEF explaining what the future product page should cover/position (NOT an article brief).\n- product_type = concise product type/category description for planning (maps to loai_san_pham). Do not invent WordPress taxonomy IDs.\n- gallery_description = concise gallery/image direction for the future Product without fabricating factual attributes.\n- Required item shape: {\"keyword\":\"...\",\"suggested_title\":\"...\",\"description\":\"...\",\"product_type\":\"...\",\"gallery_description\":\"...\",\"suggestion_reason\":\"...\",\"source_signal\":\"...\"}\n- Propose Product planning items only. Do not mix Post/article items into a Product-only request.\n\nFor every suggestion also return:\n- suggestion_reason (short user-facing why, e.g. \"Weak cluster coverage\" — content field, not chain-of-thought)\n- source_signal (one of: keyword_gap|cluster_gap|mcp_signal|gsc_signal|related_topic|manual_note|manual_focus)\n\nWrite keyword, suggested_title, description, and (when Product) product_type/gallery_description in the requested primary language when provided. Do not auto-detect language.\nAim for approximately the requested count.\n\nTopic: {{seed_topic}}\nCount: {{count}}\nContent type: {{content_type}}\nPrimary language: {{primary_language}}\nPlanning brief / notes:\n{{brief}}\n\nOUTPUT CONTRACT — STRICT\nReturn ONLY valid JSON matching the importer schema.\nDo not output: explanations, reasoning, analysis, commentary, introductions, conclusions, markdown, ```json fences, XML, YAML, bullet lists, text before JSON, or text after JSON.\nYour response is consumed directly by a JSON parser.\nThe FIRST non-whitespace character of your response MUST be: [\nThe LAST non-whitespace character of your response MUST be: ]\nReturn valid UTF-8 JSON with double quotes for keys/strings. No trailing commas, comments, single quotes, NaN, or undefined.\nDo not describe how you selected suggestions. Perform selection/deduplication internally; return only the final JSON array.\nRoot shape: a JSON array of objects (envelope {\"suggestions\":[...]} is also accepted by the importer, but prefer a raw array).\nPOST object: {\"keyword\":\"...\",\"suggested_title\":\"...\",\"description\":\"...\",\"suggestion_reason\":\"...\",\"source_signal\":\"keyword_gap\"}\nPRODUCT object: {\"keyword\":\"...\",\"suggested_title\":\"...\",\"description\":\"...\",\"product_type\":\"...\",\"gallery_description\":\"...\",\"suggestion_reason\":\"...\",\"source_signal\":\"keyword_gap\"}"
   },
   "presentation": {
-    "description": "Generate structured topic and article ideas for Content Planning.",
+    "description": "Generate structured Draft planning suggestions for Content Planning (Post article ideas or Product page candidates).",
     "default_instructions": [
-      "Generate content ideas that become Draft planning items — not full articles.",
+      "Generate content ideas that become Draft planning items — not full articles or published Products.",
       "Use Planning Intelligence evidence; notes are optional.",
       "Prefer uncovered / missing directions; avoid obvious duplicates of strong existing content.",
-      "Always include description (1–3 sentence planning brief) to disambiguate short keywords.",
+      "POST: include description as a 1–3 sentence article planning brief.",
+      "PRODUCT: include description (product content brief), product_type, and gallery_description for product-page candidates.",
       "Keep suggestion_reason short and user-facing — no hidden chain-of-thought.",
       "Respect content_type (post|product) and effective primary language.",
-      "Return JSON only — no markdown fences."
+      "Return JSON only — first character [ last character ] — no markdown fences or prose."
     ],
     "output_format": [
-      "A JSON array/object of structured planning suggestions.",
-      "Preferred item shape: {\"keyword\":\"...\",\"suggested_title\":\"...\",\"description\":\"...\",\"suggestion_reason\":\"...\",\"source_signal\":\"keyword_gap\"}.",
+      "A JSON array of structured planning suggestions (preferred). Envelope {items|keywords|suggestions|results|data: [...]} also accepted.",
+      "POST item shape: {\"keyword\":\"...\",\"suggested_title\":\"...\",\"description\":\"...\",\"suggestion_reason\":\"...\",\"source_signal\":\"keyword_gap\"}.",
+      "PRODUCT item shape: {\"keyword\":\"...\",\"suggested_title\":\"...\",\"description\":\"...\",\"product_type\":\"...\",\"gallery_description\":\"...\",\"suggestion_reason\":\"...\",\"source_signal\":\"keyword_gap\"}.",
       "source_signal must be one of: keyword_gap|cluster_gap|mcp_signal|gsc_signal|related_topic|manual_note (manual_focus accepted for compatibility).",
       "Caller also accepts list entries as strings or objects with a keyword field.",
-      "description may be omitted on legacy outputs (nullable)."
+      "description may be omitted on legacy outputs (nullable).",
+      "product_type and gallery_description apply to PRODUCT mode only."
     ],
     "notes": [
       "This Hook does not write keywords to the domain database — No domain write in hook; callers persist Draft planning items only.",
-      "New Content Planner does not upsert Keyword Intelligence and does not create Articles.",
-      "Canonical default text lives in this Hook definition (canonical_default.markdown); Settings Prompt Markdown is the editable runtime body."
+      "New Content Planner does not upsert Keyword Intelligence and does not create Articles or Products.",
+      "Canonical default text lives in this Hook definition (canonical_default.markdown); Settings Prompt Markdown is the editable runtime body.",
+      "Runtime Planning Intelligence brief ({{brief}}) is content-type aware, appends OUTPUT CONTRACT, and carries Product field instructions even when an older installed prompt body remains.",
+      "model.structured_output=true — providers that support JSON Schema / response_format should use it; others fall back to the strict OUTPUT CONTRACT in the prompt."
     ],
     "variables": [
       { "key": "seed_topic", "required": true },

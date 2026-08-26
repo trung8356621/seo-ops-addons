@@ -14,7 +14,12 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::connection('omi_seo_ai')->create('seo_content_project_planner_runs', function (Blueprint $table): void {
+        $schema = Schema::connection('omi_seo_ai');
+        if ($schema->hasTable('seo_content_project_planner_runs')) {
+            return;
+        }
+
+        $schema->create('seo_content_project_planner_runs', function (Blueprint $table): void {
             $table->id();
             $table->unsignedBigInteger('project_id')->index();
             $table->unsignedBigInteger('site_id')->nullable()->index();

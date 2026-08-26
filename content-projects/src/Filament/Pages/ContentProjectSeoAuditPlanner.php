@@ -14,6 +14,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Actor
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ArchiveProjectItemsCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\CreateContentProjectCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SkipSeoAuditArticlesCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\UpdateContentProjectItemCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectCommandBus;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectDraftPlanningItemsReadModel;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftResolver;
@@ -25,6 +26,7 @@ use Filament\Notifications\Notification;
 use Filament\Support\Exceptions\Halt;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Support\Facades\Schema;
+use Livewire\Attributes\On;
 use Livewire\Attributes\Url;
 use Livewire\WithPagination;
 use Throwable;
@@ -65,6 +67,11 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
 
     /** all|rewrite|improve|create */
     public string $draftTypeFilter = 'all';
+
+    /**
+     * Bumped on cp-ops-refresh so Alpine Draft snapshot remounts with fresh read-model rows.
+     */
+    public int $draftPlanningRefreshNonce = 0;
 
     public static function getNavigationLabel(): string
     {
@@ -191,6 +198,15 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         return $query->pluck('domain', 'id')->all();
     }
 
+    public function getDraftSupportsProductProperty(): bool
+    {
+        if (! $this->project instanceof SeoProject) {
+            return false;
+        }
+
+        return $this->newContentSiteSupportsProduct($this->project);
+    }
+
     /**
      * @return array{
      *   rows: list<array<string, mixed>>,
@@ -287,13 +303,20 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
     }
 
     /**
-     * Inline Draft metadata save (Title / Keyword / Description).
+     * Inline Draft metadata save (Title / Keyword / Description / Post type).
+     * post_type goes through UpdateContentProjectItemCommand (strict CREATE-only).
      */
     public function updatePlanningField(int $taskId, string $field, string $value): void
     {
         abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
 
         $field = strtolower(trim($field));
+        if ($field === 'post_type') {
+            $this->updateDraftPlanningItem($taskId, 'post_type', $value);
+
+            return;
+        }
+
         if (! in_array($field, ['title', 'keyword', 'description'], true)) {
             return;
         }
@@ -317,6 +340,58 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         };
 
         $task->save();
+    }
+
+    /**
+     * Command-bus Draft planning field update (post_type correction).
+     */
+    public function updateDraftPlanningItem(int $itemId, string $field, mixed $value): void
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+
+        $field = strtolower(trim($field));
+        if ($field !== 'post_type') {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.planner_generate_failed'))
+                ->body('Unsupported planning field.')
+                ->danger()
+                ->send();
+
+            throw new Halt;
+        }
+
+        $project = $this->requireProject();
+        $actor = ActorContext::user(
+            auth()->id() !== null ? (int) auth()->id() : null,
+            (int) ($project->site_id ?? 0) ?: null,
+        );
+
+        $result = app(ContentProjectCommandBus::class)->dispatch(
+            new UpdateContentProjectItemCommand($itemId, [
+                'post_type' => is_scalar($value) || $value === null ? (string) $value : '',
+            ]),
+            $actor,
+        );
+
+        if (! $result->success) {
+            Notification::make()
+                ->title('Failed')
+                ->body($result->message)
+                ->danger()
+                ->send();
+
+            throw new Halt;
+        }
+    }
+
+    /**
+     * Re-query Draft planning rows after AI New Content / SEO Audit mutations.
+     * Alpine Draft table boots from a one-time snapshot — bump wire:key to remount.
+     */
+    #[On('cp-ops-refresh')]
+    public function onCpOpsRefresh(): void
+    {
+        $this->draftPlanningRefreshNonce++;
     }
 
     public function archiveOne(int $taskId): void

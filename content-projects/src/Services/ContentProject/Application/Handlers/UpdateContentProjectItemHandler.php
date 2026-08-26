@@ -63,7 +63,10 @@ final class UpdateContentProjectItemHandler extends AbstractPublishingHandler
                 );
             }
 
-            $allowed = array_intersect_key($command->attributes, array_flip(['keyword', 'title', 'target_date', 'status']));
+            $allowed = array_intersect_key(
+                $command->attributes,
+                array_flip(['keyword', 'title', 'target_date', 'status', 'post_type']),
+            );
             if ($allowed === []) {
                 return ContentProjectActionResult::fail(
                     ContentProjectActionCodes::VALIDATION_FAILED,
@@ -71,6 +74,23 @@ final class UpdateContentProjectItemHandler extends AbstractPublishingHandler
                     $projectId,
                     affectedItemIds: [$itemId],
                 );
+            }
+
+            if (array_key_exists('post_type', $allowed)) {
+                $postTypeResult = $this->applyPlannerPostTypeUpdate($task, $allowed['post_type'], $projectId, $itemId);
+                if ($postTypeResult !== null) {
+                    return $postTypeResult;
+                }
+                unset($allowed['post_type']);
+                if ($allowed === []) {
+                    return ContentProjectActionResult::ok(
+                        ContentProjectActionCodes::ITEMS_UPDATED,
+                        'Item updated.',
+                        $projectId,
+                        [$itemId],
+                        metadata: ['updated' => ['post_type']],
+                    );
+                }
             }
 
             if (array_key_exists('keyword', $allowed) || array_key_exists('title', $allowed)) {
@@ -146,5 +166,110 @@ final class UpdateContentProjectItemHandler extends AbstractPublishingHandler
                 metadata: ['updated' => array_keys($allowed)],
             );
         });
+    }
+
+    /**
+     * Planner post_type correction for Draft CREATE items only.
+     * Accepts article|post→article|product; rejects page/category/etc. Does not wipe product fields.
+     *
+     * @return ContentProjectActionResult|null null when post_type was applied on $task (caller may continue)
+     */
+    private function applyPlannerPostTypeUpdate(
+        SeoProjectTask $task,
+        mixed $rawValue,
+        int $projectId,
+        int $itemId,
+    ): ?ContentProjectActionResult {
+        $normalized = self::normalizeEditablePlannerPostType(
+            is_scalar($rawValue) || $rawValue === null ? (string) $rawValue : '',
+        );
+        if ($normalized === null) {
+            return ContentProjectActionResult::fail(
+                ContentProjectActionCodes::VALIDATION_FAILED,
+                'Invalid post_type. Allowed: article, post, product.',
+                $projectId,
+                affectedItemIds: [$itemId],
+            );
+        }
+
+        if (SeoProjectTask::normalizeType($task->type) !== SeoProjectTask::TYPE_CREATE) {
+            return ContentProjectActionResult::fail(
+                ContentProjectActionCodes::VALIDATION_FAILED,
+                'post_type can only be changed on Create planning items.',
+                $projectId,
+                affectedItemIds: [$itemId],
+            );
+        }
+
+        if ((int) ($task->article_id ?? 0) > 0) {
+            return ContentProjectActionResult::fail(
+                ContentProjectActionCodes::VALIDATION_FAILED,
+                'Cannot change post_type after an article is linked.',
+                $projectId,
+                affectedItemIds: [$itemId],
+            );
+        }
+
+        if ($task->archived_at !== null) {
+            return ContentProjectActionResult::fail(
+                ContentProjectActionCodes::VALIDATION_FAILED,
+                'Cannot change post_type on archived items.',
+                $projectId,
+                affectedItemIds: [$itemId],
+            );
+        }
+
+        $status = strtolower(trim((string) ($task->status ?? '')));
+        if (! in_array($status, [SeoProjectTask::STATUS_PENDING, SeoProjectTask::STATUS_DRAFT], true)) {
+            return ContentProjectActionResult::fail(
+                ContentProjectActionCodes::VALIDATION_FAILED,
+                'Cannot change post_type after execution has started.',
+                $projectId,
+                affectedItemIds: [$itemId],
+            );
+        }
+
+        $previous = trim((string) ($task->post_type ?? ''));
+        if ($previous === '') {
+            $previous = SeoProjectTask::POST_TYPE_ARTICLE;
+        }
+        if ($previous === 'post') {
+            $previous = SeoProjectTask::POST_TYPE_ARTICLE;
+        }
+
+        if ($previous === $normalized) {
+            return ContentProjectActionResult::ok(
+                ContentProjectActionCodes::ITEMS_UPDATED,
+                'Item updated.',
+                $projectId,
+                [$itemId],
+                metadata: ['updated' => ['post_type'], 'unchanged' => true],
+            );
+        }
+
+        $task->post_type = $normalized;
+        // Material planning change — invalidate Draft planning review (no signature service yet).
+        if ($task->planning_reviewed_at !== null || $task->planning_reviewed_by !== null) {
+            $task->planning_reviewed_at = null;
+            $task->planning_reviewed_by = null;
+        }
+        $task->save();
+
+        return null;
+    }
+
+    /**
+     * Strict planner editable post_type: article|post→article|product. Null = reject.
+     * Does NOT use {@see SeoProjectTask::normalizePostType()} (that silently maps unknowns to article).
+     */
+    public static function normalizeEditablePlannerPostType(string $raw): ?string
+    {
+        $key = strtolower(trim($raw));
+
+        return match ($key) {
+            SeoProjectTask::POST_TYPE_ARTICLE, 'post' => SeoProjectTask::POST_TYPE_ARTICLE,
+            SeoProjectTask::POST_TYPE_PRODUCT => SeoProjectTask::POST_TYPE_PRODUCT,
+            default => null,
+        };
     }
 }

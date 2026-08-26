@@ -21,6 +21,12 @@ namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\NewContent;
  */
 final class NewContentSuggestionParser
 {
+    /** Matches seo_project_tasks.keyword / title column width. */
+    public const MAX_KEYWORD_CHARS = 500;
+
+    /** Matches seo_project_tasks.source_content / keyword column width (widened from 255). */
+    public const MAX_SOURCE_CONTENT_CHARS = 500;
+
     private const SOURCE_SIGNALS = [
         'keyword_gap',
         'cluster_gap',
@@ -75,18 +81,13 @@ final class NewContentSuggestionParser
     private function flattenRows(mixed $value): array
     {
         if (is_string($value)) {
-            $trimmed = trim($value);
-            if ($trimmed === '') {
+            $decoded = NewContentSuggestionStructuredResult::decode($value);
+            if (! $decoded['ok']) {
+                // Do NOT scrape prose for the first [...] — that hides prompt failures.
                 return [];
             }
-            if (str_starts_with($trimmed, '[') || str_starts_with($trimmed, '{')) {
-                $decoded = json_decode($trimmed, true);
-                if (is_array($decoded)) {
-                    return $this->flattenRows($decoded);
-                }
-            }
 
-            return preg_split('/\R+/u', $trimmed) ?: [];
+            return $this->flattenRows($decoded['value']);
         }
 
         if (! is_array($value)) {
@@ -158,6 +159,27 @@ final class NewContentSuggestionParser
             $title = $keyword;
         }
 
+        // Reject AI blobs / planning-context echoes accidentally assigned to keyword/title.
+        if ($this->looksLikeNonKeywordDump($keyword) || $this->looksLikeNonKeywordDump($title)) {
+            return null;
+        }
+
+        if (mb_strlen($keyword) > self::MAX_KEYWORD_CHARS) {
+            $keyword = mb_substr($keyword, 0, self::MAX_KEYWORD_CHARS);
+        }
+        if (mb_strlen($title) > self::MAX_KEYWORD_CHARS) {
+            $title = mb_substr($title, 0, self::MAX_KEYWORD_CHARS);
+        }
+        if (mb_strlen($description) > 2000) {
+            $description = mb_substr($description, 0, 1997).'…';
+        }
+        if (mb_strlen($productType) > 500) {
+            $productType = mb_substr($productType, 0, 497).'…';
+        }
+        if (mb_strlen($galleryDescription) > 4000) {
+            $galleryDescription = mb_substr($galleryDescription, 0, 3997).'…';
+        }
+
         return [
             'keyword' => $keyword,
             'title' => $title,
@@ -168,6 +190,74 @@ final class NewContentSuggestionParser
             'suggestion_reason' => $suggestionReason,
             'source_signal' => $sourceSignal,
         ];
+    }
+
+    /**
+     * True when a string looks like a structured suggestion payload, not a keyword.
+     */
+    private function looksLikeStructuredDump(string $value): bool
+    {
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return false;
+        }
+
+        $len = mb_strlen($trimmed);
+        $startsStructured = str_starts_with($trimmed, '[') || str_starts_with($trimmed, '{');
+        $hasSuggestionKeys = str_contains($trimmed, '"keyword"')
+            && (str_contains($trimmed, '"suggested_title"')
+                || str_contains($trimmed, '"suggestion_reason"')
+                || str_contains($trimmed, '"source_signal"')
+                || str_contains($trimmed, '"gallery_description"')
+                || str_contains($trimmed, '"product_type"'));
+
+        if ($startsStructured && ($hasSuggestionKeys || $len > 200)) {
+            return true;
+        }
+
+        if ($hasSuggestionKeys && $len > self::MAX_SOURCE_CONTENT_CHARS) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Reject JSON dumps AND AI echoes of planning context (e.g. "Planned items list includes many: …").
+     * Real SEO keywords are short; long multi-quote lists must never become source_content.
+     */
+    private function looksLikeNonKeywordDump(string $value): bool
+    {
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return false;
+        }
+
+        if ($this->looksLikeStructuredDump($trimmed)) {
+            return true;
+        }
+
+        $lower = mb_strtolower($trimmed);
+        if (str_contains($lower, 'planned items list includes')
+            || str_contains($lower, 'already planned in this draft')
+            || str_contains($lower, 'rejected earlier in this draft')
+            || str_contains($lower, 'priority gaps / missing directions')
+            || str_contains($lower, 'return json array of objects')
+        ) {
+            return true;
+        }
+
+        // Many quoted phrases in one field = pasted keyword inventory, not one keyword.
+        if (substr_count($trimmed, '"') >= 6 && mb_strlen($trimmed) > 120) {
+            return true;
+        }
+
+        // Hard ceiling for a single planning keyword (well below VARCHAR(500)).
+        if (mb_strlen($trimmed) > 200) {
+            return true;
+        }
+
+        return false;
     }
 
     /**

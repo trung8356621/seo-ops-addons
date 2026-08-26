@@ -3382,6 +3382,8 @@ return [
         'planning_mark_reviewed' => 'Mark as reviewed',
         'planning_mark_unreviewed' => 'Mark as unreviewed',
         'planning_description_hint' => 'Double-click to add description',
+        'planning_product_description_label' => 'Product description:',
+        'planning_post_type_edit_hint' => 'Double click to change post type',
         'planning_review_unavailable' => 'Planning review unavailable',
         'planning_review_migration_required' => 'Run SEO migrations to enable planning review columns.',
         'planning_item_edit' => 'Edit planning item',

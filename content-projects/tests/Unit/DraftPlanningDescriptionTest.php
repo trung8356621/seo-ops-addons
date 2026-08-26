@@ -49,17 +49,23 @@ final class DraftPlanningDescriptionTest extends TestCase
         $intel = (string) file_get_contents(
             (string) (new ReflectionClass(ContentPlanningIntelligenceService::class))->getFileName(),
         );
+        $contract = (string) file_get_contents(
+            (string) (new ReflectionClass(\Omnichannel\Addons\ContentProjects\Services\ContentProject\NewContent\NewContentSuggestionStructuredResult::class))->getFileName(),
+        );
         $hook = (string) file_get_contents(
             ProjectRoot::addonsPath().'/ai-prompt/resources/prompt-hooks/v01/keyword.discovery.structured@0.1.0.json',
         );
 
-        self::assertStringContainsString('"description"', $intel);
+        self::assertStringContainsString('description =', $intel);
         self::assertStringContainsString('1–3 sentence', $intel);
+        self::assertStringContainsString('"description"', $contract);
+        self::assertStringContainsString('OUTPUT CONTRACT', $contract);
         self::assertStringContainsString('description', $hook);
         self::assertStringContainsString('disambiguates short', $hook);
         self::assertStringContainsString('legacy_prompt_content', $hook);
         self::assertStringContainsString('gsc_signal', $hook);
         self::assertStringContainsString('canonical_default', $hook);
+        self::assertStringContainsString('OUTPUT CONTRACT — STRICT', $hook);
     }
 
     public function test_seo_audit_assignment_sets_description_from_notes(): void
@@ -106,6 +112,10 @@ final class DraftPlanningDescriptionTest extends TestCase
         self::assertStringContainsString("row.description", $items);
         self::assertStringContainsString("startEdit(row, 'description')", $items);
         self::assertStringContainsString('updatePlanningField', $items);
+        self::assertStringContainsString('showProductDescription', $items);
+        self::assertStringContainsString('product_description', $items);
+        self::assertStringContainsString('productDescriptionLabel', $items);
+        self::assertStringContainsString('planning_product_description_label', $items);
         self::assertStringNotContainsString('openPlanningItemEdit', $items);
         self::assertStringNotContainsString('data-planning-edit-modal', $page);
         self::assertStringNotContainsString('planningEditDescription', $page);

@@ -2,17 +2,18 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight, Link2, Settings2 } from 'lucide-react';
 import { t } from '../utils/i18n';
 import { filterUsableCtaContacts } from '../utils/ctaContactUsability';
-import { getEditorInsertionContext } from '../utils/editorInsertionContext';
 import {
     ctaDisplayLabel,
     formatCtaHref,
 } from '../utils/ctaLinkFormat';
 import {
-    filterDomainLinksInArticleContent,
-    filterSuggestedInternalLinks,
     normalizeHrefForCompare,
     normalizeLinkLabel,
 } from '../utils/articleLinkSuggestionFilter';
+import { collectEditorBlocksFromDom } from '../utils/articlePhraseOccurrences';
+import { buildDomainLinkListForEditor, nextDomainLinkOccurrenceIndex } from '../utils/domainLinkOccurrenceIndex';
+import { scrollToDomainLinkOccurrence } from '../utils/domainLinkNavigator';
+import { insertDomainLinkAction } from '../utils/domainLinkInsertAction';
 import {
     CtaContactInsertList,
     CtaQuickTemplateSettingsPopover,
@@ -21,7 +22,7 @@ import {
 } from './CtaContactInsertList';
 
 /**
- * @typedef {{ text?: string, href?: string, target_url?: string, article_count?: number, can_insert?: boolean, keyword_id?: number|null }} DomainLinkItem
+ * @typedef {{ text?: string, href?: string, target_url?: string, article_count?: number, occurrence_count?: number, can_insert?: boolean, keyword_id?: number|null }} DomainLinkItem
  * @typedef {{ type?: string, value?: string, label?: string, href?: string, can_insert?: boolean }} DomainCtaItem
  */
 
@@ -42,11 +43,12 @@ function InsertableList({
             {items.map((item, index) => {
                 const label = String(item?.text ?? '').trim();
                 const href = String(item?.href ?? item?.target_url ?? '').trim();
-                const count = Number(item?.article_count ?? 0);
-                const countSuffix = Number.isFinite(count) && count > 0 ? ` (${count})` : '';
+                const count = Number(item?.occurrence_count ?? 0);
+                const countSuffix = Number.isFinite(count) ? ` (${count})` : '';
                 const itemKey = `domain-link-${label}-${index}`;
                 const isActive = activeKey === itemKey;
                 const insertable = item?.can_insert !== false && label !== '' && href !== '';
+                const canLocate = count > 0;
                 const isRowHiding = hiddenRowKeys?.has(itemKey) === true;
 
                 return (
@@ -59,8 +61,14 @@ function InsertableList({
                             type="button"
                             className={`wp-article-links-keyword${isActive ? ' is-active' : ''} is-suggestion`}
                             title={t('domain_link_widget_find', { label, count })}
+                            disabled={!canLocate}
                             onMouseDown={(e) => e.preventDefault()}
-                            onClick={() => onKeywordClick(item, index, itemKey)}
+                            onClick={() => {
+                                if (!canLocate) {
+                                    return;
+                                }
+                                onKeywordClick(item, index, itemKey);
+                            }}
                         >
                             {`${label}${countSuffix}`}
                         </button>
@@ -115,13 +123,9 @@ function WidgetBox({ title, subtitle, collapsed, onToggle, headerExtra = null, c
     );
 }
 
-const applyDomainLinkFilters = (allLinks, articlePlainText, internalLinks, externalLinks = []) => {
-    const inArticle = filterDomainLinksInArticleContent(allLinks, articlePlainText);
-
-    return filterSuggestedInternalLinks(inArticle, internalLinks, externalLinks).map((item) => ({
-        ...item,
-        can_insert: item.can_insert !== false,
-    }));
+const applyDomainLinkFilters = (allLinks, internalLinks, externalLinks = []) => {
+    const blocks = collectEditorBlocksFromDom();
+    return buildDomainLinkListForEditor(allLinks, blocks, internalLinks, externalLinks);
 };
 
 /**
@@ -148,7 +152,13 @@ export default function ArticleDomainWidgetsSidebar({
             ? initialDomainLinkCatalog.length
             : initialDomainLinkList.length,
     );
-    const [domainLinks, setDomainLinks] = useState(initialDomainLinkList);
+    const [domainLinks, setDomainLinks] = useState(() =>
+        applyDomainLinkFilters(
+            initialDomainLinkCatalog.length > 0 ? initialDomainLinkCatalog : initialDomainLinkList,
+            [],
+            [],
+        ),
+    );
     const [domainCtas, setDomainCtas] = useState(initialDomainCtaList);
     const [domainLinkActiveKey, setDomainLinkActiveKey] = useState('');
     const [ctaActiveKey, setCtaActiveKey] = useState('');
@@ -159,6 +169,8 @@ export default function ArticleDomainWidgetsSidebar({
     const [serverCtaTemplates, setServerCtaTemplates] = useState(initialCtaQuickTemplates);
     const [templatesByType, setTemplatesByType] = useCtaQuickTemplates(siteId, serverCtaTemplates);
     const usableDomainCtas = useMemo(() => filterUsableCtaContacts(domainCtas), [domainCtas]);
+    const [cycleByKey, setCycleByKey] = useState({});
+    const selectedDomainOccurrenceRef = useRef(null);
 
     const hideRow = (itemKey) => {
         if (!itemKey) {
@@ -186,10 +198,9 @@ export default function ArticleDomainWidgetsSidebar({
                 : Array.isArray(event.detail?.extracted_links?.external)
                   ? event.detail.extracted_links.external
                   : [];
-            const articlePlainText = String(event.detail?.article_plain_text ?? '');
 
             setDomainLinks(
-                applyDomainLinkFilters(allDomainLinksRef.current, articlePlainText, internal, external),
+                applyDomainLinkFilters(allDomainLinksRef.current, internal, external),
             );
         };
 
@@ -226,53 +237,48 @@ export default function ArticleDomainWidgetsSidebar({
     const scrollToItem = (item, itemKey, variant) => {
         if (variant === 'cta') {
             setCtaActiveKey(itemKey);
-        } else {
-            setDomainLinkActiveKey(itemKey);
+            window.dispatchEvent(
+                new CustomEvent('seo-editor-scroll-to-link', {
+                    detail: {
+                        href: String(item?.href ?? formatCtaHref(item?.type, item?.value)).trim(),
+                        text: ctaDisplayLabel(item),
+                        type: 'internal',
+                        index: 0,
+                        searchPlainText: true,
+                    },
+                }),
+            );
+            return;
         }
-        const text = variant === 'cta' ? ctaDisplayLabel(item) : String(item?.text ?? '').trim();
 
-        window.dispatchEvent(
-            new CustomEvent('seo-editor-scroll-to-link', {
-                detail: {
-                    href:
-                        variant === 'cta'
-                            ? String(
-                                  item?.href ?? formatCtaHref(item?.type, item?.value),
-                              ).trim()
-                            : String(item?.href ?? item?.target_url ?? '').trim(),
-                    text,
-                    type: 'internal',
-                    index: 0,
-                    searchPlainText: true,
-                },
-            }),
-        );
+        setDomainLinkActiveKey(itemKey);
+        const occurrences = Array.isArray(item?._domain_occurrences) ? item._domain_occurrences : [];
+        if (occurrences.length === 0) {
+            selectedDomainOccurrenceRef.current = { itemKey, occurrence: null, index: 0 };
+            return;
+        }
+
+        const currentCycle = Number(cycleByKey[itemKey] ?? 0);
+        const occurrenceIndex = nextDomainLinkOccurrenceIndex(currentCycle, occurrences.length);
+        const occurrence = occurrences[occurrenceIndex] ?? null;
+        setCycleByKey((prev) => ({
+            ...prev,
+            [itemKey]: currentCycle + 1,
+        }));
+        selectedDomainOccurrenceRef.current = { itemKey, occurrence, index: occurrenceIndex };
+        if (occurrence) {
+            scrollToDomainLinkOccurrence(occurrence);
+        }
     };
 
     const insertDomainLink = (item, itemKey) => {
         hideRow(itemKey);
-
-        const text = String(item?.text ?? '').trim();
-        const href = String(item?.href ?? item?.target_url ?? '').trim();
-        if (!text || !href) {
-            return;
-        }
-
-        window.dispatchEvent(
-            new CustomEvent('seo-editor-insert-suggested-link', {
-                detail: {
-                    text,
-                    href,
-                    keyword_id: item.keyword_id ?? null,
-                    insert_mode: 'caret',
-                    target: {
-                        sectionId: getEditorInsertionContext().activeSectionId,
-                        blockId: getEditorInsertionContext().activeBlockId,
-                        selectionBookmark: getEditorInsertionContext().selection,
-                    },
-                },
-            }),
-        );
+        const selected = selectedDomainOccurrenceRef.current;
+        const occurrence =
+            selected?.itemKey === itemKey && selected?.occurrence
+                ? selected.occurrence
+                : (Array.isArray(item?._domain_occurrences) ? item._domain_occurrences[0] : null);
+        insertDomainLinkAction({ item, occurrence });
     };
 
     return (

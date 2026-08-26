@@ -101,6 +101,8 @@
                 :review-filter="$this->draftReviewFilter"
                 :type-filter="$this->draftTypeFilter"
                 :selected-ids="$this->selectedTaskIds"
+                :refresh-nonce="$this->draftPlanningRefreshNonce"
+                :supports-product="$hasDraft ? (bool) ($this->draftSupportsProduct ?? false) : false"
             />
         </section>
     </div>

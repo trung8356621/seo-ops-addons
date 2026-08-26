@@ -121,6 +121,9 @@ final class NewContentPlannerContractTest extends TestCase
         self::assertStringContainsString("'requested_quantity' => \$quantity", $src);
         self::assertStringContainsString("'notes' => \$notesValue", $src);
         self::assertStringContainsString('importFromExistingRun', $src);
+        self::assertStringContainsString('NewContentSuggestionStructuredResult', $src);
+        self::assertStringContainsString('acceptStructuredDiscoveryValue', $src);
+        self::assertStringContainsString('repairBrief', $src);
         self::assertStringContainsString("'logical_ai_calls' => 0", $src);
         self::assertStringContainsString('source_content', $src);
         self::assertStringContainsString("'post_type' => \$contentType", $src);

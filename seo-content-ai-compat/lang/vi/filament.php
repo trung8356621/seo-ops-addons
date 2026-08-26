@@ -3355,6 +3355,8 @@ return [
         'planning_mark_reviewed' => 'Đánh dấu đã duyệt',
         'planning_mark_unreviewed' => 'Đánh dấu chưa duyệt',
         'planning_description_hint' => 'Double-click để thêm Description',
+        'planning_product_description_label' => 'Mô tả sản phẩm:',
+        'planning_post_type_edit_hint' => 'Double click để đổi post type',
         'planning_review_unavailable' => 'Không dùng được Planning Review',
         'planning_review_migration_required' => 'Chạy migration SEO để bật cột planning review.',
         'planning_item_edit' => 'Sửa mục lập kế hoạch',

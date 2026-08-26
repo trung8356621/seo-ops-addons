@@ -97,8 +97,14 @@ final class NewContentSuggestionPlannerService
             throw new InvalidArgumentException('PromptResult #'.$promptResultId.' has empty output.');
         }
 
-        $decoded = json_decode($raw, true);
-        $value = json_last_error() === JSON_ERROR_NONE ? $decoded : $raw;
+        $decoded = NewContentSuggestionStructuredResult::decode($raw);
+        if (! $decoded['ok']) {
+            throw new InvalidArgumentException(
+                'PromptResult #'.$promptResultId.' is not importable JSON ('.(string) ($decoded['code'] ?? 'invalid').'): '
+                .(string) ($decoded['error'] ?? 'decode failed'),
+            );
+        }
+        $value = $decoded['value'];
 
         $site = $this->resolveSite($project);
         $snapshot = is_array($run->configuration_snapshot) ? $run->configuration_snapshot : [];
@@ -330,7 +336,7 @@ final class NewContentSuggestionPlannerService
             'task_ids' => $taskIds,
             'planner_run_id' => (int) $run->getKey(),
             'prompt_result_id' => $discovery['prompt_result_id'],
-            'logical_ai_calls' => 1,
+            'logical_ai_calls' => $this->logicalDiscoveryCalls,
             'planning_ai_calls' => 0,
             'status' => SeoContentProjectPlannerRun::STATUS_COMPLETED,
             'primary_language' => $language,
@@ -354,7 +360,7 @@ final class NewContentSuggestionPlannerService
     }
 
     /**
-     * Exactly one logical discovery call. AI Resilience may fallback internally.
+     * Discovery + at most one structured-output repair. Primary call remains the planning generation.
      *
      * @return array{value: mixed, prompt_result_id: int|null}
      */
@@ -390,6 +396,120 @@ final class NewContentSuggestionPlannerService
             'content_type' => $contentType,
         ];
 
+        $first = $this->runDiscoveryPrompt(
+            $legacyVariables,
+            $seedTopic,
+            max(1, $count),
+            $brief,
+            $primaryLanguage,
+            $contentType,
+            $actorId,
+            $siteId,
+        );
+
+        $accepted = $this->acceptStructuredDiscoveryValue($first['value'], max(1, $count));
+        if ($accepted !== null) {
+            $this->lastDiscoveryPromptResultId = $first['prompt_result_id'];
+
+            return [
+                'value' => $accepted,
+                'prompt_result_id' => $first['prompt_result_id'],
+            ];
+        }
+
+        $firstDecoded = NewContentSuggestionStructuredResult::decode($first['value']);
+        // Truncated / incomplete JSON — do not import; repair only when enough text exists.
+        if (($firstDecoded['code'] ?? '') === NewContentSuggestionStructuredResult::CODE_INCOMPLETE
+            && mb_strlen(trim(is_string($first['value']) ? $first['value'] : (string) json_encode($first['value']))) < 40
+        ) {
+            throw new InvalidArgumentException(
+                'Planner structured output incomplete (truncated). '.((string) ($firstDecoded['error'] ?? '')),
+            );
+        }
+
+        $this->logicalDiscoveryCalls++;
+        $invalidRaw = is_string($first['value'])
+            ? $first['value']
+            : (string) json_encode($first['value'], JSON_UNESCAPED_UNICODE);
+        $repairBrief = NewContentSuggestionStructuredResult::repairBrief(
+            $invalidRaw,
+            $contentType,
+            max(1, $count),
+        );
+        $repairVariables = $legacyVariables;
+        $repairVariables['brief'] = $repairBrief;
+        $repairVariables['user_brief'] = $repairBrief;
+        $repairVariables['planning_context'] = $repairBrief;
+        $repairVariables['notes'] = 'REPAIR: return JSON only. Do not add new suggestions.';
+
+        $second = $this->runDiscoveryPrompt(
+            $repairVariables,
+            $seedTopic,
+            max(1, $count),
+            $repairBrief,
+            $primaryLanguage,
+            $contentType,
+            $actorId,
+            $siteId,
+        );
+
+        $repairedAccepted = $this->acceptStructuredDiscoveryValue($second['value'], max(1, $count));
+        if ($repairedAccepted === null) {
+            $repaired = NewContentSuggestionStructuredResult::decode($second['value']);
+            $this->lastDiscoveryPromptResultId = $second['prompt_result_id'] ?? $first['prompt_result_id'];
+            throw new InvalidArgumentException(
+                'Planner structured output invalid after repair ('.(string) ($repaired['code'] ?? 'invalid').'): '
+                .(string) ($repaired['error'] ?? 'decode failed'),
+            );
+        }
+
+        $this->lastDiscoveryPromptResultId = $second['prompt_result_id'] ?? $first['prompt_result_id'];
+
+        return [
+            'value' => $repairedAccepted,
+            'prompt_result_id' => $second['prompt_result_id'] ?? $first['prompt_result_id'],
+        ];
+    }
+
+    /**
+     * Decode + importer-schema gate. Returns decoded value or null when repair is warranted.
+     */
+    private function acceptStructuredDiscoveryValue(mixed $raw, int $requested): mixed
+    {
+        $decoded = NewContentSuggestionStructuredResult::decode($raw);
+        if (! $decoded['ok']) {
+            return null;
+        }
+
+        $value = $decoded['value'];
+        $parsed = $this->parser->parse($value, $requested);
+        if (count($parsed['candidates']) > 0) {
+            return $value;
+        }
+
+        // Valid empty array / empty envelope — not a schema failure.
+        if ((int) $parsed['generated'] === 0) {
+            return $value;
+        }
+
+        // Non-empty payload but zero importable rows → repair formatting once.
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $legacyVariables
+     * @return array{value: mixed, prompt_result_id: int|null}
+     */
+    private function runDiscoveryPrompt(
+        array $legacyVariables,
+        string $seedTopic,
+        int $count,
+        string $brief,
+        string $primaryLanguage,
+        string $contentType,
+        ?int $actorId,
+        int $siteId,
+    ): array {
         $context = array_filter([
             'site_id' => $siteId > 0 ? $siteId : null,
             'actor_id' => $actorId !== null && $actorId > 0 ? $actorId : null,
@@ -444,13 +564,9 @@ final class NewContentSuggestionPlannerService
             },
         );
 
-        $this->lastDiscoveryPromptResultId = ($promptResultId !== null && $promptResultId > 0)
-            ? $promptResultId
-            : null;
-
         return [
             'value' => $value,
-            'prompt_result_id' => $promptResultId,
+            'prompt_result_id' => ($promptResultId !== null && $promptResultId > 0) ? $promptResultId : null,
         ];
     }
 
@@ -484,6 +600,24 @@ final class NewContentSuggestionPlannerService
                 $keyword = ContentProjectItemIdentity::normalize($candidate['keyword']);
                 $title = ContentProjectItemIdentity::normalize($candidate['title']);
                 if (! ContentProjectItemIdentity::isValid($keyword, $title)) {
+                    continue;
+                }
+                // Skip AI context echoes / oversize blobs — never insert into source_content.
+                if ($this->isUnsafePlanningIdentity($keyword) || $this->isUnsafePlanningIdentity($title)) {
+                    continue;
+                }
+                // Hard cap to DB column widths (belt-and-suspenders for queue workers).
+                if (mb_strlen($keyword) > NewContentSuggestionParser::MAX_KEYWORD_CHARS) {
+                    $keyword = mb_substr($keyword, 0, NewContentSuggestionParser::MAX_KEYWORD_CHARS);
+                }
+                if (mb_strlen($title) > NewContentSuggestionParser::MAX_KEYWORD_CHARS) {
+                    $title = mb_substr($title, 0, NewContentSuggestionParser::MAX_KEYWORD_CHARS);
+                }
+                $sourceContent = $keyword !== '' ? $keyword : $title;
+                if (mb_strlen($sourceContent) > NewContentSuggestionParser::MAX_SOURCE_CONTENT_CHARS) {
+                    $sourceContent = mb_substr($sourceContent, 0, NewContentSuggestionParser::MAX_SOURCE_CONTENT_CHARS);
+                }
+                if ($sourceContent === '') {
                     continue;
                 }
 
@@ -521,7 +655,7 @@ final class NewContentSuggestionPlannerService
                     'site_id' => (int) ($target->site_id ?? $project->site_id ?? 0),
                     'type' => SeoProjectTask::TYPE_CREATE,
                     'post_type' => $postType !== '' ? $postType : SeoProjectTask::POST_TYPE_ARTICLE,
-                    'source_content' => $keyword !== '' ? $keyword : $title,
+                    'source_content' => $sourceContent,
                     'keyword' => $keyword !== '' ? $keyword : null,
                     'title' => $title !== '' ? $title : null,
                     'secondary_description' => $brief !== '' ? $brief : null,
@@ -553,6 +687,33 @@ final class NewContentSuggestionPlannerService
         });
 
         return $taskIds;
+    }
+
+    /**
+     * Persist-time guard mirroring parser dump detection (queue workers may lag code reload).
+     */
+    private function isUnsafePlanningIdentity(string $value): bool
+    {
+        $trimmed = trim($value);
+        if ($trimmed === '') {
+            return false;
+        }
+
+        $lower = mb_strtolower($trimmed);
+        if (str_contains($lower, 'planned items list includes')
+            || str_contains($lower, 'already planned in this draft')
+            || str_contains($lower, 'rejected earlier in this draft')
+            || str_contains($lower, 'return json array of objects')
+            || (str_starts_with($trimmed, '{') || str_starts_with($trimmed, '['))
+        ) {
+            return true;
+        }
+
+        if (substr_count($trimmed, '"') >= 6 && mb_strlen($trimmed) > 120) {
+            return true;
+        }
+
+        return mb_strlen($trimmed) > 200;
     }
 
     private function resolveSite(SeoProject $project): Site

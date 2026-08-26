@@ -145,13 +145,28 @@ final class ContentProjectDraftPlanningItemsReadModel
             $title = '#'.$taskId;
         }
 
-        $description = trim((string) ($task->secondary_description ?? ''));
-        if ($description === '') {
-            $description = trim((string) ($task->description ?? ''));
+        $postTypeRaw = trim((string) ($task->post_type ?? ''));
+        if ($postTypeRaw === '') {
+            $postTypeRaw = SeoProjectTask::POST_TYPE_ARTICLE;
+        }
+        if ($postTypeRaw === 'post') {
+            $postTypeRaw = SeoProjectTask::POST_TYPE_ARTICLE;
+        }
+        $isProductPostType = $postTypeRaw === SeoProjectTask::POST_TYPE_PRODUCT;
+
+        // Global planning brief: secondary_description (Create/AI).
+        // Product gallery / product-specific brief: task.description — only when post_type=product.
+        $secondaryDescription = trim((string) ($task->secondary_description ?? ''));
+        $taskDescription = trim((string) ($task->description ?? ''));
+        $description = $secondaryDescription;
+        if ($description === '' && ! $isProductPostType) {
+            // Legacy Post/Rewrite fallback — never steal Product gallery into global line.
+            $description = $taskDescription;
         }
         if ($description === '' && in_array($type, [SeoProjectTask::TYPE_REWRITE, SeoProjectTask::TYPE_IMPROVE], true)) {
             $description = trim((string) ($task->rewrite_notes ?? ''));
         }
+        $productDescription = ($isProductPostType && $taskDescription !== '') ? $taskDescription : null;
 
         $keyword = trim((string) ($task->keyword ?? $task->source_content ?? ''));
         $plannerRunId = ($origin instanceof SeoContentProjectItemOrigin && (int) ($origin->planner_run_id ?? 0) > 0)
@@ -172,10 +187,11 @@ final class ContentProjectDraftPlanningItemsReadModel
             default => 'manual',
         };
 
-        $postTypeRaw = trim((string) ($task->post_type ?? ''));
-        if ($postTypeRaw === '') {
-            $postTypeRaw = SeoProjectTask::POST_TYPE_ARTICLE;
-        }
+        $status = strtolower(trim((string) ($task->status ?? '')));
+        $canEditPostType = SeoProjectTask::isNewArticleType($type)
+            && ! $hasArticle
+            && $task->archived_at === null
+            && in_array($status, [SeoProjectTask::STATUS_PENDING, SeoProjectTask::STATUS_DRAFT], true);
         $addedAt = null;
         if ($origin instanceof SeoContentProjectItemOrigin && $origin->created_at !== null) {
             $addedAt = $origin->created_at;
@@ -187,6 +203,7 @@ final class ContentProjectDraftPlanningItemsReadModel
             'id' => $taskId,
             'title' => $title,
             'description' => $description !== '' ? $description : null,
+            'product_description' => $productDescription,
             'keyword' => $keyword !== '' ? $keyword : null,
             'icon_kind' => $iconKind,
             'article_id' => $hasArticle ? $articleId : null,
@@ -210,6 +227,7 @@ final class ContentProjectDraftPlanningItemsReadModel
             },
             'post_type' => $postTypeRaw,
             'post_type_label' => $this->postTypeLabel($postTypeRaw),
+            'can_edit_post_type' => $canEditPostType,
             'source_type' => $sourceType,
             'source_label' => match ($sourceType) {
                 SeoContentProjectItemOrigin::SOURCE_SEO_AUDIT => 'SEO Audit',

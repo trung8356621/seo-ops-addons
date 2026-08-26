@@ -201,6 +201,7 @@ final class ContentPlanningIntelligenceService
 
     /**
      * Render compact brief for keyword.discovery.structured (still one AI call later).
+     * Content-type aware: Post keeps article planning semantics; Product requests product-page planning fields.
      *
      * @param  PlanningContext  $ctx
      * @param  array<string, mixed>  $options
@@ -208,22 +209,11 @@ final class ContentPlanningIntelligenceService
     public function renderBrief(array $ctx, array $options): string
     {
         $options = NewContentSuggestionOptions::normalize($options);
-        $lines = [
-            'Primary language (write ALL keyword and suggested_title values in this language): '.$ctx['site']['primary_language'],
-            'Domain: '.($ctx['site']['domain'] !== '' ? $ctx['site']['domain'] : '(unknown)'),
-            'Direction: '.$options['direction'],
-            'Content type: '.$options['content_type'],
-            'Post type target: '.$options['post_type'],
-            'Return JSON array of objects: {"keyword":"...","suggested_title":"...","description":"...","suggestion_reason":"...","source_signal":"keyword_gap|cluster_gap|mcp_signal|gsc_signal|related_topic|manual_focus"} — about '.$options['quantity'].' items.',
-            'description = concise 1–3 sentence article brief that disambiguates short SEO keywords so later writing understands intended scope (not a full outline).',
-            'suggestion_reason = short why this topic was suggested (gap/signal). Keep distinct from description.',
-            'Prefer uncovered / weak-coverage directions. Do not invent ranking/volume data.',
-            'Prefer NOT to create duplicates for topics already covered by existing published articles — those belong to Rewrite/Improve lanes.',
-            'GSC falling/weak CTR on an existing published page is an improvement signal, not a Create duplicate.',
-            'GSC impressions are Search Console impressions, not global search volume. Do not invent keyword difficulty.',
-            'Do not repeat items already planned or rejected below.',
-            'Do not invent articles; propose planning suggestions only.',
-        ];
+        $isProduct = $options['content_type'] === NewContentSuggestionOptions::CONTENT_TYPE_PRODUCT;
+
+        $lines = $isProduct
+            ? $this->productPlanningBriefHeader($ctx, $options)
+            : $this->postPlanningBriefHeader($ctx, $options);
 
         $notes = trim((string) ($options['notes'] ?? ''));
         if ($notes === '') {
@@ -240,24 +230,25 @@ final class ContentPlanningIntelligenceService
 
         if ($ctx['missing_directions'] !== []) {
             $lines[] = 'Priority gaps / missing directions:';
-            foreach (array_slice($ctx['missing_directions'], 0, 20) as $row) {
+            foreach (array_slice($ctx['missing_directions'], 0, 12) as $row) {
                 $lines[] = '- '.$row['topic'].' ('.$row['signal'].')';
             }
         }
 
+        $coverageUnit = $isProduct ? 'published pages' : 'articles';
         if ($ctx['clusters'] !== []) {
             $weak = array_values(array_filter($ctx['clusters'], static fn (array $c): bool => $c['coverage'] === 'weak'));
             if ($weak !== []) {
                 $lines[] = 'Weak clusters (prefer filling, not duplicating strong clusters):';
-                foreach (array_slice($weak, 0, 15) as $c) {
-                    $lines[] = '- '.$c['label'].' · keywords '.$c['keyword_count'].' · articles '.$c['article_count'];
+                foreach (array_slice($weak, 0, 10) as $c) {
+                    $lines[] = '- '.$c['label'].' · keywords '.$c['keyword_count'].' · '.$coverageUnit.' '.$c['article_count'];
                 }
             }
             $strong = array_values(array_filter($ctx['clusters'], static fn (array $c): bool => $c['coverage'] === 'strong'));
             if ($strong !== []) {
                 $lines[] = 'Strong coverage (avoid new create duplicates):';
-                foreach (array_slice($strong, 0, 10) as $c) {
-                    $lines[] = '- '.$c['label'].' · articles '.$c['article_count'];
+                foreach (array_slice($strong, 0, 8) as $c) {
+                    $lines[] = '- '.$c['label'].' · '.$coverageUnit.' '.$c['article_count'];
                 }
             }
         }
@@ -266,7 +257,7 @@ final class ContentPlanningIntelligenceService
             $lines[] = 'Principal SEO keywords (planning signals; uncovered preferred):';
             $i = 0;
             foreach ($ctx['principal_keywords'] as $kw) {
-                if ($i >= 40) {
+                if ($i >= 25) {
                     break;
                 }
                 if (($kw['coverage'] ?? '') === 'covered') {
@@ -278,22 +269,32 @@ final class ContentPlanningIntelligenceService
         }
 
         if ($ctx['planned_topics'] !== []) {
-            $lines[] = 'Already planned in this Draft:';
-            foreach (array_slice($ctx['planned_topics'], 0, 40) as $row) {
-                $lines[] = '- ['.$row['type'].'] '.$row['keyword'].' — '.$row['title'];
+            $lines[] = 'Already planned keywords in this Draft (do not repeat):';
+            foreach (array_slice($ctx['planned_topics'], 0, 20) as $row) {
+                $kw = trim((string) ($row['keyword'] ?? ''));
+                if ($kw === '') {
+                    continue;
+                }
+                $lines[] = '- '.$kw;
             }
         }
 
         if ($ctx['rejected_topics'] !== []) {
-            $lines[] = 'Rejected earlier in this Draft (do not suggest again):';
-            foreach (array_slice($ctx['rejected_topics'], 0, 30) as $row) {
-                $lines[] = '- '.$row['keyword'].' — '.$row['title'];
+            $lines[] = 'Rejected keywords in this Draft (do not suggest again):';
+            foreach (array_slice($ctx['rejected_topics'], 0, 15) as $row) {
+                $kw = trim((string) ($row['keyword'] ?? ''));
+                if ($kw === '') {
+                    continue;
+                }
+                $lines[] = '- '.$kw;
             }
         }
 
         if ($ctx['existing_topics'] !== []) {
-            $lines[] = 'Existing published article titles (coverage evidence):';
-            foreach (array_slice($ctx['existing_topics'], 0, 40) as $row) {
+            $lines[] = $isProduct
+                ? 'Existing published product/content titles (coverage evidence):'
+                : 'Existing published article titles (coverage evidence):';
+            foreach (array_slice($ctx['existing_topics'], 0, 20) as $row) {
                 $lines[] = '- '.$row['title'];
             }
         }
@@ -301,7 +302,7 @@ final class ContentPlanningIntelligenceService
         if ($ctx['mcp_signals'] !== []) {
             $period = $ctx['mcp_period'] ?? 'unknown';
             $lines[] = 'MCP signals ('.$period.'):';
-            foreach (array_slice($ctx['mcp_signals'], 0, 20) as $sig) {
+            foreach (array_slice($ctx['mcp_signals'], 0, 12) as $sig) {
                 $lines[] = '- ['.$sig['type'].'] '.$sig['label'];
             }
         }
@@ -309,13 +310,76 @@ final class ContentPlanningIntelligenceService
         if (($ctx['gsc_signals'] ?? []) !== []) {
             $period = $ctx['mcp_period'] ?? 'unknown';
             $lines[] = 'GSC signals ('.$period.'; Search Console impressions ≠ search volume):';
-            foreach (array_slice($ctx['gsc_signals'], 0, 20) as $sig) {
+            foreach (array_slice($ctx['gsc_signals'], 0, 12) as $sig) {
                 $lane = (string) ($sig['lane'] ?? '');
                 $lines[] = '- ['.$sig['type'].']'.($lane !== '' ? ' {'.$lane.'}' : '').' '.$sig['label'];
             }
         }
 
-        return implode("\n", $lines);
+        return implode("\n", $lines)."\n".NewContentSuggestionStructuredResult::outputContractFooter(
+            (string) $options['content_type'],
+            (int) $options['quantity'],
+        );
+    }
+
+    /**
+     * @param  PlanningContext  $ctx
+     * @param  array<string, mixed>  $options
+     * @return list<string>
+     */
+    private function postPlanningBriefHeader(array $ctx, array $options): array
+    {
+        return [
+            'Primary language (write ALL keyword and suggested_title values in this language): '.$ctx['site']['primary_language'],
+            'Domain: '.($ctx['site']['domain'] !== '' ? $ctx['site']['domain'] : '(unknown)'),
+            'Direction: '.$options['direction'],
+            'Content type: '.$options['content_type'],
+            'Post type target: '.$options['post_type'],
+            'Return JSON only — see OUTPUT CONTRACT at the end of this brief.',
+            'description = concise 1–3 sentence article brief that disambiguates short SEO keywords so later writing understands intended scope (not a full outline).',
+            'suggestion_reason = short why this topic was suggested (gap/signal). Keep distinct from description. No chain-of-thought.',
+            'Prefer uncovered / weak-coverage directions. Do not invent ranking/volume data.',
+            'Prefer NOT to create duplicates for topics already covered by existing published articles — those belong to Rewrite/Improve lanes.',
+            'GSC falling/weak CTR on an existing published page is an improvement signal, not a Create duplicate.',
+            'GSC impressions are Search Console impressions, not global search volume. Do not invent keyword difficulty.',
+            'Do not repeat items already planned or rejected below.',
+            'Do not invent articles; propose planning suggestions only.',
+        ];
+    }
+
+    /**
+     * Product planning brief: Draft items that later become WooCommerce/product pages — not blog topics.
+     *
+     * @param  PlanningContext  $ctx
+     * @param  array<string, mixed>  $options
+     * @return list<string>
+     */
+    private function productPlanningBriefHeader(array $ctx, array $options): array
+    {
+        return [
+            'Primary language (write ALL keyword and suggested_title values in this language): '.$ctx['site']['primary_language'],
+            'Domain: '.($ctx['site']['domain'] !== '' ? $ctx['site']['domain'] : '(unknown)'),
+            'Direction: '.$options['direction'],
+            'Content type: product',
+            'Post type target: product',
+            'Mode: PRODUCT PLANNING — create Draft planning items that will LATER become WooCommerce/product pages. Do NOT create or publish a WordPress Product during planning.',
+            'Suggestions must represent concrete product-page opportunities, NOT blog/article topics about products.',
+            'suggested_title must be suitable as a product / product-page title, not a blog headline.',
+            'Prefer commercial/product intent where supported by the supplied site/keyword evidence.',
+            'Do not fabricate prices, SKU, inventory, dimensions, technical specifications, availability, certifications, or other factual product data not present in context.',
+            'Do not create taxonomy terms.',
+            'Return JSON only — see OUTPUT CONTRACT at the end of this brief.',
+            'description = concise 1–3 sentence PRODUCT CONTENT BRIEF explaining what the future product page should cover/position (NOT an article brief, NOT a full outline).',
+            'product_type = concise product type/category description for planning (loai_san_pham). Do not invent WordPress taxonomy IDs.',
+            'gallery_description = concise gallery/image direction for the future Product (angles/context) without fabricating factual product attributes.',
+            'suggestion_reason = short user-facing why this product opportunity was suggested (gap/signal). Keep distinct from description. No chain-of-thought.',
+            'Prefer uncovered / weak-coverage directions. Do not invent ranking/volume data.',
+            'Prefer NOT to create duplicates for opportunities already covered by existing published product/content — those belong to Rewrite/Improve lanes.',
+            'GSC falling/weak CTR on an existing published page is an improvement signal, not a Create duplicate.',
+            'GSC impressions are Search Console impressions, not global search volume. Do not invent keyword difficulty.',
+            'Do not repeat items already planned or rejected below.',
+            'Propose Product planning items only. Do not fabricate product facts and do not create/publish Products at planning stage.',
+        ];
     }
 
     /**

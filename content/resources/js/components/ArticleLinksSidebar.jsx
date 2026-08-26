@@ -11,7 +11,6 @@ import {
 } from '../utils/ctaLinkFormat';
 import {
     buildVisibleInternalSuggestions,
-    filterDomainLinksInArticleContent,
     filterSuggestedInternalLinks,
     isSpecialOrContactHref,
     isSuggestionExcluded,
@@ -32,7 +31,6 @@ import {
     readCoreArticleIdentity,
 } from '../utils/articleEditorPayloadAdapters';
 import { filterUsableCtaContacts } from '../utils/ctaContactUsability';
-import { getEditorInsertionContext } from '../utils/editorInsertionContext';
 import { getEditorCommandHost } from '../utils/editorCommands';
 import {
     CtaContactInsertList,
@@ -45,6 +43,9 @@ import {
     findPhraseOccurrencesInBlocks,
     scrollToPhraseOccurrence,
 } from '../utils/articlePhraseOccurrences';
+import { buildDomainLinkListForEditor, nextDomainLinkOccurrenceIndex } from '../utils/domainLinkOccurrenceIndex';
+import { scrollToDomainLinkOccurrence } from '../utils/domainLinkNavigator';
+import { insertDomainLinkAction } from '../utils/domainLinkInsertAction';
 
 function isContentSuggestion(item) {
     const source = String(item?.source ?? item?.suggestion_source ?? '').trim();
@@ -207,9 +208,11 @@ function DomainInsertableList({
                     variant === 'cta'
                         ? String(item?.href ?? formatCtaHref(item?.type, item?.value)).trim()
                         : String(item?.href ?? item?.target_url ?? '').trim();
-                const count = Number(item?.article_count ?? 0);
+                const count = variant === 'domain-link'
+                    ? Number(item?.occurrence_count ?? 0)
+                    : Number(item?.article_count ?? 0);
                 const countSuffix =
-                    variant === 'domain-link' && Number.isFinite(count) && count > 0
+                    variant === 'domain-link' && Number.isFinite(count)
                         ? ` (${count})`
                         : '';
                 const itemKey = `${variant}-${label}-${index}`;
@@ -218,6 +221,7 @@ function DomainInsertableList({
                     variant === 'cta'
                         ? isCtaItemInsertable(item)
                         : item?.can_insert !== false && label !== '' && href !== '';
+                const canLocate = variant !== 'domain-link' || count > 0;
                 const isCtaBlank = variant === 'cta' && item?.is_blank === true;
                 const isRowHiding = hiddenRowKeys?.has(itemKey) === true;
 
@@ -235,8 +239,14 @@ function DomainInsertableList({
                                     ? t('cta_widget_find', { label, type: item?.type ?? '' })
                                     : t('domain_link_widget_find', { label, count })
                             }
+                            disabled={variant === 'domain-link' && !canLocate}
                             onMouseDown={(e) => e.preventDefault()}
-                            onClick={() => onKeywordClick(item, index, itemKey)}
+                            onClick={() => {
+                                if (variant === 'domain-link' && !canLocate) {
+                                    return;
+                                }
+                                onKeywordClick(item, index, itemKey);
+                            }}
                         >
                             {variant === 'cta' ? (
                                 <span className="wp-article-domain-cta-label">
@@ -324,15 +334,11 @@ function MainDomainSuggestionList({ items, relationship, onInsert }) {
     );
 }
 
-const applyDomainLinkFilters = (allLinks, articlePlainText, internalLinks, externalLinks = []) => {
-    const inArticle = filterDomainLinksInArticleContent(allLinks, articlePlainText).filter(
-        (item) => !isSpecialOrContactHref(item?.href ?? item?.target_url),
-    );
-
-    return filterSuggestedInternalLinks(inArticle, internalLinks, externalLinks).map((item) => ({
-        ...item,
-        can_insert: item.can_insert !== false,
-    }));
+const applyDomainLinkFilters = (allLinks, blocks, internalLinks, externalLinks = []) => {
+    const sourceBlocks = Array.isArray(blocks) && blocks.length > 0
+        ? blocks
+        : collectEditorBlocksFromDom();
+    return buildDomainLinkListForEditor(allLinks, sourceBlocks, internalLinks, externalLinks);
 };
 
 function keywordLabel(item) {
@@ -1321,12 +1327,21 @@ export default function ArticleLinksSidebar({
     const allDomainLinksRef = useRef(
         initialDomainLinkCatalog.length > 0 ? initialDomainLinkCatalog : initialDomainLinkList,
     );
+    /** @type {React.MutableRefObject<Array<{ id?: string, content?: string, type?: string }>>} */
+    const editorBlocksRef = useRef([]);
     const [domainLinkCatalogCount, setDomainLinkCatalogCount] = useState(
         initialDomainLinkCatalog.length > 0
             ? initialDomainLinkCatalog.length
             : initialDomainLinkList.length,
     );
-    const [domainLinks, setDomainLinks] = useState(initialDomainLinkList);
+    const [domainLinks, setDomainLinks] = useState(() =>
+        applyDomainLinkFilters(
+            initialDomainLinkCatalog.length > 0 ? initialDomainLinkCatalog : initialDomainLinkList,
+            [],
+            [],
+            [],
+        ),
+    );
     const [domainCtas, setDomainCtas] = useState(initialDomainCtaList);
     const [domainLinkActiveKey, setDomainLinkActiveKey] = useState('');
     const [ctaActiveKey, setCtaActiveKey] = useState('');
@@ -1336,10 +1351,23 @@ export default function ArticleLinksSidebar({
     const [templatesByType, setTemplatesByType] = useCtaQuickTemplates(effectiveSiteId, serverCtaTemplates);
     const usableDomainCtas = useMemo(() => filterUsableCtaContacts(domainCtas), [domainCtas]);
     const [domainHiddenRowKeys, setDomainHiddenRowKeys] = useState(() => new Set());
+    /** @type {React.MutableRefObject<{ itemKey: string, occurrence: object|null, index: number }|null>} */
+    const selectedDomainOccurrenceRef = useRef(null);
 
     const { debounced: debouncedPersistExcluded } = useDebouncedCallback(() => {
         const { articleId, siteId } = articleMetaRef.current;
         saveExcludedLinkSuggestions(articleId, siteId, [...excludedPersistRef.current]);
+    }, 400);
+
+    const { debounced: debouncedRebuildDomainLinks } = useDebouncedCallback((internal, external) => {
+        setDomainLinks(
+            applyDomainLinkFilters(
+                allDomainLinksRef.current,
+                editorBlocksRef.current,
+                Array.isArray(internal) ? internal : [],
+                Array.isArray(external) ? external : [],
+            ),
+        );
     }, 400);
 
     const hideSuggestionRow = (itemKey) => {
@@ -1492,10 +1520,13 @@ export default function ArticleLinksSidebar({
                     Array.isArray(detail.domain_link_list_catalog)
                     || Array.isArray(detail.domain_link_list)
                 ) {
+                    if (Array.isArray(detail.editor_blocks) && detail.editor_blocks.length > 0) {
+                        editorBlocksRef.current = detail.editor_blocks;
+                    }
                     setDomainLinks(
                         applyDomainLinkFilters(
                             allDomainLinksRef.current,
-                            String(detail.article_plain_text ?? ''),
+                            editorBlocksRef.current,
                             linksRef.current.internal ?? [],
                             linksRef.current.external ?? [],
                         ),
@@ -1670,21 +1701,24 @@ export default function ArticleLinksSidebar({
                 setDomainLinkCatalogCount(incomingDomainList.length);
             }
 
-            // domain_link_list from /editor/links is already forArticle — use when no plain text yet.
-            if (incomingDomainList && incomingDomainList.length > 0 && articlePlain.trim() === '') {
-                setDomainLinks(
-                    incomingDomainList
-                        .filter((item) => !isSpecialOrContactHref(item?.href ?? item?.target_url))
-                        .map((item) => ({
-                            ...item,
-                            can_insert: item.can_insert !== false,
-                        })),
-                );
-                setDomainLinksCollapsed(false);
+            if (Array.isArray(detail.editor_blocks) && detail.editor_blocks.length > 0) {
+                editorBlocksRef.current = detail.editor_blocks;
+            }
+
+            if (detail.source === 'client-document') {
+                debouncedRebuildDomainLinks(internal, external);
             } else {
                 setDomainLinks(
-                    applyDomainLinkFilters(allDomainLinksRef.current, articlePlain, internal, external),
+                    applyDomainLinkFilters(
+                        allDomainLinksRef.current,
+                        editorBlocksRef.current,
+                        internal,
+                        external,
+                    ),
                 );
+            }
+            if (allDomainLinksRef.current.length > 0) {
+                setDomainLinksCollapsed(false);
             }
 
             if (Array.isArray(event.detail?.domain_cta_list)) {
@@ -2066,66 +2100,82 @@ export default function ArticleLinksSidebar({
     const scrollToDomainItem = (item, itemKey, variant) => {
         if (variant === 'cta') {
             setCtaActiveKey(itemKey);
-        } else {
-            setDomainLinkActiveKey(itemKey);
-        }
-        const text = variant === 'cta' ? ctaDisplayLabel(item) : String(item?.text ?? '').trim();
-        let listIndex = 0;
-        if (variant === 'cta') {
-            // Same cycle pattern as internal-link find → wrap insert uses matching occurrence.
+            const text = ctaDisplayLabel(item);
             const currentCycle = Number(cycleByKey[itemKey] ?? 0);
-            listIndex = currentCycle;
+            const listIndex = currentCycle;
             setCycleByKey((prev) => ({
                 ...prev,
                 [itemKey]: currentCycle + 1,
             }));
-        }
 
-        const detail = {
-            href:
-                variant === 'cta'
-                    ? String(item?.href ?? formatCtaHref(item?.type, item?.value)).trim()
-                    : String(item?.href ?? item?.target_url ?? '').trim(),
-            text,
-            type: 'internal',
-            index: listIndex,
-            searchPlainText: true,
-        };
-        const actions = getEditorCommandHost()?.actions;
-        if (typeof actions?.scrollToLink === 'function') {
-            actions.scrollToLink(detail);
+            const detail = {
+                href: String(item?.href ?? formatCtaHref(item?.type, item?.value)).trim(),
+                text,
+                type: 'internal',
+                index: listIndex,
+                searchPlainText: true,
+            };
+            const actions = getEditorCommandHost()?.actions;
+            if (typeof actions?.scrollToLink === 'function') {
+                actions.scrollToLink(detail);
+                return;
+            }
+            window.dispatchEvent(new CustomEvent('seo-editor-scroll-to-link', { detail }));
             return;
         }
-        window.dispatchEvent(new CustomEvent('seo-editor-scroll-to-link', { detail }));
+
+        setDomainLinkActiveKey(itemKey);
+        const occurrences = Array.isArray(item?._domain_occurrences)
+            ? item._domain_occurrences
+            : [];
+        if (occurrences.length === 0) {
+            selectedDomainOccurrenceRef.current = { itemKey, occurrence: null, index: 0 };
+            return;
+        }
+
+        const currentCycle = Number(cycleByKey[itemKey] ?? 0);
+        const occurrenceIndex = nextDomainLinkOccurrenceIndex(currentCycle, occurrences.length);
+        const occurrence = occurrences[occurrenceIndex] ?? null;
+        setCycleByKey((prev) => ({
+            ...prev,
+            [itemKey]: currentCycle + 1,
+        }));
+        selectedDomainOccurrenceRef.current = {
+            itemKey,
+            occurrence,
+            index: occurrenceIndex,
+        };
+        if (occurrence) {
+            scrollToDomainLinkOccurrence(occurrence, {
+                fallbackText: String(item?.text ?? '').trim(),
+            });
+        } else {
+            // Fallback: exact phrase locate via editor expand+scroll path.
+            const fallback = String(item?.text ?? '').trim();
+            if (fallback !== '') {
+                scrollToDomainLinkOccurrence(
+                    { matchedText: fallback, blockId: '', matchIndex: 0 },
+                    { fallbackText: fallback },
+                );
+            }
+        }
     };
 
     const insertDomainLink = (item, itemKey) => {
         hideDomainRow(itemKey);
 
-        const text = String(item?.text ?? '').trim();
         const href = String(item?.href ?? item?.target_url ?? '').trim();
-        if (!text || !href) {
+        if (!href) {
             return;
         }
 
-        const ctx = getEditorInsertionContext();
-        const detail = {
-            text,
-            href,
-            keyword_id: item.keyword_id ?? null,
-            insert_mode: 'caret',
-            target: {
-                sectionId: ctx.activeSectionId,
-                blockId: ctx.activeBlockId,
-                selectionBookmark: ctx.selection,
-            },
-        };
-        const actions = getEditorCommandHost()?.actions;
-        if (typeof actions?.insertSuggestedLink === 'function') {
-            actions.insertSuggestedLink(detail);
-            return;
-        }
-        window.dispatchEvent(new CustomEvent('seo-editor-insert-suggested-link', { detail }));
+        const selected = selectedDomainOccurrenceRef.current;
+        const occurrence =
+            selected?.itemKey === itemKey && selected?.occurrence
+                ? selected.occurrence
+                : (Array.isArray(item?._domain_occurrences) ? item._domain_occurrences[0] : null);
+
+        insertDomainLinkAction({ item, occurrence });
     };
 
     const linkCountBadge = internal.length + external.length + domainLinks.length;

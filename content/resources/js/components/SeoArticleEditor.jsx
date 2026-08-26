@@ -903,6 +903,11 @@ export default function SeoArticleEditor({
             return href !== '' && !isSpecialOrContactHref(href);
         });
         const articlePlainText = htmlToPlainText(exportBlocksToHtml(blocksRef.current));
+        const editorBlocks = (Array.isArray(blocksRef.current) ? blocksRef.current : []).map((block) => ({
+            id: block?.id,
+            type: block?.type,
+            content: block?.content ?? '',
+        }));
         window.dispatchEvent(
             new CustomEvent('seo-editor-links-updated', {
                 detail: {
@@ -911,6 +916,7 @@ export default function SeoArticleEditor({
                     suggested_internal: filteredSuggested,
                     suggested_external: filteredExternalSuggested,
                     article_plain_text: articlePlainText,
+                    editor_blocks: editorBlocks,
                     site_domain: siteDomainRef.current,
                     domain_link_list_catalog: domainLinkCatalogRef.current,
                     suggested_internal_links_catalog: suggestionKeywordCatalogRef.current,

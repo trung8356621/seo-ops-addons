@@ -149,7 +149,7 @@ final class ContentPlanningIntelligenceContractTest extends TestCase
         self::assertStringContainsString("'planning_context'", $src);
         self::assertStringContainsString('principal_keywords_count', $src);
         self::assertStringContainsString("'planning_ai_calls' => 0", $src);
-        self::assertStringContainsString("'logical_ai_calls' => 1", $src);
+        self::assertStringContainsString("'logical_ai_calls' => \$this->logicalDiscoveryCalls", $src);
         self::assertStringContainsString('suggestion_reason', $src);
         self::assertStringNotContainsString('use Omnichannel\\Addons\\SearchFoundation\\Services\\KeywordPersistenceService', $src);
         self::assertStringNotContainsString('use Omnichannel\\Addons\\ContentProjects\\Services\\CreateArticlesFromTaskService', $src);

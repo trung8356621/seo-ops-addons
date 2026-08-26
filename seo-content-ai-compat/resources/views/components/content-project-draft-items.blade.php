@@ -6,6 +6,8 @@
     'typeFilter' => 'all',
     'selectedIds' => [],
     'hideSectionTitle' => false,
+    'refreshNonce' => 0,
+    'supportsProduct' => false,
 ])
 
 @php
@@ -14,19 +16,39 @@
     $unreviewedCount = (int) ($counts['unreviewed'] ?? 0);
     $reviewedCount = (int) ($counts['reviewed'] ?? 0);
     $selectedIds = array_values(array_map('intval', is_array($selectedIds) ? $selectedIds : []));
-    $rows = array_map(static function (array $row): array {
+    $labelPost = (string) __('seo-content-ai::filament.article_list.post_type_post');
+    $labelProduct = (string) __('seo-content-ai::filament.article_list.post_type_product');
+    $postTypeOptions = [
+        ['value' => 'article', 'label' => $labelPost],
+    ];
+    if ($supportsProduct) {
+        $postTypeOptions[] = ['value' => 'product', 'label' => $labelProduct];
+    }
+    $rows = array_map(static function (array $row) use ($labelPost, $labelProduct): array {
+        $postType = (string) ($row['post_type'] ?? '');
+        if ($postType === '' || $postType === 'post') {
+            $postType = 'article';
+        }
+        $canEditPostType = ! empty($row['can_edit_post_type']);
+        // Product→Post always; Post→Product only when site supports Product (options list).
+        if ($canEditPostType && $postType === 'product') {
+            // keep editable even when Product capability later disabled
+        }
+
         return [
             'id' => (int) ($row['id'] ?? 0),
             'title' => (string) ($row['title'] ?? ''),
             'description' => (string) ($row['description'] ?? ''),
+            'product_description' => (string) ($row['product_description'] ?? ''),
             'keyword' => (string) ($row['keyword'] ?? ''),
             'planning_reviewed' => ! empty($row['planning_reviewed']),
             'type' => (string) ($row['type'] ?? ''),
             'icon_kind' => (string) ($row['icon_kind'] ?? 'manual'),
             'seo_score_label' => (string) ($row['seo_score_label'] ?? '—'),
             'plan_label' => (string) ($row['plan_label'] ?? '—'),
-            'post_type' => (string) ($row['post_type'] ?? ''),
-            'post_type_label' => (string) ($row['post_type_label'] ?? '—'),
+            'post_type' => $postType,
+            'post_type_label' => (string) ($row['post_type_label'] ?? ($postType === 'product' ? $labelProduct : $labelPost)),
+            'can_edit_post_type' => $canEditPostType,
             'added_label' => (string) ($row['added_label'] ?? '—'),
             'added_at' => (string) ($row['added_at'] ?? ''),
             'title_href' => (string) ($row['title_href'] ?? ''),
@@ -39,6 +61,7 @@
             'can_edit_article' => ! empty($row['can_edit_article']),
             'can_skip_seo_audit' => ! empty($row['can_skip_seo_audit']),
             'visible' => true,
+            'saving_post_type' => false,
         ];
     }, $items);
 
@@ -52,7 +75,12 @@
         ],
         'rows' => $rows,
         'selected' => $selectedIds,
+        'postTypeOptions' => $postTypeOptions,
+        'labelPost' => $labelPost,
+        'labelProduct' => $labelProduct,
         'descriptionHint' => (string) __('seo-content-ai::filament.projects.planning_description_hint'),
+        'productDescriptionLabel' => (string) __('seo-content-ai::filament.projects.planning_product_description_label'),
+        'postTypeEditHint' => (string) __('seo-content-ai::filament.projects.planning_post_type_edit_hint'),
         'confirmSkip' => (string) __('seo-content-ai::filament.projects.seo_audit_skip_confirm'),
         'confirmArchive' => (string) __('seo-content-ai::filament.projects.item_action_remove_from_draft_confirm'),
         'labelReviewed' => (string) __('seo-content-ai::filament.projects.planning_reviewed'),
@@ -84,6 +112,8 @@
                 rows,
                 selected: Array.isArray(cfg.selected) ? cfg.selected.slice() : [],
                 descriptionHint: cfg.descriptionHint || '',
+                productDescriptionLabel: cfg.productDescriptionLabel || 'Product description:',
+                postTypeEditHint: cfg.postTypeEditHint || 'Double click to change post type',
                 confirmSkip: cfg.confirmSkip || '',
                 confirmArchive: cfg.confirmArchive || '',
                 markReviewed: cfg.markReviewed || '',
@@ -96,7 +126,11 @@
                 labelSkipSeoAudit: cfg.labelSkipSeoAudit || 'Skip SEO Audit',
                 labelRemove: cfg.labelRemove || 'Remove',
                 seoPrefix: cfg.seoPrefix || 'SEO',
+                postTypeOptions: Array.isArray(cfg.postTypeOptions) ? cfg.postTypeOptions : [],
+                labelPost: cfg.labelPost || 'Post',
+                labelProduct: cfg.labelProduct || 'Product',
                 editing: null,
+                editingPostTypeId: null,
                 draft: '',
                 blurGuardUntil: 0,
                 alpineReady: false,
@@ -104,6 +138,98 @@
                 init() {
                     this.alpineReady = true;
                     this.$root.querySelectorAll('[data-draft-ssr-row]').forEach((el) => el.remove());
+                },
+
+                postTypeLabelFor(value) {
+                    const key = value === 'product' ? 'product' : 'article';
+                    const hit = this.postTypeOptions.find((o) => o.value === key);
+                    if (hit && hit.label) {
+                        return hit.label;
+                    }
+                    return key === 'product' ? this.labelProduct : this.labelPost;
+                },
+
+                postTypeSelectOptions(row) {
+                    const opts = this.postTypeOptions.slice();
+                    if (row.post_type === 'product' && !opts.some((o) => o.value === 'product')) {
+                        opts.push({ value: 'product', label: this.labelProduct });
+                    }
+                    return opts;
+                },
+
+                async changePostType(row, event) {
+                    if (!row.can_edit_post_type || row.saving_post_type) {
+                        return;
+                    }
+                    const next = String(event.target.value || '');
+                    const prev = row.post_type === 'product' ? 'product' : 'article';
+                    const prevLabel = row.post_type_label;
+                    const wasReviewed = !!row.planning_reviewed;
+                    if (next === prev) {
+                        this.editingPostTypeId = null;
+
+                        return;
+                    }
+                    row.post_type = next;
+                    row.post_type_label = this.postTypeLabelFor(next);
+                    row.saving_post_type = true;
+                    try {
+                        await this.$wire.updateDraftPlanningItem(row.id, 'post_type', next);
+                        if (wasReviewed) {
+                            row.planning_reviewed = false;
+                            this.counts.reviewed = Math.max(0, this.counts.reviewed - 1);
+                            this.counts.unreviewed += 1;
+                            if (this.tab === 'reviewed') {
+                                row.visible = false;
+                            }
+                        }
+                    } catch (e) {
+                        row.post_type = prev;
+                        row.post_type_label = prevLabel;
+                        event.target.value = prev;
+                    } finally {
+                        row.saving_post_type = false;
+                        this.editingPostTypeId = null;
+                    }
+                },
+
+                startPostTypeEdit(row) {
+                    if (!row.can_edit_post_type || row.saving_post_type) {
+                        return;
+                    }
+                    this.editingPostTypeId = row.id;
+                    this.blurGuardUntil = Date.now() + 350;
+                    this.$nextTick(() => {
+                        const el = this.$root.querySelector('[data-post-type-edit="' + String(row.id) + '"]');
+                        if (el) {
+                            el.focus({ preventScroll: true });
+                        }
+                    });
+                },
+
+                cancelPostTypeEdit() {
+                    this.editingPostTypeId = null;
+                },
+
+                onPostTypeBlur(row) {
+                    if (this.editingPostTypeId !== row.id || row.saving_post_type) {
+                        return;
+                    }
+                    if (Date.now() < this.blurGuardUntil) {
+                        this.$nextTick(() => {
+                            const el = this.$root.querySelector('[data-post-type-edit="' + String(row.id) + '"]');
+                            if (el && this.editingPostTypeId === row.id) {
+                                el.focus({ preventScroll: true });
+                            }
+                        });
+
+                        return;
+                    }
+                    this.editingPostTypeId = null;
+                },
+
+                showProductDescription(row) {
+                    return row.post_type === 'product' && String(row.product_description || '').trim() !== '';
                 },
 
                 setTab(next) {
@@ -284,7 +410,7 @@
 <section
     class="cp-plan-draft cp-plan-draft--full"
     data-content-planning-draft-items="1"
-    wire:key="cp-draft-items-{{ $reviewFilter }}-{{ $typeFilter }}"
+    wire:key="cp-draft-items-{{ $reviewFilter }}-{{ $typeFilter }}-{{ (int) $refreshNonce }}"
     x-data="cpPlanDraftItems(@js($boot))"
 >
     <div class="cp-plan-draft__head" @if ($hideSectionTitle) style="display:none" aria-hidden="true" @endif>
@@ -384,6 +510,12 @@
                                             @if (($ssrRow['description'] ?? '') !== '')
                                                 <p class="mt-0.5 text-xs text-gray-500">{{ \Illuminate\Support\Str::limit((string) $ssrRow['description'], 160) }}</p>
                                             @endif
+                                            @if (($ssrRow['post_type'] ?? '') === 'product' && trim((string) ($ssrRow['product_description'] ?? '')) !== '')
+                                                <p class="mt-0.5 text-xs leading-snug text-gray-500 dark:text-gray-400">
+                                                    <span class="font-medium text-gray-600 dark:text-gray-300">{{ $boot['productDescriptionLabel'] ?? 'Mô tả sản phẩm:' }}</span>
+                                                    {{ \Illuminate\Support\Str::limit((string) $ssrRow['product_description'], 200) }}
+                                                </p>
+                                            @endif
                                         </div>
                                     </div>
                                 </td>
@@ -462,6 +594,13 @@
                                                 ></div>
                                             </template>
 
+                                            <template x-if="showProductDescription(row)">
+                                                <p class="mt-0.5 text-xs leading-snug text-gray-500 dark:text-gray-400">
+                                                    <span class="font-medium text-gray-600 dark:text-gray-300" x-text="productDescriptionLabel"></span>
+                                                    <span x-text="' ' + row.product_description"></span>
+                                                </p>
+                                            </template>
+
                                             <div class="cp-plan-row-actions cp-plan-row-actions--under">
                                                 <template x-if="row.can_edit_article && row.article_edit_url">
                                                     <a :href="row.article_edit_url" target="_blank" rel="noopener" class="cp-plan-row-action" x-text="labelEditArticle"></a>
@@ -496,7 +635,36 @@
                                         <span class="cursor-text" @dblclick.prevent="startEdit(row, 'keyword')" x-text="row.keyword || '—'"></span>
                                     </template>
                                 </td>
-                                <td class="px-3 py-3 align-top text-xs text-gray-600 dark:text-gray-300 cp-plan-draft-table__col-post-type" x-text="row.post_type_label"></td>
+                                <td class="px-3 py-3 align-top text-xs text-gray-600 dark:text-gray-300 cp-plan-draft-table__col-post-type">
+                                    <template x-if="row.can_edit_post_type && editingPostTypeId === row.id">
+                                        <select
+                                            class="cp-plan-inline-select"
+                                            :data-post-type-edit="row.id"
+                                            :value="row.post_type === 'product' ? 'product' : 'article'"
+                                            :disabled="row.saving_post_type"
+                                            :class="{ 'opacity-50 pointer-events-none': row.saving_post_type }"
+                                            @change="changePostType(row, $event)"
+                                            @keydown.escape.prevent="cancelPostTypeEdit()"
+                                            @blur="onPostTypeBlur(row)"
+                                            :aria-label="'{{ __('seo-content-ai::filament.projects.planning_col_post_type') }}'"
+                                        >
+                                            <template x-for="opt in postTypeSelectOptions(row)" :key="opt.value">
+                                                <option :value="opt.value" :selected="(row.post_type === 'product' ? 'product' : 'article') === opt.value" x-text="opt.label"></option>
+                                            </template>
+                                        </select>
+                                    </template>
+                                    <template x-if="row.can_edit_post_type && editingPostTypeId !== row.id">
+                                        <span
+                                            class="cursor-default"
+                                            :title="postTypeEditHint"
+                                            @dblclick.prevent="startPostTypeEdit(row)"
+                                            x-text="row.post_type_label"
+                                        ></span>
+                                    </template>
+                                    <template x-if="!row.can_edit_post_type">
+                                        <span x-text="row.post_type_label"></span>
+                                    </template>
+                                </td>
                                 <td class="px-3 py-3 align-top">
                                     <span class="cp-plan-badge" :class="{
                                         'cp-plan-badge--rewrite': row.type === 'rewrite',

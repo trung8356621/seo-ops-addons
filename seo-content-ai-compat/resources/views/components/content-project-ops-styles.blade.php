@@ -1038,11 +1038,27 @@
             line-height: 1.35;
             box-shadow: 0 0 0 2px rgb(16 185 129 / 0.15);
         }
+        .cp-plan-inline-select {
+            max-width: 7.5rem;
+            width: 100%;
+            border-radius: 0.375rem;
+            border: 1px solid #d1d5db;
+            background: #fff;
+            padding: 0.25rem 0.4rem;
+            font-size: 0.75rem;
+            line-height: 1.25;
+            color: #374151;
+        }
         .dark .cp-plan-inline-input,
         .dark .cp-plan-inline-textarea {
             border-color: #34d399;
             background: rgb(17 24 39);
             color: #f3f4f6;
+        }
+        .dark .cp-plan-inline-select {
+            border-color: #4b5563;
+            background: rgb(17 24 39);
+            color: #e5e7eb;
         }
         .cp-plan-inline-textarea { min-height: 4.5rem; resize: vertical; }
         .cp-plan-badge {

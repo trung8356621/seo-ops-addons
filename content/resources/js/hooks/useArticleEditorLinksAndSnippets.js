@@ -251,11 +251,27 @@ export default function useArticleEditorLinksAndSnippets({ activeBlockId, active
                 return;
             }
 
+            const preferredBlockId = String(detail?.blockId ?? detail?.block_id ?? '').trim();
+            const preferredLocalIndex = Number(detail?.localIndex ?? detail?.local_index);
             const currentBlocks = blocksRef.current;
-            let targetBlockId = offset != null ? findBlockIdForExportOffset(currentBlocks, offset) : null;
-            let localAnchorIndex = listIndex;
+            let targetBlockId = preferredBlockId !== ''
+                ? preferredBlockId
+                : (offset != null ? findBlockIdForExportOffset(currentBlocks, offset) : null);
+            let localAnchorIndex = Number.isFinite(preferredLocalIndex) && preferredLocalIndex >= 0
+                ? Math.floor(preferredLocalIndex)
+                : listIndex;
 
-            if (targetBlockId) {
+            if (preferredBlockId !== '') {
+                const preferredBlock = currentBlocks.find((block) => block.id === preferredBlockId);
+                if (!preferredBlock?.content) {
+                    targetBlockId = null;
+                } else if (searchPlainText && text) {
+                    // Prefer the exact matched slice inside the known block.
+                    localAnchorIndex = Number.isFinite(preferredLocalIndex) && preferredLocalIndex >= 0
+                        ? Math.floor(preferredLocalIndex)
+                        : 0;
+                }
+            } else if (targetBlockId) {
                 const offsetBlock = currentBlocks.find((block) => block.id === targetBlockId);
                 const countInOffsetBlock = offsetBlock?.content
                     ? (searchPlainText
@@ -291,7 +307,7 @@ export default function useArticleEditorLinksAndSnippets({ activeBlockId, active
                     }
                     global += count;
                 }
-            } else {
+            } else if (preferredBlockId === '') {
                 let before = 0;
                 for (const block of currentBlocks) {
                     if (block.id === targetBlockId) {
