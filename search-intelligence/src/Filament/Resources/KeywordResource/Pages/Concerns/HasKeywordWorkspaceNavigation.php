@@ -98,6 +98,12 @@ trait HasKeywordWorkspaceNavigation
             ? $siteId
             : SeoAccessControl::globalSiteId();
 
+        if ($resolved === null || $resolved <= 0) {
+            // Never leave Keyword Intelligence on All domains (unscoped = heavy).
+            $first = SeoAccessControl::accessibleSitesQuery()->orderBy('domain')->value('id');
+            $resolved = is_numeric($first) ? (int) $first : null;
+        }
+
         $this->keywordWorkspaceSiteId = ($resolved !== null && $resolved > 0) ? $resolved : null;
     }
 

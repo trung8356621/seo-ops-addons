@@ -9,8 +9,8 @@ use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
-use Omnichannel\Addons\SearchIntelligence\Models\KeywordRuleGroup;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordClassification;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicClusterMeta;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordCanonicalizer;
 use Omnichannel\Addons\Seo\Support\DomainContextResolver;
 
@@ -61,13 +61,21 @@ final class KeywordClusterQuery
         $hasArticles = (bool) ($filters['has_articles'] ?? false);
 
         $rows = $this->clusterAggregates($siteId);
+        $canonicalByKey = $this->canonicalLabelsForKeys(
+            $siteId,
+            array_values(array_filter(array_map(
+                static fn (object $row): string => trim((string) ($row->cluster_key ?? '')),
+                $rows,
+            ))),
+        );
         $items = [];
         foreach ($rows as $row) {
             $key = (string) ($row->cluster_key ?? '');
             if ($key === '') {
                 continue;
             }
-            $label = $this->displayLabel($key, (string) ($row->sample_phrase ?? ''));
+            $label = $canonicalByKey[$key]
+                ?? $this->displayLabel($key, (string) ($row->sample_phrase ?? ''), $siteId);
             if ($search !== '' && ! str_contains(mb_strtolower($label.' '.$key), mb_strtolower($search))) {
                 continue;
             }
@@ -78,7 +86,7 @@ final class KeywordClusterQuery
             $score = $this->coverageBuilder->score(
                 (int) ($row->keyword_count ?? 0),
                 $articleCount,
-                (int) ($row->group_diversity ?? 0),
+                (int) ($row->dna_branch_count ?? 0),
                 (int) ($row->intent_diversity ?? 0),
             );
             if ($coverage !== '' && $score !== $coverage) {
@@ -91,7 +99,7 @@ final class KeywordClusterQuery
                 'article_count' => $articleCount,
                 'intent' => (string) ($row->top_intent ?? ''),
                 'coverage' => $score,
-                'groups' => $this->decodeGroups((string) ($row->group_labels ?? '')),
+                'groups' => [],
             ];
         }
 
@@ -120,13 +128,11 @@ final class KeywordClusterQuery
         }
 
         $keywordIds = $this->keywordIdSubquery($siteId);
-        $groupJoin = '';
-        $groupSelect = '0 as group_diversity, \'\' as group_labels';
-        if (Schema::connection('omi_seo_ai')->hasTable('seo_keyword_rule_group_members')
-            && Schema::connection('omi_seo_ai')->hasTable('seo_keyword_rule_groups')) {
-            $groupSelect = 'COUNT(DISTINCT m.group_id) as group_diversity, GROUP_CONCAT(DISTINCT g.label ORDER BY g.sort_order SEPARATOR \'|\') as group_labels';
-            $groupJoin = ' LEFT JOIN seo_keyword_rule_group_members m ON m.keyword_id = c.keyword_id'
-                .' LEFT JOIN seo_keyword_rule_groups g ON g.id = m.group_id AND g.is_active = 1';
+        $dnaJoin = '';
+        $dnaSelect = '0 as dna_branch_count';
+        if (Schema::connection('omi_seo_ai')->hasTable('seo_keyword_dna')) {
+            $dnaSelect = 'COUNT(DISTINCT d.normalized_value) as dna_branch_count';
+            $dnaJoin = ' LEFT JOIN seo_keyword_dna d ON d.keyword_id = c.keyword_id AND d.cluster_key = c.cluster_key';
         }
 
         $articleJoin = '';
@@ -142,11 +148,11 @@ final class KeywordClusterQuery
             .' COUNT(DISTINCT c.seo_intent) as intent_diversity,'
             .' SUBSTRING_INDEX(GROUP_CONCAT(c.seo_intent ORDER BY c.keyword_id), \',\', 1) as top_intent,'
             .' '.$articleSelect.','
-            .' '.$groupSelect
+            .' '.$dnaSelect
             .' FROM seo_keyword_classifications c'
             .' INNER JOIN keywords k ON k.id = c.keyword_id'
             .$articleJoin
-            .$groupJoin
+            .$dnaJoin
             .' WHERE c.cluster_key IS NOT NULL AND c.cluster_key <> \'\''
             .' AND c.keyword_id IN ('.$keywordIds->toSql().')'
             .' GROUP BY c.cluster_key'
@@ -182,16 +188,70 @@ final class KeywordClusterQuery
         return $out;
     }
 
-    public function displayLabel(string $clusterKey, string $samplePhrase = ''): string
+    /**
+     * Canonical cluster title SSOT: seo_topic_cluster_meta.canonical_phrase.
+     * Fallback: cluster_key pretty → last-resort sample member phrase.
+     */
+    public function displayLabel(string $clusterKey, string $samplePhrase = '', ?int $siteId = null): string
     {
-        $sample = trim($samplePhrase);
-        if ($sample !== '') {
-            return (new KeywordCanonicalizer())->prettyLabel($sample);
+        $clusterKey = trim($clusterKey);
+        if ($clusterKey === '') {
+            return '';
         }
 
-        $label = trim(str_replace('_', ' ', $clusterKey));
+        $canonical = $this->canonicalLabel($clusterKey, $siteId);
+        if ($canonical !== '') {
+            return $canonical;
+        }
 
-        return $label !== '' ? mb_convert_case($label, MB_CASE_TITLE, 'UTF-8') : $clusterKey;
+        $fromKey = trim(str_replace('_', ' ', $clusterKey));
+        if ($fromKey !== '') {
+            return mb_convert_case($fromKey, MB_CASE_TITLE, 'UTF-8');
+        }
+
+        $sample = trim($samplePhrase);
+
+        return $sample !== ''
+            ? (new KeywordCanonicalizer())->prettyLabel($sample)
+            : $clusterKey;
+    }
+
+    /**
+     * @param  list<string>  $clusterKeys
+     * @return array<string, string>
+     */
+    public function canonicalLabelsForKeys(?int $siteId, array $clusterKeys): array
+    {
+        $clusterKeys = array_values(array_unique(array_filter(array_map(
+            static fn (mixed $k): string => trim((string) $k),
+            $clusterKeys,
+        ))));
+        if ($clusterKeys === [] || ! Schema::connection('omi_seo_ai')->hasTable('seo_topic_cluster_meta')) {
+            return [];
+        }
+
+        $query = SeoTopicClusterMeta::query()->whereIn('cluster_key', $clusterKeys);
+        if ($siteId !== null && $siteId > 0) {
+            $query->where('site_id', $siteId);
+        }
+
+        $out = [];
+        foreach ($query->get(['cluster_key', 'canonical_phrase']) as $meta) {
+            $key = trim((string) $meta->cluster_key);
+            $phrase = trim((string) $meta->canonical_phrase);
+            if ($key !== '' && $phrase !== '' && ! isset($out[$key])) {
+                $out[$key] = $phrase;
+            }
+        }
+
+        return $out;
+    }
+
+    public function canonicalLabel(string $clusterKey, ?int $siteId = null): string
+    {
+        $map = $this->canonicalLabelsForKeys($siteId, [$clusterKey]);
+
+        return $map[trim($clusterKey)] ?? '';
     }
 
     public function unclusteredListUrl(?int $siteId): string
@@ -251,17 +311,5 @@ final class KeywordClusterQuery
         $ids = $this->keywordIdSubquery($siteId);
 
         return $query->whereIn('c.keyword_id', $ids);
-    }
-
-    /**
-     * @return list<string>
-     */
-    private function decodeGroups(string $raw): array
-    {
-        if ($raw === '') {
-            return [];
-        }
-
-        return array_values(array_filter(array_map('trim', explode('|', $raw))));
     }
 }

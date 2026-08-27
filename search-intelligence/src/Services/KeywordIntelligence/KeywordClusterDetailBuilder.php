@@ -15,6 +15,8 @@ final class KeywordClusterDetailBuilder
     public function __construct(
         private readonly KeywordClusterQuery $clusters,
         private readonly KeywordGroupCoverageBuilder $coverageBuilder,
+        private readonly ?KeywordDnaService $dnaService = null,
+        private readonly ?TopicIdeaCoverageService $ideaCoverage = null,
     ) {}
 
     /**
@@ -53,30 +55,9 @@ final class KeywordClusterDetailBuilder
             ->pluck('total', 'seo_intent')
             ->all();
 
-        $groups = [];
-        if (Schema::connection('omi_seo_ai')->hasTable('seo_keyword_rule_group_members')) {
-            $groups = DB::connection('omi_seo_ai')->table('seo_keyword_rule_group_members as m')
-                ->join('seo_keyword_rule_groups as g', 'g.id', '=', 'm.group_id')
-                ->whereIn('m.keyword_id', $keywordIds)
-                ->where('g.is_active', true)
-                ->groupBy('g.id', 'g.group_key', 'g.label', 'g.sort_order')
-                ->orderBy('g.sort_order')
-                ->get([
-                    'g.group_key',
-                    'g.label',
-                    DB::raw('COUNT(DISTINCT m.keyword_id) as keyword_count'),
-                ])
-                ->map(static fn ($row): array => [
-                    'key' => (string) $row->group_key,
-                    'label' => (string) $row->label,
-                    'keyword_count' => (int) $row->keyword_count,
-                ])
-                ->all();
-        }
-
         $primary = SeoKeywordClassification::query()
             ->whereIn('keyword_id', $keywordIds)
-            ->orderByRaw('CHAR_LENGTH(COALESCE(normalized_text, \'\')) ASC')
+            ->orderByRaw('LENGTH(COALESCE(normalized_text, \'\')) ASC')
             ->first();
         $primaryKeyword = $primary instanceof SeoKeywordClassification
             ? Keyword::query()->find((int) $primary->keyword_id)
@@ -97,10 +78,39 @@ final class KeywordClusterDetailBuilder
         }
 
         $sample = $primaryKeyword instanceof Keyword ? (string) $primaryKeyword->phrase : '';
+        $label = $this->clusters->displayLabel($clusterKey, $sample, $siteId);
+
+        $idea = null;
+        $coverage = $this->ideaCoverage
+            ?? (app()->bound(TopicIdeaCoverageService::class) ? app(TopicIdeaCoverageService::class) : null);
+        if ($coverage instanceof TopicIdeaCoverageService && $siteId !== null && $siteId > 0) {
+            $idea = $coverage->forCluster($siteId, $clusterKey);
+        }
+
+        $dnaCoverage = [];
+        if ($idea !== null) {
+            foreach ($idea['dna_branches'] as $branch) {
+                $dnaCoverage[] = [
+                    'value' => $branch['value'],
+                    'count' => $branch['keyword_count'],
+                    'article_count' => $branch['article_count'],
+                    'content_coverage' => $branch['content_coverage'],
+                    'examples' => $branch['examples'],
+                ];
+            }
+        } else {
+            $dna = $this->dnaService ?? (app()->bound(KeywordDnaService::class) ? app(KeywordDnaService::class) : null);
+            if ($dna instanceof KeywordDnaService && $siteId !== null && $siteId > 0) {
+                $dnaCoverage = $dna->coverageForCluster($siteId, $clusterKey);
+            }
+        }
+
+        $dnaBranchCount = (int) (($idea ?? [])['dna_branch_count'] ?? 0);
 
         return [
             'cluster_key' => $clusterKey,
-            'label' => $this->clusters->displayLabel($clusterKey, $sample),
+            'label' => $label,
+            'canonical_phrase' => $label,
             'keyword_count' => $keywordCount,
             'article_count' => $articleCount,
             'internal_links' => $linkCount,
@@ -112,9 +122,11 @@ final class KeywordClusterDetailBuilder
                 'transactional' => (int) ($intents['transactional'] ?? 0),
                 'navigational' => (int) ($intents['navigational'] ?? 0),
             ],
-            'groups' => $groups,
-            'coverage' => $this->coverageBuilder->score($keywordCount, $articleCount, count($groups), $intentDiversity),
+            'groups' => [],
+            'coverage' => $this->coverageBuilder->score($keywordCount, $articleCount, $dnaBranchCount, $intentDiversity),
             'last_analyzed' => $lastAnalyzed,
+            'dna_coverage' => $dnaCoverage,
+            'idea_coverage' => $idea,
         ];
     }
 

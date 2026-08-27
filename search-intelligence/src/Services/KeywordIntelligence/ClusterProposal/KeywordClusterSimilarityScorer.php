@@ -145,11 +145,9 @@ final class KeywordClusterSimilarityScorer
      */
     private function groupBonus(array $leftGroups, array $rightGroups): float
     {
-        if ($leftGroups === [] || $rightGroups === []) {
-            return 0.0;
-        }
+        unset($leftGroups, $rightGroups);
 
-        return array_intersect($leftGroups, $rightGroups) !== [] ? 0.04 : 0.0;
+        return 0.0;
     }
 
     private function lightCharacterSimilarity(string $left, string $right): float

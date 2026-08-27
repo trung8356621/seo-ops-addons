@@ -29,9 +29,6 @@ final class SearchIntelligenceServiceProvider extends ServiceProvider
         Keyword::resolveRelationUsing('seoClassification', static function (Keyword $keyword) {
             return $keyword->hasOne(SeoKeywordClassification::class, 'keyword_id');
         });
-        Keyword::resolveRelationUsing('ruleGroupMemberships', static function (Keyword $keyword) {
-            return $keyword->hasMany(\Omnichannel\Addons\SearchIntelligence\Models\KeywordRuleGroupMember::class, 'keyword_id');
-        });
     }
 
     private function registerCapabilities(): void

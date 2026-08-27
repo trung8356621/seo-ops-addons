@@ -572,7 +572,7 @@ class ListKeywords extends ListRecords
     }
 
     /**
-     * Global keyword dictionary: GlobalSeoBar domain must not filter this listing.
+     * Keyword dictionary is domain-scoped via GlobalSeoBar (default: first accessible domain).
      */
     protected function getTableQuery(): ?Builder
     {

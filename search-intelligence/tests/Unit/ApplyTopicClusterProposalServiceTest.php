@@ -423,6 +423,7 @@ final class ApplyTopicClusterProposalServiceTest extends TestCase
             app(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterEligibility::class),
             app(KeywordClusterQuery::class),
             app(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\TopicClusterApplySideEffects::class),
+            app(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\TopicClusterPostApplyService::class),
         ) extends ApplyTopicClusterProposalService {
             protected function isAuthorized(int $siteId): bool
             {

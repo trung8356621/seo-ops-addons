@@ -24,6 +24,7 @@ use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Dto\Keywo
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterQuery;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\TopicClusterApplySideEffects;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\TopicClusterClusterKeyGenerator;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\TopicClusterPostApplyService;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordNormalizer;
 use Tests\TestCase;
 
@@ -377,6 +378,7 @@ final class ApplyTopicClusterProposalBatchServiceTest extends TestCase
             app(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterEligibility::class),
             app(KeywordClusterQuery::class),
             app(TopicClusterApplySideEffects::class),
+            app(TopicClusterPostApplyService::class),
         ) extends ApplyTopicClusterProposalBatchService {
             protected function isAuthorized(int $siteId): bool
             {
@@ -394,6 +396,7 @@ final class ApplyTopicClusterProposalBatchServiceTest extends TestCase
             app(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterEligibility::class),
             app(KeywordClusterQuery::class),
             app(TopicClusterApplySideEffects::class),
+            app(TopicClusterPostApplyService::class),
         ) extends ApplyTopicClusterProposalService {
             protected function isAuthorized(int $siteId): bool
             {

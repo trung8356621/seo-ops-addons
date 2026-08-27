@@ -11,6 +11,18 @@ use Tests\TestCase;
 
 final class SeoAccessControlDomainPickerTest extends TestCase
 {
+    public function test_shows_domain_picker_on_keyword_clusters_page(): void
+    {
+        Route::get('/seo/test-hash/keywords/clusters', fn () => 'ok')->name('filament.seo.resources.keywords.clusters');
+
+        $request = Request::create('/seo/test-hash/keywords/clusters', 'GET');
+        $route = Route::getRoutes()->match($request);
+        $request->setRouteResolver(static fn () => $route);
+        $this->app->instance('request', $request);
+
+        $this->assertTrue(SeoAccessControl::shouldShowGlobalSitePicker());
+    }
+
     public function test_hides_domain_picker_on_performance_hub_provider_source(): void
     {
         Route::get('/seo/test-hash/performance-hub', fn () => 'ok')->name('filament.seo.pages.performance-hub');

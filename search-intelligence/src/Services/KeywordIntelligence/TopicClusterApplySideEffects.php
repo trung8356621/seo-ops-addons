@@ -82,6 +82,28 @@ final class TopicClusterApplySideEffects
         }
     }
 
+    /**
+     * @param  array<string, int>  $metrics
+     */
+    public function afterRecluster(int $siteId, array $metrics): void
+    {
+        $this->invalidateLandscapeCache($siteId);
+
+        try {
+            if (! function_exists('app') || ! app()->bound(OperationLogger::class)) {
+                return;
+            }
+
+            app(OperationLogger::class)->info('keyword_cluster.recluster_completed', [
+                'site_id' => $siteId,
+                'actor_id' => auth()->id(),
+                ...$metrics,
+            ]);
+        } catch (Throwable) {
+            // Best-effort audit only.
+        }
+    }
+
     private function invalidateLandscapeCache(int $siteId): void
     {
         try {

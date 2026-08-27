@@ -31,6 +31,7 @@ class ApplyTopicClusterProposalBatchService
         private readonly KeywordClusterEligibility $eligibility,
         private readonly KeywordClusterQuery $clusters,
         private readonly TopicClusterApplySideEffects $sideEffects,
+        private readonly TopicClusterPostApplyService $postApply,
     ) {}
 
     public function apply(ApplyTopicClusterProposalBatchInput $input): ApplyTopicClusterProposalBatchResult
@@ -219,6 +220,16 @@ class ApplyTopicClusterProposalBatchService
             plans: $plans,
         );
 
+        foreach ($plans as $plan) {
+            $cluster = $plan['cluster'];
+            $this->postApply->afterClusterAssignment(
+                siteId: $input->siteId,
+                clusterKey: $plan['cluster_key'],
+                keywordIds: $plan['member_ids'],
+                representativeLabel: $cluster->representativeLabel,
+            );
+        }
+
         return ApplyTopicClusterProposalBatchResult::applied(
             mode: $mode,
             proposalCount: count($plans),
@@ -294,12 +305,20 @@ class ApplyTopicClusterProposalBatchService
                 $unionMemberIds[$keywordId] = true;
             }
 
-            $clusterKey = $this->clusterKeyGenerator->generate(
+            $clusterKey = $this->postApply->resolveClusterKey(
                 siteId: $input->siteId,
                 representativeLabel: $cluster->representativeLabel,
-                sortedKeywordIds: $resolved['member_ids'],
-                reservedKeys: $reservedKeys,
+                memberIds: $resolved['member_ids'],
+                generator: $this->clusterKeyGenerator,
             );
+            if (isset($reservedKeys[$clusterKey])) {
+                $clusterKey = $this->clusterKeyGenerator->generate(
+                    siteId: $input->siteId,
+                    representativeLabel: $cluster->representativeLabel,
+                    sortedKeywordIds: $resolved['member_ids'],
+                    reservedKeys: $reservedKeys,
+                );
+            }
             $reservedKeys[$clusterKey] = true;
 
             $plans[] = [

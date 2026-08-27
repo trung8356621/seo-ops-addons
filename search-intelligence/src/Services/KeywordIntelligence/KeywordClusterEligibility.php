@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence;
 
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordClassification;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordClassificationVisibility;
@@ -33,19 +32,6 @@ final class KeywordClusterEligibility
         $keywordIds = KeywordClusterSiteScope::keywordIds($siteId);
         $total = count($keywordIds);
 
-        $systemGroups = 0;
-        $customGroups = 0;
-        if (Schema::connection('omi_seo_ai')->hasTable('seo_keyword_rule_groups')) {
-            $systemGroups = (int) \Omnichannel\Addons\SearchIntelligence\Models\KeywordRuleGroup::query()
-                ->where('group_type', 'system')
-                ->where('is_active', true)
-                ->count();
-            $customGroups = (int) \Omnichannel\Addons\SearchIntelligence\Models\KeywordRuleGroup::query()
-                ->where('group_type', 'custom')
-                ->where('is_active', true)
-                ->count();
-        }
-
         if ($total === 0 || ! KeywordClassificationVisibility::tableReady()) {
             return [
                 'total_keywords' => $total,
@@ -57,8 +43,8 @@ final class KeywordClusterEligibility
                 'non_seo_keywords' => 0,
                 'non_seo_but_clustered' => 0,
                 'topic_clusters' => 0,
-                'system_groups' => $systemGroups,
-                'custom_groups' => $customGroups,
+                'system_groups' => 0,
+                'custom_groups' => 0,
             ];
         }
 
@@ -102,8 +88,8 @@ final class KeywordClusterEligibility
             'non_seo_keywords' => $nonSeo,
             'non_seo_but_clustered' => $nonSeoButClustered,
             'topic_clusters' => $topicClusters,
-            'system_groups' => $systemGroups,
-            'custom_groups' => $customGroups,
+            'system_groups' => 0,
+            'custom_groups' => 0,
         ];
     }
 

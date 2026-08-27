@@ -82,10 +82,24 @@ final class KeywordTopicClusterDetail extends Page
      */
     public function getDetail(): ?array
     {
-        return app(KeywordClusterDetailBuilder::class)->build(
+        $detail = app(KeywordClusterDetailBuilder::class)->build(
             $this->resolveKeywordWorkspaceSiteId(),
             $this->clusterKey,
         );
+
+        return $detail;
+    }
+
+    /**
+     * @return array<int, list<string>>
+     */
+    public function getKeywordDnaMap(): array
+    {
+        $keywords = $this->getKeywords();
+        $ids = collect($keywords->items())->pluck('id')->map(static fn ($id): int => (int) $id)->all();
+
+        return app(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordDnaService::class)
+            ->displayValuesForKeywords($ids);
     }
 
     public function getKeywords()

@@ -41,7 +41,11 @@ final class KeywordTopicClusterUiContractTest extends TestCase
             'resources/views/filament/resources/keywords/pages/topic-cluster-index.blade.php',
         ));
         self::assertStringContainsString('topic_cluster_title', $index);
-        self::assertStringContainsString('topic_tab_groups', $index);
+        self::assertStringNotContainsString('topic_tab_groups', $index);
+        self::assertStringNotContainsString('createCustomGroup', $index);
+        self::assertStringNotContainsString('getGroups', $index);
+        self::assertStringNotContainsString('Nhóm quy tắc', $index);
+        self::assertStringContainsString('topic_col_dna_count', $index);
         self::assertStringNotContainsString('cluster_tree_heading', $index);
         self::assertStringNotContainsString('createPillarDraft', $index);
         self::assertStringNotContainsString('newPillarPhrase', $index);
@@ -49,8 +53,9 @@ final class KeywordTopicClusterUiContractTest extends TestCase
         $detail = (string) file_get_contents(LegacyAddonPath::resolve(
             'resources/views/filament/resources/keywords/pages/topic-cluster-detail.blade.php',
         ));
-        self::assertStringContainsString('topic_group_distribution', $detail);
+        self::assertStringNotContainsString('topic_group_distribution', $detail);
         self::assertStringContainsString('intent_counts', $detail);
+        self::assertStringContainsString('topic_idea_coverage_title', $detail);
     }
 
     public function test_settings_keywords_has_no_review_reasons_ui(): void

@@ -152,7 +152,6 @@ final class KeywordClassificationService
                 ['keyword_id' => (int) $keyword->id],
                 $payload,
             );
-            app(KeywordGroupMembershipService::class)->syncKeyword((int) $keyword->id, $raw);
 
             if ($processed % 20 === 0) {
                 $this->writeProgress($siteId, LongRunningProgress::fromArray([
@@ -262,11 +261,21 @@ final class KeywordClassificationService
             $payload,
         );
 
-        if (app()->bound(KeywordGroupMembershipService::class)) {
-            app(KeywordGroupMembershipService::class)->syncKeyword((int) $keyword->id, $raw);
+        if (
+            $siteId > 0
+            && ($payload['cluster_key'] ?? null) === null
+            && (bool) ($classified['is_seo_keyword'] ?? false)
+        ) {
+            try {
+                app(ReclusterTopicClustersService::class)->assignKeyword(
+                    $siteId,
+                    (int) $keyword->id,
+                    (string) $keyword->phrase,
+                );
+            } catch (\Throwable) {
+                // Incremental cluster attach is best-effort; full repair via Tách lại cluster.
+            }
         }
-
-        unset($siteId);
 
         return true;
     }

@@ -4,31 +4,23 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages;
 
-use Filament\Notifications\Notification;
 use Filament\Resources\Pages\Page;
 use Illuminate\Contracts\Support\Htmlable;
-use Livewire\Attributes\Url;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
-use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\AppliesTopicClusterProposalBatches;
-use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\AppliesTopicClusterProposals;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\DissolvesTopicClusters;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\HasKeywordWorkspaceNavigation;
-use Omnichannel\Addons\SearchIntelligence\Jobs\RecomputeKeywordGroupMembershipsJob;
-use Omnichannel\Addons\SearchIntelligence\Models\KeywordRuleGroup;
-use Omnichannel\Addons\SearchIntelligence\Models\KeywordRuleGroupRule;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\ClusterProposal\KeywordClusterProposalEngine;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\ClusterProposal\KeywordClusterProposalStrategy;
+use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\ReclustersTopicClusters;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterQuery;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordGroupMembershipService;
-use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordNormalizer;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\TopicIdeaCoverageService;
 use Omnichannel\Addons\Seo\Support\DomainContextResolver;
+use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use App\Models\Site;
 
 final class KeywordTopicClusters extends Page
 {
-    use AppliesTopicClusterProposalBatches;
-    use AppliesTopicClusterProposals;
     use DissolvesTopicClusters;
     use HasKeywordWorkspaceNavigation;
+    use ReclustersTopicClusters;
 
     protected static string $resource = KeywordResource::class;
 
@@ -36,41 +28,41 @@ final class KeywordTopicClusters extends Page
 
     protected static bool $shouldRegisterNavigation = false;
 
-    #[Url(as: 'section')]
-    public string $section = 'clusters';
-
     public string $clusterSearch = '';
 
     public string $coverageFilter = '';
 
     public bool $hasArticles = false;
 
-    public string $groupSearch = '';
-
-    public string $groupTypeFilter = '';
-
-    public string $newGroupLabel = '';
-
-    public string $newRulePhrase = '';
-
-    public ?int $editingGroupId = null;
-
-    public bool $showClusterProposalPreview = false;
-
-    public string $clusterProposalStrategy = KeywordClusterProposalStrategy::BALANCED;
-
-    /** @var array<string, mixed>|null */
-    public ?array $clusterProposalPreview = null;
-
-    public string $clusterProposalOutlierSearch = '';
-
     public function mount(): void
     {
         $this->initializeKeywordWorkspaceSiteFilter();
-        if (! in_array($this->section, ['clusters', 'groups'], true)) {
-            $this->section = 'clusters';
+        $this->redirectToFirstAccessibleDomainIfNeeded();
+    }
+
+    /**
+     * Topic Cluster / DNA / recluster require one concrete domain — never All.
+     */
+    private function redirectToFirstAccessibleDomainIfNeeded(): bool
+    {
+        if ($this->resolveKeywordWorkspaceSiteId() !== null) {
+            return false;
         }
-        app(KeywordGroupMembershipService::class)->ensureSystemGroups();
+
+        $first = SeoAccessControl::accessibleSitesQuery()->orderBy('domain')->first();
+        if (! $first instanceof Site) {
+            return false;
+        }
+
+        $this->redirect(
+            app(DomainContextResolver::class)->appendSiteToUrl(
+                request()->fullUrl(),
+                (int) $first->getKey(),
+            ),
+            navigate: false,
+        );
+
+        return true;
     }
 
     public static function canAccess(array $parameters = []): bool
@@ -98,7 +90,7 @@ final class KeywordTopicClusters extends Page
 
     public function getClusters()
     {
-        return app(KeywordClusterQuery::class)->paginateClusters(
+        $paginator = app(KeywordClusterQuery::class)->paginateClusters(
             $this->resolveKeywordWorkspaceSiteId(),
             [
                 'search' => $this->clusterSearch,
@@ -106,133 +98,46 @@ final class KeywordTopicClusters extends Page
                 'has_articles' => $this->hasArticles,
             ],
         );
-    }
 
-    /**
-     * @return list<array<string, mixed>>
-     */
-    public function getGroups(): array
-    {
-        $memberships = app(KeywordGroupMembershipService::class);
-        if (! $memberships->tablesReady()) {
-            return [];
+        $siteId = $this->resolveKeywordWorkspaceSiteId();
+        if ($siteId === null || $siteId <= 0 || ! app()->bound(TopicIdeaCoverageService::class)) {
+            return $paginator;
         }
 
-        $search = mb_strtolower(trim($this->groupSearch));
-        $type = trim($this->groupTypeFilter);
-
-        return KeywordRuleGroup::query()
-            ->withCount(['rules', 'members'])
-            ->orderBy('sort_order')
-            ->get()
-            ->filter(function (KeywordRuleGroup $group) use ($search, $type): bool {
-                if ($type !== '' && (string) $group->group_type !== $type) {
-                    return false;
-                }
-                if ($search === '') {
-                    return true;
-                }
-                $hay = mb_strtolower($group->label.' '.$group->group_key);
-
-                return str_contains($hay, $search);
-            })
-            ->map(static fn (KeywordRuleGroup $group): array => [
-                'id' => (int) $group->id,
-                'key' => (string) $group->group_key,
-                'label' => (string) $group->label,
-                'type' => (string) $group->group_type,
-                'rules' => (int) ($group->rules_count ?? 0),
-                'keywords' => (int) ($group->members_count ?? 0),
-                'active' => (bool) $group->is_active,
-            ])
-            ->values()
-            ->all();
-    }
-
-    public function getEditingGroup(): ?KeywordRuleGroup
-    {
-        if ($this->editingGroupId === null) {
-            return null;
+        $keys = [];
+        foreach ($paginator->items() as $item) {
+            if (is_array($item) && isset($item['cluster_key'])) {
+                $keys[] = (string) $item['cluster_key'];
+            }
         }
 
-        return KeywordRuleGroup::query()->with('rules')->find($this->editingGroupId);
-    }
-
-    public function showClusters(): void
-    {
-        $this->section = 'clusters';
-    }
-
-    public function showGroups(): void
-    {
-        $this->section = 'groups';
-    }
-
-    public function createCustomGroup(): void
-    {
-        $label = trim($this->newGroupLabel);
-        if ($label === '') {
-            return;
+        $summaries = app(TopicIdeaCoverageService::class)->summariesForKeys($siteId, $keys);
+        $items = [];
+        foreach ($paginator->items() as $item) {
+            if (! is_array($item)) {
+                continue;
+            }
+            $key = (string) ($item['cluster_key'] ?? '');
+            $summary = $summaries[$key] ?? [
+                'dna_branch_count' => 0,
+                'covered_branch_count' => 0,
+                'uncovered_branch_count' => 0,
+            ];
+            $items[] = [
+                ...$item,
+                'dna_branch_count' => $summary['dna_branch_count'],
+                'covered_branch_count' => $summary['covered_branch_count'],
+                'uncovered_branch_count' => $summary['uncovered_branch_count'],
+            ];
         }
-        $normalizer = app(KeywordNormalizer::class);
-        $key = preg_replace('/[^a-z0-9_]+/', '_', $normalizer->normalize($label)['folded_text']) ?: 'custom';
-        $group = KeywordRuleGroup::query()->create([
-            'site_id' => 0,
-            'group_key' => 'custom_'.$key.'_'.substr(sha1((string) microtime(true)), 0, 6),
-            'label' => $label,
-            'group_type' => 'custom',
-            'is_active' => true,
-            'sort_order' => 100,
-        ]);
-        $this->newGroupLabel = '';
-        $this->editingGroupId = (int) $group->id;
-        $this->section = 'groups';
-        Notification::make()->title(__('seo-content-ai::filament.keyword.topic_group_created'))->success()->send();
-    }
 
-    public function editGroup(int $groupId): void
-    {
-        $this->editingGroupId = $groupId;
-        $this->section = 'groups';
-    }
-
-    public function addRuleToEditingGroup(): void
-    {
-        $group = $this->getEditingGroup();
-        $phrase = trim($this->newRulePhrase);
-        if (! $group instanceof KeywordRuleGroup || $phrase === '') {
-            return;
-        }
-        $norm = app(KeywordNormalizer::class)->normalize($phrase);
-        KeywordRuleGroupRule::query()->create([
-            'group_id' => (int) $group->id,
-            'match_type' => 'contains',
-            'phrase' => $norm['raw_text'],
-            'folded_phrase' => $norm['folded_text'],
-            'is_active' => true,
-        ]);
-        $this->newRulePhrase = '';
-        $siteId = $this->resolveKeywordWorkspaceSiteId() ?? 0;
-        RecomputeKeywordGroupMembershipsJob::dispatch($siteId);
-        Notification::make()->title(__('seo-content-ai::filament.keyword.topic_rule_added'))->success()->send();
-    }
-
-    public function deleteRule(int $ruleId): void
-    {
-        KeywordRuleGroupRule::query()->whereKey($ruleId)->delete();
-        $siteId = $this->resolveKeywordWorkspaceSiteId() ?? 0;
-        RecomputeKeywordGroupMembershipsJob::dispatch($siteId);
-    }
-
-    public function toggleGroup(int $groupId): void
-    {
-        $group = KeywordRuleGroup::query()->find($groupId);
-        if (! $group instanceof KeywordRuleGroup) {
-            return;
-        }
-        $group->is_active = ! $group->is_active;
-        $group->save();
-        RecomputeKeywordGroupMembershipsJob::dispatch($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        return new \Illuminate\Pagination\LengthAwarePaginator(
+            $items,
+            $paginator->total(),
+            $paginator->perPage(),
+            $paginator->currentPage(),
+            ['path' => $paginator->path(), 'query' => request()->query()],
+        );
     }
 
     public function clusterUrl(string $clusterKey): string
@@ -246,68 +151,5 @@ final class KeywordTopicClusters extends Page
     public function unclusteredUrl(): string
     {
         return app(KeywordClusterQuery::class)->unclusteredListUrl($this->resolveKeywordWorkspaceSiteId());
-    }
-
-    public function openClusterProposalPreview(): void
-    {
-        $this->showClusterProposalPreview = true;
-        $this->refreshClusterProposalPreview();
-    }
-
-    public function closeClusterProposalPreview(): void
-    {
-        $this->showClusterProposalPreview = false;
-        $this->clusterProposalOutlierSearch = '';
-    }
-
-    public function updatedClusterProposalStrategy(): void
-    {
-        if ($this->showClusterProposalPreview) {
-            $this->refreshClusterProposalPreview();
-        }
-    }
-
-    public function refreshClusterProposalPreview(): void
-    {
-        $siteId = $this->resolveKeywordWorkspaceSiteId();
-        if ($siteId === null || $siteId <= 0) {
-            $this->clusterProposalPreview = null;
-
-            return;
-        }
-
-        $result = app(KeywordClusterProposalEngine::class)->previewForSite(
-            $siteId,
-            $this->clusterProposalStrategy,
-        );
-        $this->clusterProposalPreview = $result->toArray();
-        $this->selectedReadyProposalFingerprints = [];
-        $this->cancelBatchApplyConfirm();
-        $this->cancelApplyProposalConfirm();
-    }
-
-    /**
-     * @return list<array{keyword_id: int, phrase: string}>
-     */
-    public function getFilteredClusterProposalOutliers(): array
-    {
-        $items = $this->clusterProposalPreview['unclustered'] ?? [];
-        if (! is_array($items)) {
-            return [];
-        }
-
-        $search = mb_strtolower(trim($this->clusterProposalOutlierSearch));
-        if ($search === '') {
-            return $items;
-        }
-
-        return array_values(array_filter(
-            $items,
-            static function (array $row) use ($search): bool {
-                $phrase = mb_strtolower((string) ($row['phrase'] ?? ''));
-
-                return str_contains($phrase, $search);
-            },
-        ));
     }
 }

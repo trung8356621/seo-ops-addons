@@ -100,10 +100,20 @@ final class GlobalSeoBarDomainContextTest extends TestCase
         $nav = (string) file_get_contents(dirname(__DIR__, 3).'/search-intelligence/src/Filament/Resources/KeywordResource/Pages/Concerns/HasKeywordWorkspaceNavigation.php');
         $this->assertStringContainsString('domain-context-changed', $nav);
         $this->assertStringContainsString('SeoAccessControl::globalSiteId', $nav);
+        $this->assertStringContainsString('accessibleSitesQuery', $nav);
         $this->assertStringNotContainsString('setGlobalSiteId(null)', $nav);
 
         $this->assertContains(HasKeywordWorkspaceNavigation::class, class_uses(ListKeywords::class) ?: []);
         $this->assertContains(HasKeywordWorkspaceNavigation::class, class_uses(KeywordTopicClusters::class) ?: []);
+
+        $bar = (string) file_get_contents((string) (new ReflectionClass(GlobalSeoBar::class))->getFileName());
+        $this->assertStringContainsString('shouldPreferFirstAccessibleDomain', $bar);
+        $this->assertStringContainsString("'filament.seo.resources.keywords.index'", $bar);
+        $this->assertStringNotContainsString('shouldForceAllDomainsScope', $bar);
+
+        $provider = (string) file_get_contents(dirname(__DIR__, 3).'/seo-content-ai-compat/Providers/SeoPanelProvider.php');
+        $this->assertStringContainsString('global-seo-bar', $provider);
+        $this->assertStringNotContainsString("'filament.seo.resources.keywords.index'", $provider);
     }
 
     public function test_project_record_binding_still_skips_global_filter(): void
@@ -125,6 +135,7 @@ final class GlobalSeoBarDomainContextTest extends TestCase
         $this->assertStringContainsString('urlDomain', $store);
         $this->assertStringContainsString('sessionDomain', $store);
         $this->assertStringContainsString('lastDomain', $store);
+        $this->assertStringContainsString('first accessible', $store);
         $this->assertStringContainsString('replaceState', $boot);
         $this->assertStringContainsString('HEADER_KEY', $boot);
         $this->assertStringContainsString('X-Seo-Domain-Context', $store);

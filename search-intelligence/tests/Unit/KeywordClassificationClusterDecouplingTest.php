@@ -188,20 +188,6 @@ final class KeywordClassificationClusterDecouplingTest extends TestCase
             $table->timestamps();
         });
 
-        Schema::connection('omi_seo_ai')->create('seo_keyword_rule_groups', function (Blueprint $table): void {
-            $table->id();
-            $table->string('group_key')->unique();
-            $table->string('label');
-            $table->string('group_type')->default('system');
-            $table->unsignedInteger('sort_order')->default(0);
-            $table->boolean('is_active')->default(true);
-        });
-
-        Schema::connection('omi_seo_ai')->create('seo_keyword_rule_group_members', function (Blueprint $table): void {
-            $table->unsignedBigInteger('group_id');
-            $table->unsignedBigInteger('keyword_id');
-            $table->primary(['group_id', 'keyword_id']);
-        });
     }
 
     private function ensureCoreTables(): void

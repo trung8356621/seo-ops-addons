@@ -174,14 +174,6 @@ class SeoPanelProvider extends PanelProvider
                     return '';
                 }
 
-                if (request()->routeIs([
-                    'filament.seo.resources.keywords.index',
-                    'filament.seo.resources.keywords.focus',
-                    'filament.seo.resources.keywords.anchor-audit',
-                ])) {
-                    return '';
-                }
-
                 return Blade::render('@livewire(\'global-seo-bar\')');
             },
         );

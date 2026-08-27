@@ -30,10 +30,11 @@ class GlobalSeoBar extends Component
     {
         SeoAccessControl::forgetLegacyGlobalSitePersistence();
 
-        if ($this->shouldForceAllDomainsScope()) {
-            $this->applyContext(DomainContext::all());
+        $resolver = app(DomainContextResolver::class);
+        if ($this->shouldPreferFirstAccessibleDomain()) {
+            $this->applyContext($this->resolvePreferredKeywordIntelligenceContext($resolver));
         } else {
-            $this->applyContext(app(DomainContextResolver::class)->current());
+            $this->applyContext($resolver->current());
         }
 
         $actualRole = SeoAccessControl::actualRole();
@@ -178,9 +179,38 @@ class GlobalSeoBar extends Component
         return $query;
     }
 
-    private function shouldForceAllDomainsScope(): bool
+    private function shouldPreferFirstAccessibleDomain(): bool
     {
-        return SeoPanelRoutes::is('filament.seo.resources.keywords.*');
+        return SeoPanelRoutes::is(
+            'filament.seo.resources.keywords.index',
+            'filament.seo.resources.keywords.clusters',
+            'filament.seo.resources.keywords.cluster',
+            'filament.seo.resources.keywords.focus',
+            'filament.seo.resources.keywords.anchor-audit',
+            'filament.seo.resources.keywords.cannibalization',
+            'filament.seo.resources.keywords.workspace-2',
+        );
+    }
+
+    /**
+     * Keyword Intelligence domain-scoped pages: never default to All domains.
+     * Explicit URL/header domain wins; otherwise first accessible site.
+     */
+    private function resolvePreferredKeywordIntelligenceContext(DomainContextResolver $resolver): DomainContext
+    {
+        if ($resolver->hasExplicitRequestKey()) {
+            $explicit = $resolver->current();
+            if (! $explicit->isAllDomains && $explicit->siteId !== null && $explicit->siteId > 0) {
+                return $explicit;
+            }
+        }
+
+        $first = $this->resolveSitesQuery()->orderBy('domain')->first();
+        if (! $first instanceof Site) {
+            return DomainContext::all();
+        }
+
+        return DomainContext::forSite((int) $first->getKey(), $resolver->domainKeyForSite($first));
     }
 
     private function syncGlobalContentProjectSelection(): void

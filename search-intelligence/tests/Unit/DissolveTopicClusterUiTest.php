@@ -20,8 +20,8 @@ final class DissolveTopicClusterUiTest extends TestCase
 
         self::assertStringContainsString('dissolve-cluster-row-action', $index);
         self::assertStringContainsString('topic_dissolve_action', $partial);
-        self::assertStringContainsString('openDissolveConfirm', $partial);
-        self::assertStringContainsString('content-project-action-menu-shell', $partial);
+        self::assertStringContainsString("wire:click='openDissolveConfirm(@js(\$clusterKey))'", $partial);
+        self::assertStringContainsString('seo-content-ai::content-project-action-menu-shell', $partial);
         self::assertStringContainsString('canDissolveCluster', $index);
         self::assertStringContainsString('dissolve-cluster-modal', $index);
     }
@@ -33,7 +33,7 @@ final class DissolveTopicClusterUiTest extends TestCase
         ));
 
         self::assertStringContainsString('topic_dissolve_action', $detail);
-        self::assertStringContainsString('openDissolveConfirm', $detail);
+        self::assertStringContainsString("wire:click='openDissolveConfirm(@js(\$dissolveClusterKey))'", $detail);
         self::assertStringContainsString('canDissolveCluster', $detail);
         self::assertStringContainsString('dissolve-cluster-modal', $detail);
     }

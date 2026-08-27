@@ -27,7 +27,14 @@ use Throwable;
  *   site: array{id: int, domain: string, primary_language: string},
  *   coverage: array{covered: int, weakly_covered: int, uncovered: int, unknown: int},
      *   principal_keywords: list<array{keyword_id: int, phrase: string, score: float, coverage: string, source: string}>,
- *   clusters: list<array{label: string, keyword_count: int, article_count: int, coverage: string}>,
+ *   clusters: list<array{
+ *     label: string,
+ *     keyword_count: int,
+ *     article_count: int,
+ *     coverage: string,
+ *     core_articles?: int,
+ *     covered_dna?: list<array{value: string, count?: int, articles?: int, coverage?: string}>
+ *   }>,
  *   missing_directions: list<array{topic: string, signal: string}>,
  *   existing_topics: list<array{title: string, coverage: string}>,
  *   planned_topics: list<array{keyword: string, title: string, type: string, fingerprint: string}>,
@@ -531,16 +538,63 @@ final class ContentPlanningIntelligenceService
         }
 
         $out = [];
+        $labels = [];
         foreach ($paginator->items() as $item) {
             if (! is_array($item)) {
                 continue;
             }
+            $label = (string) ($item['label'] ?? $item['cluster_key'] ?? '');
+            $labels[] = $label;
             $out[] = [
-                'label' => (string) ($item['label'] ?? $item['cluster_key'] ?? ''),
+                'label' => $label,
                 'keyword_count' => (int) ($item['keyword_count'] ?? 0),
                 'article_count' => (int) ($item['article_count'] ?? 0),
                 'coverage' => (string) ($item['coverage'] ?? 'unknown'),
             ];
+        }
+
+        $dnaByLabel = [];
+        if ($labels !== [] && class_exists(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\TopicIdeaCoverageService::class)) {
+            try {
+                $compact = app(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\TopicIdeaCoverageService::class)
+                    ->planningCompact($siteId, $labels, 8);
+                foreach ($compact as $row) {
+                    $clusterLabel = (string) ($row['cluster'] ?? '');
+                    if ($clusterLabel === '') {
+                        continue;
+                    }
+                    $dnaByLabel[$clusterLabel] = [
+                        'core_articles' => (int) ($row['core_articles'] ?? 0),
+                        'dna' => is_array($row['dna'] ?? null) ? $row['dna'] : [],
+                    ];
+                }
+            } catch (Throwable) {
+                $dnaByLabel = [];
+            }
+        }
+
+        foreach ($out as $i => $row) {
+            $label = $row['label'];
+            if ($label === '' || ! isset($dnaByLabel[$label])) {
+                continue;
+            }
+            $payload = $dnaByLabel[$label];
+            $out[$i]['core_articles'] = (int) ($payload['core_articles'] ?? 0);
+            $coveredDna = [];
+            foreach ($payload['dna'] as $branch) {
+                if (! is_array($branch)) {
+                    continue;
+                }
+                $coveredDna[] = [
+                    'value' => (string) ($branch['value'] ?? ''),
+                    'articles' => (int) ($branch['articles'] ?? 0),
+                    'coverage' => (string) ($branch['coverage'] ?? 'uncovered'),
+                    'count' => (int) ($branch['articles'] ?? 0),
+                ];
+            }
+            if ($coveredDna !== []) {
+                $out[$i]['covered_dna'] = $coveredDna;
+            }
         }
 
         return array_values(array_filter($out, static fn (array $c): bool => $c['label'] !== ''));

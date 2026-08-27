@@ -1,9 +1,15 @@
 @php
     $summary = $this->getSummary();
     $clusters = $this->getClusters();
-    $groups = $this->getGroups();
-    $editing = $this->getEditingGroup();
     $workspaceCss = base_path('addons/seo/resources/css/keyword-workspace.css');
+    $reclusterRunning = (bool) ($this->reclusterRunning ?? false);
+    $confirmRecluster = (bool) ($this->confirmRecluster ?? false);
+    $canRecluster = $this->canReclusterTopicClusters();
+    $canDissolve = $this->canDissolveCluster();
+    $reclusterStatus = is_array($this->reclusterResult ?? null)
+        ? (string) ($this->reclusterResult['status'] ?? '')
+        : '';
+    $reclusterPollAttr = $reclusterRunning ? 'wire:poll.5s="pollReclusterResult"' : '';
 @endphp
 
 <x-filament-panels::page class="keyword-workspace-page topic-cluster-index-page max-w-full">
@@ -11,7 +17,7 @@
         <style>{!! file_get_contents($workspaceCss) !!}</style>
     @endif
 
-    <div class="keyword-workspace-shell max-w-full space-y-5">
+    <div class="keyword-workspace-shell max-w-full space-y-5" {!! $reclusterPollAttr !!}>
         @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-workspace-nav', [
             'activeKey' => $this->getActiveKeywordWorkspaceKey(),
             'navItems' => $this->getKeywordWorkspaceNavItems(),
@@ -33,10 +39,6 @@
                 <div class="topic-index-stat__value is-accent">{{ number_format((int) $summary['unclustered']) }}</div>
                 <div class="topic-index-stat__meta">{{ __('seo-content-ai::filament.keyword.topic_summary_unclustered_hint') }}</div>
             </a>
-            <div class="topic-index-stat">
-                <div class="topic-index-stat__label">{{ __('seo-content-ai::filament.keyword.topic_summary_groups') }}</div>
-                <div class="topic-index-stat__value">{{ number_format((int) $summary['system_groups'] + (int) $summary['custom_groups']) }}</div>
-            </div>
         </div>
 
         @if (((int) ($summary['unclassified_keywords'] ?? 0)) > 0 || ((int) ($summary['non_seo_keywords'] ?? 0)) > 0)
@@ -48,184 +50,162 @@
             </p>
         @endif
 
-        <div class="topic-index-tabs" role="tablist">
-            <button type="button" class="topic-index-tab {{ $this->section === 'clusters' ? 'is-active' : '' }}" wire:click="showClusters">
-                {{ __('seo-content-ai::filament.keyword.topic_tab_clusters') }}
-            </button>
-            <button type="button" class="topic-index-tab {{ $this->section === 'groups' ? 'is-active' : '' }}" wire:click="showGroups">
-                {{ __('seo-content-ai::filament.keyword.topic_tab_groups') }}
-            </button>
+        <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="topic-index-filters flex-1">
+                <input type="search" wire:model.live.debounce.400ms="clusterSearch" class="topic-index-input" placeholder="{{ __('seo-content-ai::filament.keyword.topic_search_cluster') }}">
+                <x-select size="sm" wire:model.live="coverageFilter">
+                    <option value="">{{ __('seo-content-ai::filament.keyword.topic_coverage_any') }}</option>
+                    <option value="strong">Strong</option>
+                    <option value="medium">Medium</option>
+                    <option value="weak">Weak</option>
+                    <option value="unknown">Unknown</option>
+                </x-select>
+                <label class="topic-index-check">
+                    <input type="checkbox" wire:model.live="hasArticles">
+                    {{ __('seo-content-ai::filament.keyword.topic_has_articles') }}
+                </label>
+            </div>
+            @if ($canRecluster)
+                <div class="flex max-w-md flex-col items-end gap-1.5">
+                    <p class="text-right text-xs text-gray-500 dark:text-gray-400">
+                        {{ __('seo-content-ai::filament.keyword.topic_recluster_hint') }}
+                    </p>
+                    @if ($confirmRecluster)
+                        <div class="flex flex-wrap items-center justify-end gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-800 dark:bg-amber-950">
+                            <span class="text-xs text-amber-900 dark:text-amber-100">
+                                {{ __('seo-content-ai::filament.keyword.topic_recluster_confirm') }}
+                            </span>
+                            <x-filament::button
+                                type="button"
+                                size="sm"
+                                color="gray"
+                                wire:click="cancelReclusterConfirm"
+                                wire:loading.attr="disabled"
+                                wire:target="confirmDispatchReclusterTopicClusters"
+                            >
+                                {{ __('seo-content-ai::filament.keyword.topic_dissolve_cancel') }}
+                            </x-filament::button>
+                            <x-filament::button
+                                type="button"
+                                size="sm"
+                                color="warning"
+                                wire:click="confirmDispatchReclusterTopicClusters"
+                                wire:loading.attr="disabled"
+                                wire:target="confirmDispatchReclusterTopicClusters"
+                            >
+                                <span wire:loading.remove wire:target="confirmDispatchReclusterTopicClusters">
+                                    {{ __('seo-content-ai::filament.keyword.topic_recluster_action') }}
+                                </span>
+                                <span wire:loading wire:target="confirmDispatchReclusterTopicClusters">
+                                    {{ __('seo-content-ai::filament.keyword.topic_recluster_running') }}
+                                </span>
+                            </x-filament::button>
+                        </div>
+                    @else
+                        <x-filament::button
+                            type="button"
+                            size="sm"
+                            color="warning"
+                            wire:click="openReclusterConfirm"
+                            wire:loading.attr="disabled"
+                            wire:target="confirmDispatchReclusterTopicClusters"
+                            :disabled="$reclusterRunning"
+                        >
+                            {{ __('seo-content-ai::filament.keyword.topic_recluster_action') }}
+                        </x-filament::button>
+                    @endif
+                </div>
+            @endif
         </div>
 
-        @if ($this->section === 'clusters')
-            <div class="flex flex-wrap items-center justify-between gap-3">
-                <div class="topic-index-filters flex-1">
-                    <input type="search" wire:model.live.debounce.400ms="clusterSearch" class="topic-index-input" placeholder="{{ __('seo-content-ai::filament.keyword.topic_search_cluster') }}">
-                    <x-select size="sm" wire:model.live="coverageFilter">
-                        <option value="">{{ __('seo-content-ai::filament.keyword.topic_coverage_any') }}</option>
-                        <option value="strong">Strong</option>
-                        <option value="medium">Medium</option>
-                        <option value="weak">Weak</option>
-                        <option value="unknown">Unknown</option>
-                    </x-select>
-                    <label class="topic-index-check">
-                        <input type="checkbox" wire:model.live="hasArticles">
-                        {{ __('seo-content-ai::filament.keyword.topic_has_articles') }}
-                    </label>
-                </div>
-                <x-filament::button
-                    type="button"
-                    size="sm"
-                    color="gray"
-                    wire:click="openClusterProposalPreview"
-                    wire:loading.attr="disabled"
-                    wire:target="openClusterProposalPreview,refreshClusterProposalPreview"
-                >
-                    <span wire:loading.remove wire:target="openClusterProposalPreview,refreshClusterProposalPreview">
-                        {{ __('seo-content-ai::filament.keyword.topic_proposal_open') }}
-                    </span>
-                    <span wire:loading wire:target="openClusterProposalPreview,refreshClusterProposalPreview">
-                        {{ __('seo-content-ai::filament.keyword.topic_proposal_working') }}
-                    </span>
-                </x-filament::button>
-            </div>
+        @if ($reclusterStatus === 'queued')
+            <p class="rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-900 dark:border-sky-800 dark:bg-sky-950 dark:text-sky-100">
+                {{ __('seo-content-ai::filament.keyword.topic_recluster_queued') }}
+            </p>
+        @elseif ($reclusterStatus === 'running' || $reclusterRunning)
+            <p class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
+                {{ __('seo-content-ai::filament.keyword.topic_recluster_running') }}
+            </p>
+        @elseif ($reclusterStatus === 'completed')
+            @php $m = $this->reclusterResult['metrics'] ?? []; @endphp
+            <p class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-100">
+                {{ __('seo-content-ai::filament.keyword.topic_recluster_result_title') }}:
+                {{ number_format((int) ($m['keywords_processed'] ?? 0)) }} processed ·
+                {{ number_format((int) ($m['clusters_merged'] ?? 0)) }} merged ·
+                {{ number_format((int) ($m['clusters_before'] ?? 0)) }}→{{ number_format((int) ($m['clusters_after'] ?? 0)) }} clusters ·
+                {{ number_format((int) ($m['dna_created'] ?? 0)) }} DNA
+            </p>
+        @elseif ($reclusterStatus === 'failed')
+            <p class="rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-900 dark:border-rose-800 dark:bg-rose-950 dark:text-rose-100">
+                {{ __('seo-content-ai::filament.keyword.topic_recluster_failed_title') }}
+                @if (! empty($this->reclusterResult['error']))
+                    — {{ $this->reclusterResult['error'] }}
+                @endif
+            </p>
+        @endif
 
-            @if ($clusters->total() === 0)
-                <p class="rounded-xl border border-dashed border-gray-300 px-4 py-8 text-sm text-gray-500">
-                    {{ __('seo-content-ai::filament.keyword.topic_empty_clusters') }}
-                </p>
-            @else
-                <div class="topic-index-table-wrap">
-                    <table class="topic-index-table">
-                        <thead>
+        @if ($clusters->total() === 0)
+            <p class="rounded-xl border border-dashed border-gray-300 px-4 py-8 text-sm text-gray-500">
+                {{ __('seo-content-ai::filament.keyword.topic_empty_clusters') }}
+            </p>
+        @else
+            <div class="topic-index-table-wrap">
+                <table class="topic-index-table">
+                    <thead>
+                        <tr>
+                            <th>{{ __('seo-content-ai::filament.keyword.topic_col_cluster') }}</th>
+                            <th>{{ __('seo-content-ai::filament.keyword.topic_col_keywords') }}</th>
+                            <th>{{ __('seo-content-ai::filament.keyword.topic_col_dna_count') }}</th>
+                            <th>{{ __('seo-content-ai::filament.keyword.topic_col_dna_covered') }}</th>
+                            <th>{{ __('seo-content-ai::filament.keyword.topic_col_dna_uncovered') }}</th>
+                            <th>{{ __('seo-content-ai::filament.keyword.topic_col_articles') }}</th>
+                            <th>Intent</th>
+                            <th>Coverage</th>
+                            @if ($canDissolve)
+                                <th class="w-28"></th>
+                            @endif
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach ($clusters as $row)
+                            @php
+                                $coverage = strtolower((string) ($row['coverage'] ?? 'unknown'));
+                                $pill = match ($coverage) {
+                                    'strong', 'healthy', 'saturated' => 'topic-index-pill--strong',
+                                    'medium' => 'topic-index-pill--medium',
+                                    'weak', 'missing' => 'topic-index-pill--weak',
+                                    default => 'topic-index-pill--unknown',
+                                };
+                            @endphp
                             <tr>
-                                <th>{{ __('seo-content-ai::filament.keyword.topic_col_cluster') }}</th>
-                                <th>{{ __('seo-content-ai::filament.keyword.topic_col_keywords') }}</th>
-                                <th>{{ __('seo-content-ai::filament.keyword.topic_col_articles') }}</th>
-                                <th>{{ __('seo-content-ai::filament.keyword.topic_col_groups') }}</th>
-                                <th>Intent</th>
-                                <th>Coverage</th>
-                                @if ($this->canDissolveCluster())
-                                    <th class="w-28"></th>
+                                <td>
+                                    <a href="{{ $this->clusterUrl($row['cluster_key']) }}" class="topic-index-link">
+                                        {{ $row['label'] }}
+                                    </a>
+                                    <div class="topic-index-meta">{{ number_format((int) $row['keyword_count']) }} keywords</div>
+                                </td>
+                                <td class="topic-index-num">{{ number_format((int) $row['keyword_count']) }}</td>
+                                <td class="topic-index-num">{{ number_format((int) ($row['dna_branch_count'] ?? 0)) }}</td>
+                                <td class="topic-index-num">{{ number_format((int) ($row['covered_branch_count'] ?? 0)) }}</td>
+                                <td class="topic-index-num">{{ number_format((int) ($row['uncovered_branch_count'] ?? 0)) }}</td>
+                                <td class="topic-index-num">{{ number_format((int) $row['article_count']) }}</td>
+                                <td class="capitalize">{{ $row['intent'] !== '' ? $row['intent'] : '—' }}</td>
+                                <td><span class="topic-index-pill {{ $pill }}">{{ $row['coverage'] }}</span></td>
+                                @if ($canDissolve)
+                                    <td class="text-right">
+                                        @include('seo-content-ai::filament.resources.keywords.pages.partials.dissolve-cluster-row-action', [
+                                            'clusterKey' => $row['cluster_key'],
+                                        ])
+                                    </td>
                                 @endif
                             </tr>
-                        </thead>
-                        <tbody>
-                            @foreach ($clusters as $row)
-                                @php
-                                    $coverage = strtolower((string) ($row['coverage'] ?? 'unknown'));
-                                    $pill = match ($coverage) {
-                                        'strong', 'healthy', 'saturated' => 'topic-index-pill--strong',
-                                        'medium' => 'topic-index-pill--medium',
-                                        'weak', 'missing' => 'topic-index-pill--weak',
-                                        default => 'topic-index-pill--unknown',
-                                    };
-                                @endphp
-                                <tr>
-                                    <td>
-                                        <a href="{{ $this->clusterUrl($row['cluster_key']) }}" class="topic-index-link">
-                                            {{ $row['label'] }}
-                                        </a>
-                                        <div class="topic-index-meta">{{ number_format((int) $row['keyword_count']) }} keywords</div>
-                                    </td>
-                                    <td class="topic-index-num">{{ number_format((int) $row['keyword_count']) }}</td>
-                                    <td class="topic-index-num">{{ number_format((int) $row['article_count']) }}</td>
-                                    <td>
-                                        <div class="flex flex-wrap gap-1">
-                                            @foreach (array_slice($row['groups'], 0, 3) as $groupLabel)
-                                                <span class="ws-badge ws-badge--compact ws-badge--gray">{{ $groupLabel }}</span>
-                                            @endforeach
-                                        </div>
-                                    </td>
-                                    <td class="capitalize">{{ $row['intent'] !== '' ? $row['intent'] : '—' }}</td>
-                                    <td><span class="topic-index-pill {{ $pill }}">{{ $row['coverage'] }}</span></td>
-                                    @if ($this->canDissolveCluster())
-                                        <td class="text-right">
-                                            @include('seo-content-ai::filament.resources.keywords.pages.partials.dissolve-cluster-row-action', [
-                                                'clusterKey' => $row['cluster_key'],
-                                            ])
-                                        </td>
-                                    @endif
-                                </tr>
-                            @endforeach
-                        </tbody>
-                    </table>
-                </div>
-                <div>{{ $clusters->links() }}</div>
-            @endif
-
-            @include('seo-content-ai::filament.resources.keywords.pages.partials.dissolve-cluster-modal')
-            @include('seo-content-ai::filament.resources.keywords.pages.partials.cluster-proposal-preview-modal')
-        @else
-            <div class="topic-index-filters">
-                <input type="search" wire:model.live.debounce.400ms="groupSearch" class="topic-index-input" placeholder="{{ __('seo-content-ai::filament.keyword.topic_search_group') }}">
-                <x-select size="sm" wire:model.live="groupTypeFilter">
-                    <option value="">{{ __('seo-content-ai::filament.keyword.topic_group_type_any') }}</option>
-                    <option value="system">System</option>
-                    <option value="custom">Custom</option>
-                </x-select>
-                <input type="text" wire:model="newGroupLabel" class="topic-index-input" placeholder="{{ __('seo-content-ai::filament.keyword.topic_new_group') }}">
-                <x-filament::button type="button" size="sm" wire:click="createCustomGroup" wire:loading.attr="disabled">
-                    {{ __('seo-content-ai::filament.keyword.topic_create_group') }}
-                </x-filament::button>
-            </div>
-
-            @if ($groups === [])
-                <p class="rounded-xl border border-dashed border-gray-300 px-4 py-8 text-sm text-gray-500">
-                    {{ __('seo-content-ai::filament.keyword.topic_empty_groups') }}
-                </p>
-            @else
-                <div class="topic-index-table-wrap">
-                    <table class="topic-index-table">
-                        <thead>
-                            <tr>
-                                <th>{{ __('seo-content-ai::filament.keyword.topic_col_group') }}</th>
-                                <th>{{ __('seo-content-ai::filament.keyword.topic_col_type') }}</th>
-                                <th>Rules</th>
-                                <th>{{ __('seo-content-ai::filament.keyword.topic_col_keywords') }}</th>
-                                <th>{{ __('seo-content-ai::filament.keyword.topic_col_status') }}</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            @foreach ($groups as $group)
-                                <tr>
-                                    <td>
-                                        <button type="button" class="topic-index-link" wire:click="editGroup({{ $group['id'] }})">
-                                            {{ $group['label'] }}
-                                        </button>
-                                    </td>
-                                    <td class="capitalize">{{ $group['type'] }}</td>
-                                    <td class="topic-index-num">{{ number_format((int) $group['rules']) }}</td>
-                                    <td class="topic-index-num">{{ number_format((int) $group['keywords']) }}</td>
-                                    <td>
-                                        <button type="button" class="topic-index-pill {{ $group['active'] ? 'topic-index-pill--strong' : 'topic-index-pill--unknown' }}" wire:click="toggleGroup({{ $group['id'] }})">
-                                            {{ $group['active'] ? 'Active' : 'Inactive' }}
-                                        </button>
-                                    </td>
-                                </tr>
-                            @endforeach
-                        </tbody>
-                    </table>
-                </div>
-            @endif
-
-            @if ($editing)
-                <div class="rounded-xl border border-gray-200 p-4 dark:border-gray-700">
-                    <h2 class="mb-3 text-sm font-semibold">{{ $editing->label }}</h2>
-                    <ul class="mb-3 space-y-1 text-sm">
-                        @foreach ($editing->rules as $rule)
-                            <li class="flex items-center justify-between">
-                                <span>{{ $rule->phrase }} <span class="text-xs text-gray-400">({{ $rule->match_type }})</span></span>
-                                <button type="button" class="text-xs text-rose-600" wire:click="deleteRule({{ $rule->id }})">{{ __('seo-content-ai::filament.keyword.topic_remove_rule') }}</button>
-                            </li>
                         @endforeach
-                    </ul>
-                    <div class="topic-index-filters">
-                        <input type="text" wire:model="newRulePhrase" class="topic-index-input" placeholder="canvas">
-                        <x-filament::button type="button" size="sm" wire:click="addRuleToEditingGroup">{{ __('seo-content-ai::filament.keyword.topic_add_rule') }}</x-filament::button>
-                    </div>
-                </div>
-            @endif
+                    </tbody>
+                </table>
+            </div>
+            <div>{{ $clusters->links() }}</div>
         @endif
+
+        @include('seo-content-ai::filament.resources.keywords.pages.partials.dissolve-cluster-modal')
     </div>
 </x-filament-panels::page>

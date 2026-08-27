@@ -26,6 +26,7 @@ class ApplyTopicClusterProposalService
         private readonly KeywordClusterEligibility $eligibility,
         private readonly KeywordClusterQuery $clusters,
         private readonly TopicClusterApplySideEffects $sideEffects,
+        private readonly TopicClusterPostApplyService $postApply,
     ) {}
 
     public function apply(ApplyTopicClusterProposalInput $input): ApplyTopicClusterProposalResult
@@ -56,10 +57,11 @@ class ApplyTopicClusterProposalService
         $memberIds = $resolved['member_ids'];
         $expectedStateHashes = $resolved['expected_state_hashes'];
 
-        $clusterKey = $this->clusterKeyGenerator->generate(
+        $clusterKey = $this->postApply->resolveClusterKey(
             siteId: $input->siteId,
             representativeLabel: $cluster->representativeLabel,
-            sortedKeywordIds: $memberIds,
+            memberIds: $memberIds,
+            generator: $this->clusterKeyGenerator,
         );
 
         try {
@@ -170,6 +172,13 @@ class ApplyTopicClusterProposalService
             qualityState: $qualityState,
             proposalFingerprint: $input->proposalFingerprint,
             keywordIds: $memberIds,
+        );
+
+        $this->postApply->afterClusterAssignment(
+            siteId: $input->siteId,
+            clusterKey: $clusterKey,
+            keywordIds: $memberIds,
+            representativeLabel: $cluster->representativeLabel,
         );
 
         return ApplyTopicClusterProposalResult::applied(

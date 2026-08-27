@@ -9,7 +9,6 @@ use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
 use Omnichannel\Addons\SearchIntelligence\Enums\KeywordReviewStatus;
 use Omnichannel\Addons\SearchIntelligence\Models\KeywordReviewHistory;
 use Omnichannel\Addons\SearchIntelligence\Models\KeywordReviewReason;
-use Omnichannel\Addons\SearchIntelligence\Models\KeywordRuleGroupMember;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordClassification;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapStatus;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordMetaRepository;
@@ -211,11 +210,6 @@ class Keyword extends Model
     public function seoClassification(): HasOne
     {
         return $this->hasOne(SeoKeywordClassification::class, 'keyword_id');
-    }
-
-    public function ruleGroupMemberships(): HasMany
-    {
-        return $this->hasMany(KeywordRuleGroupMember::class, 'keyword_id');
     }
 
     public function linkMaps(): HasMany

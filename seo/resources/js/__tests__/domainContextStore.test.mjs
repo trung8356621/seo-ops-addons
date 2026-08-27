@@ -27,8 +27,8 @@ describe('normalizeDomainKey', () => {
 describe('resolveDomainContext priority', () => {
     const accessible = ['baloquatang.net', 'congtybalo.com', 'maybalotuixachgiare.com'];
 
-    it('A. default → all', () => {
-        assert.equal(resolveDomainContext({ accessible }), ALL_KEY);
+    it('A. default → first accessible domain', () => {
+        assert.equal(resolveDomainContext({ accessible }), 'baloquatang.net');
         assert.equal(isAllDomains(ALL_KEY), true);
     });
 
@@ -63,11 +63,19 @@ describe('resolveDomainContext priority', () => {
         assert.equal(tabB, 'congtybalo.com');
     });
 
-    it('stale / unauthorized stored key falls back to all', () => {
+    it('stale / unauthorized stored key falls back to first accessible', () => {
         assert.equal(sanitizeDomainKey('gone.test', accessible), ALL_KEY);
         assert.equal(resolveDomainContext({
             sessionDomain: 'gone.test',
             lastDomain: 'gone.test',
+            accessible,
+        }), 'baloquatang.net');
+    });
+
+    it('explicit URL all is honored', () => {
+        assert.equal(resolveDomainContext({
+            urlDomain: 'all',
+            sessionDomain: 'congtybalo.com',
             accessible,
         }), ALL_KEY);
     });
@@ -80,9 +88,12 @@ describe('URL representation', () => {
             buildUrlWithDomain('/seo/abc/content-projects?month=2026-07', 'baloquatang.net'),
             '/seo/abc/content-projects?month=2026-07&domain=baloquatang.net',
         );
-        assert.equal(
+        const allUrl = new URL(
             buildUrlWithDomain('/seo/abc/content-projects?domain=congtybalo.com&month=2026-07', 'all'),
-            '/seo/abc/content-projects?domain=all&month=2026-07',
+            'http://local.test',
         );
+        assert.equal(allUrl.searchParams.get('domain'), 'all');
+        assert.equal(allUrl.searchParams.get('month'), '2026-07');
+        assert.equal(allUrl.searchParams.has('site_id'), false);
     });
 });

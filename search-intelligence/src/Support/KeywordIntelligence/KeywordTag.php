@@ -141,27 +141,6 @@ final class KeywordTag
             $options[$tag] = self::label($tag);
         }
 
-        try {
-            if (! \Illuminate\Support\Facades\Schema::connection('omi_seo_ai')->hasTable('seo_keyword_rule_groups')) {
-                return $options;
-            }
-            $groups = \Omnichannel\Addons\SearchIntelligence\Models\KeywordRuleGroup::query()
-                ->where('is_active', true)
-                ->orderBy('sort_order')
-                ->get(['group_key', 'label']);
-        } catch (\Throwable) {
-            return $options;
-        }
-
-        foreach ($groups as $group) {
-            $key = trim((string) $group->group_key);
-            $label = trim((string) $group->label);
-            if ($key === '' || $label === '') {
-                continue;
-            }
-            $options[self::groupKey($key)] = $label;
-        }
-
         return $options;
     }
 }

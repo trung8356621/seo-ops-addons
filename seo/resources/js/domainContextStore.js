@@ -48,33 +48,55 @@ export function sanitizeDomainKey(key, accessible = []) {
 }
 
 /**
- * Resolution: URL → sessionStorage (tab) → localStorage last-used → All domains.
+ * Resolution: URL → sessionStorage (tab) → localStorage last-used → first accessible domain.
+ * Never default to All when at least one accessible domain exists.
+ * Explicit `domain=all` in the URL is still honored.
  *
  * @param {{ urlDomain?: unknown, sessionDomain?: unknown, lastDomain?: unknown, accessible?: string[] }} sources
  * @returns {string}
  */
 export function resolveDomainContext(sources = {}) {
-    const accessible = Array.isArray(sources.accessible) ? sources.accessible : [];
+    const accessible = Array.isArray(sources.accessible)
+        ? sources.accessible
+            .map((item) => normalizeDomainKey(item))
+            .filter((item) => item !== '' && item !== ALL_KEY)
+        : [];
+    const fallback = accessible[0] ?? ALL_KEY;
 
     if (sources.urlDomain != null && String(sources.urlDomain).trim() !== '') {
-        return sanitizeDomainKey(sources.urlDomain, accessible);
+        const raw = normalizeDomainKey(sources.urlDomain);
+        if (raw === ALL_KEY) {
+            return ALL_KEY;
+        }
+        const fromUrl = sanitizeDomainKey(sources.urlDomain, accessible);
+        return isAllDomains(fromUrl) ? fallback : fromUrl;
     }
 
     if (sources.sessionDomain != null && String(sources.sessionDomain).trim() !== '') {
-        return sanitizeDomainKey(sources.sessionDomain, accessible);
+        const fromSession = sanitizeDomainKey(sources.sessionDomain, accessible);
+        if (! isAllDomains(fromSession)) {
+            return fromSession;
+        }
     }
 
     if (sources.lastDomain != null && String(sources.lastDomain).trim() !== '') {
-        return sanitizeDomainKey(sources.lastDomain, accessible);
+        const fromLast = sanitizeDomainKey(sources.lastDomain, accessible);
+        if (! isAllDomains(fromLast)) {
+            return fromLast;
+        }
     }
 
-    return ALL_KEY;
+    return fallback;
 }
 
 /**
  * @returns {Record<string, number>}
  */
 export function accessibleSiteIdsByDomainKey() {
+    if (typeof window === 'undefined') {
+        return {};
+    }
+
     const raw = window.__SEO_SITE_IDS_BY_DOMAIN__;
     if (!raw || typeof raw !== 'object') {
         return {};

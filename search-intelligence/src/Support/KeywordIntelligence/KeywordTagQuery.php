@@ -40,10 +40,7 @@ final class KeywordTagQuery
     {
         $groupKey = KeywordTag::parseGroupKey($tag);
         if ($groupKey !== null) {
-            return $query->whereHas(
-                'ruleGroupMemberships.group',
-                static fn (Builder $group): Builder => $group->where('group_key', $groupKey),
-            );
+            return $query->whereRaw('0 = 1');
         }
 
         $groupId = KeywordTag::parseGroupId($tag);

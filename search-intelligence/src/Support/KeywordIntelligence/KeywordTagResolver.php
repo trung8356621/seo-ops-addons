@@ -99,15 +99,6 @@ final class KeywordTagResolver
 
             $groupKey = KeywordTag::parseGroupKey($code);
             if ($groupKey !== null) {
-                $label = $this->ruleGroupLabel($groupKey);
-                if ($label === '') {
-                    continue;
-                }
-                $items[] = [
-                    'code' => $code,
-                    'label' => $label,
-                    'badge_class' => KeywordTag::badgeClass($code),
-                ];
                 continue;
             }
 
@@ -136,7 +127,16 @@ final class KeywordTagResolver
         if ($key === '') {
             return '—';
         }
-        $label = str_replace('_', ' ', $key);
+
+        $siteId = 0;
+        try {
+            $siteId = (int) (\Omnichannel\Addons\Seo\Support\SeoAccessControl::globalSiteId() ?? 0);
+        } catch (\Throwable) {
+            $siteId = 0;
+        }
+
+        $label = app(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterQuery::class)
+            ->displayLabel($key, '', $siteId > 0 ? $siteId : null);
         $count = $this->clusterCount($key);
         if ($count > 0) {
             return $label.' · '.$count;
@@ -253,7 +253,6 @@ final class KeywordTagResolver
     {
         return [
             'seoClassification',
-            'ruleGroupMemberships.group',
             'parent:id,phrase',
             'metas',
             'mainArticles.site',
@@ -353,43 +352,13 @@ final class KeywordTagResolver
      */
     private function groupCodes(Keyword $keyword): array
     {
-        $codes = [];
-        if ($keyword->relationLoaded('ruleGroupMemberships')) {
-            foreach ($keyword->ruleGroupMemberships as $member) {
-                $key = trim((string) ($member->group?->group_key ?? ''));
-                if ($key === '') {
-                    continue;
-                }
-                $codes[] = KeywordTag::groupKey($key);
-            }
+        unset($keyword);
 
-            return $codes;
-        }
-
-        return $codes;
+        return [];
     }
-
-    /** @var array<string, string> */
-    private static array $ruleGroupLabels = [];
 
     /** @var array<string, int> */
     private static array $clusterCounts = [];
-
-    private function ruleGroupLabel(string $key): string
-    {
-        if (self::$ruleGroupLabels === []) {
-            try {
-                self::$ruleGroupLabels = \Omnichannel\Addons\SearchIntelligence\Models\KeywordRuleGroup::query()
-                    ->get(['group_key', 'label'])
-                    ->mapWithKeys(static fn ($group): array => [(string) $group->group_key => trim((string) $group->label)])
-                    ->all();
-            } catch (\Throwable) {
-                self::$ruleGroupLabels = ['_' => ''];
-            }
-        }
-
-        return trim((string) (self::$ruleGroupLabels[$key] ?? ''));
-    }
 
     private function clusterCount(string $key): int
     {

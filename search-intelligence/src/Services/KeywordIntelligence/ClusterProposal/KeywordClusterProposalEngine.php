@@ -8,6 +8,7 @@ use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Dto\Keywo
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Dto\KeywordClusterProposalResult;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Dto\KeywordClusterQualityMetrics;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterEligibility;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Canonical\CanonicalClusterPhraseResolver;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordCanonicalizer;
 
 final class KeywordClusterProposalEngine
@@ -20,6 +21,7 @@ final class KeywordClusterProposalEngine
         private readonly KeywordClusterProposalRefiner $refiner,
         private readonly TopicClusterProposalMemberStateLoader $memberStateLoader,
         private readonly TopicClusterProposalFingerprint $fingerprintService,
+        private readonly CanonicalClusterPhraseResolver $canonicalPhraseResolver,
     ) {}
 
     public function previewForSite(int $siteId, string $strategy = KeywordClusterProposalStrategy::BALANCED): KeywordClusterProposalResult
@@ -403,13 +405,25 @@ final class KeywordClusterProposalEngine
 
         $cohesion = KeywordClusterSimilarityMatrix::cohesion($clusterIds, $similarity);
         $minSimilarity = KeywordClusterSimilarityMatrix::minPairSimilarity($clusterIds, $similarity);
-        $representativeLabel = $this->canonicalizer->pickDisplay([
-            [
-                'raw_text' => $medoid->phrase,
-                'normalized_text' => $medoid->normalizedText,
-                'folded_text' => $medoid->foldedText,
-            ],
-        ]);
+        $memberRows = [];
+        foreach ($clusterIds as $keywordId) {
+            $profile = $profileMap[$keywordId];
+            $memberRows[] = [
+                'raw_text' => $profile->phrase,
+                'normalized_text' => $profile->normalizedText,
+                'folded_text' => $profile->foldedText,
+            ];
+        }
+
+        $representativeLabel = $this->canonicalPhraseResolver->pickCanonicalFromMembers(
+            array_map(static fn (array $row): string => (string) ($row['raw_text'] ?? ''), $memberRows),
+        );
+        if ($representativeLabel === '') {
+            $representativeLabel = $this->canonicalizer->pickDisplay($memberRows);
+        }
+        if ($representativeLabel === '') {
+            $representativeLabel = $medoid->phrase;
+        }
 
         return new KeywordClusterProposalCluster(
             representativeLabel: $representativeLabel !== '' ? $representativeLabel : $medoid->phrase,

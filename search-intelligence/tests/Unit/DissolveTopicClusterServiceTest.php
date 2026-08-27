@@ -11,6 +11,7 @@ use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordClassification;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\DissolveTopicClusterService;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterQuery;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\ReclusterTopicClustersService;
 use ReflectionClass;
 use Tests\TestCase;
 
@@ -49,44 +50,6 @@ final class DissolveTopicClusterServiceTest extends TestCase
         $ids = app(KeywordClusterQuery::class)->memberKeywordIds(null, 'unscoped_cluster');
 
         self::assertCount(1, $ids);
-    }
-
-    public function test_rule_group_membership_is_preserved(): void
-    {
-        Schema::connection('omi_seo_ai')->create('seo_keyword_rule_groups', function (Blueprint $table): void {
-            $table->id();
-            $table->string('group_key')->unique();
-            $table->string('label');
-            $table->unsignedInteger('sort_order')->default(0);
-            $table->boolean('is_active')->default(true);
-        });
-        Schema::connection('omi_seo_ai')->create('seo_keyword_rule_group_members', function (Blueprint $table): void {
-            $table->unsignedBigInteger('group_id');
-            $table->unsignedBigInteger('keyword_id');
-            $table->primary(['group_id', 'keyword_id']);
-        });
-
-        $groupId = (int) DB::connection('omi_seo_ai')->table('seo_keyword_rule_groups')->insertGetId([
-            'group_key' => 'materials',
-            'label' => 'Vật liệu',
-            'sort_order' => 1,
-            'is_active' => true,
-        ]);
-
-        $keyword = $this->seedClusteredKeyword(self::SITE_A, 'tui vai canvas', 'tui_vai_canvas', 'commercial');
-        DB::connection('omi_seo_ai')->table('seo_keyword_rule_group_members')->insert([
-            'group_id' => $groupId,
-            'keyword_id' => (int) $keyword->id,
-        ]);
-
-        $this->service()->dissolve(self::SITE_A, 'tui_vai_canvas');
-
-        $this->assertDatabaseHas('seo_keyword_rule_group_members', [
-            'group_id' => $groupId,
-            'keyword_id' => (int) $keyword->id,
-        ], 'omi_seo_ai');
-        $this->assertNull($this->classificationClusterKey((int) $keyword->id));
-        $this->assertSame('commercial', (string) SeoKeywordClassification::query()->find($keyword->id)?->seo_intent);
     }
 
     public function test_only_cluster_key_field_is_cleared(): void
@@ -255,6 +218,19 @@ final class DissolveTopicClusterServiceTest extends TestCase
         $this->assertSame(1, $first->affectedKeywordCount);
         $this->assertTrue($second->wasAlreadyEmpty);
         $this->assertSame(0, $second->affectedKeywordCount);
+    }
+
+    public function test_dissolve_writes_manual_exclude_meta(): void
+    {
+        $keyword = $this->seedClusteredKeyword(self::SITE_A, 'exclude me', 'exclude_cluster', 'informational');
+
+        $this->service()->dissolve(self::SITE_A, 'exclude_cluster');
+
+        $this->assertDatabaseHas('keyword_meta', [
+            'keyword_id' => (int) $keyword->id,
+            'meta_key' => ReclusterTopicClustersService::META_MANUAL_EXCLUDE,
+            'meta_value' => '1',
+        ], 'omi_seo_ai');
     }
 
     public function test_no_automatic_reclustering_is_triggered(): void

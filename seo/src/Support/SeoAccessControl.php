@@ -218,10 +218,6 @@ final class SeoAccessControl
 
     public static function shouldShowGlobalSitePicker(): bool
     {
-        if (SeoPanelRoutes::is('filament.seo.resources.keywords.*')) {
-            return false;
-        }
-
         if (SeoPanelRoutes::is('filament.seo.pages.mcp-intelligence')) {
             return false;
         }
