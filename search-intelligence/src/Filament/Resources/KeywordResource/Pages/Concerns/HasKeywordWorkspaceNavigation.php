@@ -10,11 +10,14 @@ use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 
 trait HasKeywordWorkspaceNavigation
 {
+    use InteractsWithKeywordWorkspaceLanguageFilter;
+
     public ?int $keywordWorkspaceSiteId = null;
 
     protected function initializeKeywordWorkspaceSiteFilter(): void
     {
         $this->syncKeywordWorkspaceSiteFromGlobal();
+        $this->initializeKeywordWorkspaceLanguageFilter();
     }
 
     #[On('domain-context-changed')]
@@ -22,6 +25,7 @@ trait HasKeywordWorkspaceNavigation
     public function onDomainContextChanged(mixed $domain = null, mixed $siteId = null): void
     {
         $this->syncKeywordWorkspaceSiteFromGlobal(is_numeric($siteId) ? (int) $siteId : null);
+        $this->initializeKeywordWorkspaceLanguageFilter();
 
         if (method_exists($this, 'resetPage')) {
             $this->resetPage();
@@ -30,6 +34,8 @@ trait HasKeywordWorkspaceNavigation
         if (method_exists($this, 'onKeywordWorkspaceSiteFilterChanged')) {
             $this->onKeywordWorkspaceSiteFilterChanged();
         }
+
+        $this->dispatchKeywordWorkspaceLanguageContext();
     }
 
     public function shouldShowKeywordWorkspaceSiteFilter(): bool

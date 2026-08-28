@@ -1,19 +1,18 @@
 {
-    "name":  "Social",
-    "slug":  "social",
-    "version":  "0.1.0",
-    "description":  "Peer addon — Social. Equal-level; no parent/child ownership.",
-    "provider":  "Omnichannel\\Addons\\Social\\SocialServiceProvider",
-    "register_early":  false,
-    "legacy":  false,
-    "provides":  [
-                     "social.publish"
-                 ],
-    "requires":  [
-
-                 ],
-    "optional":  [
-                     "media.library",
-                     "content.document"
-                 ]
+    "name": "Social",
+    "slug": "social",
+    "version": "0.1.0",
+    "description": "Peer addon — Social. Equal-level; no parent/child ownership.",
+    "provider": "Omnichannel\\Addons\\Social\\SocialServiceProvider",
+    "register_early": false,
+    "legacy": false,
+    "provides": [
+        "social.publish",
+        "social.profile"
+    ],
+    "requires": [],
+    "optional": [
+        "media.library",
+        "content.document"
+    ]
 }

@@ -1,27 +1,75 @@
 import ApexCharts from 'apexcharts';
 
 const CHART_ROOT_ID = 'performance-hub-gsc-chart';
-const PAYLOAD_INPUT_ID = 'gsc-chart-payload';
+const PAYLOAD_ID = 'gsc-chart-payload';
+const ERROR_ID = 'gsc-chart-error';
+const REFRESH_EVENT = 'performance-hub-gsc-chart-refresh';
 
 let chartInstance = null;
+let bootstrapped = false;
+let pendingRefresh = null;
+let lastPayloadSignature = '';
+
+function showError(message) {
+    const el = document.getElementById(ERROR_ID);
+    if (! el) {
+        return;
+    }
+
+    el.hidden = message === '';
+    el.textContent = message;
+}
 
 function readPayload() {
-    const input = document.getElementById(PAYLOAD_INPUT_ID);
-    if (! input || ! input.value) {
+    const node = document.getElementById(PAYLOAD_ID)
+        || document.querySelector('[data-gsc-chart-payload]');
+
+    if (! node) {
+        return null;
+    }
+
+    const raw = (node.value || node.textContent || '').trim();
+    if (raw === '') {
         return null;
     }
 
     try {
-        return JSON.parse(input.value);
-    } catch {
+        return JSON.parse(raw);
+    } catch (error) {
+        showError('Chart payload JSON không hợp lệ.');
+        console.error('[GSC chart] payload parse failed', error);
+
         return null;
     }
 }
 
+function payloadSignature(payload) {
+    if (! payload) {
+        return '';
+    }
+
+    return [
+        payload.metric ?? '',
+        payload.current_start ?? '',
+        payload.current_end ?? '',
+        Array.isArray(payload.current) ? payload.current.join(',') : '',
+        Array.isArray(payload.labels) ? payload.labels.length : 0,
+    ].join('|');
+}
+
 function destroyChart() {
     if (chartInstance) {
-        chartInstance.destroy();
+        try {
+            chartInstance.destroy();
+        } catch {
+            // ignore stale ApexCharts destroy errors after Livewire morph
+        }
         chartInstance = null;
+    }
+
+    const root = document.getElementById(CHART_ROOT_ID);
+    if (root) {
+        root.innerHTML = '';
     }
 }
 
@@ -40,6 +88,20 @@ function formatValue(metric, value) {
 function buildOptions(payload) {
     const metric = payload.metric ?? 'clicks';
     const isLowerBetter = payload.is_lower_better === true;
+    const isMonthly = payload.mode === 'monthly'
+        || (Array.isArray(payload.previous) && payload.previous.length === 0);
+
+    const series = [{
+        name: payload.current_label ?? 'Current period',
+        data: payload.current ?? [],
+    }];
+
+    if (! isMonthly) {
+        series.push({
+            name: payload.previous_label ?? 'Previous period',
+            data: payload.previous ?? [],
+        });
+    }
 
     return {
         chart: {
@@ -47,11 +109,13 @@ function buildOptions(payload) {
             height: 280,
             toolbar: { show: false },
             zoom: { enabled: false },
-            animations: { enabled: true, speed: 350, animateGradually: { enabled: false } },
+            animations: { enabled: false },
             fontFamily: 'inherit',
+            redrawOnParentResize: true,
+            redrawOnWindowResize: true,
         },
-        colors: ['#059669', '#9ca3af'],
-        stroke: { curve: 'smooth', width: [2, 2] },
+        colors: isMonthly ? ['#059669'] : ['#059669', '#9ca3af'],
+        stroke: { curve: 'smooth', width: isMonthly ? [2] : [2, 2] },
         fill: {
             type: 'gradient',
             gradient: {
@@ -62,20 +126,14 @@ function buildOptions(payload) {
             },
         },
         dataLabels: { enabled: false },
-        series: [
-            {
-                name: payload.current_label ?? 'Current period',
-                data: payload.current ?? [],
-            },
-            {
-                name: payload.previous_label ?? 'Previous period',
-                data: payload.previous ?? [],
-            },
-        ],
+        series,
         xaxis: {
             categories: payload.labels ?? [],
             labels: {
                 style: { colors: '#6b7280', fontSize: '11px' },
+                rotate: -45,
+                hideOverlappingLabels: true,
+                datetimeUTC: false,
             },
             axisBorder: { show: false },
             axisTicks: { show: false },
@@ -93,10 +151,10 @@ function buildOptions(payload) {
             padding: { left: 8, right: 8 },
         },
         legend: {
+            show: series.length > 1,
             position: 'bottom',
             horizontalAlign: 'left',
             fontSize: '12px',
-            markers: { radius: 12 },
         },
         tooltip: {
             shared: true,
@@ -115,36 +173,144 @@ function buildOptions(payload) {
 function renderChart(payload) {
     const root = document.getElementById(CHART_ROOT_ID);
     if (! root) {
+        destroyChart();
+        showError('');
+
+        return;
+    }
+
+    if (! payload || payload.has_data !== true) {
+        destroyChart();
+        showError('');
+
+        return;
+    }
+
+    const signature = payloadSignature(payload);
+    const alreadyPainted = root.querySelector('.apexcharts-canvas, svg') !== null
+        && signature === lastPayloadSignature
+        && chartInstance !== null;
+
+    if (alreadyPainted) {
+        showError('');
+
         return;
     }
 
     destroyChart();
+    showError('');
 
-    if (! payload || payload.has_data !== true) {
-        return;
+    try {
+        chartInstance = new ApexCharts(root, buildOptions(payload));
+        chartInstance.render()
+            .then(() => {
+                lastPayloadSignature = signature;
+                window.requestAnimationFrame(() => {
+                    try {
+                        chartInstance?.resize?.();
+                    } catch {
+                        // ignore
+                    }
+                });
+
+                if (! root.querySelector('.apexcharts-canvas, svg')) {
+                    showError('Không render được biểu đồ GSC (ApexCharts trống).');
+                }
+            })
+            .catch((error) => {
+                console.error('[GSC chart] render failed', error);
+                showError('Lỗi render biểu đồ GSC. Mở Console để xem chi tiết.');
+            });
+    } catch (error) {
+        console.error('[GSC chart] init failed', error);
+        showError('Không khởi tạo được biểu đồ GSC.');
     }
-
-    chartInstance = new ApexCharts(root, buildOptions(payload));
-    chartInstance.render();
 }
 
 function updateFromDom() {
     const payload = readPayload();
     if (payload) {
         renderChart(payload);
+    } else {
+        destroyChart();
     }
+}
+
+function scheduleRefresh(delayMs = 0) {
+    if (pendingRefresh !== null) {
+        window.clearTimeout(pendingRefresh);
+    }
+
+    pendingRefresh = window.setTimeout(() => {
+        pendingRefresh = null;
+        window.requestAnimationFrame(updateFromDom);
+    }, delayMs);
+}
+
+function bindLivewireHooks() {
+    if (! window.Livewire || bootstrapped) {
+        return;
+    }
+
+    bootstrapped = true;
+
+    window.Livewire.hook('morph.updated', () => {
+        lastPayloadSignature = '';
+        scheduleRefresh(50);
+    });
+
+    window.Livewire.hook('commit', ({ succeed }) => {
+        succeed(() => {
+            lastPayloadSignature = '';
+            scheduleRefresh(80);
+        });
+    });
+
+    if (typeof window.Livewire.on === 'function') {
+        window.Livewire.on(REFRESH_EVENT, () => {
+            lastPayloadSignature = '';
+            scheduleRefresh(80);
+        });
+    }
+}
+
+function observePayload() {
+    const node = document.getElementById(PAYLOAD_ID);
+    if (! node || typeof MutationObserver === 'undefined') {
+        return;
+    }
+
+    const observer = new MutationObserver(() => {
+        lastPayloadSignature = '';
+        scheduleRefresh(30);
+    });
+
+    observer.observe(node, {
+        characterData: true,
+        childList: true,
+        subtree: true,
+        attributes: true,
+    });
 }
 
 function boot() {
     updateFromDom();
+    bindLivewireHooks();
+    observePayload();
 
-    if (window.Livewire) {
-        window.Livewire.hook('commit', ({ succeed }) => {
-            succeed(() => {
-                window.requestAnimationFrame(updateFromDom);
-            });
-        });
-    }
+    // Late Livewire/Filament hydration.
+    scheduleRefresh(120);
+    scheduleRefresh(400);
+
+    document.addEventListener(REFRESH_EVENT, () => {
+        lastPayloadSignature = '';
+        scheduleRefresh(0);
+    });
+    document.addEventListener('livewire:init', bindLivewireHooks);
+    document.addEventListener('livewire:navigated', () => {
+        lastPayloadSignature = '';
+        scheduleRefresh(0);
+    });
 }
 
 if (document.readyState === 'loading') {
@@ -153,11 +319,8 @@ if (document.readyState === 'loading') {
     boot();
 }
 
-document.addEventListener('livewire:navigated', () => {
-    window.requestAnimationFrame(updateFromDom);
-});
-
 window.PerformanceHubGscChart = {
     update: renderChart,
     destroy: destroyChart,
+    refresh: updateFromDom,
 };

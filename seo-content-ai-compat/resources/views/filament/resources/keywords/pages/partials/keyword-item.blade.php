@@ -9,6 +9,7 @@
     $dnaValues = is_array($dnaValues ?? null) ? $dnaValues : null;
     $clusterKey = (string) ($clusterKey ?? '');
     $showCheckbox = (bool) ($showCheckbox ?? false);
+    $showActions = (bool) ($showActions ?? true);
 
     if ($keyword === null) {
         return;
@@ -190,7 +191,7 @@
         </div>
     </div>
 
-    @if ($item['can_mutate'])
+    @if ($showActions && $item['can_mutate'])
         <div class="keyword-item__actions">
             <div class="relative">
                 <button

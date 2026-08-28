@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\SearchIntelligence\Services;
 
 use Omnichannel\Addons\SearchIntelligence\Models\SeoGscMasterConnection;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Str;
 
 final class GoogleSearchConsoleOAuthService
@@ -22,6 +23,10 @@ final class GoogleSearchConsoleOAuthService
 
     public function redirectUri(): string
     {
+        if (Route::has('seo.gsc.oauth.callback')) {
+            return route('seo.gsc.oauth.callback', absolute: true);
+        }
+
         return (string) config('services.google_search_console.redirect');
     }
 

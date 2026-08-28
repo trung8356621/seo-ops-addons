@@ -198,6 +198,7 @@ final class SeoPanelRoutes
         return self::check($route,
             'filament.seo.pages.performance-hub',
             'filament.seo.pages.mcp-intelligence',
+            'filament.seo.pages.social',
         );
     }
 
@@ -209,6 +210,11 @@ final class SeoPanelRoutes
     public static function isMcpIntelligenceNav(?string $route = null): bool
     {
         return self::check($route, 'filament.seo.pages.mcp-intelligence');
+    }
+
+    public static function isSocialNav(?string $route = null): bool
+    {
+        return self::check($route, 'filament.seo.pages.social');
     }
 
     // ─── Hệ thống ────────────────────────────────────────────────────────

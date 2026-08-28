@@ -35,7 +35,8 @@
             "Omnichannel\\Addons\\SearchIntelligence\\Tests\\": "search-intelligence/tests/",
             "Omnichannel\\Addons\\AiPrompt\\Tests\\": "ai-prompt/tests/",
             "Omnichannel\\Addons\\SiteSync\\Tests\\": "site-sync/tests/",
-            "Omnichannel\\Addons\\Agent\\Tests\\": "agent/tests/"
+            "Omnichannel\\Addons\\Agent\\Tests\\": "agent/tests/",
+            "Omnichannel\\Addons\\Social\\Tests\\": "social/tests/"
         }
     },
     "minimum-stability": "dev",

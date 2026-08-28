@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence;
 
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -13,6 +14,7 @@ use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordClassification;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicClusterMeta;
 use Omnichannel\Addons\SearchIntelligence\Services\SiteMcp\SiteMcpClusterTopicalProfileBuilder;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordCanonicalizer;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordUiInventoryQuery;
 use Omnichannel\Addons\Seo\Support\DomainContextResolver;
 
 final class KeywordClusterQuery
@@ -42,9 +44,13 @@ final class KeywordClusterQuery
      *     custom_groups: int,
      * }
      */
-    public function summary(?int $siteId): array
+    public function summary(?int $siteId, ?array $languageVariants = null): array
     {
-        return $this->eligibility->summaryMetrics($siteId);
+        // SSOT: Dictionary UI inventory IDs — never a broader forSite-only scope.
+        $keywordIds = app(KeywordUiInventoryQuery::class)
+            ->keywordIds($siteId, $languageVariants);
+
+        return $this->eligibility->summaryMetricsForKeywordIds($keywordIds);
     }
 
     /**
@@ -53,7 +59,8 @@ final class KeywordClusterQuery
      *     coverage?: string,
      *     has_articles?: bool,
      *     sort?: string,
-     *     projection?: 'mcp'|'seo'
+     *     projection?: 'mcp'|'seo',
+     *     language_variants?: list<string>|null
      * }  $filters
      * @return LengthAwarePaginator<int, array<string, mixed>>
      */
@@ -73,8 +80,11 @@ final class KeywordClusterQuery
         if ($projection !== 'seo') {
             $projection = 'mcp';
         }
+        $languageVariants = is_array($filters['language_variants'] ?? null)
+            ? $filters['language_variants']
+            : null;
 
-        $rows = $this->clusterAggregates($siteId);
+        $rows = $this->clusterAggregates($siteId, 500, $languageVariants);
         $shareMap = ($siteId !== null && $siteId > 0)
             ? app(SiteMcpClusterTopicalProfileBuilder::class)->topicalShareMap($siteId)
             : [];
@@ -408,13 +418,18 @@ final class KeywordClusterQuery
      *
      * @return list<object>
      */
-    public function clusterAggregates(?int $siteId, int $limit = 500): array
+    public function clusterAggregates(?int $siteId, int $limit = 500, ?array $languageVariants = null): array
     {
         if (! $this->classificationsReady()) {
             return [];
         }
 
-        $keywordIds = $this->keywordIdSubquery($siteId);
+        $languageBindings = ($languageVariants !== null && $languageVariants !== [])
+            ? array_values($languageVariants)
+            : [];
+        // SSOT: Dictionary UI inventory for cluster list keyword counts.
+        $keywordIds = app(KeywordUiInventoryQuery::class)
+            ->keywordIdSubquery($siteId, $languageVariants);
         $dnaJoin = '';
         $dnaSelect = '0 as dna_branch_count';
         if (Schema::connection('omi_seo_ai')->hasTable('seo_keyword_dna')) {
@@ -425,11 +440,20 @@ final class KeywordClusterQuery
         $articleJoin = '';
         $articleSelect = '0 as article_count, 0 as internal_link_count';
         if (Schema::connection('omi_seo_ai')->hasTable('seo_link_maps')) {
-            // Same semantics as memberLinkStats() / Cluster Detail:
-            // article_count = DISTINCT target_article_id; internal_link_count = all link-map rows.
-            $articleSelect = 'COUNT(DISTINCT lm.target_article_id) as article_count,'
-                .' COUNT(lm.id) as internal_link_count';
-            $articleJoin = ' LEFT JOIN seo_link_maps lm ON lm.keyword_id = c.keyword_id';
+            if ($languageBindings !== []) {
+                $articlePlaceholders = implode(',', array_fill(0, count($languageBindings), '?'));
+                $articleSelect = 'COUNT(DISTINCT lm_tgt.id) as article_count,'
+                    .' COUNT(lm_src.id) as internal_link_count';
+                $articleJoin = ' LEFT JOIN seo_link_maps lm ON lm.keyword_id = c.keyword_id'
+                    .' LEFT JOIN articles lm_tgt ON lm_tgt.id = lm.target_article_id'
+                    .' AND lm_tgt.language IN ('.$articlePlaceholders.')'
+                    .' LEFT JOIN articles lm_src ON lm_src.id = lm.source_article_id'
+                    .' AND lm_src.language IN ('.$articlePlaceholders.')';
+            } else {
+                $articleSelect = 'COUNT(DISTINCT lm.target_article_id) as article_count,'
+                    .' COUNT(lm.id) as internal_link_count';
+                $articleJoin = ' LEFT JOIN seo_link_maps lm ON lm.keyword_id = c.keyword_id';
+            }
         }
 
         $hiddenJoin = '';
@@ -460,7 +484,10 @@ final class KeywordClusterQuery
             .' ORDER BY keyword_count DESC'
             .' LIMIT '.(int) $limit;
 
-        return DB::connection('omi_seo_ai')->select($sql, $keywordIds->getBindings());
+        return DB::connection('omi_seo_ai')->select(
+            $sql,
+            array_merge($languageBindings, $languageBindings, $keywordIds->getBindings()),
+        );
     }
 
     /**
@@ -491,7 +518,7 @@ final class KeywordClusterQuery
 
     /**
      * Canonical cluster title SSOT: seo_topic_cluster_meta.canonical_phrase.
-     * Fallback: cluster_key pretty → last-resort sample member phrase.
+     * Fallback: cluster_key pretty (strip uniqueness hash) → last-resort sample member phrase.
      */
     public function displayLabel(string $clusterKey, string $samplePhrase = '', ?int $siteId = null): string
     {
@@ -505,9 +532,9 @@ final class KeywordClusterQuery
             return $canonical;
         }
 
-        $fromKey = trim(str_replace('_', ' ', $clusterKey));
+        $fromKey = $this->prettyLabelFromClusterKey($clusterKey);
         if ($fromKey !== '') {
-            return mb_convert_case($fromKey, MB_CASE_TITLE, 'UTF-8');
+            return $fromKey;
         }
 
         $sample = trim($samplePhrase);
@@ -515,6 +542,26 @@ final class KeywordClusterQuery
         return $sample !== ''
             ? (new KeywordCanonicalizer())->prettyLabel($sample)
             : $clusterKey;
+    }
+
+    /**
+     * Humanize cluster_key without TopicClusterClusterKeyGenerator uniqueness suffixes
+     * (e.g. vai_canvas__785f3e → "Vai Canvas").
+     */
+    private function prettyLabelFromClusterKey(string $clusterKey): string
+    {
+        $slug = $clusterKey;
+        // base__hex6, optionally followed by _hex disambiguators from generate().
+        if (preg_match('/^(.+?)__[a-f0-9]{6}(?:_[a-f0-9]{4,})*$/i', $slug, $matches) === 1) {
+            $slug = (string) $matches[1];
+        }
+
+        $fromKey = trim(str_replace('_', ' ', $slug));
+        if ($fromKey === '') {
+            return '';
+        }
+
+        return mb_convert_case($fromKey, MB_CASE_TITLE, 'UTF-8');
     }
 
     /**
@@ -566,7 +613,7 @@ final class KeywordClusterQuery
     /**
      * @return list<int>
      */
-    public function memberKeywordIds(?int $siteId, string $clusterKey): array
+    public function memberKeywordIds(?int $siteId, string $clusterKey, ?array $languageVariants = null): array
     {
         $clusterKey = trim($clusterKey);
         if ($clusterKey === '' || ! $this->classificationsReady()) {
@@ -577,7 +624,9 @@ final class KeywordClusterQuery
             ->where('cluster_key', $clusterKey);
 
         if ($siteId !== null && $siteId > 0) {
-            $ids = Keyword::query()->forSite($siteId)->select('id');
+            $ids = app(KeywordUiInventoryQuery::class)
+                ->baseQuery($siteId, $languageVariants)
+                ->select('id');
             $query->whereIn('keyword_id', $ids);
         }
 
@@ -651,7 +700,7 @@ final class KeywordClusterQuery
      * @param  list<int>  $keywordIds
      * @return array{article_count: int, internal_link_count: int}
      */
-    public function memberLinkStats(array $keywordIds): array
+    public function memberLinkStats(array $keywordIds, ?array $languageVariants = null): array
     {
         $keywordIds = array_values(array_filter(array_map('intval', $keywordIds)));
         if ($keywordIds === [] || ! Schema::connection('omi_seo_ai')->hasTable('seo_link_maps')) {
@@ -661,15 +710,26 @@ final class KeywordClusterQuery
             ];
         }
 
-        $articleCount = (int) DB::connection('omi_seo_ai')->table('seo_link_maps')
+        $articleQuery = \Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap::query()
             ->whereIn('keyword_id', $keywordIds)
-            ->whereNotNull('target_article_id')
-            ->distinct()
-            ->count('target_article_id');
+            ->whereNotNull('target_article_id');
 
-        $linkCount = (int) DB::connection('omi_seo_ai')->table('seo_link_maps')
-            ->whereIn('keyword_id', $keywordIds)
-            ->count();
+        $linkQuery = \Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap::query()
+            ->whereIn('keyword_id', $keywordIds);
+
+        if ($languageVariants !== null && $languageVariants !== []) {
+            $articleQuery->whereHas(
+                'targetArticle',
+                static fn (EloquentBuilder $articleQuery): EloquentBuilder => $articleQuery->whereIn('language', $languageVariants),
+            );
+            $linkQuery->whereHas(
+                'sourceArticle',
+                static fn (EloquentBuilder $articleQuery): EloquentBuilder => $articleQuery->whereIn('language', $languageVariants),
+            );
+        }
+
+        $articleCount = (int) (clone $articleQuery)->distinct()->count('target_article_id');
+        $linkCount = (int) $linkQuery->count();
 
         return [
             'article_count' => $articleCount,
@@ -739,14 +799,28 @@ final class KeywordClusterQuery
         return (string) ($source ?: SeoTopicClusterMeta::SOURCE_AUTO);
     }
 
-    private function keywordIdSubquery(?int $siteId): Builder
-    {
-        return KeywordClusterSiteScope::keywordIdSubquery($siteId);
+    private function keywordIdSubquery(
+        ?int $siteId,
+        ?array $languageVariants = null,
+        bool $requireLinkedSource = false,
+    ): Builder {
+        return KeywordClusterSiteScope::keywordIdSubquery(
+            $siteId,
+            $languageVariants,
+            excludeSuggest: true,
+            requireLinkedSource: $requireLinkedSource,
+        );
     }
 
-    private function keywordBase(?int $siteId)
+    private function keywordBase(?int $siteId, ?array $languageVariants = null, bool $requireLinkedSource = false)
     {
-        return KeywordClusterSiteScope::apply(Keyword::query(), $siteId);
+        return KeywordClusterSiteScope::apply(
+            Keyword::query(),
+            $siteId,
+            $languageVariants,
+            excludeSuggest: true,
+            requireLinkedSource: $requireLinkedSource,
+        );
     }
 
     private function classificationJoin(?int $siteId)

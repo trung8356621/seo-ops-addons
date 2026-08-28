@@ -6,6 +6,8 @@ namespace Omnichannel\Addons\SearchIntelligence\Services;
 
 use Omnichannel\Addons\SearchIntelligence\Models\SeoGscMasterConnection;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoGscPropertyMapping;
+use Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\GscLegacySyncDailyFactsWriter;
+use Omnichannel\Addons\SearchIntelligence\Support\GscIntelligence\GscMonthlyPeriod;
 use App\Models\Site;
 use App\Models\SiteMeta;
 use Illuminate\Support\Facades\Http;
@@ -56,7 +58,7 @@ final class GoogleSearchConsoleSyncService
     /**
      * @return array{ok: bool, message: string, query_count: int}
      */
-    public function syncSiteWithDetails(int $siteId, ?int $userId = null): array
+    public function syncSiteWithDetails(int $siteId, ?int $userId = null, ?string $periodKey = null): array
     {
         $userId ??= (int) auth()->id();
 
@@ -97,7 +99,18 @@ final class GoogleSearchConsoleSyncService
         }
 
         $property = rawurlencode((string) $mapping->property_url);
-        $period = $this->resolveSyncPeriod();
+        $period = $periodKey !== null
+            ? $this->resolveSyncPeriodForMonth($periodKey)
+            : $this->resolveSyncPeriod();
+        $normalizedPeriodKey = $periodKey !== null ? GscMonthlyPeriod::normalize($periodKey) : null;
+
+        if ($normalizedPeriodKey !== null && $period['current_start'] > $period['current_end']) {
+            return [
+                'ok' => false,
+                'message' => __('seo-content-ai::filament.performance_hub.gsc_sync_future_month'),
+                'query_count' => 0,
+            ];
+        }
 
         $response = $this->fetchSearchAnalytics(
             token: $token,
@@ -168,31 +181,57 @@ final class GoogleSearchConsoleSyncService
             rowLimit: 1000,
         );
 
-        $previousTimeseriesResponse = $this->fetchSearchAnalytics(
-            token: $token,
-            encodedProperty: $property,
-            startDate: $period['previous_start'],
-            endDate: $period['previous_end'],
-            dimensions: ['date'],
-            rowLimit: 1000,
-        );
+        $previousTimeseries = [];
+        if ($normalizedPeriodKey === null) {
+            $previousTimeseriesResponse = $this->fetchSearchAnalytics(
+                token: $token,
+                encodedProperty: $property,
+                startDate: $period['previous_start'],
+                endDate: $period['previous_end'],
+                dimensions: ['date'],
+                rowLimit: 1000,
+            );
+            $previousTimeseries = $previousTimeseriesResponse['ok'] === true
+                ? $this->normalizeDateTimeseries($previousTimeseriesResponse['rows'])
+                : [];
+        }
 
         $currentTimeseries = $currentTimeseriesResponse['ok'] === true
             ? $this->normalizeDateTimeseries($currentTimeseriesResponse['rows'])
-            : [];
-        $previousTimeseries = $previousTimeseriesResponse['ok'] === true
-            ? $this->normalizeDateTimeseries($previousTimeseriesResponse['rows'])
             : [];
 
         $queryCount = count($queries);
 
         $chartStatus = 'ok';
         if ($currentTimeseries === [] && $previousTimeseries === []) {
-            $chartStatus = $currentTimeseriesResponse['ok'] === true || $previousTimeseriesResponse['ok'] === true
+            $chartStatus = $currentTimeseriesResponse['ok'] === true
                 ? 'empty'
                 : 'failed';
-        } elseif ($currentTimeseriesResponse['ok'] !== true && $previousTimeseriesResponse['ok'] !== true) {
+        } elseif ($currentTimeseriesResponse['ok'] !== true) {
             $chartStatus = 'failed';
+        }
+
+        $dailyFactsCount = 0;
+        if ($normalizedPeriodKey !== null) {
+            $dateQueryResponse = $this->fetchSearchAnalytics(
+                token: $token,
+                encodedProperty: $property,
+                startDate: $period['current_start'],
+                endDate: $period['current_end'],
+                dimensions: ['date', 'query'],
+                rowLimit: 25000,
+            );
+            if ($dateQueryResponse['ok'] === true) {
+                $factsWriter = app(GscLegacySyncDailyFactsWriter::class);
+                $gscProperty = $factsWriter->ensureProperty($siteId, (string) $mapping->property_url, (int) $mapping->id);
+                if ($gscProperty !== null) {
+                    $dailyFactsCount = $factsWriter->persistDateQueryRows(
+                        $gscProperty,
+                        $dateQueryResponse['rows'],
+                        'legacy_sync:'.$normalizedPeriodKey.':'.now()->timestamp,
+                    );
+                }
+            }
         }
 
         $snapshot = [
@@ -207,14 +246,18 @@ final class GoogleSearchConsoleSyncService
             'timeseries' => [
                 'current' => $currentTimeseries,
                 'previous' => $previousTimeseries,
-                'period_days' => self::PERIOD_DAYS,
+                'period_days' => $normalizedPeriodKey !== null
+                    ? (int) ((strtotime($period['current_end']) - strtotime($period['current_start'])) / 86400) + 1
+                    : self::PERIOD_DAYS,
                 'current_start' => $period['current_start'],
                 'current_end' => $period['current_end'],
-                'previous_start' => $period['previous_start'],
-                'previous_end' => $period['previous_end'],
+                'previous_start' => $period['previous_start'] ?? '',
+                'previous_end' => $period['previous_end'] ?? '',
+                'mode' => $normalizedPeriodKey !== null ? 'monthly' : 'rolling',
             ],
             'chart_status' => $chartStatus,
             'property_url' => (string) $mapping->property_url,
+            'period_key' => $normalizedPeriodKey,
             'date_start' => $period['current_start'],
             'date_end' => $period['current_end'],
             'filters' => [
@@ -223,6 +266,7 @@ final class GoogleSearchConsoleSyncService
             ],
             'synced_at' => now()->toIso8601String(),
             'source' => 'gsc_api',
+            'daily_facts_count' => $dailyFactsCount,
         ];
 
         $site = Site::query()->find($siteId);
@@ -306,6 +350,34 @@ final class GoogleSearchConsoleSyncService
             'current_end' => $currentEnd->toDateString(),
             'previous_start' => $previousStart->toDateString(),
             'previous_end' => $previousEnd->toDateString(),
+        ];
+    }
+
+    /**
+     * Calendar month bounds for monthly GSC sync (respects GSC data lag on current month).
+     *
+     * @return array{
+     *     current_start: string,
+     *     current_end: string,
+     *     previous_start: string,
+     *     previous_end: string,
+     * }
+     */
+    public function resolveSyncPeriodForMonth(string $periodKey): array
+    {
+        $periodKey = GscMonthlyPeriod::normalize($periodKey);
+        [$start, $endOfMonth] = GscMonthlyPeriod::bounds($periodKey);
+        $maxEnd = now()->subDays(self::DATA_LAG_DAYS)->startOfDay()->toDateString();
+        $currentEnd = $endOfMonth <= $maxEnd ? $endOfMonth : $maxEnd;
+
+        $previousKey = GscMonthlyPeriod::previousKey($periodKey);
+        [$prevStart, $prevEnd] = GscMonthlyPeriod::bounds($previousKey);
+
+        return [
+            'current_start' => $start,
+            'current_end' => $currentEnd,
+            'previous_start' => $prevStart,
+            'previous_end' => $prevEnd,
         ];
     }
 

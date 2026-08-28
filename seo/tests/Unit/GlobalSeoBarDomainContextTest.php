@@ -139,6 +139,9 @@ final class GlobalSeoBarDomainContextTest extends TestCase
         $this->assertStringContainsString('replaceState', $boot);
         $this->assertStringContainsString('HEADER_KEY', $boot);
         $this->assertStringContainsString('X-Seo-Domain-Context', $store);
+        $this->assertStringContainsString('resolveDomainKeyFromSiteId', $store);
+        $this->assertStringContainsString('SITE_ID_QUERY_KEY', $store);
+        $this->assertStringNotContainsString('siteId: null', $boot);
         $this->assertStringNotContainsString("addEventListener('storage'", $boot);
         $this->assertStringNotContainsString('location.reload', $boot);
         $this->assertStringNotContainsString('window.location.href =', $boot);

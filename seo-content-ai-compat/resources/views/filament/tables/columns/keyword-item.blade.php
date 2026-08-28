@@ -18,4 +18,5 @@
     'dnaValues' => $dnaMap[(int) $record->id] ?? null,
     'clusterKey' => '',
     'showCheckbox' => false,
+    'showActions' => false,
 ])

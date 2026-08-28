@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordClassification;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordUiInventoryQuery;
 
 final class KeywordClassificationVisibility
 {
@@ -339,6 +340,7 @@ final class KeywordClassificationVisibility
     }
 
     /**
+     * @param  list<string>|null  $languageVariants
      * @return array{
      *     table_ready: bool,
      *     total_raw: int,
@@ -352,7 +354,31 @@ final class KeywordClassificationVisibility
      *     kinds: array<string, int>
      * }
      */
-    public static function summarize(?int $siteId): array
+    public static function summarize(?int $siteId, ?array $languageVariants = null): array
+    {
+        $ids = app(KeywordUiInventoryQuery::class)->keywordIds($siteId, $languageVariants);
+
+        return self::summarizeForKeywordIds($ids);
+    }
+
+    /**
+     * User-facing classification strip for the current Dictionary filtered set.
+     *
+     * @param  list<int>  $keywordIds
+     * @return array{
+     *     table_ready: bool,
+     *     total_raw: int,
+     *     classified: int,
+     *     unclassified: int,
+     *     seo_usable: int,
+     *     excluded: int,
+     *     focus: int,
+     *     error: int,
+     *     seo_excluded: int,
+     *     kinds: array<string, int>
+     * }
+     */
+    public static function summarizeForKeywordIds(array $keywordIds): array
     {
         $emptyKinds = [
             KeywordRuleClassifier::KIND_KEYWORD_PHRASE => 0,
@@ -379,28 +405,11 @@ final class KeywordClassificationVisibility
             ];
         }
 
-        // Active inventory counters only — staging Suggest belongs to SEO Audit.
-        $keywordQuery = Keyword::query()->where(function (Builder $builder): void {
-            $builder
-                ->whereNull('type')
-                ->orWhere('type', '!=', Keyword::TYPE_SUGGEST);
-        });
-        if ($siteId !== null && $siteId > 0) {
-            if (Schema::connection('omi_seo_ai')->hasColumn('keywords', 'site_id')) {
-                $keywordQuery->where(function (Builder $inner) use ($siteId): void {
-                    $inner->where('site_id', $siteId)
-                        ->orWhereHas('linkMaps.sourceArticle', static fn (Builder $q): Builder => $q->where('site_id', $siteId));
-                });
-            } else {
-                $keywordQuery->whereHas(
-                    'linkMaps.sourceArticle',
-                    static fn (Builder $q): Builder => $q->where('site_id', $siteId),
-                );
-            }
-        }
-
-        $ids = $keywordQuery->pluck('id');
-        $total = $ids->count();
+        $ids = array_values(array_filter(
+            array_map(static fn (mixed $id): int => (int) $id, $keywordIds),
+            static fn (int $id): bool => $id > 0,
+        ));
+        $total = count($ids);
         if ($total === 0) {
             return [
                 'table_ready' => true,
@@ -415,6 +424,7 @@ final class KeywordClassificationVisibility
                 'kinds' => $emptyKinds,
             ];
         }
+
         $classQuery = SeoKeywordClassification::query()->whereIn('keyword_id', $ids);
         $classColumns = ['keyword_id', 'phrase_kind', 'is_seo_keyword'];
         if (self::hasAmbiguousColumn()) {

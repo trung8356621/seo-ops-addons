@@ -45,6 +45,7 @@ final class GscOpportunityDetectionService
         $firstSeenDate = (string) ($context['first_seen_date'] ?? date('Y-m-d'));
         $maturity = $this->resolveMaturity($firstSeenDate);
         $hasPublishedPage = ($context['has_published_page'] ?? false) === true;
+        $primaryPage = trim((string) ($context['primary_page'] ?? $this->primaryPageFromRows($currentRows)));
 
         $minImpressions = $this->configInt('opportunity.min_impressions', 100);
         $nearPageOneMax = $this->configFloat('opportunity.near_page_one_max_position', 15.0);
@@ -60,12 +61,12 @@ final class GscOpportunityDetectionService
                     $normalizedQuery,
                     $keywordRef,
                     $maturity,
-                    [
+                    $this->withPrimaryPage([
                         'impressions' => $current['impressions'],
                         'ctr' => $current['ctr'],
                         'expected_ctr' => $this->expectedCtr->expectedCtr($current['position']),
                         'ctr_gap' => $ctrGap,
-                    ],
+                    ], $primaryPage),
                     $hasPublishedPage,
                 );
             }
@@ -79,10 +80,10 @@ final class GscOpportunityDetectionService
                 $normalizedQuery,
                 $keywordRef,
                 $maturity,
-                [
+                $this->withPrimaryPage([
                     'position' => $current['position'],
                     'impressions' => $current['impressions'],
-                ],
+                ], $primaryPage),
                 $hasPublishedPage,
             );
         }
@@ -102,11 +103,11 @@ final class GscOpportunityDetectionService
                     $normalizedQuery,
                     $keywordRef,
                     $maturity,
-                    [
+                    $this->withPrimaryPage([
                         'clicks_delta' => $comparison['clicks_delta'],
                         'drop_pct' => round($dropPct, 4),
                         'impressions' => $current['impressions'],
-                    ],
+                    ], $primaryPage),
                     $hasPublishedPage,
                 );
             } elseif ($dropPct >= 0.15) {
@@ -115,11 +116,11 @@ final class GscOpportunityDetectionService
                     $normalizedQuery,
                     $keywordRef,
                     $maturity,
-                    [
+                    $this->withPrimaryPage([
                         'clicks_delta' => $comparison['clicks_delta'],
                         'drop_pct' => round($dropPct, 4),
                         'impressions' => $current['impressions'],
-                    ],
+                    ], $primaryPage),
                     $hasPublishedPage,
                 );
             }
@@ -136,12 +137,12 @@ final class GscOpportunityDetectionService
                 $normalizedQuery,
                 $keywordRef,
                 $maturity,
-                [
+                $this->withPrimaryPage([
                     'position' => $current['position'],
                     'previous_position' => $baseline['position'],
                     'position_delta' => $comparison['position_delta'],
                     'impressions' => $current['impressions'],
-                ],
+                ], $primaryPage),
                 $hasPublishedPage,
             );
         }
@@ -154,11 +155,11 @@ final class GscOpportunityDetectionService
                 $normalizedQuery,
                 $keywordRef,
                 $maturity,
-                [
+                $this->withPrimaryPage([
                     'impressions_growth_pct' => $comparison['impressions_growth_pct'],
                     'impressions_delta' => $comparison['impressions_delta'],
                     'impressions' => $current['impressions'],
-                ],
+                ], $primaryPage),
                 $hasPublishedPage,
             );
         }
@@ -172,7 +173,7 @@ final class GscOpportunityDetectionService
                 $normalizedQuery,
                 null,
                 $maturity,
-                ['impressions' => $current['impressions']],
+                $this->withPrimaryPage(['impressions' => $current['impressions']], $primaryPage),
                 false,
             );
         }
@@ -279,5 +280,43 @@ final class GscOpportunityDetectionService
         } catch (\Throwable) {
             return $default;
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $evidence
+     * @return array<string, mixed>
+     */
+    private function withPrimaryPage(array $evidence, string $primaryPage): array
+    {
+        if ($primaryPage !== '') {
+            $evidence['primary_page'] = $primaryPage;
+        }
+
+        return $evidence;
+    }
+
+    /**
+     * Best page for a query group by impressions (deterministic Social mapping input).
+     *
+     * @param  list<array<string, mixed>>  $rows
+     */
+    private function primaryPageFromRows(array $rows): string
+    {
+        $bestPage = '';
+        $bestImpressions = -1;
+
+        foreach ($rows as $row) {
+            $page = trim((string) ($row['normalized_page'] ?? $row['page'] ?? ''));
+            if ($page === '') {
+                continue;
+            }
+            $impressions = (int) ($row['impressions'] ?? 0);
+            if ($impressions > $bestImpressions) {
+                $bestImpressions = $impressions;
+                $bestPage = $page;
+            }
+        }
+
+        return $bestPage;
     }
 }

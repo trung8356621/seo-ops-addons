@@ -9,6 +9,7 @@ use Omnichannel\Addons\AiPrompt\Filament\Resources\AiConnectionResource;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoGscMasterConnection;
 use Omnichannel\Addons\SearchIntelligence\Services\GoogleSearchConsoleBulkSyncService;
 use Omnichannel\Addons\SearchIntelligence\Services\GoogleSearchConsoleConnectionService;
+use Omnichannel\Addons\SearchIntelligence\Services\GoogleSearchConsoleOAuthService;
 use Omnichannel\Addons\SearchIntelligence\Services\GoogleSearchConsoleSyncService;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionFormSchema;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
@@ -46,16 +47,20 @@ class EditGscApiConnection extends ResourcePage implements HasForms
 
     private GoogleSearchConsoleConnectionService $gscConnection;
 
+    private GoogleSearchConsoleOAuthService $gscOAuth;
+
     private GoogleSearchConsoleSyncService $gscSync;
 
     private GoogleSearchConsoleBulkSyncService $gscBulkSync;
 
     public function boot(
         GoogleSearchConsoleConnectionService $gscConnection,
+        GoogleSearchConsoleOAuthService $gscOAuth,
         GoogleSearchConsoleSyncService $gscSync,
         GoogleSearchConsoleBulkSyncService $gscBulkSync,
     ): void {
         $this->gscConnection = $gscConnection;
+        $this->gscOAuth = $gscOAuth;
         $this->gscSync = $gscSync;
         $this->gscBulkSync = $gscBulkSync;
     }
@@ -452,7 +457,7 @@ class EditGscApiConnection extends ResourcePage implements HasForms
             'gsc_account_email' => (string) ($connection->account_email ?? ''),
             'gsc_token_expires_at' => $this->formatTokenExpiry($this->gscConnection->tokenExpiresAt($connection)),
             'gsc_available_properties' => array_keys($propertyOptions),
-            'gsc_oauth_callback_url' => (string) config('services.google_search_console.redirect'),
+            'gsc_oauth_callback_url' => $this->gscOAuth->redirectUri(),
             'gsc_property_url' => $mappedProperty,
         ]);
     }

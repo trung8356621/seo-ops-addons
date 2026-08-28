@@ -76,6 +76,12 @@ final class KeywordTopicClusters extends Page
     {
         $this->initializeKeywordWorkspaceSiteFilter();
         $this->redirectToFirstAccessibleDomainIfNeeded();
+        $this->dispatchKeywordWorkspaceLanguageContext();
+    }
+
+    public function onKeywordWorkspaceSiteFilterChanged(): void
+    {
+        $this->clusterDataEpoch++;
     }
 
     /**
@@ -129,7 +135,10 @@ final class KeywordTopicClusters extends Page
         $siteId = $this->resolveKeywordWorkspaceSiteId();
 
         return ($siteId !== null && $siteId > 0)
-            ? app(ClusterIndexMcpPreviewSummary::class)->summarize($siteId)
+            ? app(ClusterIndexMcpPreviewSummary::class)->summarize(
+                $siteId,
+                $this->resolveKeywordLanguageFilterVariants(),
+            )
             : [
                 'cluster_count' => 0,
                 'coverage_percent' => 0.0,
@@ -541,7 +550,10 @@ final class KeywordTopicClusters extends Page
 
     public function getSummary(): array
     {
-        return app(KeywordClusterQuery::class)->summary($this->resolveKeywordWorkspaceSiteId());
+        return app(KeywordClusterQuery::class)->summary(
+            $this->resolveKeywordWorkspaceSiteId(),
+            $this->resolveKeywordLanguageFilterVariants(),
+        );
     }
 
     public function clusterStateIsDirty(): bool
@@ -572,6 +584,7 @@ final class KeywordTopicClusters extends Page
                     'has_articles' => $this->hasArticles,
                     'sort' => $this->clusterSort,
                     'projection' => $this->clusterProjection === 'seo' ? 'seo' : 'mcp',
+                    'language_variants' => $this->resolveKeywordLanguageFilterVariants(),
                 ],
                 path: $listPath,
             )

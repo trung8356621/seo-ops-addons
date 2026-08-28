@@ -21,6 +21,7 @@ final class SeoPerformanceDashboardService
 {
     public function __construct(
         private readonly SeoPerformanceHubService $performanceHub,
+        private readonly GscMonthlyDashboardService $gscMonthlyDashboard,
         private readonly GscQueriesTableService $gscQueriesTable,
         private readonly DataForSeoConnectionService $dataForSeo,
         private readonly SeoSerpProviderConnectionService $serpConnections,
@@ -49,10 +50,12 @@ final class SeoPerformanceDashboardService
         int $page = 1,
         int $perPage = GscQueriesTableService::DEFAULT_PER_PAGE,
         string $chartMetric = 'clicks',
+        string $periodKey = '',
     ): array {
-        $gscKpis = $this->performanceHub->getGscKpis($siteId);
+        $monthly = $this->gscMonthlyDashboard->buildState($siteId, $periodKey, $chartMetric);
+        $gscKpis = is_array($monthly['kpis'] ?? null) ? $monthly['kpis'] : [];
         $gscStatus = $this->gscConnection->statusForSite($siteId);
-        $sourceQueries = $this->performanceHub->getGscQueriesSource($siteId);
+        $sourceQueries = is_array($monthly['queries'] ?? null) ? $monthly['queries'] : [];
         $tableState = $this->gscQueriesTable->buildTableState(
             queries: $sourceQueries,
             search: $search,
@@ -63,18 +66,27 @@ final class SeoPerformanceDashboardService
             perPage: $perPage,
         );
 
+        $hasData = ($monthly['has_data'] ?? false) === true;
+
         return [
             'connection' => $gscStatus,
             'settings_url' => $gscStatus['gsc_edit_url'] ?? $this->resolveSettingsUrl(),
-            'kpis' => $this->buildGscKpiCards($gscKpis, $this->performanceHub->getGscTotalQueries($siteId)),
-            'distribution' => $this->performanceHub->getGscQueryDistribution($siteId),
-            'chart' => $this->performanceHub->getGscPerformanceChart($siteId, $chartMetric),
+            'period_key' => (string) ($monthly['period_key'] ?? ''),
+            'period_label' => (string) ($monthly['period_label'] ?? ''),
+            'period_start' => (string) ($monthly['period_start'] ?? ''),
+            'period_end' => (string) ($monthly['period_end'] ?? ''),
+            'last_synced_at' => $monthly['last_synced_at'] ?? null,
+            'month_options' => is_array($monthly['month_options'] ?? null) ? $monthly['month_options'] : [],
+            'can_go_next_month' => \Omnichannel\Addons\SearchIntelligence\Support\GscIntelligence\GscMonthlyPeriod::canGoNext((string) ($monthly['period_key'] ?? '')),
+            'kpis' => $this->buildGscKpiCards($gscKpis, $hasData ? (int) ($gscKpis['total_queries'] ?? 0) : null),
+            'distribution' => $this->performanceHub->getGscQueryDistributionFromQueries($sourceQueries),
+            'chart' => is_array($monthly['chart'] ?? null) ? $monthly['chart'] : [],
             'queries' => $tableState['rows'],
             'queries_pagination' => $tableState['pagination'],
             'queries_total_filtered' => $tableState['total_filtered'],
             'queries_total_source' => $tableState['total_source'],
-            'quick_wins' => $this->performanceHub->getQuickWinQueries($siteId),
-            'has_data' => ($gscKpis['has_data'] ?? false) === true,
+            'quick_wins' => $this->performanceHub->getQuickWinQueriesFromSource($sourceQueries),
+            'has_data' => $hasData,
             'has_pages' => false,
             'position_bucket' => $this->gscQueriesTable->normalizePositionBucket($positionBucket),
         ];

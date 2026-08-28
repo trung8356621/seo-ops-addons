@@ -9,6 +9,7 @@ use Filament\Forms\Components\Actions\Action as FormInputAction;
 use Filament\Forms\Get;
 use Illuminate\Support\HtmlString;
 use Illuminate\Support\Js;
+use Omnichannel\Addons\SearchIntelligence\Services\GoogleSearchConsoleOAuthService;
 
 final class ApiConnectionFormSchema
 {
@@ -157,6 +158,13 @@ final class ApiConnectionFormSchema
                         ->label(__('seo-content-ai::filament.api_connections.gsc_oauth_client_secret'))
                         ->password()
                         ->revealable()
+                        ->autocomplete('new-password')
+                        ->extraInputAttributes([
+                            'autocomplete' => 'new-password',
+                            'data-1p-ignore' => 'true',
+                            'data-lpignore' => 'true',
+                            'data-form-type' => 'other',
+                        ])
                         ->required(fn (Get $get): bool => $operation === 'create'
                             && $get('provider') === ApiConnectionProviders::GOOGLE_SEARCH_CONSOLE)
                         ->dehydrated(fn (?string $state): bool => filled($state))
@@ -169,7 +177,7 @@ final class ApiConnectionFormSchema
                         ->maxLength(65535),
                     Forms\Components\TextInput::make('gsc_oauth_callback_url')
                         ->label(__('seo-content-ai::filament.api_connections.gsc_oauth_callback_url'))
-                        ->default(fn (): string => (string) config('services.google_search_console.redirect'))
+                        ->default(fn (): string => app(GoogleSearchConsoleOAuthService::class)->redirectUri())
                         ->readOnly()
                         ->dehydrated(false)
                         ->suffixAction(
@@ -177,7 +185,7 @@ final class ApiConnectionFormSchema
                                 ->label(__('seo-content-ai::filament.api_connections.gsc_oauth_callback_copy'))
                                 ->icon('heroicon-o-clipboard-document')
                                 ->alpineClickHandler(function (): string {
-                                    $url = Js::from((string) config('services.google_search_console.redirect'));
+                                    $url = Js::from(app(GoogleSearchConsoleOAuthService::class)->redirectUri());
                                     $message = Js::from(__('seo-content-ai::filament.api_connections.gsc_oauth_callback_copied'));
 
                                     return "(async () => { await navigator.clipboard.writeText({$url}); \$tooltip({$message}, { timeout: 1500 }); })()";

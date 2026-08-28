@@ -15,6 +15,7 @@ import {
     readDomainFromUrl,
     readStorage,
     resolveDomainContext,
+    resolveSiteIdFromDomainKey,
     sanitizeDomainKey,
     writeStorage,
 } from './domainContextStore';
@@ -100,8 +101,8 @@ function dispatchLivewire(domainKey) {
         return;
     }
 
-    const siteId = isAllDomains(domainKey) ? null : domainKey;
-    window.Livewire.dispatch(EVENT_NAME, { domain: domainKey, siteId: null });
+    const siteId = isAllDomains(domainKey) ? null : resolveSiteIdFromDomainKey(domainKey);
+    window.Livewire.dispatch(EVENT_NAME, { domain: domainKey, siteId });
     window.Livewire.dispatch(LEGACY_EVENT_NAME, { siteId });
 }
 

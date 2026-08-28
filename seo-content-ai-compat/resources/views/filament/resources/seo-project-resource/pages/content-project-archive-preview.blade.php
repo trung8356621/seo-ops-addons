@@ -78,14 +78,10 @@
                 <thead class="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800/95">
                     <tr>
                         <th class="w-10 px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">#</th>
-                        <th class="min-w-[16rem] w-[32%] px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_col_title') }}</th>
-                        <th class="min-w-[8rem] px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_keyword') }}</th>
-                        <th class="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_col_status') }}</th>
-                        <th class="w-16 px-3 py-2.5 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400" title="{{ __('seo-content-ai::filament.projects.archive_preview_col_internal_links') }}">{{ __('seo-content-ai::filament.projects.archive_preview_col_int') }}</th>
-                        <th class="w-16 px-3 py-2.5 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400" title="{{ __('seo-content-ai::filament.projects.archive_preview_col_external_links') }}">{{ __('seo-content-ai::filament.projects.archive_preview_col_ext') }}</th>
+                        <th class="min-w-[16rem] w-[40%] px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_col_title') }}</th>
                         <th class="w-20 px-3 py-2.5 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_col_avg_seo') }}</th>
-                        <th class="px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_sync') }}</th>
                         <th class="min-w-[9rem] px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_index') }}</th>
+                        <th class="w-24 px-3 py-2.5 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_social') }}</th>
                         <th class="w-24 px-3 py-2.5 text-right text-xs font-medium uppercase tracking-wide text-gray-500 dark:text-gray-400"></th>
                     </tr>
                 </thead>
@@ -93,15 +89,10 @@
                     @forelse ($rows as $row)
                         @php
                             $title = trim((string) ($row['title'] ?? ''));
-                            $keyword = trim((string) ($row['keyword'] ?? ''));
-                            $status = trim((string) ($row['task_status'] ?? ''));
-                            $syncStatus = trim((string) ($row['sync_status'] ?? ''));
                             $seoScore = $row['seo_score'] ?? null;
                             $articleExists = (bool) ($row['article_exists'] ?? false);
                             $itemId = (int) ($row['item_id'] ?? 0);
                             $position = (int) ($row['position'] ?? 0);
-                            $internalLinks = (int) ($row['internal_link_count'] ?? 0);
-                            $externalLinks = (int) ($row['external_link_count'] ?? 0);
                             $wpUrl = trim((string) ($row['wordpress_url'] ?? ''));
                             $hasWpUrl = (bool) ($row['has_public_wordpress_url'] ?? false) && $wpUrl !== '';
                             $indexedLabel = is_string($row['indexed_at_label'] ?? null) ? trim((string) $row['indexed_at_label']) : '';
@@ -162,24 +153,7 @@
                                     @endif
                                 </div>
                             </td>
-                            <td class="px-3 py-2.5 text-gray-700 dark:text-gray-200">{{ $keyword !== '' ? e($keyword) : '—' }}</td>
-                            <td class="px-3 py-2.5">
-                                @if ($status !== '')
-                                    <span class="inline-flex rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-200">{{ e($status) }}</span>
-                                @else
-                                    —
-                                @endif
-                            </td>
-                            <td class="whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-gray-700 dark:text-gray-200">{{ $internalLinks }}</td>
-                            <td class="whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-gray-700 dark:text-gray-200">{{ $externalLinks }}</td>
                             <td class="whitespace-nowrap px-3 py-2.5 text-right text-gray-700 dark:text-gray-200">{{ $seoScore !== null ? number_format((float) $seoScore, 2) : '—' }}</td>
-                            <td class="px-3 py-2.5">
-                                @if ($syncStatus !== '')
-                                    <span class="inline-flex rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-200">{{ e($syncStatus) }}</span>
-                                @else
-                                    —
-                                @endif
-                            </td>
                             <td class="px-3 py-2.5">
                                 <div class="flex flex-col items-start gap-0.5">
                                     <button
@@ -209,6 +183,17 @@
                                     @endif
                                 </div>
                             </td>
+                            <td class="px-3 py-2.5">
+                                @if ($hasWpUrl)
+                                    <x-seo-content-ai::social-share-actions
+                                        :title="$title"
+                                        :url="$wpUrl"
+                                        :compact="true"
+                                    />
+                                @else
+                                    <span class="text-[11px] text-gray-400 dark:text-gray-500">—</span>
+                                @endif
+                            </td>
                             <td class="whitespace-nowrap px-3 py-2.5 text-right">
                                 <x-filament::button
                                     color="gray"
@@ -223,7 +208,7 @@
                         </tr>
                     @empty
                         <tr>
-                            <td colspan="10" class="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                            <td colspan="6" class="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
                                 {{ __('seo-content-ai::filament.projects.archive_preview_empty') }}
                             </td>
                         </tr>

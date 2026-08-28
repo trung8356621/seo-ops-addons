@@ -80,4 +80,6 @@
     @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-move-cluster-modal')
 
     <x-filament-actions::modals />
+
+    @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-quick-copy-script')
 </x-filament-panels::page>

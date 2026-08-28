@@ -27,9 +27,40 @@ final class KeywordClusterEligibility
      *     custom_groups: int,
      * }
      */
-    public function summaryMetrics(?int $siteId): array
+    public function summaryMetrics(?int $siteId, ?array $languageVariants = null, bool $requireLinkedSource = false): array
     {
-        $keywordIds = KeywordClusterSiteScope::keywordIds($siteId);
+        $keywordIds = KeywordClusterSiteScope::keywordIds(
+            $siteId,
+            $languageVariants,
+            excludeSuggest: true,
+            requireLinkedSource: $requireLinkedSource,
+        );
+
+        return $this->summaryMetricsForKeywordIds($keywordIds);
+    }
+
+    /**
+     * @param  list<int>  $keywordIds
+     * @return array{
+     *     total_keywords: int,
+     *     classified_keywords: int,
+     *     seo_eligible_keywords: int,
+     *     clustered: int,
+     *     unclustered: int,
+     *     unclassified_keywords: int,
+     *     non_seo_keywords: int,
+     *     non_seo_but_clustered: int,
+     *     topic_clusters: int,
+     *     system_groups: int,
+     *     custom_groups: int,
+     * }
+     */
+    public function summaryMetricsForKeywordIds(array $keywordIds): array
+    {
+        $keywordIds = array_values(array_filter(
+            array_map(static fn (mixed $id): int => (int) $id, $keywordIds),
+            static fn (int $id): bool => $id > 0,
+        ));
         $total = count($keywordIds);
 
         if ($total === 0 || ! KeywordClassificationVisibility::tableReady()) {

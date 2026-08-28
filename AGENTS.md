@@ -24,6 +24,7 @@ search-foundation · seo · search-intelligence · ai-prompt · content · conte
 | AI/prompt | `ai-prompt/` |
 | Site Sync | `site-sync/` |
 | Agent/MCP | `agent/` |
+| Social Profile / manual share | `social/` |
 
 ## EDITOR WIDGET LOCKS
 

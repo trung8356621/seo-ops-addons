@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Social;
 
 /**
- * Social peer boundary — compatible with rpa-social concept.
- * Not a child of SEO. Skeleton only in Phase 1.
+ * Social peer boundary — server identity/share phase 1.
+ * Electron / automation remain separate products (not wired here).
  */
 final class SocialIntegrationBoundary
 {
     public const CAPABILITY = 'social.publish';
+
+    public const PROFILE_CAPABILITY = 'social.profile';
 
     /**
      * @return list<string>
@@ -18,6 +20,8 @@ final class SocialIntegrationBoundary
     public static function plannedSurfaces(): array
     {
         return [
+            'profile.crud',
+            'share.manual',
             'channel.connection',
             'post.draft',
             'post.schedule',

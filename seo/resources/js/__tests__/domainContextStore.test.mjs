@@ -1,4 +1,4 @@
-import { describe, it } from 'node:test';
+import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
     ALL_KEY,
@@ -7,6 +7,7 @@ import {
     normalizeDomainKey,
     readDomainFromUrl,
     resolveDomainContext,
+    resolveDomainKeyFromSiteId,
     sanitizeDomainKey,
 } from '../domainContextStore.js';
 
@@ -78,6 +79,62 @@ describe('resolveDomainContext priority', () => {
             sessionDomain: 'congtybalo.com',
             accessible,
         }), ALL_KEY);
+    });
+});
+
+describe('site_id URL ↔ domain key', () => {
+    const accessible = ['baloquatang.net', 'mayhopphat.com'];
+    const previous = globalThis.window;
+
+    beforeEach(() => {
+        globalThis.window = {
+            __SEO_SITE_IDS_BY_DOMAIN__: {
+                'baloquatang.net': 3,
+                'mayhopphat.com': 6,
+            },
+        };
+    });
+
+    afterEach(() => {
+        if (previous === undefined) {
+            delete globalThis.window;
+        } else {
+            globalThis.window = previous;
+        }
+    });
+
+    it('maps site_id to domain key', () => {
+        assert.equal(resolveDomainKeyFromSiteId(6), 'mayhopphat.com');
+        assert.equal(resolveDomainKeyFromSiteId(3), 'baloquatang.net');
+        assert.equal(resolveDomainKeyFromSiteId(99), null);
+    });
+
+    it('readDomainFromUrl resolves ?site_id= to hostname', () => {
+        assert.equal(
+            readDomainFromUrl('/seo/keywords/clusters?site_id=6'),
+            'mayhopphat.com',
+        );
+    });
+
+    it('sanitizeDomainKey accepts numeric site_id against hostname allow-list', () => {
+        assert.equal(sanitizeDomainKey('6', accessible), 'mayhopphat.com');
+        assert.equal(sanitizeDomainKey(6, accessible), 'mayhopphat.com');
+    });
+
+    it('URL site_id wins over stale session/last storage (F5)', () => {
+        assert.equal(resolveDomainContext({
+            urlDomain: readDomainFromUrl('/seo/keywords/clusters?site_id=6'),
+            sessionDomain: 'baloquatang.net',
+            lastDomain: 'baloquatang.net',
+            accessible,
+        }), 'mayhopphat.com');
+    });
+
+    it('buildUrlWithDomain writes site_id for known hostnames', () => {
+        assert.equal(
+            buildUrlWithDomain('/seo/keywords/clusters', 'mayhopphat.com'),
+            '/seo/keywords/clusters?site_id=6',
+        );
     });
 });
 

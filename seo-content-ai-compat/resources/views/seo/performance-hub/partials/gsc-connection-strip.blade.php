@@ -1,5 +1,6 @@
 @php
     $settingsUrl = $settingsUrl ?? '#';
+    $periodLabel = $periodLabel ?? '';
 @endphp
 
 <section class="performance-hub-connection-strip">
@@ -28,7 +29,13 @@
                     wire:target="syncGscData"
                     class="performance-hub-connection-card__action"
                 >
-                    <span wire:loading.remove wire:target="syncGscData">{{ __('seo-content-ai::filament.performance_hub.sync_current_domain') }}</span>
+                    <span wire:loading.remove wire:target="syncGscData">
+                        @if ($periodLabel !== '')
+                            {{ __('seo-content-ai::filament.performance_hub.sync_gsc_month', ['month' => $periodLabel]) }}
+                        @else
+                            {{ __('seo-content-ai::filament.performance_hub.sync_current_domain') }}
+                        @endif
+                    </span>
                     <span wire:loading wire:target="syncGscData">{{ __('seo-content-ai::filament.performance_hub.syncing_gsc') }}</span>
                 </button>
                 <button

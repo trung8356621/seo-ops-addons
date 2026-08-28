@@ -4,9 +4,13 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Models;
 
+use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoDataForSeoConnection;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoExtendedProviderConnection;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoGscMasterConnection;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoSerpProviderConnection;
 use Omnichannel\Addons\SearchIntelligence\Services\GoogleSearchConsoleConnectionService;
 use Omnichannel\Addons\SearchIntelligence\Services\SeoProviderRegistry;
-use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
 use Omnichannel\Addons\SearchIntelligence\Support\SerpProviderKeys;
 use Illuminate\Database\Eloquent\Model;
 
@@ -115,7 +119,7 @@ final class ApiConnectionListRow extends Model
         return $id > 0 ? $id : null;
     }
 
-    public static function fromExtendedProvider(\Omnichannel\Addons\SearchIntelligence\Models\SeoExtendedProviderConnection $connection): self
+    public static function fromExtendedProvider(SeoExtendedProviderConnection $connection): self
     {
         $provider = (string) $connection->provider;
         $row = new self;

@@ -94,11 +94,9 @@ final class SeoPerformanceHubService
     /**
      * @return list<array{query: string, impressions: int, position: float, clicks: int, ctr: float}>
      */
-    public function getQuickWinQueries(?int $siteId, int $limit = 50): array
+    public function getQuickWinQueriesFromSource(array $queries, int $limit = 50): array
     {
-        $queries = $this->getGscQueries($siteId, 'impressions', 'desc');
-
-        $quickWins = collect($queries)
+        return collect($queries)
             ->filter(static function (array $row): bool {
                 $position = $row['position'] ?? null;
 
@@ -111,8 +109,23 @@ final class SeoPerformanceHubService
             ->take($limit)
             ->values()
             ->all();
+    }
 
-        return $quickWins;
+    /**
+     * @param  list<array<string, mixed>>  $queries
+     * @return array<string, int>
+     */
+    public function getGscQueryDistributionFromQueries(array $queries): array
+    {
+        return app(GscQueriesTableService::class)->distributionFromQueries($queries);
+    }
+
+    /**
+     * @return list<array{query: string, impressions: int, position: float, clicks: int, ctr: float}>
+     */
+    public function getQuickWinQueries(?int $siteId, int $limit = 50): array
+    {
+        return $this->getQuickWinQueriesFromSource($this->getGscQueries($siteId, 'impressions', 'desc'), $limit);
     }
 
     /**

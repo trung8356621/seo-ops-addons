@@ -11,6 +11,8 @@
         <style>{!! file_get_contents($cssPath) !!}</style>
     @endif
 
+    @vite(['addons/search-intelligence/resources/js/performance-hub-gsc-chart.js'])
+
     <div class="performance-hub-shell space-y-6">
         @if ($isRankProvider)
             @php $rankState = $this->rankDashboardState; @endphp
@@ -24,16 +26,37 @@
         @if ($dataSource === 'gsc')
             @php $gscState = $this->gscDashboardState; @endphp
             <div class="performance-hub-gsc-stack">
+            @include('seo-content-ai::seo.performance-hub.partials.gsc-month-header', ['gscState' => $gscState])
             @include('seo-content-ai::seo.performance-hub.partials.gsc-connection-strip', [
                 'connection' => $gscState['connection'] ?? [],
                 'settingsUrl' => $gscState['settings_url'] ?? '#',
+                'periodLabel' => $gscState['period_label'] ?? '',
             ])
+
+            @if (($gscState['has_data'] ?? false) !== true)
+                <div class="performance-hub-empty-state">
+                    <p>{{ __('seo-content-ai::filament.performance_hub.gsc_month_empty', ['month' => $gscState['period_label'] ?? '']) }}</p>
+                    @if (($gscState['connection']['configured'] ?? false) === true)
+                        <button
+                            type="button"
+                            wire:click="syncGscData"
+                            wire:loading.attr="disabled"
+                            wire:target="syncGscData"
+                            class="performance-hub-action-btn mt-3"
+                        >
+                            <span wire:loading.remove wire:target="syncGscData">{{ __('seo-content-ai::filament.performance_hub.sync_gsc_month', ['month' => $gscState['period_label'] ?? '']) }}</span>
+                            <span wire:loading wire:target="syncGscData">{{ __('seo-content-ai::filament.performance_hub.syncing_gsc') }}</span>
+                        </button>
+                    @endif
+                </div>
+            @else
             @include('seo-content-ai::seo.performance-hub.partials.gsc-kpi-cards', ['kpis' => $gscState['kpis'] ?? []])
             @include('seo-content-ai::seo.performance-hub.partials.gsc-chart', ['chart' => $gscState['chart'] ?? []])
             @include('seo-content-ai::seo.performance-hub.partials.gsc-distribution', [
                 'distribution' => $gscState['distribution'] ?? [],
                 'activeBucket' => $gscState['position_bucket'] ?? '',
             ])
+            @endif
             </div>
 
             @if ($this->gscBulkSyncResult)
@@ -73,7 +96,7 @@
                 ])
             @endif
 
-            @if ($activeTab === 'quick-wins')
+            @if ($activeTab === 'quick-wins' && ($gscState['has_data'] ?? false) === true)
                 @include('seo-content-ai::seo.performance-hub.partials.quick-wins-table', ['rows' => $gscState['quick_wins'] ?? []])
             @endif
         @endif

@@ -24,6 +24,7 @@ final class KeywordItemContractTest extends TestCase
         ));
 
         self::assertStringContainsString('partials.keyword-item', $dictionaryColumn);
+        self::assertStringContainsString("'showActions' => false", $dictionaryColumn);
         self::assertStringContainsString('partials.keyword-item', $detail);
         self::assertStringNotContainsString('keyword-row', $detail);
     }
@@ -45,6 +46,7 @@ final class KeywordItemContractTest extends TestCase
         $detail = (string) file_get_contents(dirname(__DIR__, 2).'/src/Filament/Resources/KeywordResource/Pages/KeywordTopicClusterDetail.php');
 
         self::assertStringContainsString('InteractsWithKeywordItemActions', $list);
+        self::assertStringContainsString('ActionGroup::make', $list);
         self::assertStringContainsString('InteractsWithKeywordItemActions', $detail);
         self::assertStringContainsString('dictionaryKeywordDnaMap', $list);
         self::assertStringContainsString('clusterDataEpoch', $detail);

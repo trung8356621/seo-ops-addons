@@ -49,13 +49,37 @@ final class GscPlanningSignalNormalizer
             if ($query === '') {
                 continue;
             }
+            $competing = is_array($issue['competing_pages'] ?? null) ? $issue['competing_pages'] : [];
+            $primaryPage = '';
+            $bestImpressions = -1;
+            foreach ($competing as $pageRow) {
+                if (! is_array($pageRow)) {
+                    continue;
+                }
+                $candidate = trim((string) ($pageRow['page'] ?? ''));
+                $impressions = (int) ($pageRow['impressions'] ?? 0);
+                if ($candidate !== '' && $impressions > $bestImpressions) {
+                    $bestImpressions = $impressions;
+                    $primaryPage = $candidate;
+                }
+            }
+
+            $metrics = is_array($issue['evidence'] ?? null) ? $issue['evidence'] : [];
+            if ($metrics === [] && is_array($issue['metadata'] ?? null)) {
+                $metrics = $issue['metadata'];
+            }
+            if ($primaryPage !== '') {
+                $metrics['primary_page'] = $primaryPage;
+                $metrics['competing_pages'] = $competing;
+            }
+
             $out[] = [
                 'type' => 'possible_cannibalization',
                 'label' => $query.' — possible cannibalization across pages',
                 'query' => $query,
                 'lane' => 'improvement_signal',
                 'evidence_type' => self::EVIDENCE_TYPE,
-                'metrics' => is_array($issue['evidence'] ?? null) ? $issue['evidence'] : [],
+                'metrics' => $metrics,
             ];
         }
 

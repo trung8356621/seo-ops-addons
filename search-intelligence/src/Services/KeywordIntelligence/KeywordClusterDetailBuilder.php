@@ -21,14 +21,14 @@ final class KeywordClusterDetailBuilder
     /**
      * @return array<string, mixed>|null
      */
-    public function build(?int $siteId, string $clusterKey): ?array
+    public function build(?int $siteId, string $clusterKey, ?array $languageVariants = null): ?array
     {
         $clusterKey = trim($clusterKey);
         if ($clusterKey === '' || ! $this->clusters->classificationsReady()) {
             return null;
         }
 
-        $keywordIds = $this->clusters->memberKeywordIds($siteId, $clusterKey);
+        $keywordIds = $this->clusters->memberKeywordIds($siteId, $clusterKey, $languageVariants);
         $keywordCount = count($keywordIds);
         $isManualEmpty = $keywordCount === 0 && $this->manualClusterMeta($siteId, $clusterKey) !== null;
         if ($keywordCount === 0 && ! $isManualEmpty) {
@@ -37,7 +37,7 @@ final class KeywordClusterDetailBuilder
         $articleCount = 0;
         $linkCount = 0;
         if ($keywordIds !== []) {
-            $linkStats = $this->clusters->memberLinkStats($keywordIds);
+            $linkStats = $this->clusters->memberLinkStats($keywordIds, $languageVariants);
             $articleCount = (int) $linkStats['article_count'];
             $linkCount = (int) $linkStats['internal_link_count'];
         }
@@ -143,9 +143,9 @@ final class KeywordClusterDetailBuilder
         return (string) ($source ?: 'auto');
     }
 
-    public function paginateKeywords(?int $siteId, string $clusterKey, int $perPage = 25): LengthAwarePaginator
+    public function paginateKeywords(?int $siteId, string $clusterKey, int $perPage = 25, ?array $languageVariants = null): LengthAwarePaginator
     {
-        $ids = $this->clusters->memberKeywordIds($siteId, $clusterKey);
+        $ids = $this->clusters->memberKeywordIds($siteId, $clusterKey, $languageVariants);
         if ($ids === []) {
             return Keyword::query()->whereRaw('1 = 0')->paginate($perPage);
         }

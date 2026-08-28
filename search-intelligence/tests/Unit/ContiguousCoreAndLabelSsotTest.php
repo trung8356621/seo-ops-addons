@@ -159,6 +159,27 @@ final class ContiguousCoreAndLabelSsotTest extends TestCase
         self::assertSame('May Balo Da', $label);
     }
 
+    public function test_legacy_label_fallback_strips_uniqueness_hash_suffix(): void
+    {
+        $label = app(KeywordClusterQuery::class)->displayLabel(
+            'vai_canvas__785f3e',
+            'vai canvas cao cấp',
+            self::SITE,
+        );
+        self::assertSame('Vai Canvas', $label);
+        self::assertStringNotContainsString('785f3e', $label);
+    }
+
+    public function test_legacy_label_fallback_strips_hash_and_disambiguator(): void
+    {
+        $label = app(KeywordClusterQuery::class)->displayLabel(
+            'balo_qua__b98880_a1b2',
+            'balo quà tặng',
+            self::SITE,
+        );
+        self::assertSame('Balo Qua', $label);
+    }
+
     private function seedMeta(string $clusterKey, string $canonical): void
     {
         SeoTopicClusterMeta::query()->create([

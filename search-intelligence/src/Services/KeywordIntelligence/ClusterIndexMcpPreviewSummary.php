@@ -18,6 +18,7 @@ final class ClusterIndexMcpPreviewSummary
     ) {}
 
     /**
+     * @param  list<string>|null  $languageVariants
      * @return array{
      *     cluster_count: int,
      *     coverage_percent: float,
@@ -25,7 +26,7 @@ final class ClusterIndexMcpPreviewSummary
      *     total_topics: int
      * }
      */
-    public function summarize(int $siteId): array
+    public function summarize(int $siteId, ?array $languageVariants = null): array
     {
         if ($siteId <= 0) {
             return [
@@ -38,6 +39,33 @@ final class ClusterIndexMcpPreviewSummary
 
         $profile = $this->profileBuilder->build($siteId);
         $topics = is_array($profile['topics'] ?? null) ? $profile['topics'] : [];
+        if ($topics === []) {
+            return [
+                'cluster_count' => 0,
+                'coverage_percent' => 0.0,
+                'estimated_tokens' => 0,
+                'total_topics' => 0,
+            ];
+        }
+
+        if ($languageVariants !== null && $languageVariants !== []) {
+            $allowedKeys = [];
+            foreach (app(KeywordClusterQuery::class)->clusterAggregates($siteId, 500, $languageVariants) as $row) {
+                $key = trim((string) ($row->cluster_key ?? ''));
+                if ($key !== '') {
+                    $allowedKeys[$key] = true;
+                }
+            }
+            $topics = array_values(array_filter(
+                $topics,
+                static function (array $topic) use ($allowedKeys): bool {
+                    $key = trim((string) ($topic['cluster_key'] ?? $topic['id'] ?? $topic['name'] ?? ''));
+
+                    return $key !== '' && isset($allowedKeys[$key]);
+                },
+            ));
+        }
+
         if ($topics === []) {
             return [
                 'cluster_count' => 0,

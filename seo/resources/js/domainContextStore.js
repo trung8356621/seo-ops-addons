@@ -34,9 +34,17 @@ export function isAllDomains(key) {
  * @returns {string}
  */
 export function sanitizeDomainKey(key, accessible = []) {
-    const normalized = normalizeDomainKey(key);
+    let normalized = normalizeDomainKey(key);
     if (isAllDomains(normalized)) {
         return ALL_KEY;
+    }
+
+    // ?site_id=N arrives as a numeric key — map to hostname before allow-list check.
+    if (/^\d+$/.test(normalized)) {
+        const fromSiteId = resolveDomainKeyFromSiteId(Number(normalized));
+        if (fromSiteId != null) {
+            normalized = fromSiteId;
+        }
     }
 
     const allowed = Array.isArray(accessible) ? accessible.map((item) => normalizeDomainKey(item)) : [];
@@ -132,6 +140,28 @@ export function resolveSiteIdFromDomainKey(domainKey) {
 }
 
 /**
+ * Reverse of resolveSiteIdFromDomainKey for ?site_id=N → hostname domain key.
+ *
+ * @param {unknown} siteId
+ * @returns {string|null}
+ */
+export function resolveDomainKeyFromSiteId(siteId) {
+    const id = Number(siteId);
+    if (! Number.isInteger(id) || id <= 0) {
+        return null;
+    }
+
+    const map = accessibleSiteIdsByDomainKey();
+    for (const [domainKey, mappedId] of Object.entries(map)) {
+        if (mappedId === id) {
+            return domainKey;
+        }
+    }
+
+    return null;
+}
+
+/**
  * @param {string} href
  * @returns {string|null}
  */
@@ -140,7 +170,9 @@ export function readDomainFromUrl(href) {
         const url = new URL(href, 'http://local.test');
         const siteId = url.searchParams.get(SITE_ID_QUERY_KEY);
         if (siteId != null && String(siteId).trim() !== '' && /^\d+$/.test(String(siteId).trim())) {
-            return String(Number(siteId));
+            const id = Number(siteId);
+            // Prefer hostname so session/localStorage + allow-list stay domain-keyed.
+            return resolveDomainKeyFromSiteId(id) ?? String(id);
         }
 
         const value = url.searchParams.get(QUERY_KEY);

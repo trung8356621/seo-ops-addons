@@ -42,6 +42,7 @@ final class KeywordTopicClusterDetail extends Page
     {
         $this->initializeKeywordWorkspaceSiteFilter();
         $this->clusterKey = rawurldecode($clusterKey);
+        $this->dispatchKeywordWorkspaceLanguageContext();
 
         if ($this->getDetail() !== null) {
             $this->maybeRedirectToScopedSiteUrl();
@@ -113,6 +114,7 @@ final class KeywordTopicClusterDetail extends Page
         return app(KeywordClusterDetailBuilder::class)->build(
             $this->resolveKeywordWorkspaceSiteId(),
             $this->clusterKey,
+            $this->resolveKeywordLanguageFilterVariants(),
         );
     }
 
@@ -134,7 +136,12 @@ final class KeywordTopicClusterDetail extends Page
         $path = KeywordResource::getUrl('cluster', ['clusterKey' => $this->clusterKey]);
 
         return app(KeywordClusterDetailBuilder::class)
-            ->paginateKeywords($siteId, $this->clusterKey)
+            ->paginateKeywords(
+                $siteId,
+                $this->clusterKey,
+                25,
+                $this->resolveKeywordLanguageFilterVariants(),
+            )
             ->withPath($path)
             ->appends(array_filter([
                 DomainContext::SITE_ID_QUERY_KEY => ($siteId !== null && $siteId > 0) ? $siteId : null,

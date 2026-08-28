@@ -51,7 +51,6 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Js;
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 
 class KeywordResource extends SeoPanelResource
@@ -238,6 +237,12 @@ class KeywordResource extends SeoPanelResource
                     ->disabledClick()
                     ->extraCellAttributes(['class' => 'py-2 whitespace-normal'])
                     ->toggleable(isToggledHiddenByDefault: true),
+                Tables\Columns\ViewColumn::make('keyword_quick_copy')
+                    ->label('')
+                    ->view('seo-content-ai::filament.tables.columns.keyword-quick-copy')
+                    ->disabledClick()
+                    ->extraHeaderAttributes(['class' => 'keyword-quick-copy-header'])
+                    ->extraCellAttributes(['class' => 'keyword-quick-copy-cell']),
             ])
             ->defaultSort('phrase')
             ->filters([
@@ -469,65 +474,6 @@ class KeywordResource extends SeoPanelResource
                     ->visible(fn (Keyword $record): bool => static::canEdit($record))
                     ->mutateFormDataUsing(fn (array $data, Keyword $record): array => static::mutateKeywordFormDataForFill($data, $record))
                     ->using(fn (Keyword $record, array $data): Keyword => static::saveKeywordFromFormData($record, $data)),
-                Tables\Actions\Action::make('quick_copy')
-                    ->label(__('seo-content-ai::filament.keyword.quick_copy'))
-                    ->icon('heroicon-o-clipboard-document')
-                    ->iconButton()
-                    ->tooltip(__('seo-content-ai::filament.keyword.quick_copy'))
-                    ->color('gray')
-                    ->alpineClickHandler(function (Keyword $record): string {
-                        $phrase = Js::from((string) $record->phrase);
-                        $successTitle = Js::from(__('seo-content-ai::filament.keyword.quick_copy_success'));
-                        $successBody = Js::from('“'.$record->phrase.'”');
-                        $failedTitle = Js::from(__('seo-content-ai::filament.keyword.quick_copy_failed'));
-                        $failedBody = Js::from(__('seo-content-ai::filament.keyword.quick_copy_failed_body'));
-
-                        return <<<JS
-                            (async () => {
-                                const text = {$phrase};
-                                let copied = false;
-
-                                try {
-                                    if (navigator.clipboard?.writeText) {
-                                        await navigator.clipboard.writeText(text);
-                                        copied = true;
-                                    } else {
-                                        const ta = document.createElement('textarea');
-                                        ta.value = text;
-                                        ta.setAttribute('readonly', '');
-                                        ta.style.position = 'fixed';
-                                        ta.style.top = '-1000px';
-                                        document.body.appendChild(ta);
-                                        ta.select();
-                                        copied = document.execCommand('copy');
-                                        document.body.removeChild(ta);
-                                    }
-                                } catch (error) {
-                                    copied = false;
-                                }
-
-                                if (! window.FilamentNotification) {
-                                    return;
-                                }
-
-                                if (copied) {
-                                    new FilamentNotification()
-                                        .title({$successTitle})
-                                        .body({$successBody})
-                                        .success()
-                                        .send();
-
-                                    return;
-                                }
-
-                                new FilamentNotification()
-                                    .title({$failedTitle})
-                                    .body({$failedBody})
-                                    .warning()
-                                    .send();
-                            })()
-                        JS;
-                    }),
                 AssignToContentProjectActionFactory::tableRowAction(
                     resolvePayload: function (Model $record): array {
                         /** @var Keyword $record */
@@ -731,69 +677,6 @@ class KeywordResource extends SeoPanelResource
                         }),
                 ]),
             ]));
-    }
-
-    public static function quickCopyTableAction(): Tables\Actions\Action
-    {
-        return Tables\Actions\Action::make('quick_copy')
-            ->label(__('seo-content-ai::filament.keyword.quick_copy'))
-            ->icon('heroicon-o-clipboard-document')
-            ->iconButton()
-            ->tooltip(__('seo-content-ai::filament.keyword.quick_copy'))
-            ->color('gray')
-            ->alpineClickHandler(function (Keyword $record): string {
-                $phrase = Js::from((string) $record->phrase);
-                $successTitle = Js::from(__('seo-content-ai::filament.keyword.quick_copy_success'));
-                $successBody = Js::from('“'.$record->phrase.'”');
-                $failedTitle = Js::from(__('seo-content-ai::filament.keyword.quick_copy_failed'));
-                $failedBody = Js::from(__('seo-content-ai::filament.keyword.quick_copy_failed_body'));
-
-                return <<<JS
-                    (async () => {
-                        const text = {$phrase};
-                        let copied = false;
-
-                        try {
-                            if (navigator.clipboard?.writeText) {
-                                await navigator.clipboard.writeText(text);
-                                copied = true;
-                            } else {
-                                const ta = document.createElement('textarea');
-                                ta.value = text;
-                                ta.setAttribute('readonly', '');
-                                ta.style.position = 'fixed';
-                                ta.style.top = '-1000px';
-                                document.body.appendChild(ta);
-                                ta.select();
-                                copied = document.execCommand('copy');
-                                document.body.removeChild(ta);
-                            }
-                        } catch (error) {
-                            copied = false;
-                        }
-
-                        if (! window.FilamentNotification) {
-                            return;
-                        }
-
-                        if (copied) {
-                            new FilamentNotification()
-                                .title({$successTitle})
-                                .body({$successBody})
-                                .success()
-                                .send();
-
-                            return;
-                        }
-
-                        new FilamentNotification()
-                            .title({$failedTitle})
-                            .body({$failedBody})
-                            .warning()
-                            .send();
-                    })()
-                JS;
-            });
     }
 
     /**

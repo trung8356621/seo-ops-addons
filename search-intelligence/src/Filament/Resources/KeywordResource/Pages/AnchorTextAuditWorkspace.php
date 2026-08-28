@@ -54,6 +54,7 @@ final class AnchorTextAuditWorkspace extends Page implements HasActions, HasForm
     public function mount(): void
     {
         $this->initializeKeywordWorkspaceSiteFilter();
+        $this->dispatchKeywordWorkspaceLanguageContext();
 
         if (! in_array($this->triageFilter, ['all_issues', 'broken', 'weak_context', 'external'], true)) {
             $this->triageFilter = 'all_issues';
@@ -195,7 +196,7 @@ final class AnchorTextAuditWorkspace extends Page implements HasActions, HasForm
     {
         $siteId = $this->resolveKeywordWorkspaceSiteId();
 
-        return SeoLinkMap::query()
+        $query = SeoLinkMap::query()
             ->with([
                 'keyword:id,phrase,type',
                 'sourceArticle:id,site_id,title,slug,wp_post_id',
@@ -209,6 +210,8 @@ final class AnchorTextAuditWorkspace extends Page implements HasActions, HasForm
                     static fn (Builder $articleQuery): Builder => $articleQuery->where('site_id', $siteId),
                 ),
             );
+
+        return $this->applyKeywordWorkspaceLanguageScopeToLinkMaps($query);
     }
 
     /**

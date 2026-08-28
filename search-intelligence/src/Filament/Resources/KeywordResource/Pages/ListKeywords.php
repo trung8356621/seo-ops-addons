@@ -11,15 +11,17 @@ use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\HasKeywordWorkspaceNavigation;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\InteractsWithKeywordDetailDrawer;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\InteractsWithKeywordItemActions;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\HideKeywordFromSeoService;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordDnaService;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\SkipKeywordFromMcpService;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordPersistenceService;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordReviewService;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClassificationService;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterEligibility;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordClassificationVisibility;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordDictionaryQuery;
 use App\Core\Operations\LongRunningProgress;
 use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectActionFactory;
 use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectContract;
@@ -61,6 +63,7 @@ class ListKeywords extends ListRecords
     public function mount(): void
     {
         $this->initializeKeywordWorkspaceSiteFilter();
+        $this->dispatchKeywordWorkspaceLanguageContext();
     }
 
     public function getKeywordWorkspaceMode(): string
@@ -187,7 +190,8 @@ class ListKeywords extends ListRecords
 
         $table
             ->filtersLayout(FiltersLayout::AboveContentCollapsible)
-            ->modifyQueryUsing(fn (Builder $query): Builder => $this->applyDictionaryStatScope($query));
+            // Card filters only — cluster/search/advanced filters live in KeywordDictionaryQuery.
+            ->modifyQueryUsing(fn (Builder $query): Builder => $this->applyDictionaryCardFilter($query));
 
         return $table
             ->actions($this->listPageTableActions());
@@ -203,7 +207,7 @@ class ListKeywords extends ListRecords
      */
     public function getDictionaryStats(): array
     {
-        $query = $this->buildDictionaryListingQuery();
+        $query = $this->buildDictionaryFilteredQuery();
 
         if (! $query instanceof Builder) {
             return [
@@ -211,11 +215,6 @@ class ListKeywords extends ListRecords
                 'active' => 0,
                 'errors' => 0,
             ];
-        }
-
-        $reviewScopeQuery = $this->buildDictionaryReviewStatusQuery();
-        if (! $reviewScopeQuery instanceof Builder) {
-            $reviewScopeQuery = $query;
         }
 
         return [
@@ -228,7 +227,7 @@ class ListKeywords extends ListRecords
                         static fn (Builder $mapQuery): Builder => $mapQuery->whereNotNull('source_article_id'),
                     );
             })->where('review_status', KeywordReviewStatus::Active->value)->count(),
-            'errors' => (clone $reviewScopeQuery)
+            'errors' => (clone $query)
                 ->whereIn('review_status', [
                     KeywordReviewStatus::Danger->value,
                     KeywordReviewStatus::Warning->value,
@@ -242,7 +241,17 @@ class ListKeywords extends ListRecords
      */
     public function getClassificationSummary(): array
     {
-        return KeywordClassificationVisibility::summarize($this->resolveKeywordWorkspaceSiteId());
+        $query = $this->buildDictionaryFilteredQuery();
+        if (! $query instanceof Builder) {
+            return KeywordClassificationVisibility::summarizeForKeywordIds([]);
+        }
+
+        $ids = (clone $query)
+            ->pluck('id')
+            ->map(static fn ($id): int => (int) $id)
+            ->all();
+
+        return KeywordClassificationVisibility::summarizeForKeywordIds($ids);
     }
 
     /**
@@ -302,12 +311,67 @@ class ListKeywords extends ListRecords
     }
 
     /**
-     * @return list<Tables\Actions\Action|Tables\Actions\EditAction|Tables\Actions\DeleteAction>
+     * @return list<Tables\Actions\Action|Tables\Actions\ActionGroup|Tables\Actions\EditAction|Tables\Actions\DeleteAction>
      */
     protected function listPageTableActions(): array
     {
         return [
-            KeywordResource::quickCopyTableAction(),
+            Tables\Actions\ActionGroup::make([
+                Tables\Actions\Action::make('item_edit')
+                    ->label(__('seo-content-ai::filament.keyword.edit'))
+                    ->action(fn (Keyword $record): mixed => $this->openKeywordEdit((int) $record->id)),
+                Tables\Actions\Action::make('item_view_linked')
+                    ->label(__('seo-content-ai::filament.keyword.keyword_item_view_linked_articles'))
+                    ->action(fn (Keyword $record): mixed => $this->openKeywordLinkedArticles((int) $record->id)),
+                Tables\Actions\Action::make('item_move_cluster')
+                    ->label(__('seo-content-ai::filament.keyword.keyword_item_move_cluster'))
+                    ->action(fn (Keyword $record): mixed => $this->openMoveClusterModal((int) $record->id)),
+                Tables\Actions\Action::make('item_skip_mcp')
+                    ->label(__('seo-content-ai::filament.keyword.keyword_item_skip_mcp'))
+                    ->visible(function (Keyword $record): bool {
+                        if (! KeywordResource::canMutateKeywordVisibility($record)) {
+                            return false;
+                        }
+
+                        $hidden = app(HideKeywordFromSeoService::class)->isHidden((int) $record->id);
+                        $skipped = app(SkipKeywordFromMcpService::class)->isSkipped((int) $record->id);
+
+                        return ! $hidden && ! $skipped;
+                    })
+                    ->action(fn (Keyword $record): mixed => $this->skipKeywordFromMcp((int) $record->id)),
+                Tables\Actions\Action::make('item_restore_mcp')
+                    ->label(__('seo-content-ai::filament.keyword.keyword_item_restore_mcp'))
+                    ->visible(function (Keyword $record): bool {
+                        if (! KeywordResource::canMutateKeywordVisibility($record)) {
+                            return false;
+                        }
+
+                        $hidden = app(HideKeywordFromSeoService::class)->isHidden((int) $record->id);
+                        $skipped = app(SkipKeywordFromMcpService::class)->isSkipped((int) $record->id);
+
+                        return ! $hidden && $skipped;
+                    })
+                    ->action(fn (Keyword $record): mixed => $this->restoreKeywordMcp((int) $record->id)),
+                Tables\Actions\Action::make('item_exclude_seo')
+                    ->label(__('seo-content-ai::filament.keyword.keyword_item_exclude_seo'))
+                    ->visible(fn (Keyword $record): bool => KeywordResource::canMutateKeywordVisibility($record)
+                        && ! app(HideKeywordFromSeoService::class)->isHidden((int) $record->id))
+                    ->action(fn (Keyword $record): mixed => $this->hideKeywordFromSeo((int) $record->id)),
+                Tables\Actions\Action::make('item_restore_seo')
+                    ->label(__('seo-content-ai::filament.keyword.keyword_item_restore_seo'))
+                    ->visible(fn (Keyword $record): bool => KeywordResource::canMutateKeywordVisibility($record)
+                        && app(HideKeywordFromSeoService::class)->isHidden((int) $record->id))
+                    ->action(fn (Keyword $record): mixed => $this->restoreHiddenKeyword((int) $record->id)),
+            ])
+                ->label(__('seo-content-ai::filament.keyword.keyword_item_actions'))
+                ->icon('heroicon-o-ellipsis-horizontal')
+                ->iconButton()
+                ->color('gray')
+                ->tooltip(__('seo-content-ai::filament.keyword.keyword_item_actions'))
+                ->extraAttributes(['class' => 'keyword-row-action keyword-row-action--menu'])
+                ->visible(fn (Keyword $record): bool => SeoAccessControl::canMutateInSeoPanel()
+                    && (($siteId = KeywordResource::resolveKeywordSiteId($record)) === null
+                        || SeoAccessControl::canAccessSite((int) $siteId))),
             Tables\Actions\EditAction::make()
                 ->modalHeading(__('seo-content-ai::filament.keyword.edit'))
                 ->form(fn (Keyword $record): array => KeywordResource::editKeywordFormSchema($record))
@@ -352,79 +416,96 @@ class ListKeywords extends ListRecords
 
     /**
      * Keyword dictionary is domain-scoped via GlobalSeoBar (default: first accessible domain).
+     * Filters (cluster/search/advanced) are applied here via KeywordDictionaryQuery — Filament
+     * filter/search hooks are no-ops to avoid double-scoping.
      */
     protected function getTableQuery(): ?Builder
     {
-        if (! $this->dictionaryListingRequiresLinkedScope()) {
-            return $this->buildDictionaryReviewStatusQuery();
-        }
-
-        return $this->buildDictionaryListingQuery();
+        return $this->buildDictionaryFilteredQuery();
     }
 
-    protected function dictionaryListingRequiresLinkedScope(): bool
+    /**
+     * Filament would re-apply table filter callbacks; DictionaryQuery already consumed tableFilters.
+     */
+    protected function applyFiltersToTableQuery(Builder $query): Builder
     {
-        return ! in_array((string) ($this->dictionaryStatFilter ?? ''), [
-            'errors',
-            'needs_optimization',
-        ], true);
+        return $query;
     }
 
-    protected function buildDictionaryReviewStatusQuery(): ?Builder
+    /**
+     * Search is applied inside KeywordDictionaryQuery from getTableSearch().
+     */
+    protected function applySearchToTableQuery(Builder $query): Builder
     {
-        $query = KeywordResource::getReviewedDictionaryQuery();
-
-        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
-        if ($siteId > 0) {
-            $query = KeywordResource::applyReviewedDictionarySiteScope($query, $siteId);
-        }
-
-        return $query->orderByDesc('reviewed_at')->orderBy('phrase');
+        return $query;
     }
 
-    protected function buildDictionaryListingQuery(?bool $requireLinkedScope = null): ?Builder
+    protected function buildDictionaryFilteredQuery(): ?Builder
     {
         $query = parent::getTableQuery();
-
         if (! $query instanceof Builder) {
             return $query;
         }
 
-        if ($requireLinkedScope === null) {
-            $requireLinkedScope = $this->dictionaryListingRequiresLinkedScope();
-        }
-
         $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
-        if ($siteId > 0) {
-            $query->forSite($siteId);
-        }
+        $languageVariants = $this->resolveKeywordLanguageFilterVariants();
 
-        if ($requireLinkedScope) {
-            if ($this->getKeywordWorkspaceMode() === 'focus') {
-                $query->whereHas('mainArticles');
-            } else {
-                $query->whereHas(
-                    'linkMaps',
-                    static fn (Builder $mapQuery): Builder => $mapQuery->whereNotNull('source_article_id'),
-                );
-            }
-        }
-
-        // Flat dictionary: phrase ordering only (no hierarchy expand/nest).
-        return $query->orderBy('phrase');
+        return app(KeywordDictionaryQuery::class)
+            ->applyTo(
+                $query,
+                $siteId > 0 ? $siteId : null,
+                $languageVariants,
+                $this->currentDictionaryFilterBag(),
+            )
+            ->orderBy('phrase');
     }
 
-    protected function applyDictionaryStatScope(Builder $query): Builder
+    /**
+     * @return array{
+     *     cluster_key: string|null,
+     *     search: string|null,
+     *     focus: bool,
+     *     seo_hidden: bool|null,
+     *     tags: list<mixed>,
+     *     kinds: list<mixed>,
+     *     intents: list<mixed>,
+     *     sources: list<mixed>,
+     *     types: list<mixed>
+     * }
+     */
+    protected function currentDictionaryFilterBag(): array
+    {
+        $seoHiddenState = $this->getTableFilterState('seo_hidden') ?? [];
+        $seoHiddenValue = $seoHiddenState['value'] ?? null;
+        $seoHidden = null;
+        if ($seoHiddenValue === true || $seoHiddenValue === '1' || $seoHiddenValue === 1) {
+            $seoHidden = true;
+        } elseif ($seoHiddenValue === false || $seoHiddenValue === '0' || $seoHiddenValue === 0) {
+            $seoHidden = false;
+        }
+
+        return [
+            'cluster_key' => $this->clusterKeyFilter,
+            'search' => $this->getTableSearch(),
+            'focus' => $this->getKeywordWorkspaceMode() === 'focus',
+            'seo_hidden' => $seoHidden,
+            'tags' => (array) (($this->getTableFilterState('operational_tags') ?? [])['tags'] ?? []),
+            'kinds' => (array) (($this->getTableFilterState('seo_classification') ?? [])['kinds'] ?? []),
+            'intents' => (array) (($this->getTableFilterState('seo_intent') ?? [])['intents'] ?? []),
+            'sources' => (array) (($this->getTableFilterState('source_kind') ?? [])['sources'] ?? []),
+            'types' => (array) (($this->getTableFilterState('keyword_type') ?? [])['types'] ?? []),
+        ];
+    }
+
+    protected function applyDictionaryCardFilter(Builder $query): Builder
     {
         $statKey = $this->dictionaryStatFilter;
 
         if ($statKey === null || $statKey === '' || $statKey === 'total') {
-            $query = $this->applyClusterKeyScope($query);
-
             return $query;
         }
 
-        $query = match ($statKey) {
+        return match ($statKey) {
             'active' => $query->where(function (Builder $builder): void {
                 $builder
                     ->whereHas('mainArticles')
@@ -432,31 +513,13 @@ class ListKeywords extends ListRecords
                         'linkMaps',
                         static fn (Builder $mapQuery): Builder => $mapQuery->whereNotNull('source_article_id'),
                     );
-            }),
+            })->where('review_status', KeywordReviewStatus::Active->value),
             'errors', 'needs_optimization' => $query->whereIn('review_status', [
                 KeywordReviewStatus::Danger->value,
                 KeywordReviewStatus::Warning->value,
             ]),
             default => $query,
         };
-
-        return $this->applyClusterKeyScope($query);
-    }
-
-    protected function applyClusterKeyScope(Builder $query): Builder
-    {
-        $key = trim((string) ($this->clusterKeyFilter ?? ''));
-        if ($key === '') {
-            return $query;
-        }
-        if ($key === '_none') {
-            return app(KeywordClusterEligibility::class)->applyUnclusteredSeoKeywordScope($query);
-        }
-
-        return $query->whereHas(
-            'seoClassification',
-            static fn (Builder $classification): Builder => $classification->where('cluster_key', $key),
-        );
     }
 
     protected function getHeaderActions(): array

@@ -40,6 +40,11 @@
                 <div class="topic-index-stat__value">{{ number_format((int) ($mcpPreview['total_topics'] ?? 0)) }}</div>
             </div>
             <div class="topic-index-stat">
+                <div class="topic-index-stat__label">{{ __('seo-content-ai::filament.keyword.topic_summary_seo_eligible') }}</div>
+                <div class="topic-index-stat__value">{{ number_format((int) ($summary['seo_eligible_keywords'] ?? 0)) }}</div>
+                <div class="topic-index-stat__meta">{{ __('seo-content-ai::filament.keyword.topic_summary_seo_eligible_hint') }}</div>
+            </div>
+            <div class="topic-index-stat">
                 <div class="topic-index-stat__label">{{ __('seo-content-ai::filament.keyword.topic_summary_clustered') }}</div>
                 <div class="topic-index-stat__value">{{ number_format((int) $summary['clustered']) }}</div>
             </div>
@@ -60,6 +65,15 @@
                 ]) }}
             </div>
         </div>
+
+        <p class="text-xs text-gray-500 dark:text-gray-400">
+            {{ __('seo-content-ai::filament.keyword.topic_summary_denominator_line', [
+                'inventory' => number_format((int) ($summary['total_keywords'] ?? 0)),
+                'seo_eligible' => number_format((int) ($summary['seo_eligible_keywords'] ?? 0)),
+                'clustered' => number_format((int) ($summary['clustered'] ?? 0)),
+                'unclustered' => number_format((int) ($summary['unclustered'] ?? 0)),
+            ]) }}
+        </p>
 
         @if (((int) ($summary['unclassified_keywords'] ?? 0)) > 0 || ((int) ($summary['non_seo_keywords'] ?? 0)) > 0)
             <p class="text-xs text-gray-500 dark:text-gray-400">

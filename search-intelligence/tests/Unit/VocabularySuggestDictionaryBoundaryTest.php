@@ -46,10 +46,12 @@ final class VocabularySuggestDictionaryBoundaryTest extends TestCase
     {
         $src = (string) file_get_contents(
             (string) (new ReflectionClass(
-                \Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordClassificationVisibility::class
+                \Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordUiInventoryQuery::class
             ))->getFileName(),
         );
-        self::assertStringContainsString("orWhere('type', '!=', Keyword::TYPE_SUGGEST)", $src);
+        self::assertStringContainsString('excludeStagingSuggestTypes', $src);
+        self::assertStringContainsString('applyMinimumKeywordWordCount', $src);
+        self::assertStringContainsString("whereNotNull('source_article_id')", $src);
     }
 
     public function test_list_keywords_requires_link_scope_for_active_dictionary(): void
@@ -60,8 +62,8 @@ final class VocabularySuggestDictionaryBoundaryTest extends TestCase
             .DIRECTORY_SEPARATOR.'Pages'
             .DIRECTORY_SEPARATOR.'ListKeywords.php',
         );
-        self::assertStringContainsString('linkMaps', $listSrc);
-        self::assertStringContainsString('requireLinkedScope', $listSrc);
+        self::assertStringContainsString('KeywordDictionaryQuery', $listSrc);
+        self::assertStringContainsString('currentDictionaryFilterBag', $listSrc);
     }
 
     private function methodSource(string $file, string $method): string
