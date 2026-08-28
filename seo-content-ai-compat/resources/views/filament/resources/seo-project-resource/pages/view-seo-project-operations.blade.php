@@ -806,7 +806,20 @@
                 $sourceDraft = $project?->source_draft_project_id
                     ? \Omnichannel\Addons\ContentProjects\Models\SeoProject::query()->find((int) $project->source_draft_project_id)
                     : null;
+                $missingAssignee = $project instanceof \Omnichannel\Addons\ContentProjects\Models\SeoProject
+                    && \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectWriterAssignment::isUnassigned($project);
             @endphp
+            @if ($missingAssignee)
+                <div
+                    class="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-950 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100"
+                    data-project-no-assignee="1"
+                >
+                    <span class="inline-flex items-center rounded-md bg-amber-600 px-2 py-0.5 text-xs font-semibold text-white">
+                        {{ __('seo-content-ai::filament.projects.project_no_assignee_badge') }}
+                    </span>
+                    <span>{{ __('seo-content-ai::filament.projects.project_no_assignee_banner') }}</span>
+                </div>
+            @endif
             @if ($sourceDraft)
                 <div class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:border-white/10 dark:bg-gray-900/40 dark:text-gray-300">
                     {{ __('seo-content-ai::filament.projects.created_from_draft', ['name' => (string) $sourceDraft->name]) }}

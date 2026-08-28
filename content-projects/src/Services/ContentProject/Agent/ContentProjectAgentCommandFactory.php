@@ -127,9 +127,10 @@ final class ContentProjectAgentCommandFactory
                 is_array($input['item_refs'] ?? null)
                     ? $input['item_refs']
                     : (is_array($input['item_ids'] ?? null) ? $input['item_ids'] : []),
-                isset($input['target_month']) ? (string) $input['target_month'] : (isset($input['month']) ? (string) $input['month'] : null),
-                isset($input['project_name']) ? (string) $input['project_name'] : (isset($input['name']) ? (string) $input['name'] : null),
                 (bool) ($input['dry_run'] ?? $input['preview'] ?? false),
+                is_array($input['assignee_ids'] ?? null)
+                    ? $input['assignee_ids']
+                    : (is_array($input['writer_ids'] ?? null) ? $input['writer_ids'] : []),
             ),
             'content_project.update_item' => new UpdateContentProjectItemCommand(
                 $this->itemRef($input),

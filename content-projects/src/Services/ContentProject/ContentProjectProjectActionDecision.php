@@ -21,6 +21,8 @@ final class ContentProjectProjectActionDecision
 
     public const REASON_TEST_ACTIVE = 'test_active';
 
+    public const REASON_NO_ASSIGNEE = 'no_assignee';
+
     /**
      * @param  list<int>  $eligibleTaskIds
      */

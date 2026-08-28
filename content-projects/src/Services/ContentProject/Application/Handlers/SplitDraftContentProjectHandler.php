@@ -46,6 +46,7 @@ final class SplitDraftContentProjectHandler extends AbstractPublishingHandler
             }
 
             $itemIds = $this->resolveItemIds($command->itemRefs);
+            $assigneeIds = $command->assigneeIds;
 
             try {
                 $preview = $this->splitter->preview(
@@ -53,8 +54,7 @@ final class SplitDraftContentProjectHandler extends AbstractPublishingHandler
                     $command->selectionMode,
                     $command->quantity,
                     $itemIds,
-                    $command->targetMonth,
-                    $command->projectName,
+                    $assigneeIds,
                 );
             } catch (InvalidArgumentException $e) {
                 return ContentProjectActionResult::fail(
@@ -78,7 +78,16 @@ final class SplitDraftContentProjectHandler extends AbstractPublishingHandler
             if ((int) ($preview['moved_count'] ?? 0) <= 0) {
                 return ContentProjectActionResult::fail(
                     ContentProjectActionCodes::VALIDATION_FAILED,
-                    'No Draft items to move.',
+                    'No reviewed Draft items to move.',
+                    $projectId,
+                );
+            }
+
+            $shortfall = (int) ($preview['insufficient_slots'] ?? 0);
+            if ($shortfall > 0) {
+                return ContentProjectActionResult::fail(
+                    ContentProjectActionCodes::VALIDATION_FAILED,
+                    (string) ($preview['insufficient_message'] ?? ''),
                     $projectId,
                 );
             }
@@ -86,15 +95,14 @@ final class SplitDraftContentProjectHandler extends AbstractPublishingHandler
             try {
                 $result = $this->businessLock->withLock(
                     $this->businessLock->projectArchive($projectId),
-                    function () use ($draft, $command, $itemIds, $actor): array {
+                    function () use ($draft, $command, $itemIds, $assigneeIds, $actor): array {
                         return $this->splitter->split(
                             $draft,
                             $command->selectionMode,
                             $command->quantity,
                             $itemIds,
-                            $command->targetMonth,
-                            $command->projectName,
                             $actor->actorId,
+                            $assigneeIds,
                         );
                     },
                 );
@@ -109,12 +117,14 @@ final class SplitDraftContentProjectHandler extends AbstractPublishingHandler
             $executionId = (int) ($result['execution_project_id'] ?? 0);
             $moved = (int) ($result['moved_count'] ?? 0);
             $remaining = (int) ($result['remaining_count'] ?? 0);
+            $projectCount = count($result['execution_project_ids'] ?? []);
 
             return ContentProjectActionResult::ok(
                 ContentProjectActionCodes::DRAFT_SPLIT,
                 sprintf(
-                    '%d items moved · %d remain in Draft',
+                    '%d items moved into %d project(s) · %d remain in Draft',
                     $moved,
+                    max(1, $projectCount),
                     $remaining,
                 ),
                 $projectId,

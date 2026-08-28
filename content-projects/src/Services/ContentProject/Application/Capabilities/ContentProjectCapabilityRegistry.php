@@ -273,7 +273,7 @@ final class ContentProjectCapabilityRegistry
             ),
             $this->cap(
                 'content_project.split_draft',
-                'Move Draft planning items into a new execution Content Project. Does not generate articles or publish. Activate all = selection_mode all.',
+                'Move reviewed Draft items into current-month execution Content Project(s) assigned to selected writers (30 items/user/month). Does not generate articles or publish.',
                 SplitDraftContentProjectCommand::class,
                 'content_project.split_draft',
                 riskLevel: 'write',
@@ -284,8 +284,7 @@ final class ContentProjectCapabilityRegistry
                     'selection_mode' => ['type' => 'string', 'enum' => ['first_n', 'selected', 'all'], 'required' => false],
                     'quantity' => ['type' => 'integer', 'required' => false],
                     'item_refs' => ['type' => 'array', 'required' => false],
-                    'target_month' => ['type' => 'string', 'required' => false],
-                    'project_name' => ['type' => 'string', 'required' => false],
+                    'assignee_ids' => ['type' => 'array', 'required' => false],
                     'idempotency_key' => ['type' => 'string', 'required' => false],
                 ],
                 phases: [
@@ -293,7 +292,7 @@ final class ContentProjectCapabilityRegistry
                 ],
                 confirmation: false,
                 presentation: [
-                    'description' => 'Split N / selected / all Draft items into a pending execution project. Month is reporting period only.',
+                    'description' => 'Split reviewed Draft items into current-month execution projects, one per selected writer, capped at 30 items/user/month. Requires real writer ids.',
                     'required_context' => ['site_ref', 'project_ref'],
                     'side_effect_level' => 'write',
                 ],

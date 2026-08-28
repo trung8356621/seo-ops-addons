@@ -1,6 +1,7 @@
 @php
     $summary = $this->getHeaderSummary();
     $rows = is_array($this->articleRows ?? null) ? $this->articleRows : [];
+    $gscIndexLocked = $this->isGscInspectionRunning();
 
     $month = (int) ($summary['month'] ?? 0);
     $year = (int) ($summary['year'] ?? 0);
@@ -8,6 +9,10 @@
 @endphp
 
 <x-filament-panels::page>
+    <x-seo-content-ai::safe-clipboard />
+
+    {{-- Keep run state + article index badges in sync (incl. other tabs discovering an active batch). --}}
+    <div wire:poll.5s="refreshGscInspectionRun" class="contents">
     <div class="fi-archive-preview space-y-6">
         @if (filled($this->snapshotLoadError))
             <div class="rounded-xl border border-danger-300 bg-danger-50 px-4 py-3 text-sm text-danger-800 dark:border-danger-500/40 dark:bg-danger-500/10 dark:text-danger-100">
@@ -99,6 +104,7 @@
                             $previousIndexedLabel = is_string($row['previous_indexed_at_label'] ?? null) ? trim((string) $row['previous_indexed_at_label']) : '';
                             $indexBusy = (bool) ($this->markingIndexBusy ?? false)
                                 && (int) ($this->markingIndexItemId ?? 0) === $itemId;
+                            $indexLocked = $gscIndexLocked || $indexBusy || (bool) ($this->markingIndexBusy ?? false);
                         @endphp
                         <tr
                             wire:key="archive-preview-item-{{ $itemId }}"
@@ -141,11 +147,18 @@
                                             type="button"
                                             class="mt-0.5 inline-flex shrink-0 items-center rounded-md px-1.5 py-1 text-[11px] font-medium text-gray-500 hover:bg-gray-100 hover:text-gray-800 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
                                             title="{{ __('seo-content-ai::filament.projects.archive_preview_copy_link') }}"
-                                            x-on:click.stop="
-                                                navigator.clipboard.writeText(@js($wpUrl)).then(() => {
+                                            x-on:click.stop.prevent="
+                                                const ok = await window.omiCopyText(@js($wpUrl));
+                                                if (ok) {
                                                     copied = true;
                                                     setTimeout(() => copied = false, 1500);
-                                                }).catch(() => {})
+                                                } else if (window.FilamentNotification) {
+                                                    new window.FilamentNotification()
+                                                        .title(@js(__('seo-content-ai::filament.keyword.quick_copy_failed')))
+                                                        .body(@js(__('seo-content-ai::filament.keyword.quick_copy_failed_body')))
+                                                        .warning()
+                                                        .send();
+                                                }
                                             "
                                         >
                                             <span x-text="copied ? @js(__('seo-content-ai::filament.projects.archive_preview_copied')) : @js(__('seo-content-ai::filament.projects.archive_preview_copy_link'))"></span>
@@ -162,7 +175,8 @@
                                         wire:click="markArticleIndexed({{ $itemId }})"
                                         wire:loading.attr="disabled"
                                         wire:target="markArticleIndexed({{ $itemId }})"
-                                        @disabled($indexBusy || (bool) ($this->markingIndexBusy ?? false))
+                                        @disabled($indexLocked)
+                                        title="{{ $gscIndexLocked ? __('seo-content-ai::filament.projects.archive_check_index_all_index_locked') : '' }}"
                                     >
                                         <span wire:loading.remove wire:target="markArticleIndexed({{ $itemId }})">
                                             @if ($indexedLabel !== '')
@@ -216,6 +230,46 @@
                 </tbody>
             </table>
         </div>
+    </div>
+
+    @if (is_array($this->gscInspectionRun) && $this->gscInspectionRun !== [])
+        @php
+            $run = $this->gscInspectionRun;
+            $runStatus = (string) ($run['status'] ?? '');
+            $runActive = in_array($runStatus, ['queued', 'running'], true);
+            $checked = (int) ($run['inspected'] ?? 0) + (int) ($run['failed'] ?? 0);
+            $requested = (int) ($run['requested'] ?? 0);
+        @endphp
+        <div
+            class="fixed bottom-4 right-4 z-40 w-full max-w-sm rounded-xl border border-primary-200 bg-white p-4 shadow-lg dark:border-primary-700 dark:bg-gray-900"
+        >
+            <div class="text-sm font-semibold text-gray-950 dark:text-white">Check Index All</div>
+            <div class="mt-1 text-sm text-gray-700 dark:text-gray-200">
+                {{ $checked }} / {{ $requested }} checked
+            </div>
+            <div class="mt-2 grid grid-cols-3 gap-2 text-xs">
+                <div class="rounded-md bg-success-50 px-2 py-1.5 text-success-800 dark:bg-success-500/10 dark:text-success-200">
+                    Indexed: {{ (int) ($run['indexed'] ?? 0) }}
+                </div>
+                <div class="rounded-md bg-danger-50 px-2 py-1.5 text-danger-800 dark:bg-danger-500/10 dark:text-danger-200">
+                    Not indexed: {{ (int) ($run['not_indexed'] ?? 0) }}
+                </div>
+                <div class="rounded-md bg-gray-50 px-2 py-1.5 text-gray-700 dark:bg-gray-800 dark:text-gray-200">
+                    Failed: {{ (int) ($run['failed'] ?? 0) }}
+                </div>
+            </div>
+            @if (((int) ($run['unknown'] ?? 0)) > 0)
+                <div class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+                    Unknown: {{ (int) ($run['unknown'] ?? 0) }}
+                </div>
+            @endif
+            @if ($runActive)
+                <div class="mt-2 text-[11px] text-gray-500 dark:text-gray-400">
+                    {{ __('seo-content-ai::filament.index_health.inspecting') }}
+                </div>
+            @endif
+        </div>
+    @endif
     </div>
 
     <style>

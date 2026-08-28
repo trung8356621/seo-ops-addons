@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\ContentProjects\Filament\Pages;
 
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithDraftSplit;
+use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithAuditNotes;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithIdeaCandidates;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithNewContentSuggestions;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithSeoAuditSuggestions;
@@ -38,6 +39,7 @@ use Throwable;
  */
 final class ContentProjectSeoAuditPlanner extends SeoPanelPage
 {
+    use InteractsWithAuditNotes;
     use InteractsWithDraftSplit;
     use InteractsWithIdeaCandidates;
     use InteractsWithNewContentSuggestions;
@@ -108,6 +110,7 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         $this->autoSelectSiteDraftIfNeeded();
         $this->mountInteractsWithSeoAuditSuggestions();
         $this->mountInteractsWithNewContentSuggestions();
+        $this->mountInteractsWithAuditNotes();
         $this->mountInteractsWithIdeaCandidates();
         $this->mountInteractsWithDraftSplit();
     }
@@ -136,6 +139,7 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         $this->resetPage('suggestionsPage');
         $this->mountInteractsWithSeoAuditSuggestions();
         $this->mountInteractsWithNewContentSuggestions();
+        $this->mountInteractsWithAuditNotes();
         $this->mountInteractsWithIdeaCandidates();
         $this->mountInteractsWithDraftSplit();
     }
@@ -151,6 +155,7 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         $this->autoSelectSiteDraftIfNeeded();
         $this->mountInteractsWithSeoAuditSuggestions();
         $this->mountInteractsWithNewContentSuggestions();
+        $this->mountInteractsWithAuditNotes();
         $this->mountInteractsWithIdeaCandidates();
         $this->mountInteractsWithDraftSplit();
     }

@@ -153,12 +153,31 @@ class SeoProjectResource extends SeoPanelResource
 
     public static function canDelete(\Illuminate\Database\Eloquent\Model $record): bool
     {
-        if ($record instanceof SeoProject && ($record->isArchive() || $record->isProjectArchived())) {
-            return false;
+        if ($record instanceof SeoProject) {
+            if ($record->isArchive() || $record->isProjectArchived() || $record->isDraftPlanning()) {
+                return false;
+            }
         }
 
         return static::allowsSeoPanelMutation()
             && SeoAccessControl::canAccessPlannerFeatures();
+    }
+
+    /**
+     * List overflow (…) — hide when no operational action remains for this status.
+     */
+    public static function hasListOverflowActions(SeoProject $record): bool
+    {
+        if ($record->isProjectArchived() || $record->isArchive()) {
+            return false;
+        }
+
+        if ($record->isDraftPlanning()) {
+            // Draft: no Delete / Archive / Run in overflow — open workspace stays via Edit/View.
+            return false;
+        }
+
+        return true;
     }
 
     public static function getNavigationLabel(): string
@@ -167,7 +186,8 @@ class SeoProjectResource extends SeoPanelResource
     }
 
     /**
-     * WordPress-style module: Dự án → list / create / planner / publishing queue.
+     * WordPress-style module: Dự án → list / create / planner / archived vault.
+     * Publishing Queue hub remains available by URL; not exposed in this sidebar.
      *
      * @return array<int, \Filament\Navigation\NavigationItem>
      */
@@ -202,14 +222,12 @@ class SeoProjectResource extends SeoPanelResource
                 ->isActiveWhen(fn (): bool => SeoPanelRoutes::isProjectPlannerNav());
         }
 
-        if (\Omnichannel\Addons\Publishing\Filament\Pages\PublishingQueueHub::canAccess()) {
-            $children[] = \Filament\Navigation\NavigationItem::make(
-                \Omnichannel\Addons\Publishing\Filament\Pages\PublishingQueueHub::getNavigationLabel()
-            )
+        if (SeoAccessControl::canViewProjectArchives()) {
+            $children[] = \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.nav.archived_projects'))
                 ->icon(null)
                 ->parentItem($parentLabel)
-                ->url(\Omnichannel\Addons\Publishing\Filament\Pages\PublishingQueueHub::getUrl())
-                ->isActiveWhen(fn (): bool => SeoPanelRoutes::isPublishingQueueNav());
+                ->url(static::getUrl('archive'))
+                ->isActiveWhen(fn (): bool => SeoPanelRoutes::isProjectsArchiveNav());
         }
 
         return [
@@ -282,6 +300,11 @@ class SeoProjectResource extends SeoPanelResource
                         ->dehydrated()
                         ->native(false)
                         ->live()
+                        ->afterStateHydrated(function (Forms\Components\Select $component, mixed $state): void {
+                            if (\App\Services\Users\SeoOpsSystemUser::isSystemUserId((int) ($state ?? 0))) {
+                                $component->state(null);
+                            }
+                        })
                         ->helperText(__('seo-content-ai::filament.projects.assign_writer_help')),
 
                     Forms\Components\CheckboxList::make('unassigned_staff_ids')
@@ -411,7 +434,7 @@ class SeoProjectResource extends SeoPanelResource
                     Forms\Components\Placeholder::make('status_display')
                         ->label(__('seo-content-ai::filament.projects.status'))
                         ->content(fn (?SeoProject $record): string => $record instanceof SeoProject
-                            ? (SeoProject::statusOptions()[(string) $record->status] ?? (string) $record->status)
+                            ? \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectProjectStatusPresenter::label($record)
                             : __('seo-content-ai::filament.projects.status_manual_fixed')),
 
                     Forms\Components\Textarea::make('description')
@@ -850,9 +873,10 @@ class SeoProjectResource extends SeoPanelResource
                     ),
 
                 Tables\Columns\TextColumn::make('user.name')
-                    ->label(__('seo-content-ai::filament.projects.owner'))
+                    ->label(__('seo-content-ai::filament.projects.writer'))
                     ->sortable()
-                    ->searchable(),
+                    ->searchable()
+                    ->getStateUsing(fn (SeoProject $record): string => \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectWriterAssignment::displayLabel($record)),
 
                 Tables\Columns\TextColumn::make('site.domain')
                     ->label(__('seo-content-ai::filament.projects.domain'))
@@ -897,24 +921,8 @@ class SeoProjectResource extends SeoPanelResource
                 Tables\Columns\TextColumn::make('status')
                     ->label(__('seo-content-ai::filament.projects.status'))
                     ->badge()
-                    ->formatStateUsing(function (string $state, SeoProject $record): string {
-                        if ($record->isProjectArchived()) {
-                            return __('seo-content-ai::filament.projects.status_archived');
-                        }
-
-                        return SeoProject::statusOptions()[$state] ?? $state;
-                    })
-                    ->color(fn (string $state, SeoProject $record): string => $record->isProjectArchived()
-                        ? 'gray'
-                        : match ($state) {
-                            SeoProject::STATUS_PENDING => 'gray',
-                            SeoProject::STATUS_MANUAL => 'info',
-                            SeoProject::STATUS_RUNNING => 'warning',
-                            SeoProject::STATUS_COMPLETED => 'success',
-                            SeoProject::STATUS_PAUSED => 'danger',
-                            SeoProject::STATUS_APPROVED => 'success',
-                            default => 'gray',
-                        }),
+                    ->formatStateUsing(fn (string $state, SeoProject $record): string => \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectProjectStatusPresenter::label($record))
+                    ->color(fn (string $state, SeoProject $record): string => \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectProjectStatusPresenter::color($record)),
 
                 Tables\Columns\TextColumn::make('updated_at')
                     ->label(__('seo-content-ai::filament.projects.updated'))
@@ -973,7 +981,8 @@ class SeoProjectResource extends SeoPanelResource
                         ->color('warning')
                         ->visible(fn (SeoProject $record): bool => SeoAccessControl::canArchiveContentProjects()
                             && ! $record->isProjectArchived()
-                            && ! $record->isArchive())
+                            && ! $record->isArchive()
+                            && ! $record->isDraftPlanning())
                         ->disabled(function (SeoProject $record): bool {
                             $gate = app(ArchiveContentProjectService::class)->archiveGate($record);
 
@@ -1074,11 +1083,16 @@ class SeoProjectResource extends SeoPanelResource
                         ->successNotification(null)
                         ->using(function (SeoProject $record): bool {
                             try {
-                                app(SeoProjectTaskMoveService::class)->deleteProject($record);
+                                $result = app(SeoProjectTaskMoveService::class)->deleteProject($record);
+                                $restored = (int) ($result['restored'] ?? 0);
 
                                 Notification::make()
                                     ->title(__('seo-content-ai::filament.projects.delete_completed'))
-                                    ->body(__('seo-content-ai::filament.projects.delete_completed_body'))
+                                    ->body($restored > 0
+                                        ? __('seo-content-ai::filament.projects.delete_restored_to_draft_body', [
+                                            'count' => $restored,
+                                        ])
+                                        : __('seo-content-ai::filament.projects.delete_completed_body'))
                                     ->success()
                                     ->send();
 
@@ -1109,64 +1123,18 @@ class SeoProjectResource extends SeoPanelResource
                     ->icon('heroicon-m-ellipsis-vertical')
                     ->tooltip(__('seo-content-ai::filament.projects.more_actions'))
                     ->button()
-                    ->color('gray'),
+                    ->color('gray')
+                    ->visible(fn (SeoProject $record): bool => static::hasListOverflowActions($record)),
                 Tables\Actions\ViewAction::make()
-                    ->visible(fn (SeoProject $record): bool => static::canView($record) && ! static::canEdit($record))
+                    ->visible(fn (SeoProject $record): bool => static::canView($record)
+                        && (! static::canEdit($record) || $record->isProjectArchived()))
                     ->url(fn (SeoProject $record): string => static::projectRecordUrl($record)),
                 Tables\Actions\EditAction::make()
                     ->visible(fn (SeoProject $record): bool => static::canEdit($record))
                     ->url(fn (SeoProject $record): string => static::projectRecordUrl($record)),
             ])
-            ->bulkActions(static::seoPanelBulkActions([
-                Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\DeleteBulkAction::make()
-                        ->visible(fn (): bool => SeoAccessControl::canMutateContentProjects())
-                        ->requiresConfirmation()
-                        ->modalHeading(__('seo-content-ai::filament.projects.delete_heading'))
-                        ->modalDescription(__('seo-content-ai::filament.projects.delete_description'))
-                        ->modalSubmitActionLabel(__('seo-content-ai::filament.projects.delete_submit'))
-                        ->action(function (\Illuminate\Support\Collection $records): void {
-                            $deletedTotal = 0;
-                            $failed = 0;
-
-                            foreach ($records as $record) {
-                                if (! $record instanceof SeoProject) {
-                                    continue;
-                                }
-
-                                try {
-                                    app(SeoProjectTaskMoveService::class)->deleteProject($record);
-                                    $deletedTotal++;
-                                } catch (ValidationException $exception) {
-                                    $failed++;
-                                    Notification::make()
-                                        ->title(__('seo-content-ai::filament.projects.delete_blocked', [
-                                            'name' => (string) $record->name,
-                                        ]))
-                                        ->body($exception->validator->errors()->first() ?: $exception->getMessage())
-                                        ->danger()
-                                        ->send();
-                                } catch (\Throwable $exception) {
-                                    $failed++;
-                                    RuntimeLogger::report($exception, ['project_id' => (int) $record->getKey()]);
-                                    Notification::make()
-                                        ->title(__('seo-content-ai::filament.projects.delete_failed'))
-                                        ->body($exception->getMessage())
-                                        ->danger()
-                                        ->send();
-                                }
-                            }
-
-                            if ($failed === 0 && $deletedTotal > 0) {
-                                Notification::make()
-                                    ->title(__('seo-content-ai::filament.projects.delete_completed'))
-                                    ->body(__('seo-content-ai::filament.projects.delete_completed_body'))
-                                    ->success()
-                                    ->send();
-                            }
-                        }),
-                ]),
-            ]));
+            // No bulk select / bulk delete — row actions only.
+            ->bulkActions([]);
     }
 
     public static function getEloquentQuery(): Builder
@@ -1496,6 +1464,7 @@ class SeoProjectResource extends SeoPanelResource
             ContentProjectProjectActionDecision::REASON_ARCHIVED => __('seo-content-ai::filament.projects.generate_pending_disabled_archived'),
             ContentProjectProjectActionDecision::REASON_BULK_ACTIVE => __('seo-content-ai::filament.projects.generate_pending_disabled_bulk_active'),
             ContentProjectProjectActionDecision::REASON_TEST_ACTIVE => __('seo-content-ai::filament.projects.test_run_disabled_active'),
+            ContentProjectProjectActionDecision::REASON_NO_ASSIGNEE => __('seo-content-ai::filament.projects.generate_pending_disabled_no_assignee'),
             default => __('seo-content-ai::filament.projects.generate_pending_disabled_no_eligible'),
         };
     }
@@ -1861,21 +1830,14 @@ class SeoProjectResource extends SeoPanelResource
     {
         $service = app(\Omnichannel\Addons\ContentProjects\Services\ContentProjectStaffAvailabilityService::class);
         $grouped = $service->groupedSelectOptions($month);
-        $result = [];
 
         if ($grouped['unassigned'] !== []) {
-            $result[(string) __('seo-content-ai::filament.projects.unassigned_staff_heading')] = $grouped['unassigned'];
+            return [
+                (string) __('seo-content-ai::filament.projects.eligible_staff_heading') => $grouped['unassigned'],
+            ];
         }
 
-        if ($grouped['assigned'] !== []) {
-            $result[(string) __('seo-content-ai::filament.projects.assigned_staff_heading')] = $grouped['assigned'];
-        }
-
-        if ($result === []) {
-            return ['' => static::legacyUserSelectOptions()];
-        }
-
-        return $result;
+        return ['' => static::legacyUserSelectOptions()];
     }
 
     /**
@@ -1885,7 +1847,10 @@ class SeoProjectResource extends SeoPanelResource
     {
         $query = User::query()
             ->where('seo_role', User::SEO_ROLE_CONTENT_MANAGER)
-            ->where('status', User::STATUS_NORMAL);
+            ->where('status', User::STATUS_NORMAL)
+            ->where(function (Builder $users): void {
+                $users->where('is_system', false)->orWhereNull('is_system');
+            });
 
         $ownerId = SeoAccessControl::accountOwnerId() ?? (int) auth()->id();
         $query->where(function (Builder $users) use ($ownerId): void {

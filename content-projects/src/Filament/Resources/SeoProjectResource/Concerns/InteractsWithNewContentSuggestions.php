@@ -88,6 +88,9 @@ trait InteractsWithNewContentSuggestions
         $this->newContentQuantity = 20;
         $this->newContentNotes = '';
         $this->newContentPostType = NewContentSuggestionOptions::CONTENT_TYPE_POST;
+        if (method_exists($this, 'mountInteractsWithAuditNotes')) {
+            $this->mountInteractsWithAuditNotes();
+        }
 
         $this->refreshNewContentRunState();
         $this->refreshNewContentPlanningPreview();
@@ -374,7 +377,11 @@ trait InteractsWithNewContentSuggestions
         return NewContentSuggestionOptions::normalize([
             'quantity' => (int) $this->newContentQuantity,
             'direction' => NewContentSuggestionOptions::DIRECTION_AUTOMATIC,
-            'notes' => $this->newContentNotes,
+            // Free-text notes retired — Selected note_items is the only prompt path.
+            'notes' => '',
+            'note_items' => method_exists($this, 'auditNoteItemsForOptions')
+                ? $this->auditNoteItemsForOptions()
+                : [],
             'focus' => '',
             'post_type' => $postType,
             'content_type' => $postType,
@@ -391,6 +398,9 @@ trait InteractsWithNewContentSuggestions
         $this->newContentQuantity = $normalized['quantity'];
         $this->newContentNotes = $normalized['notes'];
         $this->newContentPostType = $normalized['content_type'];
+        if (method_exists($this, 'applyAuditNoteItems')) {
+            $this->applyAuditNoteItems(is_array($normalized['note_items'] ?? null) ? $normalized['note_items'] : []);
+        }
 
         $project = $this->resolveNewContentProject();
         if ($project instanceof SeoProject

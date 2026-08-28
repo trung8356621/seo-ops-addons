@@ -8,6 +8,7 @@ use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectArchiveItem;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\SeoAudit\SeoAuditCheckIndexUrl;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -38,6 +39,7 @@ use Throwable;
  *     wordpress_post_id: int|null,
  *     wordpress_url: string,
  *     has_public_wordpress_url: bool,
+ *     check_index_url: string|null,
  *     wp_sync_error: string,
  *     indexed_at: string|null,
  *     previous_indexed_at: string|null,
@@ -118,14 +120,24 @@ final class ArchivePreviewArticlePresenter
         ]);
 
         $bodyExcerpt = $this->buildBodyExcerpt($article, $snapshot);
-        $seoScore = $snapshot['seo_score'] ?? $article?->seoProfile?->seo_score;
+        $seoScore = $snapshot['seo_score'] ?? null;
+        if ($seoScore === null
+            && $article instanceof SeoArticle
+            && $article->relationLoaded('seoProfile')
+        ) {
+            $seoScore = $article->seoProfile?->seo_score;
+        }
         $syncStatus = $this->firstNonEmpty([
             $snapshot['sync_status'] ?? null,
-            $article?->wordpressLink?->sync_status,
+            ($article instanceof SeoArticle && $article->relationLoaded('wordpressLink'))
+                ? $article->wordpressLink?->sync_status
+                : null,
         ]);
         $wpPostId = $this->firstNonEmpty([
             $snapshot['wordpress_post_id'] ?? null,
-            $article?->wordpressLink?->wp_post_id,
+            ($article instanceof SeoArticle && $article->relationLoaded('wordpressLink'))
+                ? $article->wordpressLink?->wp_post_id
+                : null,
         ]);
         $wpUrlString = $this->firstPublicHttpUrl([
             $this->articleMeta($article, 'wp_permalink'),
@@ -133,9 +145,38 @@ final class ArchivePreviewArticlePresenter
         ]);
         $hasPublicWordpressUrl = $wpUrlString !== '';
 
-        if ($article instanceof SeoArticle) {
-            $indexedAtRaw = $article->seoProfile?->indexed_at;
-            $previousIndexedAtRaw = $article->seoProfile?->previous_indexed_at;
+        if ($article instanceof SeoArticle && $article->relationLoaded('indexHealth') && $article->indexHealth !== null) {
+            $healthStatus = strtolower(trim((string) ($article->indexHealth->current_status ?? '')));
+            if ($healthStatus === 'indexed') {
+                $indexedAtRaw = $article->indexHealth->last_indexed_at
+                    ?? ($article->relationLoaded('seoProfile') ? $article->seoProfile?->indexed_at : null)
+                    ?? ($article->getAttributes()['indexed_at'] ?? null);
+                $previousIndexedAtRaw = ($article->relationLoaded('seoProfile') ? $article->seoProfile?->previous_indexed_at : null)
+                    ?? ($article->getAttributes()['previous_indexed_at'] ?? null);
+            } elseif (in_array($healthStatus, ['not_indexed', 'dropped'], true)) {
+                $indexedAtRaw = null;
+                $previousIndexedAtRaw = $article->indexHealth->last_indexed_at
+                    ?? ($article->relationLoaded('seoProfile') ? $article->seoProfile?->indexed_at : null)
+                    ?? ($article->getAttributes()['indexed_at'] ?? ($snapshot['indexed_at'] ?? null));
+            } elseif ($article->relationLoaded('seoProfile')) {
+                $indexedAtRaw = $article->seoProfile?->indexed_at
+                    ?? ($article->getAttributes()['indexed_at'] ?? null);
+                $previousIndexedAtRaw = $article->seoProfile?->previous_indexed_at
+                    ?? ($article->getAttributes()['previous_indexed_at'] ?? null);
+            } else {
+                $attrs = $article->getAttributes();
+                $indexedAtRaw = $attrs['indexed_at'] ?? ($snapshot['indexed_at'] ?? null);
+                $previousIndexedAtRaw = $attrs['previous_indexed_at'] ?? ($snapshot['previous_indexed_at'] ?? null);
+            }
+        } elseif ($article instanceof SeoArticle && $article->relationLoaded('seoProfile')) {
+            $indexedAtRaw = $article->seoProfile?->indexed_at
+                ?? ($article->getAttributes()['indexed_at'] ?? null);
+            $previousIndexedAtRaw = $article->seoProfile?->previous_indexed_at
+                ?? ($article->getAttributes()['previous_indexed_at'] ?? null);
+        } elseif ($article instanceof SeoArticle) {
+            $attrs = $article->getAttributes();
+            $indexedAtRaw = $attrs['indexed_at'] ?? ($snapshot['indexed_at'] ?? null);
+            $previousIndexedAtRaw = $attrs['previous_indexed_at'] ?? ($snapshot['previous_indexed_at'] ?? null);
         } else {
             $indexedAtRaw = $snapshot['indexed_at'] ?? null;
             $previousIndexedAtRaw = $snapshot['previous_indexed_at'] ?? null;
@@ -208,6 +249,9 @@ final class ArchivePreviewArticlePresenter
             'wordpress_post_id' => $wpPostId !== null ? (int) $wpPostId : null,
             'wordpress_url' => $hasPublicWordpressUrl ? $wpUrlString : '',
             'has_public_wordpress_url' => $hasPublicWordpressUrl,
+            'check_index_url' => $hasPublicWordpressUrl
+                ? SeoAuditCheckIndexUrl::forCanonicalUrl($wpUrlString)
+                : null,
             'wp_sync_error' => trim((string) ($snapshot['wp_sync_error'] ?? '')),
             'indexed_at' => $this->toIsoOrNull($indexedAtRaw),
             'previous_indexed_at' => $this->toIsoOrNull($previousIndexedAtRaw),
@@ -217,7 +261,12 @@ final class ArchivePreviewArticlePresenter
             'updated_at' => SeoProjectResource::formatTaskTimestamp($snapshot['updated_at'] ?? $article?->updated_at),
             'completed_at' => SeoProjectResource::formatTaskTimestamp($completedAt),
             'last_saved_at' => SeoProjectResource::formatTaskTimestamp($snapshot['last_saved_at'] ?? null),
-            'last_synced_at' => SeoProjectResource::formatTaskTimestamp($snapshot['last_synced_at'] ?? $article?->wordpressLink?->last_synced_at),
+            'last_synced_at' => SeoProjectResource::formatTaskTimestamp(
+                $snapshot['last_synced_at']
+                    ?? (($article instanceof SeoArticle && $article->relationLoaded('wordpressLink'))
+                        ? $article->wordpressLink?->last_synced_at
+                        : null)
+            ),
             'article_exists' => $articleExists,
             'can_edit' => $canEdit,
             'edit_url' => $editUrl,
@@ -248,7 +297,7 @@ final class ArchivePreviewArticlePresenter
 
         return SeoArticle::query()
             ->whereIn('id', array_values($ids))
-            ->with(['articleMetas', 'site'])
+            ->with(['articleMetas', 'site', 'seoProfile', 'wordpressLink', 'indexHealth'])
             ->get()
             ->keyBy(static fn (SeoArticle $article): int => (int) $article->getKey());
     }

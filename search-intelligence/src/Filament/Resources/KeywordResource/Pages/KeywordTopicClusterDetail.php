@@ -229,6 +229,57 @@ final class KeywordTopicClusterDetail extends Page
         return $label;
     }
 
+    public function fixTopicKeywords(): void
+    {
+        if (! $this->canEditClusterCanonical()) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.keyword.topic_fix_keywords_denied'))
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
+        $detail = $this->getDetail();
+        $topicLabel = (string) ($detail['label'] ?? $this->clusterKey);
+
+        try {
+            $result = app(UpdateClusterCanonicalService::class)
+                ->reconcileMembership($siteId, $this->clusterKey);
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('topic_cluster.fix_keywords.failed', [
+                'site_id' => $siteId,
+                'cluster_key' => $this->clusterKey,
+                'topic_label' => $topicLabel,
+                'user_id' => auth()->id(),
+                'exception' => $e->getMessage(),
+            ]);
+
+            Notification::make()
+                ->title(__('seo-content-ai::filament.keyword.topic_fix_keywords_failed'))
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        Notification::make()
+            ->title(__('seo-content-ai::filament.keyword.topic_fix_keywords_success'))
+            ->body(__('seo-content-ai::filament.keyword.topic_fix_keywords_body', [
+                'checked' => $result['checked'],
+                'kept' => $result['kept'],
+                'attached' => $result['attached'],
+                'detached' => $result['detached'],
+                'changed' => $result['changed'],
+            ]))
+            ->success()
+            ->send();
+
+        $this->refreshClusterSummaryCounters();
+    }
+
     public function resetClusterCanonicalToAuto(): string
     {
         if (! $this->canEditClusterCanonical()) {

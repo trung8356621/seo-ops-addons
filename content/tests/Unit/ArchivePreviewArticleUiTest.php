@@ -44,12 +44,17 @@ final class ArchivePreviewArticleUiTest extends TestCase
         self::assertStringContainsString('wordpress_url', $view);
         self::assertStringContainsString('markArticleIndexed', $view);
         self::assertStringContainsString('archive_preview_copy_link', $view);
-        self::assertStringContainsString('navigator.clipboard.writeText', $view);
+        self::assertStringContainsString('omiCopyText', $view);
+        self::assertStringContainsString('safe-clipboard', $view);
+        self::assertStringNotContainsString('navigator.clipboard.writeText', $view);
+        self::assertStringContainsString('Check Index All', $view);
+        self::assertStringContainsString('refreshGscInspectionRun', $view);
+        self::assertStringContainsString('gscInspectionRun', $view);
+        self::assertStringNotContainsString('checkIndexAllOpen', $view);
+        self::assertStringNotContainsString('Open / Check Index', $view);
+        self::assertStringNotContainsString('checkIndexAllSkip', $view);
         self::assertStringContainsString('text-primary-600', $view);
-        self::assertStringContainsString('archive_preview_col_int', $view);
-        self::assertStringContainsString('archive_preview_col_ext', $view);
         self::assertStringContainsString('archive_preview_col_index', $view);
-        self::assertStringContainsString('internal_link_count', $view);
         self::assertStringContainsString('w-full', $view);
         self::assertStringNotContainsString('x-teleport="body"', $view);
         self::assertStringNotContainsString('fixed inset-0 z-[80]', $view);
@@ -64,10 +69,11 @@ final class ArchivePreviewArticleUiTest extends TestCase
         self::assertStringContainsString('archive_preview_section_main', $view);
         self::assertStringContainsString('archive_preview_section_seo', $view);
         self::assertStringContainsString('archive_preview_section_status', $view);
-        self::assertStringContainsString('archive_preview_section_links', $view);
         self::assertStringContainsString('archive_preview_section_timestamps', $view);
         self::assertStringContainsString('archive_preview_section_excerpt', $view);
+        self::assertStringContainsString('line-clamp-5', $view);
         self::assertStringContainsString('archive_preview_edit_article', $view);
+        self::assertStringNotContainsString('archive_preview_section_links', $view);
     }
 
     public function test_presenter_resolves_edit_url_by_article_id_not_title(): void

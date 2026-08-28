@@ -11,27 +11,35 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProjectRunItem;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SplitDraftContentProjectCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Planner\ContentProjectPlannerRunService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterMonthlyCapacityService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectArticleOwnerSyncService;
-use App\Models\Site;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExecutionLimits;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectWriterAllocator;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use InvalidArgumentException;
 use RuntimeException;
 
 /**
- * Move Draft planning items into a new execution Content Project.
+ * Move reviewed Draft planning items into current-month execution Content Projects.
+ * One execution project per selected writer with remaining monthly capacity
+ * ({@see ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS}).
  * MOVE same task rows (preserve id / article_id uniqueness / origins).
  * Does not call AI. Does not auto-generate.
+ * Every created project has a real writer user_id — never System User, actor, or draft owner.
  */
 final class SplitDraftContentProjectService
 {
     public function __construct(
         private readonly ContentProjectPlannerRunService $plannerRuns,
         private readonly SeoProjectArticleOwnerSyncService $articleOwnerSync,
+        private readonly ContentProjectWriterMonthlyCapacityService $capacity,
     ) {}
 
     /**
      * @param  list<int>  $itemIds
+     * @param  list<int|string>  $assigneeIds
      * @return array<string, mixed>
      */
     public function preview(
@@ -39,29 +47,27 @@ final class SplitDraftContentProjectService
         string $selectionMode,
         ?int $quantity,
         array $itemIds,
-        ?string $targetMonth,
-        ?string $projectName,
+        array $assigneeIds = [],
     ): array {
         $resolved = $this->resolveItems($draft, $selectionMode, $quantity, $itemIds);
-        $month = $this->normalizeMonth($targetMonth);
-        $name = $this->resolveName($projectName, $month, $draft);
-        $remaining = max(0, $this->currentDraftItemCount($draft) - count($resolved['task_ids']));
+        $month = $this->currentMonth();
+        $taskIds = $resolved['task_ids'];
+        $plan = $this->planAllocations($taskIds, $assigneeIds, $month);
+        $remaining = max(0, $this->currentDraftItemCount($draft) - count($taskIds));
 
-        return [
-            'source_draft_project_id' => (int) $draft->getKey(),
-            'selection_mode' => $resolved['mode'],
-            'moved_count' => count($resolved['task_ids']),
-            'remaining_count' => $remaining,
-            'task_ids' => $resolved['task_ids'],
-            'target_month' => $month->format('Y-m-d'),
-            'target_month_label' => $month->format('m/Y'),
-            'project_name' => $name,
-            'auto_generate' => false,
-        ];
+        return $this->presentPlan(
+            $draft,
+            $resolved['mode'],
+            $taskIds,
+            $remaining,
+            $month,
+            $plan,
+        );
     }
 
     /**
      * @param  list<int>  $itemIds
+     * @param  list<int|string>  $assigneeIds
      * @return array<string, mixed>
      */
     public function split(
@@ -69,10 +75,11 @@ final class SplitDraftContentProjectService
         string $selectionMode,
         ?int $quantity,
         array $itemIds,
-        ?string $targetMonth,
-        ?string $projectName,
-        ?int $actorId,
+        ?int $actorId = null,
+        array $assigneeIds = [],
     ): array {
+        unset($actorId);
+
         if (! $draft->isDraftPlanning()) {
             throw new InvalidArgumentException('PROJECT_NOT_DRAFT: Only Draft projects can be split.');
         }
@@ -84,18 +91,16 @@ final class SplitDraftContentProjectService
 
         $this->assertNoActivePlannerMaterialization($draft);
 
-        $month = $this->normalizeMonth($targetMonth);
-        $name = $this->resolveName($projectName, $month, $draft);
+        $month = $this->currentMonth();
 
         return DB::connection('omi_seo_ai')->transaction(function () use (
             $draft,
             $selectionMode,
             $quantity,
             $itemIds,
+            $assigneeIds,
             $month,
-            $name,
             $siteId,
-            $actorId,
         ): array {
             /** @var SeoProject|null $lockedDraft */
             $lockedDraft = SeoProject::query()
@@ -110,7 +115,32 @@ final class SplitDraftContentProjectService
             $resolved = $this->resolveItems($lockedDraft, $selectionMode, $quantity, $itemIds);
             $taskIds = $resolved['task_ids'];
             if ($taskIds === []) {
-                throw new InvalidArgumentException('No Draft items to move.');
+                throw new InvalidArgumentException('No reviewed Draft items to move.');
+            }
+
+            $writerIds = $this->capacity->normalizeUserIds($assigneeIds);
+            if ($writerIds === []) {
+                throw new InvalidArgumentException(
+                    (string) __('seo-content-ai::filament.projects.draft_split_no_writers'),
+                );
+            }
+
+            SeoProject::query()
+                ->activeProjects()
+                ->whereIn('user_id', $writerIds)
+                ->whereDate('month', $month->format('Y-m-d'))
+                ->where('status', '!=', SeoProject::STATUS_DRAFT)
+                ->lockForUpdate()
+                ->get(['id']);
+
+            $plan = $this->planAllocations($taskIds, $writerIds, $month);
+            if ((int) $plan['unallocated_count'] > 0) {
+                throw new InvalidArgumentException((string) $plan['insufficient_message']);
+            }
+            if ($plan['allocations'] === []) {
+                throw new InvalidArgumentException(
+                    (string) __('seo-content-ai::filament.projects.draft_split_no_writers'),
+                );
             }
 
             $tasks = SeoProjectTask::query()
@@ -132,68 +162,114 @@ final class SplitDraftContentProjectService
                     throw new InvalidArgumentException('Item '.$taskId.' is missing.');
                 }
                 $this->assertTaskSplittable($task);
+                $this->assertTaskReviewed($task);
             }
 
-            $execution = SeoProject::query()->create([
-                'name' => $name,
-                'site_id' => $siteId,
-                'month' => $month->format('Y-m-d'),
-                'status' => SeoProject::STATUS_PENDING,
-                'kind' => SeoProject::KIND_MONTHLY,
-                'user_id' => (int) ($lockedDraft->user_id ?? $actorId ?? 0) ?: null,
-                'total_tasks' => 0,
-                'description' => null,
-                'source_draft_project_id' => (int) $lockedDraft->getKey(),
-            ]);
+            $createdProjects = [];
+            $allMoved = [];
+            $reservedNames = [];
 
-            $monthStart = $execution->monthCarbon();
-            $index = 0;
-            foreach ($taskIds as $taskId) {
-                $task = $tasks->get($taskId);
-                if (! $task instanceof SeoProjectTask) {
-                    throw new RuntimeException('Locked task disappeared during split.');
+            foreach ($plan['allocations'] as $allocation) {
+                $chunkIds = $allocation['task_ids'];
+                $writerId = (int) $allocation['user_id'];
+                if ($chunkIds === [] || $writerId <= 0) {
+                    continue;
                 }
 
-                $task->forceFill([
-                    'project_id' => (int) $execution->getKey(),
+                $name = $this->nextExecutionProjectName($siteId, $month, $reservedNames);
+                $reservedNames[] = $name;
+
+                $execution = SeoProject::query()->create([
+                    'name' => $name,
                     'site_id' => $siteId,
-                    'status' => SeoProjectTask::STATUS_PENDING,
-                    'target_date' => $monthStart->copy()->addDays($index)->format('Y-m-d'),
-                ])->save();
+                    'month' => $month->format('Y-m-d'),
+                    'status' => SeoProject::STATUS_PENDING,
+                    'kind' => SeoProject::KIND_MONTHLY,
+                    'user_id' => $writerId,
+                    'total_tasks' => 0,
+                    'description' => null,
+                    'source_draft_project_id' => (int) $lockedDraft->getKey(),
+                ]);
 
-                SeoContentProjectItemOrigin::query()
-                    ->where('project_task_id', $taskId)
-                    ->update([
+                $monthStart = $execution->monthCarbon();
+                $dayIndex = 0;
+                foreach ($chunkIds as $taskId) {
+                    $task = $tasks->get($taskId);
+                    if (! $task instanceof SeoProjectTask) {
+                        throw new RuntimeException('Locked task disappeared during split.');
+                    }
+
+                    $task->forceFill([
                         'project_id' => (int) $execution->getKey(),
-                    ]);
+                        'site_id' => $siteId,
+                        'status' => SeoProjectTask::STATUS_PENDING,
+                        'target_date' => $monthStart->copy()->addDays($dayIndex)->format('Y-m-d'),
+                    ])->save();
 
-                $index++;
+                    SeoContentProjectItemOrigin::query()
+                        ->where('project_task_id', $taskId)
+                        ->update([
+                            'project_id' => (int) $execution->getKey(),
+                        ]);
+
+                    $allMoved[] = $taskId;
+                    $dayIndex++;
+                }
+
+                $execution->syncTotalTasksCounter();
+                $this->articleOwnerSync->syncProjectArticles($execution->fresh() ?? $execution);
+
+                $createdProjects[] = [
+                    'execution_project_id' => (int) $execution->getKey(),
+                    'month' => $month->format('Y-m-d'),
+                    'month_label' => $month->format('n/Y'),
+                    'project_name' => (string) $execution->name,
+                    'moved_count' => count($chunkIds),
+                    'item_count' => count($chunkIds),
+                    'task_ids' => $chunkIds,
+                    'assignee_id' => $writerId,
+                    'user_id' => $writerId,
+                    'user_name' => (string) ($allocation['user_name'] ?? '#'.$writerId),
+                    'has_real_writer' => true,
+                    'status' => SeoProject::STATUS_PENDING,
+                ];
             }
 
             $lockedDraft->syncTotalTasksCounter();
-            $execution->syncTotalTasksCounter();
-            $this->articleOwnerSync->syncProjectArticles($execution->fresh() ?? $execution);
-
             $remaining = $this->currentDraftItemCount($lockedDraft->fresh() ?? $lockedDraft);
+            $first = $createdProjects[0] ?? null;
 
             return [
                 'source_draft_project_id' => (int) $lockedDraft->getKey(),
-                'execution_project_id' => (int) $execution->getKey(),
-                'moved_count' => count($taskIds),
+                'execution_project_id' => (int) ($first['execution_project_id'] ?? 0),
+                'execution_project_ids' => array_map(
+                    static fn (array $row): int => (int) $row['execution_project_id'],
+                    $createdProjects,
+                ),
+                'projects' => $createdProjects,
+                'allocations' => $createdProjects,
+                'moved_count' => count($allMoved),
                 'remaining_count' => $remaining,
+                'reviewed_remaining_count' => $this->currentReviewedDraftItemCount($lockedDraft->fresh() ?? $lockedDraft),
                 'month' => $month->format('Y-m-d'),
                 'month_label' => $month->format('m/Y'),
-                'project_name' => (string) $execution->name,
-                'task_ids' => $taskIds,
+                'project_count' => count($createdProjects),
+                'project_name' => (string) ($first['project_name'] ?? ''),
+                'task_ids' => $allMoved,
                 'selection_mode' => $resolved['mode'],
                 'auto_generate' => false,
+                'assignee_id' => (int) ($first['user_id'] ?? 0) ?: null,
+                'has_real_writer' => true,
+                'insufficient_slots' => 0,
                 'status' => SeoProject::STATUS_PENDING,
+                'max_writer_monthly_items' => ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS,
+                'max_items_per_project' => ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS,
             ];
         });
     }
 
     /**
-     * Stable First N order: ascending primary key (creation order for auto-increment drafts).
+     * Stable First N order among REVIEWED draft items only.
      *
      * @param  list<int>  $itemIds
      * @return array{mode: string, task_ids: list<int>}
@@ -205,7 +281,7 @@ final class SplitDraftContentProjectService
         array $itemIds,
     ): array {
         $mode = strtolower(trim($selectionMode));
-        $available = $this->orderedDraftTaskIds($draft);
+        $available = $this->orderedReviewedDraftTaskIds($draft);
         $availableCount = count($available);
 
         if ($mode === SplitDraftContentProjectCommand::MODE_ALL
@@ -231,11 +307,12 @@ final class SplitDraftContentProjectService
             $lookup = array_fill_keys($available, true);
             foreach ($requested as $id) {
                 if (! isset($lookup[$id])) {
-                    throw new InvalidArgumentException('Item '.$id.' does not belong to this Draft.');
+                    throw new InvalidArgumentException(
+                        'Item '.$id.' is not a reviewed Draft item eligible for split.',
+                    );
                 }
             }
 
-            // Preserve Draft stable order among selected ids.
             $ordered = [];
             foreach ($available as $id) {
                 if (in_array($id, $requested, true)) {
@@ -249,14 +326,16 @@ final class SplitDraftContentProjectService
             ];
         }
 
-        // first_n
         $n = (int) ($quantity ?? 0);
         if ($n < 1) {
             throw new InvalidArgumentException('Quantity must be at least 1.');
         }
+        if ($availableCount < 1) {
+            throw new InvalidArgumentException('No reviewed Draft items to move.');
+        }
         if ($n > $availableCount) {
             throw new InvalidArgumentException(
-                sprintf('Requested %d, Draft has %d.', $n, $availableCount),
+                sprintf('Requested %d, Draft has %d reviewed items.', $n, $availableCount),
             );
         }
 
@@ -264,6 +343,155 @@ final class SplitDraftContentProjectService
             'mode' => SplitDraftContentProjectCommand::MODE_FIRST_N,
             'task_ids' => array_slice($available, 0, $n),
         ];
+    }
+
+    /**
+     * @param  list<int>  $taskIds
+     * @param  list<int|string>  $assigneeIds
+     * @return array{
+     *     allocations: list<array{user_id: int, user_name: string, item_count: int, task_ids: list<int>}>,
+     *     unallocated_count: int,
+     *     unallocated_task_ids: list<int>,
+     *     selected_capacity: int,
+     *     insufficient_slots: int,
+     *     insufficient_message: string
+     * }
+     */
+    public function planAllocations(array $taskIds, array $assigneeIds, Carbon|string $month): array
+    {
+        $writerIds = $this->capacity->normalizeUserIds($assigneeIds);
+        $remainingByUser = $this->capacity->remainingByUserId($writerIds, $month);
+        $allocated = ContentProjectWriterAllocator::allocate($taskIds, $writerIds, $remainingByUser);
+        $names = $this->capacity->displayNamesByUserId(
+            array_map(static fn (array $row): int => (int) $row['user_id'], $allocated['allocations']),
+        );
+
+        $allocations = [];
+        foreach ($allocated['allocations'] as $row) {
+            $userId = (int) $row['user_id'];
+            $allocations[] = [
+                'user_id' => $userId,
+                'user_name' => (string) ($names[$userId] ?? '#'.$userId),
+                'item_count' => (int) $row['item_count'],
+                'task_ids' => $row['task_ids'],
+            ];
+        }
+
+        $selectedCapacity = 0;
+        foreach ($writerIds as $userId) {
+            $selectedCapacity += max(0, (int) ($remainingByUser[$userId] ?? 0));
+        }
+
+        $shortfall = (int) $allocated['unallocated_count'];
+
+        return [
+            'allocations' => $allocations,
+            'unallocated_count' => $shortfall,
+            'unallocated_task_ids' => $allocated['unallocated_task_ids'],
+            'selected_capacity' => $selectedCapacity,
+            'insufficient_slots' => $shortfall,
+            'insufficient_message' => $shortfall > 0
+                ? ContentProjectExecutionLimits::insufficientCapacityMessage($shortfall)
+                : '',
+        ];
+    }
+
+    /**
+     * @param  list<int>  $taskIds
+     * @param  array{
+     *     allocations: list<array{user_id: int, user_name: string, item_count: int, task_ids: list<int>}>,
+     *     unallocated_count: int,
+     *     selected_capacity: int,
+     *     insufficient_slots: int,
+     *     insufficient_message: string
+     * }  $plan
+     * @return array<string, mixed>
+     */
+    private function presentPlan(
+        SeoProject $draft,
+        string $mode,
+        array $taskIds,
+        int $remainingDraftCount,
+        Carbon $month,
+        array $plan,
+    ): array {
+        $allocations = [];
+        foreach ($plan['allocations'] as $row) {
+            $allocations[] = [
+                'user_id' => (int) $row['user_id'],
+                'user_name' => (string) $row['user_name'],
+                'item_count' => (int) $row['item_count'],
+                'moved_count' => (int) $row['item_count'],
+                'task_ids' => $row['task_ids'],
+                'assignee_id' => (int) $row['user_id'],
+                'has_real_writer' => true,
+                'month' => $month->format('Y-m-d'),
+                'month_label' => $month->format('n/Y'),
+            ];
+        }
+
+        $first = $allocations[0] ?? null;
+
+        return [
+            'source_draft_project_id' => (int) $draft->getKey(),
+            'selection_mode' => $mode,
+            'moved_count' => count($taskIds),
+            'remaining_count' => $remainingDraftCount,
+            'reviewed_eligible_count' => $this->currentReviewedDraftItemCount($draft),
+            'task_ids' => $taskIds,
+            'target_month' => $month->format('Y-m-d'),
+            'target_month_label' => $month->format('m/Y'),
+            'project_count' => count($allocations),
+            'projects' => $allocations,
+            'allocations' => $allocations,
+            'project_name' => '',
+            'auto_generate' => false,
+            'assignee_id' => (int) ($first['user_id'] ?? 0) ?: null,
+            'has_real_writer' => $allocations !== [],
+            'selected_capacity' => (int) $plan['selected_capacity'],
+            'insufficient_slots' => (int) $plan['insufficient_slots'],
+            'insufficient_message' => (string) $plan['insufficient_message'],
+            'max_writer_monthly_items' => ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS,
+            'max_items_per_project' => ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS,
+        ];
+    }
+
+    /**
+     * Next auto name for site+month: "project n/Y", then "project n/Y-2", "-3", …
+     * Suffix = max existing (+ reserved) + 1; does not reuse holes.
+     * Base name counts as suffix 1.
+     *
+     * @param  list<string>  $reservedNames
+     */
+    public function nextExecutionProjectName(
+        int $siteId,
+        Carbon|string $month,
+        array $reservedNames = [],
+    ): string {
+        $carbon = Carbon::parse($month)->startOfMonth();
+        $base = SeoProject::defaultNameFromMonth($carbon);
+        $maxSuffix = 0;
+
+        if ($siteId > 0) {
+            $existing = SeoProject::query()
+                ->where('site_id', $siteId)
+                ->whereDate('month', $carbon->format('Y-m-d'))
+                ->pluck('name');
+
+            foreach ($existing as $name) {
+                $maxSuffix = max($maxSuffix, $this->executionNameSuffix((string) $name, $base));
+            }
+        }
+
+        foreach ($reservedNames as $name) {
+            $maxSuffix = max($maxSuffix, $this->executionNameSuffix((string) $name, $base));
+        }
+
+        if ($maxSuffix < 1) {
+            return $base;
+        }
+
+        return $base.'-'.($maxSuffix + 1);
     }
 
     /**
@@ -282,34 +510,60 @@ final class SplitDraftContentProjectService
             ->all();
     }
 
+    /**
+     * Eligible split set: planning_reviewed_at IS NOT NULL.
+     *
+     * @return list<int>
+     */
+    public function orderedReviewedDraftTaskIds(SeoProject $draft): array
+    {
+        $query = SeoProjectTask::query()
+            ->where('project_id', (int) $draft->getKey())
+            ->whereNull('archived_at')
+            ->where('status', '!=', SeoProjectTask::STATUS_CANCELLED)
+            ->orderBy('id');
+
+        if (Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'planning_reviewed_at')) {
+            $query->whereNotNull('planning_reviewed_at');
+        } else {
+            // Without review column, nothing is eligible (fail closed).
+            return [];
+        }
+
+        return $query
+            ->pluck('id')
+            ->map(static fn (mixed $id): int => (int) $id)
+            ->values()
+            ->all();
+    }
+
     public function currentDraftItemCount(SeoProject $draft): int
     {
         return count($this->orderedDraftTaskIds($draft));
     }
 
-    private function normalizeMonth(?string $targetMonth): Carbon
+    public function currentReviewedDraftItemCount(SeoProject $draft): int
     {
-        if ($targetMonth === null || trim($targetMonth) === '') {
-            return Carbon::now()->startOfMonth();
-        }
-
-        return Carbon::parse($targetMonth)->startOfMonth();
+        return count($this->orderedReviewedDraftTaskIds($draft));
     }
 
-    private function resolveName(?string $projectName, Carbon $month, SeoProject $draft): string
+    public function currentMonth(): Carbon
     {
-        $custom = trim((string) $projectName);
-        if ($custom !== '') {
-            return $custom;
+        return Carbon::now()->startOfMonth();
+    }
+
+    private function executionNameSuffix(string $name, string $base): int
+    {
+        $name = trim($name);
+        if ($name === $base) {
+            return 1;
         }
 
-        $domain = null;
-        $siteId = (int) ($draft->site_id ?? 0);
-        if ($siteId > 0) {
-            $domain = Site::query()->whereKey($siteId)->value('domain');
+        if (preg_match('/^'.preg_quote($base, '/').'-(\d+)$/', $name, $matches) === 1) {
+            return max(1, (int) $matches[1]);
         }
 
-        return SeoProject::defaultExecutionName($month, is_string($domain) ? $domain : null);
+        return 0;
     }
 
     private function assertNoActivePlannerMaterialization(SeoProject $draft): void
@@ -324,6 +578,18 @@ final class SplitDraftContentProjectService
                     'Cannot split while a planner run is still queued/running.',
                 );
             }
+        }
+    }
+
+    private function assertTaskReviewed(SeoProjectTask $task): void
+    {
+        if (! Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'planning_reviewed_at')) {
+            throw new InvalidArgumentException('Planning review is unavailable.');
+        }
+        if ($task->planning_reviewed_at === null) {
+            throw new InvalidArgumentException(
+                'Item '.$task->id.' is unreviewed and cannot be split.',
+            );
         }
     }
 

@@ -53,6 +53,7 @@ final class ArticleIndexHealthRecorder
         ?string $notes = null,
         bool $requirePublished = true,
         ?array $diagnostics = null,
+        ?string $urlOverride = null,
     ): array {
         $articleId = (int) $article->getKey();
         $siteId = (int) ($article->site_id ?? 0);
@@ -64,7 +65,10 @@ final class ArticleIndexHealthRecorder
             throw new RuntimeException('Article is not eligible for Index Health (must be observed WP publish with public URL).');
         }
 
-        $url = $this->urls->resolve($article);
+        $override = is_string($urlOverride) ? trim($urlOverride) : '';
+        $url = ($override !== '' && $this->urls->isPublicHttpUrl($override))
+            ? $override
+            : $this->urls->resolve($article);
         if ($url === null || $url === '') {
             throw new RuntimeException('Canonical public URL is required for Index Health.');
         }

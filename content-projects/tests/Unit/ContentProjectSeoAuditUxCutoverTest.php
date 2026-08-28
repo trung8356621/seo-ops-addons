@@ -29,7 +29,7 @@ final class ContentProjectSeoAuditUxCutoverTest extends TestCase
         );
     }
 
-    public function test_seo_project_resource_nav_nests_planner_and_queue_under_projects(): void
+    public function test_seo_project_resource_nav_nests_planner_and_archive_under_projects(): void
     {
         $resource = $this->source(SeoProjectResource::class);
         $planner = $this->source(ContentProjectSeoAuditPlanner::class);
@@ -37,12 +37,14 @@ final class ContentProjectSeoAuditUxCutoverTest extends TestCase
 
         self::assertStringContainsString('ContentProjectSeoAuditPlanner::getNavigationLabel()', $resource);
         self::assertStringContainsString('ContentProjectSeoAuditPlanner::getUrl()', $resource);
-        self::assertStringContainsString('PublishingQueueHub::getUrl()', $resource);
+        self::assertStringContainsString('nav.archived_projects', $resource);
+        self::assertStringContainsString("getUrl('archive')", $resource);
         self::assertStringContainsString('parentItem($parentLabel)', $resource);
         self::assertStringContainsString('shouldRegisterNavigation = false', $planner);
         self::assertStringContainsString('shouldRegisterNavigation = false', $queue);
         self::assertStringContainsString('SeoUserNavigation::moduleProjects()', $planner);
         self::assertStringContainsString('SeoProjectResource::getNavigationLabel()', $queue);
+        self::assertStringNotContainsString('PublishingQueueHub::getNavigationLabel()', $resource);
     }
 
     public function test_new_page_slug_and_nav_nested_under_projects(): void

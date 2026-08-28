@@ -8,7 +8,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProjectStaffAvailabilityS
 use Filament\Widgets\Widget;
 
 /**
- * @deprecated Card static đã thay bằng planning toolbar trên ListSeoProjects.
+ * @deprecated Card static retired with one-project-per-user list UI.
  * Giữ class để tránh break discovery/cache cũ — canView = false.
  */
 final class UnassignedContentProjectStaffWidget extends Widget

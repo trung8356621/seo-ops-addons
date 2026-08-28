@@ -12,6 +12,7 @@ use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicClusterMeta;
 /**
  * Formal clustering stage: AUTO clusters with member_count < 2 are not real clusters.
  * Keywords return to unclustered (cluster_key = null). MANUAL singletons are preserved.
+ * Focus-Article singletons are preserved (invariant: Focus Article ⇒ Topic not null).
  */
 final class PruneAutoSingletonClustersService
 {
@@ -21,18 +22,20 @@ final class PruneAutoSingletonClustersService
 
     /**
      * @param  array<string, true>|null  $touchedClusters
-     * @return array{pruned: int, keywords_unclustered: int}
+     * @return array{pruned: int, keywords_unclustered: int, focus_singletons_kept: int}
      */
     public function prune(int $siteId, ?array &$touchedClusters = null): array
     {
         if ($siteId <= 0 || ! Schema::connection('omi_seo_ai')->hasTable('seo_keyword_classifications')) {
-            return ['pruned' => 0, 'keywords_unclustered' => 0];
+            return ['pruned' => 0, 'keywords_unclustered' => 0, 'focus_singletons_kept' => 0];
         }
 
         $keywordIds = KeywordClusterSiteScope::keywordIds($siteId);
         if ($keywordIds === []) {
-            return ['pruned' => 0, 'keywords_unclustered' => 0];
+            return ['pruned' => 0, 'keywords_unclustered' => 0, 'focus_singletons_kept' => 0];
         }
+
+        $focusKeywordIds = $this->keywordIdsWithFocusArticle($keywordIds);
 
         $counts = SeoKeywordClassification::query()
             ->whereIn('keyword_id', $keywordIds)
@@ -42,8 +45,16 @@ final class PruneAutoSingletonClustersService
             ->groupBy('cluster_key')
             ->pluck('member_count', 'cluster_key');
 
+        $membersByCluster = SeoKeywordClassification::query()
+            ->whereIn('keyword_id', $keywordIds)
+            ->whereNotNull('cluster_key')
+            ->where('cluster_key', '!=', '')
+            ->get(['keyword_id', 'cluster_key'])
+            ->groupBy(static fn ($row): string => trim((string) $row->cluster_key));
+
         $pruned = 0;
         $keywordsUnclustered = 0;
+        $focusSingletonsKept = 0;
 
         foreach ($counts as $clusterKey => $memberCount) {
             $key = trim((string) $clusterKey);
@@ -52,6 +63,23 @@ final class PruneAutoSingletonClustersService
             }
 
             if ($this->isManualCluster($siteId, $key)) {
+                continue;
+            }
+
+            $memberIds = ($membersByCluster[$key] ?? collect())
+                ->pluck('keyword_id')
+                ->map(static fn ($id): int => (int) $id)
+                ->all();
+            $hasFocus = false;
+            foreach ($memberIds as $memberId) {
+                if (isset($focusKeywordIds[$memberId])) {
+                    $hasFocus = true;
+                    break;
+                }
+            }
+            if ($hasFocus) {
+                $focusSingletonsKept++;
+
                 continue;
             }
 
@@ -78,7 +106,37 @@ final class PruneAutoSingletonClustersService
         return [
             'pruned' => $pruned,
             'keywords_unclustered' => $keywordsUnclustered,
+            'focus_singletons_kept' => $focusSingletonsKept,
         ];
+    }
+
+    /**
+     * @param  list<int>  $keywordIds
+     * @return array<int, true>
+     */
+    private function keywordIdsWithFocusArticle(array $keywordIds): array
+    {
+        if ($keywordIds === [] || ! Schema::connection('omi_seo_ai')->hasTable('keyword_meta')) {
+            return [];
+        }
+
+        $ids = DB::connection('omi_seo_ai')->table('keyword_meta')
+            ->whereIn('keyword_id', $keywordIds)
+            ->where('meta_key', \Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey::MainArticleId->value)
+            ->whereNotNull('meta_value')
+            ->where('meta_value', '!=', '')
+            ->pluck('keyword_id')
+            ->all();
+
+        $out = [];
+        foreach ($ids as $id) {
+            $kid = (int) $id;
+            if ($kid > 0) {
+                $out[$kid] = true;
+            }
+        }
+
+        return $out;
     }
 
     private function isManualCluster(int $siteId, string $clusterKey): bool

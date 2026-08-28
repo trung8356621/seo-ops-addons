@@ -31,7 +31,8 @@ use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordCla
  * Pass 2 — contiguous core containment against live inventory
  * Pass 3 — conservative semantic/similarity (high confidence only)
  * Pass 4 — self/root clusters (shortest-first; grows inventory in-run)
- * Pass 4b — PRUNE AUTO SINGLETONS (member_count < 2, unless manual canonical)
+ * Pass 4b — PRUNE AUTO SINGLETONS (member_count < 2, unless manual canonical or Focus Article)
+ * Pass 4c — reconcile Focus Article orphans (attach or singleton Topic)
  * Pass 5 — rebuild DNA from final assignments
  */
 final class ReclusterTopicClustersService
@@ -48,6 +49,7 @@ final class ReclusterTopicClustersService
         private readonly KeywordClusterEligibility $eligibility,
         private readonly KeywordClassificationService $classification,
         private readonly PruneAutoSingletonClustersService $singletonPruner,
+        private readonly ReconcileFocusArticleTopicsService $focusReconciler,
     ) {}
 
     public function recluster(int $siteId): ReclusterTopicClustersResult
@@ -93,6 +95,11 @@ final class ReclusterTopicClustersService
             'manual_canonical_seeds' => 0,
             'auto_singletons_pruned' => 0,
             'singleton_keywords_unclustered' => 0,
+            'focus_singletons_kept' => 0,
+            'focus_orphans_before' => 0,
+            'focus_attached_to_existing' => 0,
+            'focus_singletons_created' => 0,
+            'focus_orphans_after' => 0,
         ];
 
         try {
@@ -230,9 +237,18 @@ final class ReclusterTopicClustersService
             }
 
             // PASS 4b — prune AUTO singletons before DNA (persistence must stay clean).
+            // Focus-Article singletons are kept (invariant).
             $pruneStats = $this->singletonPruner->prune($siteId, $touchedClusters);
             $metrics['auto_singletons_pruned'] = $pruneStats['pruned'];
             $metrics['singleton_keywords_unclustered'] = $pruneStats['keywords_unclustered'];
+            $metrics['focus_singletons_kept'] = (int) ($pruneStats['focus_singletons_kept'] ?? 0);
+
+            // PASS 4c — Focus Article keywords must never remain Topic=NULL.
+            $focusStats = $this->focusReconciler->reconcile($siteId);
+            $metrics['focus_orphans_before'] = (int) ($focusStats['orphans_before'] ?? 0);
+            $metrics['focus_attached_to_existing'] = (int) ($focusStats['attached_to_existing'] ?? 0);
+            $metrics['focus_singletons_created'] = (int) ($focusStats['singletons_created'] ?? 0);
+            $metrics['focus_orphans_after'] = (int) ($focusStats['orphans_after'] ?? 0);
 
             $finalRows = $this->loadEligibleRows($siteId);
             $metrics['remaining_unclustered'] = 0;

@@ -10,6 +10,7 @@ use Omnichannel\Addons\SearchIntelligence\Models\SeoGscProperty;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoGscPropertyMapping;
 use Omnichannel\Addons\SearchIntelligence\Services\GoogleSearchConsoleConnectionService;
 use Omnichannel\Addons\SearchIntelligence\Services\GoogleSearchConsoleOAuthService;
+use App\Models\Site;
 use Illuminate\Support\Facades\Schema;
 use Throwable;
 
@@ -35,8 +36,92 @@ class GscUrlInspectionBindingResolver
      */
     public function resolveForSite(int $siteId): array
     {
+        $diagnosis = $this->diagnoseForSite($siteId);
+
+        return match ($diagnosis['status']) {
+            'ok' => [
+                'site_id' => $siteId,
+                'property_uri' => (string) $diagnosis['property_uri'],
+                'connection' => $diagnosis['connection'],
+                'property' => $diagnosis['property'],
+                'mapping' => $diagnosis['mapping'],
+            ],
+            'oauth_missing' => throw GscUrlInspectionApiException::missingOAuth(
+                (string) $diagnosis['message']
+            ),
+            'property_unmapped' => throw GscUrlInspectionApiException::missingBinding(
+                (string) $diagnosis['message']
+            ),
+            default => throw GscUrlInspectionApiException::permission(
+                (string) $diagnosis['message']
+            ),
+        };
+    }
+
+    /**
+     * Distinguish master OAuth vs Site↔property mapping failures.
+     *
+     * @return array{
+     *   status: 'ok'|'oauth_missing'|'property_unmapped'|'permission',
+     *   site_id: int,
+     *   domain: string,
+     *   property_uri: string|null,
+     *   connection: ?SeoGscMasterConnection,
+     *   property: ?SeoGscProperty,
+     *   mapping: ?SeoGscPropertyMapping,
+     *   message: string,
+     *   error_code: string,
+     * }
+     */
+    public function diagnoseForSite(int $siteId): array
+    {
+        $domain = $this->resolveSiteDomain($siteId);
+
         if ($siteId <= 0) {
-            throw GscUrlInspectionApiException::missingBinding('Site is required for GSC URL Inspection.');
+            return $this->diagnosis(
+                'oauth_missing',
+                $siteId,
+                $domain,
+                null,
+                null,
+                null,
+                null,
+                'Site is required for GSC URL Inspection.',
+                'gsc.oauth_missing',
+            );
+        }
+
+        $connection = $this->resolveHealthyMasterConnection($siteId);
+        if (! $connection instanceof SeoGscMasterConnection) {
+            return $this->diagnosis(
+                'oauth_missing',
+                $siteId,
+                $domain,
+                null,
+                null,
+                null,
+                null,
+                'Google Search Console chưa được kết nối.',
+                'gsc.oauth_missing',
+            );
+        }
+
+        if (! $this->connections->isConnected($connection)) {
+            $effective = $this->connections->resolveEffectiveStatus($connection);
+
+            return $this->diagnosis(
+                'permission',
+                $siteId,
+                $domain,
+                $connection,
+                null,
+                null,
+                null,
+                $effective === 'reauthorization_required'
+                    ? 'GSC connection requires reauthorization. Reconnect Google Search Console.'
+                    : 'Google Search Console chưa được kết nối.',
+                'gsc.permission_denied',
+            );
         }
 
         $property = $this->resolveIntelligenceProperty($siteId);
@@ -51,42 +136,45 @@ class GscUrlInspectionBindingResolver
         }
 
         if ($propertyUri === '') {
-            throw GscUrlInspectionApiException::missingBinding(
-                'GSC property is not bound for this site. Configure Google Search Console first.'
+            return $this->diagnosis(
+                'property_unmapped',
+                $siteId,
+                $domain,
+                $connection,
+                $property,
+                $mapping,
+                null,
+                $domain !== ''
+                    ? 'Tên miền '.$domain.' chưa được liên kết với GSC property.'
+                    : 'Tên miền hiện tại chưa được liên kết với Google Search Console property.',
+                'gsc.property_missing',
             );
         }
 
-        $connection = $this->resolveConnection($property, $mapping);
-        if (! $connection instanceof SeoGscMasterConnection) {
-            throw GscUrlInspectionApiException::missingBinding(
-                'GSC connection is not configured for this site.'
-            );
+        // Prefer mapping-bound connection when present; otherwise healthy master already resolved.
+        if ($mapping instanceof SeoGscPropertyMapping) {
+            $mapped = SeoGscMasterConnection::query()->find((int) $mapping->gsc_connection_id);
+            if ($mapped instanceof SeoGscMasterConnection && $this->connections->isConnected($mapped)) {
+                $connection = $mapped;
+            }
         }
 
-        if (! $this->connections->isConnected($connection)) {
-            throw GscUrlInspectionApiException::permission(
-                'GSC connection is not authorized. Reconnect Google Search Console.'
-            );
-        }
-
-        return [
-            'site_id' => $siteId,
-            'property_uri' => $propertyUri,
-            'connection' => $connection,
-            'property' => $property,
-            'mapping' => $mapping,
-        ];
+        return $this->diagnosis(
+            'ok',
+            $siteId,
+            $domain,
+            $connection,
+            $property,
+            $mapping,
+            $propertyUri,
+            'ok',
+            'gsc.ok',
+        );
     }
 
     public function hasBinding(int $siteId): bool
     {
-        try {
-            $this->resolveForSite($siteId);
-
-            return true;
-        } catch (Throwable) {
-            return false;
-        }
+        return $this->diagnoseForSite($siteId)['status'] === 'ok';
     }
 
     public function resolveAccessToken(SeoGscMasterConnection $connection): string
@@ -127,6 +215,37 @@ class GscUrlInspectionBindingResolver
         return $token;
     }
 
+    private function resolveHealthyMasterConnection(int $siteId): ?SeoGscMasterConnection
+    {
+        try {
+            $viaSite = $this->connections->resolveForSite($siteId);
+            if ($viaSite instanceof SeoGscMasterConnection) {
+                return $viaSite;
+            }
+        } catch (Throwable) {
+            // fall through
+        }
+
+        try {
+            if (! Schema::connection('mysql')->hasTable('seo_gsc_master_connections')) {
+                return null;
+            }
+
+            /** @var SeoGscMasterConnection|null $global */
+            $global = SeoGscMasterConnection::query()
+                ->where('is_global', true)
+                ->orderByDesc('id')
+                ->first();
+            if ($global instanceof SeoGscMasterConnection) {
+                return $global;
+            }
+
+            return SeoGscMasterConnection::query()->orderByDesc('id')->first();
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
     private function resolveIntelligenceProperty(int $siteId): ?SeoGscProperty
     {
         try {
@@ -161,32 +280,55 @@ class GscUrlInspectionBindingResolver
         }
     }
 
-    private function resolveConnection(
+    private function resolveSiteDomain(int $siteId): string
+    {
+        if ($siteId <= 0) {
+            return '';
+        }
+
+        try {
+            $domain = Site::query()->whereKey($siteId)->value('domain');
+
+            return is_string($domain) ? trim($domain) : '';
+        } catch (Throwable) {
+            return '';
+        }
+    }
+
+    /**
+     * @return array{
+     *   status: 'ok'|'oauth_missing'|'property_unmapped'|'permission',
+     *   site_id: int,
+     *   domain: string,
+     *   property_uri: string|null,
+     *   connection: ?SeoGscMasterConnection,
+     *   property: ?SeoGscProperty,
+     *   mapping: ?SeoGscPropertyMapping,
+     *   message: string,
+     *   error_code: string,
+     * }
+     */
+    private function diagnosis(
+        string $status,
+        int $siteId,
+        string $domain,
+        ?SeoGscMasterConnection $connection,
         ?SeoGscProperty $property,
         ?SeoGscPropertyMapping $mapping,
-    ): ?SeoGscMasterConnection {
-        if ($mapping instanceof SeoGscPropertyMapping) {
-            $connection = SeoGscMasterConnection::query()->find((int) $mapping->gsc_connection_id);
-            if ($connection instanceof SeoGscMasterConnection) {
-                return $connection;
-            }
-        }
-
-        $legacyId = (int) ($property?->legacy_mapping_id ?? 0);
-        if ($legacyId > 0) {
-            try {
-                $legacy = SeoGscPropertyMapping::query()->find($legacyId);
-                if ($legacy instanceof SeoGscPropertyMapping) {
-                    $connection = SeoGscMasterConnection::query()->find((int) $legacy->gsc_connection_id);
-                    if ($connection instanceof SeoGscMasterConnection) {
-                        return $connection;
-                    }
-                }
-            } catch (Throwable) {
-                // fall through
-            }
-        }
-
-        return null;
+        ?string $propertyUri,
+        string $message,
+        string $errorCode,
+    ): array {
+        return [
+            'status' => $status,
+            'site_id' => $siteId,
+            'domain' => $domain,
+            'property_uri' => $propertyUri,
+            'connection' => $connection,
+            'property' => $property,
+            'mapping' => $mapping,
+            'message' => $message,
+            'error_code' => $errorCode,
+        ];
     }
 }

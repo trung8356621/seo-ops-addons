@@ -13,21 +13,33 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handl
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\SplitDraftContentProjectService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectDraftExecutionGuard;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectImproveManualOnlyGenerationGuard;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectProjectActionDecision;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectProjectGenerationGate;
+use Omnichannel\Addons\ContentProjects\Services\SeoProjectTaskMoveService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectTaskSyncService;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExecutionLimits;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use Tests\Support\LegacyAddonPath;
 
 /**
- * Phase 3 — Draft Split / Activate + unlimited monthly capacity contracts.
+ * Draft Split / Activate — reviewed-only + max-30 current-month contracts.
  */
 final class SplitDraftContentProjectContractTest extends TestCase
 {
     public function test_command_capability_and_handler_wiring(): void
     {
-        $cmd = new SplitDraftContentProjectCommand(1, SplitDraftContentProjectCommand::MODE_FIRST_N, 30);
+        $cmd = new SplitDraftContentProjectCommand(
+            1,
+            SplitDraftContentProjectCommand::MODE_FIRST_N,
+            30,
+            [],
+            false,
+        );
         self::assertSame('content_project.split_draft', $cmd->name());
+        self::assertFalse(property_exists($cmd, 'splitMonths'));
+        self::assertTrue(property_exists($cmd, 'assigneeIds'));
+        self::assertSame([], $cmd->assigneeIds);
 
         $registrar = (string) file_get_contents(
             dirname(__DIR__, 2).'/src/Services/ContentProject/Application/ContentProjectCommandBusRegistrar.php',
@@ -38,17 +50,22 @@ final class SplitDraftContentProjectContractTest extends TestCase
             dirname(__DIR__, 2).'/src/Services/ContentProject/Application/Capabilities/ContentProjectCapabilityRegistry.php',
         );
         self::assertStringContainsString("'content_project.split_draft'", $registry);
+        self::assertStringNotContainsString("'split_months'", $registry);
 
         $factory = (string) file_get_contents(
             dirname(__DIR__, 2).'/src/Services/ContentProject/Agent/ContentProjectAgentCommandFactory.php',
         );
         self::assertStringContainsString("'content_project.split_draft' =>", $factory);
+        self::assertStringContainsString('assignee_ids', $factory);
+        self::assertStringNotContainsString('split_months', $factory);
 
         self::assertSame('project.not_draft', ContentProjectActionCodes::PROJECT_NOT_DRAFT);
         self::assertSame('draft.split', ContentProjectActionCodes::DRAFT_SPLIT);
+        self::assertSame(30, ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS);
+        self::assertSame(30, ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS);
     }
 
-    public function test_service_moves_same_task_ids_and_preserves_origins(): void
+    public function test_service_moves_same_task_ids_reviewed_only_and_real_writer(): void
     {
         $src = (string) file_get_contents(
             (string) (new ReflectionClass(SplitDraftContentProjectService::class))->getFileName(),
@@ -59,14 +76,42 @@ final class SplitDraftContentProjectContractTest extends TestCase
         self::assertStringContainsString('source_draft_project_id', $src);
         self::assertStringContainsString('STATUS_PENDING', $src);
         self::assertStringContainsString('assertTaskSplittable', $src);
+        self::assertStringContainsString('assertTaskReviewed', $src);
+        self::assertStringContainsString('orderedReviewedDraftTaskIds', $src);
+        self::assertStringContainsString('planning_reviewed_at', $src);
+        self::assertStringContainsString('planAllocations', $src);
+        self::assertStringContainsString('ContentProjectWriterAllocator', $src);
+        self::assertStringContainsString('nextExecutionProjectName', $src);
+        self::assertStringContainsString('MAX_WRITER_MONTHLY_ITEMS', $src);
+        self::assertStringContainsString("'user_id' => \$writerId", $src);
+        self::assertStringContainsString('defaultNameFromMonth', $src);
         self::assertStringContainsString('SeoContentProjectItemOrigin', $src);
         self::assertStringContainsString('orderBy(\'id\')', $src);
         self::assertStringContainsString('auto_generate', $src);
-        // Split moves the same task row — Product Type / Gallery Description columns stay untouched.
         self::assertStringContainsString('forceFill([', $src);
+        self::assertStringContainsString('normalizeUserIds', $src);
+        self::assertStringNotContainsString('SeoOpsSystemUser::id()', $src);
+        self::assertStringNotContainsString('chunkByMaxItems', $src);
+        self::assertStringNotContainsString('partitionEvenly', $src);
+        self::assertStringNotContainsString('normalizeSplitMonths', $src);
+        self::assertStringNotContainsString('splitMonths', $src);
         self::assertStringNotContainsString("'loai_san_pham' =>", $src);
         self::assertStringNotContainsString('GenerateProjectItems', $src);
         self::assertStringNotContainsString('dispatch(new Generate', $src);
+        self::assertStringNotContainsString("(\$lockedDraft->user_id ?? \$actorId", $src);
+        self::assertStringNotContainsString('auth()->id()', $src);
+    }
+
+    public function test_allocator_is_deterministic_and_respects_capacity(): void
+    {
+        $result = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectWriterAllocator::allocate(
+            range(1, 62),
+            [1, 2, 3],
+            [1 => 30, 2 => 30, 3 => 30],
+        );
+
+        self::assertSame([30, 30, 2], array_column($result['allocations'], 'item_count'));
+        self::assertSame(0, $result['unallocated_count']);
     }
 
     public function test_handler_has_no_filament_dependency(): void
@@ -79,6 +124,9 @@ final class SplitDraftContentProjectContractTest extends TestCase
         self::assertStringNotContainsString('SeoProjectResource', $src);
         self::assertStringContainsString('PROJECT_NOT_DRAFT', $src);
         self::assertStringContainsString('dryRun', $src);
+        self::assertStringContainsString('assigneeIds', $src);
+        self::assertStringContainsString('insufficient_slots', $src);
+        self::assertStringNotContainsString('splitMonths', $src);
     }
 
     public function test_capacity_gates_retired_cleanly(): void
@@ -88,6 +136,7 @@ final class SplitDraftContentProjectContractTest extends TestCase
         );
         self::assertStringContainsString('return PHP_INT_MAX;', $model);
         self::assertStringContainsString('defaultExecutionName', $model);
+        self::assertStringContainsString('defaultNameFromMonth', $model);
 
         $sync = (string) file_get_contents(
             (string) (new ReflectionClass(SeoProjectTaskSyncService::class))->getFileName(),
@@ -101,6 +150,10 @@ final class SplitDraftContentProjectContractTest extends TestCase
         );
         self::assertStringContainsString('assertTargetAcceptsMoves', $move);
         self::assertStringContainsString('move_target_option_items', $move);
+        self::assertStringContainsString('restoreToSourceDraftAndDelete', $move);
+        self::assertStringContainsString('hasStartedExecution', $move);
+        self::assertStringContainsString('isRestorableUnstartedExecution', $move);
+        self::assertStringContainsString('delete_blocked_already_started', $move);
 
         $migration = (string) file_get_contents(
             dirname(__DIR__, 2).'/database/migrations/2026_08_24_210000_add_source_draft_project_id_to_seo_projects_table.php',
@@ -108,7 +161,7 @@ final class SplitDraftContentProjectContractTest extends TestCase
         self::assertStringContainsString('source_draft_project_id', $migration);
     }
 
-    public function test_ui_split_activate_and_empty_draft_copy(): void
+    public function test_ui_split_reviewed_no_split_across_or_name_picker(): void
     {
         $draftPlanner = LegacyAddonPath::read('resources/views/components/content-project-draft-planner.blade.php');
         $ops = LegacyAddonPath::read('resources/views/filament/resources/seo-project-resource/pages/view-seo-project-operations.blade.php');
@@ -118,18 +171,131 @@ final class SplitDraftContentProjectContractTest extends TestCase
 
         self::assertStringContainsString('data-draft-action="split"', $draftPlanner);
         self::assertStringContainsString('data-draft-action="activate-all"', $draftPlanner);
+        self::assertStringContainsString('data-split-modal="1"', $draftPlanner);
+        self::assertStringContainsString('x-teleport="body"', $draftPlanner);
+        self::assertStringContainsString('cp-ops-dialog-overlay', $draftPlanner);
+        self::assertStringContainsString('cp-ops-dialog', $draftPlanner);
+        self::assertStringContainsString('wire:click="closeDraftSplitModal"', $draftPlanner);
         self::assertStringContainsString('draft_split_first_n', $draftPlanner);
-        self::assertStringContainsString('draft_split_selected', $draftPlanner);
         self::assertStringContainsString('draft_split_all', $draftPlanner);
-        self::assertStringContainsString('draft_split_month', $draftPlanner);
-        self::assertStringContainsString('draft_split_project_name', $draftPlanner);
+        self::assertStringContainsString('draft_split_eligible', $draftPlanner);
+        self::assertStringContainsString('draft_split_preview_heading', $draftPlanner);
+        self::assertStringContainsString('draft_split_writers_heading', $draftPlanner);
+        self::assertStringContainsString('wire:model.live.debounce.300ms="draftSplitQuantity"', $draftPlanner);
+        self::assertStringContainsString('wire:model.live="draftSplitWriterIds"', $draftPlanner);
+        self::assertStringContainsString('data-split-preview', $draftPlanner);
+        self::assertStringContainsString('data-split-preview-loading', $draftPlanner);
+        self::assertStringContainsString('data-split-writers', $draftPlanner);
+        self::assertStringContainsString('cp-draft-split-layout', $draftPlanner);
+        self::assertStringContainsString('wire:target="draftSplitQuantity,draftSplitMode,draftSplitWriterIds"', $draftPlanner);
+        self::assertStringContainsString('draft_split_preview_loading', $draftPlanner);
+        self::assertStringContainsString('cp-draft-split-preview', $draftPlanner);
+        self::assertStringContainsString('cp-ops-dialog--split', $draftPlanner);
+        self::assertStringContainsString("\$row['user_name']", $draftPlanner);
+        self::assertStringNotContainsString("\$row['project_name']", $draftPlanner);
+        self::assertStringNotContainsString('z-[70]', $draftPlanner);
+        self::assertStringNotContainsString('data-split-field="month"', $draftPlanner);
+        self::assertStringNotContainsString('data-split-field="name"', $draftPlanner);
+        self::assertStringNotContainsString('data-split-field="months"', $draftPlanner);
+        self::assertStringNotContainsString('data-split-months-stepper', $draftPlanner);
+        self::assertStringNotContainsString('draft_split_months_count_label', $draftPlanner);
+        self::assertStringNotContainsString('draft_split_schedule_heading', $draftPlanner);
+        self::assertStringNotContainsString('draftSplitMonths', $draftPlanner);
+        self::assertStringNotContainsString('decrementDraftSplitMonths', $draftPlanner);
+        self::assertStringNotContainsString('draft_split_project_name', $draftPlanner);
+        self::assertStringNotContainsString('wire:model="draftSplitMonth"', $draftPlanner);
+        self::assertStringNotContainsString('wire:model="draftSplitName"', $draftPlanner);
         self::assertStringNotContainsString('max monthly', strtolower($draftPlanner));
-        self::assertStringNotContainsString('daily capacity', strtolower($draftPlanner));
+
+        $opsStyles = LegacyAddonPath::read('resources/views/components/content-project-ops-styles.blade.php');
+        self::assertStringContainsString('.cp-ops-dialog-overlay', $opsStyles);
+        self::assertStringContainsString('z-index: 200', $opsStyles);
+        self::assertStringContainsString('.cp-draft-split-preview', $opsStyles);
+        self::assertStringContainsString('.cp-draft-split-layout', $opsStyles);
 
         self::assertStringContainsString('draft_empty_title', $ops);
+        self::assertStringContainsString('project_no_assignee_badge', $ops);
         self::assertStringContainsString('openDraftSplitModal', $trait);
         self::assertStringContainsString('activateAllDraftItems', $trait);
+        self::assertStringContainsString('draftSplitWriterIds = []', $trait);
+        self::assertStringContainsString('MAX_WRITER_MONTHLY_ITEMS', $trait);
+        self::assertStringContainsString('currentReviewedDraftItemCount', $trait);
+        self::assertStringContainsString('assigneeIds:', $trait);
+        self::assertStringNotContainsString('draftSplitMonths', $trait);
+        self::assertStringNotContainsString('public string $draftSplitMonth', $trait);
+        self::assertStringNotContainsString('public string $draftSplitName', $trait);
+        self::assertStringNotContainsString('auth()->id() fallback', $trait);
         self::assertStringContainsString('MODE_ALL', $trait);
+    }
+
+    public function test_generation_gate_blocks_missing_assignee(): void
+    {
+        $decision = ContentProjectProjectGenerationGate::resolve(
+            [1, 2],
+            conflictActive: false,
+            conflictReason: ContentProjectProjectActionDecision::REASON_BULK_ACTIVE,
+            noAssignee: true,
+        );
+        self::assertFalse($decision->enabled);
+        self::assertSame(ContentProjectProjectActionDecision::REASON_NO_ASSIGNEE, $decision->reasonCode);
+
+        $gateSrc = (string) file_get_contents(
+            (string) (new ReflectionClass(ContentProjectProjectGenerationGate::class))->getFileName(),
+        );
+        self::assertStringContainsString('REASON_NO_ASSIGNEE', $gateSrc);
+        self::assertStringContainsString('ContentProjectWriterAssignment::isUnassigned', $gateSrc);
+
+        $handlerSrc = (string) file_get_contents(
+            dirname(__DIR__, 2).'/src/Services/ContentProject/Application/Handlers/GenerateProjectItemsHandler.php',
+        );
+        self::assertStringContainsString('no_assignee', $handlerSrc);
+        self::assertStringContainsString('ContentProjectWriterAssignment::isUnassigned', $handlerSrc);
+
+        $assignmentSrc = (string) file_get_contents(
+            dirname(__DIR__, 2).'/src/Support/ContentProject/ContentProjectWriterAssignment.php',
+        );
+        self::assertStringContainsString('SeoOpsSystemUser::isSystemUserId', $assignmentSrc);
+
+        \App\Services\Users\SeoOpsSystemUser::setCachedIdForTests(4242);
+        $project = new \Omnichannel\Addons\ContentProjects\Models\SeoProject;
+        $project->user_id = 4242;
+        self::assertTrue(\Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectWriterAssignment::isUnassigned($project));
+        $project->user_id = 1001;
+        self::assertTrue(\Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectWriterAssignment::hasRealWriter($project));
+        \App\Services\Users\SeoOpsSystemUser::clearCache();
+    }
+
+    public function test_writer_month_uniqueness_retired(): void
+    {
+        $staff = (string) file_get_contents(
+            dirname(__DIR__, 2).'/src/Services/ContentProjectStaffAvailabilityService.php',
+        );
+        self::assertStringContainsString("'assigned' => []", $staff);
+        self::assertStringContainsString('assertUnassignedForMonth', $staff);
+        self::assertStringContainsString('Month uniqueness retired', $staff);
+
+        $create = (string) file_get_contents(
+            dirname(__DIR__, 2).'/src/Filament/Resources/SeoProjectResource/Pages/CreateSeoProject.php',
+        );
+        self::assertStringContainsString('return false;', $create);
+        self::assertStringNotContainsString('assertUnassignedForMonth($userId', $create);
+
+        $resource = (string) file_get_contents(
+            dirname(__DIR__, 2).'/src/Filament/Resources/SeoProjectResource.php',
+        );
+        self::assertStringContainsString('eligible_staff_heading', $resource);
+    }
+
+    public function test_delete_restore_contract_present(): void
+    {
+        $move = (string) file_get_contents(
+            (string) (new ReflectionClass(SeoProjectTaskMoveService::class))->getFileName(),
+        );
+        self::assertStringContainsString('STATUS_PENDING', $move);
+        self::assertStringContainsString('source_draft_project_id', $move);
+        self::assertStringContainsString('SeoProjectRun', $move);
+        self::assertStringContainsString('SeoProjectRunItem', $move);
+        self::assertStringContainsString('restoreToSourceDraftAndDelete', $move);
     }
 
     public function test_planner_history_and_rejection_owned_by_draft_constants(): void

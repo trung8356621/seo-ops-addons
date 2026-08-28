@@ -142,16 +142,37 @@
                     @endif
                 </div>
 
-                @if ($this->canDissolveCluster())
-                    <x-filament::button
-                        type="button"
-                        color="danger"
-                        outlined
-                        wire:click="openDissolveConfirm({{ \Illuminate\Support\Js::from((string) ($detail['cluster_key'] ?? '')) }})"
-                    >
-                        {{ __('seo-content-ai::filament.keyword.topic_dissolve_action') }}
-                    </x-filament::button>
-                @endif
+                <div class="cluster-detail-header__actions flex flex-wrap items-center gap-2">
+                    @if ($canEditCanonical)
+                        <x-filament::button
+                            type="button"
+                            color="gray"
+                            outlined
+                            wire:click="fixTopicKeywords"
+                            wire:loading.attr="disabled"
+                            wire:target="fixTopicKeywords"
+                        >
+                            <span wire:loading.remove wire:target="fixTopicKeywords" class="inline-flex items-center gap-1.5">
+                                <x-filament::icon icon="heroicon-o-arrow-path" class="h-4 w-4" />
+                                {{ __('seo-content-ai::filament.keyword.topic_fix_keywords_action') }}
+                            </span>
+                            <span wire:loading wire:target="fixTopicKeywords" class="inline-flex items-center gap-1.5">
+                                <x-filament::loading-indicator class="h-4 w-4" />
+                                {{ __('seo-content-ai::filament.keyword.topic_fix_keywords_working') }}
+                            </span>
+                        </x-filament::button>
+                    @endif
+                    @if ($this->canDissolveCluster())
+                        <x-filament::button
+                            type="button"
+                            color="danger"
+                            outlined
+                            wire:click="openDissolveConfirm({{ \Illuminate\Support\Js::from((string) ($detail['cluster_key'] ?? '')) }})"
+                        >
+                            {{ __('seo-content-ai::filament.keyword.topic_dissolve_action') }}
+                        </x-filament::button>
+                    @endif
+                </div>
             </header>
 
             @if (! empty($detail['idea_coverage']['dna_branches']))

@@ -9,6 +9,7 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Models\User;
+use App\Services\Users\SeoOpsSystemUser;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Illuminate\Database\Eloquent\Builder;
@@ -16,12 +17,10 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Staff (role=staff + seo_role=content_manager) chưa gắn writer vào Content Project
- * trong đúng tháng đang xét (seo_projects.month).
+ * Staff (role=staff + seo_role=content_manager) assignable to Content Projects.
  *
  * Assignment = seo_projects.user_id (không pivot). Cross-DB nên pluck id rồi whereNotIn.
- * Scope theo tháng toàn hệ thống — không filter domain (một project tháng X ở domain A
- * đã tính là có project tháng X).
+ * One-project-per-user/month uniqueness is retired — dropdown lists all eligible staff.
  */
 final class ContentProjectStaffAvailabilityService
 {
@@ -40,7 +39,10 @@ final class ContentProjectStaffAvailabilityService
         $query = User::query()
             ->where('role', User::ROLE_STAFF)
             ->where('seo_role', User::SEO_ROLE_CONTENT_MANAGER)
-            ->where('status', User::STATUS_NORMAL);
+            ->where('status', User::STATUS_NORMAL)
+            ->where(function (Builder $builder): void {
+                $builder->where('is_system', false)->orWhereNull('is_system');
+            });
 
         $ownerId = SeoAccessControl::accountOwnerId() ?? (int) auth()->id();
         $query->where('parent_id', $ownerId);
@@ -49,19 +51,17 @@ final class ContentProjectStaffAvailabilityService
     }
 
     /**
+     * All eligible assignable staff (month uniqueness retired — no exclusion by existing projects).
+     *
      * @return Builder<User>
      */
     public function unassignedStaffQuery(
         CarbonImmutable|Carbon|string|null $month,
         ?string $search = null,
     ): Builder {
-        $assignedIds = $this->assignedStaffIdsForMonth($month);
+        unset($month);
 
         $query = $this->baseAssignableStaffQuery();
-
-        if ($assignedIds !== []) {
-            $query->whereNotIn('id', $assignedIds);
-        }
 
         $search = trim((string) $search);
         if ($search !== '') {
@@ -95,6 +95,7 @@ final class ContentProjectStaffAvailabilityService
 
     /**
      * Staff đã có project active (chưa archive) trong đúng tháng — mọi domain.
+     * Kept for widget/reporting; writer dropdown no longer excludes these users.
      *
      * @return list<int>
      */
@@ -115,7 +116,9 @@ final class ContentProjectStaffAvailabilityService
             ->distinct()
             ->pluck('user_id')
             ->map(static fn (mixed $id): int => (int) $id)
-            ->filter(static fn (int $id): bool => $id > 0)
+            ->filter(static function (int $id): bool {
+                return $id > 0 && ! SeoOpsSystemUser::isSystemUserId($id);
+            })
             ->values()
             ->all();
     }
@@ -132,13 +135,12 @@ final class ContentProjectStaffAvailabilityService
 
     public function isUnassigned(int $userId, CarbonImmutable|Carbon|string|null $month = null): bool
     {
-        if ($userId <= 0) {
+        if ($userId <= 0 || SeoOpsSystemUser::isSystemUserId($userId)) {
             return false;
         }
 
-        return $this->unassignedStaffQuery($month ?? ContentProjectMonthContext::current())
-            ->whereKey($userId)
-            ->exists();
+        // Month uniqueness retired — any eligible staff counts as assignable.
+        return $this->baseAssignableStaffQuery()->whereKey($userId)->exists();
     }
 
     public function countUnassigned(CarbonImmutable|Carbon|string|null $month, ?string $search = null): int
@@ -192,14 +194,16 @@ final class ContentProjectStaffAvailabilityService
     }
 
     /**
+     * All eligible staff in one list (no one-project-per-month exclusion).
+     *
      * @return array{unassigned: array<int, string>, assigned: array<int, string>}
      */
     public function groupedSelectOptions(
         CarbonImmutable|Carbon|string|null $month = null,
         ?string $search = null,
     ): array {
-        $normalized = ContentProjectMonthContext::normalize($month);
-        $assignedIds = $this->assignedStaffIdsForMonth($normalized);
+        unset($month);
+
         $all = $this->baseAssignableStaffQuery();
 
         $search = trim((string) $search);
@@ -212,78 +216,28 @@ final class ContentProjectStaffAvailabilityService
             });
         }
 
-        $unassigned = [];
-        $assigned = [];
+        $eligible = [];
 
         foreach ($all->get(['id', 'name', 'email']) as $user) {
             if (! $user instanceof User) {
                 continue;
             }
 
-            $label = $this->formatLabel($user);
-            $id = (int) $user->getKey();
-
-            if (in_array($id, $assignedIds, true)) {
-                $assigned[$id] = $label;
-            } else {
-                $unassigned[$id] = $label;
-            }
+            $eligible[(int) $user->getKey()] = $this->formatLabel($user);
         }
 
         return [
-            'unassigned' => $unassigned,
-            'assigned' => $assigned,
+            'unassigned' => $eligible,
+            'assigned' => [],
         ];
     }
 
     /**
-     * Re-check trong transaction: staff chưa có project active cùng tháng.
-     * lockForUpdate trên row project cùng user+month (nếu có) để giảm race.
+     * Retired: one project per staff/month is no longer enforced.
      */
     public function assertUnassignedForMonth(int $userId, CarbonImmutable|Carbon|string|null $month): void
     {
-        if ($userId <= 0) {
-            return;
-        }
-
-        $monthDate = ContentProjectMonthContext::toDateString($month);
-
-        $base = static function () use ($monthDate): Builder {
-            return SeoProject::query()
-                ->activeProjects()
-                ->where(function (Builder $builder): void {
-                    $builder
-                        ->where('kind', SeoProject::KIND_MONTHLY)
-                        ->orWhereNull('kind');
-                })
-                ->whereDate('month', $monthDate);
-        };
-
-        // Serialize assign cùng tháng trong transaction (không có unique index user+month).
-        // Empty month vẫn lock được (no rows) — race empty-empty cần unique index sau.
-        if (DB::connection('omi_seo_ai')->transactionLevel() > 0) {
-            $base()->lockForUpdate()->get(['id']);
-        }
-
-        $existing = $base()
-            ->where('user_id', $userId)
-            ->first(['id', 'user_id', 'month']);
-
-        if ($existing === null) {
-            return;
-        }
-
-        $user = User::query()->find($userId);
-        $label = $user instanceof User
-            ? $this->formatLabel($user)
-            : '#'.$userId;
-
-        throw \Illuminate\Validation\ValidationException::withMessages([
-            'data.user_id' => __('seo-content-ai::filament.projects.unassigned_staff_race', [
-                'name' => $label,
-                'month' => ContentProjectMonthContext::display($month),
-            ]),
-        ]);
+        unset($userId, $month);
     }
 
     /**

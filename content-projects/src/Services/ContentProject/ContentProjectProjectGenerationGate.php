@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject;
 
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectWriterAssignment;
 
 /**
  * Canonical project-level availability for Generate working items and Test run.
@@ -66,6 +67,10 @@ final class ContentProjectProjectGenerationGate
             return self::resolve([], false, $conflictReason, draftPlanning: true);
         }
 
+        if (ContentProjectWriterAssignment::isUnassigned($project)) {
+            return self::resolve([], false, $conflictReason, noAssignee: true);
+        }
+
         $eligible = $this->eligibleTaskIds($project);
         $conflictActive = $conflictReason === ContentProjectProjectActionDecision::REASON_BULK_ACTIVE
             ? $this->activeRuns->hasActiveBulkGeneration((int) $project->getKey())
@@ -85,6 +90,7 @@ final class ContentProjectProjectGenerationGate
         string $conflictReason,
         bool $archived = false,
         bool $draftPlanning = false,
+        bool $noAssignee = false,
     ): ContentProjectProjectActionDecision {
         if ($archived) {
             return new ContentProjectProjectActionDecision(
@@ -98,6 +104,14 @@ final class ContentProjectProjectGenerationGate
             return new ContentProjectProjectActionDecision(
                 false,
                 ContentProjectProjectActionDecision::REASON_DRAFT_PLANNING,
+                [],
+            );
+        }
+
+        if ($noAssignee) {
+            return new ContentProjectProjectActionDecision(
+                false,
+                ContentProjectProjectActionDecision::REASON_NO_ASSIGNEE,
                 [],
             );
         }

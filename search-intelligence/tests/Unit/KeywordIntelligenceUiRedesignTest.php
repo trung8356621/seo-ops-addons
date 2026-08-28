@@ -48,7 +48,11 @@ final class KeywordIntelligenceUiRedesignTest extends LaravelTestCase
         $index = (string) file_get_contents(LegacyAddonPath::resolve(
             'resources/views/filament/resources/keywords/pages/topic-cluster-index.blade.php',
         ));
+        self::assertStringContainsString('topic-index-page-heading', $index);
+        self::assertStringContainsString('topic_page_heading', $index);
+        self::assertStringContainsString('topic-index-context-card', $index);
         self::assertStringContainsString('cluster-mcp-preview', $index);
+        self::assertStringContainsString('topic-index-input--search', $index);
         self::assertStringContainsString('cluster-index-row', $index);
         self::assertStringContainsString('topic_quick_create_action', $index);
         self::assertStringNotContainsString('topic_col_dna_count', $index);

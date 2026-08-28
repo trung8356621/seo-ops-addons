@@ -181,12 +181,13 @@ final class ContentProjectArchivePreviewAndDomainContextTest extends TestCase
         self::assertStringContainsString('writer_id', $source);
     }
 
-    public function test_list_registers_unassigned_staff_widget(): void
+    public function test_list_retires_unassigned_staff_widget_and_payload(): void
     {
         $source = (string) file_get_contents((new ReflectionClass(ListSeoProjects::class))->getFileName());
 
         self::assertStringContainsString('planningMonth', $source);
         self::assertStringContainsString('list-seo-projects', $source);
+        self::assertStringNotContainsString('getUnassignedStaffPayload', $source);
         self::assertTrue(class_exists(UnassignedContentProjectStaffWidget::class));
         self::assertFalse(UnassignedContentProjectStaffWidget::canView());
     }
@@ -196,14 +197,16 @@ final class ContentProjectArchivePreviewAndDomainContextTest extends TestCase
         $createSource = (string) file_get_contents((new ReflectionClass(CreateSeoProject::class))->getFileName());
 
         self::assertStringContainsString('withAssignmentLock', $createSource);
-        self::assertStringContainsString('assertUnassignedForMonth', $createSource);
         self::assertStringContainsString('writer_id', $createSource);
         self::assertStringContainsString("request()->query('staff'", $createSource);
+        self::assertStringContainsString('shouldEnforceStaffMonthUniqueness', $createSource);
+        self::assertStringNotContainsString('assertUnassignedForMonth($userId', $createSource);
 
         $serviceSource = (string) file_get_contents(
             (new ReflectionClass(ContentProjectStaffAvailabilityService::class))->getFileName(),
         );
-        self::assertStringContainsString('unassigned_staff_race', $serviceSource);
+        self::assertStringContainsString('assertUnassignedForMonth', $serviceSource);
+        self::assertStringContainsString('Month uniqueness retired', $serviceSource);
     }
 
     public function test_should_apply_global_site_scope_helper_exists(): void

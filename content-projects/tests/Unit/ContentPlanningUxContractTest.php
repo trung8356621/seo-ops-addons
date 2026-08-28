@@ -147,7 +147,7 @@ final class ContentPlanningUxContractTest extends TestCase
         self::assertStringNotContainsString('publishToWordPress', $page);
     }
 
-    public function test_nav_nests_project_planner_and_publishing_queue_under_projects(): void
+    public function test_nav_nests_project_planner_and_archived_projects_under_projects(): void
     {
         $resource = (string) file_get_contents(
             (string) (new ReflectionClass(SeoProjectResource::class))->getFileName(),
@@ -160,12 +160,14 @@ final class ContentPlanningUxContractTest extends TestCase
         );
 
         self::assertStringContainsString('ContentProjectSeoAuditPlanner::getUrl()', $resource);
-        self::assertStringContainsString('PublishingQueueHub::getUrl()', $resource);
+        self::assertStringContainsString('nav.archived_projects', $resource);
+        self::assertStringContainsString("getUrl('archive')", $resource);
         self::assertStringContainsString('parentItem($parentLabel)', $resource);
         self::assertStringContainsString('shouldRegisterNavigation = false', $planner);
         self::assertStringContainsString('shouldRegisterNavigation = false', $queue);
         self::assertStringContainsString('SeoUserNavigation::moduleProjects()', $planner);
         self::assertStringContainsString('SeoProjectResource::getNavigationLabel()', $queue);
+        self::assertStringNotContainsString('PublishingQueueHub::getNavigationLabel()', $resource);
     }
 
     public function test_legacy_new_content_redirects_to_content_planning(): void

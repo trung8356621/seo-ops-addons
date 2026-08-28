@@ -189,18 +189,20 @@ function createKeywordDetailPanel(root, config) {
         const url = typeof contentAnalysisUrl === 'string' ? contentAnalysisUrl.trim() : '';
 
         if (url === '') {
-            analyzeBtn.classList.add('hidden');
-            analyzeBtn.classList.add('pointer-events-none', 'opacity-50');
+            analyzeBtn.classList.add('hidden', 'is-disabled');
             analyzeBtn.setAttribute('href', '#');
+            analyzeBtn.setAttribute('aria-disabled', 'true');
+            analyzeBtn.setAttribute('tabindex', '-1');
 
             refreshActionsBar();
 
             return;
         }
 
-        analyzeBtn.classList.remove('hidden');
-        analyzeBtn.classList.remove('pointer-events-none', 'opacity-50');
+        analyzeBtn.classList.remove('hidden', 'is-disabled');
         analyzeBtn.setAttribute('href', url);
+        analyzeBtn.setAttribute('aria-disabled', 'false');
+        analyzeBtn.removeAttribute('tabindex');
         refreshActionsBar();
     }
 
@@ -404,6 +406,17 @@ function createKeywordDetailPanel(root, config) {
             return;
         }
         closePanel(true);
+    });
+
+    // Plain button — avoid Filament Alpine/wire:loading rewriting class every Livewire tick.
+    footerEditBtn?.addEventListener('click', () => {
+        resolveLivewireComponent(config)?.call('editSelectedKeyword');
+    });
+
+    analyzeBtn?.addEventListener('click', (event) => {
+        if (analyzeBtn.classList.contains('is-disabled') || analyzeBtn.getAttribute('aria-disabled') === 'true') {
+            event.preventDefault();
+        }
     });
 
     document.addEventListener('keydown', (event) => {

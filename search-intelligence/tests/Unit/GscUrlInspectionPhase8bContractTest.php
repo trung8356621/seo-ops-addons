@@ -26,8 +26,8 @@ final class GscUrlInspectionPhase8bContractTest extends TestCase
 
         self::assertSame(ArticleIndexCheckStatus::Indexed, $mapper->map($this->makeInspectionResult('PASS')));
         self::assertSame(ArticleIndexCheckStatus::NotIndexed, $mapper->map($this->makeInspectionResult('FAIL')));
-        self::assertSame(ArticleIndexCheckStatus::Unknown, $mapper->map($this->makeInspectionResult('PARTIAL')));
-        self::assertSame(ArticleIndexCheckStatus::Unknown, $mapper->map($this->makeInspectionResult('NEUTRAL')));
+        self::assertSame(ArticleIndexCheckStatus::Indexed, $mapper->map($this->makeInspectionResult('PARTIAL')));
+        self::assertSame(ArticleIndexCheckStatus::NotIndexed, $mapper->map($this->makeInspectionResult('NEUTRAL')));
         self::assertSame(ArticleIndexCheckStatus::Unknown, $mapper->map($this->makeInspectionResult('VERDICT_UNSPECIFIED')));
         self::assertSame(ArticleIndexCheckStatus::Unknown, $mapper->map($this->makeInspectionResult(null)));
         self::assertSame(ArticleIndexCheckStatus::Unknown, $mapper->map($this->makeInspectionResult('SOMETHING_NEW')));
@@ -137,6 +137,40 @@ final class GscUrlInspectionPhase8bContractTest extends TestCase
         self::assertStringContainsString('gsc_url_inspection', $recorderSrc);
         self::assertStringContainsString('diagnostics', $recorderSrc);
         self::assertStringContainsString('deriveEffective', $recorderSrc);
+    }
+
+    public function test_binding_resolver_separates_oauth_and_property_mapping(): void
+    {
+        $src = (string) file_get_contents(
+            dirname((string) (new ReflectionClass(GscUrlInspectionService::class))->getFileName()).'/GscUrlInspectionBindingResolver.php'
+        );
+        self::assertStringContainsString('function diagnoseForSite', $src);
+        self::assertStringContainsString('oauth_missing', $src);
+        self::assertStringContainsString('property_unmapped', $src);
+        self::assertStringContainsString('Google Search Console chưa được kết nối.', $src);
+        self::assertStringContainsString('chưa được liên kết với', $src);
+        self::assertStringContainsString('missingOAuth', $src);
+        self::assertStringContainsString('missingBinding', $src);
+    }
+
+    public function test_run_service_supports_preresolved_archive_urls(): void
+    {
+        $src = (string) file_get_contents(
+            dirname((string) (new ReflectionClass(GscUrlInspectionService::class))->getFileName()).'/GscUrlInspectionRunService.php'
+        );
+        self::assertStringContainsString('function queueForResolvedUrls', $src);
+        self::assertStringContainsString('function hasActiveRunForSite', $src);
+        self::assertStringContainsString('inspectResolvedUrl', $src);
+        self::assertStringContainsString('Does NOT require a live Article row', $src);
+        self::assertStringContainsString('Sync path (archive Check Index All)', $src);
+    }
+
+    public function test_inspection_service_supports_orphan_archive_urls(): void
+    {
+        $src = (string) file_get_contents((string) (new ReflectionClass(GscUrlInspectionService::class))->getFileName());
+        self::assertStringContainsString('function inspectResolvedUrl', $src);
+        self::assertStringContainsString('function inspectUrlOnly', $src);
+        self::assertStringContainsString('Orphan archive URL', $src);
     }
 
     private function makeInspectionResult(?string $verdict): GscUrlInspectionResult

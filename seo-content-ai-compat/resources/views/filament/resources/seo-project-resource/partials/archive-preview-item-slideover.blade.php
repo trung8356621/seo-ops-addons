@@ -35,222 +35,168 @@
     $seoScore = $row['seo_score'] ?? null;
 @endphp
 
-<div class="fi-archive-preview-slideover-body space-y-5 text-sm">
+<div class="fi-archive-preview-slideover-body space-y-3 text-sm">
     @if (! $articleExists)
-        <div class="rounded-lg border border-warning-300 bg-warning-50 px-3 py-2 text-warning-900 dark:border-warning-500/40 dark:bg-warning-500/10 dark:text-warning-100">
+        <div class="rounded-lg border border-warning-300 bg-warning-50 px-3 py-2 text-xs text-warning-900 dark:border-warning-500/40 dark:bg-warning-500/10 dark:text-warning-100">
             {{ __('seo-content-ai::filament.projects.archive_preview_article_missing') }}
         </div>
     @endif
 
-    {{-- A. Main content --}}
-    <section class="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
-        <h4 class="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+    {{-- MAIN INFORMATION --}}
+    <section class="rounded-lg border border-gray-200 bg-white px-3 py-2.5 dark:border-gray-700 dark:bg-gray-900">
+        <h4 class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
             {{ __('seo-content-ai::filament.projects.archive_preview_section_main') }}
         </h4>
-        <dl class="grid gap-4 sm:grid-cols-2">
+        <dl class="grid gap-2.5 sm:grid-cols-2">
             <div class="sm:col-span-2">
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_col_title') }}</dt>
-                <dd class="mt-1 select-text font-medium text-gray-950 dark:text-white">{{ e($title) }}</dd>
+                <dt class="text-[11px] text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_col_title') }}</dt>
+                <dd class="mt-0.5 select-text font-medium leading-snug text-gray-950 dark:text-white">{{ e($title) }}</dd>
             </div>
             <div>
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_keyword') }}</dt>
-                <dd class="mt-1 select-text text-gray-900 dark:text-white">{{ e($keyword) }}</dd>
+                <dt class="text-[11px] text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_keyword') }}</dt>
+                <dd class="mt-0.5 select-text text-gray-900 dark:text-white">{{ e($keyword) }}</dd>
             </div>
             <div>
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_slug') }}</dt>
-                <dd class="mt-1 break-all select-text text-gray-900 dark:text-white">{{ e($slug) }}</dd>
+                <dt class="text-[11px] text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_slug') }}</dt>
+                <dd class="mt-0.5 break-all select-text text-gray-900 dark:text-white">{{ e($slug) }}</dd>
             </div>
         </dl>
     </section>
 
-    {{-- B. SEO metadata --}}
-    <section class="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
-        <h4 class="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+    {{-- SEO --}}
+    <section class="rounded-lg border border-gray-200 bg-white px-3 py-2.5 dark:border-gray-700 dark:bg-gray-900">
+        <h4 class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
             {{ __('seo-content-ai::filament.projects.archive_preview_section_seo') }}
         </h4>
-        <dl class="grid gap-4 sm:grid-cols-2">
-            <div class="sm:col-span-2">
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_meta_title') }}</dt>
-                <dd class="mt-1 select-text text-gray-900 dark:text-white">{{ e($metaTitle) }}</dd>
-            </div>
-            <div class="sm:col-span-2">
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_meta_description') }}</dt>
-                <dd class="mt-1 select-text leading-relaxed text-gray-900 dark:text-white">{{ e($metaDescription) }}</dd>
-            </div>
-            <div class="sm:col-span-2">
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_outline') }}</dt>
-                <dd class="mt-1 max-h-40 overflow-y-auto whitespace-pre-wrap select-text leading-relaxed text-gray-900 dark:text-white">{{ e($outline) }}</dd>
-            </div>
-        </dl>
-    </section>
-
-    {{-- C. Status --}}
-    <section class="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
-        <h4 class="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-            {{ __('seo-content-ai::filament.projects.archive_preview_section_status') }}
-        </h4>
-        <dl class="grid gap-4 sm:grid-cols-2">
+        <dl class="grid gap-2.5">
             <div>
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_col_status') }}</dt>
-                <dd class="mt-1">
-                    @if ($taskStatus !== '')
-                        <span class="inline-flex rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-200">{{ e($taskStatus) }}</span>
-                    @else
-                        —
-                    @endif
-                </dd>
+                <dt class="text-[11px] text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_meta_title') }}</dt>
+                <dd class="mt-0.5 select-text text-gray-900 dark:text-white">{{ e($metaTitle) }}</dd>
             </div>
             <div>
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_review_status') }}</dt>
-                <dd class="mt-1">
-                    @if ($reviewStatus !== '')
-                        <span class="inline-flex rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-200">{{ e($reviewStatus) }}</span>
-                    @else
-                        —
-                    @endif
-                </dd>
+                <dt class="text-[11px] text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_meta_description') }}</dt>
+                <dd class="mt-0.5 select-text leading-snug text-gray-900 dark:text-white">{{ e($metaDescription) }}</dd>
             </div>
-            <div>
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_col_avg_seo') }}</dt>
-                <dd class="mt-1 select-text text-gray-900 dark:text-white">
-                    {{ $seoScore !== null ? number_format((float) $seoScore, 2) : '—' }}
-                </dd>
-            </div>
-            <div>
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_images') }}</dt>
-                <dd class="mt-1 select-text text-gray-900 dark:text-white">{{ (int) ($row['image_count'] ?? 0) }}</dd>
-            </div>
-            <div>
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_internal_links') }}</dt>
-                <dd class="mt-1 select-text text-gray-900 dark:text-white">{{ (int) ($row['internal_link_count'] ?? 0) }}</dd>
-            </div>
-            <div>
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_external_links') }}</dt>
-                <dd class="mt-1 select-text text-gray-900 dark:text-white">{{ (int) ($row['external_link_count'] ?? 0) }}</dd>
-            </div>
-            <div>
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_sync') }}</dt>
-                <dd class="mt-1">
-                    @if ($syncStatus !== '')
-                        <span class="inline-flex rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 dark:bg-gray-800 dark:text-gray-200">{{ e($syncStatus) }}</span>
-                    @else
-                        —
-                    @endif
-                </dd>
-            </div>
-            <div>
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_wp_post') }}</dt>
-                <dd class="mt-1 select-text text-gray-900 dark:text-white">
-                    {{ ($row['wordpress_post_id'] ?? null) ? (int) $row['wordpress_post_id'] : '—' }}
-                </dd>
-            </div>
-            @if (trim((string) ($row['wp_sync_error'] ?? '')) !== '')
-                <div class="sm:col-span-2">
-                    <dt class="text-xs font-medium text-danger-600 dark:text-danger-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_wp_error') }}</dt>
-                    <dd class="mt-1 text-danger-700 dark:text-danger-300">{{ e((string) $row['wp_sync_error']) }}</dd>
+            @if ($outline !== '—')
+                <div>
+                    <dt class="text-[11px] text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_outline') }}</dt>
+                    <dd class="mt-0.5 max-h-28 overflow-y-auto whitespace-pre-wrap select-text text-xs leading-snug text-gray-900 dark:text-white">{{ e($outline) }}</dd>
                 </div>
             @endif
         </dl>
     </section>
 
-    {{-- D. Links --}}
-    <section class="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
-        <h4 class="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-            {{ __('seo-content-ai::filament.projects.archive_preview_section_links') }}
+    {{-- STATS (compact grid) --}}
+    <section class="rounded-lg border border-gray-200 bg-white px-3 py-2.5 dark:border-gray-700 dark:bg-gray-900">
+        <h4 class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+            {{ __('seo-content-ai::filament.projects.archive_preview_section_status') }}
         </h4>
-        <dl class="grid gap-4">
+        <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
+            <div class="rounded-md bg-gray-50 px-2 py-1.5 dark:bg-gray-800/60">
+                <div class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_col_status') }}</div>
+                <div class="mt-0.5 truncate text-xs font-medium text-gray-900 dark:text-white">{{ $taskStatus !== '' ? e($taskStatus) : '—' }}</div>
+            </div>
+            <div class="rounded-md bg-gray-50 px-2 py-1.5 dark:bg-gray-800/60">
+                <div class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_review_status') }}</div>
+                <div class="mt-0.5 truncate text-xs font-medium text-gray-900 dark:text-white">{{ $reviewStatus !== '' ? e($reviewStatus) : '—' }}</div>
+            </div>
+            <div class="rounded-md bg-gray-50 px-2 py-1.5 dark:bg-gray-800/60">
+                <div class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_col_avg_seo') }}</div>
+                <div class="mt-0.5 text-xs font-medium text-gray-900 dark:text-white">{{ $seoScore !== null ? number_format((float) $seoScore, 2) : '—' }}</div>
+            </div>
+            <div class="rounded-md bg-gray-50 px-2 py-1.5 dark:bg-gray-800/60">
+                <div class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_images') }}</div>
+                <div class="mt-0.5 text-xs font-medium text-gray-900 dark:text-white">{{ (int) ($row['image_count'] ?? 0) }}</div>
+            </div>
+            <div class="rounded-md bg-gray-50 px-2 py-1.5 dark:bg-gray-800/60">
+                <div class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_internal_links') }}</div>
+                <div class="mt-0.5 text-xs font-medium text-gray-900 dark:text-white">{{ (int) ($row['internal_link_count'] ?? 0) }}</div>
+            </div>
+            <div class="rounded-md bg-gray-50 px-2 py-1.5 dark:bg-gray-800/60">
+                <div class="text-[10px] uppercase tracking-wide text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_external_links') }}</div>
+                <div class="mt-0.5 text-xs font-medium text-gray-900 dark:text-white">{{ (int) ($row['external_link_count'] ?? 0) }}</div>
+            </div>
+        </div>
+
+        <dl class="mt-2.5 grid gap-2 border-t border-gray-100 pt-2.5 dark:border-gray-800 sm:grid-cols-2">
             <div>
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_wp_url') }}</dt>
-                <dd class="mt-1">
+                <dt class="text-[11px] text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_sync') }}</dt>
+                <dd class="mt-0.5 text-xs text-gray-900 dark:text-white">{{ $syncStatus !== '' ? e($syncStatus) : '—' }}</dd>
+            </div>
+            <div>
+                <dt class="text-[11px] text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_wp_post') }}</dt>
+                <dd class="mt-0.5 text-xs text-gray-900 dark:text-white">{{ ($row['wordpress_post_id'] ?? null) ? (int) $row['wordpress_post_id'] : '—' }}</dd>
+            </div>
+            <div class="sm:col-span-2">
+                <dt class="text-[11px] text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_wp_url') }}</dt>
+                <dd class="mt-0.5">
                     @if ($wpUrl !== '')
-                        <a
-                            href="{{ e($wpUrl) }}"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            class="inline-flex max-w-full items-start gap-1 break-all text-primary-600 hover:underline dark:text-primary-400"
-                        >
-                            <span class="min-w-0">{{ e($wpUrl) }}</span>
-                            <x-filament::icon icon="heroicon-o-arrow-top-right-on-square" class="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                        </a>
-                        <div class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                            {{ __('seo-content-ai::filament.projects.archive_preview_open_wp') }}
-                        </div>
+                        <a href="{{ e($wpUrl) }}" target="_blank" rel="noopener noreferrer" class="inline-flex max-w-full break-all text-xs text-primary-600 hover:underline dark:text-primary-400">{{ e($wpUrl) }}</a>
                     @else
-                        —
+                        <span class="text-xs text-gray-500">—</span>
                     @endif
                 </dd>
             </div>
-            <div>
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_edit_article') }}</dt>
-                <dd class="mt-1">
-                    @if ($canEdit && filled($editUrl))
-                        <a
-                            href="{{ $editUrl }}"
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            class="inline-flex items-center gap-1 font-medium text-primary-600 hover:underline dark:text-primary-400"
-                        >
-                            {{ __('seo-content-ai::filament.projects.archive_preview_edit_article') }}
-                            <x-filament::icon icon="heroicon-o-arrow-top-right-on-square" class="h-3.5 w-3.5" />
-                        </a>
-                    @elseif ($articleExists)
-                        —
-                    @else
-                        <span class="text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_article_missing') }}</span>
-                    @endif
-                </dd>
-            </div>
+            @if ($canEdit && filled($editUrl))
+                <div class="sm:col-span-2">
+                    <a href="{{ $editUrl }}" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-1 text-xs font-medium text-primary-600 hover:underline dark:text-primary-400">
+                        {{ __('seo-content-ai::filament.projects.archive_preview_edit_article') }}
+                        <x-filament::icon icon="heroicon-o-arrow-top-right-on-square" class="h-3.5 w-3.5" />
+                    </a>
+                </div>
+            @endif
+            @if (trim((string) ($row['wp_sync_error'] ?? '')) !== '')
+                <div class="sm:col-span-2">
+                    <dt class="text-[11px] font-medium text-danger-600 dark:text-danger-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_wp_error') }}</dt>
+                    <dd class="mt-0.5 text-xs text-danger-700 dark:text-danger-300">{{ e((string) $row['wp_sync_error']) }}</dd>
+                </div>
+            @endif
         </dl>
     </section>
 
-    {{-- E. Timestamps --}}
-    <section class="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
-        <h4 class="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+    {{-- TIMESTAMPS --}}
+    <section class="rounded-lg border border-gray-200 bg-white px-3 py-2.5 dark:border-gray-700 dark:bg-gray-900">
+        <h4 class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
             {{ __('seo-content-ai::filament.projects.archive_preview_section_timestamps') }}
         </h4>
-        <dl class="grid gap-4 sm:grid-cols-2">
+        <dl class="grid grid-cols-2 gap-2">
             <div>
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_col_created_at') }}</dt>
-                <dd class="mt-1 select-text text-gray-900 dark:text-white">{{ e($display($row['created_at'] ?? null)) }}</dd>
+                <dt class="text-[11px] text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_col_created_at') }}</dt>
+                <dd class="mt-0.5 select-text text-xs text-gray-900 dark:text-white">{{ e($display($row['created_at'] ?? null)) }}</dd>
             </div>
             <div>
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_updated_at') }}</dt>
-                <dd class="mt-1 select-text text-gray-900 dark:text-white">{{ e($display($row['updated_at'] ?? null)) }}</dd>
+                <dt class="text-[11px] text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_updated_at') }}</dt>
+                <dd class="mt-0.5 select-text text-xs text-gray-900 dark:text-white">{{ e($display($row['updated_at'] ?? null)) }}</dd>
             </div>
             <div>
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.completed_at') }}</dt>
-                <dd class="mt-1 select-text text-gray-900 dark:text-white">{{ e($display($row['completed_at'] ?? null)) }}</dd>
+                <dt class="text-[11px] text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.completed_at') }}</dt>
+                <dd class="mt-0.5 select-text text-xs text-gray-900 dark:text-white">{{ e($display($row['completed_at'] ?? null)) }}</dd>
             </div>
             <div>
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_last_saved') }}</dt>
-                <dd class="mt-1 select-text text-gray-900 dark:text-white">{{ e($display($row['last_saved_at'] ?? null)) }}</dd>
+                <dt class="text-[11px] text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_last_saved') }}</dt>
+                <dd class="mt-0.5 select-text text-xs text-gray-900 dark:text-white">{{ e($display($row['last_saved_at'] ?? null)) }}</dd>
             </div>
-            <div>
-                <dt class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_last_synced') }}</dt>
-                <dd class="mt-1 select-text text-gray-900 dark:text-white">{{ e($display($row['last_synced_at'] ?? null)) }}</dd>
+            <div class="col-span-2">
+                <dt class="text-[11px] text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_col_last_synced') }}</dt>
+                <dd class="mt-0.5 select-text text-xs text-gray-900 dark:text-white">{{ e($display($row['last_synced_at'] ?? null)) }}</dd>
             </div>
         </dl>
     </section>
 
-    {{-- F. Excerpt --}}
-    <section class="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900">
-        <h4 class="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+    {{-- CONTENT EXCERPT — collapsed by default (~4–6 lines) --}}
+    <section class="rounded-lg border border-gray-200 bg-white px-3 py-2.5 dark:border-gray-700 dark:bg-gray-900">
+        <h4 class="mb-2 text-[11px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
             {{ __('seo-content-ai::filament.projects.archive_preview_section_excerpt') }}
         </h4>
         @if ($excerpt !== '')
-            <div
-                x-data="{ expanded: false }"
-                class="rounded-lg bg-gray-50 p-3 dark:bg-gray-800/50"
-            >
+            <div x-data="{ expanded: false }" class="rounded-md bg-gray-50 px-2.5 py-2 dark:bg-gray-800/50">
                 <div
-                    class="select-text leading-relaxed text-gray-800 dark:text-gray-100"
-                    :class="expanded ? '' : 'max-h-48 overflow-y-auto'"
-                >
-                    {{ e($excerpt) }}
-                </div>
+                    class="select-text text-xs leading-relaxed text-gray-800 dark:text-gray-100"
+                    :class="expanded ? '' : 'line-clamp-5 overflow-hidden'"
+                >{{ e($excerpt) }}</div>
                 <button
                     type="button"
-                    class="mt-2 text-xs font-medium text-primary-600 hover:underline dark:text-primary-400"
+                    class="mt-1.5 text-[11px] font-medium text-primary-600 hover:underline dark:text-primary-400"
                     x-on:click="expanded = !expanded"
                     x-text="expanded
                         ? @js(__('seo-content-ai::filament.projects.archive_preview_excerpt_collapse'))
@@ -258,7 +204,7 @@
                 ></button>
             </div>
         @else
-            <p class="text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_no_data') }}</p>
+            <p class="text-xs text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.archive_preview_no_data') }}</p>
         @endif
     </section>
 </div>

@@ -96,13 +96,6 @@ class CreateSeoProject extends SeoCreateRecord
         $month = (string) ($data['month'] ?? '');
         $siteId = isset($data['site_id']) ? (int) $data['site_id'] : 0;
 
-        $userId = (int) ($data['user_id'] ?? 0);
-        $fromUnassigned = filter_var($data['assign_from_unassigned'] ?? false, FILTER_VALIDATE_BOOLEAN);
-        if ($userId > 0 && ($fromUnassigned || $this->shouldEnforceStaffMonthUniqueness())) {
-            app(ContentProjectStaffAvailabilityService::class)
-                ->assertUnassignedForMonth($userId, $month !== '' ? $month : null);
-        }
-
         $tasksData = $data['tasks_data'] ?? [];
         $projectSiteId = $siteId > 0 ? $siteId : null;
         $sanitized = app(SeoProjectTaskSyncService::class)->sanitizeTasksData($tasksData, $projectSiteId);
@@ -130,13 +123,8 @@ class CreateSeoProject extends SeoCreateRecord
     {
         $formState = $this->form->getState();
         $tasksData = $formState['tasks_data'] ?? [];
-        $userId = (int) ($data['user_id'] ?? 0);
         $month = (string) ($data['month'] ?? '');
         $siteId = (int) ($data['site_id'] ?? 0);
-        $assignFromUnassigned = filter_var(
-            $formState['assign_from_unassigned'] ?? false,
-            FILTER_VALIDATE_BOOLEAN,
-        );
 
         $staffService = app(ContentProjectStaffAvailabilityService::class);
         $taskSync = app(SeoProjectTaskSyncService::class);
@@ -146,18 +134,13 @@ class CreateSeoProject extends SeoCreateRecord
         return $staffService->withAssignmentLock(function () use (
             $data,
             $tasksData,
-            $userId,
             $month,
             $siteId,
-            $assignFromUnassigned,
-            $staffService,
             $taskSync,
             $bus,
             $authUserId,
         ): Model {
-            if ($userId > 0 && ($assignFromUnassigned || $this->shouldEnforceStaffMonthUniqueness())) {
-                $staffService->assertUnassignedForMonth($userId, $month !== '' ? $month : null);
-            }
+            // One-project-per-user/month uniqueness retired — any eligible staff may be assigned.
 
             $lockToken = substr($taskSync->tasksSignature(
                 $tasksData,
@@ -211,11 +194,11 @@ class CreateSeoProject extends SeoCreateRecord
     }
 
     /**
-     * UI + spec: mỗi staff tối đa 1 Content Project / tháng (không unique index DB).
+     * Retired: one project per staff/month is no longer enforced.
      */
     private function shouldEnforceStaffMonthUniqueness(): bool
     {
-        return true;
+        return false;
     }
 
     private function resolveStaffIdFromQuery(): int

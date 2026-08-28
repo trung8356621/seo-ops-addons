@@ -62,12 +62,16 @@ final class ArticleManualIndexMarkerServiceTest extends TestCase
         self::assertStringContainsString('site_id', $source);
         self::assertStringContainsString('previous_indexed_at', $source);
         self::assertStringContainsString('article_snapshot', $source);
+        self::assertStringContainsString('function clearFromArchiveItem', $source);
         self::assertStringContainsString("'project_restored' => false", $source);
         self::assertStringContainsString("'workspace_recreated' => false", $source);
 
         self::assertStringNotContainsString('SearchConsole', $source);
         self::assertStringNotContainsString('Indexing API', $source);
         self::assertStringNotContainsString('Google', $source);
+        self::assertStringContainsString('assertNoActiveCheckIndexAllRun', $source);
+        self::assertStringContainsString('seo_gsc_url_inspection_runs', $source);
+        self::assertStringContainsString('Check Index All đang chạy', $source);
         self::assertStringNotContainsString('->restore(', $source);
         self::assertStringNotContainsString('workspaceDestroyer', $source);
         self::assertStringNotContainsString('cleanupArchivedWorkspace', $source);
@@ -79,12 +83,28 @@ final class ArticleManualIndexMarkerServiceTest extends TestCase
         $source = (string) file_get_contents((new ReflectionClass(ContentProjectArchivePreview::class))->getFileName());
 
         self::assertStringContainsString('function markArticleIndexed', $source);
+        self::assertStringContainsString('function startCheckIndexAll', $source);
+        self::assertStringContainsString('Check Index All', $source);
         self::assertStringContainsString('ArticleManualIndexMarkerService', $source);
+        self::assertStringContainsString('markFromArchiveItem', $source);
+        self::assertStringContainsString('GscUrlInspectionRunService', $source);
+        self::assertStringContainsString('queueForResolvedUrls', $source);
+        self::assertStringContainsString('diagnoseForSite', $source);
+        self::assertStringContainsString('collectGscInspectableUrlRows', $source);
+        self::assertStringContainsString('wordpress_url', $source);
+        self::assertStringContainsString('GscUrlInspectionBindingResolver', $source);
+        self::assertStringContainsString('reloadArticleRowsFromDatabase', $source);
+        self::assertStringContainsString('archive_check_index_all_index_locked', $source);
+        self::assertStringContainsString('hasActiveRunForSite', $source);
+        self::assertStringNotContainsString('queueForArticles', $source);
         self::assertStringContainsString('canViewProjectArchives', $source);
         self::assertStringContainsString('canAccessSite', $source);
-        self::assertStringContainsString('markFromArchiveItem', $source);
         self::assertStringNotContainsString('->restore(', $source);
         self::assertStringNotContainsString('RestoreContentProject', $source);
+        self::assertStringNotContainsString('checkIndexAllSkip', $source);
+        self::assertStringNotContainsString('checkIndexAllNext', $source);
+        self::assertStringNotContainsString('Open / Check Index', $source);
+        self::assertStringNotContainsString('checkIndexAllOpen', $source);
     }
 
     public function test_presenter_links_only_valid_public_wordpress_url(): void
@@ -107,6 +127,9 @@ final class ArticleManualIndexMarkerServiceTest extends TestCase
         $row = $presenter->presentItem($withUrl, collect());
         self::assertTrue($row['has_public_wordpress_url']);
         self::assertSame('https://example.com/hello/', $row['wordpress_url']);
+        self::assertNotEmpty($row['check_index_url']);
+        self::assertStringContainsString('google.com/search', (string) $row['check_index_url']);
+        self::assertStringContainsString(rawurlencode('site:https://example.com/hello/'), (string) $row['check_index_url']);
 
         $withoutUrl = new SeoProjectArchiveItem([
             'id' => 2,
@@ -124,6 +147,7 @@ final class ArticleManualIndexMarkerServiceTest extends TestCase
         $empty = $presenter->presentItem($withoutUrl, collect());
         self::assertFalse($empty['has_public_wordpress_url']);
         self::assertSame('', $empty['wordpress_url']);
+        self::assertNull($empty['check_index_url']);
         self::assertSame('No permalink', $empty['title']);
     }
 
@@ -140,14 +164,15 @@ final class ArticleManualIndexMarkerServiceTest extends TestCase
     public function test_presenter_reads_live_article_index_timestamps(): void
     {
         $presenter = new ArchivePreviewArticlePresenter();
-        $article = new SeoArticle([
+        $article = new SeoArticle();
+        $article->id = 42;
+        $article->setRawAttributes([
             'id' => 42,
             'title' => 'Live',
             'site_id' => 7,
-            'indexed_at' => Carbon::parse('2026-08-15 10:00:00'),
-            'previous_indexed_at' => Carbon::parse('2026-08-08 10:00:00'),
-        ]);
-        $article->id = 42;
+            'indexed_at' => '2026-08-15 10:00:00',
+            'previous_indexed_at' => '2026-08-08 10:00:00',
+        ], true);
         $article->setRelation('articleMetas', collect());
 
         $item = new SeoProjectArchiveItem([

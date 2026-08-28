@@ -22,13 +22,61 @@
         <style>{!! file_get_contents($workspaceCss) !!}</style>
     @endif
 
-    <div class="keyword-workspace-shell max-w-full space-y-5" {!! $reclusterPollAttr !!}>
+    @php
+        $workspaceSiteId = $this->resolveKeywordWorkspaceSiteId();
+        $siteOptions = $this->getKeywordWorkspaceSiteFilterOptions();
+        $domainLabel = '';
+        if ($workspaceSiteId !== null && $workspaceSiteId > 0) {
+            $domainLabel = trim((string) ($siteOptions[$workspaceSiteId] ?? $siteOptions[(string) $workspaceSiteId] ?? ''));
+        }
+        $clusterStateDirty = $this->clusterStateIsDirty();
+        $inventoryUnclassified = (int) ($summary['unclassified_keywords'] ?? 0);
+        $inventoryMetrics = [
+            __('seo-content-ai::filament.keyword.topic_inventory_metric_total', [
+                'count' => number_format((int) ($summary['total_keywords'] ?? 0)),
+            ]),
+            __('seo-content-ai::filament.keyword.topic_inventory_metric_seo_eligible', [
+                'count' => number_format((int) ($summary['seo_eligible_keywords'] ?? 0)),
+            ]),
+            __('seo-content-ai::filament.keyword.topic_inventory_metric_clustered', [
+                'count' => number_format((int) ($summary['clustered'] ?? 0)),
+            ]),
+            __('seo-content-ai::filament.keyword.topic_inventory_metric_unclustered', [
+                'count' => number_format((int) ($summary['unclustered'] ?? 0)),
+            ]),
+        ];
+        if ($inventoryUnclassified > 0) {
+            $inventoryMetrics[] = __('seo-content-ai::filament.keyword.topic_inventory_metric_unclassified', [
+                'count' => number_format($inventoryUnclassified),
+            ]);
+        }
+        $inventoryMetrics[] = __('seo-content-ai::filament.keyword.topic_inventory_metric_non_seo', [
+            'count' => number_format((int) ($summary['non_seo_keywords'] ?? 0)),
+        ]);
+    @endphp
+
+    <div class="keyword-workspace-shell max-w-full space-y-4" {!! $reclusterPollAttr !!}>
+        <header class="topic-index-page-heading">
+            <h1 class="topic-index-page-heading__title">
+                @if ($domainLabel !== '')
+                    {{ __('seo-content-ai::filament.keyword.topic_page_heading', ['domain' => $domainLabel]) }}
+                @else
+                    {{ __('seo-content-ai::filament.keyword.topic_cluster_title') }}
+                @endif
+            </h1>
+            <p class="topic-index-page-heading__subtitle">
+                {{ __('seo-content-ai::filament.keyword.topic_page_subtitle', [
+                    'seo' => number_format((int) ($summary['seo_eligible_keywords'] ?? 0)),
+                    'clustered' => number_format((int) ($summary['clustered'] ?? 0)),
+                    'unclustered' => number_format((int) ($summary['unclustered'] ?? 0)),
+                ]) }}
+            </p>
+        </header>
+
         @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-workspace-nav', [
             'activeKey' => $this->getActiveKeywordWorkspaceKey(),
             'navItems' => $this->getKeywordWorkspaceNavItems(),
         ])
-
-        <h1 class="sr-only">{{ __('seo-content-ai::filament.keyword.topic_cluster_title') }}</h1>
 
         <div class="topic-index-stats" wire:key="topic-index-stats-{{ $this->clusterDataEpoch }}">
             <div class="topic-index-stat">
@@ -55,131 +103,175 @@
             </a>
         </div>
 
-        <div class="cluster-mcp-preview" wire:key="cluster-mcp-preview-{{ $this->clusterDataEpoch }}">
-            <div class="cluster-mcp-preview__label">{{ __('seo-content-ai::filament.keyword.topic_mcp_preview_label') }}</div>
-            <div class="cluster-mcp-preview__value">
-                {{ __('seo-content-ai::filament.keyword.topic_mcp_preview_line', [
-                    'clusters' => number_format((int) $mcpPreview['cluster_count']),
-                    'coverage' => rtrim(rtrim(number_format((float) $mcpPreview['coverage_percent'], 1, '.', ''), '0'), '.'),
-                    'tokens' => number_format((int) $mcpPreview['estimated_tokens']),
-                ]) }}
-            </div>
-        </div>
-
-        <p class="text-xs text-gray-500 dark:text-gray-400">
-            {{ __('seo-content-ai::filament.keyword.topic_summary_denominator_line', [
-                'inventory' => number_format((int) ($summary['total_keywords'] ?? 0)),
-                'seo_eligible' => number_format((int) ($summary['seo_eligible_keywords'] ?? 0)),
-                'clustered' => number_format((int) ($summary['clustered'] ?? 0)),
-                'unclustered' => number_format((int) ($summary['unclustered'] ?? 0)),
-            ]) }}
-        </p>
-
-        @if (((int) ($summary['unclassified_keywords'] ?? 0)) > 0 || ((int) ($summary['non_seo_keywords'] ?? 0)) > 0)
-            <p class="text-xs text-gray-500 dark:text-gray-400">
-                {{ __('seo-content-ai::filament.keyword.topic_summary_quality_line', [
-                    'unclassified' => number_format((int) ($summary['unclassified_keywords'] ?? 0)),
-                    'non_seo' => number_format((int) ($summary['non_seo_keywords'] ?? 0)),
-                ]) }}
-            </p>
-        @endif
-
-        @if ($this->clusterStateIsDirty())
-            <div class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
-                {{ __('seo-content-ai::filament.keyword.topic_cluster_dirty_banner') }}
-            </div>
-        @endif
-
-        <div class="flex flex-wrap items-end justify-between gap-3">
-            <div class="topic-index-create flex-1" x-data="{ exists: @js($this->quickCreateClusterExists()) }">
-                <div class="flex flex-wrap items-center gap-2">
-                    <input
-                        type="search"
-                        wire:model.live.debounce.400ms="clusterSearch"
-                        x-on:input="exists = false"
-                        class="topic-index-input topic-index-input--wide"
-                        placeholder="{{ __('seo-content-ai::filament.keyword.topic_search_or_create_cluster') }}"
-                    >
-                    @if ($canEditCanonical)
-                        <x-filament::button
-                            type="button"
-                            size="sm"
-                            color="primary"
-                            wire:click="quickCreateCluster"
-                            wire:loading.attr="disabled"
-                            wire:target="quickCreateCluster"
-                            x-bind:disabled="exists || @js(trim($clusterSearch) === '')"
-                        >
-                            <span wire:loading.remove wire:target="quickCreateCluster">
-                                {{ __('seo-content-ai::filament.keyword.topic_quick_create_action') }}
-                            </span>
-                            <span wire:loading wire:target="quickCreateCluster">
-                                {{ __('seo-content-ai::filament.keyword.topic_quick_create_resolving') }}
-                            </span>
-                        </x-filament::button>
-                        <span
-                            wire:loading.remove
-                            wire:target="clusterSearch,quickCreateCluster"
-                            x-show="exists"
-                            x-cloak
-                            class="text-xs text-gray-500"
-                        >
-                            {{ __('seo-content-ai::filament.keyword.topic_quick_create_exists') }}
-                        </span>
-                    @endif
+        <div class="topic-index-context" wire:key="topic-index-context-{{ $this->clusterDataEpoch }}">
+            <div class="topic-index-context-card">
+                <div class="cluster-mcp-preview topic-index-context-card__row">
+                    <div class="cluster-mcp-preview__label">{{ __('seo-content-ai::filament.keyword.topic_mcp_preview_label') }}</div>
+                    <div class="cluster-mcp-preview__value">
+                        {{ __('seo-content-ai::filament.keyword.topic_mcp_preview_line', [
+                            'clusters' => number_format((int) $mcpPreview['cluster_count']),
+                            'coverage' => rtrim(rtrim(number_format((float) $mcpPreview['coverage_percent'], 1, '.', ''), '0'), '.'),
+                            'tokens' => number_format((int) $mcpPreview['estimated_tokens']),
+                        ]) }}
+                    </div>
                 </div>
-                <div class="topic-index-filters mt-3">
-                    <x-select size="sm" wire:model.live="clusterProjection">
-                        <option value="mcp">{{ __('seo-content-ai::filament.keyword.topic_projection_mcp') }}</option>
-                        <option value="seo">{{ __('seo-content-ai::filament.keyword.topic_projection_seo') }}</option>
-                    </x-select>
-                    <x-select size="sm" wire:model.live="coverageFilter">
-                        <option value="">{{ __('seo-content-ai::filament.keyword.topic_coverage_any') }}</option>
-                        <option value="strong">Strong</option>
-                        <option value="medium">Medium</option>
-                        <option value="weak">Weak</option>
-                        <option value="unknown">Unknown</option>
-                    </x-select>
-                    <x-select size="sm" wire:model.live="clusterSort">
-                        <option value="mcp_share_desc">{{ __('seo-content-ai::filament.keyword.topic_sort_mcp_desc') }}</option>
-                        <option value="mcp_share_asc">{{ __('seo-content-ai::filament.keyword.topic_sort_mcp_asc') }}</option>
-                        <option value="articles_desc">{{ __('seo-content-ai::filament.keyword.topic_sort_articles_desc') }}</option>
-                        <option value="articles_asc">{{ __('seo-content-ai::filament.keyword.topic_sort_articles_asc') }}</option>
-                        <option value="keywords_desc">{{ __('seo-content-ai::filament.keyword.topic_sort_keywords_desc') }}</option>
-                        <option value="keywords_asc">{{ __('seo-content-ai::filament.keyword.topic_sort_keywords_asc') }}</option>
-                        <option value="name_asc">{{ __('seo-content-ai::filament.keyword.topic_sort_name_asc') }}</option>
-                        <option value="name_desc">{{ __('seo-content-ai::filament.keyword.topic_sort_name_desc') }}</option>
-                    </x-select>
-                    <label class="topic-index-check">
-                        <input type="checkbox" wire:model.live="hasArticles">
-                        {{ __('seo-content-ai::filament.keyword.topic_has_articles') }}
-                    </label>
+                <div class="cluster-mcp-preview topic-index-context-card__row" wire:key="cluster-inventory-bar-{{ $this->clusterDataEpoch }}">
+                    <div class="cluster-mcp-preview__label">{{ __('seo-content-ai::filament.keyword.topic_inventory_bar_label') }}</div>
+                    <div class="cluster-mcp-preview__value">{{ implode(' · ', $inventoryMetrics) }}</div>
                 </div>
             </div>
-            @if ($canRecluster)
-                <div class="flex max-w-md flex-col items-end gap-1.5">
-                    <p class="text-right text-xs text-gray-500 dark:text-gray-400">
-                        {{ __('seo-content-ai::filament.keyword.topic_recluster_hint') }}
-                    </p>
-                    @if ($confirmRecluster)
-                        <div class="flex flex-wrap items-center justify-end gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 dark:border-amber-800 dark:bg-amber-950">
-                            <span class="text-xs text-amber-900 dark:text-amber-100">
-                                {{ __('seo-content-ai::filament.keyword.topic_recluster_confirm') }}
-                            </span>
-                            <x-filament::button type="button" size="sm" color="gray" wire:click="cancelReclusterConfirm">
-                                {{ __('seo-content-ai::filament.keyword.topic_dissolve_cancel') }}
-                            </x-filament::button>
-                            <x-filament::button type="button" size="sm" color="warning" wire:click="confirmDispatchReclusterTopicClusters">
+
+            @if ($clusterStateDirty && $canRecluster)
+                <div class="topic-index-stale-alert">
+                    <div class="topic-index-stale-alert__body">
+                        <div class="topic-index-stale-alert__title">
+                            {{ __('seo-content-ai::filament.keyword.topic_recluster_recommended_title') }}
+                        </div>
+                        <p class="topic-index-stale-alert__text">
+                            {{ __('seo-content-ai::filament.keyword.topic_cluster_dirty_banner') }}
+                        </p>
+                    </div>
+                    <div class="topic-index-stale-alert__action">
+                        @if ($confirmRecluster)
+                            <div class="topic-index-stale-alert__confirm">
+                                <div class="topic-index-stale-alert__confirm-copy">
+                                    <div class="topic-index-stale-alert__confirm-title">
+                                        {{ __('seo-content-ai::filament.keyword.topic_recluster_confirm') }}
+                                    </div>
+                                    <p class="topic-index-stale-alert__confirm-hint">
+                                        {{ __('seo-content-ai::filament.keyword.topic_recluster_hint') }}
+                                    </p>
+                                </div>
+                                <div class="topic-index-stale-alert__confirm-actions">
+                                    <x-filament::button type="button" size="sm" color="gray" wire:click="cancelReclusterConfirm">
+                                        {{ __('seo-content-ai::filament.keyword.topic_dissolve_cancel') }}
+                                    </x-filament::button>
+                                    <x-filament::button type="button" size="sm" color="warning" wire:click="confirmDispatchReclusterTopicClusters">
+                                        {{ __('seo-content-ai::filament.keyword.topic_recluster_action') }}
+                                    </x-filament::button>
+                                </div>
+                            </div>
+                        @else
+                            <x-filament::button type="button" size="sm" color="warning" wire:click="openReclusterConfirm" :disabled="$reclusterRunning">
                                 {{ __('seo-content-ai::filament.keyword.topic_recluster_action') }}
                             </x-filament::button>
+                        @endif
+                    </div>
+                </div>
+            @elseif ($clusterStateDirty)
+                <div class="topic-index-stale-alert">
+                    <div class="topic-index-stale-alert__body">
+                        <div class="topic-index-stale-alert__title">
+                            {{ __('seo-content-ai::filament.keyword.topic_recluster_recommended_title') }}
+                        </div>
+                        <p class="topic-index-stale-alert__text">
+                            {{ __('seo-content-ai::filament.keyword.topic_cluster_dirty_banner') }}
+                        </p>
+                    </div>
+                </div>
+            @elseif ($canRecluster)
+                <div class="topic-index-recluster-idle">
+                    @if ($confirmRecluster)
+                        <div class="topic-index-stale-alert__confirm">
+                            <div class="topic-index-stale-alert__confirm-copy">
+                                <div class="topic-index-stale-alert__confirm-title">
+                                    {{ __('seo-content-ai::filament.keyword.topic_recluster_confirm') }}
+                                </div>
+                                <p class="topic-index-stale-alert__confirm-hint">
+                                    {{ __('seo-content-ai::filament.keyword.topic_recluster_hint') }}
+                                </p>
+                            </div>
+                            <div class="topic-index-stale-alert__confirm-actions">
+                                <x-filament::button type="button" size="sm" color="gray" wire:click="cancelReclusterConfirm">
+                                    {{ __('seo-content-ai::filament.keyword.topic_dissolve_cancel') }}
+                                </x-filament::button>
+                                <x-filament::button type="button" size="sm" color="warning" wire:click="confirmDispatchReclusterTopicClusters">
+                                    {{ __('seo-content-ai::filament.keyword.topic_recluster_action') }}
+                                </x-filament::button>
+                            </div>
                         </div>
                     @else
-                        <x-filament::button type="button" size="sm" color="warning" wire:click="openReclusterConfirm" :disabled="$reclusterRunning">
-                            {{ __('seo-content-ai::filament.keyword.topic_recluster_action') }}
-                        </x-filament::button>
+                        <div class="topic-index-recluster-idle__row">
+                            <x-filament::button type="button" size="sm" color="gray" wire:click="openReclusterConfirm" :disabled="$reclusterRunning">
+                                {{ __('seo-content-ai::filament.keyword.topic_recluster_action') }}
+                            </x-filament::button>
+                            <span
+                                class="inline-flex text-gray-400 dark:text-gray-500"
+                                title="{{ __('seo-content-ai::filament.keyword.topic_recluster_hint') }}"
+                                aria-label="{{ __('seo-content-ai::filament.keyword.topic_recluster_hint') }}"
+                            >
+                                <x-filament::icon icon="heroicon-o-question-mark-circle" class="h-4 w-4" />
+                            </span>
+                        </div>
                     @endif
                 </div>
             @endif
+        </div>
+
+        <div class="topic-index-toolbar" x-data="{ exists: @js($this->quickCreateClusterExists()) }">
+            <div class="topic-index-toolbar__primary">
+                <input
+                    type="search"
+                    wire:model.live.debounce.400ms="clusterSearch"
+                    x-on:input="exists = false"
+                    class="topic-index-input topic-index-input--search"
+                    placeholder="{{ __('seo-content-ai::filament.keyword.topic_search_or_create_cluster') }}"
+                >
+                @if ($canEditCanonical)
+                    <x-filament::button
+                        type="button"
+                        size="sm"
+                        color="primary"
+                        wire:click="quickCreateCluster"
+                        wire:loading.attr="disabled"
+                        wire:target="quickCreateCluster"
+                        x-bind:disabled="exists || @js(trim($clusterSearch) === '')"
+                    >
+                        <span wire:loading.remove wire:target="quickCreateCluster">
+                            {{ __('seo-content-ai::filament.keyword.topic_quick_create_action') }}
+                        </span>
+                        <span wire:loading wire:target="quickCreateCluster">
+                            {{ __('seo-content-ai::filament.keyword.topic_quick_create_resolving') }}
+                        </span>
+                    </x-filament::button>
+                    <span
+                        wire:loading.remove
+                        wire:target="clusterSearch,quickCreateCluster"
+                        x-show="exists"
+                        x-cloak
+                        class="text-xs text-gray-500"
+                    >
+                        {{ __('seo-content-ai::filament.keyword.topic_quick_create_exists') }}
+                    </span>
+                @endif
+            </div>
+            <div class="topic-index-filters topic-index-toolbar__filters">
+                <x-select size="sm" wire:model.live="clusterProjection">
+                    <option value="mcp">{{ __('seo-content-ai::filament.keyword.topic_projection_mcp') }}</option>
+                    <option value="seo">{{ __('seo-content-ai::filament.keyword.topic_projection_seo') }}</option>
+                </x-select>
+                <x-select size="sm" wire:model.live="coverageFilter">
+                    <option value="">{{ __('seo-content-ai::filament.keyword.topic_coverage_any') }}</option>
+                    <option value="strong">Strong</option>
+                    <option value="medium">Medium</option>
+                    <option value="weak">Weak</option>
+                    <option value="unknown">Unknown</option>
+                </x-select>
+                <x-select size="sm" wire:model.live="clusterSort">
+                    <option value="mcp_share_desc">{{ __('seo-content-ai::filament.keyword.topic_sort_mcp_desc') }}</option>
+                    <option value="mcp_share_asc">{{ __('seo-content-ai::filament.keyword.topic_sort_mcp_asc') }}</option>
+                    <option value="articles_desc">{{ __('seo-content-ai::filament.keyword.topic_sort_articles_desc') }}</option>
+                    <option value="articles_asc">{{ __('seo-content-ai::filament.keyword.topic_sort_articles_asc') }}</option>
+                    <option value="keywords_desc">{{ __('seo-content-ai::filament.keyword.topic_sort_keywords_desc') }}</option>
+                    <option value="keywords_asc">{{ __('seo-content-ai::filament.keyword.topic_sort_keywords_asc') }}</option>
+                    <option value="name_asc">{{ __('seo-content-ai::filament.keyword.topic_sort_name_asc') }}</option>
+                    <option value="name_desc">{{ __('seo-content-ai::filament.keyword.topic_sort_name_desc') }}</option>
+                </x-select>
+                <label class="topic-index-check">
+                    <input type="checkbox" wire:model.live="hasArticles">
+                    {{ __('seo-content-ai::filament.keyword.topic_has_articles') }}
+                </label>
+            </div>
         </div>
 
         @if ($reclusterStatus === 'queued' || $reclusterStatus === 'running' || $reclusterRunning)

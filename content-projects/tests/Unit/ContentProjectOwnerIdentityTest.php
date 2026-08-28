@@ -28,16 +28,17 @@ final class ContentProjectOwnerIdentityTest extends TestCase
         self::assertStringNotContainsString('staff_name', $source);
     }
 
-    public function test_staff_without_project_matches_on_user_id_and_displays_users_name(): void
+    public function test_staff_availability_lists_eligible_writers_by_user_name(): void
     {
         $source = (string) file_get_contents(
             (string) (new ReflectionClass(ContentProjectStaffAvailabilityService::class))->getFileName(),
         );
 
         self::assertStringContainsString("pluck('user_id')", $source);
-        self::assertStringContainsString("whereNotIn('id', \$assignedIds)", $source);
+        self::assertStringContainsString('Month uniqueness retired', $source);
         self::assertStringContainsString("\$params['staff']", $source);
         self::assertStringContainsString('$user->name', $source);
+        self::assertStringNotContainsString("whereNotIn('id', \$assignedIds)", $source);
         self::assertStringNotContainsString('nickname', $source);
         self::assertStringNotContainsString('display_name', $source);
     }

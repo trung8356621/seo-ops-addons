@@ -25,6 +25,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Suppo
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectBulkGenerationPlanner;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectActiveGenerationRunDetector;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectDraftExecutionGuard;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectWriterAssignment;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectGenerationCapabilityResolver;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectGenerationRecoveryDecision;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectGenerationRecoveryService;
@@ -82,6 +83,15 @@ final class GenerateProjectItemsHandler extends AbstractPublishingHandler
             $draftBlock = ContentProjectDraftExecutionGuard::rejectIfDraft($project, $projectId);
             if ($draftBlock !== null) {
                 return $draftBlock;
+            }
+
+            if (ContentProjectWriterAssignment::isUnassigned($project)) {
+                return ContentProjectActionResult::fail(
+                    ContentProjectActionCodes::VALIDATION_FAILED,
+                    'Please assign a writer before running this project.',
+                    $projectId,
+                    metadata: ['reason' => 'no_assignee'],
+                );
             }
 
             try {

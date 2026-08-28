@@ -237,12 +237,6 @@ class KeywordResource extends SeoPanelResource
                     ->disabledClick()
                     ->extraCellAttributes(['class' => 'py-2 whitespace-normal'])
                     ->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\ViewColumn::make('keyword_quick_copy')
-                    ->label('')
-                    ->view('seo-content-ai::filament.tables.columns.keyword-quick-copy')
-                    ->disabledClick()
-                    ->extraHeaderAttributes(['class' => 'keyword-quick-copy-header'])
-                    ->extraCellAttributes(['class' => 'keyword-quick-copy-cell']),
             ])
             ->defaultSort('phrase')
             ->filters([

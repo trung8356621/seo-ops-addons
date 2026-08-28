@@ -9,6 +9,7 @@ use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Database\Query\Builder;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordClassification;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicClusterMeta;
@@ -442,15 +443,14 @@ final class KeywordClusterQuery
         if (Schema::connection('omi_seo_ai')->hasTable('seo_link_maps')) {
             if ($languageBindings !== []) {
                 $articlePlaceholders = implode(',', array_fill(0, count($languageBindings), '?'));
-                $articleSelect = 'COUNT(DISTINCT lm_tgt.id) as article_count,'
+                // article_count overwritten below from Focus Article SSOT (main_article_id ∪ target).
+                $articleSelect = '0 as article_count,'
                     .' COUNT(lm_src.id) as internal_link_count';
                 $articleJoin = ' LEFT JOIN seo_link_maps lm ON lm.keyword_id = c.keyword_id'
-                    .' LEFT JOIN articles lm_tgt ON lm_tgt.id = lm.target_article_id'
-                    .' AND lm_tgt.language IN ('.$articlePlaceholders.')'
                     .' LEFT JOIN articles lm_src ON lm_src.id = lm.source_article_id'
                     .' AND lm_src.language IN ('.$articlePlaceholders.')';
             } else {
-                $articleSelect = 'COUNT(DISTINCT lm.target_article_id) as article_count,'
+                $articleSelect = '0 as article_count,'
                     .' COUNT(lm.id) as internal_link_count';
                 $articleJoin = ' LEFT JOIN seo_link_maps lm ON lm.keyword_id = c.keyword_id';
             }
@@ -484,10 +484,26 @@ final class KeywordClusterQuery
             .' ORDER BY keyword_count DESC'
             .' LIMIT '.(int) $limit;
 
-        return DB::connection('omi_seo_ai')->select(
-            $sql,
-            array_merge($languageBindings, $languageBindings, $keywordIds->getBindings()),
+        $bindings = $languageBindings !== []
+            ? array_merge($languageBindings, $keywordIds->getBindings())
+            : $keywordIds->getBindings();
+
+        $rows = DB::connection('omi_seo_ai')->select($sql, $bindings);
+
+        $focusCounts = $this->focusArticleCountsByClusterKey(
+            array_values(array_filter(array_map(
+                static fn (object $row): string => trim((string) ($row->cluster_key ?? '')),
+                $rows,
+            ))),
+            $siteId,
+            $languageVariants,
         );
+        foreach ($rows as $row) {
+            $key = trim((string) ($row->cluster_key ?? ''));
+            $row->article_count = (int) ($focusCounts[$key] ?? 0);
+        }
+
+        return $rows;
     }
 
     /**
@@ -694,7 +710,8 @@ final class KeywordClusterQuery
      * Focus-article + internal-link counts for a set of member keywords.
      * SSOT used by Cluster Detail; Index SQL must mirror these definitions.
      *
-     * - article_count: COUNT(DISTINCT target_article_id) where not null
+     * - article_count: COUNT(DISTINCT article_id) from keyword_meta.main_article_id
+     *   UNION seo_link_maps.target_article_id (same article never double-counted)
      * - internal_link_count: COUNT(*) of seo_link_maps rows for those keywords
      *
      * @param  list<int>  $keywordIds
@@ -703,38 +720,188 @@ final class KeywordClusterQuery
     public function memberLinkStats(array $keywordIds, ?array $languageVariants = null): array
     {
         $keywordIds = array_values(array_filter(array_map('intval', $keywordIds)));
-        if ($keywordIds === [] || ! Schema::connection('omi_seo_ai')->hasTable('seo_link_maps')) {
+        if ($keywordIds === []) {
             return [
                 'article_count' => 0,
                 'internal_link_count' => 0,
             ];
         }
 
-        $articleQuery = \Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap::query()
-            ->whereIn('keyword_id', $keywordIds)
-            ->whereNotNull('target_article_id');
+        /** @var array<int, true> $articleIds */
+        $articleIds = [];
 
-        $linkQuery = \Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap::query()
-            ->whereIn('keyword_id', $keywordIds);
+        if (Schema::connection('omi_seo_ai')->hasTable('keyword_meta')) {
+            $mainQuery = DB::connection('omi_seo_ai')->table('keyword_meta')
+                ->whereIn('keyword_id', $keywordIds)
+                ->where('meta_key', KeywordMetaKey::MainArticleId->value)
+                ->whereNotNull('meta_value')
+                ->where('meta_value', '!=', '');
 
-        if ($languageVariants !== null && $languageVariants !== []) {
-            $articleQuery->whereHas(
-                'targetArticle',
-                static fn (EloquentBuilder $articleQuery): EloquentBuilder => $articleQuery->whereIn('language', $languageVariants),
-            );
-            $linkQuery->whereHas(
-                'sourceArticle',
-                static fn (EloquentBuilder $articleQuery): EloquentBuilder => $articleQuery->whereIn('language', $languageVariants),
-            );
+            foreach ($mainQuery->pluck('meta_value') as $raw) {
+                $aid = (int) $raw;
+                if ($aid > 0) {
+                    $articleIds[$aid] = true;
+                }
+            }
+
+            if ($languageVariants !== null && $languageVariants !== [] && $articleIds !== []) {
+                $allowed = DB::connection('omi_seo_ai')->table('articles')
+                    ->whereIn('id', array_keys($articleIds))
+                    ->whereIn('language', $languageVariants)
+                    ->pluck('id')
+                    ->map(static fn ($id): int => (int) $id)
+                    ->all();
+                $allowedMap = array_fill_keys($allowed, true);
+                $articleIds = array_intersect_key($articleIds, $allowedMap);
+            }
         }
 
-        $articleCount = (int) (clone $articleQuery)->distinct()->count('target_article_id');
-        $linkCount = (int) $linkQuery->count();
+        $linkCount = 0;
+        if (Schema::connection('omi_seo_ai')->hasTable('seo_link_maps')) {
+            $articleQuery = \Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap::query()
+                ->whereIn('keyword_id', $keywordIds)
+                ->whereNotNull('target_article_id');
+
+            $linkQuery = \Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap::query()
+                ->whereIn('keyword_id', $keywordIds);
+
+            if ($languageVariants !== null && $languageVariants !== []) {
+                $articleQuery->whereHas(
+                    'targetArticle',
+                    static fn (EloquentBuilder $q): EloquentBuilder => $q->whereIn('language', $languageVariants),
+                );
+                $linkQuery->whereHas(
+                    'sourceArticle',
+                    static fn (EloquentBuilder $q): EloquentBuilder => $q->whereIn('language', $languageVariants),
+                );
+            }
+
+            foreach ((clone $articleQuery)->pluck('target_article_id') as $tid) {
+                $aid = (int) $tid;
+                if ($aid > 0) {
+                    $articleIds[$aid] = true;
+                }
+            }
+            $linkCount = (int) $linkQuery->count();
+        }
 
         return [
-            'article_count' => $articleCount,
+            'article_count' => count($articleIds),
             'internal_link_count' => $linkCount,
         ];
+    }
+
+    /**
+     * Distinct Focus Articles per Topic (cluster_key) for index cards / has_articles filter.
+     *
+     * @param  list<string>  $clusterKeys
+     * @return array<string, int>
+     */
+    public function focusArticleCountsByClusterKey(
+        array $clusterKeys,
+        ?int $siteId = null,
+        ?array $languageVariants = null,
+    ): array {
+        $clusterKeys = array_values(array_filter(array_map(
+            static fn (mixed $k): string => trim((string) $k),
+            $clusterKeys,
+        )));
+        if ($clusterKeys === [] || ! $this->classificationsReady()) {
+            return [];
+        }
+
+        $keywordIds = $this->keywordIdSubquery($siteId);
+        $placeholders = implode(',', array_fill(0, count($clusterKeys), '?'));
+        $memberRows = DB::connection('omi_seo_ai')->select(
+            'SELECT c.cluster_key, c.keyword_id'
+            .' FROM seo_keyword_classifications c'
+            .' WHERE c.cluster_key IN ('.$placeholders.')'
+            .' AND c.keyword_id IN ('.$keywordIds->toSql().')',
+            array_merge($clusterKeys, $keywordIds->getBindings()),
+        );
+
+        /** @var array<string, list<int>> $idsByCluster */
+        $idsByCluster = [];
+        /** @var list<int> $allKeywordIds */
+        $allKeywordIds = [];
+        foreach ($memberRows as $row) {
+            $key = trim((string) ($row->cluster_key ?? ''));
+            $kid = (int) ($row->keyword_id ?? 0);
+            if ($key === '' || $kid <= 0) {
+                continue;
+            }
+            $idsByCluster[$key][] = $kid;
+            $allKeywordIds[] = $kid;
+        }
+        $allKeywordIds = array_values(array_unique($allKeywordIds));
+
+        /** @var array<int, array<int, true>> $articlesByKeyword */
+        $articlesByKeyword = [];
+        if ($allKeywordIds !== [] && Schema::connection('omi_seo_ai')->hasTable('keyword_meta')) {
+            $metas = DB::connection('omi_seo_ai')->table('keyword_meta')
+                ->whereIn('keyword_id', $allKeywordIds)
+                ->where('meta_key', KeywordMetaKey::MainArticleId->value)
+                ->whereNotNull('meta_value')
+                ->where('meta_value', '!=', '')
+                ->get(['keyword_id', 'meta_value']);
+            foreach ($metas as $meta) {
+                $kid = (int) ($meta->keyword_id ?? 0);
+                $aid = (int) ($meta->meta_value ?? 0);
+                if ($kid > 0 && $aid > 0) {
+                    $articlesByKeyword[$kid][$aid] = true;
+                }
+            }
+        }
+        if ($allKeywordIds !== [] && Schema::connection('omi_seo_ai')->hasTable('seo_link_maps')) {
+            $linkQuery = DB::connection('omi_seo_ai')->table('seo_link_maps')
+                ->whereIn('keyword_id', $allKeywordIds)
+                ->whereNotNull('target_article_id');
+            if ($languageVariants !== null && $languageVariants !== []) {
+                $linkQuery->whereIn('target_article_id', function ($q) use ($languageVariants): void {
+                    $q->select('id')->from('articles')->whereIn('language', $languageVariants);
+                });
+            }
+            foreach ($linkQuery->get(['keyword_id', 'target_article_id']) as $link) {
+                $kid = (int) ($link->keyword_id ?? 0);
+                $aid = (int) ($link->target_article_id ?? 0);
+                if ($kid > 0 && $aid > 0) {
+                    $articlesByKeyword[$kid][$aid] = true;
+                }
+            }
+        }
+
+        if ($languageVariants !== null && $languageVariants !== [] && $articlesByKeyword !== []) {
+            $allAids = [];
+            foreach ($articlesByKeyword as $set) {
+                foreach (array_keys($set) as $aid) {
+                    $allAids[$aid] = true;
+                }
+            }
+            $allowed = DB::connection('omi_seo_ai')->table('articles')
+                ->whereIn('id', array_keys($allAids))
+                ->whereIn('language', $languageVariants)
+                ->pluck('id')
+                ->map(static fn ($id): int => (int) $id)
+                ->all();
+            $allowedMap = array_fill_keys($allowed, true);
+            foreach ($articlesByKeyword as $kid => $set) {
+                $articlesByKeyword[$kid] = array_intersect_key($set, $allowedMap);
+            }
+        }
+
+        $out = [];
+        foreach ($idsByCluster as $key => $kids) {
+            /** @var array<int, true> $distinct */
+            $distinct = [];
+            foreach ($kids as $kid) {
+                foreach (array_keys($articlesByKeyword[$kid] ?? []) as $aid) {
+                    $distinct[$aid] = true;
+                }
+            }
+            $out[$key] = count($distinct);
+        }
+
+        return $out;
     }
 
     /**

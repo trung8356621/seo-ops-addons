@@ -81,18 +81,24 @@ final class SeoPanelRoutes
         );
     }
 
-    /** List + project detail/workspace (not create / planner / publishing queue). */
+    /** List + project detail/workspace (not create / planner / archive vault / publishing queue). */
     public static function isProjectsListNav(?string $route = null): bool
     {
         return self::check($route,
             'filament.seo.resources.content-projects.index',
             'filament.seo.resources.content-projects.view',
             'filament.seo.resources.content-projects.edit',
-            'filament.seo.resources.content-projects.archive',
-            'filament.seo.resources.content-projects.archive-preview',
             'filament.seo.resources.content-projects.run-history',
             'filament.seo.resources.content-projects.view-run',
             'filament.seo.resources.content-projects.view-run-step',
+        );
+    }
+
+    public static function isProjectsArchiveNav(?string $route = null): bool
+    {
+        return self::check($route,
+            'filament.seo.resources.content-projects.archive',
+            'filament.seo.resources.content-projects.archive-preview',
         );
     }
 

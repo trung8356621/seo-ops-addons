@@ -51,6 +51,13 @@ final class SeoPanelNavActiveStateTest extends TestCase
             ['filament.seo-main.resources.content-projects.edit', 'projectsList', true],
             ['filament.seo-main.resources.content-projects.view', 'projectPlanner', false],
 
+            // Archived Projects vault
+            ['filament.seo.resources.content-projects.archive', 'projectsArchive', true],
+            ['filament.seo.resources.content-projects.archive', 'projectsList', false],
+            ['filament.seo.resources.content-projects.archive-preview', 'projectsArchive', true],
+            ['filament.seo.resources.content-projects.archive-preview', 'projectsList', false],
+            ['filament.seo.resources.content-projects.archive', 'projectsModule', true],
+
             // Articles list / editor
             ['filament.seo-main.resources.articles.index', 'articlesList', true],
             ['filament.seo-main.resources.articles.edit', 'articlesList', true],
@@ -143,6 +150,21 @@ final class SeoPanelNavActiveStateTest extends TestCase
             SeoPanelRoutes::isProjectsCreateNav($route),
             SeoPanelRoutes::isProjectPlannerNav($route),
             SeoPanelRoutes::isPublishingQueueNav($route),
+            SeoPanelRoutes::isProjectsArchiveNav($route),
+        ];
+
+        self::assertSame(1, count(array_filter($flags)));
+    }
+
+    public function test_only_one_project_child_flag_true_for_archive(): void
+    {
+        $route = 'filament.seo.resources.content-projects.archive';
+        $flags = [
+            SeoPanelRoutes::isProjectsListNav($route),
+            SeoPanelRoutes::isProjectsCreateNav($route),
+            SeoPanelRoutes::isProjectPlannerNav($route),
+            SeoPanelRoutes::isPublishingQueueNav($route),
+            SeoPanelRoutes::isProjectsArchiveNav($route),
         ];
 
         self::assertSame(1, count(array_filter($flags)));
@@ -170,6 +192,7 @@ final class SeoPanelNavActiveStateTest extends TestCase
             'projectsCreate' => SeoPanelRoutes::isProjectsCreateNav($route),
             'projectPlanner' => SeoPanelRoutes::isProjectPlannerNav($route),
             'publishingQueue' => SeoPanelRoutes::isPublishingQueueNav($route),
+            'projectsArchive' => SeoPanelRoutes::isProjectsArchiveNav($route),
             'articlesModule' => SeoPanelRoutes::isArticlesModule($route),
             'articlesList' => SeoPanelRoutes::isArticlesListNav($route),
             'articlesCategories' => SeoPanelRoutes::isArticlesCategoriesNav($route),

@@ -11,6 +11,7 @@ use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectSuggestionDecision;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\AuditNotePromptSectionBuilder;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterQuery;
 use Omnichannel\Addons\Seo\Enums\McpSourceKey;
@@ -221,6 +222,13 @@ final class ContentPlanningIntelligenceService
         $lines = $isProduct
             ? $this->productPlanningBriefHeader($ctx, $options)
             : $this->postPlanningBriefHeader($ctx, $options);
+
+        $noteItems = is_array($options['note_items'] ?? null) ? $options['note_items'] : [];
+        if ($noteItems !== []) {
+            foreach ((new AuditNotePromptSectionBuilder)->lines($noteItems) as $noteLine) {
+                $lines[] = $noteLine;
+            }
+        }
 
         $notes = trim((string) ($options['notes'] ?? ''));
         if ($notes === '') {

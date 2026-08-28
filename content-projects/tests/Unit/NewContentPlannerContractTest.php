@@ -213,9 +213,8 @@ final class NewContentPlannerContractTest extends TestCase
         self::assertStringContainsString('draft_ai_history_link', $card);
         self::assertStringContainsString('data-planner-content-type="1"', $card);
         self::assertStringContainsString('data-planner-notes="new-content"', $card);
-        self::assertStringContainsString('newContentNotes', $card);
-        self::assertStringContainsString('wire:model="newContentNotes"', $card);
-        self::assertStringNotContainsString('wire:model.live="newContentNotes"', $card);
+        self::assertStringContainsString('content-project-audit-notes', $card);
+        self::assertStringNotContainsString('wire:model="newContentNotes"', $card);
         self::assertStringNotContainsString('newContentFocus', $card);
         self::assertStringNotContainsString('planner_create_phase2', $draft);
         self::assertStringContainsString("slug = 'content-projects/new-content'", $page);
@@ -223,19 +222,21 @@ final class NewContentPlannerContractTest extends TestCase
         self::assertStringContainsString('shouldRegisterNavigation = false', $page);
     }
 
-    public function test_nav_orders_seo_audit_new_content_publishing_queue(): void
+    public function test_nav_orders_seo_audit_then_archived_projects(): void
     {
         $resource = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content-projects/src/Filament/Resources/SeoProjectResource.php',
         );
         self::assertStringContainsString('ContentProjectSeoAuditPlanner::getUrl()', $resource);
-        self::assertStringContainsString('PublishingQueueHub::getUrl()', $resource);
+        self::assertStringContainsString('nav.archived_projects', $resource);
+        self::assertStringContainsString("getUrl('archive')", $resource);
         self::assertStringNotContainsString('ContentProjectNewContentPlanner::getUrl()', $resource);
+        self::assertStringNotContainsString('PublishingQueueHub::getNavigationLabel()', $resource);
         $auditPos = strpos($resource, 'ContentProjectSeoAuditPlanner::getUrl()');
-        $queuePos = strpos($resource, 'PublishingQueueHub::getUrl()');
+        $archivePos = strpos($resource, 'nav.archived_projects');
         self::assertNotFalse($auditPos);
-        self::assertNotFalse($queuePos);
-        self::assertLessThan($queuePos, $auditPos);
+        self::assertNotFalse($archivePos);
+        self::assertLessThan($archivePos, $auditPos);
     }
 
     public function test_capabilities_and_factory_expose_generate_new_content(): void

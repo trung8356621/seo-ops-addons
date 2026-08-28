@@ -91,16 +91,17 @@ final class NewContentPlannerSimplifyOptionsTest extends TestCase
         self::assertStringContainsString('logical_ai_calls', $src);
     }
 
-    public function test_ui_card_has_notes_and_content_type_without_legacy_fields(): void
+    public function test_ui_card_has_audit_notes_and_content_type_without_legacy_fields(): void
     {
         $card = LegacyAddonPath::read('resources/views/components/content-project-new-content-card.blade.php');
 
-        self::assertStringContainsString('planner_notes', $card);
-        self::assertStringContainsString('newContentNotes', $card);
+        self::assertStringContainsString('content-project-audit-notes', $card);
+        self::assertStringContainsString('data-planner-notes="new-content"', $card);
+        self::assertStringNotContainsString('wire:model="newContentNotes"', $card);
+        self::assertStringNotContainsString('planner_notes_placeholder', $card);
         self::assertStringContainsString('planner_content_type', $card);
         self::assertStringContainsString('newContentPostType', $card);
         self::assertStringContainsString('data-planner-content-type="1"', $card);
-        self::assertStringContainsString('data-planner-notes="new-content"', $card);
         self::assertStringNotContainsString('planner_options', $card);
         self::assertStringNotContainsString('planner_save_options', $card);
         self::assertStringNotContainsString('data-planner-options="new-content"', $card);

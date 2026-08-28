@@ -102,6 +102,8 @@ final class QuickCreateAndMcpGroupTest extends TestCase
         $rename = (string) file_get_contents(dirname(__DIR__, 2).'/src/Services/KeywordIntelligence/UpdateClusterCanonicalService.php');
         self::assertStringContainsString('reevaluateMembershipForCanonical', $create);
         self::assertStringContainsString('reevaluateMembershipForCanonical', $rename);
+        self::assertStringContainsString('function reconcileMembership', $rename);
+        self::assertSame(2, substr_count($rename, '$this->reevaluateMembershipForCanonical('));
     }
 
     public function test_mask_inline_rename_does_not_mutate_clusters(): void

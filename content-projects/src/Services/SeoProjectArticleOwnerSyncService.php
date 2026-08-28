@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\ContentProjects\Services;
 
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectWriterAssignment;
 
 final class SeoProjectArticleOwnerSyncService
 {
@@ -14,6 +15,10 @@ final class SeoProjectArticleOwnerSyncService
      */
     public function syncProjectArticles(SeoProject $project): int
     {
+        if (ContentProjectWriterAssignment::isUnassigned($project)) {
+            return 0;
+        }
+
         $writerId = (int) ($project->user_id ?? 0);
         if ($writerId <= 0) {
             return 0;
@@ -30,6 +35,10 @@ final class SeoProjectArticleOwnerSyncService
     public function assignWriterToArticle(SeoProject $project, int $articleId): bool
     {
         if ($articleId <= 0) {
+            return false;
+        }
+
+        if (ContentProjectWriterAssignment::isUnassigned($project)) {
             return false;
         }
 

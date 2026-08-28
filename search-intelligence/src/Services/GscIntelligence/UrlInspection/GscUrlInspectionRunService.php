@@ -95,6 +95,85 @@ final class GscUrlInspectionRunService
     }
 
     /**
+     * Queue inspection for pre-resolved public URLs (archive / snapshot paths).
+     * Does NOT require a live Article row — archive may keep WP URLs after article delete.
+     * Does NOT require observed_post_status=publish — URL validity is the gate.
+     *
+     * @param  list<array{article_id?: int, url: string}>  $rows
+     * @return array<string, mixed>
+     */
+    public function queueForResolvedUrls(int $siteId, array $rows, ?int $actorId = null, ?int $limit = null): array
+    {
+        $this->assertRunTables();
+        $limit = GscUrlInspectionPolicy::clampLimit($limit ?? GscUrlInspectionPolicy::DEFAULT_BATCH_LIMIT);
+
+        try {
+            $binding = $this->bindings->resolveForSite($siteId);
+        } catch (GscUrlInspectionApiException $e) {
+            return [
+                'ok' => false,
+                'queued' => false,
+                'run_id' => null,
+                'public_ref' => null,
+                'error_code' => $e->errorCode,
+                'error_message' => $e->getMessage(),
+            ];
+        }
+
+        $selected = [];
+        $seenArticle = [];
+        $seenUrl = [];
+        foreach ($rows as $row) {
+            if (count($selected) >= $limit) {
+                break;
+            }
+            if (! is_array($row)) {
+                continue;
+            }
+            $articleId = (int) ($row['article_id'] ?? 0);
+            $url = trim((string) ($row['url'] ?? ''));
+            if ($url === '' || ! $this->urls->isPublicHttpUrl($url)) {
+                continue;
+            }
+
+            $urlKey = rtrim(mb_strtolower($url), '/');
+            if (isset($seenUrl[$urlKey])) {
+                continue;
+            }
+
+            // Prefer stable article_id when present (may be stale after article delete).
+            if ($articleId > 0) {
+                if (isset($seenArticle[$articleId])) {
+                    continue;
+                }
+                // Always queue archive WP URL under the archive site's GSC property.
+                // Live Article may be missing or point at another site_id (recycled/moved row) —
+                // inspectResolvedUrl records Index Health only when site matches.
+                $seenArticle[$articleId] = true;
+            } else {
+                // Run-item schema requires article_id; skip URL-only rows without an archive article_id.
+                continue;
+            }
+
+            $seenUrl[$urlKey] = true;
+            $selected[] = ['article_id' => $articleId, 'url' => $url];
+        }
+
+        if ($selected === []) {
+            return [
+                'ok' => false,
+                'queued' => false,
+                'run_id' => null,
+                'public_ref' => null,
+                'error_code' => 'gsc.no_eligible_articles',
+                'error_message' => 'Không tìm thấy URL hợp lệ trong dự án để kiểm tra index.',
+            ];
+        }
+
+        return $this->createAndDispatch($siteId, (string) $binding['property_uri'], $selected, $actorId);
+    }
+
+    /**
      * Queue due Index Health articles that are GSC-eligible for this site.
      *
      * @return array<string, mixed>
@@ -175,7 +254,13 @@ final class GscUrlInspectionRunService
             }
 
             $item->forceFill(['status' => 'running'])->save();
-            $result = $this->inspection->inspectArticle((int) $item->article_id, $actorId);
+            $itemUrl = trim((string) ($item->url ?? ''));
+            $result = $this->inspection->inspectResolvedUrl(
+                (int) $run->site_id,
+                $itemUrl,
+                (int) $item->article_id,
+                $actorId,
+            );
 
             if (($result['ok'] ?? false) === true) {
                 $checkStatus = (string) ($result['check_status'] ?? ArticleIndexCheckStatus::Unknown->value);
@@ -251,6 +336,11 @@ final class GscUrlInspectionRunService
             ->first();
 
         return $run instanceof SeoGscUrlInspectionRun ? $this->summarizeRun($run) : null;
+    }
+
+    public function hasActiveRunForSite(int $siteId): bool
+    {
+        return $this->latestActiveRunForSite($siteId) !== null;
     }
 
     /**
@@ -333,23 +423,36 @@ final class GscUrlInspectionRunService
                     'error_message' => null,
                 ]);
             }
+
+            return [
+                'ok' => true,
+                'queued' => true,
+                'run_id' => (int) $run->id,
+                'public_ref' => $publicRef,
+                'requested' => count($selected),
+                'inspected' => 0,
+                'indexed' => 0,
+                'not_indexed' => 0,
+                'unknown' => 0,
+                'failed' => 0,
+                'status' => 'queued',
+                'error_code' => null,
+                'error_message' => null,
+            ];
         }
 
-        return [
+        // Sync path (archive Check Index All): process in this request.
+        $this->processRun((int) $run->id);
+        $fresh = $run->fresh() ?? $run;
+
+        return array_merge($this->summarizeRun($fresh), [
             'ok' => true,
-            'queued' => true,
+            'queued' => false,
             'run_id' => (int) $run->id,
             'public_ref' => $publicRef,
-            'requested' => count($selected),
-            'inspected' => 0,
-            'indexed' => 0,
-            'not_indexed' => 0,
-            'unknown' => 0,
-            'failed' => 0,
-            'status' => 'queued',
             'error_code' => null,
             'error_message' => null,
-        ];
+        ]);
     }
 
     private function bumpCounters(SeoGscUrlInspectionRun $run, ?string $checkStatus, bool $success): void

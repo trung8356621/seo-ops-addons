@@ -227,7 +227,7 @@ class EditSeoProject extends SeoEditRecord
                 SeoProjectResource::makeGeneratePendingItemsAction($record),
                 SeoProjectResource::makeDevTestGeneratePendingItemsAction($record),
                 Actions\DeleteAction::make()
-                    ->visible(fn (): bool => SeoAccessControl::canMutateContentProjects())
+                    ->visible(fn (): bool => SeoProjectResource::canDelete($this->getRecord()))
                     ->requiresConfirmation()
                     ->modalHeading(__('seo-content-ai::filament.projects.delete_heading'))
                     ->modalDescription(__('seo-content-ai::filament.projects.delete_description'))
@@ -235,11 +235,16 @@ class EditSeoProject extends SeoEditRecord
                     ->successNotification(null)
                     ->using(function (SeoProject $record): bool {
                         try {
-                            app(SeoProjectTaskMoveService::class)->deleteProject($record);
+                            $result = app(SeoProjectTaskMoveService::class)->deleteProject($record);
+                            $restored = (int) ($result['restored'] ?? 0);
 
                             Notification::make()
                                 ->title(__('seo-content-ai::filament.projects.delete_completed'))
-                                ->body(__('seo-content-ai::filament.projects.delete_completed_body'))
+                                ->body($restored > 0
+                                    ? __('seo-content-ai::filament.projects.delete_restored_to_draft_body', [
+                                        'count' => $restored,
+                                    ])
+                                    : __('seo-content-ai::filament.projects.delete_completed_body'))
                                 ->success()
                                 ->send();
 
@@ -270,7 +275,10 @@ class EditSeoProject extends SeoEditRecord
                 ->icon('heroicon-m-ellipsis-vertical')
                 ->label(__('seo-content-ai::filament.projects.more_actions'))
                 ->button()
-                ->color('gray'),
+                ->color('gray')
+                ->visible(fn (): bool => ! $this->getRecord()->isDraftPlanning()
+                    && ! $this->getRecord()->isProjectArchived()
+                    && ! $this->getRecord()->isArchive()),
         ];
     }
 

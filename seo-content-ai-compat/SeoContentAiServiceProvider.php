@@ -676,6 +676,7 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
                 \Omnichannel\Addons\SiteSync\Console\RunLinkAnalysisCommand::class,
                 \Omnichannel\Addons\SiteSync\Console\PollWordPressHeartbeatCommand::class,
                 \Omnichannel\Addons\SearchIntelligence\Console\ClassifyKeywordsCommand::class,
+                \Omnichannel\Addons\SearchIntelligence\Console\ReconcileFocusArticleTopicsCommand::class,
                 \Omnichannel\Addons\SearchIntelligence\Console\KeywordIntelligenceReportCommand::class,
                 \Omnichannel\Addons\SiteSync\Console\ReconcileSiteSyncCommand::class,
                 \Omnichannel\Addons\SiteSync\Console\BackfillSiteSyncV2Command::class,

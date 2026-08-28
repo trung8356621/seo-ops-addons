@@ -26,23 +26,23 @@ use ReflectionClass;
  */
 final class ContentProjectUiSixFixesContractTest extends TestCase
 {
-    public function test_publishing_queue_nests_under_content_projects_nav(): void
+    public function test_archived_projects_nests_under_content_projects_nav(): void
     {
         $hub = (string) file_get_contents((new ReflectionClass(PublishingQueueHub::class))->getFileName());
         self::assertStringContainsString("slug = 'publishing-queue'", $hub);
         self::assertStringContainsString('shouldRegisterNavigation = false', $hub);
-        self::assertStringContainsString('getNavigationParentItem', $hub);
-        self::assertStringContainsString('SeoProjectResource::getNavigationLabel()', $hub);
-        self::assertStringContainsString('canManageContentProjectWorkflow', $hub);
 
         $resource = (string) file_get_contents((new ReflectionClass(SeoProjectResource::class))->getFileName());
         self::assertStringContainsString('getNavigationItems', $resource);
         self::assertStringContainsString('parentItem($parentLabel)', $resource);
-        self::assertStringContainsString('PublishingQueueHub::getUrl()', $resource);
-        self::assertStringContainsString('SeoPanelRoutes::isPublishingQueueNav()', $resource);
+        self::assertStringContainsString("getUrl('archive')", $resource);
+        self::assertStringContainsString('nav.archived_projects', $resource);
+        self::assertStringContainsString('SeoPanelRoutes::isProjectsArchiveNav()', $resource);
         self::assertStringContainsString('SeoPanelRoutes::isProjectsModule()', $resource);
         self::assertStringContainsString('SeoPanelRoutes::isProjectPlannerNav()', $resource);
         self::assertStringContainsString('SeoPanelRoutes::isProjectsListNav()', $resource);
+        self::assertStringNotContainsString('PublishingQueueHub::getUrl()', $resource);
+        self::assertStringNotContainsString('SeoPanelRoutes::isPublishingQueueNav()', $resource);
     }
 
     public function test_image_picker_uses_per_page_28_and_tab_reset(): void

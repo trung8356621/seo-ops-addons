@@ -84,6 +84,52 @@ final class UpdateClusterCanonicalService
             'previous_phrase' => $previous,
             'attached' => $stats['attached'],
             'detached' => $stats['detached'],
+            'checked' => $stats['checked'],
+            'kept' => $stats['kept'],
+        ];
+    }
+
+    /**
+     * Re-run the same membership reconciliation used after rename, without changing the canonical.
+     * Site/domain scope: all SEO-eligible keywords (not only current Topic members).
+     *
+     * @return array{
+     *     cluster_key: string,
+     *     canonical_phrase: string,
+     *     attached: int,
+     *     detached: int,
+     *     checked: int,
+     *     kept: int,
+     *     changed: int
+     * }
+     */
+    public function reconcileMembership(int $siteId, string $clusterKey): array
+    {
+        $clusterKey = trim($clusterKey);
+        if ($siteId <= 0 || $clusterKey === '') {
+            throw new RuntimeException('cluster_required');
+        }
+
+        $canonical = trim((string) ($this->resolver->canonicalForCluster($siteId, $clusterKey) ?? ''));
+        if ($canonical === '') {
+            throw new RuntimeException('canonical_required');
+        }
+
+        $stats = $this->reevaluateMembershipForCanonical($siteId, $clusterKey, $canonical);
+        TopicClusterDirtyState::mark($siteId, 'membership_reconciled');
+        \Omnichannel\Addons\SearchIntelligence\Services\SiteMcp\SiteMcpTopicalProfileStaleState::mark(
+            $siteId,
+            'membership_reconciled',
+        );
+
+        return [
+            'cluster_key' => $clusterKey,
+            'canonical_phrase' => $canonical,
+            'attached' => $stats['attached'],
+            'detached' => $stats['detached'],
+            'checked' => $stats['checked'],
+            'kept' => $stats['kept'],
+            'changed' => $stats['attached'] + $stats['detached'],
         ];
     }
 
@@ -150,17 +196,19 @@ final class UpdateClusterCanonicalService
     }
 
     /**
-     * @return array{attached: int, detached: int}
+     * @return array{attached: int, detached: int, checked: int, kept: int}
      */
     public function reevaluateMembershipForCanonical(int $siteId, string $clusterKey, string $canonical): array
     {
         $attached = 0;
         $detached = 0;
+        $checked = 0;
+        $kept = 0;
         $touched = [$clusterKey => true];
 
         $keywordIds = KeywordClusterSiteScope::keywordIds($siteId);
         if ($keywordIds === []) {
-            return ['attached' => 0, 'detached' => 0];
+            return ['attached' => 0, 'detached' => 0, 'checked' => 0, 'kept' => 0];
         }
 
         $rows = SeoKeywordClassification::query()
@@ -177,6 +225,7 @@ final class UpdateClusterCanonicalService
                 continue;
             }
 
+            $checked++;
             $matches = $this->matchesCanonical($phrase, $canonical);
             $current = trim((string) ($row->cluster_key ?? ''));
 
@@ -189,6 +238,8 @@ final class UpdateClusterCanonicalService
                     if ($current !== '') {
                         $touched[$current] = true;
                     }
+                } else {
+                    $kept++;
                 }
             } elseif ($current === $clusterKey) {
                 $row->cluster_key = null;
@@ -208,7 +259,12 @@ final class UpdateClusterCanonicalService
             }
         }
 
-        return ['attached' => $attached, 'detached' => $detached];
+        return [
+            'attached' => $attached,
+            'detached' => $detached,
+            'checked' => $checked,
+            'kept' => $kept,
+        ];
     }
 
     private function matchesCanonical(string $phrase, string $canonical): bool

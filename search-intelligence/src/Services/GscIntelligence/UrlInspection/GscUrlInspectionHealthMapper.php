@@ -18,8 +18,11 @@ final class GscUrlInspectionHealthMapper
 
         return match ($verdict) {
             'PASS' => ArticleIndexCheckStatus::Indexed,
-            'FAIL' => ArticleIndexCheckStatus::NotIndexed,
-            'PARTIAL', 'NEUTRAL', 'VERDICT_UNSPECIFIED', '' => ArticleIndexCheckStatus::Unknown,
+            // On Google but with issues — still indexed for checklist purposes.
+            'PARTIAL' => ArticleIndexCheckStatus::Indexed,
+            // Explicitly not on Google, or unknown to Google (neither indexed nor excluded).
+            'FAIL', 'NEUTRAL' => ArticleIndexCheckStatus::NotIndexed,
+            'VERDICT_UNSPECIFIED', '' => ArticleIndexCheckStatus::Unknown,
             default => ArticleIndexCheckStatus::Unknown,
         };
     }

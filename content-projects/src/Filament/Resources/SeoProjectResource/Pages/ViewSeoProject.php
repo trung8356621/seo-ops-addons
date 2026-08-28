@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResour
 
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource;
+use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithAuditNotes;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithContentProjectPublishingActions;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithDraftSplit;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithIdeaCandidates;
@@ -66,6 +67,7 @@ use Throwable;
  */
 final class ViewSeoProject extends Page
 {
+    use InteractsWithAuditNotes;
     use InteractsWithContentProjectPublishingActions;
     use InteractsWithDraftSplit;
     use InteractsWithIdeaCandidates;
@@ -247,6 +249,7 @@ final class ViewSeoProject extends Page
 
         $this->mountInteractsWithSeoAuditSuggestions();
         $this->mountInteractsWithNewContentSuggestions();
+        $this->mountInteractsWithAuditNotes();
         $this->mountInteractsWithIdeaCandidates();
         $this->mountInteractsWithDraftSplit();
     }
@@ -605,7 +608,9 @@ final class ViewSeoProject extends Page
                 ->icon('heroicon-o-queue-list')
                 ->color('primary')
                 ->url(fn (): string => SeoProjectResource::getPublishingQueueUrl($project))
-                ->visible(fn (): bool => SeoAccessControl::canManageContentProjectWorkflow()),
+                ->visible(fn (): bool => SeoAccessControl::canManageContentProjectWorkflow()
+                    && ! $project->isDraftPlanning()
+                    && ! $project->isProjectArchived()),
             Actions\Action::make('edit_project')
                 ->label(__('seo-content-ai::filament.projects.edit_project'))
                 ->icon('heroicon-o-pencil-square')
@@ -622,9 +627,12 @@ final class ViewSeoProject extends Page
                     ->icon('heroicon-o-archive-box')
                     ->color('danger')
                     ->requiresConfirmation()
-                    ->visible(fn (): bool => SeoAccessControl::canArchiveContentProjects())
+                    ->visible(fn (): bool => SeoAccessControl::canArchiveContentProjects()
+                        && ! $project->isDraftPlanning()
+                        && ! $project->isProjectArchived()
+                        && ! $project->isArchive())
                     ->disabled(function () use ($project): bool {
-                        if ($project->isProjectArchived()) {
+                        if ($project->isProjectArchived() || $project->isDraftPlanning()) {
                             return true;
                         }
 
@@ -635,6 +643,9 @@ final class ViewSeoProject extends Page
                     ->tooltip(function () use ($project): ?string {
                         if ($project->isProjectArchived()) {
                             return 'Project already archived.';
+                        }
+                        if ($project->isDraftPlanning()) {
+                            return null;
                         }
 
                         $gate = app(ArchiveContentProjectService::class)->archiveGate($project);
@@ -729,9 +740,13 @@ final class ViewSeoProject extends Page
                 ->icon('heroicon-m-ellipsis-vertical')
                 ->color('gray')
                 ->button()
-                ->visible(fn (): bool => (
-                    SeoAccessControl::canArchiveContentProjects()
-                ) || SeoProjectResource::allowsDevTestGenerateUi()),
+                ->visible(fn (): bool => ! $project->isDraftPlanning()
+                    && ! $project->isProjectArchived()
+                    && ! $project->isArchive()
+                    && (
+                        SeoAccessControl::canArchiveContentProjects()
+                        || SeoProjectResource::allowsDevTestGenerateUi()
+                    )),
         ];
     }
 

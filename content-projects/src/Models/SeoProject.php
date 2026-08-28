@@ -340,13 +340,13 @@ class SeoProject extends Model
     public static function statusOptions(): array
     {
         return [
-            self::STATUS_DRAFT => 'Draft',
-            self::STATUS_APPROVED => 'Đã duyệt',
-            self::STATUS_PENDING => 'Chờ duyệt',
-            self::STATUS_MANUAL => 'Thủ công',
-            self::STATUS_RUNNING => 'Đang chạy',
-            self::STATUS_COMPLETED => 'Hoàn thành',
-            self::STATUS_PAUSED => 'Tạm dừng',
+            self::STATUS_DRAFT => (string) __('seo-content-ai::filament.projects.status_draft'),
+            self::STATUS_APPROVED => (string) __('seo-content-ai::filament.projects.status_approved'),
+            self::STATUS_PENDING => (string) __('seo-content-ai::filament.projects.status_pending'),
+            self::STATUS_MANUAL => (string) __('seo-content-ai::filament.projects.status_manual'),
+            self::STATUS_RUNNING => (string) __('seo-content-ai::filament.projects.status_running'),
+            self::STATUS_COMPLETED => (string) __('seo-content-ai::filament.projects.status_completed'),
+            self::STATUS_PAUSED => (string) __('seo-content-ai::filament.projects.status_paused'),
         ];
     }
 }

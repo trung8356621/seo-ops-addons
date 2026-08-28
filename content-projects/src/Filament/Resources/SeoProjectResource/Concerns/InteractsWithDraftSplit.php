@@ -10,6 +10,8 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Actor
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SplitDraftContentProjectCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectCommandBus;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\SplitDraftContentProjectService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterMonthlyCapacityService;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExecutionLimits;
 use Carbon\Carbon;
 use Filament\Notifications\Actions\Action as NotificationAction;
 use Filament\Notifications\Notification;
@@ -22,21 +24,23 @@ trait InteractsWithDraftSplit
 {
     public bool $draftSplitModalOpen = false;
 
-    /** first_n|selected|all */
+    /** first_n|all */
     public string $draftSplitMode = SplitDraftContentProjectCommand::MODE_FIRST_N;
 
-    public int $draftSplitQuantity = 30;
+    public int $draftSplitQuantity = ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS;
 
-    public string $draftSplitMonth = '';
-
-    public string $draftSplitName = '';
+    /**
+     * Selected writer user ids — never auto-filled.
+     *
+     * @var list<int|string>
+     */
+    public array $draftSplitWriterIds = [];
 
     public function mountInteractsWithDraftSplit(): void
     {
-        $this->draftSplitMonth = Carbon::now()->startOfMonth()->format('Y-m-d');
-        $this->draftSplitName = '';
-        $this->draftSplitQuantity = 30;
+        $this->draftSplitQuantity = ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS;
         $this->draftSplitMode = SplitDraftContentProjectCommand::MODE_FIRST_N;
+        $this->draftSplitWriterIds = [];
         $this->draftSplitModalOpen = false;
     }
 
@@ -47,34 +51,28 @@ trait InteractsWithDraftSplit
             return;
         }
 
-        $count = app(SplitDraftContentProjectService::class)->currentDraftItemCount($project);
-        if ($count <= 0) {
+        $splitter = app(SplitDraftContentProjectService::class);
+        $reviewed = $splitter->currentReviewedDraftItemCount($project);
+        if ($reviewed <= 0) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.projects.draft_split_empty_title'))
-                ->body(__('seo-content-ai::filament.projects.draft_split_empty_body'))
+                ->body(__('seo-content-ai::filament.projects.draft_split_empty_reviewed_body'))
                 ->warning()
                 ->send();
 
             return;
         }
 
-        $selected = $this->normalizeSelectedIds($this->selectedTaskIds ?? []);
-        $mode = $preferredMode ?? (
-            $selected !== []
-                ? SplitDraftContentProjectCommand::MODE_SELECTED
-                : SplitDraftContentProjectCommand::MODE_FIRST_N
-        );
+        $mode = $preferredMode === SplitDraftContentProjectCommand::MODE_ALL
+            ? SplitDraftContentProjectCommand::MODE_ALL
+            : SplitDraftContentProjectCommand::MODE_FIRST_N;
 
         $this->draftSplitMode = $mode;
-        $this->draftSplitQuantity = min(30, $count);
-        $this->draftSplitMonth = Carbon::now()->startOfMonth()->format('Y-m-d');
-        $domain = null;
-        try {
-            $domain = $project->site?->domain;
-        } catch (\Throwable) {
-            $domain = null;
-        }
-        $this->draftSplitName = SeoProject::defaultExecutionName($this->draftSplitMonth, is_string($domain) ? $domain : null);
+        $this->draftSplitQuantity = min(
+            ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS,
+            $reviewed,
+        );
+        $this->draftSplitWriterIds = [];
         $this->draftSplitModalOpen = true;
     }
 
@@ -83,34 +81,24 @@ trait InteractsWithDraftSplit
         $this->draftSplitModalOpen = false;
     }
 
+    public function updatedDraftSplitQuantity(): void
+    {
+        $this->clampDraftSplitInputs();
+    }
+
+    public function updatedDraftSplitMode(): void
+    {
+        $this->clampDraftSplitInputs();
+    }
+
+    public function updatedDraftSplitWriterIds(): void
+    {
+        $this->draftSplitWriterIds = $this->orderedSelectedWriterIds();
+    }
+
     public function activateAllDraftItems(): void
     {
-        $project = $this->requireProject();
-        if (! $project->isDraftPlanning()) {
-            return;
-        }
-
-        $count = app(SplitDraftContentProjectService::class)->currentDraftItemCount($project);
-        if ($count <= 0) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.projects.draft_split_empty_title'))
-                ->body(__('seo-content-ai::filament.projects.draft_split_empty_body'))
-                ->warning()
-                ->send();
-
-            return;
-        }
-
-        $this->draftSplitMode = SplitDraftContentProjectCommand::MODE_ALL;
-        $this->draftSplitMonth = Carbon::now()->startOfMonth()->format('Y-m-d');
-        $domain = null;
-        try {
-            $domain = $project->site?->domain;
-        } catch (\Throwable) {
-            $domain = null;
-        }
-        $this->draftSplitName = SeoProject::defaultExecutionName($this->draftSplitMonth, is_string($domain) ? $domain : null);
-        $this->confirmDraftSplit();
+        $this->openDraftSplitModal(SplitDraftContentProjectCommand::MODE_ALL);
     }
 
     public function confirmDraftSplit(): void
@@ -120,21 +108,14 @@ trait InteractsWithDraftSplit
             return;
         }
 
+        $this->clampDraftSplitInputs();
+        $writerIds = $this->orderedSelectedWriterIds();
+        $this->draftSplitWriterIds = $writerIds;
+
         $mode = strtolower(trim($this->draftSplitMode));
-        $itemRefs = [];
         $quantity = null;
 
-        if ($mode === SplitDraftContentProjectCommand::MODE_SELECTED) {
-            $itemRefs = $this->normalizeSelectedIds($this->selectedTaskIds ?? []);
-            if ($itemRefs === []) {
-                Notification::make()
-                    ->title(__('seo-content-ai::filament.projects.draft_split_no_selection'))
-                    ->warning()
-                    ->send();
-
-                return;
-            }
-        } elseif ($mode === SplitDraftContentProjectCommand::MODE_FIRST_N) {
+        if ($mode === SplitDraftContentProjectCommand::MODE_FIRST_N) {
             $quantity = max(1, (int) $this->draftSplitQuantity);
         } else {
             $mode = SplitDraftContentProjectCommand::MODE_ALL;
@@ -147,10 +128,9 @@ trait InteractsWithDraftSplit
                 projectRef: (int) $project->getKey(),
                 selectionMode: $mode,
                 quantity: $quantity,
-                itemRefs: $itemRefs,
-                targetMonth: $this->draftSplitMonth !== '' ? $this->draftSplitMonth : null,
-                projectName: trim($this->draftSplitName) !== '' ? trim($this->draftSplitName) : null,
+                itemRefs: [],
                 dryRun: false,
+                assigneeIds: $writerIds,
             ),
             ActorContext::user(
                 auth()->id() !== null ? (int) auth()->id() : null,
@@ -158,8 +138,6 @@ trait InteractsWithDraftSplit
                 $idemKey,
             ),
         );
-
-        $this->draftSplitModalOpen = false;
 
         if (! $result->success) {
             Notification::make()
@@ -171,15 +149,24 @@ trait InteractsWithDraftSplit
             return;
         }
 
+        $this->draftSplitModalOpen = false;
+        $this->draftSplitWriterIds = [];
+
         $moved = (int) ($result->metadata['moved_count'] ?? 0);
         $remaining = (int) ($result->metadata['remaining_count'] ?? 0);
-        $executionId = (int) ($result->metadata['execution_project_id'] ?? 0);
+        $executionIds = $result->metadata['execution_project_ids'] ?? [];
+        if (! is_array($executionIds)) {
+            $executionIds = [];
+        }
+        $executionId = (int) ($executionIds[0] ?? $result->metadata['execution_project_id'] ?? 0);
+        $projectCount = count($executionIds) > 0 ? count($executionIds) : ($executionId > 0 ? 1 : 0);
 
         $notification = Notification::make()
             ->title(__('seo-content-ai::filament.projects.draft_split_success_title'))
             ->body(__('seo-content-ai::filament.projects.draft_split_success_body', [
                 'moved' => $moved,
                 'remaining' => $remaining,
+                'projects' => $projectCount,
             ]))
             ->success();
 
@@ -204,35 +191,176 @@ trait InteractsWithDraftSplit
     }
 
     /**
-     * @return array{count: int, selected: int, month_options: array<string, string>, default_name: string}
+     * @return array{
+     *   count: int,
+     *   reviewed_count: int,
+     *   selected: int,
+     *   start_month: string,
+     *   start_month_label: string,
+     *   writers: list<array<string, mixed>>,
+     *   preview: list<array{user_id: int, user_name: string, item_count: int}>,
+     *   insufficient_slots: int,
+     *   insufficient_message: string,
+     *   can_create: bool,
+     *   selected_capacity: int,
+     *   max: int
+     * }
      */
     public function draftSplitUiState(): array
     {
         $project = $this->project;
-        if (! $project instanceof SeoProject || ! $project->isDraftPlanning()) {
-            return [
-                'count' => 0,
-                'selected' => 0,
-                'month_options' => [],
-                'default_name' => '',
+        $now = Carbon::now()->startOfMonth();
+        $capacity = app(ContentProjectWriterMonthlyCapacityService::class);
+        $selector = $this->draftSplitModalOpen
+            ? $capacity->writerSelectorPayload($now)
+            : [
+                'writers' => [],
+                'month' => $now->format('Y-m-d'),
+                'month_label' => $now->format('m/Y'),
+                'max' => ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS,
             ];
+        $empty = [
+            'count' => 0,
+            'reviewed_count' => 0,
+            'selected' => 0,
+            'start_month' => $now->format('Y-m-d'),
+            'start_month_label' => $now->format('m/Y'),
+            'writers' => $selector['writers'],
+            'preview' => [],
+            'insufficient_slots' => 0,
+            'insufficient_message' => '',
+            'can_create' => false,
+            'selected_capacity' => 0,
+            'max' => ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS,
+        ];
+
+        if (! $project instanceof SeoProject || ! $project->isDraftPlanning()) {
+            return $empty;
         }
 
-        $count = app(SplitDraftContentProjectService::class)->currentDraftItemCount($project);
-        $selected = count($this->normalizeSelectedIds($this->selectedTaskIds ?? []));
-        $now = Carbon::now()->startOfMonth();
-        $options = [];
-        for ($i = 0; $i < 6; $i++) {
-            $m = $now->copy()->addMonthsNoOverflow($i);
-            $options[$m->format('Y-m-d')] = $m->format('F Y');
+        $splitter = app(SplitDraftContentProjectService::class);
+        $reviewed = $splitter->currentReviewedDraftItemCount($project);
+        $total = $splitter->currentDraftItemCount($project);
+        $writerIds = $this->orderedSelectedWriterIds($selector['writers']);
+        $selectedCount = $this->selectedItemCount($reviewed);
+
+        $previewRows = [];
+        $insufficient = 0;
+        $insufficientMessage = '';
+        $selectedCapacity = 0;
+
+        if ($reviewed > 0) {
+            try {
+                $preview = $splitter->preview(
+                    $project,
+                    $this->draftSplitMode === SplitDraftContentProjectCommand::MODE_ALL
+                        ? SplitDraftContentProjectCommand::MODE_ALL
+                        : SplitDraftContentProjectCommand::MODE_FIRST_N,
+                    $this->draftSplitMode === SplitDraftContentProjectCommand::MODE_ALL ? null : $selectedCount,
+                    [],
+                    $writerIds,
+                );
+                $selectedCapacity = (int) ($preview['selected_capacity'] ?? 0);
+                $insufficient = (int) ($preview['insufficient_slots'] ?? 0);
+                $insufficientMessage = (string) ($preview['insufficient_message'] ?? '');
+                foreach ($preview['allocations'] ?? [] as $row) {
+                    if (! is_array($row)) {
+                        continue;
+                    }
+                    $previewRows[] = [
+                        'user_id' => (int) ($row['user_id'] ?? 0),
+                        'user_name' => (string) ($row['user_name'] ?? ''),
+                        'item_count' => (int) ($row['item_count'] ?? 0),
+                    ];
+                }
+            } catch (\Throwable) {
+                $previewRows = [];
+            }
         }
 
         return [
-            'count' => $count,
-            'selected' => $selected,
-            'month_options' => $options,
-            'default_name' => SeoProject::defaultExecutionName($now),
+            'count' => $reviewed,
+            'reviewed_count' => $reviewed,
+            'total_count' => $total,
+            'selected' => $selectedCount,
+            'start_month' => $now->format('Y-m-d'),
+            'start_month_label' => $now->format('m/Y'),
+            'writers' => $selector['writers'],
+            'preview' => $previewRows,
+            'insufficient_slots' => $insufficient,
+            'insufficient_message' => $insufficientMessage,
+            'can_create' => $reviewed > 0
+                && $selectedCount > 0
+                && $writerIds !== []
+                && $insufficient < 1
+                && $previewRows !== [],
+            'selected_capacity' => $selectedCapacity,
+            'max' => ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS,
         ];
+    }
+
+    protected function clampDraftSplitInputs(): void
+    {
+        $project = $this->project;
+        if (! $project instanceof SeoProject) {
+            return;
+        }
+
+        $reviewed = app(SplitDraftContentProjectService::class)->currentReviewedDraftItemCount($project);
+        if ($reviewed < 1) {
+            $this->draftSplitQuantity = 1;
+
+            return;
+        }
+
+        $this->draftSplitQuantity = min(max(1, (int) $this->draftSplitQuantity), $reviewed);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>|null  $writers
+     * @return list<int>
+     */
+    protected function orderedSelectedWriterIds(?array $writers = null): array
+    {
+        $selected = [];
+        foreach ($this->draftSplitWriterIds as $raw) {
+            $id = (int) $raw;
+            if ($id > 0) {
+                $selected[$id] = true;
+            }
+        }
+
+        if ($writers === null) {
+            $writers = app(ContentProjectWriterMonthlyCapacityService::class)
+                ->writerSelectorPayload(Carbon::now()->startOfMonth())['writers'];
+        }
+
+        $ordered = [];
+        foreach ($writers as $writer) {
+            $id = (int) ($writer['id'] ?? 0);
+            if ($id <= 0 || ! isset($selected[$id])) {
+                continue;
+            }
+            if (! empty($writer['full'])) {
+                continue;
+            }
+            $ordered[] = $id;
+        }
+
+        return $ordered;
+    }
+
+    protected function selectedItemCount(int $reviewed): int
+    {
+        if ($reviewed < 1) {
+            return 0;
+        }
+
+        if (strtolower(trim($this->draftSplitMode)) === SplitDraftContentProjectCommand::MODE_ALL) {
+            return $reviewed;
+        }
+
+        return min(max(1, (int) $this->draftSplitQuantity), $reviewed);
     }
 
     /**

@@ -13,6 +13,7 @@ use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMont
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use ReflectionMethod;
+use Tests\Support\LegacyAddonPath;
 
 /**
  * Guard: staff availability theo tháng (không toàn lịch sử active).
@@ -42,7 +43,7 @@ final class ContentProjectStaffMonthAvailabilityTest extends TestCase
         self::assertStringContainsString('KIND_MONTHLY', $source);
         self::assertStringContainsString('getUnassignedStaffForMonth', $source);
         self::assertStringContainsString('assertUnassignedForMonth', $source);
-        self::assertStringContainsString('lockForUpdate', $source);
+        self::assertStringContainsString('Month uniqueness retired', $source);
         self::assertStringContainsString("pluck('user_id')", $source);
         self::assertStringNotContainsString('nickname', $source);
         self::assertStringNotContainsString('display_name', $source);
@@ -61,7 +62,7 @@ final class ContentProjectStaffMonthAvailabilityTest extends TestCase
         self::assertStringContainsString('writer_id', $source);
     }
 
-    public function test_list_page_uses_planning_toolbar_not_static_widget_card(): void
+    public function test_list_page_uses_planning_month_toolbar_without_staff_without_project_ui(): void
     {
         $listSource = (string) file_get_contents(
             (string) (new ReflectionClass(ListSeoProjects::class))->getFileName(),
@@ -69,22 +70,14 @@ final class ContentProjectStaffMonthAvailabilityTest extends TestCase
 
         self::assertStringContainsString('planningMonth', $listSource);
         self::assertStringContainsString('list-seo-projects', $listSource);
-        self::assertStringContainsString('return [];', $listSource); // getHeaderWidgets empty
+        self::assertStringContainsString('getHeaderWidgets', $listSource);
+        self::assertStringNotContainsString('getUnassignedStaffPayload', $listSource);
+        self::assertStringNotContainsString('staffSearch', $listSource);
 
-        $viewPath = dirname((string) (new ReflectionClass(ListSeoProjects::class))->getFileName(), 5)
-            .DIRECTORY_SEPARATOR.'resources'
-            .DIRECTORY_SEPARATOR.'views'
-            .DIRECTORY_SEPARATOR.'filament'
-            .DIRECTORY_SEPARATOR.'resources'
-            .DIRECTORY_SEPARATOR.'seo-project-resource'
-            .DIRECTORY_SEPARATOR.'pages'
-            .DIRECTORY_SEPARATOR.'list-seo-projects.blade.php';
-
-        self::assertFileExists($viewPath);
-        $view = (string) file_get_contents($viewPath);
+        $view = LegacyAddonPath::read('resources/views/filament/resources/seo-project-resource/pages/list-seo-projects.blade.php');
         self::assertStringContainsString('wire:model.live="planningMonth"', $view);
-        self::assertStringContainsString('staffSearch', $view);
-        self::assertStringContainsString('max-h-72 overflow-y-auto', $view);
+        self::assertStringNotContainsString('unassigned_staff_badge', $view);
+        self::assertStringNotContainsString('staffSearch', $view);
         self::assertStringNotContainsString('fi-wi-widget', $view);
 
         self::assertFalse(UnassignedContentProjectStaffWidget::canView());
@@ -99,9 +92,10 @@ final class ContentProjectStaffMonthAvailabilityTest extends TestCase
         self::assertStringContainsString('ContentProjectMonthContext', $source);
         self::assertStringContainsString("request()->query('month'", $source);
         self::assertStringContainsString("request()->query('staff'", $source);
-        self::assertStringContainsString('assertUnassignedForMonth', $source);
         self::assertStringContainsString('withAssignmentLock', $source);
         self::assertStringContainsString('shouldEnforceStaffMonthUniqueness', $source);
+        self::assertStringContainsString('return false;', $source);
+        self::assertStringNotContainsString('assertUnassignedForMonth($userId', $source);
     }
 
     public function test_form_staff_options_react_to_month(): void
@@ -112,22 +106,17 @@ final class ContentProjectStaffMonthAvailabilityTest extends TestCase
 
         self::assertStringContainsString('groupedWriterSelectOptions(', $source);
         self::assertStringContainsString('groupedSelectOptions($month)', $source);
-        self::assertStringContainsString('unassigned_staff_already_assigned', $source);
+        self::assertStringContainsString('eligible_staff_heading', $source);
         self::assertStringContainsString('afterStateUpdated', $source);
     }
 
     public function test_translations_cover_month_scoped_copy(): void
     {
-        $en = (string) file_get_contents(
-            dirname((string) (new ReflectionClass(SeoProjectResource::class))->getFileName(), 3)
-            .DIRECTORY_SEPARATOR.'lang'.DIRECTORY_SEPARATOR.'en'.DIRECTORY_SEPARATOR.'filament.php',
-        );
-        $vi = (string) file_get_contents(
-            dirname((string) (new ReflectionClass(SeoProjectResource::class))->getFileName(), 3)
-            .DIRECTORY_SEPARATOR.'lang'.DIRECTORY_SEPARATOR.'vi'.DIRECTORY_SEPARATOR.'filament.php',
-        );
+        $en = LegacyAddonPath::read('lang/en/filament.php');
+        $vi = LegacyAddonPath::read('lang/vi/filament.php');
 
-        foreach (['planning_month', 'unassigned_staff_view', 'unassigned_staff_search', 'unassigned_staff_badge', 'unassigned_staff_already_assigned', 'staff_availability', 'project_month'] as $key) {
+        // Legacy one-project-per-user keys may remain in lang; list UI no longer surfaces them.
+        foreach (['planning_month', 'project_month', 'eligible_staff_heading'] as $key) {
             self::assertStringContainsString("'{$key}'", $en);
             self::assertStringContainsString("'{$key}'", $vi);
         }

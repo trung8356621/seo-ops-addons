@@ -43,7 +43,23 @@ final class KeywordClusterLinkAggregateParityTest extends TestCase
         $articleA = $this->createArticle('Focus A');
         $articleB = $this->createArticle('Focus B');
 
-        // 2 focus articles via distinct target_article_id; 3 link rows total (1 without target).
+        // Focus via main_article_id + link targets; same article must not double-count.
+        DB::connection('omi_seo_ai')->table('keyword_meta')->insert([
+            [
+                'keyword_id' => (int) $kw1->id,
+                'meta_key' => 'main_article_id',
+                'meta_value' => (string) $articleA,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+            [
+                'keyword_id' => (int) $kw2->id,
+                'meta_key' => 'main_article_id',
+                'meta_value' => (string) $articleB,
+                'created_at' => now(),
+                'updated_at' => now(),
+            ],
+        ]);
         $this->createLinkMap((int) $kw1->id, $articleA, $articleA);
         $this->createLinkMap((int) $kw1->id, $articleA, $articleB);
         $this->createLinkMap((int) $kw2->id, $articleB, null);
@@ -66,18 +82,21 @@ final class KeywordClusterLinkAggregateParityTest extends TestCase
 
     public function test_zero_focus_and_zero_links_still_surface_counts(): void
     {
-        $this->seedMember('túi empty');
+        $kw = $this->seedMember('túi empty');
+        // Inventory requires a linked source; keep target null so focus count stays 0.
+        $articleId = $this->createArticle('Source only');
+        $this->createLinkMap((int) $kw->id, $articleId, null);
 
         $query = app(KeywordClusterQuery::class);
         $stats = $query->memberLinkStats($query->memberKeywordIds(self::SITE_ID, self::CLUSTER_KEY));
         self::assertSame(0, $stats['article_count']);
-        self::assertSame(0, $stats['internal_link_count']);
+        self::assertSame(1, $stats['internal_link_count']);
 
         $detail = app(KeywordClusterDetailBuilder::class)->build(self::SITE_ID, self::CLUSTER_KEY);
         self::assertNotNull($detail);
         self::assertSame(0, (int) $detail['article_count']);
-        self::assertSame(0, (int) $detail['internal_links']);
-        self::assertSame(0, (int) $detail['internal_link_count']);
+        self::assertSame(1, (int) $detail['internal_links']);
+        self::assertSame(1, (int) $detail['internal_link_count']);
         self::assertSame(1, (int) $detail['keyword_count']);
     }
 

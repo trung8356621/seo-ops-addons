@@ -87,6 +87,9 @@ final class SocialShareActionsTest extends TestCase
         self::assertStringNotContainsString('setup', $blade);
         self::assertStringContainsString('noopener noreferrer', $blade);
         self::assertStringContainsString('copy_link', $blade);
+        self::assertStringContainsString('omiCopyText', $blade);
+        self::assertStringContainsString('fi-social-share-btn', $blade);
+        self::assertStringNotContainsString('navigator.clipboard.writeText', $blade);
     }
 
     public function test_social_profile_model_remains_for_future_automation(): void

@@ -29,6 +29,7 @@ final class GscUrlInspectionService
     ) {}
 
     /**
+     * @param  array{url?: string, require_observed_publish?: bool}|null  $options
      * @return array{
      *   ok: bool,
      *   queued: bool,
@@ -47,7 +48,7 @@ final class GscUrlInspectionService
      *   recovered_from_dropped: bool,
      * }
      */
-    public function inspectArticle(int $articleId, ?int $actorId = null): array
+    public function inspectArticle(int $articleId, ?int $actorId = null, ?array $options = null): array
     {
         $article = SeoArticle::query()->with(['wordpressLink', 'articleMetas'])->find($articleId);
         if (! $article instanceof SeoArticle) {
@@ -60,8 +61,8 @@ final class GscUrlInspectionService
         }
 
         try {
-            return $this->locks->withArticleLock($siteId, $articleId, function () use ($article, $articleId, $siteId, $actorId): array {
-                return $this->inspectUnlocked($article, $articleId, $siteId, $actorId);
+            return $this->locks->withArticleLock($siteId, $articleId, function () use ($article, $articleId, $siteId, $actorId, $options): array {
+                return $this->inspectUnlocked($article, $articleId, $siteId, $actorId, $options);
             }, 0);
         } catch (RuntimeException $e) {
             if (str_contains($e->getMessage(), 'operation.locked')) {
@@ -78,11 +79,128 @@ final class GscUrlInspectionService
     }
 
     /**
+     * Inspect a pre-resolved public URL for a site.
+     * Records Index Health only when the Article still exists; otherwise returns GSC verdict only.
+     *
      * @return array<string, mixed>
      */
-    private function inspectUnlocked(SeoArticle $article, int $articleId, int $siteId, ?int $actorId): array
+    public function inspectResolvedUrl(int $siteId, string $url, int $articleId = 0, ?int $actorId = null): array
     {
-        if (! $this->eligibility->isEligible($article)) {
+        $url = trim($url);
+        if ($siteId <= 0) {
+            return $this->failure($articleId, 0, 'article.invalid_site', 'Site is required.');
+        }
+        if ($url === '' || ! $this->urls->isPublicHttpUrl($url)) {
+            return $this->failure($articleId, $siteId, 'article.no_url', 'Canonical public URL is required.');
+        }
+
+        $article = null;
+        if ($articleId > 0) {
+            $found = SeoArticle::query()->with(['wordpressLink', 'articleMetas'])->find($articleId);
+            if ($found instanceof SeoArticle && (int) ($found->site_id ?? 0) === $siteId) {
+                $article = $found;
+            }
+        }
+
+        if ($article instanceof SeoArticle) {
+            try {
+                return $this->locks->withArticleLock($siteId, $articleId, function () use ($article, $articleId, $siteId, $actorId, $url): array {
+                    return $this->inspectUnlocked($article, $articleId, $siteId, $actorId, [
+                        'url' => $url,
+                        'require_observed_publish' => false,
+                    ]);
+                }, 0);
+            } catch (RuntimeException $e) {
+                if (str_contains($e->getMessage(), 'operation.locked')) {
+                    return $this->failure(
+                        $articleId,
+                        $siteId,
+                        'gsc.inspection_locked',
+                        'URL Inspection already in progress for this article.',
+                    );
+                }
+
+                return $this->failure($articleId, $siteId, 'gsc.failed', $e->getMessage());
+            }
+        }
+
+        // Orphan archive URL — GSC inspect without Index Health recorder.
+        return $this->inspectUrlOnly($siteId, $url, $articleId);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function inspectUrlOnly(int $siteId, string $url, int $articleId): array
+    {
+        try {
+            $binding = $this->bindings->resolveForSite($siteId);
+        } catch (GscUrlInspectionApiException $e) {
+            return $this->failure($articleId, $siteId, $e->errorCode, $e->getMessage(), null, $url);
+        }
+
+        $propertyUri = (string) $binding['property_uri'];
+
+        try {
+            $inspection = $this->client->inspect($url, $propertyUri, $binding['connection']);
+        } catch (GscUrlInspectionApiException $e) {
+            return $this->failure(
+                $articleId,
+                $siteId,
+                $e->errorCode,
+                $e->getMessage(),
+                $propertyUri,
+                $url,
+                rateLimited: $e->rateLimited,
+            );
+        } catch (Throwable $e) {
+            return $this->failure(
+                $articleId,
+                $siteId,
+                'gsc.transient_error',
+                mb_substr(trim($e->getMessage()), 0, 240) ?: 'GSC URL Inspection failed.',
+                $propertyUri,
+                $url,
+            );
+        }
+
+        $checkStatus = $this->mapper->map($inspection);
+
+        return [
+            'ok' => true,
+            'queued' => false,
+            'article_id' => $articleId,
+            'site_id' => $siteId,
+            'url' => $url,
+            'property_uri' => $propertyUri,
+            'check_status' => $checkStatus->value,
+            'effective_health' => $checkStatus->value,
+            'check_id' => null,
+            'source' => GscUrlInspectionPolicy::sourceKey(),
+            'diagnostics' => $inspection->diagnostics(),
+            'error_code' => null,
+            'error_message' => null,
+            'transitioned_to_dropped' => false,
+            'recovered_from_dropped' => false,
+            'rate_limited' => false,
+        ];
+    }
+
+    /**
+     * @param  array{url?: string, require_observed_publish?: bool}|null  $options
+     * @return array<string, mixed>
+     */
+    private function inspectUnlocked(
+        SeoArticle $article,
+        int $articleId,
+        int $siteId,
+        ?int $actorId,
+        ?array $options = null,
+    ): array {
+        $requireObservedPublish = (bool) ($options['require_observed_publish'] ?? true);
+        $urlOverride = isset($options['url']) ? trim((string) $options['url']) : '';
+
+        if ($requireObservedPublish && ! $this->eligibility->isEligible($article)) {
             return $this->failure(
                 $articleId,
                 $siteId,
@@ -91,7 +209,9 @@ final class GscUrlInspectionService
             );
         }
 
-        $url = $this->urls->resolve($article);
+        $url = $urlOverride !== '' && $this->urls->isPublicHttpUrl($urlOverride)
+            ? $urlOverride
+            : $this->urls->resolve($article);
         if ($url === null || $url === '') {
             return $this->failure($articleId, $siteId, 'article.no_url', 'Canonical public URL is required.');
         }
@@ -138,8 +258,9 @@ final class GscUrlInspectionService
                 $actorId,
                 null,
                 null,
-                true,
+                $requireObservedPublish,
                 $diagnostics,
+                $url,
             );
         } catch (Throwable $e) {
             return $this->failure(

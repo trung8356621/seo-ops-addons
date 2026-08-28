@@ -4,14 +4,23 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\NewContent;
 
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\AuditNoteDnaNormalizer;
+
 /**
- * Create-new planner options. Quantity + optional notes + content type (post|product).
+ * Create-new planner options. Quantity + optional notes + content type (post|product)
+ * + structured SEO Audit Note items (Cluster DNA snapshots).
  *
  * @phpstan-type Options array{
  *   quantity: int,
  *   direction: string,
  *   focus: string,
  *   notes: string,
+ *   note_items: list<array{
+ *     cluster_ref: string,
+ *     cluster_name_snapshot: string,
+ *     mcp_share_snapshot: float,
+ *     dna: list<array{phrase: string, weight: int, source: string}>
+ *   }>,
  *   post_type: string,
  *   content_type: string,
  *   taxonomy: string,
@@ -69,11 +78,16 @@ final class NewContentSuggestionOptions
             $notes = $focus;
         }
 
+        $noteItems = AuditNoteDnaNormalizer::normalizeNoteItems(
+            is_array($input['note_items'] ?? null) ? $input['note_items'] : [],
+        );
+
         return [
             'quantity' => max(self::MIN_QUANTITY, min(self::MAX_QUANTITY, $quantity)),
             'direction' => $direction,
             'focus' => $focus,
             'notes' => $notes,
+            'note_items' => $noteItems,
             'post_type' => $contentType,
             'content_type' => $contentType,
             'taxonomy' => trim((string) ($input['taxonomy'] ?? '')),
@@ -123,6 +137,7 @@ final class NewContentSuggestionOptions
             'content_type' => $normalized['content_type'],
             'post_type' => $normalized['post_type'],
             'notes' => $normalized['notes'],
+            'note_items' => $normalized['note_items'],
             'primary_language' => $primaryLanguage,
             'context' => [
                 'planning_intelligence' => $normalized['use_keyword_intelligence'],

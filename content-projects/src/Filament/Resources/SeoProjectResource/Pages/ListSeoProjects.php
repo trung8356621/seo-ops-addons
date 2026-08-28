@@ -22,10 +22,8 @@ class ListSeoProjects extends ListRecords
 
     protected static string $view = 'seo-content-ai::filament.resources.seo-project-resource.pages.list-seo-projects';
 
-    /** Month context YYYY-MM — dùng chung toolbar + table filter. */
+    /** Month context YYYY-MM — sync toolbar + table filter. */
     public string $planningMonth = '';
-
-    public string $staffSearch = '';
 
     public function mount(): void
     {
@@ -82,7 +80,6 @@ class ListSeoProjects extends ListRecords
     {
         $normalized = ContentProjectMonthContext::normalize(is_string($value) ? $value : null);
         $this->planningMonth = $normalized;
-        $this->staffSearch = '';
         $this->applyPlanningMonthToTableFilters($normalized);
         $this->redirect($this->planningMonthUrl($normalized), navigate: true);
     }
@@ -91,7 +88,6 @@ class ListSeoProjects extends ListRecords
     {
         $fromFilter = $this->monthFromTableFilters();
         if ($fromFilter === null) {
-            // "All months" — widget vẫn cần một tháng cụ thể (fallback current).
             return;
         }
 
@@ -100,32 +96,6 @@ class ListSeoProjects extends ListRecords
         }
 
         $this->planningMonth = $fromFilter;
-    }
-
-    public function updatedStaffSearch(): void
-    {
-        // Livewire re-render popover list theo search.
-    }
-
-    public function canViewUnassignedStaff(): bool
-    {
-        return app(ContentProjectStaffAvailabilityService::class)->canViewUnassignedStaff();
-    }
-
-    /**
-     * @return array{
-     *     month: string,
-     *     month_display: string,
-     *     total: int,
-     *     staff: list<array{id: int, name: string, email: string, initials: string, create_url: string}>
-     * }
-     */
-    public function getUnassignedStaffPayload(): array
-    {
-        $month = ContentProjectMonthContext::normalize($this->planningMonth ?: null);
-
-        return app(ContentProjectStaffAvailabilityService::class)
-            ->widgetPayload($month, $this->staffSearch !== '' ? $this->staffSearch : null);
     }
 
     /**

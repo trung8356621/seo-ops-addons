@@ -81,29 +81,27 @@
             </div>
 
             <footer data-keyword-detail-footer class="keyword-detail-drawer__footer hidden">
-                <x-filament::button
+                <button
+                    type="button"
                     data-keyword-detail-footer-edit
-                    size="md"
-                    color="gray"
-                    icon="heroicon-m-pencil-square"
-                    wire:click="editSelectedKeyword"
-                    class="keyword-detail-drawer__footer-btn hidden w-full"
+                    class="keyword-detail-drawer__footer-btn keyword-detail-drawer__footer-btn--edit hidden"
                 >
+                    <x-filament::icon icon="heroicon-m-pencil-square" class="h-5 w-5" />
                     {{ __('seo-content-ai::filament.keyword.drawer_edit_article') }}
-                </x-filament::button>
+                </button>
 
-                <x-filament::button
-                    tag="a"
+                <a
                     data-keyword-detail-analyze
-                    size="md"
-                    color="primary"
-                    icon="heroicon-m-chart-bar-square"
                     href="#"
                     target="_blank"
-                    class="keyword-detail-drawer__footer-btn hidden w-full pointer-events-none opacity-50"
+                    rel="noopener noreferrer"
+                    class="keyword-detail-drawer__footer-btn keyword-detail-drawer__footer-btn--analyze is-disabled hidden"
+                    aria-disabled="true"
+                    tabindex="-1"
                 >
+                    <x-filament::icon icon="heroicon-m-chart-bar-square" class="h-5 w-5" />
                     {{ __('seo-content-ai::filament.keyword.drawer_analyze_content') }}
-                </x-filament::button>
+                </a>
             </footer>
         </div>
     </aside>

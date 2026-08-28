@@ -248,7 +248,8 @@ final class GoogleSearchConsoleConnectionService
             return false;
         }
 
-        return $this->resolveEffectiveStatus($connection) === 'connected';
+        // Access-token expiry is recoverable via refresh_token — still "connected" for API use.
+        return in_array($this->resolveEffectiveStatus($connection), ['connected', 'token_expired'], true);
     }
 
     public function resolveEffectiveStatus(SeoGscMasterConnection $connection): string

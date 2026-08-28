@@ -26,6 +26,11 @@ final class GscUrlInspectionApiException extends \RuntimeException
         return new self($message, 'gsc.property_missing', 0, false, true, false);
     }
 
+    public static function missingOAuth(string $message): self
+    {
+        return new self($message, 'gsc.oauth_missing', 0, false, true, false);
+    }
+
     public static function permission(string $message, int $status = 403): self
     {
         return new self($message, 'gsc.permission_denied', $status, false, true, false);

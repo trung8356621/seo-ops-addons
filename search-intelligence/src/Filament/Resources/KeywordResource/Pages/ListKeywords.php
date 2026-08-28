@@ -316,6 +316,22 @@ class ListKeywords extends ListRecords
     protected function listPageTableActions(): array
     {
         return [
+            // Copy lives in the same actions <td> as "..." — not a separate ViewColumn.
+            // Clipboard is handled client-side by keyword-quick-copy-script (capture click).
+            Tables\Actions\Action::make('quick_copy')
+                ->label(__('seo-content-ai::filament.keyword.quick_copy'))
+                ->icon('heroicon-o-clipboard-document')
+                ->iconButton()
+                ->color('gray')
+                ->extraAttributes(fn (Keyword $record): array => [
+                    'class' => 'keyword-row-action keyword-row-action--copy',
+                    'data-keyword-copy-phrase' => (string) ($record->phrase ?? ''),
+                    'title' => __('seo-content-ai::filament.keyword.quick_copy'),
+                    'aria-label' => __('seo-content-ai::filament.keyword.quick_copy'),
+                ])
+                ->action(static function (): void {
+                    // No-op: keyword-quick-copy-script intercepts in capture phase.
+                }),
             Tables\Actions\ActionGroup::make([
                 Tables\Actions\Action::make('item_edit')
                     ->label(__('seo-content-ai::filament.keyword.edit'))
@@ -367,8 +383,12 @@ class ListKeywords extends ListRecords
                 ->icon('heroicon-o-ellipsis-horizontal')
                 ->iconButton()
                 ->color('gray')
-                ->tooltip(__('seo-content-ai::filament.keyword.keyword_item_actions'))
-                ->extraAttributes(['class' => 'keyword-row-action keyword-row-action--menu'])
+                // No Filament tippy tooltip: ActionGroup iconButton already has an accessible
+                // label, and tippy instances leak ("hide() on destroyed instance") when rows morph.
+                ->extraAttributes([
+                    'class' => 'keyword-row-action keyword-row-action--menu',
+                    'title' => __('seo-content-ai::filament.keyword.keyword_item_actions'),
+                ])
                 ->visible(fn (Keyword $record): bool => SeoAccessControl::canMutateInSeoPanel()
                     && (($siteId = KeywordResource::resolveKeywordSiteId($record)) === null
                         || SeoAccessControl::canAccessSite((int) $siteId))),
