@@ -8,6 +8,7 @@ use Tests\Support\ProjectRoot;
 
 use Omnichannel\Addons\Agent\Automation\Presentation\AutomationFlowPresentationRegistry;
 use Omnichannel\Addons\Agent\Filament\Pages\AutomationFlowsPage;
+use Omnichannel\Addons\Seo\Filament\Concerns\BelongsToAdminAutomationPanel;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 
@@ -42,19 +43,26 @@ final class AutomationAdminFlowsUiTest extends TestCase
         );
     }
 
-    public function test_admin_panel_provider_does_not_register_automation_ui(): void
+    public function test_admin_panel_provider_registers_automation_ui(): void
     {
         $providerPath = ProjectRoot::path().'/app/Providers/Filament/AdminPanelProvider.php';
         self::assertFileExists($providerPath);
 
         $source = (string) file_get_contents($providerPath);
-        self::assertStringNotContainsString('AutomationFlowsPage::class', $source);
-        self::assertStringNotContainsString('AutomationRuleResource::class', $source);
-        self::assertStringNotContainsString('AutomationExecutionResource::class', $source);
-        self::assertStringNotContainsString('AutomationSettings::class', $source);
-        self::assertStringNotContainsString('AutomationWorkflowBuilder::class', $source);
-        self::assertStringNotContainsString('AutomationOperationsDashboard::class', $source);
-        self::assertStringNotContainsString('ManageServices::class', $source);
+        self::assertStringContainsString('AutomationFlowsPage::class', $source);
+        self::assertStringContainsString('AutomationRuleResource::class', $source);
+        self::assertStringContainsString('AutomationExecutionResource::class', $source);
+        self::assertStringContainsString('AutomationSettings::class', $source);
+        self::assertStringContainsString('AutomationWorkflowBuilder::class', $source);
+        self::assertStringContainsString('AutomationOperationsDashboard::class', $source);
+    }
+
+    public function test_automation_admin_panel_id_is_admin(): void
+    {
+        $trait = new ReflectionClass(BelongsToAdminAutomationPanel::class);
+        $method = $trait->getMethod('adminPanelId');
+        // Trait method is public static on using class
+        self::assertSame('admin', AutomationFlowsPage::adminPanelId());
     }
 
     public function test_custom_login_does_not_send_staff_to_admin_automation(): void

@@ -21,9 +21,9 @@ trait InteractsWithSeoConnectionRoutes
         ?string $panel = null,
         ?\Illuminate\Database\Eloquent\Model $tenant = null,
     ): string {
-        $panelId = $panel ?? \Filament\Facades\Filament::getCurrentPanel()?->getId();
+        // User-facing defaults to short Main (/seo/...). Pass panel: 'seo' only when hash URL is required.
+        $panelId = $panel ?? 'seo-main';
 
-        // Short Main panel routes have no {connection_hash} parameter.
         if ($panelId === 'seo-main') {
             return parent::getUrl($parameters, $isAbsolute, $panelId, $tenant);
         }
@@ -31,7 +31,7 @@ trait InteractsWithSeoConnectionRoutes
         return parent::getUrl(
             SeoConnectionContext::mergePanelRouteParameters($parameters),
             $isAbsolute,
-            $panel,
+            $panelId,
             $tenant,
         );
     }

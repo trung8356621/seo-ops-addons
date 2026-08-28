@@ -229,7 +229,8 @@ final class CreateArticlesFromTaskService
             );
         }
 
-        // Outline-only: single outline node, no article write.
+        // Outline-only: vẫn chạy Extract keywords + Save vocabulary research (canonical path).
+        // Không gọi single-node runner — tránh bypass action lưu vocabulary.
         $taskId = $this->settings->getPublishArticleTaskId();
         if ($taskId === null) {
             throw new \InvalidArgumentException(
@@ -258,17 +259,25 @@ final class CreateArticlesFromTaskService
                 'message' => $exception->getMessage(),
             ];
         }
-        $outlineStep = $this->workflowRunner->runSingleStep($task, $context, $outlineNodeId);
-        $ok = ($outlineStep['status'] ?? '') !== 'failed';
 
-        return [
-            'success' => $ok,
-            'article_id' => $context->article?->id,
-            'steps' => [$outlineStep],
-            'message' => $ok
-                ? 'Outline regenerated.'
-                : trim((string) ($outlineStep['message'] ?? 'Outline rerun failed.')),
-        ];
+        $steps = $this->workflowRunner->runFromNodeId(
+            $task,
+            $context,
+            $outlineNodeId,
+            seedOutlineFromArticle: false,
+            skipContentWriting: true,
+        );
+
+        return $this->finalizeWorkflowGraphRun(
+            $context,
+            $task,
+            $resolvedSiteId,
+            ContentProjectItemIdentity::topic(
+                isset($context->variables['post_title']) ? (string) $context->variables['post_title'] : null,
+                isset($context->variables['focus_keyword']) ? (string) $context->variables['focus_keyword'] : null,
+            ) ?: 'rewrite',
+            $steps,
+        );
     }
 
     public function runPublishWorkflowForContext(TaskTestContext $context, int $siteId): array

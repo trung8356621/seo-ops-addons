@@ -55,17 +55,24 @@ MD;
 Chuyên gia tối ưu hóa công cụ tìm kiếm (SEO Specialist) và Chuyên gia Data/Ngôn ngữ học máy tính.
 
 ## Bối cảnh
-Cần tạo bộ tài liệu chuẩn bị cho quy trình sản xuất nội dung SEO. Hệ thống yêu cầu 2 loại đầu ra riêng biệt: một bản dàn ý trực quan cho Copywriter và một bộ dữ liệu thô (raw data) dạng JSON để nạp vào tool tự động chấm điểm bài viết (Entity/N-gram checking).
+Nghiên cứu từ vựng / ngữ nghĩa cho **một bài viết cụ thể**. Mọi term phải bám sát tiêu đề và dàn ý bên dưới — không suy diễn chủ đề khác.
+
+## Semantic anchors (bắt buộc)
+- Tiêu đề bài viết (`post_title`): {{post_title}}
+- Dàn ý (`outline`):
+{{outline}}
+- Focus keyword (nếu có): {{keyword}}
+- Ngôn ngữ đầu ra: {{language}}
 
 ## Nhiệm vụ: Từ vựng
-Thực hiện nghiên cứu từ vựng và ngữ nghĩa chuyên sâu cho chủ đề trên. Tạo các danh sách (mỗi loại đúng 5 mục): Holonymy, Synonyms, Antonyms, Long-tail keywords, Semantic keywords, Salient keywords, Salient LSI keywords, Semantic LSI entities, Relational entities, Relevant entities, Semantic entities, Close entities, Salient entities, Related topics, và N-grams (Unigrams, Bigrams, Trigrams, Quadgrams, Quinquigrams).
+Thực hiện nghiên cứu từ vựng và ngữ nghĩa chuyên sâu cho tiêu đề và dàn ý ở trên. Tạo các danh sách (mỗi loại đúng 5 mục): Holonymy, Synonyms, Antonyms, Long-tail keywords, Semantic keywords, Salient keywords, Salient LSI keywords, Semantic LSI entities, Relational entities, Relevant entities, Semantic entities, Close entities, Salient entities, Related topics, và N-grams (Unigrams, Bigrams, Trigrams, Quadgrams, Quinquigrams).
 
 Quy tắc:
 Bắt buộc trả về định dạng Markdown thuần túy (không bọc trong block code JSON). Sử dụng thẻ Heading 3 (###) cho tên của mỗi nhóm từ khóa/thực thể (ví dụ: ### Holonymy, ### Synonyms). Bên dưới mỗi Heading, liệt kê chính xác 5 mục bằng dấu gạch đầu dòng (-). Không viết thêm bất kỳ văn bản giải thích nào khác.
 Toàn bộ kết quả của nhiệm vụ này phải được bọc trong cặp thẻ: [START_TASK_2_VOCABULARY] và [END_TASK_2_VOCABULARY].
 
 ## Định dạng đầu ra
-- Toàn bộ đầu ra sử dụng Tiếng Việt.
+- Toàn bộ đầu ra sử dụng ngôn ngữ {{language}} (mặc định Tiếng Việt nếu trống).
 - Bắt buộc chỉ trả về vùng:
 
 [START_TASK_2_VOCABULARY]
@@ -104,10 +111,13 @@ MD;
             markdown: self::VOCABULARY_MARKDOWN,
             portableUuid: self::VOCABULARY_PORTABLE_UUID,
             variables: [
-                ['name' => 'post_title', 'description' => 'Article title / topic'],
-                ['name' => 'keyword', 'description' => 'Focus keyword'],
+                ['name' => 'post_title', 'description' => 'Article title (required semantic anchor)'],
+                ['name' => 'outline', 'description' => 'Outline markdown from structure step (required)'],
+                ['name' => 'keyword', 'description' => 'Focus keyword (optional)'],
                 ['name' => 'topic', 'description' => 'Topic alias'],
+                ['name' => 'language', 'description' => 'Output language'],
             ],
+            refreshMarkdown: true,
         );
 
         return [
@@ -117,8 +127,36 @@ MD;
     }
 
     /**
+     * Force-refresh system Vocabulary prompt contract (post_title + outline anchors).
+     *
+     * @return array{prompt_id: int, updated: bool}
+     */
+    public function refreshVocabularyPromptContract(): array
+    {
+        $result = $this->installPrompt(
+            hookKey: self::VOCABULARY_HOOK,
+            promptName: self::VOCABULARY_PROMPT_NAME,
+            markdown: self::VOCABULARY_MARKDOWN,
+            portableUuid: self::VOCABULARY_PORTABLE_UUID,
+            variables: [
+                ['name' => 'post_title', 'description' => 'Article title (required semantic anchor)'],
+                ['name' => 'outline', 'description' => 'Outline markdown from structure step (required)'],
+                ['name' => 'keyword', 'description' => 'Focus keyword (optional)'],
+                ['name' => 'topic', 'description' => 'Topic alias'],
+                ['name' => 'language', 'description' => 'Output language'],
+            ],
+            refreshMarkdown: true,
+        );
+
+        return [
+            'prompt_id' => $result['prompt_id'],
+            'updated' => (bool) ($result['markdown_refreshed'] ?? false) || $result['created'],
+        ];
+    }
+
+    /**
      * @param  list<array{name: string, description: string}>  $variables
-     * @return array{prompt_id: int, created: bool, binding_set: bool}
+     * @return array{prompt_id: int, created: bool, binding_set: bool, markdown_refreshed?: bool}
      */
     private function installPrompt(
         string $hookKey,
@@ -126,10 +164,12 @@ MD;
         string $markdown,
         string $portableUuid,
         array $variables,
+        bool $refreshMarkdown = false,
     ): array {
         $existing = $this->findExisting($hookKey, $promptName, $portableUuid);
 
         $created = false;
+        $markdownRefreshed = false;
         if ($existing === null) {
             $existing = new SeoPrompt;
             $existing->fill([
@@ -151,6 +191,19 @@ MD;
             $existing->save();
             $this->portableIdentity->ensure($existing);
             $created = true;
+        } elseif ($refreshMarkdown) {
+            $current = trim((string) ($existing->markdown_content ?? ''));
+            $needsRefresh = $current !== trim($markdown)
+                || ! str_contains($current, '{{post_title}}')
+                || ! str_contains($current, '{{outline}}');
+            if ($needsRefresh) {
+                $existing->fill([
+                    'markdown_content' => $markdown,
+                    'variables' => $variables,
+                ]);
+                $existing->save();
+                $markdownRefreshed = true;
+            }
         }
 
         $promptId = (int) $existing->id;
@@ -167,6 +220,7 @@ MD;
             'prompt_id' => $promptId,
             'created' => $created,
             'binding_set' => $bindingSet,
+            'markdown_refreshed' => $markdownRefreshed,
         ];
     }
 

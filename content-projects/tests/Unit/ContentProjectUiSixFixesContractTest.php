@@ -39,8 +39,10 @@ final class ContentProjectUiSixFixesContractTest extends TestCase
         self::assertStringContainsString('getNavigationItems', $resource);
         self::assertStringContainsString('parentItem($parentLabel)', $resource);
         self::assertStringContainsString('PublishingQueueHub::getUrl()', $resource);
-        self::assertStringContainsString('filament.seo.pages.publishing-queue', $resource);
-        self::assertStringContainsString('filament.seo.resources.content-projects.*', $resource);
+        self::assertStringContainsString('SeoPanelRoutes::isPublishingQueueNav()', $resource);
+        self::assertStringContainsString('SeoPanelRoutes::isProjectsModule()', $resource);
+        self::assertStringContainsString('SeoPanelRoutes::isProjectPlannerNav()', $resource);
+        self::assertStringContainsString('SeoPanelRoutes::isProjectsListNav()', $resource);
     }
 
     public function test_image_picker_uses_per_page_28_and_tab_reset(): void

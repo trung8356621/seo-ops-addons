@@ -37,13 +37,13 @@ class PromptResource extends SeoPanelResource
 
     protected static ?string $navigationGroup = null;
 
-    protected static ?string $navigationLabel = 'Prompt management';
+    protected static ?string $navigationLabel = 'Prompts';
 
     protected static ?string $modelLabel = 'Prompt';
 
     protected static ?string $pluralModelLabel = 'Prompts';
 
-    protected static ?int $navigationSort = 14;
+    protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_PROMPTS;
 
     public static function canViewAny(): bool
     {

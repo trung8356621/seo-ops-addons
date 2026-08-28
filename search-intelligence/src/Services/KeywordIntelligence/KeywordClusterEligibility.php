@@ -43,37 +43,53 @@ final class KeywordClusterEligibility
                 'non_seo_keywords' => 0,
                 'non_seo_but_clustered' => 0,
                 'topic_clusters' => 0,
+                'hidden_keywords' => 0,
                 'system_groups' => 0,
                 'custom_groups' => 0,
             ];
         }
 
+        $hiddenMap = app(HideKeywordFromSeoService::class)->hiddenKeywordIdMap($keywordIds);
+        $hiddenIds = array_keys($hiddenMap);
+        $visibleIds = array_values(array_filter(
+            $keywordIds,
+            static fn (int $id): bool => ! isset($hiddenMap[$id]),
+        ));
+
         $classificationQuery = SeoKeywordClassification::query()->whereIn('keyword_id', $keywordIds);
         $classified = (clone $classificationQuery)->count();
         $unclassified = max(0, $total - $classified);
 
-        $seoEligible = (clone $classificationQuery)
+        $visibleClassification = SeoKeywordClassification::query()->whereIn(
+            'keyword_id',
+            $visibleIds === [] ? [0] : $visibleIds,
+        );
+
+        $seoEligible = (clone $visibleClassification)
             ->tap(fn (Builder $query): Builder => $this->applySeoEligibleScope($query))
             ->count();
 
-        $nonSeo = max(0, $classified - $seoEligible);
+        $nonSeo = max(0, $classified - count($hiddenIds) - $seoEligible);
+        if ($nonSeo < 0) {
+            $nonSeo = max(0, $classified - $seoEligible);
+        }
 
-        $clustered = (clone $classificationQuery)
+        $clustered = (clone $visibleClassification)
             ->tap(fn (Builder $query): Builder => $this->applySeoEligibleScope($query))
             ->tap(fn (Builder $query): Builder => $this->applyClusteredScope($query))
             ->count();
 
-        $unclustered = (clone $classificationQuery)
+        $unclustered = (clone $visibleClassification)
             ->tap(fn (Builder $query): Builder => $this->applySeoEligibleScope($query))
             ->tap(fn (Builder $query): Builder => $this->applyUnclusteredScope($query))
             ->count();
 
-        $nonSeoButClustered = (clone $classificationQuery)
+        $nonSeoButClustered = (clone $visibleClassification)
             ->tap(fn (Builder $query): Builder => $this->applyNonSeoScope($query))
             ->tap(fn (Builder $query): Builder => $this->applyClusteredScope($query))
             ->count();
 
-        $topicClusters = (int) (clone $classificationQuery)
+        $topicClusters = (int) (clone $visibleClassification)
             ->tap(fn (Builder $query): Builder => $this->applyClusteredScope($query))
             ->distinct()
             ->count('cluster_key');
@@ -88,6 +104,7 @@ final class KeywordClusterEligibility
             'non_seo_keywords' => $nonSeo,
             'non_seo_but_clustered' => $nonSeoButClustered,
             'topic_clusters' => $topicClusters,
+            'hidden_keywords' => count($hiddenIds),
             'system_groups' => 0,
             'custom_groups' => 0,
         ];
@@ -96,6 +113,10 @@ final class KeywordClusterEligibility
     public function isProposalCandidate(SeoKeywordClassification $row): bool
     {
         if (! $this->isSeoEligible($row)) {
+            return false;
+        }
+
+        if (app(HideKeywordFromSeoService::class)->isHidden((int) $row->keyword_id)) {
             return false;
         }
 
@@ -127,11 +148,28 @@ final class KeywordClusterEligibility
             return $query->whereRaw('0 = 1');
         }
 
-        return $query->whereHas(
+        return $this->applyNotHiddenKeywordScope($query)->whereHas(
             'seoClassification',
             function (Builder $classification): void {
                 $this->applySeoEligibleScope($classification);
                 $this->applyUnclusteredScope($classification);
+            },
+        );
+    }
+
+    /**
+     * Soft-hidden keywords stay in DB but leave default SEO / clustering pools.
+     *
+     * @param  Builder<Keyword>  $query
+     * @return Builder<Keyword>
+     */
+    public function applyNotHiddenKeywordScope(Builder $query): Builder
+    {
+        return $query->whereDoesntHave(
+            'metas',
+            static function (Builder $meta): void {
+                $meta->where('meta_key', \Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey::SeoHidden->value)
+                    ->where('meta_value', '1');
             },
         );
     }

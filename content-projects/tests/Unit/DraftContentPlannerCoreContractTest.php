@@ -160,7 +160,7 @@ final class DraftContentPlannerCoreContractTest extends TestCase
         self::assertStringContainsString('planner_fill_from_seo_audit', $draftPlanner);
         self::assertStringContainsString('planner_improve_heading', $draftPlanner);
         self::assertStringContainsString('content-project-new-content-card', $draftPlanner);
-        self::assertStringContainsString('filtersOpen', $draftPlanner);
+        self::assertStringContainsString('filtersOpen: true', $draftPlanner);
         self::assertStringNotContainsString('historyOpen', $draftPlanner);
         self::assertStringNotContainsString('planner_history', $draftPlanner);
         self::assertStringContainsString('content_planning_recent_filters', $draftPlanner);

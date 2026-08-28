@@ -88,6 +88,7 @@ final class ProductReviewAutomationPublishTest extends TestCase
             ProjectRoot::addonsPath().'/agent/src/Automation/BusinessHook/Actions/SyncArticleToWordPressHookAction.php',
         );
         self::assertStringContainsString('SyncArticleToWordPressPipeline', $source);
+        self::assertStringContainsString('ArticleWordPressBusinessSequence', $source);
         self::assertStringNotContainsString('PendingProductReviewReconciler', $source);
         self::assertStringNotContainsString('WordPressCommentReviewPublisher', $source);
     }

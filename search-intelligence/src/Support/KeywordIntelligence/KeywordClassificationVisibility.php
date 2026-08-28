@@ -379,7 +379,12 @@ final class KeywordClassificationVisibility
             ];
         }
 
-        $keywordQuery = Keyword::query();
+        // Active inventory counters only — staging Suggest belongs to SEO Audit.
+        $keywordQuery = Keyword::query()->where(function (Builder $builder): void {
+            $builder
+                ->whereNull('type')
+                ->orWhere('type', '!=', Keyword::TYPE_SUGGEST);
+        });
         if ($siteId !== null && $siteId > 0) {
             if (Schema::connection('omi_seo_ai')->hasColumn('keywords', 'site_id')) {
                 $keywordQuery->where(function (Builder $inner) use ($siteId): void {

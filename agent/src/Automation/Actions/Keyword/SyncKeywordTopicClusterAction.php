@@ -25,8 +25,8 @@ final class SyncKeywordTopicClusterAction implements BusinessAction
     {
         return new ActionDefinition(
             key: 'keyword.topic_cluster.sync',
-            name: 'Sync topic cluster',
-            description: 'Sync topic cluster keywords for an article (local).',
+            name: 'Sync vocabulary keywords',
+            description: 'Persist flat vocabulary keywords for an article (local).',
             module: 'keyword',
             sideEffect: ActionSideEffect::InternalWrite,
             riskLevel: ActionRiskLevel::Medium,
@@ -38,8 +38,8 @@ final class SyncKeywordTopicClusterAction implements BusinessAction
             ],
             outputSchema: [
                 'article_id' => ['type' => 'integer'],
-                'parent_id' => ['type' => 'integer'],
-                'children_count' => ['type' => 'integer'],
+                'focus_keyword_id' => ['type' => 'integer'],
+                'vocabulary_count' => ['type' => 'integer'],
             ],
             emittedEvents: ['keyword.topic_cluster_synced'],
         );
@@ -63,7 +63,7 @@ final class SyncKeywordTopicClusterAction implements BusinessAction
 
         try {
             $sync = DB::connection('omi_seo_ai')->transaction(
-                fn () => $this->keywordResearch->syncTopicCluster($article, $groups, $focus),
+                fn () => $this->keywordResearch->syncVocabularyKeywords($article, $groups, $focus),
             );
         } catch (\InvalidArgumentException $exception) {
             return ActionResult::failure('topic_cluster_invalid', $exception->getMessage());
@@ -74,16 +74,16 @@ final class SyncKeywordTopicClusterAction implements BusinessAction
         return ActionResult::success(
             output: [
                 'article_id' => $articleId,
-                'parent_id' => (int) ($sync['parent_id'] ?? 0),
-                'parent_phrase' => (string) ($sync['parent_phrase'] ?? ''),
-                'children_count' => (int) ($sync['children_count'] ?? 0),
+                'focus_keyword_id' => (int) ($sync['focus_keyword_id'] ?? 0),
+                'focus_phrase' => (string) ($sync['focus_phrase'] ?? ''),
+                'vocabulary_count' => (int) ($sync['vocabulary_count'] ?? 0),
                 'suggest_count' => (int) ($sync['suggest_count'] ?? 0),
                 'tags_count' => (int) ($sync['tags_count'] ?? 0),
             ],
             events: [
                 ActionSupport::articleEvent('keyword.topic_cluster_synced', $context, $articleId, [
-                    'parent_id' => (int) ($sync['parent_id'] ?? 0),
-                    'children_count' => (int) ($sync['children_count'] ?? 0),
+                    'focus_keyword_id' => (int) ($sync['focus_keyword_id'] ?? 0),
+                    'vocabulary_count' => (int) ($sync['vocabulary_count'] ?? 0),
                 ]),
             ],
             changed: ['keyword'],

@@ -37,17 +37,17 @@ final class SeoPerformanceHub extends SeoPanelPage
 
     protected static ?string $navigationGroup = null;
 
-    protected static ?string $navigationParentItem = 'Keyword Intelligence';
+    protected static ?string $navigationParentItem = null;
 
     protected static ?string $navigationLabel = 'SEO Performance';
 
-    protected static ?int $navigationSort = 3;
+    protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_SEO;
 
     protected static ?string $slug = 'performance-hub';
 
     protected static string $view = 'seo-content-ai::seo.performance-hub';
 
-    protected static bool $shouldRegisterNavigation = false;
+    protected static bool $shouldRegisterNavigation = true;
 
     #[Url(as: 'source')]
     public string $dataSource = '';
@@ -215,7 +215,7 @@ final class SeoPerformanceHub extends SeoPanelPage
 
     public static function shouldRegisterNavigation(array $parameters = []): bool
     {
-        return false;
+        return SeoAccessControl::canAccessPlannerFeatures();
     }
 
     public static function getNavigationLabel(): string
@@ -225,7 +225,45 @@ final class SeoPerformanceHub extends SeoPanelPage
 
     public static function getNavigationParentItem(): ?string
     {
-        return __('seo-content-ai::filament.keyword_intelligence.nav');
+        return null;
+    }
+
+    /**
+     * WordPress-style module: SEO → Performance / MCP Intelligence.
+     *
+     * @return array<int, \Filament\Navigation\NavigationItem>
+     */
+    public static function getNavigationItems(): array
+    {
+        if (! static::shouldRegisterNavigation()) {
+            return [];
+        }
+
+        $parentLabel = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::moduleSeo();
+        $children = [
+            \Filament\Navigation\NavigationItem::make(static::getNavigationLabel())
+                ->url(static::getUrl())
+                ->isActiveWhen(fn (): bool => \Omnichannel\Addons\Seo\Support\SeoPanelRoutes::isSeoPerformanceNav()),
+        ];
+
+        if (\Omnichannel\Addons\Seo\Filament\Pages\McpIntelligence::canAccess()) {
+            $children[] = \Filament\Navigation\NavigationItem::make(
+                \Omnichannel\Addons\Seo\Filament\Pages\McpIntelligence::getNavigationLabel()
+            )
+                ->parentItem($parentLabel)
+                ->url(\Omnichannel\Addons\Seo\Filament\Pages\McpIntelligence::getUrl())
+                ->isActiveWhen(fn (): bool => \Omnichannel\Addons\Seo\Support\SeoPanelRoutes::isMcpIntelligenceNav());
+        }
+
+        return [
+            \Filament\Navigation\NavigationItem::make($parentLabel)
+                ->icon(static::getNavigationIcon())
+                ->group(static::getNavigationGroup())
+                ->sort(static::getNavigationSort())
+                ->url(static::getUrl())
+                ->isActiveWhen(fn (): bool => \Omnichannel\Addons\Seo\Support\SeoPanelRoutes::isSeoModule())
+                ->childItems($children),
+        ];
     }
 
     public function mount(): void

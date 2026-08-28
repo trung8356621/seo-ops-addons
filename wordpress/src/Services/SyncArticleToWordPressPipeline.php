@@ -31,7 +31,8 @@ final class SyncArticleToWordPressPipeline
     ): array {
         $result = match ($mode) {
             'publish' => $this->articleSync->publishForArticle($article, $sideEffect, $seoOverride),
-            'update_existing' => $this->articleSync->syncForArticle($article, $sideEffect, $seoOverride),
+            // Rewrite/improve: force update existing WP object — never fingerprint-skip.
+            'update_existing' => $this->articleSync->updatePublishedArticleOnly($article, $sideEffect, $seoOverride),
             'seo_meta' => $this->articleSync->syncSeoMetaForArticle($article, $sideEffect, $seoOverride ?? []),
             'slug' => $this->articleSync->syncSlugForArticle(
                 $article,

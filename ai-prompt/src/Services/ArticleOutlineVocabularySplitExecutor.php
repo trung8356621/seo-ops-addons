@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\AiPrompt\Services;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\PromptHookFailure;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookExplicitBindingExecutor;
+use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Services\ArticleGenerationInputResolver;
 use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
 
@@ -94,11 +95,18 @@ final class ArticleOutlineVocabularySplitExecutor
         }
 
         $vocabContext = $this->enrichContext($contextExtras, 'vocabulary');
+        $vocabularyVariables = $this->bindVocabularyVariables($variables, $contextExtras, $outlineMarkdown);
+        if (isset($vocabularyVariables['__error'])) {
+            return $this->fail(
+                (string) $vocabularyVariables['__error'],
+                outlineResult: $outlineResult,
+            );
+        }
 
         try {
             $vocabularyResult = $this->hookBindingExecutor->execute(
                 $vocabularyPrompt,
-                $variables,
+                $vocabularyVariables,
                 $vocabContext,
             );
         } catch (PromptHookFailure $exception) {
@@ -204,6 +212,52 @@ final class ArticleOutlineVocabularySplitExecutor
         $prompt = SeoPrompt::query()->find($id);
 
         return $prompt instanceof SeoPrompt ? $prompt : null;
+    }
+
+    /**
+     * Canonical Vocabulary inputs: current article title + outline from structure step.
+     * Prompt history is never the source of post_title.
+     *
+     * @param  array<string, mixed>  $variables
+     * @param  array<string, mixed>  $contextExtras
+     * @return array<string, mixed>
+     */
+    public function bindVocabularyVariables(array $variables, array $contextExtras, string $outlineMarkdown): array
+    {
+        $outlineMarkdown = trim($outlineMarkdown);
+        if ($outlineMarkdown === '') {
+            return ['__error' => 'Vocabulary generation failed: missing required outline.'];
+        }
+
+        $postTitle = trim((string) ($variables['post_title'] ?? $variables['title'] ?? ''));
+        if ($postTitle === '') {
+            $articleId = (int) ($contextExtras['article_id'] ?? 0);
+            if ($articleId > 0) {
+                $fromArticle = SeoArticle::query()->whereKey($articleId)->value('title');
+                $postTitle = trim((string) $fromArticle);
+            }
+        }
+
+        if ($postTitle === '') {
+            return ['__error' => 'Vocabulary generation failed: missing required post_title.'];
+        }
+
+        $out = $variables;
+        $out['post_title'] = $postTitle;
+        $out['title'] = $postTitle;
+        $out['outline'] = $outlineMarkdown;
+
+        $focus = trim((string) ($out['focus_keyword'] ?? $out['keyword'] ?? ''));
+        if ($focus !== '') {
+            $out['focus_keyword'] = $focus;
+            $out['keyword'] = $focus;
+        }
+
+        if (trim((string) ($out['language'] ?? '')) === '') {
+            $out['language'] = 'Tiếng Việt';
+        }
+
+        return $out;
     }
 
     /**

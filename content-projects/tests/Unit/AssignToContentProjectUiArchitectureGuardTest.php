@@ -285,4 +285,15 @@ final class AssignToContentProjectUiArchitectureGuardTest extends TestCase
         self::assertStringNotContainsString("mountAction', 'assignToContentProject'", $source);
         self::assertStringNotContainsString("mountAction', 'assignArticleToContentProject'", $source);
     }
+
+    public function test_keyword_row_click_does_not_cover_item_actions_with_overlay(): void
+    {
+        $source = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/seo/resources/js/keywordDetailPanel.js'
+        );
+        self::assertStringContainsString('keyword-item__actions', $source);
+        self::assertStringContainsString('keywordRowClickBound', $source);
+        self::assertStringContainsString("querySelectorAll(':scope > .keyword-row-click-layer')", $source);
+        self::assertStringNotContainsString("layer.className = 'keyword-row-click-layer'", $source);
+    }
 }

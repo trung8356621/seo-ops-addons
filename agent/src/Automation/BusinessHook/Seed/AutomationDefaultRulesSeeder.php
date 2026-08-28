@@ -152,6 +152,8 @@ final class AutomationDefaultRulesSeeder
                         'article_id' => '{{ payload.article_id }}',
                         'task_id' => '{{ payload.task_id }}',
                         'publish_attempt_token' => '{{ payload.publish_attempt_token }}',
+                        'publish_mode' => '{{ payload.publish_mode }}',
+                        'mode' => '{{ payload.publish_mode }}',
                     ],
                     'settings' => ['mode' => 'publish'],
                 ],

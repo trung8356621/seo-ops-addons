@@ -6,27 +6,28 @@ namespace Omnichannel\Addons\SearchFoundation\Services\SiteMcp;
 
 use App\Models\Site;
 use App\Support\RuntimeLogger;
+use Omnichannel\Addons\SearchIntelligence\Services\SiteMcp\SiteMcpClusterTopicalProfileBuilder;
+use Omnichannel\Addons\SearchIntelligence\Services\SiteMcp\SiteMcpTopicalProfileService;
 
 /**
  * Generate Site MCP Knowledge Profile draft.
  *
  * Hard rules:
- * - product_cat parent=0 → Main Topics (production / e-commerce)
+ * - Keyword Clusters → Main Topics / topical profile (SSOT)
+ * - product_cat parent=0 → Important Pages only (production / e-commerce)
  * - product → never Main Topic / never important_pages
- * - news → Main Topics remain manual (empty)
  * - never overwrite official Site MCP fields
  */
 final class SiteMcpGenerator
 {
     private const MAX_IMPORTANT_PAGES = 60;
 
-    private const MAX_MAIN_TOPICS = 60;
-
     public function __construct(
         private readonly SiteMcpDiscovery $discovery,
         private readonly SiteMcpDraft $draftStore,
         private readonly SiteMcpKeywordExtractor $keywords,
         private readonly SiteMcpContactDiscovery $contactDiscovery,
+        private readonly ?SiteMcpTopicalProfileService $topicalProfile = null,
     ) {}
 
     /**
@@ -35,7 +36,8 @@ final class SiteMcpGenerator
     public function generateDraft(Site $site): array
     {
         $discovered = $this->discovery->discover($site);
-        $draft = $this->buildFromDiscovery($discovered);
+        $profile = $this->resolveTopicalProfile($site);
+        $draft = $this->buildFromDiscovery($discovered, $profile);
         $this->draftStore->put($site, $draft);
 
         RuntimeLogger::info('seo.site_mcp.draft_generated', [
@@ -44,6 +46,7 @@ final class SiteMcpGenerator
             'discovery_strategy' => (string) ($draft['site']['discovery_strategy'] ?? ''),
             'important_pages' => count($draft['important_pages'] ?? []),
             'main_topics' => count($draft['keyword_context']['main_topics'] ?? []),
+            'topical_topics' => count($draft['keyword_context']['topical_profile']['topics'] ?? []),
             'product_categories' => (int) ($draft['counts']['product_cat'] ?? 0),
             'products_seen' => (int) ($draft['counts']['product'] ?? 0),
             'official_exists' => (bool) ($draft['generation']['official_site_mcp_exists'] ?? false),
@@ -54,10 +57,40 @@ final class SiteMcpGenerator
     }
 
     /**
+     * @return array{
+     *     source: string,
+     *     built_at: string,
+     *     total_clustered_keywords: int,
+     *     topics: list<array<string, mixed>>
+     * }
+     */
+    private function resolveTopicalProfile(Site $site): array
+    {
+        $service = $this->topicalProfile
+            ?? (app()->bound(SiteMcpTopicalProfileService::class) ? app(SiteMcpTopicalProfileService::class) : null);
+        if (! $service instanceof SiteMcpTopicalProfileService) {
+            return [
+                'source' => SiteMcpClusterTopicalProfileBuilder::SOURCE,
+                'built_at' => gmdate('c'),
+                'total_clustered_keywords' => 0,
+                'topics' => [],
+            ];
+        }
+
+        return $service->rebuild($site);
+    }
+
+    /**
      * @param  array<string, mixed>  $discovered
+     * @param  array{
+     *     source?: string,
+     *     built_at?: string,
+     *     total_clustered_keywords?: int,
+     *     topics?: list<array<string, mixed>>
+     * }|null  $topicalProfile
      * @return array<string, mixed>
      */
-    public function buildFromDiscovery(array $discovered): array
+    public function buildFromDiscovery(array $discovered, ?array $topicalProfile = null): array
     {
         $draft = SiteMcpDraft::empty();
         $websiteType = $this->normalizeWebsiteType((string) ($discovered['website_type'] ?? 'news'));
@@ -133,20 +166,29 @@ final class SiteMcpGenerator
             $warnings[] = 'Official Site MCP exists — draft only; official fields not modified.';
         }
 
-        $mainTopicRecords = [];
         $importantPages = [];
         $discoveryCandidates = [];
+        $profile = is_array($topicalProfile) ? $topicalProfile : [
+            'source' => SiteMcpClusterTopicalProfileBuilder::SOURCE,
+            'built_at' => gmdate('c'),
+            'total_clustered_keywords' => 0,
+            'topics' => [],
+        ];
+        if (! is_array($profile['topics'] ?? null)) {
+            $profile['topics'] = [];
+        }
+
+        $mainTopicRecords = SiteMcpClusterTopicalProfileBuilder::toMainTopicRecords($profile);
+        $mainTopics = SiteMcpClusterTopicalProfileBuilder::topicNames($profile);
 
         if ($strategy === 'news_manual') {
-            $warnings[] = 'News site: Main Topics remain MANUAL — generator did not auto-select.';
-            $warnings[] = 'News site: important pages stay manual — generator did not auto-select pages.';
+            $warnings[] = 'News site: Important Pages stay manual — generator did not auto-select pages.';
             foreach ($newsCandidates as $candidate) {
                 if (! is_array($candidate)) {
                     continue;
                 }
                 $discoveryCandidates[] = $this->toCandidateRow($candidate, selected: false);
             }
-            $mainTopicRecords = [];
             $importantPages = [];
         } else {
             if ($taxonomyAvailability === SiteMcpProductCatIdentity::AVAILABILITY_UNAVAILABLE
@@ -171,14 +213,13 @@ final class SiteMcpGenerator
                 } else {
                     $warnings[] = 'ROOT_PRODUCT_CATEGORIES_NOT_AVAILABLE';
                 }
-                $mainTopicRecords = [];
                 $importantPages = [];
             } else {
-                [$mainTopicRecords, $importantPages] = $this->buildMainTopicsFromCategories($rootCategories);
+                [, $importantPages] = $this->buildMainTopicsFromCategories($rootCategories);
             }
 
             if ($productCount > 0) {
-                $warnings[] = 'product: '.$productCount.' (excluded) from Main Topics / Important Pages.';
+                $warnings[] = 'product: '.$productCount.' (excluded) from Important Pages.';
             }
 
             // Hard exclude individual product posts only.
@@ -186,18 +227,13 @@ final class SiteMcpGenerator
                 $importantPages,
                 fn (array $page): bool => ! $this->isProductPageType((string) ($page['type'] ?? $page['page_type'] ?? '')),
             ));
-            $mainTopicRecords = array_values(array_filter(
-                $mainTopicRecords,
-                fn (array $record): bool => ($record['source_type'] ?? '') !== 'product'
-                    && ($record['taxonomy'] ?? '') === 'product_cat'
-                    && (int) ($record['parent_term_id'] ?? -1) === 0,
-            ));
         }
 
-        $mainTopics = $this->keywords->uniqueTopics(array_map(
-            static fn (array $r): string => (string) ($r['keyword'] ?? ''),
-            $mainTopicRecords,
-        ));
+        if ($mainTopics === []) {
+            $warnings[] = 'TOPICAL_PROFILE_EMPTY — no real Keyword Clusters (and no manual/planned clusters) for this site.';
+        }
+
+        $warnings[] = 'Main Topics derived from Keyword Clusters (SSOT); not from product_cat / AI invented topics.';
 
         $draft['content_context'] = [
             'tone' => $tone,
@@ -210,6 +246,7 @@ final class SiteMcpGenerator
         $draft['keyword_context'] = [
             'main_topics' => $mainTopics,
             'main_topic_records' => $mainTopicRecords,
+            'topical_profile' => $profile,
             'warnings' => array_values(array_unique($warnings)),
         ];
         $draft['generation'] = [
@@ -219,6 +256,7 @@ final class SiteMcpGenerator
             'version' => SiteMcpDraft::VERSION,
             'official_site_mcp_exists' => $officialExists,
             'official_fields_modified' => false,
+            'topical_source' => SiteMcpClusterTopicalProfileBuilder::SOURCE,
         ];
 
         return $draft;
@@ -265,6 +303,9 @@ final class SiteMcpGenerator
     }
 
     /**
+     * Build Important Pages from verified root product_cat rows.
+     * Main Topics no longer come from categories — Keyword Clusters are SSOT.
+     *
      * @param  list<array<string, mixed>>  $categoryPool
      * @return array{0: list<array<string, mixed>>, 1: list<array<string, mixed>>}
      */
@@ -318,7 +359,7 @@ final class SiteMcpGenerator
                 'parent_term_id' => 0,
             ];
 
-            if (count($records) >= self::MAX_MAIN_TOPICS) {
+            if (count($importantPages) >= self::MAX_IMPORTANT_PAGES) {
                 break;
             }
         }

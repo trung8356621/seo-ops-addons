@@ -729,6 +729,7 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
                 \Omnichannel\Addons\Publishing\Console\AutomationDispatchScheduledCommand::class,
                 \Omnichannel\Addons\Agent\Console\AutomationRecoverStaleCommand::class,
                 \Omnichannel\Addons\SearchIntelligence\Console\AutomationCleanupExecutionLogsCommand::class,
+                \Omnichannel\Addons\SearchIntelligence\Console\VocabularySuggestDevBackfillCommand::class,
                 \Omnichannel\Addons\Agent\Console\AutomationMigrateLinearToGraphCommand::class,
                 \Omnichannel\Addons\Agent\Console\AutomationMigrateRuleVersionsCommand::class,
                 \Omnichannel\Addons\Agent\Console\AutomationExportCommand::class,

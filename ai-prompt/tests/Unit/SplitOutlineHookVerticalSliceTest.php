@@ -173,6 +173,7 @@ final class SplitOutlineHookVerticalSliceTest extends TestCase
 
         $result = $executor->execute($prompt, [
             'post_title' => 'SEO guide',
+            'outline' => "## H1\nIntro section for vocabulary context.",
             'language' => 'vi',
         ], [
             'site_id' => 1,

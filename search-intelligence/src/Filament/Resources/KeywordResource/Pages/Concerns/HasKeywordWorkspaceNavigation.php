@@ -60,6 +60,11 @@ trait HasKeywordWorkspaceNavigation
     {
         return [
             [
+                'key' => 'workspace-2',
+                'label' => __('seo-content-ai::filament.keyword.workspace_nav_two'),
+                'url' => KeywordResource::getUrl('clusters'),
+            ],
+            [
                 'key' => 'index',
                 'label' => __('seo-content-ai::filament.keyword.workspace_nav_dictionary'),
                 'url' => KeywordResource::getUrl('index'),
@@ -70,19 +75,14 @@ trait HasKeywordWorkspaceNavigation
                 'url' => KeywordResource::getUrl('focus'),
             ],
             [
-                'key' => 'anchor-audit',
-                'label' => __('seo-content-ai::filament.keyword.workspace_nav_anchor_audit'),
-                'url' => KeywordResource::getUrl('anchor-audit'),
-            ],
-            [
-                'key' => 'workspace-2',
-                'label' => __('seo-content-ai::filament.keyword.workspace_nav_two'),
-                'url' => KeywordResource::getUrl('clusters'),
-            ],
-            [
                 'key' => 'cannibalization',
                 'label' => __('seo-content-ai::filament.keyword.cannibalization_nav'),
                 'url' => KeywordResource::getUrl('cannibalization'),
+            ],
+            [
+                'key' => 'anchor-audit',
+                'label' => __('seo-content-ai::filament.keyword.workspace_nav_anchor_audit'),
+                'url' => KeywordResource::getUrl('anchor-audit'),
             ],
         ];
     }

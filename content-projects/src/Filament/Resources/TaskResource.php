@@ -34,7 +34,7 @@ class TaskResource extends SeoPanelResource
 
     protected static ?string $pluralModelLabel = 'Task workflows';
 
-    protected static ?int $navigationSort = 15;
+    protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_WORKFLOWS;
 
     public static function canViewAny(): bool
     {

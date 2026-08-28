@@ -76,16 +76,18 @@ final class ContiguousCoreAndLabelSsotTest extends TestCase
 
         app(ReclusterTopicClustersService::class)->recluster(self::SITE);
 
-        self::assertSame(
-            'ck_xmb',
-            SeoKeywordClassification::query()->where('keyword_id', $kid)->value('cluster_key'),
-        );
+        $ck = SeoKeywordClassification::query()->where('keyword_id', $kid)->value('cluster_key');
+        self::assertNotEmpty($ck);
+        $canon = mb_strtolower((string) SeoTopicClusterMeta::query()->where('cluster_key', $ck)->value('canonical_phrase'));
+        self::assertStringContainsString('xưởng may balo', $canon);
+        self::assertNotSame('balo', $canon);
     }
 
     public function test_polluted_member_detached_on_recluster(): void
     {
         $this->seedMeta('ck_mbd', 'may balo da');
         $this->seedKeyword('cách may balo da đơn giản', 'ck_mbd');
+        $this->seedKeyword('may balo da giá rẻ', 'ck_mbd');
         $badId = $this->seedKeyword('Các kỹ thuật may chuyên dụng cho da nhân tạo', 'ck_mbd');
         $goodXuong = $this->seedKeyword('xưởng may balo dây rút', 'ck_xmb');
         $this->seedMeta('ck_xmb', 'Xưởng may balo');
@@ -95,19 +97,18 @@ final class ContiguousCoreAndLabelSsotTest extends TestCase
         self::assertTrue($result->success);
 
         $badCk = SeoKeywordClassification::query()->where('keyword_id', $badId)->value('cluster_key');
-        self::assertNotSame('ck_mbd', $badCk);
+        $badCanon = mb_strtolower((string) SeoTopicClusterMeta::query()->where('cluster_key', (string) $badCk)->value('canonical_phrase'));
+        self::assertStringNotContainsString('may balo da', $badCanon);
 
-        self::assertSame(
-            'ck_xmb',
-            SeoKeywordClassification::query()->where('keyword_id', $goodXuong)->value('cluster_key'),
-        );
+        $goodCk = SeoKeywordClassification::query()->where('keyword_id', $goodXuong)->value('cluster_key');
+        $goodCanon = mb_strtolower((string) SeoTopicClusterMeta::query()->where('cluster_key', (string) $goodCk)->value('canonical_phrase'));
+        self::assertStringContainsString('xưởng may balo', $goodCanon);
 
-        self::assertSame(
-            'ck_mbd',
-            SeoKeywordClassification::query()
-                ->where('keyword_id', Keyword::query()->where('phrase', 'cách may balo da đơn giản')->value('id'))
-                ->value('cluster_key'),
-        );
+        $simpleId = (int) Keyword::query()->where('phrase', 'cách may balo da đơn giản')->value('id');
+        $simpleCk = SeoKeywordClassification::query()->where('keyword_id', $simpleId)->value('cluster_key');
+        $simpleCanon = mb_strtolower((string) SeoTopicClusterMeta::query()->where('cluster_key', (string) $simpleCk)->value('canonical_phrase'));
+        self::assertStringContainsString('may balo da', $simpleCanon);
+        self::assertNotEmpty($simpleCk);
     }
 
     public function test_semantic_fallback_rejects_generic_may_overlap(): void
@@ -119,8 +120,16 @@ final class ContiguousCoreAndLabelSsotTest extends TestCase
 
         app(ReclusterTopicClustersService::class)->recluster(self::SITE);
 
-        self::assertNotSame('ck_mbd', SeoKeywordClassification::query()->where('keyword_id', $a)->value('cluster_key'));
-        self::assertNotSame('ck_mbd', SeoKeywordClassification::query()->where('keyword_id', $b)->value('cluster_key'));
+        self::assertNotSame(
+            'ck_mbd',
+            SeoKeywordClassification::query()->where('keyword_id', $a)->value('cluster_key'),
+        );
+        // After full wipe, "may mặc" phrases must not land on may-balo-da canonical.
+        foreach ([$a, $b] as $id) {
+            $ck = (string) SeoKeywordClassification::query()->where('keyword_id', $id)->value('cluster_key');
+            $canon = mb_strtolower((string) SeoTopicClusterMeta::query()->where('cluster_key', $ck)->value('canonical_phrase'));
+            self::assertStringNotContainsString('may balo da', $canon);
+        }
     }
 
     public function test_cluster_index_and_detail_use_canonical_meta_not_member_phrase(): void
@@ -244,6 +253,7 @@ final class ContiguousCoreAndLabelSsotTest extends TestCase
             $table->string('normalized_canonical');
             $table->string('confidence')->default('high');
             $table->boolean('needs_review')->default(false);
+            $table->string('canonical_source')->default('auto');
             $table->timestamps();
             $table->unique(['site_id', 'cluster_key']);
         });

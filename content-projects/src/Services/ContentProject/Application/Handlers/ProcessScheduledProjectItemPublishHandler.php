@@ -270,6 +270,18 @@ final class ProcessScheduledProjectItemPublishHandler extends AbstractPublishing
         }
         $task = $claim->task;
 
+        RuntimeLogger::info('[PUBLISH_TRACE]', [
+            'project_id' => $projectId,
+            'project_item_id' => $itemId,
+            'article_id' => (int) $article->id,
+            'site_id' => (int) ($article->site_id ?? 0) ?: null,
+            'item_type' => SeoProjectTask::normalizeType($task->type ?? null),
+            'post_type' => \Omnichannel\Addons\Content\Support\ArticlePostTypeResolver::resolve($article),
+            'wp_post_id' => (int) ($article->wordpressLink?->wp_post_id ?? $strategy->remotePostId ?? 0) ?: null,
+            'phase' => 'publish_start',
+            'publishing_mode' => $strategy->mode,
+        ]);
+
         $operationKey = trim((string) ($task->publish_operation_key ?? ''));
         if ($operationKey === '') {
             $operationKey = app(\Omnichannel\Addons\Publishing\Application\Publishing\PublishOperationKeyFactory::class)
@@ -332,22 +344,36 @@ final class ProcessScheduledProjectItemPublishHandler extends AbstractPublishing
         }
 
         if ($publishResult->alreadyPublished && $publishResult->wpPostId !== null && $publishResult->wpPostId > 0) {
-            $this->queue->markPublished($task->fresh() ?? $task);
-            $this->health->rememberSuccess(1);
-            $this->rememberPublishedContentHash($article);
-            $this->domainEvents->dispatchAfterCommit(new ArticlePublished(
-                projectId: $projectId,
-                itemId: $itemId,
-                articleId: (int) $article->id,
-                wpPostId: $publishResult->wpPostId,
-            ));
+            // Rewrite/improve: existing WP object must still receive latest Laravel revision + post-sync.
+            if (! $strategy->isImmediateUpdate()) {
+                $this->queue->markPublished($task->fresh() ?? $task);
+                $this->health->rememberSuccess(1);
+                $this->rememberPublishedContentHash($article);
+                $this->domainEvents->dispatchAfterCommit(new ArticlePublished(
+                    projectId: $projectId,
+                    itemId: $itemId,
+                    articleId: (int) $article->id,
+                    wpPostId: $publishResult->wpPostId,
+                ));
 
-            return ContentProjectActionResult::ok(
-                ContentProjectActionCodes::ITEMS_PUBLISH_QUEUED,
-                'Already published — reconciled.',
-                $projectId,
-                [$itemId],
-            );
+                return ContentProjectActionResult::ok(
+                    ContentProjectActionCodes::ITEMS_PUBLISH_QUEUED,
+                    'Already published — reconciled.',
+                    $projectId,
+                    [$itemId],
+                );
+            }
+
+            RuntimeLogger::info('[PUBLISH_TRACE]', [
+                'project_id' => $projectId,
+                'project_item_id' => $itemId,
+                'article_id' => (int) $article->id,
+                'site_id' => (int) ($article->site_id ?? 0) ?: null,
+                'item_type' => SeoProjectTask::normalizeType($task->type ?? null),
+                'wp_post_id' => $publishResult->wpPostId,
+                'phase' => 'already_published_force_resync',
+                'publishing_mode' => $strategy->mode,
+            ]);
         }
 
         if (! $publishResult->success) {

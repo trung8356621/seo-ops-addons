@@ -17,8 +17,9 @@ const manifest = JSON.parse(
 assert.match(tab, /syncable_pending_count/);
 assert.match(tab, /local_generated_count/);
 assert.match(tab, /generated_count/);
-assert.match(tab, /Sync pending reviews/);
-assert.match(tab, /Đồng bộ một phần/);
+assert.match(tab, /Review được kiểm tra và tạo tự động khi đồng bộ WordPress/);
+assert.doesNotMatch(tab, /Create reviews/);
+assert.doesNotMatch(tab, /Sync pending reviews/);
 assert.doesNotMatch(tab, /ContentProjectPublishing/);
 assert.doesNotMatch(tab, /Publish Now/);
 

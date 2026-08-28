@@ -30,9 +30,9 @@ class ImageProcessingPage extends Page
 
     protected static ?string $navigationGroup = null;
 
-    protected static ?string $navigationParentItem = 'Media library';
+    protected static ?string $navigationParentItem = null;
 
-    protected static ?int $navigationSort = 9;
+    protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_MEDIA + 3;
 
     protected static string $view = 'seo-content-ai::filament.pages.image-processing';
 
@@ -315,7 +315,7 @@ class ImageProcessingPage extends Page
 
     public static function getNavigationGroup(): ?string
     {
-        return null;
+        return static::$navigationGroup;
     }
 
     public static function getNavigationLabel(): string
@@ -325,7 +325,7 @@ class ImageProcessingPage extends Page
 
     public static function getNavigationParentItem(): ?string
     {
-        return __('seo-content-ai::filament.nav.media_library');
+        return MediaLibrary::getNavigationLabel();
     }
 
     public function getTitle(): string

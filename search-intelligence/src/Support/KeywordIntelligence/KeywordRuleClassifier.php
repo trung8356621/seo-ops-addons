@@ -31,6 +31,45 @@ final class KeywordRuleClassifier
     public const INTENT_UNKNOWN = 'unknown';
 
     /**
+     * @return list<string>
+     */
+    public static function intents(): array
+    {
+        return [
+            self::INTENT_INFORMATIONAL,
+            self::INTENT_COMMERCIAL,
+            self::INTENT_TRANSACTIONAL,
+            self::INTENT_NAVIGATIONAL,
+            self::INTENT_UNKNOWN,
+        ];
+    }
+
+    public static function intentLabel(string $intent): string
+    {
+        return match ($intent) {
+            self::INTENT_INFORMATIONAL => __('seo-content-ai::filament.keyword.intent_informational'),
+            self::INTENT_COMMERCIAL => __('seo-content-ai::filament.keyword.intent_commercial'),
+            self::INTENT_TRANSACTIONAL => __('seo-content-ai::filament.keyword.intent_transactional'),
+            self::INTENT_NAVIGATIONAL => __('seo-content-ai::filament.keyword.intent_navigational'),
+            self::INTENT_UNKNOWN => __('seo-content-ai::filament.keyword.intent_unknown'),
+            default => $intent,
+        };
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public static function intentFilterOptions(): array
+    {
+        $options = [];
+        foreach (self::intents() as $intent) {
+            $options[$intent] = self::intentLabel($intent);
+        }
+
+        return $options;
+    }
+
+    /**
      * @param  array{
      *     source_kind?: string,
      *     occurrence_count?: int,

@@ -15,7 +15,7 @@ final class KeywordTopicClusterUiContractTest extends TestCase
         $resource = (string) file_get_contents(dirname(__DIR__, 2).'/src/Filament/Resources/KeywordResource.php');
         self::assertStringContainsString("Pages\\KeywordTopicClusters::route('/clusters')", $resource);
         self::assertStringContainsString("Pages\\KeywordTopicClusterDetail::route('/clusters/{clusterKey}')", $resource);
-        self::assertStringContainsString("getUrl('cluster'", $resource);
+        self::assertStringContainsString("Pages\\KeywordTopicClusterDetail::route('/clusters/{clusterKey}')", $resource);
         self::assertStringNotContainsString('buildChildrenFilterUrl($parentId)', $resource);
 
         $legacy = (string) file_get_contents(dirname(__DIR__, 2).'/src/Filament/Resources/KeywordResource/Pages/KeywordWorkspaceTwo.php');
@@ -41,21 +41,22 @@ final class KeywordTopicClusterUiContractTest extends TestCase
             'resources/views/filament/resources/keywords/pages/topic-cluster-index.blade.php',
         ));
         self::assertStringContainsString('topic_cluster_title', $index);
+        self::assertStringContainsString('cluster-mcp-preview', $index);
+        self::assertStringContainsString('cluster-index-row', $index);
         self::assertStringNotContainsString('topic_tab_groups', $index);
         self::assertStringNotContainsString('createCustomGroup', $index);
         self::assertStringNotContainsString('getGroups', $index);
         self::assertStringNotContainsString('Nhóm quy tắc', $index);
-        self::assertStringContainsString('topic_col_dna_count', $index);
-        self::assertStringNotContainsString('cluster_tree_heading', $index);
         self::assertStringNotContainsString('createPillarDraft', $index);
         self::assertStringNotContainsString('newPillarPhrase', $index);
+        self::assertStringNotContainsString('topic_col_dna_count', $index);
 
         $detail = (string) file_get_contents(LegacyAddonPath::resolve(
             'resources/views/filament/resources/keywords/pages/topic-cluster-detail.blade.php',
         ));
         self::assertStringNotContainsString('topic_group_distribution', $detail);
-        self::assertStringContainsString('intent_counts', $detail);
-        self::assertStringContainsString('topic_idea_coverage_title', $detail);
+        self::assertStringContainsString('keyword-item', $detail);
+        self::assertStringNotContainsString('Primary keyword', $detail);
     }
 
     public function test_settings_keywords_has_no_review_reasons_ui(): void

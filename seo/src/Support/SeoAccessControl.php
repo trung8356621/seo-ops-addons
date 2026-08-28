@@ -685,8 +685,7 @@ final class SeoAccessControl
     }
 
     /**
-     * Legacy helper. /admin no longer hosts Automation UI and no longer
-     * grants panel access through this method. Automation product UI is on /seo.
+     * Legacy helper. Automation UI is on /admin; owners reach it via admin panel.
      */
     public static function canAccessAdminAutomationPanel(?User $user = null): bool
     {
@@ -704,7 +703,7 @@ final class SeoAccessControl
             return false;
         }
 
-        return self::canViewAutomation();
+        return $user->isOwner() && self::canViewAutomation();
     }
 
     public static function canEditAutomation(): bool

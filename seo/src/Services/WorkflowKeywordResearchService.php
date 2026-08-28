@@ -27,19 +27,21 @@ final class WorkflowKeywordResearchService
     ) {}
 
     /**
+     * Persist AI/vocabulary keyword groups as flat inventory. Grouping SSOT = Cluster.
+     *
      * @param  array<string, list<string>>  $keywordGroups
      * @param  array<string, mixed>  $provenance
      * @return array{
-     *   parent_id: int,
-     *   parent_phrase: string,
-     *   children_count: int,
+     *   focus_keyword_id: int,
+     *   focus_phrase: string,
+     *   vocabulary_count: int,
      *   suggest_count: int,
      *   tags_count: int,
      *   related_topics: list<string>,
      *   ki_feedback: array<string, mixed>|null
      * }
      */
-    public function syncTopicCluster(
+    public function syncVocabularyKeywords(
         SeoArticle $article,
         array $keywordGroups,
         ?string $focusPhrase = null,
@@ -63,9 +65,9 @@ final class WorkflowKeywordResearchService
 
         if ($clusterGroups === [] && $holonymyPhrases === []) {
             return [
-                'parent_id' => 0,
-                'parent_phrase' => '',
-                'children_count' => 0,
+                'focus_keyword_id' => 0,
+                'focus_phrase' => '',
+                'vocabulary_count' => 0,
                 'suggest_count' => $suggestCount,
                 'tags_count' => 0,
                 'related_topics' => $relatedTopics,
@@ -79,7 +81,7 @@ final class WorkflowKeywordResearchService
         }
 
         if ($this->wordCount($focusPhrase) < 2) {
-            throw new \InvalidArgumentException('Từ khóa chính quá rộng, cần ít nhất 2 từ để lưu Topic Cluster.');
+            throw new \InvalidArgumentException('Từ khóa chính quá rộng, cần ít nhất 2 từ để lưu vocabulary.');
         }
 
         KeywordFocusAttach::syncMainKeyword(
@@ -89,17 +91,17 @@ final class WorkflowKeywordResearchService
             $focusPhrase,
         );
 
-        $parentKeyword = Keyword::query()
+        $focusKeyword = Keyword::query()
             ->whereRaw('LOWER(phrase) = ?', [mb_strtolower(Keyword::decodePhrase($focusPhrase))])
             ->first();
 
-        if ($parentKeyword === null) {
-            throw new \InvalidArgumentException('Không lưu được từ khóa chính cho cụm chủ đề.');
+        if ($focusKeyword === null) {
+            throw new \InvalidArgumentException('Không lưu được từ khóa chính cho vocabulary.');
         }
 
-        $tagsCount = $this->syncHolonymyTags($parentKeyword, $holonymyPhrases, $siteId);
+        $tagsCount = $this->syncHolonymyTags($focusKeyword, $holonymyPhrases, $siteId);
 
-        $childrenCount = 0;
+        $vocabularyCount = 0;
 
         foreach ($clusterGroups as $groupName => $keywordsList) {
             if (! is_array($keywordsList)) {
@@ -119,27 +121,26 @@ final class WorkflowKeywordResearchService
                     continue;
                 }
 
-                $childKeyword = $this->keywordPersistence->upsert(
+                $savedKeyword = $this->keywordPersistence->upsert(
                     $phrase,
                     Keyword::TYPE_NORMAL,
                     $siteId,
                     null,
-                    (int) $parentKeyword->id,
                     ['group' => (string) $groupName],
                 );
 
-                if ($childKeyword === null) {
+                if ($savedKeyword === null) {
                     continue;
                 }
 
-                $childrenCount++;
+                $vocabularyCount++;
             }
         }
 
         return [
-            'parent_id' => (int) $parentKeyword->id,
-            'parent_phrase' => $focusPhrase,
-            'children_count' => $childrenCount,
+            'focus_keyword_id' => (int) $focusKeyword->id,
+            'focus_phrase' => $focusPhrase,
+            'vocabulary_count' => $vocabularyCount,
             'suggest_count' => $suggestCount,
             'tags_count' => $tagsCount,
             'related_topics' => $relatedTopics,
@@ -154,6 +155,23 @@ final class WorkflowKeywordResearchService
      */
     public function ingestRelatedTopicsSafe(SeoArticle $article, array $phrases, array $provenance = []): array
     {
+        return $this->ingestVocabularySuggestGroupsSafe(
+            $article,
+            ['Related topics' => $phrases],
+            $provenance,
+        );
+    }
+
+    /**
+     * Ingest Suggest-eligible Vocabulary groups into keywords business table.
+     * prompt_result_id in provenance is optional audit only.
+     *
+     * @param  array<string, list<string>|mixed>  $keywordGroups
+     * @param  array<string, mixed>  $provenance
+     * @return array<string, mixed>
+     */
+    public function ingestVocabularySuggestGroupsSafe(SeoArticle $article, array $keywordGroups, array $provenance = []): array
+    {
         $service = $this->vocabularyKiIngestion
             ?? (app()->bound(VocabularyKeywordIntelligenceIngestionService::class)
                 ? app(VocabularyKeywordIntelligenceIngestionService::class)
@@ -161,10 +179,10 @@ final class WorkflowKeywordResearchService
 
         if (! $service instanceof VocabularyKeywordIntelligenceIngestionService) {
             return [
-                'discovered' => count($phrases),
+                'discovered' => 0,
                 'ingested' => 0,
                 'classified' => 0,
-                'filtered' => count($phrases),
+                'filtered' => 0,
                 'duplicates' => 0,
                 'source_preserved' => 0,
                 'groups' => [],
@@ -172,11 +190,11 @@ final class WorkflowKeywordResearchService
             ];
         }
 
-        return $service->ingestRelatedTopics($article, $phrases, $provenance);
+        return $service->ingestFromVocabularyGroups($article, $keywordGroups, $provenance);
     }
 
     /**
-     * Tách Related topics (gợi ý bài mới) và Holonymy (tags) khỏi Topic Cluster.
+     * Tách Related topics (gợi ý bài mới) và Holonymy (tags) khỏi vocabulary groups.
      *
      * @param  array<string, list<string>>  $groups
      * @return array{0: array<string, list<string>>, 1: list<string>, 2: list<string>}
@@ -230,7 +248,7 @@ final class WorkflowKeywordResearchService
     /**
      * @param  list<string>  $phrases
      */
-    private function syncHolonymyTags(Keyword $parentKeyword, array $phrases, int $siteId): int
+    private function syncHolonymyTags(Keyword $focusKeyword, array $phrases, int $siteId): int
     {
         $tagIds = [];
 
@@ -253,7 +271,7 @@ final class WorkflowKeywordResearchService
             return 0;
         }
 
-        app(KeywordMetaRepository::class)->mergeTagIds((int) $parentKeyword->id, $tagIds);
+        app(KeywordMetaRepository::class)->mergeTagIds((int) $focusKeyword->id, $tagIds);
 
         return count($tagIds);
     }

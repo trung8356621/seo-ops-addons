@@ -29,12 +29,16 @@ final class PublishingQueueRewriteImmediateUpdateContractTest extends TestCase
         self::assertSame(ContentPublishingStrategy::SCHEDULED_CREATE, $resolver->resolve($create)->mode);
 
         $rewrite = new SeoProjectTask(['type' => SeoProjectTask::TYPE_REWRITE]);
-        $article = new SeoArticle(['wp_post_id' => 123]);
+        $article = new SeoArticle;
+        $link = new \Omnichannel\Addons\WordPress\Models\WordpressArticleLink(['wp_post_id' => 123]);
+        $article->setRelation('wordpressLink', $link);
         $strategy = $resolver->resolve($rewrite, $article);
         self::assertSame(ContentPublishingStrategy::IMMEDIATE_UPDATE, $strategy->mode);
         self::assertSame(123, $strategy->remotePostId);
 
-        $missing = $resolver->resolve($rewrite, new SeoArticle(['wp_post_id' => null]));
+        $missingArticle = new SeoArticle;
+        $missingArticle->setRelation('wordpressLink', null);
+        $missing = $resolver->resolve($rewrite, $missingArticle);
         self::assertSame(ContentPublishingStrategy::FAILED_MISSING_REMOTE, $missing->mode);
     }
 
@@ -61,7 +65,8 @@ final class PublishingQueueRewriteImmediateUpdateContractTest extends TestCase
         self::assertStringContainsString("'remote_post_id' => \$strategy->remotePostId", $handler);
         self::assertStringContainsString("ContentPublishingStrategy::FAILED_MISSING_REMOTE", $handler);
         self::assertStringContainsString("\$input['publish_mode']", $action);
-        self::assertStringContainsString("'update_existing' => \$this->articleSync->syncForArticle", $pipeline);
+        self::assertStringContainsString("'update_existing' => \$this->articleSync->updatePublishedArticleOnly", $pipeline);
+        self::assertStringNotContainsString("'update_existing' => \$this->articleSync->syncForArticle", $pipeline);
     }
 
     public function test_rewrite_rows_do_not_expose_schedule_actions(): void

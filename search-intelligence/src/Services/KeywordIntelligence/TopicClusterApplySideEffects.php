@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence;
 use App\Core\Operations\OperationLogger;
 use App\Models\Site;
 use Illuminate\Support\Facades\Schema;
+use Omnichannel\Addons\SearchIntelligence\Services\SiteMcp\SiteMcpTopicalProfileStaleState;
 use Throwable;
 
 final class TopicClusterApplySideEffects
@@ -23,6 +24,7 @@ final class TopicClusterApplySideEffects
         array $keywordIds,
     ): void {
         $this->invalidateLandscapeCache($siteId);
+        SiteMcpTopicalProfileStaleState::mark($siteId, 'cluster_proposal_applied');
         $this->logApply(
             siteId: $siteId,
             clusterKey: $clusterKey,
@@ -56,6 +58,7 @@ final class TopicClusterApplySideEffects
         array $plans,
     ): void {
         $this->invalidateLandscapeCache($siteId);
+        SiteMcpTopicalProfileStaleState::mark($siteId, 'cluster_proposal_batch_applied');
         $this->logBatchApply(
             siteId: $siteId,
             mode: $mode,
@@ -88,6 +91,7 @@ final class TopicClusterApplySideEffects
     public function afterRecluster(int $siteId, array $metrics): void
     {
         $this->invalidateLandscapeCache($siteId);
+        SiteMcpTopicalProfileStaleState::mark($siteId, 'recluster_completed');
 
         try {
             if (! function_exists('app') || ! app()->bound(OperationLogger::class)) {

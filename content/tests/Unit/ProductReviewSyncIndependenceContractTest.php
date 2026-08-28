@@ -13,6 +13,7 @@ use Omnichannel\Addons\Commerce\Services\ProductReview\WordPressCommentReviewPay
 use Omnichannel\Addons\Commerce\Services\ProductReview\WordPressProductReviewService;
 use Omnichannel\Addons\WordPress\Services\ArticleWordPressBusinessSequence;
 use Omnichannel\Addons\WordPress\Services\WordPressWriteReadinessGuard;
+use Omnichannel\Addons\WordPress\Jobs\ManualWordPressSyncJob;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use ReflectionMethod;
@@ -160,6 +161,29 @@ final class ProductReviewSyncIndependenceContractTest extends TestCase
         self::assertStringContainsString("'generation_batch_id'", $creator);
         self::assertStringContainsString('omi_seo_ai', $creator);
         self::assertStringContainsString('idempotency_key', $creator);
+    }
+
+    public function test_manual_sync_job_bootstraps_seo_connection_before_reviews(): void
+    {
+        $job = (string) file_get_contents(
+            (new ReflectionClass(ManualWordPressSyncJob::class))->getFileName(),
+        );
+
+        self::assertStringContainsString('SeoDatabaseConnectionService', $job);
+        self::assertStringContainsString('bootstrapLegacySharedConnection', $job);
+        self::assertStringContainsString('bootstrapSeoDatabaseConnection', $job);
+        self::assertStringContainsString('ArticleWordPressBusinessSequence', $job);
+    }
+
+    public function test_rewrite_existing_manual_sync_runs_product_reviews(): void
+    {
+        $source = (string) file_get_contents(
+            (new ReflectionClass(\Omnichannel\Addons\WordPress\Services\WordPressManualSyncService::class))->getFileName(),
+        );
+
+        self::assertStringContainsString('runProductReviewsAfterArticleSync', $source);
+        self::assertStringContainsString('businessSequence->runCreate', $source);
+        self::assertStringContainsString('businessSequence->runSync', $source);
     }
 
     /**

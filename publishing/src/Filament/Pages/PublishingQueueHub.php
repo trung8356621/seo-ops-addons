@@ -29,8 +29,7 @@ use Illuminate\Contracts\Support\Htmlable;
 use Livewire\Attributes\Url;
 
 /**
- * Publishing Queue hub — nested under Content Projects nav, keeps slug /publishing-queue.
- * Navigation item is owned by SeoProjectResource::getNavigationItems() (parentItem).
+ * Publishing Queue hub — nested under Dự án module, slug /publishing-queue.
  */
 final class PublishingQueueHub extends SeoPanelPage
 {
@@ -40,7 +39,9 @@ final class PublishingQueueHub extends SeoPanelPage
 
     protected static ?string $navigationIcon = 'heroicon-o-queue-list';
 
-    protected static ?int $navigationSort = 5;
+    protected static ?string $navigationGroup = null;
+
+    protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_PROJECTS + 3;
 
     protected static bool $shouldRegisterNavigation = false;
 

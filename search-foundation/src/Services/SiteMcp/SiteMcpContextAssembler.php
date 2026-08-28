@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchFoundation\Services\SiteMcp;
 
+use Omnichannel\Addons\SearchIntelligence\Services\SiteMcp\SiteMcpClusterTopicalProfileBuilder;
+
 /**
  * Build final prompt context blocks for Site MCP consumers.
  *
@@ -122,6 +124,7 @@ final class SiteMcpContextAssembler
     {
         $site = is_array($draft['site'] ?? null) ? $draft['site'] : [];
         $keyword = is_array($draft['keyword_context'] ?? null) ? $draft['keyword_context'] : [];
+        $topical = is_array($keyword['topical_profile'] ?? null) ? $keyword['topical_profile'] : [];
         $mainTopics = $this->stringList($keyword['main_topics'] ?? []);
 
         if ($selectedTopics === null) {
@@ -162,14 +165,61 @@ final class SiteMcpContextAssembler
             'Short Description',
             $short !== '' ? $short : '(empty)',
             '',
-            'Main Topics',
         ];
 
-        if ($selected === []) {
-            $lines[] = '(none selected)';
+        $topicByName = [];
+        foreach (is_array($topical['topics'] ?? null) ? $topical['topics'] : [] as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $name = trim((string) ($row['name'] ?? ''));
+            if ($name !== '') {
+                $topicByName[mb_strtolower($name)] = $row;
+            }
+        }
+
+        if ($topicByName !== []) {
+            $lines[] = 'Topical profile:';
+            if ($selected === []) {
+                $lines[] = '(none selected)';
+            } else {
+                $activeShown = 0;
+                $maxActive = SiteMcpClusterTopicalProfileBuilder::MAX_PROMPT_ACTIVE_TOPICS;
+                foreach ($selected as $name) {
+                    $row = $topicByName[mb_strtolower($name)] ?? null;
+                    if (! is_array($row)) {
+                        if ($activeShown >= $maxActive) {
+                            continue;
+                        }
+                        $activeShown++;
+                        $lines[] = '- '.$name;
+                        continue;
+                    }
+                    $state = (string) ($row['state'] ?? 'active');
+                    if ($state === 'planned') {
+                        $priority = trim((string) ($row['priority'] ?? 'high'));
+                        $lines[] = '- '.$name.' — planned/'.($priority !== '' ? $priority : 'high');
+                        continue;
+                    }
+                    if ($activeShown >= $maxActive) {
+                        continue;
+                    }
+                    $activeShown++;
+                    $weight = (float) ($row['weight'] ?? 0);
+                    $display = fmod($weight, 1.0) === 0.0
+                        ? (string) (int) $weight
+                        : rtrim(rtrim(number_format($weight, 1, '.', ''), '0'), '.');
+                    $lines[] = '- '.$name.' — '.$display.'%';
+                }
+            }
         } else {
-            foreach ($selected as $topic) {
-                $lines[] = '- '.$topic;
+            $lines[] = 'Main Topics';
+            if ($selected === []) {
+                $lines[] = '(none selected)';
+            } else {
+                foreach ($selected as $topic) {
+                    $lines[] = '- '.$topic;
+                }
             }
         }
 

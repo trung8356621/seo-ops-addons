@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\ContentProjects\Filament\Pages;
 
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithDraftSplit;
+use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithIdeaCandidates;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithNewContentSuggestions;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithSeoAuditSuggestions;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
@@ -32,13 +33,13 @@ use Livewire\WithPagination;
 use Throwable;
 
 /**
- * Canonical Content Planning page (UI: Lập kế hoạch nội dung).
+ * Canonical Project Planner page (UI label: Project Planner).
  * Route slug kept as content-projects/seo-audit for deep-link compatibility.
- * Navigation item owned by SeoProjectResource::getNavigationItems().
  */
 final class ContentProjectSeoAuditPlanner extends SeoPanelPage
 {
     use InteractsWithDraftSplit;
+    use InteractsWithIdeaCandidates;
     use InteractsWithNewContentSuggestions;
     use InteractsWithSeoAuditSuggestions;
     use WithPagination;
@@ -46,6 +47,10 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
     protected static ?string $slug = 'content-projects/seo-audit';
 
     protected static ?string $navigationIcon = 'heroicon-o-sparkles';
+
+    protected static ?string $navigationGroup = null;
+
+    protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_PROJECTS + 2;
 
     protected static bool $shouldRegisterNavigation = false;
 
@@ -80,7 +85,7 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
 
     public static function getNavigationParentItem(): ?string
     {
-        return SeoProjectResource::getNavigationLabel();
+        return \Omnichannel\Addons\Seo\Support\SeoUserNavigation::moduleProjects();
     }
 
     public static function canAccess(): bool
@@ -103,6 +108,7 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         $this->autoSelectSiteDraftIfNeeded();
         $this->mountInteractsWithSeoAuditSuggestions();
         $this->mountInteractsWithNewContentSuggestions();
+        $this->mountInteractsWithIdeaCandidates();
         $this->mountInteractsWithDraftSplit();
     }
 
@@ -130,6 +136,7 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         $this->resetPage('suggestionsPage');
         $this->mountInteractsWithSeoAuditSuggestions();
         $this->mountInteractsWithNewContentSuggestions();
+        $this->mountInteractsWithIdeaCandidates();
         $this->mountInteractsWithDraftSplit();
     }
 
@@ -144,6 +151,7 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         $this->autoSelectSiteDraftIfNeeded();
         $this->mountInteractsWithSeoAuditSuggestions();
         $this->mountInteractsWithNewContentSuggestions();
+        $this->mountInteractsWithIdeaCandidates();
         $this->mountInteractsWithDraftSplit();
     }
 

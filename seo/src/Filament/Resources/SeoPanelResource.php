@@ -16,7 +16,7 @@ abstract class SeoPanelResource extends Resource
 
     public static function getNavigationGroup(): ?string
     {
-        return null;
+        return static::$navigationGroup;
     }
 
     protected static function allowsSeoPanelMutation(): bool

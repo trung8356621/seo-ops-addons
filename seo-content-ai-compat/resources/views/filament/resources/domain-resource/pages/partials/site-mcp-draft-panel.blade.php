@@ -9,15 +9,18 @@
     $counts = $preview['counts'] ?? [];
     $keyword = $preview['keyword_context'] ?? [];
     $mainTopics = $keyword['main_topics'] ?? [];
+    $topicRecords = $keyword['main_topic_records'] ?? [];
+    $topicalProfile = is_array($keyword['topical_profile'] ?? null) ? $keyword['topical_profile'] : [];
+    $topicalTopics = is_array($topicalProfile['topics'] ?? null) ? $topicalProfile['topics'] : [];
+    if ($topicalTopics === [] && is_array($topicRecords)) {
+        $topicalTopics = $topicRecords;
+    }
     $warnings = $keyword['warnings'] ?? [];
     $articleContext = $preview['article_context'] ?? [];
     $keywordPreview = $preview['keyword_preview'] ?? [];
     $websiteType = mb_strtolower(trim((string) ($site['website_type'] ?? 'news')));
-    $isNewsSite = in_array($websiteType, ['news', ''], true);
-    $mainTopicsEmptyHint = $isNewsSite
-        ? __('(empty — expected for news)')
-        : __('(empty — chưa có product_cat parent=0 đã xác minh; regenerate sau sync taxonomy)');
-    $importantPagesEmptyHint = $isNewsSite
+    $mainTopicsEmptyHint = __('(empty — chưa có Keyword Cluster thực / planned; chạy Tách lại cluster)');
+    $importantPagesEmptyHint = in_array($websiteType, ['news', ''], true)
         ? __('Không auto-select (news).')
         : __('Không auto-select — chưa có product_cat parent=0 đã xác minh.');
 @endphp
@@ -54,6 +57,18 @@
                     '=========================',
                 ].join('\\n');
             }
+            const topicMeta = @js(collect($topicalTopics)->mapWithKeys(function ($row) {
+                if (! is_array($row)) {
+                    return [mb_strtolower((string) $row) => ['state' => 'active', 'weight' => 0]];
+                }
+                $name = (string) ($row['name'] ?? $row['keyword'] ?? '');
+
+                return [mb_strtolower($name) => [
+                    'state' => (string) ($row['state'] ?? 'active'),
+                    'weight' => (float) ($row['weight'] ?? 0),
+                    'priority' => (string) ($row['priority'] ?? 'high'),
+                ]];
+            })->all());
             const lines = [
                 '=========================',
                 'KEYWORD CONTEXT PREVIEW',
@@ -68,12 +83,23 @@
                 'Short Description',
                 @js((string) ($site['short_description'] ?? '')) || '(empty)',
                 '',
-                'Main Topics',
+                'Topical profile:',
             ];
             if (this.selected.length === 0) {
                 lines.push('(none selected)');
             } else {
-                this.selected.forEach((t) => lines.push('- ' + t));
+                this.selected.forEach((t) => {
+                    const meta = topicMeta[String(t).toLowerCase()] || null;
+                    if (meta && meta.state === 'planned') {
+                        lines.push('- ' + t + ' — planned/' + (meta.priority || 'high'));
+                    } else if (meta) {
+                        const w = Number(meta.weight || 0);
+                        const display = Number.isInteger(w) ? String(w) : String(Math.round(w * 10) / 10);
+                        lines.push('- ' + t + ' — ' + display + '%');
+                    } else {
+                        lines.push('- ' + t);
+                    }
+                });
             }
             lines.push('');
             lines.push('=========================');
@@ -181,12 +207,42 @@
                         </section>
 
                         <section class="space-y-2">
-                            <h4 class="text-xs font-semibold uppercase tracking-wide text-gray-500">{{ __('Main Topics') }}</h4>
-                            <ul class="list-disc space-y-0.5 pl-5 text-xs">
-                                @forelse($mainTopics as $topic)
-                                    <li class="flex items-center justify-between gap-2">
-                                        <span>{{ $topic }}</span>
-                                        <button type="button" class="text-[11px] text-primary-600" @click="copyText(@js((string) $topic))">{{ __('Copy') }}</button>
+                            <h4 class="text-xs font-semibold uppercase tracking-wide text-gray-500">{{ __('Chủ đề website') }}</h4>
+                            <p class="text-[11px] text-gray-400">{{ __('Từ Keyword Clusters (SSOT). Sửa tên / membership ở Cluster UI.') }}</p>
+                            <ul class="space-y-1.5 text-xs">
+                                @forelse($topicalTopics as $topicRow)
+                                    @php
+                                        $topicName = is_array($topicRow)
+                                            ? (string) ($topicRow['name'] ?? $topicRow['keyword'] ?? '')
+                                            : (string) $topicRow;
+                                        $topicWeight = is_array($topicRow) ? (float) ($topicRow['weight'] ?? 0) : 0.0;
+                                        $topicState = is_array($topicRow) ? (string) ($topicRow['state'] ?? 'active') : 'active';
+                                        $topicPriority = is_array($topicRow) ? (string) ($topicRow['priority'] ?? '') : '';
+                                        $clusterRef = is_array($topicRow) ? (string) ($topicRow['cluster_ref'] ?? '') : '';
+                                        $clusterUrl = $clusterRef !== ''
+                                            ? \Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource::getUrl('cluster', ['clusterKey' => $clusterRef])
+                                            : null;
+                                    @endphp
+                                    <li class="rounded border border-gray-100 px-2 py-1.5 dark:border-gray-800">
+                                        <div class="flex items-center justify-between gap-2">
+                                            <span class="font-medium text-gray-900 dark:text-gray-100">{{ $topicName }}</span>
+                                            <div class="flex shrink-0 items-center gap-2">
+                                                @if($topicState === 'planned')
+                                                    <span class="text-[11px] text-amber-700 dark:text-amber-300">{{ __('Planned') }}@if($topicPriority !== '') · {{ ucfirst($topicPriority) }}@endif</span>
+                                                @else
+                                                    <span class="tabular-nums text-[11px] text-gray-500">{{ rtrim(rtrim(number_format($topicWeight, 1, '.', ''), '0'), '.') }}%</span>
+                                                @endif
+                                                <button type="button" class="text-[11px] text-primary-600" @click="copyText(@js($topicName))">{{ __('Copy') }}</button>
+                                            </div>
+                                        </div>
+                                        @if($topicState !== 'planned')
+                                            <div class="mt-1 h-1.5 overflow-hidden rounded bg-gray-100 dark:bg-gray-800">
+                                                <div class="h-full rounded bg-primary-500" style="width: {{ max(0, min(100, $topicWeight)) }}%"></div>
+                                            </div>
+                                        @endif
+                                        @if($clusterUrl)
+                                            <a href="{{ $clusterUrl }}" class="mt-1 inline-block text-[11px] text-primary-600 hover:underline">{{ __('Xem cụm') }}</a>
+                                        @endif
                                     </li>
                                 @empty
                                     <li class="text-gray-400">{{ $mainTopicsEmptyHint }}</li>
@@ -298,7 +354,7 @@
 
                         <div class="space-y-1">
                             <div class="flex items-center justify-between gap-2">
-                                <span class="text-[11px] font-medium uppercase tracking-wide text-gray-500">{{ __('Main Topics') }}</span>
+                                <span class="text-[11px] font-medium uppercase tracking-wide text-gray-500">{{ __('Chủ đề website') }}</span>
                                 <div class="flex gap-2">
                                     <button type="button" class="text-[11px] text-primary-600" @click="selectAll()">{{ __('Select all') }}</button>
                                     <button type="button" class="text-[11px] text-gray-500" @click="clearAll()">{{ __('Clear all') }}</button>

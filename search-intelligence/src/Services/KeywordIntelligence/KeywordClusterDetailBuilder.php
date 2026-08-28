@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence;
 
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordClassification;
@@ -30,32 +29,27 @@ final class KeywordClusterDetailBuilder
         }
 
         $keywordIds = $this->clusters->memberKeywordIds($siteId, $clusterKey);
-        if ($keywordIds === []) {
+        $keywordCount = count($keywordIds);
+        $isManualEmpty = $keywordCount === 0 && $this->manualClusterMeta($siteId, $clusterKey) !== null;
+        if ($keywordCount === 0 && ! $isManualEmpty) {
             return null;
         }
-
-        $keywordCount = count($keywordIds);
         $articleCount = 0;
         $linkCount = 0;
-        if (Schema::connection('omi_seo_ai')->hasTable('seo_link_maps')) {
-            $articleCount = (int) DB::connection('omi_seo_ai')->table('seo_link_maps')
-                ->whereIn('keyword_id', $keywordIds)
-                ->whereNotNull('target_article_id')
-                ->distinct()
-                ->count('target_article_id');
-            $linkCount = (int) DB::connection('omi_seo_ai')->table('seo_link_maps')
-                ->whereIn('keyword_id', $keywordIds)
-                ->count();
+        if ($keywordIds !== []) {
+            $linkStats = $this->clusters->memberLinkStats($keywordIds);
+            $articleCount = (int) $linkStats['article_count'];
+            $linkCount = (int) $linkStats['internal_link_count'];
         }
 
-        $intents = SeoKeywordClassification::query()
+        $intents = $keywordIds === [] ? [] : SeoKeywordClassification::query()
             ->whereIn('keyword_id', $keywordIds)
             ->selectRaw('seo_intent, COUNT(*) as total')
             ->groupBy('seo_intent')
             ->pluck('total', 'seo_intent')
             ->all();
 
-        $primary = SeoKeywordClassification::query()
+        $primary = $keywordIds === [] ? null : SeoKeywordClassification::query()
             ->whereIn('keyword_id', $keywordIds)
             ->orderByRaw('LENGTH(COALESCE(normalized_text, \'\')) ASC')
             ->first();
@@ -63,7 +57,7 @@ final class KeywordClusterDetailBuilder
             ? Keyword::query()->find((int) $primary->keyword_id)
             : null;
 
-        $lastAnalyzed = SeoKeywordClassification::query()
+        $lastAnalyzed = $keywordIds === [] ? null : SeoKeywordClassification::query()
             ->whereIn('keyword_id', $keywordIds)
             ->max('classified_at');
 
@@ -111,9 +105,11 @@ final class KeywordClusterDetailBuilder
             'cluster_key' => $clusterKey,
             'label' => $label,
             'canonical_phrase' => $label,
+            'canonical_source' => $this->canonicalSource($siteId, $clusterKey),
             'keyword_count' => $keywordCount,
             'article_count' => $articleCount,
             'internal_links' => $linkCount,
+            'internal_link_count' => $linkCount,
             'primary_keyword' => $sample !== '' ? $sample : $clusterKey,
             'intent' => $topIntent,
             'intent_counts' => [
@@ -130,6 +126,23 @@ final class KeywordClusterDetailBuilder
         ];
     }
 
+    private function canonicalSource(?int $siteId, string $clusterKey): string
+    {
+        if ($siteId === null || $siteId <= 0) {
+            return 'auto';
+        }
+        if (! \Illuminate\Support\Facades\Schema::connection('omi_seo_ai')->hasTable('seo_topic_cluster_meta')) {
+            return 'auto';
+        }
+
+        $source = \Omnichannel\Addons\SearchIntelligence\Models\SeoTopicClusterMeta::query()
+            ->where('site_id', $siteId)
+            ->where('cluster_key', $clusterKey)
+            ->value('canonical_source');
+
+        return (string) ($source ?: 'auto');
+    }
+
     public function paginateKeywords(?int $siteId, string $clusterKey, int $perPage = 25): LengthAwarePaginator
     {
         $ids = $this->clusters->memberKeywordIds($siteId, $clusterKey);
@@ -143,6 +156,33 @@ final class KeywordClusterDetailBuilder
             ->whereIn('id', $ids)
             ->orderBy('phrase')
             ->paginate($perPage);
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function manualClusterMeta(?int $siteId, string $clusterKey): ?array
+    {
+        if ($siteId === null || $siteId <= 0 || ! Schema::connection('omi_seo_ai')->hasTable('seo_topic_cluster_meta')) {
+            return null;
+        }
+
+        $meta = \Omnichannel\Addons\SearchIntelligence\Models\SeoTopicClusterMeta::query()
+            ->where('site_id', $siteId)
+            ->where('cluster_key', $clusterKey)
+            ->first();
+        if (! $meta instanceof \Omnichannel\Addons\SearchIntelligence\Models\SeoTopicClusterMeta) {
+            return null;
+        }
+        if (Schema::connection('omi_seo_ai')->hasColumn('seo_topic_cluster_meta', 'canonical_source')
+            && ! $meta->isManual()) {
+            return null;
+        }
+
+        return [
+            'canonical_phrase' => (string) $meta->canonical_phrase,
+            'canonical_source' => (string) ($meta->canonical_source ?? 'auto'),
+        ];
     }
 
 }

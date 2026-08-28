@@ -7,12 +7,15 @@ namespace Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence;
 use App\Core\Operations\OperationLogger;
 use App\Models\Site;
 use Illuminate\Support\Facades\Schema;
+use Omnichannel\Addons\SearchIntelligence\Services\SiteMcp\SiteMcpTopicalProfileStaleState;
 use Throwable;
 
 final class TopicClusterDissolveSideEffects
 {
     public function afterDissolve(int $siteId, string $clusterKey, string $clusterLabel, int $affectedKeywordCount): void
     {
+        TopicClusterDirtyState::mark($siteId, 'cluster_dissolved');
+        SiteMcpTopicalProfileStaleState::mark($siteId, 'cluster_dissolved');
         $this->invalidateLandscapeCache($siteId);
         $this->logDissolve($siteId, $clusterKey, $clusterLabel, $affectedKeywordCount);
     }

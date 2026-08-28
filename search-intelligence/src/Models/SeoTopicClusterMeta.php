@@ -19,10 +19,24 @@ final class SeoTopicClusterMeta extends Model
         'normalized_canonical',
         'confidence',
         'needs_review',
+        'canonical_source',
+        'mcp_excluded',
+        'seo_excluded',
     ];
+
+    public const SOURCE_AUTO = 'auto';
+
+    public const SOURCE_MANUAL = 'manual';
 
     protected $casts = [
         'site_id' => 'integer',
         'needs_review' => 'boolean',
+        'mcp_excluded' => 'boolean',
+        'seo_excluded' => 'boolean',
     ];
+
+    public function isManual(): bool
+    {
+        return (string) ($this->canonical_source ?? self::SOURCE_AUTO) === self::SOURCE_MANUAL;
+    }
 }

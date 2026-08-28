@@ -20,8 +20,12 @@ final class DissolveTopicClusterUiTest extends TestCase
 
         self::assertStringContainsString('dissolve-cluster-row-action', $index);
         self::assertStringContainsString('topic_dissolve_action', $partial);
-        self::assertStringContainsString("wire:click='openDissolveConfirm(@js(\$clusterKey))'", $partial);
+        self::assertStringContainsString('openDissolveConfirm(', $partial);
+        self::assertStringContainsString('Illuminate\\Support\\Js::from', $partial);
         self::assertStringContainsString('seo-content-ai::content-project-action-menu-shell', $partial);
+        self::assertStringContainsString('content-project-ops-styles', $index);
+        self::assertStringContainsString('cluster-index-row__actions', $index);
+        self::assertStringContainsString('clusterDataEpoch', $index);
         self::assertStringContainsString('canDissolveCluster', $index);
         self::assertStringContainsString('dissolve-cluster-modal', $index);
     }
@@ -33,9 +37,30 @@ final class DissolveTopicClusterUiTest extends TestCase
         ));
 
         self::assertStringContainsString('topic_dissolve_action', $detail);
-        self::assertStringContainsString("wire:click='openDissolveConfirm(@js(\$dissolveClusterKey))'", $detail);
+        self::assertStringContainsString('openDissolveConfirm(', $detail);
+        self::assertStringContainsString('Illuminate\\Support\\Js::from', $detail);
         self::assertStringContainsString('canDissolveCluster', $detail);
         self::assertStringContainsString('dissolve-cluster-modal', $detail);
+        // Modal must stay mounted after dissolve clears detail members.
+        self::assertMatchesRegularExpression(
+            '/@endif\s*@include\([\'"]seo-content-ai::filament\.resources\.keywords\.pages\.partials\.dissolve-cluster-modal/s',
+            $detail,
+        );
+    }
+
+    public function test_index_title_is_not_navigation_link(): void
+    {
+        $index = (string) file_get_contents(LegacyAddonPath::resolve(
+            'resources/views/filament/resources/keywords/pages/topic-cluster-index.blade.php',
+        ));
+
+        self::assertStringContainsString('cluster-index-row__title', $index);
+        self::assertStringContainsString('@dblclick.prevent="startEdit()"', $index);
+        self::assertStringContainsString('saveClusterCanonicalFromIndex', $index);
+        self::assertStringContainsString('await $wire.$refresh()', $index);
+        self::assertStringContainsString('topic_view_cluster', $index);
+        self::assertStringContainsString('topic-index-detail-btn', $index);
+        self::assertStringNotContainsString('class="topic-index-link"', $index);
     }
 
     public function test_both_pages_use_same_domain_service(): void
@@ -49,6 +74,7 @@ final class DissolveTopicClusterUiTest extends TestCase
         self::assertStringContainsString('DissolveTopicClusterService', $trait);
         self::assertStringContainsString('TopicClusterDissolveSideEffects', (string) file_get_contents(dirname(__DIR__, 2).'/src/Services/KeywordIntelligence/DissolveTopicClusterService.php'));
         self::assertStringContainsString('confirmDissolveCluster', $trait);
+        self::assertStringContainsString('TopicClusterDerivedCleanup', (string) file_get_contents(dirname(__DIR__, 2).'/src/Services/KeywordIntelligence/DissolveTopicClusterService.php'));
     }
 
     public function test_confirmation_modal_is_required_before_mutation(): void

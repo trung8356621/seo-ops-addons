@@ -8,6 +8,7 @@ use Omnichannel\Addons\ContentProjects\Filament\Pages\ContentProjectNewContentPl
 use Omnichannel\Addons\ContentProjects\Filament\Pages\ContentProjectSeoAuditPlanner;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SplitDraftContentProjectCommand;
+use Omnichannel\Addons\Publishing\Filament\Pages\PublishingQueueHub;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use Tests\Support\LegacyAddonPath;
@@ -56,7 +57,11 @@ final class ContentPlanningUxContractTest extends TestCase
         self::assertStringContainsString('content-project-draft-items', $blade);
         self::assertStringContainsString('data-planner-card="improve"', $draft);
         self::assertStringContainsString('content-project-new-content-card', $draft);
-        self::assertStringContainsString('filtersOpen', $draft);
+        self::assertStringContainsString('filtersOpen: true', $draft);
+        self::assertStringContainsString('createTab', $draft);
+        self::assertStringContainsString('data-create-tab="ideas"', $draft);
+        self::assertStringContainsString('content-project-idea-candidate-picker', $draft);
+        self::assertStringContainsString('cp-plan-tab-panels', $draft);
         self::assertStringContainsString('data-planner-filters="improve"', $draft);
         self::assertStringContainsString('seoAuditPlannerCardState', $draft);
         self::assertStringNotContainsString('planner_matched_count', $draft);
@@ -66,6 +71,10 @@ final class ContentPlanningUxContractTest extends TestCase
         self::assertStringNotContainsString('data-advanced-seo-audit', $draft);
         self::assertStringContainsString('cp-plan-filters-grid', $draft);
         self::assertStringContainsString('cp-plan-grid', $draft);
+        self::assertStringContainsString('--cp-plan-panel-max', (string) file_get_contents(
+            LegacyAddonPath::resolve('resources/views/components/content-project-ops-styles.blade.php'),
+        ));
+        self::assertStringContainsString('cp-plan-card__scroll', $draft);
         self::assertStringNotContainsString('historyOpen', $draft);
         self::assertStringNotContainsString('planner_history', $draft);
         self::assertStringNotContainsString('planner_load_filters', $draft);
@@ -138,23 +147,25 @@ final class ContentPlanningUxContractTest extends TestCase
         self::assertStringNotContainsString('publishToWordPress', $page);
     }
 
-    public function test_nav_orders_content_planning_then_publishing_queue(): void
+    public function test_nav_nests_project_planner_and_publishing_queue_under_projects(): void
     {
         $resource = (string) file_get_contents(
             (string) (new ReflectionClass(SeoProjectResource::class))->getFileName(),
         );
+        $planner = (string) file_get_contents(
+            (string) (new ReflectionClass(ContentProjectSeoAuditPlanner::class))->getFileName(),
+        );
+        $queue = (string) file_get_contents(
+            (string) (new ReflectionClass(PublishingQueueHub::class))->getFileName(),
+        );
 
         self::assertStringContainsString('ContentProjectSeoAuditPlanner::getUrl()', $resource);
         self::assertStringContainsString('PublishingQueueHub::getUrl()', $resource);
-        self::assertStringContainsString('->sort(3)', $resource);
-        self::assertStringContainsString('->sort(5)', $resource);
-        self::assertStringNotContainsString('ContentProjectNewContentPlanner::getUrl()', $resource);
-
-        $auditPos = strpos($resource, 'ContentProjectSeoAuditPlanner::getUrl()');
-        $queuePos = strpos($resource, 'PublishingQueueHub::getUrl()');
-        self::assertNotFalse($auditPos);
-        self::assertNotFalse($queuePos);
-        self::assertLessThan($queuePos, $auditPos);
+        self::assertStringContainsString('parentItem($parentLabel)', $resource);
+        self::assertStringContainsString('shouldRegisterNavigation = false', $planner);
+        self::assertStringContainsString('shouldRegisterNavigation = false', $queue);
+        self::assertStringContainsString('SeoUserNavigation::moduleProjects()', $planner);
+        self::assertStringContainsString('SeoProjectResource::getNavigationLabel()', $queue);
     }
 
     public function test_legacy_new_content_redirects_to_content_planning(): void

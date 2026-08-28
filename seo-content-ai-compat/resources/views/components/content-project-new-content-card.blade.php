@@ -1,3 +1,7 @@
+@props([
+    'embedded' => false,
+])
+
 @php
     /** @var \Livewire\Component $this */
     $payload = $this->newContentPlannerPayload ?? [];
@@ -18,26 +22,35 @@
 @endphp
 
 <div
-    class="cp-plan-card cp-plan-card--create"
+    @class([
+        'cp-plan-card cp-plan-card--create' => ! $embedded,
+        'cp-plan-create-body' => $embedded,
+    ])
     wire:key="cp-new-content-card"
     data-planner-card="new-content"
     @if ($isGenerating)
         wire:poll.3s="refreshNewContentRun"
     @endif
 >
-    <div class="cp-plan-card__head">
-        <span class="cp-plan-card__icon cp-plan-card__icon--create" aria-hidden="true">
-            <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z"/><path d="M19 14l.75 2.25L22 17l-2.25.75L19 20l-.75-2.25L16 17l2.25-.75L19 14z"/></svg>
-        </span>
-        <div>
-            <h3 class="cp-plan-card__title">
-                {{ __('seo-content-ai::filament.projects.planner_create_heading') }}
-            </h3>
-            <p class="cp-plan-card__help">
-                {{ __('seo-content-ai::filament.projects.planner_create_help') }}
-            </p>
+    @if (! $embedded)
+        <div class="cp-plan-card__head">
+            <span class="cp-plan-card__icon cp-plan-card__icon--create" aria-hidden="true">
+                <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5L12 3z"/><path d="M19 14l.75 2.25L22 17l-2.25.75L19 20l-.75-2.25L16 17l2.25-.75L19 14z"/></svg>
+            </span>
+            <div>
+                <h3 class="cp-plan-card__title">
+                    {{ __('seo-content-ai::filament.projects.planner_create_heading') }}
+                </h3>
+                <p class="cp-plan-card__help">
+                    {{ __('seo-content-ai::filament.projects.planner_create_help') }}
+                </p>
+            </div>
         </div>
-    </div>
+    @else
+        <p class="cp-plan-card__help">
+            {{ __('seo-content-ai::filament.projects.planner_create_help') }}
+        </p>
+    @endif
 
     @if (is_string($primaryLanguageLabel) && $primaryLanguageLabel !== '' && $primaryConfigured)
         <p class="text-xs text-gray-500">{{ __('seo-content-ai::filament.projects.planner_primary_language_label', ['label' => $primaryLanguageLabel]) }}</p>

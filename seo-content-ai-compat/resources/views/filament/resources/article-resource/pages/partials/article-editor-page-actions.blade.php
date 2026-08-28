@@ -31,6 +31,9 @@
     $wpSyncEligibility = app(\Omnichannel\Addons\WordPress\Services\ArticleWordPressSyncEligibility::class)
         ->evaluate($record);
     $contentProjectWpSyncEligible = $inContentProject && ($wpSyncEligibility['allowed'] ?? false);
+    // Rewrite/improve updates an existing WP post — Sync WP must stay visible so auto reviews can run.
+    $contentProjectRewriteSyncEligible = $contentProjectWpSyncEligible
+        && ($wpSyncEligibility['mode'] ?? null) === \Omnichannel\Addons\WordPress\Services\ArticleWordPressSyncEligibility::MODE_REWRITE_UPDATE_EXISTING;
     $isContentArchived = \Omnichannel\Addons\Content\Filament\Resources\ArticleResource::articleIsContentArchived($record);
     $contentProjectUrl = $inContentProject
         ? \Omnichannel\Addons\Content\Filament\Resources\ArticleResource::articleContentProjectUrl($record)
@@ -323,8 +326,26 @@
         </button>
 
         @if (! $isContentManager)
-            @if ($inContentProject && $contentProjectWpSyncEligible)
-                {{-- Content Project: Sync WP hidden (UI-only). Save & Close unchanged. --}}
+            @if ($contentProjectRewriteSyncEligible)
+                {{-- Content Project rewrite/improve: Sync WP updates existing post + auto product reviews. --}}
+                <button
+                    type="button"
+                    class="seo-editor-toolbar-btn seo-editor-toolbar-btn--accent seo-editor-toolbar-btn--labeled"
+                    title="{{ $syncTitle }}"
+                    aria-label="{{ $syncTitle }}"
+                    data-seo-page-action="sync"
+                    data-seo-sync-mode="wordpress_sync"
+                    data-seo-sync-origin="content_project_rewrite"
+                    x-bind:disabled="!editorNetworkAvailable"
+                    x-on:click="if (!editorNetworkAvailable) { return; } window.dispatchEvent(new CustomEvent('article-editor-shortcut', { detail: { action: 'sync' } }))"
+                >
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1.1 15.9-3.3-9.7h2l1.5 5.1 1.5-5.1h1.9l1.5 5.1 1.5-5.1h2l-3.3 9.7h-1.9l-1.5-4.9-1.5 4.9h-1.9z"/>
+                    </svg>
+                    <span class="seo-editor-toolbar-btn__label">{{ $syncLabel }}</span>
+                </button>
+            @elseif ($inContentProject && $contentProjectWpSyncEligible)
+                {{-- Content Project post-publish: Sync WP hidden (UI-only). Save & Close unchanged. --}}
                 <button
                     type="button"
                     class="seo-editor-toolbar-btn seo-editor-toolbar-btn--labeled"

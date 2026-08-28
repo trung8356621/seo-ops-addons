@@ -233,6 +233,55 @@ final class DissolveTopicClusterServiceTest extends TestCase
         ], 'omi_seo_ai');
     }
 
+    public function test_dissolve_purges_derived_cluster_artifacts(): void
+    {
+        $first = $this->seedClusteredKeyword(self::SITE_A, 'alpha kw', 'purge_cluster', 'informational');
+        $second = $this->seedClusteredKeyword(self::SITE_A, 'beta kw', 'purge_cluster', 'commercial');
+
+        DB::connection('omi_seo_ai')->table('seo_topic_cluster_meta')->insert([
+            'site_id' => self::SITE_A,
+            'cluster_key' => 'purge_cluster',
+            'canonical_phrase' => 'purge',
+            'normalized_canonical' => 'purge',
+            'confidence' => 'high',
+            'needs_review' => 0,
+            'canonical_source' => 'auto',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::connection('omi_seo_ai')->table('seo_topic_cluster_aliases')->insert([
+            'site_id' => self::SITE_A,
+            'cluster_key' => 'purge_cluster',
+            'alias_phrase' => 'alpha kw',
+            'normalized_alias' => 'alpha kw',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+        DB::connection('omi_seo_ai')->table('seo_keyword_dna')->insert([
+            'site_id' => self::SITE_A,
+            'keyword_id' => (int) $first->id,
+            'cluster_key' => 'purge_cluster',
+            'value' => 'alpha',
+            'normalized_value' => 'alpha',
+            'source' => 'deterministic',
+            'position' => 0,
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $result = $this->service()->dissolve(self::SITE_A, 'purge_cluster');
+
+        self::assertTrue($result->success);
+        self::assertSame(2, $result->affectedKeywordCount);
+        self::assertNull($this->classificationClusterKey((int) $first->id));
+        self::assertNull($this->classificationClusterKey((int) $second->id));
+        self::assertNotNull(Keyword::query()->find($first->id));
+        self::assertNotNull(Keyword::query()->find($second->id));
+        self::assertSame(0, (int) DB::connection('omi_seo_ai')->table('seo_topic_cluster_meta')->where('cluster_key', 'purge_cluster')->count());
+        self::assertSame(0, (int) DB::connection('omi_seo_ai')->table('seo_topic_cluster_aliases')->where('cluster_key', 'purge_cluster')->count());
+        self::assertSame(0, (int) DB::connection('omi_seo_ai')->table('seo_keyword_dna')->where('cluster_key', 'purge_cluster')->count());
+    }
+
     public function test_no_automatic_reclustering_is_triggered(): void
     {
         $source = (string) file_get_contents(
@@ -390,6 +439,43 @@ final class DissolveTopicClusterServiceTest extends TestCase
             $table->boolean('is_seo_keyword')->nullable();
             $table->decimal('keyword_score', 5, 2)->nullable();
             $table->timestamp('classified_at')->nullable();
+            $table->timestamps();
+        });
+
+        Schema::connection('omi_seo_ai')->create('seo_topic_cluster_meta', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('site_id');
+            $table->string('cluster_key');
+            $table->string('canonical_phrase');
+            $table->string('normalized_canonical');
+            $table->string('confidence')->default('high');
+            $table->boolean('needs_review')->default(false);
+            $table->string('canonical_source')->default('auto');
+            $table->timestamps();
+            $table->unique(['site_id', 'cluster_key']);
+        });
+
+        Schema::connection('omi_seo_ai')->create('seo_topic_cluster_aliases', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('site_id');
+            $table->string('cluster_key');
+            $table->string('alias_phrase');
+            $table->string('normalized_alias');
+            $table->timestamps();
+            $table->unique(['site_id', 'normalized_alias']);
+        });
+
+        Schema::connection('omi_seo_ai')->create('seo_keyword_dna', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('site_id')->index();
+            $table->unsignedBigInteger('keyword_id')->index();
+            $table->string('cluster_key')->index();
+            $table->string('value');
+            $table->string('normalized_value');
+            $table->string('facet_type')->nullable();
+            $table->string('confidence')->nullable();
+            $table->string('source')->default('deterministic');
+            $table->unsignedSmallInteger('position')->default(0);
             $table->timestamps();
         });
     }

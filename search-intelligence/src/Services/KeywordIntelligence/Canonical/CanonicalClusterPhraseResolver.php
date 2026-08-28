@@ -144,6 +144,13 @@ final class CanonicalClusterPhraseResolver
             $aLead = $this->serviceLeadTokens($aTokens);
             $bLead = $this->serviceLeadTokens($bTokens);
             if ($aLead !== [] && $bLead !== [] && $aLead !== $bLead) {
+                // Compatible when one service lead is a contiguous core inside the other phrase.
+                if ($this->containsContiguousTokenPhrase($aTokens, $bLead)
+                    || $this->containsContiguousTokenPhrase($bTokens, $aLead)
+                ) {
+                    return true;
+                }
+
                 return false;
             }
         }

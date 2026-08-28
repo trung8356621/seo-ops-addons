@@ -75,6 +75,23 @@ function installRowClickLayers(root, config) {
         return;
     }
 
+    const interactiveSelector = [
+        'a',
+        'button',
+        'input',
+        'textarea',
+        'select',
+        'label',
+        '[role="button"]',
+        '[role="menuitem"]',
+        '[role="menu"]',
+        '.keyword-item__actions',
+        '.keyword-item__menu',
+        '.keyword-item__menu-btn',
+        '.fi-ta-selection-cell',
+        '.fi-ta-actions-cell',
+    ].join(',');
+
     tableShell.querySelectorAll('.fi-ta-row').forEach((row) => {
         const recordKey = extractRecordKeyFromRow(row);
         if (!recordKey) {
@@ -91,26 +108,33 @@ function installRowClickLayers(root, config) {
                 return;
             }
 
-            if (cell.querySelector(':scope > .keyword-row-click-layer')) {
-                return;
-            }
+            // Drop legacy full-cell overlays — they blocked nested controls (… menu).
+            cell.querySelectorAll(':scope > .keyword-row-click-layer').forEach((layer) => {
+                layer.remove();
+            });
 
             cell.classList.add('keyword-row-click-cell');
 
-            const layer = document.createElement('button');
-            layer.type = 'button';
-            layer.className = 'keyword-row-click-layer';
-            layer.dataset.keywordId = recordKey;
-            layer.setAttribute('tabindex', '-1');
-            layer.setAttribute('aria-hidden', 'true');
+            if (cell.dataset.keywordRowClickBound === '1') {
+                return;
+            }
 
-            layer.addEventListener('click', (event) => {
+            cell.dataset.keywordRowClickBound = '1';
+
+            cell.addEventListener('click', (event) => {
+                const target = event.target;
+                if (!(target instanceof Element)) {
+                    return;
+                }
+
+                if (target.closest(interactiveSelector)) {
+                    return;
+                }
+
                 event.preventDefault();
                 event.stopPropagation();
                 handleKeywordRowSelect(root, config, recordKey);
             });
-
-            cell.appendChild(layer);
         });
     });
 
@@ -133,7 +157,6 @@ function createKeywordDetailPanel(root, config) {
     const footerEditBtn = root.querySelector('[data-keyword-detail-footer-edit]');
     const editBtn = root.querySelector('[data-keyword-detail-edit]');
     const analyzeBtn = root.querySelector('[data-keyword-detail-analyze]');
-    const moveBtn = root.querySelector('[data-keyword-detail-move]');
     const deleteBtn = root.querySelector('[data-keyword-detail-delete]');
     const closeBtn = root.querySelector('[data-keyword-detail-close]');
     const backdrop = root.querySelector('[data-keyword-detail-backdrop]');
@@ -151,11 +174,10 @@ function createKeywordDetailPanel(root, config) {
     function refreshActionsBar() {
         const hasAnalyze = analyzeBtn && !analyzeBtn.classList.contains('hidden');
         const hasEdit = editBtn && !editBtn.classList.contains('hidden');
-        const hasMove = moveBtn && !moveBtn.classList.contains('hidden');
         const hasDelete = deleteBtn && !deleteBtn.classList.contains('hidden');
         const hasFooterEdit = footerEditBtn && !footerEditBtn.classList.contains('hidden');
 
-        quickActionsEl?.classList.toggle('hidden', !(hasEdit || hasMove || hasDelete));
+        quickActionsEl?.classList.toggle('hidden', !(hasEdit || hasDelete));
         footerEl?.classList.toggle('hidden', !(hasFooterEdit || hasAnalyze));
     }
 
@@ -182,15 +204,12 @@ function createKeywordDetailPanel(root, config) {
         refreshActionsBar();
     }
 
-    function setActionsVisibility({ canEdit, canDelete, canMove }) {
+    function setActionsVisibility({ canEdit, canDelete }) {
         if (editBtn) {
             editBtn.classList.toggle('hidden', !canEdit);
         }
         if (footerEditBtn) {
             footerEditBtn.classList.toggle('hidden', !canEdit);
-        }
-        if (moveBtn) {
-            moveBtn.classList.toggle('hidden', !canMove);
         }
         if (deleteBtn) {
             deleteBtn.classList.toggle('hidden', !canDelete);
@@ -333,7 +352,6 @@ function createKeywordDetailPanel(root, config) {
             setActionsVisibility({
                 canEdit: Boolean(result?.canEdit),
                 canDelete: Boolean(result?.canDelete),
-                canMove: Boolean(result?.canMove),
             });
             setAnalyzeButton(result?.contentAnalysisUrl);
 
@@ -367,7 +385,7 @@ function createKeywordDetailPanel(root, config) {
         if (phraseEl) {
             phraseEl.textContent = '';
         }
-        setActionsVisibility({ canEdit: false, canDelete: false, canMove: false });
+        setActionsVisibility({ canEdit: false, canDelete: false });
         setAnalyzeButton('');
 
         if (notifyLivewire) {
@@ -530,7 +548,14 @@ function bindTableRowLayersOnce(root, config) {
 
 export function initKeywordDetailPanel() {
     const config = readConfig();
-    const root = document.querySelector('.keyword-detail-layout');
+    let root = document.querySelector('.keyword-detail-layout');
+    if (!root) {
+        const panel = document.querySelector('[data-keyword-detail-panel]');
+        root = panel?.closest('.keyword-workspace-shell') ?? null;
+        if (root && !root.classList.contains('keyword-detail-layout')) {
+            root.classList.add('keyword-detail-layout');
+        }
+    }
 
     if (!config || !root) {
         return;

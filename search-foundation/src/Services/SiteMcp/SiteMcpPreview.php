@@ -42,10 +42,19 @@ final class SiteMcpPreview
                 'keyword_context' => [
                     'main_topics' => [],
                     'main_topic_records' => [],
+                    'topical_profile' => [
+                        'source' => 'keyword_clusters.v1',
+                        'built_at' => null,
+                        'total_clustered_keywords' => 0,
+                        'topics' => [],
+                    ],
                     'warnings' => [],
                 ],
                 'ai_context' => [
                     'main_topics' => [],
+                    'topical_profile' => [
+                        'topics' => [],
+                    ],
                     'warnings' => [],
                 ],
                 'article_context' => [
@@ -83,6 +92,14 @@ final class SiteMcpPreview
             ?? $keywordContext['existing_primary_topics']
             ?? []
         );
+        $topicalProfile = is_array($keywordContext['topical_profile'] ?? null)
+            ? $keywordContext['topical_profile']
+            : [
+                'source' => 'keyword_clusters.v1',
+                'built_at' => null,
+                'total_clustered_keywords' => 0,
+                'topics' => [],
+            ];
         $warnings = $this->stringList($keywordContext['warnings'] ?? []);
         $generation = is_array($draft['generation'] ?? null) ? $draft['generation'] : [];
         $site = is_array($draft['site'] ?? null) ? $draft['site'] : [];
@@ -95,6 +112,11 @@ final class SiteMcpPreview
 
         $aiContext = [
             'main_topics' => $mainTopics,
+            'topical_profile' => [
+                'topics' => is_array($topicalProfile['topics'] ?? null) ? $topicalProfile['topics'] : [],
+                'total_clustered_keywords' => (int) ($topicalProfile['total_clustered_keywords'] ?? 0),
+                'source' => (string) ($topicalProfile['source'] ?? 'keyword_clusters.v1'),
+            ],
             'warnings' => $warnings,
         ];
 
@@ -123,6 +145,7 @@ final class SiteMcpPreview
                 'main_topic_records' => is_array($keywordContext['main_topic_records'] ?? $keywordContext['primary_topic_records'] ?? null)
                     ? array_values($keywordContext['main_topic_records'] ?? $keywordContext['primary_topic_records'])
                     : [],
+                'topical_profile' => $topicalProfile,
                 'warnings' => $warnings,
             ],
             'ai_context' => $aiContext,

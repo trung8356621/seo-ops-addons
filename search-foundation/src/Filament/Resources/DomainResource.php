@@ -35,9 +35,9 @@ class DomainResource extends SeoPanelResource
 
     protected static ?string $navigationGroup = null;
 
-    protected static ?string $navigationLabel = 'Domain list';
+    protected static ?string $navigationLabel = 'Domains';
 
-    protected static ?int $navigationSort = 13;
+    protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_DOMAINS;
 
     public static function canViewAny(): bool
     {

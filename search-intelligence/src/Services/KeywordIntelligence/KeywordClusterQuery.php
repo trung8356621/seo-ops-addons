@@ -11,6 +11,7 @@ use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordClassification;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicClusterMeta;
+use Omnichannel\Addons\SearchIntelligence\Services\SiteMcp\SiteMcpClusterTopicalProfileBuilder;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordCanonicalizer;
 use Omnichannel\Addons\Seo\Support\DomainContextResolver;
 
@@ -47,20 +48,42 @@ final class KeywordClusterQuery
     }
 
     /**
-     * @param  array{search?: string, coverage?: string, has_articles?: bool}  $filters
+     * @param  array{
+     *     search?: string,
+     *     coverage?: string,
+     *     has_articles?: bool,
+     *     sort?: string,
+     *     projection?: 'mcp'|'seo'
+     * }  $filters
      * @return LengthAwarePaginator<int, array<string, mixed>>
      */
-    public function paginateClusters(?int $siteId, array $filters, int $perPage = 25): LengthAwarePaginator
+    public function paginateClusters(?int $siteId, array $filters, int $perPage = 25, ?string $path = null): LengthAwarePaginator
     {
         if (! $this->classificationsReady()) {
-            return new \Illuminate\Pagination\LengthAwarePaginator([], 0, $perPage);
+            return new \Illuminate\Pagination\LengthAwarePaginator([], 0, $perPage, 1, [
+                'path' => $path ?? '/',
+            ]);
         }
 
         $search = trim((string) ($filters['search'] ?? ''));
         $coverage = trim((string) ($filters['coverage'] ?? ''));
         $hasArticles = (bool) ($filters['has_articles'] ?? false);
+        $sort = trim((string) ($filters['sort'] ?? 'mcp_share_desc'));
+        $projection = trim((string) ($filters['projection'] ?? 'mcp'));
+        if ($projection !== 'seo') {
+            $projection = 'mcp';
+        }
 
         $rows = $this->clusterAggregates($siteId);
+        $shareMap = ($siteId !== null && $siteId > 0)
+            ? app(SiteMcpClusterTopicalProfileBuilder::class)->topicalShareMap($siteId)
+            : [];
+        $exclusionMap = ($siteId !== null && $siteId > 0)
+            ? app(ClusterExclusionService::class)->flagsMapForSite($siteId)
+            : [];
+        $mcpGroupMap = ($siteId !== null && $siteId > 0)
+            ? app(McpTopicGroupService::class)->membershipMapForSite($siteId)
+            : [];
         $canonicalByKey = $this->canonicalLabelsForKeys(
             $siteId,
             array_values(array_filter(array_map(
@@ -69,22 +92,27 @@ final class KeywordClusterQuery
             ))),
         );
         $items = [];
+        $seenKeys = [];
         foreach ($rows as $row) {
             $key = (string) ($row->cluster_key ?? '');
             if ($key === '') {
                 continue;
             }
+            $seenKeys[$key] = true;
             $label = $canonicalByKey[$key]
                 ?? $this->displayLabel($key, (string) ($row->sample_phrase ?? ''), $siteId);
-            if ($search !== '' && ! str_contains(mb_strtolower($label.' '.$key), mb_strtolower($search))) {
+            // SEO projection filters by label; MCP projection filters after collapse (mask + members).
+            if ($projection === 'seo' && $search !== ''
+                && ! str_contains(mb_strtolower($label.' '.$key), mb_strtolower($search))) {
                 continue;
             }
             $articleCount = (int) ($row->article_count ?? 0);
-            if ($hasArticles && $articleCount < 1) {
+            if ($projection === 'seo' && $hasArticles && $articleCount < 1) {
                 continue;
             }
+            $keywordCount = (int) ($row->keyword_count ?? 0);
             $score = $this->coverageBuilder->score(
-                (int) ($row->keyword_count ?? 0),
+                $keywordCount,
                 $articleCount,
                 (int) ($row->dna_branch_count ?? 0),
                 (int) ($row->intent_diversity ?? 0),
@@ -92,28 +120,287 @@ final class KeywordClusterQuery
             if ($coverage !== '' && $score !== $coverage) {
                 continue;
             }
-            $items[] = [
-                'cluster_key' => $key,
-                'label' => $label,
-                'keyword_count' => (int) ($row->keyword_count ?? 0),
-                'article_count' => $articleCount,
-                'intent' => (string) ($row->top_intent ?? ''),
-                'coverage' => $score,
-                'groups' => [],
-            ];
+            $flags = $exclusionMap[$key] ?? ['mcp_excluded' => false, 'seo_excluded' => false];
+            $items[] = $this->clusterListItem(
+                $key,
+                $label,
+                $keywordCount,
+                $articleCount,
+                (string) ($row->top_intent ?? ''),
+                $score,
+                (float) ($shareMap[$key] ?? 0.0),
+                $siteId,
+                canonicalSource: $this->canonicalSourceForKey($siteId, $key),
+                state: $keywordCount === 0 ? 'planned' : 'active',
+                mcpExcluded: (bool) ($flags['mcp_excluded'] ?? false),
+                seoExcluded: (bool) ($flags['seo_excluded'] ?? false),
+                internalLinkCount: (int) ($row->internal_link_count ?? 0),
+                mcpGroup: $mcpGroupMap[$key] ?? null,
+            );
         }
+
+        foreach ($this->manualEmptyClusterRows($siteId) as $manualRow) {
+            $key = (string) ($manualRow['cluster_key'] ?? '');
+            if ($key === '' || isset($seenKeys[$key])) {
+                continue;
+            }
+            $label = (string) ($manualRow['label'] ?? $key);
+            if ($projection === 'seo' && $search !== ''
+                && ! str_contains(mb_strtolower($label.' '.$key), mb_strtolower($search))) {
+                continue;
+            }
+            if ($projection === 'seo' && $hasArticles) {
+                continue;
+            }
+            if ($coverage !== '' && $coverage !== 'unknown') {
+                continue;
+            }
+            $flags = $exclusionMap[$key] ?? ['mcp_excluded' => false, 'seo_excluded' => false];
+            $items[] = $this->clusterListItem(
+                $key,
+                $label,
+                0,
+                0,
+                '',
+                'unknown',
+                0.0,
+                $siteId,
+                SeoTopicClusterMeta::SOURCE_MANUAL,
+                'planned',
+                (bool) ($flags['mcp_excluded'] ?? false),
+                (bool) ($flags['seo_excluded'] ?? false),
+                0,
+                $mcpGroupMap[$key] ?? null,
+            );
+        }
+
+        if ($projection === 'mcp' && $siteId !== null && $siteId > 0) {
+            $items = $this->collapseToMcpProjection($siteId, $items, $search, $hasArticles, $coverage);
+        }
+
+        usort($items, static function (array $a, array $b) use ($sort): int {
+            return self::compareClusterRows($a, $b, $sort);
+        });
 
         $page = max(1, (int) request()->integer('page', 1));
         $total = count($items);
         $slice = array_slice($items, ($page - 1) * $perPage, $perPage);
+        $resolvedPath = is_string($path) && $path !== ''
+            ? $path
+            : (string) (request()->routeIs('livewire.*') || str_contains((string) request()->path(), 'livewire/')
+                ? '/'
+                : request()->url());
 
         return new \Illuminate\Pagination\LengthAwarePaginator(
             $slice,
             $total,
             $perPage,
             $page,
-            ['path' => request()->url(), 'query' => request()->query()],
+            ['path' => $resolvedPath],
         );
+    }
+
+    /**
+     * Collapse peer MCP groups into one projection row keyed by mask_name.
+     *
+     * @param  list<array<string, mixed>>  $items
+     * @return list<array<string, mixed>>
+     */
+    private function collapseToMcpProjection(
+        int $siteId,
+        array $items,
+        string $search,
+        bool $hasArticles,
+        string $coverage,
+    ): array {
+        $groups = app(McpTopicGroupService::class)->groupsForSite($siteId);
+        if ($groups === []) {
+            return $this->filterMcpProjectionSearch($items, $search);
+        }
+
+        $byKey = [];
+        foreach ($items as $item) {
+            $key = trim((string) ($item['cluster_key'] ?? ''));
+            if ($key !== '') {
+                $byKey[$key] = $item;
+            }
+        }
+
+        $consumed = [];
+        $out = [];
+        foreach ($groups as $group) {
+            $memberKeys = $group['member_keys'];
+            $members = [];
+            foreach ($memberKeys as $memberKey) {
+                if (! isset($byKey[$memberKey])) {
+                    continue;
+                }
+                $row = $byKey[$memberKey];
+                // Skip/SEO exclude members do not contribute to MCP projection row.
+                if (! empty($row['mcp_excluded']) || ! empty($row['seo_excluded'])) {
+                    continue;
+                }
+                $members[] = $row;
+            }
+            if ($members === []) {
+                continue;
+            }
+
+            $contributingKeys = array_map(
+                static fn (array $row): string => (string) $row['cluster_key'],
+                $members,
+            );
+            foreach ($contributingKeys as $key) {
+                $consumed[$key] = true;
+            }
+
+            $keywordIds = [];
+            foreach ($contributingKeys as $key) {
+                foreach ($this->memberKeywordIds($siteId, $key) as $id) {
+                    $keywordIds[(int) $id] = true;
+                }
+            }
+            $linkStats = $this->memberLinkStats(array_keys($keywordIds));
+            $keywordCount = array_sum(array_map(
+                static fn (array $row): int => (int) ($row['keyword_count'] ?? 0),
+                $members,
+            ));
+            $articleCount = (int) ($linkStats['article_count'] ?? 0);
+            $internalLinkCount = (int) ($linkStats['internal_link_count'] ?? 0);
+            $intent = (string) ($members[0]['intent'] ?? '');
+            $score = $this->coverageBuilder->score(
+                $keywordCount,
+                $articleCount,
+                0,
+                $intent !== '' ? 1 : 0,
+            );
+            $share = (float) ($members[0]['topical_share'] ?? 0.0);
+            $maskName = trim((string) ($group['mask_name'] ?? ''));
+            if ($maskName === '') {
+                $maskName = (string) ($members[0]['label'] ?? $group['group_ref']);
+            }
+
+            $memberCards = [];
+            foreach ($memberKeys as $memberKey) {
+                if (! isset($byKey[$memberKey])) {
+                    continue;
+                }
+                $memberCards[] = [
+                    'cluster_key' => $memberKey,
+                    'label' => (string) ($byKey[$memberKey]['label'] ?? $memberKey),
+                ];
+            }
+
+            $item = $this->clusterListItem(
+                (string) $group['group_ref'],
+                $maskName,
+                $keywordCount,
+                $articleCount,
+                $intent,
+                $score,
+                $share,
+                $siteId,
+                canonicalSource: SeoTopicClusterMeta::SOURCE_MANUAL,
+                state: $keywordCount === 0 ? 'planned' : 'active',
+                mcpExcluded: false,
+                seoExcluded: false,
+                internalLinkCount: $internalLinkCount,
+                mcpGroup: null,
+            );
+            $item['is_mcp_group'] = true;
+            $item['mcp_member_count'] = count($memberCards);
+            $item['mcp_members'] = $memberCards;
+            $item['search_blob'] = mb_strtolower(
+                $maskName.' '.implode(' ', array_column($memberCards, 'label')),
+                'UTF-8',
+            );
+
+            if ($hasArticles && $articleCount < 1) {
+                continue;
+            }
+            if ($coverage !== '' && $score !== $coverage) {
+                continue;
+            }
+            $out[] = $item;
+        }
+
+        foreach ($items as $item) {
+            $key = trim((string) ($item['cluster_key'] ?? ''));
+            if ($key === '' || isset($consumed[$key])) {
+                continue;
+            }
+            $item['is_mcp_group'] = false;
+            $item['mcp_members'] = [];
+            $item['mcp_member_count'] = 0;
+            $item['search_blob'] = mb_strtolower((string) ($item['label'] ?? '').' '.$key, 'UTF-8');
+            $out[] = $item;
+        }
+
+        return $this->filterMcpProjectionSearch($out, $search);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     * @return list<array<string, mixed>>
+     */
+    private function filterMcpProjectionSearch(array $items, string $search): array
+    {
+        $needle = mb_strtolower(trim($search), 'UTF-8');
+        if ($needle === '') {
+            return $items;
+        }
+
+        return array_values(array_filter(
+            $items,
+            static function (array $item) use ($needle): bool {
+                $blob = (string) ($item['search_blob'] ?? '');
+                if ($blob === '') {
+                    $blob = mb_strtolower(
+                        (string) ($item['label'] ?? '').' '.(string) ($item['cluster_key'] ?? ''),
+                        'UTF-8',
+                    );
+                }
+
+                return str_contains($blob, $needle);
+            },
+        ));
+    }
+
+    /**
+     * @param  array<string, mixed>  $a
+     * @param  array<string, mixed>  $b
+     */
+    public static function compareClusterRows(array $a, array $b, string $sort): int
+    {
+        $excludedRank = static function (array $row): int {
+            return ((bool) ($row['mcp_excluded'] ?? false) || (bool) ($row['seo_excluded'] ?? false)) ? 1 : 0;
+        };
+
+        // Excluded clusters sink to bottom for MCP share sorts.
+        if (in_array($sort, ['mcp_share_desc', 'mcp_share_asc', ''], true)) {
+            $byExcluded = $excludedRank($a) <=> $excludedRank($b);
+            if ($byExcluded !== 0) {
+                return $byExcluded;
+            }
+        }
+
+        return match ($sort) {
+            'mcp_share_asc' => ((float) ($a['topical_share'] ?? 0)) <=> ((float) ($b['topical_share'] ?? 0))
+                ?: ((int) ($b['article_count'] ?? 0)) <=> ((int) ($a['article_count'] ?? 0)),
+            'articles_desc' => ((int) ($b['article_count'] ?? 0)) <=> ((int) ($a['article_count'] ?? 0))
+                ?: ((float) ($b['topical_share'] ?? 0)) <=> ((float) ($a['topical_share'] ?? 0)),
+            'articles_asc' => ((int) ($a['article_count'] ?? 0)) <=> ((int) ($b['article_count'] ?? 0))
+                ?: ((float) ($a['topical_share'] ?? 0)) <=> ((float) ($b['topical_share'] ?? 0)),
+            'keywords_desc' => ((int) ($b['keyword_count'] ?? 0)) <=> ((int) ($a['keyword_count'] ?? 0)),
+            'keywords_asc' => ((int) ($a['keyword_count'] ?? 0)) <=> ((int) ($b['keyword_count'] ?? 0)),
+            'links_desc' => ((int) ($b['internal_link_count'] ?? 0)) <=> ((int) ($a['internal_link_count'] ?? 0)),
+            'links_asc' => ((int) ($a['internal_link_count'] ?? 0)) <=> ((int) ($b['internal_link_count'] ?? 0)),
+            'name_asc' => strcmp(mb_strtolower((string) ($a['label'] ?? '')), mb_strtolower((string) ($b['label'] ?? ''))),
+            'name_desc' => strcmp(mb_strtolower((string) ($b['label'] ?? '')), mb_strtolower((string) ($a['label'] ?? ''))),
+            default => ((float) ($b['topical_share'] ?? 0)) <=> ((float) ($a['topical_share'] ?? 0))
+                ?: ((int) ($b['article_count'] ?? 0)) <=> ((int) ($a['article_count'] ?? 0))
+                ?: ((int) ($b['keyword_count'] ?? 0)) <=> ((int) ($a['keyword_count'] ?? 0)),
+        };
     }
 
     /**
@@ -136,10 +423,22 @@ final class KeywordClusterQuery
         }
 
         $articleJoin = '';
-        $articleSelect = '0 as article_count';
+        $articleSelect = '0 as article_count, 0 as internal_link_count';
         if (Schema::connection('omi_seo_ai')->hasTable('seo_link_maps')) {
-            $articleSelect = 'COUNT(DISTINCT lm.target_article_id) as article_count';
-            $articleJoin = ' LEFT JOIN seo_link_maps lm ON lm.keyword_id = c.keyword_id AND lm.target_article_id IS NOT NULL';
+            // Same semantics as memberLinkStats() / Cluster Detail:
+            // article_count = DISTINCT target_article_id; internal_link_count = all link-map rows.
+            $articleSelect = 'COUNT(DISTINCT lm.target_article_id) as article_count,'
+                .' COUNT(lm.id) as internal_link_count';
+            $articleJoin = ' LEFT JOIN seo_link_maps lm ON lm.keyword_id = c.keyword_id';
+        }
+
+        $hiddenJoin = '';
+        $hiddenWhere = '';
+        if (Schema::connection('omi_seo_ai')->hasTable('keyword_meta')) {
+            $hiddenJoin = ' LEFT JOIN keyword_meta hm ON hm.keyword_id = c.keyword_id'
+                .' AND hm.meta_key = \''.\Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey::SeoHidden->value.'\''
+                .' AND hm.meta_value = \'1\'';
+            $hiddenWhere = ' AND hm.keyword_id IS NULL';
         }
 
         $sql = 'SELECT c.cluster_key,'
@@ -153,8 +452,10 @@ final class KeywordClusterQuery
             .' INNER JOIN keywords k ON k.id = c.keyword_id'
             .$articleJoin
             .$dnaJoin
+            .$hiddenJoin
             .' WHERE c.cluster_key IS NOT NULL AND c.cluster_key <> \'\''
             .' AND c.keyword_id IN ('.$keywordIds->toSql().')'
+            .$hiddenWhere
             .' GROUP BY c.cluster_key'
             .' ORDER BY keyword_count DESC'
             .' LIMIT '.(int) $limit;
@@ -283,16 +584,159 @@ final class KeywordClusterQuery
         return $query->limit(5000)->pluck('keyword_id')->map(static fn ($id): int => (int) $id)->all();
     }
 
-    public function clusterExists(string $clusterKey): bool
+    public function clusterExists(string $clusterKey, ?int $siteId = null): bool
     {
         $clusterKey = trim($clusterKey);
         if ($clusterKey === '' || ! $this->classificationsReady()) {
             return false;
         }
 
-        return SeoKeywordClassification::query()
+        if (SeoKeywordClassification::query()->where('cluster_key', $clusterKey)->exists()) {
+            return true;
+        }
+
+        if ($siteId === null || $siteId <= 0 || ! Schema::connection('omi_seo_ai')->hasTable('seo_topic_cluster_meta')) {
+            return false;
+        }
+
+        return SeoTopicClusterMeta::query()
+            ->where('site_id', $siteId)
             ->where('cluster_key', $clusterKey)
             ->exists();
+    }
+
+    /**
+     * @return list<array{cluster_key: string, label: string}>
+     */
+    private function manualEmptyClusterRows(?int $siteId): array
+    {
+        if ($siteId === null || $siteId <= 0 || ! Schema::connection('omi_seo_ai')->hasTable('seo_topic_cluster_meta')) {
+            return [];
+        }
+
+        $rows = SeoTopicClusterMeta::query()
+            ->where('site_id', $siteId)
+            ->get(['cluster_key', 'canonical_phrase', 'canonical_source']);
+
+        $out = [];
+        foreach ($rows as $meta) {
+            $key = trim((string) $meta->cluster_key);
+            if ($key === '') {
+                continue;
+            }
+            if (Schema::connection('omi_seo_ai')->hasColumn('seo_topic_cluster_meta', 'canonical_source')
+                && ! $meta->isManual()) {
+                continue;
+            }
+            if (count($this->memberKeywordIds($siteId, $key)) > 0) {
+                continue;
+            }
+            $label = trim((string) $meta->canonical_phrase);
+            $out[] = [
+                'cluster_key' => $key,
+                'label' => $label !== '' ? $label : $this->displayLabel($key, '', $siteId),
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * Focus-article + internal-link counts for a set of member keywords.
+     * SSOT used by Cluster Detail; Index SQL must mirror these definitions.
+     *
+     * - article_count: COUNT(DISTINCT target_article_id) where not null
+     * - internal_link_count: COUNT(*) of seo_link_maps rows for those keywords
+     *
+     * @param  list<int>  $keywordIds
+     * @return array{article_count: int, internal_link_count: int}
+     */
+    public function memberLinkStats(array $keywordIds): array
+    {
+        $keywordIds = array_values(array_filter(array_map('intval', $keywordIds)));
+        if ($keywordIds === [] || ! Schema::connection('omi_seo_ai')->hasTable('seo_link_maps')) {
+            return [
+                'article_count' => 0,
+                'internal_link_count' => 0,
+            ];
+        }
+
+        $articleCount = (int) DB::connection('omi_seo_ai')->table('seo_link_maps')
+            ->whereIn('keyword_id', $keywordIds)
+            ->whereNotNull('target_article_id')
+            ->distinct()
+            ->count('target_article_id');
+
+        $linkCount = (int) DB::connection('omi_seo_ai')->table('seo_link_maps')
+            ->whereIn('keyword_id', $keywordIds)
+            ->count();
+
+        return [
+            'article_count' => $articleCount,
+            'internal_link_count' => $linkCount,
+        ];
+    }
+
+    /**
+     * @param  array{
+     *     group_ref: string,
+     *     mask_name: string,
+     *     member_count: int
+     * }|null  $mcpGroup
+     * @return array<string, mixed>
+     */
+    private function clusterListItem(
+        string $clusterKey,
+        string $label,
+        int $keywordCount,
+        int $articleCount,
+        string $intent,
+        string $coverage,
+        float $topicalShare,
+        ?int $siteId,
+        string $canonicalSource = SeoTopicClusterMeta::SOURCE_AUTO,
+        string $state = 'active',
+        bool $mcpExcluded = false,
+        bool $seoExcluded = false,
+        int $internalLinkCount = 0,
+        ?array $mcpGroup = null,
+    ): array {
+        return [
+            'cluster_key' => $clusterKey,
+            'label' => $label,
+            'keyword_count' => $keywordCount,
+            'article_count' => $articleCount,
+            'internal_link_count' => $internalLinkCount,
+            'intent' => $intent,
+            'coverage' => $coverage,
+            'topical_share' => $topicalShare,
+            'canonical_source' => $canonicalSource,
+            'state' => $state,
+            'mcp_excluded' => $mcpExcluded,
+            'seo_excluded' => $seoExcluded,
+            'mcp_group' => $mcpGroup,
+            'is_mcp_group' => false,
+            'mcp_member_count' => 0,
+            'mcp_members' => [],
+            'groups' => [],
+        ];
+    }
+
+    private function canonicalSourceForKey(?int $siteId, string $clusterKey): string
+    {
+        if ($siteId === null || $siteId <= 0 || $clusterKey === '') {
+            return SeoTopicClusterMeta::SOURCE_AUTO;
+        }
+        if (! Schema::connection('omi_seo_ai')->hasTable('seo_topic_cluster_meta')) {
+            return SeoTopicClusterMeta::SOURCE_AUTO;
+        }
+
+        $source = SeoTopicClusterMeta::query()
+            ->where('site_id', $siteId)
+            ->where('cluster_key', $clusterKey)
+            ->value('canonical_source');
+
+        return (string) ($source ?: SeoTopicClusterMeta::SOURCE_AUTO);
     }
 
     private function keywordIdSubquery(?int $siteId): Builder

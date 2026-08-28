@@ -13,21 +13,27 @@ use Omnichannel\Addons\Agent\Automation\BusinessHook\Support\BusinessHookEmitter
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectPublishingQueueService;
+use Omnichannel\Addons\SearchFoundation\Services\SeoDatabaseConnectionService;
+use Omnichannel\Addons\WordPress\Services\ArticleWordPressBusinessSequence;
 use Omnichannel\Addons\WordPress\Services\SideEffect\AutomationWordPressContext;
 use Omnichannel\Addons\WordPress\Services\SyncArticleToWordPressPipeline;
+use Omnichannel\Addons\WordPress\Services\WordPressArticleSyncService;
 use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
 use Omnichannel\Addons\ContentProjects\Support\SeoQueueContext;
 use App\Support\RuntimeLogger;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
- * wordpress.article.sync — article/product + media only. No product review orchestration.
+ * wordpress.article.sync — article/product + media, then product-review create/sync via shared business sequence.
+ * Publishing Queue delivery (article.publish_requested) reuses the same core as Article Editor manual sync reviews.
  */
 final class SyncArticleToWordPressHookAction implements AutomationActionHandler
 {
     public function __construct(
         private readonly SyncArticleToWordPressPipeline $pipeline,
         private readonly BusinessHookEmitter $emitter,
+        private readonly ArticleWordPressBusinessSequence $businessSequence,
         private readonly ?ContentProjectPublishingQueueService $publishingQueue = null,
     ) {}
 
@@ -158,6 +164,43 @@ final class SyncArticleToWordPressHookAction implements AutomationActionHandler
             );
         }
 
+        // Publishing Queue must never finalize on fingerprint/content skip — force real update.
+        if ($taskId > 0 && ($result['skipped'] ?? false) === true) {
+            Log::info('[PUBLISH_TRACE]', [
+                'article_id' => $articleId,
+                'project_item_id' => $taskId,
+                'site_id' => (int) ($article->site_id ?? 0) ?: null,
+                'wp_post_id' => (int) ($article->wordpressLink?->wp_post_id ?? 0) ?: null,
+                'phase' => 'wp_sync_skipped_forced_update',
+                'mode' => $mode,
+            ]);
+            try {
+                $result = SeoQueueContext::runWpSyncFromQueue(function () use ($article, $sideEffect, $seoOverride): array {
+                    return app(WordPressArticleSyncService::class)
+                        ->updatePublishedArticleOnly($article, $sideEffect, $seoOverride);
+                });
+            } catch (\Throwable $wordpressException) {
+                $this->emitter->emitOutcomeSafely(BusinessEventName::WordpressSyncFailed, $article, [
+                    'article_id' => $articleId,
+                    'site_id' => (int) ($article->site_id ?? 0) ?: null,
+                    'error' => $wordpressException->getMessage(),
+                    'status' => 'failed',
+                ]);
+
+                return AutomationActionResult::failure(
+                    'WORDPRESS_SYNC_EXCEPTION',
+                    $wordpressException->getMessage(),
+                    [
+                        'article_id' => $articleId,
+                        'idempotency_key' => $idempotencyKey,
+                        'mode' => 'update_existing',
+                        'wp_success' => false,
+                        'failed_stage' => 'wordpress.forced_update',
+                    ],
+                );
+            }
+        }
+
         if (! ($result['success'] ?? false)) {
             $errorCode = (string) ($result['error_code'] ?? 'WORDPRESS_SYNC_FAILED');
             $message = (string) ($result['message'] ?? 'WordPress sync failed.');
@@ -167,6 +210,15 @@ final class SyncArticleToWordPressHookAction implements AutomationActionHandler
                 'site_id' => (int) ($article->site_id ?? 0) ?: null,
                 'error' => $message,
                 'status' => 'failed',
+                'error_code' => $errorCode,
+            ]);
+
+            Log::warning('[PUBLISH_TRACE]', [
+                'article_id' => $articleId,
+                'project_item_id' => $taskId > 0 ? $taskId : null,
+                'site_id' => (int) ($article->site_id ?? 0) ?: null,
+                'phase' => 'publish_failed',
+                'message' => $message,
                 'error_code' => $errorCode,
             ]);
 
@@ -181,9 +233,104 @@ final class SyncArticleToWordPressHookAction implements AutomationActionHandler
         $article = $article->fresh() ?? $article;
         $article->loadMissing('articleMetas');
         $wpPostId = (int) ($result['wp_post_id'] ?? $article->wordpressLink?->wp_post_id ?? 0);
+        $siteId = (int) ($article->site_id ?? 0);
+        $postType = ArticlePostTypeResolver::resolve($article);
 
-        // Ensure CP queue leaves waiting/queued_for_delivery after confirmed WP success.
-        app(\Omnichannel\Addons\WordPress\Services\WordPressArticleSyncService::class)
+        Log::info('[PUBLISH_TRACE]', [
+            'article_id' => $articleId,
+            'project_item_id' => $taskId > 0 ? $taskId : null,
+            'site_id' => $siteId > 0 ? $siteId : null,
+            'post_type' => $postType,
+            'wp_post_id' => $wpPostId > 0 ? $wpPostId : null,
+            'phase' => 'wp_sync_done',
+            'mode' => $mode,
+        ]);
+
+        $productReviewCreate = null;
+        $productReviewSync = null;
+        if (in_array($mode, ['sync', 'publish', 'update_existing'], true)) {
+            Log::info('[PUBLISH_TRACE]', [
+                'article_id' => $articleId,
+                'project_item_id' => $taskId > 0 ? $taskId : null,
+                'site_id' => $siteId > 0 ? $siteId : null,
+                'wp_post_id' => $wpPostId > 0 ? $wpPostId : null,
+                'phase' => 'post_sync_start',
+            ]);
+
+            if ($siteId > 0) {
+                try {
+                    app(SeoDatabaseConnectionService::class)->bootstrapSeoDatabaseConnection($siteId);
+                } catch (\Throwable $e) {
+                    Log::warning('[PUBLISH_TRACE]', [
+                        'article_id' => $articleId,
+                        'site_id' => $siteId,
+                        'phase' => 'review_bootstrap_failed',
+                        'exception' => $e::class,
+                        'message' => $e->getMessage(),
+                    ]);
+                }
+            }
+
+            $productReviewCreate = $this->businessSequence->runCreate($article);
+            $productReviewSync = SeoQueueContext::runWpSyncFromQueue(
+                fn (): array => $this->businessSequence->runSync($article->fresh() ?? $article, $sideEffect),
+            );
+
+            $createFailed = ($productReviewCreate['status'] ?? '') === 'failed';
+            $syncFailed = ($productReviewSync['status'] ?? '') === 'failed'
+                || (($productReviewSync['status'] ?? '') === 'partial'
+                    && is_array($productReviewSync['failed'] ?? null)
+                    && $productReviewSync['failed'] !== []);
+
+            Log::info('[PUBLISH_TRACE]', [
+                'article_id' => $articleId,
+                'project_item_id' => $taskId > 0 ? $taskId : null,
+                'site_id' => $siteId > 0 ? $siteId : null,
+                'wp_post_id' => $wpPostId > 0 ? $wpPostId : null,
+                'phase' => 'review_sync_done',
+                'product_review_create' => $productReviewCreate,
+                'product_review_sync' => $productReviewSync,
+            ]);
+
+            // Product reviews are part of publish completion — do not mark Published on critical failure.
+            if ($postType === 'product' && ($createFailed || $syncFailed)) {
+                $message = $createFailed
+                    ? (string) ($productReviewCreate['message'] ?? $productReviewCreate['reason'] ?? 'Product review create failed.')
+                    : 'Product review sync failed.';
+
+                $this->emitter->emitOutcomeSafely(BusinessEventName::WordpressSyncFailed, $article, [
+                    'article_id' => $articleId,
+                    'site_id' => $siteId > 0 ? $siteId : null,
+                    'error' => $message,
+                    'status' => 'failed',
+                    'error_code' => 'PRODUCT_REVIEW_POST_SYNC_FAILED',
+                ]);
+
+                Log::warning('[PUBLISH_TRACE]', [
+                    'article_id' => $articleId,
+                    'project_item_id' => $taskId > 0 ? $taskId : null,
+                    'site_id' => $siteId > 0 ? $siteId : null,
+                    'phase' => 'publish_failed',
+                    'message' => $message,
+                ]);
+
+                return AutomationActionResult::failure(
+                    'PRODUCT_REVIEW_POST_SYNC_FAILED',
+                    $message,
+                    [
+                        'article_id' => $articleId,
+                        'wp_post_id' => $wpPostId > 0 ? $wpPostId : null,
+                        'product_review_create' => $productReviewCreate,
+                        'product_review_sync' => $productReviewSync,
+                        'wp_success' => true,
+                        'failed_stage' => 'product_review.post_sync',
+                    ],
+                );
+            }
+        }
+
+        // Ensure CP queue leaves waiting/queued_for_delivery after confirmed WP (+ review) success.
+        app(WordPressArticleSyncService::class)
             ->confirmContentProjectPublishDelivery(
                 $article,
                 $taskId > 0 ? $taskId : null,
@@ -191,23 +338,33 @@ final class SyncArticleToWordPressHookAction implements AutomationActionHandler
                 $reconciledTokenMismatch,
             );
 
+        Log::info('[PUBLISH_TRACE]', [
+            'article_id' => $articleId,
+            'project_item_id' => $taskId > 0 ? $taskId : null,
+            'site_id' => $siteId > 0 ? $siteId : null,
+            'wp_post_id' => $wpPostId > 0 ? $wpPostId : null,
+            'phase' => 'publish_finalize',
+        ]);
+
         $this->emitter->emitOutcomeSafely(BusinessEventName::WordpressSynced, $article, [
             'article_id' => $articleId,
-            'site_id' => (int) ($article->site_id ?? 0) ?: null,
+            'site_id' => $siteId > 0 ? $siteId : null,
             'wp_post_id' => $wpPostId > 0 ? $wpPostId : null,
             'status' => 'synced',
             'origin' => (string) ($context->execution->trigger_type ?? 'event'),
             'automation_execution_id' => (int) $context->execution->id,
             'sync_operation_id' => $idempotencyKey,
             'task_id' => $taskId > 0 ? $taskId : null,
+            'product_review_create' => $productReviewCreate,
+            'product_review_sync' => $productReviewSync,
         ], [], $idempotencyKey);
 
         return AutomationActionResult::success(
             output: [
                 'article_id' => $articleId,
-                'post_type' => ArticlePostTypeResolver::resolve($article),
+                'post_type' => $postType,
                 'wp_post_id' => $wpPostId > 0 ? $wpPostId : null,
-                'wordpress_connection_id' => (int) ($article->site_id ?? 0) ?: null,
+                'wordpress_connection_id' => $siteId > 0 ? $siteId : null,
                 'sync_status' => 'completed',
                 'message' => (string) ($result['message'] ?? 'synced'),
                 'mode' => $mode,
@@ -215,6 +372,8 @@ final class SyncArticleToWordPressHookAction implements AutomationActionHandler
                 'wp_success' => true,
                 'task_id' => $taskId > 0 ? $taskId : null,
                 'reconciled_token_mismatch' => $reconciledTokenMismatch,
+                'product_review_create' => $productReviewCreate,
+                'product_review_sync' => $productReviewSync,
             ],
             message: 'WordPress article sync completed.',
         );

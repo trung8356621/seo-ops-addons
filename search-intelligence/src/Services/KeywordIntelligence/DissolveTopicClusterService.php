@@ -15,6 +15,7 @@ final class DissolveTopicClusterService
     public function __construct(
         private readonly KeywordClusterQuery $clusters,
         private readonly TopicClusterDissolveSideEffects $sideEffects,
+        private readonly TopicClusterDerivedCleanup $derivedCleanup,
     ) {}
 
     public function dissolve(int $siteId, string $clusterKey, ?string $clusterLabel = null): DissolveTopicClusterResult
@@ -30,11 +31,14 @@ final class DissolveTopicClusterService
 
         $keywordIds = $this->clusters->memberKeywordIds($siteId, $clusterKey);
         if ($keywordIds === []) {
+            // Orphan derived rows (meta/DNA/aliases) with no members — still purge.
+            $this->derivedCleanup->purgeClusterArtifacts($siteId, $clusterKey);
+
             return DissolveTopicClusterResult::alreadyEmpty($clusterKey);
         }
 
         try {
-            $affected = (int) DB::connection('omi_seo_ai')->transaction(function () use ($keywordIds, $clusterKey): int {
+            $affected = (int) DB::connection('omi_seo_ai')->transaction(function () use ($keywordIds, $clusterKey, $siteId): int {
                 $updated = SeoKeywordClassification::query()
                     ->whereIn('keyword_id', $keywordIds)
                     ->where('cluster_key', $clusterKey)
@@ -43,6 +47,8 @@ final class DissolveTopicClusterService
                 if ($updated > 0) {
                     $this->markManualExclude($keywordIds);
                 }
+
+                $this->derivedCleanup->purgeClusterArtifacts($siteId, $clusterKey);
 
                 return $updated;
             });

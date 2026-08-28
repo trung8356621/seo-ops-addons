@@ -39,7 +39,7 @@ class MediaLibrary extends Page
 
     protected static ?string $navigationGroup = null;
 
-    protected static ?int $navigationSort = 2;
+    protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_MEDIA;
 
     protected static string $view = 'seo-content-ai::filament.pages.media-library';
 
@@ -1279,7 +1279,7 @@ class MediaLibrary extends Page
 
     public static function getNavigationGroup(): ?string
     {
-        return null;
+        return static::$navigationGroup;
     }
 
     public static function getNavigationLabel(): string
@@ -1292,31 +1292,13 @@ class MediaLibrary extends Page
      */
     public static function getNavigationItems(): array
     {
-        $parentLabel = static::getNavigationLabel();
-
         return [
-            NavigationItem::make($parentLabel)
+            NavigationItem::make(static::getNavigationLabel())
                 ->icon(static::getNavigationIcon())
-                ->isActiveWhen(fn (): bool => SeoPanelRoutes::is('filament.seo.pages.media-library')
-                    && ! in_array(request()->query('activeTab'), ['local', 'generated'], true))
+                ->group(static::getNavigationGroup())
+                ->isActiveWhen(fn (): bool => SeoPanelRoutes::is('filament.seo.pages.media-library'))
                 ->sort(static::getNavigationSort())
                 ->url(static::getUrl(['activeTab' => 'original'])),
-            NavigationItem::make('Original (WP)')
-                ->icon('heroicon-o-globe-alt')
-                ->group(null)
-                ->parentItem($parentLabel)
-                ->isActiveWhen(fn (): bool => SeoPanelRoutes::is('filament.seo.pages.media-library')
-                    && request()->query('activeTab', 'original') === 'original')
-                ->sort(1)
-                ->url(static::getUrl(['activeTab' => 'original'])),
-            NavigationItem::make('Local (Laravel)')
-                ->icon('heroicon-o-server-stack')
-                ->group(null)
-                ->parentItem($parentLabel)
-                ->isActiveWhen(fn (): bool => SeoPanelRoutes::is('filament.seo.pages.media-library')
-                    && in_array(request()->query('activeTab'), ['local', 'generated'], true))
-                ->sort(2)
-                ->url(static::getUrl(['activeTab' => 'local'])),
         ];
     }
 

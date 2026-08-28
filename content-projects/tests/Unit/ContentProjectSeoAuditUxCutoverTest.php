@@ -29,28 +29,23 @@ final class ContentProjectSeoAuditUxCutoverTest extends TestCase
         );
     }
 
-    public function test_seo_project_resource_nav_includes_content_planning_then_publishing_queue(): void
+    public function test_seo_project_resource_nav_nests_planner_and_queue_under_projects(): void
     {
         $resource = $this->source(SeoProjectResource::class);
+        $planner = $this->source(ContentProjectSeoAuditPlanner::class);
+        $queue = $this->source(PublishingQueueHub::class);
 
         self::assertStringContainsString('ContentProjectSeoAuditPlanner::getNavigationLabel()', $resource);
         self::assertStringContainsString('ContentProjectSeoAuditPlanner::getUrl()', $resource);
-        self::assertStringContainsString('->sort(3)', $resource);
         self::assertStringContainsString('PublishingQueueHub::getUrl()', $resource);
-        self::assertStringContainsString('->sort(5)', $resource);
-        self::assertStringContainsString('filament.seo.pages.content-projects-seo-audit', $resource);
-        self::assertStringContainsString('filament.seo.pages.content-projects-new-content', $resource);
-        self::assertStringContainsString('filament.seo.pages.publishing-queue', $resource);
-        self::assertStringNotContainsString('ContentProjectNewContentPlanner::getUrl()', $resource);
-
-        $auditPos = strpos($resource, 'ContentProjectSeoAuditPlanner::getUrl()');
-        $queuePos = strpos($resource, 'PublishingQueueHub::getUrl()');
-        self::assertNotFalse($auditPos);
-        self::assertNotFalse($queuePos);
-        self::assertLessThan($queuePos, $auditPos);
+        self::assertStringContainsString('parentItem($parentLabel)', $resource);
+        self::assertStringContainsString('shouldRegisterNavigation = false', $planner);
+        self::assertStringContainsString('shouldRegisterNavigation = false', $queue);
+        self::assertStringContainsString('SeoUserNavigation::moduleProjects()', $planner);
+        self::assertStringContainsString('SeoProjectResource::getNavigationLabel()', $queue);
     }
 
-    public function test_new_page_slug_and_nav_owned_by_resource(): void
+    public function test_new_page_slug_and_nav_nested_under_projects(): void
     {
         $page = $this->source(ContentProjectSeoAuditPlanner::class);
 
@@ -125,10 +120,11 @@ final class ContentProjectSeoAuditUxCutoverTest extends TestCase
         self::assertStringContainsString(':disabled="! $canWrite"', $shared);
     }
 
-    public function test_publishing_queue_hub_still_nests_under_content_projects(): void
+    public function test_publishing_queue_hub_nests_under_projects_module(): void
     {
         $hub = $this->source(PublishingQueueHub::class);
         self::assertStringContainsString('shouldRegisterNavigation = false', $hub);
+        self::assertStringContainsString('SeoProjectResource::getNavigationLabel()', $hub);
         self::assertStringContainsString("slug = 'publishing-queue'", $hub);
     }
 

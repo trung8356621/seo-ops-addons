@@ -26,7 +26,6 @@ final class KeywordPersistenceService
         string $type,
         int $siteId,
         ?string $targetUrl = null,
-        ?int $parentId = null,
         ?array $metrics = null,
         ?int $searchVolume = null,
         ?float $difficulty = null,
@@ -54,15 +53,10 @@ final class KeywordPersistenceService
             $keyword = Keyword::query()->create([
                 'phrase' => $phrase,
                 'type' => $type,
-                'parent_id' => $parentId,
             ]);
         }
 
         $updates = [];
-        if ($parentId !== null && (int) ($keyword->parent_id ?? 0) !== $parentId) {
-            $updates['parent_id'] = $parentId;
-        }
-
         if ($keyword->type !== $type && $keyword->wasRecentlyCreated) {
             $updates['type'] = $type;
         }
@@ -231,7 +225,6 @@ final class KeywordPersistenceService
         if (
             ! $from->linkMaps()->exists()
             && ! $from->metas()->exists()
-            && ! $from->children()->exists()
         ) {
             $from->delete();
 

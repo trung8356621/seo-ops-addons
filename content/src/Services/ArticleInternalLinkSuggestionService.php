@@ -677,6 +677,15 @@ final class ArticleInternalLinkSuggestionService
             ->where('review_status', KeywordReviewStatus::Active->value)
             ->whereNotNull('phrase')
             ->where('phrase', '!=', '')
+            ->whereDoesntHave(
+                'metas',
+                static function ($meta): void {
+                    $meta->where(
+                        'meta_key',
+                        \Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey::SeoHidden->value,
+                    )->where('meta_value', '1');
+                },
+            )
             ->orderByRaw('CHAR_LENGTH(phrase) DESC')
             // Cap hot-path scan — long-tail phrases beyond this rarely match content.
             ->limit(800);

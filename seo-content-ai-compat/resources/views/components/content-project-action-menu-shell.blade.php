@@ -34,7 +34,7 @@
             if (left + pw > window.innerWidth - 12) left = Math.max(12, window.innerWidth - pw - 12);
             if (top < 12) top = 12;
             this.place = (flipUp ? 'top' : 'bottom') + '-end';
-            this.style = 'position:fixed;top:' + top + 'px;left:' + left + 'px;right:auto;bottom:auto;';
+            this.style = 'position:fixed;top:' + top + 'px;left:' + left + 'px;right:auto;bottom:auto;z-index:200;';
         },
     }"
     @keydown.escape.window="open = false"
@@ -44,7 +44,7 @@
             type="button"
             x-ref="trigger"
             class="inline-flex h-8 w-8 items-center justify-center rounded-lg ring-1 ring-gray-200 hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:ring-gray-700 dark:hover:bg-gray-800"
-            @click="toggle()"
+            @click.stop="toggle()"
             :aria-expanded="open.toString()"
             aria-haspopup="menu"
             aria-label="Item actions"
@@ -59,7 +59,7 @@
             x-transition
             @click.outside="open = false"
             role="menu"
-            class="cp-ops-menu"
+            class="cp-ops-menu cp-ops-menu--portal"
             :style="style"
             :class="{
                 'cp-ops-menu--top': place.startsWith('top'),

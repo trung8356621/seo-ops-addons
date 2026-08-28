@@ -1,10 +1,6 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Plus, RefreshCw, Star } from 'lucide-react';
-import {
-    createProductReviewsForArticle,
-    fetchProductReviewStatus,
-    syncProductReviewsForArticle,
-} from '../utils/articleEditorApi';
+import { fetchProductReviewStatus } from '../utils/articleEditorApi';
 import { normalizeReviewStatus } from '../utils/articleEditorPayloadAdapters';
 import { t } from '../utils/i18n';
 
@@ -155,7 +151,6 @@ export default function ArticleReviewsTab({
     const [quickCreating, setQuickCreating] = useState(false);
     const [status, setStatus] = useState(null);
     const [statusLoading, setStatusLoading] = useState(false);
-    const [statusBusy, setStatusBusy] = useState(false);
 
     const blockReasonLabel = (reason) => {
         switch (String(reason || '')) {
@@ -232,6 +227,23 @@ export default function ArticleReviewsTab({
     }, []);
 
     useEffect(() => {
+        const onSyncLock = (event) => {
+            const detail = event?.detail ?? {};
+            if (detail.status !== 'success') {
+                return;
+            }
+            void loadStatus();
+            if (typeof onRefresh === 'function') {
+                void onRefresh().then((result) => applyReviewsPayload(result));
+            }
+        };
+
+        window.addEventListener('article-wordpress-sync-lock', onSyncLock);
+
+        return () => window.removeEventListener('article-wordpress-sync-lock', onSyncLock);
+    }, [applyReviewsPayload, loadStatus, onRefresh]);
+
+    useEffect(() => {
         setReviews(Array.isArray(initialReviews) ? initialReviews : []);
     }, [initialReviews]);
 
@@ -259,60 +271,6 @@ export default function ArticleReviewsTab({
             setRefreshing(false);
         }
     }, [applyReviewsPayload, loadStatus, onRefresh, refreshing]);
-
-    const handleCreateReviews = useCallback(async () => {
-        const id = Number(articleId) || 0;
-        if (id <= 0 || statusBusy || !status?.can_create_reviews) {
-            return;
-        }
-        setStatusBusy(true);
-        try {
-            const result = await createProductReviewsForArticle(id);
-            if (result.status) {
-                setStatus(result.status);
-            } else {
-                await loadStatus();
-            }
-            if (typeof onRefresh === 'function') {
-                applyReviewsPayload(await onRefresh());
-            }
-        } finally {
-            setStatusBusy(false);
-        }
-    }, [articleId, applyReviewsPayload, loadStatus, onRefresh, status?.can_create_reviews, statusBusy]);
-
-    const handleSyncPending = useCallback(async () => {
-        const id = Number(articleId) || 0;
-        const syncable = Number(
-            status?.syncable_pending_count ?? status?.local_pending_count ?? 0,
-        );
-        if (id <= 0 || statusBusy || syncable <= 0) {
-            return;
-        }
-        setStatusBusy(true);
-        try {
-            const result = await syncProductReviewsForArticle(id);
-            if (result.status) {
-                const failed = Array.isArray(result.data?.failed) ? result.data.failed : [];
-                setStatus({
-                    ...result.status,
-                    warning: failed.length > 0
-                        ? `Đồng bộ một phần: ${failed.length} review thất bại — vẫn giữ local để thử lại.`
-                        : (result.status.warning ?? null),
-                    last_sync_failed_count: failed.length,
-                });
-            } else {
-                await loadStatus();
-            }
-            if (typeof onRefresh === 'function') {
-                applyReviewsPayload(await onRefresh());
-            } else {
-                await loadStatus();
-            }
-        } finally {
-            setStatusBusy(false);
-        }
-    }, [articleId, applyReviewsPayload, loadStatus, onRefresh, status?.local_pending_count, status?.syncable_pending_count, statusBusy]);
 
     const handleQuickCreate = useCallback(async () => {
         if (typeof onQuickCreate !== 'function' || quickCreating) {
@@ -348,6 +306,9 @@ export default function ArticleReviewsTab({
             {status ? (
                 <div className="seo-reviews-tab__summary" style={{ marginBottom: 12 }}>
                     <div><strong>WordPress Reviews</strong></div>
+                    <div style={{ opacity: 0.85, marginBottom: 8 }}>
+                        Review được kiểm tra và tạo tự động khi đồng bộ WordPress.
+                    </div>
                     <div>Real reviews: {Number(status.wordpress_real_review_count ?? 0)}</div>
                     <div>
                         Generated reviews:
@@ -389,27 +350,8 @@ export default function ArticleReviewsTab({
                         </div>
                     ) : null}
                     <div className="seo-reviews-tab__actions" style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-                        <button type="button" className="seo-reviews-tab__refresh" disabled={refreshing || statusBusy} onClick={handleRefresh}>
+                        <button type="button" className="seo-reviews-tab__refresh" disabled={refreshing} onClick={handleRefresh}>
                             Refresh status
-                        </button>
-                        <button
-                            type="button"
-                            className="seo-reviews-tab__quick-create"
-                            disabled={!status.can_create_reviews || statusBusy}
-                            onClick={handleCreateReviews}
-                        >
-                            Create reviews
-                        </button>
-                        <button
-                            type="button"
-                            className="seo-reviews-tab__refresh"
-                            disabled={
-                                Number(status.syncable_pending_count ?? status.local_pending_count ?? 0) <= 0
-                                || statusBusy
-                            }
-                            onClick={handleSyncPending}
-                        >
-                            Sync pending reviews
                         </button>
                     </div>
                 </div>

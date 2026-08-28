@@ -18,19 +18,27 @@ use Tests\Support\ProjectRoot;
  */
 final class VocabularyKeywordIntelligenceContractTest extends TestCase
 {
-    public function test_policy_enables_related_topics_only(): void
+    public function test_policy_enables_strong_and_supporting_vocabulary_groups(): void
     {
         $policy = new VocabularyKeywordIngestionPolicy;
         self::assertTrue($policy->isEnabled(VocabularyKeywordIngestionPolicy::GROUP_RELATED_TOPICS));
-        self::assertFalse($policy->isEnabled(VocabularyKeywordIngestionPolicy::GROUP_LONG_TAIL));
-        self::assertFalse($policy->isEnabled(VocabularyKeywordIngestionPolicy::GROUP_SEMANTIC));
+        self::assertTrue($policy->isEnabled(VocabularyKeywordIngestionPolicy::GROUP_LONG_TAIL));
+        self::assertTrue($policy->isEnabled(VocabularyKeywordIngestionPolicy::GROUP_SEMANTIC));
+        self::assertTrue($policy->isEnabled(VocabularyKeywordIngestionPolicy::GROUP_SEMANTIC_ENTITIES));
+        self::assertTrue($policy->isEnabled(VocabularyKeywordIngestionPolicy::GROUP_RELEVANT_ENTITIES));
+        self::assertTrue($policy->isEnabled(VocabularyKeywordIngestionPolicy::GROUP_HOLONYMY));
+        self::assertTrue($policy->isEnabled(VocabularyKeywordIngestionPolicy::GROUP_SALIENT_KEYWORDS));
         self::assertSame(
             VocabularyKeywordIngestionPolicy::GROUP_RELATED_TOPICS,
             $policy->resolveCanonicalGroup('### Related topics'),
         );
+        self::assertSame(
+            VocabularyKeywordIngestionPolicy::GROUP_HOLONYMY,
+            $policy->resolveCanonicalGroup('Holonymy'),
+        );
         self::assertNull($policy->resolveCanonicalGroup('N-grams'));
         self::assertNull($policy->resolveCanonicalGroup('Antonyms'));
-        self::assertNull($policy->resolveCanonicalGroup('Holonymy'));
+        self::assertNull($policy->resolveCanonicalGroup('Synonyms'));
     }
 
     public function test_ingestion_service_is_deterministic_and_coverage_safe(): void
@@ -68,11 +76,12 @@ final class VocabularyKeywordIntelligenceContractTest extends TestCase
             (string) (new ReflectionClass(SaveKeywordVocabularyAction::class))->getFileName(),
         );
         self::assertStringContainsString('ingestRelatedTopics: false', $src);
-        self::assertStringContainsString('ingestRelatedTopicsSafe', $src);
+        self::assertStringContainsString('ingestVocabularySuggestGroupsSafe', $src);
         self::assertStringContainsString('ki_feedback', $src);
         self::assertStringContainsString('vocabulary.ki_feedback_failed', $src);
+        self::assertStringContainsString('seo_article_keywords', $src);
         self::assertStringNotContainsString('backfill', $src);
-        self::assertStringNotContainsString('PromptResult', $src);
+        self::assertStringNotContainsString('PromptResult::', $src);
     }
 
     public function test_workflow_service_delegates_related_topics(): void
@@ -82,6 +91,7 @@ final class VocabularyKeywordIntelligenceContractTest extends TestCase
         );
         self::assertStringContainsString('VocabularyKeywordIntelligenceIngestionService', $src);
         self::assertStringContainsString('ingestRelatedTopicsSafe', $src);
+        self::assertStringContainsString('ingestVocabularySuggestGroupsSafe', $src);
         self::assertStringContainsString('ingestRelatedTopics: false', (string) file_get_contents(
             (string) (new ReflectionClass(SaveKeywordVocabularyAction::class))->getFileName(),
         ));

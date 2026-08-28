@@ -33,6 +33,8 @@ use Omnichannel\Addons\ContentProjects\Services\KeywordProjectAssignmentService;
 use Omnichannel\Addons\Seo\Services\SeoNotificationService;
 use Omnichannel\Addons\SearchIntelligence\Services\SeoRankKeywordGroupService;
 use Omnichannel\Addons\SearchFoundation\Services\TagPersistenceService;
+use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\HideKeywordFromSeoService;
 use Omnichannel\Addons\SearchFoundation\Support\InternalAnchorKeywordFilter;
 use Omnichannel\Addons\Seo\Support\DomainContextResolver;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
@@ -66,17 +68,16 @@ class KeywordResource extends SeoPanelResource
 
     protected static ?string $navigationGroup = null;
 
-    protected static ?string $navigationLabel = 'Keyword Intelligence';
+    protected static ?string $navigationLabel = 'Keywords';
 
     protected static ?string $modelLabel = 'Keyword';
 
     protected static ?string $pluralModelLabel = 'Keywords';
 
-    protected static ?int $navigationSort = 3;
+    protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_KEYWORDS;
 
     /**
-     * Sidebar parent: Keyword Intelligence → default URL = Content Editor Hub.
-     * Workspace list (/keyword-intelligence) giữ route, không đăng ký nav.
+     * Sidebar: Từ khóa → dictionary / focus / clusters / cannibalization / link triage.
      */
     protected static bool $shouldRegisterNavigation = true;
 
@@ -92,7 +93,12 @@ class KeywordResource extends SeoPanelResource
 
     public static function getNavigationLabel(): string
     {
-        return __('seo-content-ai::filament.keyword_intelligence.nav');
+        return \Omnichannel\Addons\Seo\Support\SeoUserNavigation::moduleKeywords();
+    }
+
+    public static function getNavigationUrl(): string
+    {
+        return static::getUrl('index');
     }
 
     /**
@@ -105,49 +111,30 @@ class KeywordResource extends SeoPanelResource
         }
 
         $parentLabel = static::getNavigationLabel();
-        $contentEditorLabel = __('seo-content-ai::filament.performance_hub.nav_content_editor');
-        $contentEditorUrl = static::getUrl('index');
 
         return [
             \Filament\Navigation\NavigationItem::make($parentLabel)
                 ->icon(static::getNavigationIcon())
-                ->group(null)
+                ->group(static::getNavigationGroup())
                 ->sort(static::getNavigationSort())
-                ->url($contentEditorUrl)
-                ->isActiveWhen(fn (): bool => request()->routeIs([
-                    'filament.seo.resources.keywords.*',
-                    'filament.seo.pages.ai-keyword-discovery',
-                    'filament.seo.pages.performance-hub',
-                    'seo.performance.*',
-                    'filament.seo.resources.tags.*',
-                ]))
+                ->url(static::getUrl('index'))
+                ->isActiveWhen(fn (): bool => SeoPanelRoutes::isKeywordsModule())
                 ->childItems([
-                    \Filament\Navigation\NavigationItem::make($contentEditorLabel)
-                        ->parentItem($parentLabel)
-                        ->sort(1)
-                        ->url($contentEditorUrl)
-                        ->isActiveWhen(fn (): bool => SeoPanelRoutes::is('filament.seo.resources.keywords.*')),
-                    \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.keyword.ai_discovery_nav'))
-                        ->parentItem($parentLabel)
-                        ->sort(2)
-                        ->url(\Omnichannel\Addons\SearchIntelligence\Filament\Pages\AiKeywordDiscovery::getUrl())
-                        ->isActiveWhen(fn (): bool => SeoPanelRoutes::is('filament.seo.pages.ai-keyword-discovery')),
-                    \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.performance_hub.nav_seo_performance'))
-                        ->parentItem($parentLabel)
-                        ->sort(3)
-                        ->url(\Omnichannel\Addons\SearchIntelligence\Filament\Pages\SeoPerformanceHub::getUrl())
-                        ->isActiveWhen(fn (): bool => request()->routeIs([
-                            'filament.seo.pages.performance-hub',
-                            'seo.performance.*',
-                        ])),
-                    \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.nav.tags'))
-                        ->parentItem($parentLabel)
-                        ->sort(4)
-                        ->url(\Omnichannel\Addons\Content\Filament\Resources\TagResource::getUrl('index'))
-                        ->isActiveWhen(fn (): bool => request()->routeIs([
-                            'filament.seo.resources.tags.*',
-                            'filament.seo.resources.keywords.tags.*',
-                        ])),
+                    \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.keyword.workspace_nav_dictionary'))
+                        ->url(static::getUrl('index'))
+                        ->isActiveWhen(fn (): bool => SeoPanelRoutes::isKeywordsDictionaryNav()),
+                    \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.keyword.workspace_nav_focus'))
+                        ->url(static::getUrl('focus'))
+                        ->isActiveWhen(fn (): bool => SeoPanelRoutes::isKeywordsFocusNav()),
+                    \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.keyword.workspace_nav_two'))
+                        ->url(static::getUrl('clusters'))
+                        ->isActiveWhen(fn (): bool => SeoPanelRoutes::isKeywordsClustersNav()),
+                    \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.keyword.cannibalization_nav'))
+                        ->url(static::getUrl('cannibalization'))
+                        ->isActiveWhen(fn (): bool => SeoPanelRoutes::isKeywordsCannibalizationNav()),
+                    \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.keyword.workspace_nav_anchor_audit'))
+                        ->url(static::getUrl('anchor-audit'))
+                        ->isActiveWhen(fn (): bool => SeoPanelRoutes::isKeywordsBrokenLinksNav()),
                 ]),
         ];
     }
@@ -173,6 +160,14 @@ class KeywordResource extends SeoPanelResource
             && $record instanceof Keyword
             && ! static::isKeywordLockedByActiveJobs($record)
             && static::isUnused($record);
+    }
+
+    public static function canMutateKeywordVisibility(Model $record): bool
+    {
+        return static::allowsSeoPanelMutation()
+            && SeoAccessControl::canAccessPlannerFeatures()
+            && $record instanceof Keyword
+            && ! static::isKeywordLockedByActiveJobs($record);
     }
 
     public static function getModelLabel(): string
@@ -219,40 +214,6 @@ class KeywordResource extends SeoPanelResource
 
                 Forms\Components\Hidden::make('type')
                     ->default(Keyword::TYPE_NORMAL),
-
-                Forms\Components\Select::make('parent_id')
-                    ->label('Từ khóa cha')
-                    ->options(function (Get $get, ?Keyword $record): array {
-                        $siteId = (int) ($get('site_id') ?? ($record instanceof Keyword ? static::resolveKeywordSiteId($record) : null) ?? 0);
-                        if ($siteId <= 0) {
-                            return [];
-                        }
-
-                        return static::parentKeywordSelectOptions(
-                            $siteId,
-                            $record instanceof Keyword ? (int) $record->id : null,
-                            $record instanceof Keyword && $record->parent_id ? (int) $record->parent_id : null,
-                        );
-                    })
-                    ->getSearchResultsUsing(function (string $search, Get $get, ?Keyword $record): array {
-                        $siteId = (int) ($get('site_id') ?? ($record instanceof Keyword ? static::resolveKeywordSiteId($record) : null) ?? 0);
-                        if ($siteId <= 0) {
-                            return [];
-                        }
-
-                        return static::parentKeywordSelectOptions(
-                            $siteId,
-                            $record instanceof Keyword ? (int) $record->id : null,
-                            $record instanceof Keyword && $record->parent_id ? (int) $record->parent_id : null,
-                            $search,
-                        );
-                    })
-                    ->getOptionLabelUsing(fn (mixed $value): ?string => static::parentKeywordOptionLabel($value))
-                    ->searchable()
-                    ->preload()
-                    ->native(false)
-                    ->nullable()
-                    ->helperText('Chọn parent sẽ chuyển keyword sang tab Pillar / Cluster.'),
             ]);
     }
 
@@ -260,71 +221,16 @@ class KeywordResource extends SeoPanelResource
     {
         return $table
             ->columns([
-                Tables\Columns\ViewColumn::make('phrase')
+                Tables\Columns\ViewColumn::make('keyword_item')
                     ->label(__('seo-content-ai::filament.keyword.phrase_short'))
-                    ->view('seo-content-ai::filament.tables.columns.keyword-phrase')
+                    ->view('seo-content-ai::filament.tables.columns.keyword-item')
                     ->disabledClick()
-                    ->extraHeaderAttributes(['class' => 'max-w-[400px]', 'style' => 'max-width: 400px; width: 400px;'])
-                    ->extraCellAttributes(['class' => 'max-w-[400px] whitespace-normal', 'style' => 'max-width: 400px; width: 400px;'])
+                    ->extraHeaderAttributes(['class' => 'keyword-item-table-header'])
+                    ->extraCellAttributes(['class' => 'keyword-item-table-cell p-0 align-top'])
                     ->searchable(query: function (Builder $query, string $search): Builder {
                         return static::applyInsensitivePhraseSearch($query, $search);
                     })
-                    ->sortable(),
-
-                Tables\Columns\ViewColumn::make('operational_tags')
-                    ->label(__('seo-content-ai::filament.keyword.operational_tags'))
-                    ->view('seo-content-ai::filament.tables.columns.keyword-operational-tags')
-                    ->disabledClick(),
-
-                Tables\Columns\TextColumn::make('cluster_label')
-                    ->label(__('seo-content-ai::filament.keyword.cluster_label'))
-                    ->getStateUsing(fn (Keyword $record): string => app(KeywordTagResolver::class)->clusterLabel($record))
-                    ->url(function (Keyword $record): ?string {
-                        $key = app(KeywordTagResolver::class)->clusterKey($record);
-                        if ($key === '') {
-                            return null;
-                        }
-
-                        return app(DomainContextResolver::class)->appendSiteToUrl(
-                            static::getUrl('cluster', ['clusterKey' => $key]),
-                            (int) (static::resolveKeywordSiteId($record) ?? 0) ?: SeoAccessControl::globalSiteId(),
-                        );
-                    })
-                    ->color(fn (Keyword $record): string => app(KeywordTagResolver::class)->clusterKey($record) !== ''
-                            ? 'primary'
-                            : 'gray')
-                    ->wrap()
-                    ->placeholder('—'),
-
-                Tables\Columns\TextColumn::make('linked_articles_count')
-                    ->label(__('seo-content-ai::filament.keyword.linked_articles'))
-                    ->sortable()
-                    ->alignCenter()
-                    ->formatStateUsing(fn (mixed $state): string => (int) $state > 0 ? (string) (int) $state : '—')
-                    ->url(function (Keyword $record): ?string {
-                        if ((int) ($record->linked_articles_count ?? 0) < 1) {
-                            return null;
-                        }
-
-                        $siteId = (int) (static::resolveKeywordSiteId($record) ?? 0);
-                        if ($siteId <= 0) {
-                            return null;
-                        }
-
-                        return app(DomainOverviewService::class)->buildArticlesFilterUrlForInternalAnchorKeyword(
-                            $siteId,
-                            (int) $record->id,
-                        );
-                    }),
-
-                Tables\Columns\TextColumn::make('word_count')
-                    ->label(__('seo-content-ai::filament.keyword.word_count'))
-                    ->sortable(query: fn (Builder $query, string $direction): Builder => $query
-                        ->orderByRaw(static::wordCountExpression().' '.$direction))
-                    ->alignCenter()
-                    ->badge()
-                    ->color('gray')
-                    ->toggleable(isToggledHiddenByDefault: true),
+                    ->sortable(query: fn (Builder $query, string $direction): Builder => $query->orderBy('phrase', $direction)),
 
                 Tables\Columns\ViewColumn::make('destinations')
                     ->label(__('seo-content-ai::filament.keyword.target_destinations'))
@@ -335,6 +241,31 @@ class KeywordResource extends SeoPanelResource
             ])
             ->defaultSort('phrase')
             ->filters([
+                Tables\Filters\TernaryFilter::make('seo_hidden')
+                    ->label(__('seo-content-ai::filament.keyword.hide_filter_label'))
+                    ->placeholder(__('seo-content-ai::filament.keyword.hide_filter_active'))
+                    ->trueLabel(__('seo-content-ai::filament.keyword.hide_filter_hidden'))
+                    ->falseLabel(__('seo-content-ai::filament.keyword.hide_filter_visible'))
+                    ->queries(
+                        true: fn (Builder $query): Builder => $query->whereHas(
+                            'metas',
+                            static fn (Builder $meta): Builder => $meta
+                                ->where('meta_key', KeywordMetaKey::SeoHidden->value)
+                                ->where('meta_value', '1'),
+                        ),
+                        false: fn (Builder $query): Builder => $query->whereDoesntHave(
+                            'metas',
+                            static fn (Builder $meta): Builder => $meta
+                                ->where('meta_key', KeywordMetaKey::SeoHidden->value)
+                                ->where('meta_value', '1'),
+                        ),
+                        blank: fn (Builder $query): Builder => $query->whereDoesntHave(
+                            'metas',
+                            static fn (Builder $meta): Builder => $meta
+                                ->where('meta_key', KeywordMetaKey::SeoHidden->value)
+                                ->where('meta_value', '1'),
+                        ),
+                    ),
                 Tables\Filters\SelectFilter::make('site_id')
                     ->label(__('seo-content-ai::filament.keyword.domain'))
                     ->options(fn (): array => static::siteSelectOptions())
@@ -415,19 +346,15 @@ class KeywordResource extends SeoPanelResource
                     ->form([
                         Forms\Components\Select::make('intents')
                             ->label(__('seo-content-ai::filament.keyword.advanced_intent'))
-                            ->options([
-                                KeywordRuleClassifier::INTENT_INFORMATIONAL => KeywordRuleClassifier::INTENT_INFORMATIONAL,
-                                KeywordRuleClassifier::INTENT_COMMERCIAL => KeywordRuleClassifier::INTENT_COMMERCIAL,
-                                'transactional' => 'transactional',
-                                'navigational' => 'navigational',
-                                'unknown' => 'unknown',
-                            ])
+                            ->options(KeywordRuleClassifier::intentFilterOptions())
                             ->multiple()
                             ->native(false),
                     ])
                     ->query(function (Builder $query, array $data): Builder {
+                        $allowed = KeywordRuleClassifier::intents();
                         $intents = collect($data['intents'] ?? [])
                             ->filter(static fn (mixed $value): bool => is_string($value) && $value !== '')
+                            ->filter(static fn (string $value): bool => in_array($value, $allowed, true))
                             ->values()
                             ->all();
                         if ($intents === []) {
@@ -440,27 +367,31 @@ class KeywordResource extends SeoPanelResource
                         );
                     })
                     ->indicateUsing(function (array $data): ?string {
-                        $intents = collect($data['intents'] ?? [])
+                        $labels = collect($data['intents'] ?? [])
                             ->filter(static fn (mixed $value): bool => is_string($value) && $value !== '')
+                            ->map(static fn (string $intent): string => KeywordRuleClassifier::intentLabel($intent))
+                            ->filter(static fn (string $label): bool => $label !== '')
                             ->values()
                             ->all();
 
-                        return $intents === []
+                        return $labels === []
                             ? null
-                            : __('seo-content-ai::filament.keyword.advanced_intent').': '.implode(', ', $intents);
+                            : __('seo-content-ai::filament.keyword.advanced_intent').': '.implode(', ', $labels);
                     }),
                 Tables\Filters\Filter::make('source_kind')
                     ->label(__('seo-content-ai::filament.keyword.advanced_source'))
                     ->form([
                         Forms\Components\Select::make('sources')
                             ->label(__('seo-content-ai::filament.keyword.advanced_source'))
-                            ->options(array_combine(KeywordSourceNormalizer::all(), KeywordSourceNormalizer::all()))
+                            ->options(KeywordSourceNormalizer::filterOptions())
                             ->multiple()
                             ->native(false),
                     ])
                     ->query(function (Builder $query, array $data): Builder {
+                        $allowed = KeywordSourceNormalizer::all();
                         $sources = collect($data['sources'] ?? [])
                             ->filter(static fn (mixed $value): bool => is_string($value) && $value !== '')
+                            ->filter(static fn (string $value): bool => in_array($value, $allowed, true))
                             ->values()
                             ->all();
                         if ($sources === []) {
@@ -473,14 +404,16 @@ class KeywordResource extends SeoPanelResource
                         );
                     })
                     ->indicateUsing(function (array $data): ?string {
-                        $sources = collect($data['sources'] ?? [])
+                        $labels = collect($data['sources'] ?? [])
                             ->filter(static fn (mixed $value): bool => is_string($value) && $value !== '')
+                            ->map(static fn (string $source): string => KeywordSourceNormalizer::label($source))
+                            ->filter(static fn (string $label): bool => $label !== '')
                             ->values()
                             ->all();
 
-                        return $sources === []
+                        return $labels === []
                             ? null
-                            : __('seo-content-ai::filament.keyword.advanced_source').': '.implode(', ', $sources);
+                            : __('seo-content-ai::filament.keyword.advanced_source').': '.implode(', ', $labels);
                     }),
                 Tables\Filters\Filter::make('keyword_type')
                     ->label(__('seo-content-ai::filament.keyword.legacy_type'))
@@ -494,9 +427,11 @@ class KeywordResource extends SeoPanelResource
                             ->native(false),
                     ])
                     ->query(function (Builder $query, array $data): Builder {
+                        // Dictionary filter options only (Normal/Free). TYPE_SUGGEST stays staging — never filter UI.
+                        $allowed = array_keys(static::keywordTypeFilterOptions());
                         $types = collect($data['types'] ?? [])
                             ->filter(static fn (mixed $value): bool => is_string($value) && $value !== '')
-                            ->filter(static fn (string $value): bool => in_array($value, Keyword::allowedTypes(), true))
+                            ->filter(static fn (string $value): bool => in_array($value, $allowed, true))
                             ->values()
                             ->all();
 
@@ -667,6 +602,48 @@ class KeywordResource extends SeoPanelResource
                             ->success()
                             ->send();
                     }),
+                Tables\Actions\Action::make('hide_keyword')
+                    ->label(__('seo-content-ai::filament.keyword.hide_action'))
+                    ->icon('heroicon-o-eye-slash')
+                    ->iconButton()
+                    ->color('warning')
+                    ->tooltip(__('seo-content-ai::filament.keyword.hide_action'))
+                    ->requiresConfirmation()
+                    ->modalHeading(__('seo-content-ai::filament.keyword.hide_confirm_heading'))
+                    ->modalDescription(__('seo-content-ai::filament.keyword.hide_confirm_body'))
+                    ->modalSubmitActionLabel(__('seo-content-ai::filament.keyword.hide_action'))
+                    ->visible(fn (Keyword $record): bool => static::canMutateKeywordVisibility($record)
+                        && ! app(HideKeywordFromSeoService::class)->isHidden((int) $record->id))
+                    ->action(function (Keyword $record): void {
+                        $siteId = static::resolveKeywordSiteId($record);
+                        $result = app(HideKeywordFromSeoService::class)->hide((int) $record->id, $siteId);
+                        Notification::make()
+                            ->title(__('seo-content-ai::filament.keyword.hide_success_title'))
+                            ->body(__('seo-content-ai::filament.keyword.hide_success_body', [
+                                'phrase' => $result['phrase'],
+                            ]))
+                            ->success()
+                            ->send();
+                    }),
+                Tables\Actions\Action::make('restore_hidden_keyword')
+                    ->label(__('seo-content-ai::filament.keyword.hide_restore_action'))
+                    ->icon('heroicon-o-eye')
+                    ->iconButton()
+                    ->color('success')
+                    ->tooltip(__('seo-content-ai::filament.keyword.hide_restore_action'))
+                    ->visible(fn (Keyword $record): bool => static::canMutateKeywordVisibility($record)
+                        && app(HideKeywordFromSeoService::class)->isHidden((int) $record->id))
+                    ->action(function (Keyword $record): void {
+                        $siteId = static::resolveKeywordSiteId($record);
+                        $result = app(HideKeywordFromSeoService::class)->restore((int) $record->id, $siteId);
+                        Notification::make()
+                            ->title(__('seo-content-ai::filament.keyword.hide_restore_success_title'))
+                            ->body(__('seo-content-ai::filament.keyword.hide_restore_success_body', [
+                                'phrase' => $result['phrase'],
+                            ]))
+                            ->success()
+                            ->send();
+                    }),
                 Tables\Actions\DeleteAction::make()
                     ->iconButton()
                     ->tooltip(fn (Keyword $record): string => static::isKeywordLockedByActiveJobs($record)
@@ -676,77 +653,6 @@ class KeywordResource extends SeoPanelResource
             ])
             ->bulkActions(static::seoPanelBulkActions([
                 Tables\Actions\BulkActionGroup::make([
-                    Tables\Actions\BulkAction::make('bulk_quick_parent')
-                        ->label(__('seo-content-ai::filament.keyword.bulk_quick_parent'))
-                        ->icon('heroicon-o-arrow-up-on-square')
-                        ->form(fn (Collection $records): array => [
-                            Forms\Components\Select::make('parent_id')
-                                ->label(__('seo-content-ai::filament.keyword.parent_keyword'))
-                                ->options(fn (): array => static::bulkParentOptions($records))
-                                ->getSearchResultsUsing(
-                                    fn (string $search): array => static::bulkParentOptions($records, $search),
-                                )
-                                ->getOptionLabelUsing(
-                                    fn (mixed $value): ?string => static::parentKeywordOptionLabel($value),
-                                )
-                                ->required()
-                                ->searchable()
-                                ->preload()
-                                ->native(false)
-                                ->helperText(__('seo-content-ai::filament.keyword.bulk_quick_parent_hint')),
-                        ])
-                        ->deselectRecordsAfterCompletion()
-                        ->action(function (Collection $records, array $data): void {
-                            $parentId = (int) ($data['parent_id'] ?? 0);
-                            if ($parentId <= 0) {
-                                return;
-                            }
-
-                            $parent = Keyword::query()->find($parentId);
-                            if (! $parent instanceof Keyword || $parent->parent_id !== null) {
-                                Notification::make()
-                                    ->title(__('seo-content-ai::filament.keyword.bulk_quick_parent_failed'))
-                                    ->body(__('seo-content-ai::filament.keyword.bulk_quick_parent_invalid_parent'))
-                                    ->danger()
-                                    ->send();
-
-                                return;
-                            }
-
-                            $updated = 0;
-                            $skipped = 0;
-
-                            foreach ($records as $record) {
-                                if (! $record instanceof Keyword) {
-                                    continue;
-                                }
-
-                                if (
-                                    (int) $record->id === $parentId
-                                    || static::resolveKeywordSiteId($record) !== static::resolveKeywordSiteId($parent)
-                                ) {
-                                    $skipped++;
-
-                                    continue;
-                                }
-
-                                if ((int) $record->parent_id === $parentId) {
-                                    continue;
-                                }
-
-                                $record->update(['parent_id' => $parentId]);
-                                $updated++;
-                            }
-
-                            Notification::make()
-                                ->title(__('seo-content-ai::filament.keyword.bulk_quick_parent_completed'))
-                                ->body(__('seo-content-ai::filament.keyword.bulk_quick_parent_body', [
-                                    'updated' => $updated,
-                                    'skipped' => $skipped,
-                                ]))
-                                ->success()
-                                ->send();
-                        }),
                     AssignToContentProjectActionFactory::tableBulkAction(
                         resolvePayload: function (Collection $records): array {
                             $siteIds = static::resolveBulkKeywordsSiteIds($records);
@@ -1034,123 +940,6 @@ class KeywordResource extends SeoPanelResource
         ];
     }
 
-    /**
-     * @return array<int|string, string>
-     */
-    public static function clusterParentOptions(): array
-    {
-        $query = Keyword::query()
-            ->where('type', Keyword::TYPE_NORMAL)
-            ->whereNull('parent_id')
-            ->whereHas('children')
-            ->whereRaw(static::wordCountExpression().' >= 2')
-            ->orderBy('phrase');
-
-        return $query->pluck('phrase', 'id')->all();
-    }
-
-    public static function applyParentScopeToQuery(Builder $query, ?int $parentId): Builder
-    {
-        if ($parentId !== null && $parentId > 0) {
-            return $query->where('parent_id', $parentId);
-        }
-
-        return $query->whereNull('parent_id');
-    }
-
-    public static function buildClusterChildrenBaseQuery(int $parentId): Builder
-    {
-        $query = Keyword::query()->where('parent_id', $parentId);
-
-        if (SeoAccessControl::shouldScopeToAccountOwner()) {
-            $siteIds = SeoAccessControl::accessibleSiteIds();
-            $query->forSites($siteIds);
-        }
-
-        return static::applyMinimumKeywordWordCount(
-            InternalAnchorKeywordFilter::applyExcludeLinkLikePhrases($query),
-        );
-    }
-
-    public static function countClusterChildrenForSite(int $parentId, ?int $siteId): int
-    {
-        $query = static::buildClusterChildrenBaseQuery($parentId);
-
-        if ($siteId !== null && $siteId > 0) {
-            $query->forSite($siteId);
-        }
-
-        return $query->count();
-    }
-
-    /**
-     * @return array{
-     *     current_site_id: int,
-     *     current_site_domain: string,
-     *     target_site_id: int,
-     *     target_site_domain: string,
-     *     children_count: int,
-     * }|null
-     */
-    public static function resolveClusterChildrenSiteMismatch(?int $parentId): ?array
-    {
-        if ($parentId === null || $parentId <= 0) {
-            return null;
-        }
-
-        $globalSiteId = SeoAccessControl::globalSiteId();
-        if ($globalSiteId === null || $globalSiteId <= 0) {
-            return null;
-        }
-
-        if (! Keyword::query()->whereKey($parentId)->exists()) {
-            return null;
-        }
-
-        if (static::countClusterChildrenForSite($parentId, $globalSiteId) > 0) {
-            return null;
-        }
-
-        if (static::countClusterChildrenForSite($parentId, null) <= 0) {
-            return null;
-        }
-
-        $targetSiteId = null;
-        $targetCount = 0;
-
-        foreach (array_map('intval', array_keys(static::siteSelectOptions())) as $siteId) {
-            if ($siteId === $globalSiteId) {
-                continue;
-            }
-
-            $count = static::countClusterChildrenForSite($parentId, $siteId);
-            if ($count > $targetCount) {
-                $targetCount = $count;
-                $targetSiteId = $siteId;
-            }
-        }
-
-        if ($targetSiteId === null || $targetCount <= 0) {
-            return null;
-        }
-
-        $currentSite = Site::query()->find($globalSiteId);
-        $targetSite = Site::query()->find($targetSiteId);
-
-        return [
-            'current_site_id' => $globalSiteId,
-            'current_site_domain' => (string) ($currentSite?->domain ?? '#'.$globalSiteId),
-            'target_site_id' => $targetSiteId,
-            'target_site_domain' => (string) ($targetSite?->domain ?? '#'.$targetSiteId),
-            'children_count' => $targetCount,
-        ];
-    }
-
-    public static function buildChildrenFilterUrl(int $parentId): string
-    {
-        return static::getUrl('index').'?parent_id='.$parentId;
-    }
-
     public static function buildRootKeywordsUrl(): string
     {
         return static::getUrl('index');
@@ -1200,13 +989,14 @@ class KeywordResource extends SeoPanelResource
     }
 
     /**
+     * Active Dictionary filter only — staging Suggest is SEO Audit, not inventory.
+     *
      * @return array<int|string, string>
      */
     public static function keywordTypeFilterOptions(): array
     {
         return [
             Keyword::TYPE_NORMAL => __('seo-content-ai::filament.keyword.normal_short'),
-            Keyword::TYPE_SUGGEST => __('seo-content-ai::filament.keyword.suggest_short'),
             Keyword::TYPE_FREE => __('seo-content-ai::filament.keyword.free_short'),
         ];
     }
@@ -1240,13 +1030,14 @@ class KeywordResource extends SeoPanelResource
     }
 
     /**
+     * Create/edit inventory types only (no staging Suggest).
+     *
      * @return array<int|string, string>
      */
     public static function keywordTypeSelectOptions(): array
     {
         return [
             Keyword::TYPE_NORMAL => __('seo-content-ai::filament.keyword.normal'),
-            Keyword::TYPE_SUGGEST => __('seo-content-ai::filament.keyword.suggest'),
             Keyword::TYPE_FREE => __('seo-content-ai::filament.keyword.free'),
         ];
     }
@@ -1669,7 +1460,8 @@ class KeywordResource extends SeoPanelResource
 
         return collect($types)
             ->filter(static fn (mixed $type): bool => is_string($type) && $type !== '')
-            ->map(static fn (string $type): string => $options[$type] ?? $type)
+            ->filter(static fn (string $type): bool => isset($options[$type]))
+            ->map(static fn (string $type): string => $options[$type])
             ->values()
             ->all();
     }
@@ -1707,8 +1499,9 @@ class KeywordResource extends SeoPanelResource
                 'mainArticles as main_articles_count',
                 ...Keyword::linkMapCountRelations(),
                 'linkMaps as inbound_links_count',
-                'children as children_count',
-            ]);
+                            ]);
+
+        $query = static::excludeStagingSuggestTypes($query);
 
         if (SeoAccessControl::shouldScopeToAccountOwner()) {
             $siteIds = SeoAccessControl::accessibleSiteIds();
@@ -1734,12 +1527,13 @@ class KeywordResource extends SeoPanelResource
                 'mainArticles as main_articles_count',
                 ...Keyword::linkMapCountRelations(),
                 'linkMaps as inbound_links_count',
-                'children as children_count',
-            ])
+                            ])
             ->whereIn('review_status', [
                 KeywordReviewStatus::Danger->value,
                 KeywordReviewStatus::Warning->value,
             ]);
+
+        $query = static::excludeStagingSuggestTypes($query);
 
         if (SeoAccessControl::shouldScopeToAccountOwner()) {
             $siteIds = SeoAccessControl::accessibleSiteIds();
@@ -1747,6 +1541,22 @@ class KeywordResource extends SeoPanelResource
         }
 
         return $query;
+    }
+
+    /**
+     * Keyword Dictionary = active SEO inventory only.
+     * TYPE_SUGGEST is SEO Audit staging (Vocabulary Suggest / MCP Suggest) — never list here.
+     *
+     * @param  Builder<Keyword>  $query
+     * @return Builder<Keyword>
+     */
+    public static function excludeStagingSuggestTypes(Builder $query): Builder
+    {
+        return $query->where(function (Builder $builder): void {
+            $builder
+                ->whereNull('type')
+                ->orWhere('type', '!=', Keyword::TYPE_SUGGEST);
+        });
     }
 
     public static function applyReviewedDictionarySiteScope(Builder $query, int $siteId): Builder
@@ -1792,40 +1602,6 @@ class KeywordResource extends SeoPanelResource
                         }
                     }]
                     : []),
-
-            Forms\Components\Select::make('parent_id')
-                ->label('Từ khóa cha')
-                ->options(function () use ($record): array {
-                    $siteId = (int) (static::resolveKeywordSiteId($record) ?? 0);
-                    if ($siteId <= 0) {
-                        return [];
-                    }
-
-                    return static::parentKeywordSelectOptions(
-                        $siteId,
-                        (int) $record->id,
-                        $record->parent_id ? (int) $record->parent_id : null,
-                    );
-                })
-                ->getSearchResultsUsing(function (string $search) use ($record): array {
-                    $siteId = (int) (static::resolveKeywordSiteId($record) ?? 0);
-                    if ($siteId <= 0) {
-                        return [];
-                    }
-
-                    return static::parentKeywordSelectOptions(
-                        $siteId,
-                        (int) $record->id,
-                        $record->parent_id ? (int) $record->parent_id : null,
-                        $search,
-                    );
-                })
-                ->getOptionLabelUsing(fn (mixed $value): ?string => static::parentKeywordOptionLabel($value))
-                ->searchable()
-                ->preload()
-                ->native(false)
-                ->nullable()
-                ->helperText('Chọn parent sẽ chuyển keyword sang tab Pillar / Cluster.'),
         ];
     }
 
@@ -1834,19 +1610,17 @@ class KeywordResource extends SeoPanelResource
         $attributes = $keyword->getAttributes();
         if (
             ! array_key_exists('inbound_links_count', $attributes)
-            || ! array_key_exists('children_count', $attributes)
-            || ! array_key_exists('main_articles_count', $attributes)
+                        || ! array_key_exists('main_articles_count', $attributes)
             || ! array_key_exists('linked_articles_count', $attributes)
         ) {
             $keyword->loadCount([
                 'mainArticles',
                 ...Keyword::linkMapCountRelations(),
                 'linkMaps as inbound_links_count',
-                'children',
             ]);
         }
 
-        if ((int) $keyword->inbound_links_count > 0 || (int) $keyword->children_count > 0) {
+        if ((int) $keyword->inbound_links_count > 0) {
             return false;
         }
 
@@ -2141,91 +1915,6 @@ class KeywordResource extends SeoPanelResource
     public static function resolveUniqueTagSlug(string $name): string
     {
         return app(TagPersistenceService::class)->resolveUniqueSlug($name);
-    }
-
-    /**
-     * @return array<int|string, string>
-     */
-    public static function parentKeywordSelectOptions(
-        int $siteId,
-        ?int $excludeKeywordId = null,
-        ?int $ensureIncludedId = null,
-        ?string $search = null,
-    ): array {
-        if ($siteId <= 0) {
-            return [];
-        }
-
-        $query = Keyword::query()
-            ->forSite($siteId)
-            ->where('type', Keyword::TYPE_NORMAL)
-            ->whereNull('parent_id')
-            ->when(
-                $excludeKeywordId !== null && $excludeKeywordId > 0,
-                fn (Builder $query): Builder => $query->where('id', '!=', $excludeKeywordId),
-            )
-            ->orderBy('phrase');
-
-        if ($search !== null && trim($search) !== '') {
-            $query = static::applyInsensitivePhraseSearch($query, $search);
-        }
-
-        $options = $query
-            ->limit($search !== null && trim($search) !== '' ? 50 : 100)
-            ->pluck('phrase', 'id')
-            ->all();
-
-        if ($ensureIncludedId !== null && $ensureIncludedId > 0 && ! array_key_exists($ensureIncludedId, $options)) {
-            $phrase = static::parentKeywordOptionLabel($ensureIncludedId);
-            if ($phrase !== null) {
-                $options[$ensureIncludedId] = $phrase;
-            }
-        }
-
-        return $options;
-    }
-
-    public static function parentKeywordOptionLabel(mixed $value): ?string
-    {
-        if (! is_numeric($value) || (int) $value <= 0) {
-            return null;
-        }
-
-        $phrase = Keyword::query()->whereKey((int) $value)->value('phrase');
-
-        return is_string($phrase) && $phrase !== '' ? $phrase : null;
-    }
-
-    /**
-     * @param  Collection<int, mixed>  $records
-     * @return array<int|string, string>
-     */
-    public static function bulkParentOptions(Collection $records, ?string $search = null): array
-    {
-        $siteId = static::resolveBulkKeywordsSiteId($records);
-        if ($siteId === null) {
-            return [];
-        }
-
-        $excludeIds = $records
-            ->filter(static fn (mixed $record): bool => $record instanceof Keyword)
-            ->map(static fn (Keyword $keyword): int => (int) $keyword->id)
-            ->all();
-
-        $query = Keyword::query()
-            ->forSite($siteId)
-            ->whereNull('parent_id')
-            ->when($excludeIds !== [], fn (Builder $query): Builder => $query->whereNotIn('id', $excludeIds))
-            ->orderBy('phrase');
-
-        if ($search !== null && trim($search) !== '') {
-            $query = static::applyInsensitivePhraseSearch($query, $search);
-        }
-
-        return $query
-            ->limit($search !== null && trim($search) !== '' ? 50 : 100)
-            ->pluck('phrase', 'id')
-            ->all();
     }
 
     public static function applyInsensitivePhraseSearch(Builder $query, string $search): Builder

@@ -7,9 +7,8 @@ namespace Omnichannel\Addons\ContentProjects\Filament\Resources;
 
 
 use Omnichannel\Addons\Seo\Filament\Resources\SeoPanelResource;
-use Omnichannel\Addons\Publishing\Filament\Pages\PublishingQueueHub;
-use Omnichannel\Addons\ContentProjects\Filament\Pages\ContentProjectSeoAuditPlanner;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Pages;
+use Omnichannel\Addons\Publishing\Filament\Pages\PublishingQueueHub;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectArchive;
@@ -67,13 +66,13 @@ class SeoProjectResource extends SeoPanelResource
 
     protected static ?string $navigationGroup = null;
 
-    protected static ?string $navigationLabel = 'Content projects';
+    protected static ?string $navigationLabel = 'Projects';
 
     protected static ?string $modelLabel = 'Content project';
 
     protected static ?string $pluralModelLabel = 'Content projects';
 
-    protected static ?int $navigationSort = 4;
+    protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_PROJECTS;
 
     public static function canViewAny(): bool
     {
@@ -168,12 +167,7 @@ class SeoProjectResource extends SeoPanelResource
     }
 
     /**
-     * Parent stays active on project list/detail, SEO Audit planner, and nested Publishing Queue.
-     * Child nav items are registered here (hub pages do not self-register)
-     * so parentItem label always matches.
-     *
-     * Sort: Projects (parent) → Content Planning (3) → Publishing Queue (5).
-     * Legacy New Content route redirects into Content Planning (not a primary nav item).
+     * WordPress-style module: Dự án → list / create / planner / publishing queue.
      *
      * @return array<int, \Filament\Navigation\NavigationItem>
      */
@@ -183,46 +177,50 @@ class SeoProjectResource extends SeoPanelResource
             return [];
         }
 
-        $parentLabel = static::getNavigationLabel();
+        $parentLabel = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::moduleProjects();
+        $children = [
+            \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.nav.all_projects'))
+                ->icon(null)
+                ->url(static::getUrl())
+                ->isActiveWhen(fn (): bool => SeoPanelRoutes::isProjectsListNav()),
+        ];
 
-        $items = [
+        if (static::canCreate()) {
+            $children[] = \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.nav.create_project'))
+                ->icon(null)
+                ->url(static::getUrl('create'))
+                ->isActiveWhen(fn (): bool => SeoPanelRoutes::isProjectsCreateNav());
+        }
+
+        if (\Omnichannel\Addons\ContentProjects\Filament\Pages\ContentProjectSeoAuditPlanner::canAccess()) {
+            $children[] = \Filament\Navigation\NavigationItem::make(
+                \Omnichannel\Addons\ContentProjects\Filament\Pages\ContentProjectSeoAuditPlanner::getNavigationLabel()
+            )
+                ->icon(null)
+                ->parentItem($parentLabel)
+                ->url(\Omnichannel\Addons\ContentProjects\Filament\Pages\ContentProjectSeoAuditPlanner::getUrl())
+                ->isActiveWhen(fn (): bool => SeoPanelRoutes::isProjectPlannerNav());
+        }
+
+        if (\Omnichannel\Addons\Publishing\Filament\Pages\PublishingQueueHub::canAccess()) {
+            $children[] = \Filament\Navigation\NavigationItem::make(
+                \Omnichannel\Addons\Publishing\Filament\Pages\PublishingQueueHub::getNavigationLabel()
+            )
+                ->icon(null)
+                ->parentItem($parentLabel)
+                ->url(\Omnichannel\Addons\Publishing\Filament\Pages\PublishingQueueHub::getUrl())
+                ->isActiveWhen(fn (): bool => SeoPanelRoutes::isPublishingQueueNav());
+        }
+
+        return [
             \Filament\Navigation\NavigationItem::make($parentLabel)
                 ->icon(static::getNavigationIcon())
                 ->group(static::getNavigationGroup())
                 ->sort(static::getNavigationSort())
                 ->url(static::getUrl())
-                ->isActiveWhen(fn (): bool => SeoPanelRoutes::is(
-                    'filament.seo.resources.content-projects.*',
-                    'filament.seo.pages.content-projects-seo-audit',
-                    'filament.seo.pages.content-projects-new-content',
-                    'filament.seo.pages.publishing-queue',
-                )),
+                ->isActiveWhen(fn (): bool => SeoPanelRoutes::isProjectsModule())
+                ->childItems($children),
         ];
-
-        if (ContentProjectSeoAuditPlanner::canAccess()) {
-            $items[] = \Filament\Navigation\NavigationItem::make(ContentProjectSeoAuditPlanner::getNavigationLabel())
-                ->icon('heroicon-o-sparkles')
-                ->group(null)
-                ->parentItem($parentLabel)
-                ->isActiveWhen(fn (): bool => SeoPanelRoutes::is(
-                    'filament.seo.pages.content-projects-seo-audit',
-                    'filament.seo.pages.content-projects-new-content',
-                ))
-                ->sort(3)
-                ->url(ContentProjectSeoAuditPlanner::getUrl());
-        }
-
-        if (PublishingQueueHub::canAccess()) {
-            $items[] = \Filament\Navigation\NavigationItem::make(PublishingQueueHub::getNavigationLabel())
-                ->icon('heroicon-o-queue-list')
-                ->group(null)
-                ->parentItem($parentLabel)
-                ->isActiveWhen(fn (): bool => SeoPanelRoutes::is('filament.seo.pages.publishing-queue'))
-                ->sort(5)
-                ->url(PublishingQueueHub::getUrl());
-        }
-
-        return $items;
     }
 
     public static function getModelLabel(): string

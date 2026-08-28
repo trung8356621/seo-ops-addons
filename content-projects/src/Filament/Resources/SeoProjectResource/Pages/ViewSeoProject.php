@@ -8,6 +8,7 @@ use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithContentProjectPublishingActions;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithDraftSplit;
+use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithIdeaCandidates;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithNewContentSuggestions;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithSeoAuditSuggestions;
 use Omnichannel\Addons\Content\Models\SeoArticle;
@@ -67,6 +68,7 @@ final class ViewSeoProject extends Page
 {
     use InteractsWithContentProjectPublishingActions;
     use InteractsWithDraftSplit;
+    use InteractsWithIdeaCandidates;
     use InteractsWithNewContentSuggestions;
     use InteractsWithSeoAuditSuggestions;
     use WithPagination;
@@ -245,6 +247,7 @@ final class ViewSeoProject extends Page
 
         $this->mountInteractsWithSeoAuditSuggestions();
         $this->mountInteractsWithNewContentSuggestions();
+        $this->mountInteractsWithIdeaCandidates();
         $this->mountInteractsWithDraftSplit();
     }
 

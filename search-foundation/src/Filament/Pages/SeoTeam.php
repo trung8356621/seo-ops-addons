@@ -32,11 +32,11 @@ class SeoTeam extends SeoPanelPage implements HasTable
 
     protected static ?string $navigationGroup = null;
 
-    protected static ?string $navigationLabel = 'Team members';
+    protected static ?string $navigationLabel = 'Members';
 
     protected static ?string $title = 'Team management';
 
-    protected static ?int $navigationSort = 12;
+    protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_TEAM;
 
     protected static string $view = 'seo-content-ai::filament.pages.seo-team';
 

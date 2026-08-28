@@ -1,12 +1,10 @@
 @php
     use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
-    use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 
     $keyword = $this->selectedKeyword;
     $hasSelection = $this->selectedKeywordId !== null && $keyword instanceof \Omnichannel\Addons\SearchFoundation\Models\Keyword;
     $canEdit = $hasSelection && KeywordResource::canEdit($keyword);
     $canDelete = $hasSelection && KeywordResource::canDelete($keyword);
-    $canMove = $hasSelection && SeoAccessControl::canAccessPlannerFeatures();
 @endphp
 
 <header class="flex-shrink-0 border-b border-gray-200 px-4 py-4 dark:border-white/10">
@@ -46,17 +44,6 @@
                     wire:click="editSelectedKeyword"
                 >
                     {{ __('seo-content-ai::filament.keyword.edit') }}
-                </x-filament::button>
-            @endif
-
-            @if ($canMove)
-                <x-filament::button
-                    size="sm"
-                    color="gray"
-                    icon="heroicon-m-arrows-right-left"
-                    wire:click="moveSelectedKeyword"
-                >
-                    {{ __('seo-content-ai::filament.keyword.drawer_move') }}
                 </x-filament::button>
             @endif
 

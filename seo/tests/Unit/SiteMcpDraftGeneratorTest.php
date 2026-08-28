@@ -45,7 +45,7 @@ final class SiteMcpDraftGeneratorTest extends TestCase
         self::assertSame('seo_title', $fromSeoTitle['source']);
     }
 
-    public function test_root_product_cat_only_becomes_main_topics(): void
+    public function test_root_product_cat_only_becomes_important_pages_not_main_topics(): void
     {
         $draft = $this->generator()->buildFromDiscovery($this->catalogFixture(
             websiteType: 'production',
@@ -62,8 +62,10 @@ final class SiteMcpDraftGeneratorTest extends TestCase
             counts: ['post' => 3, 'page' => 1, 'product' => 2, 'product_cat' => 3, 'attachment' => 0],
         ));
 
-        self::assertSame(['balo laptop'], $draft['keyword_context']['main_topics']);
+        self::assertSame([], $draft['keyword_context']['main_topics']);
+        self::assertSame('keyword_clusters.v1', $draft['generation']['topical_source']);
         self::assertCount(1, $draft['important_pages']);
+        self::assertSame('balo laptop', $draft['important_pages'][0]['keyword'] ?? null);
         self::assertSame(3, $draft['counts']['product_cat']);
         self::assertSame(2, $draft['counts']['root_product_cat']);
         self::assertSame(2, $draft['counts']['product']);
@@ -82,7 +84,25 @@ final class SiteMcpDraftGeneratorTest extends TestCase
                 $this->product('May Balo Quà Tặng Nitto Jokaso Oceana', 'sku-nitto', 200, 'nitto jokaso oceana'),
                 $this->product('Balo laptop chống sốc mẫu 01', 'balo-chong-soc-01', 201, 'balo chống sốc mẫu 01'),
             ],
-        ));
+        ), [
+            'source' => 'keyword_clusters.v1',
+            'built_at' => gmdate('c'),
+            'total_clustered_keywords' => 5,
+            'topics' => [
+                [
+                    'cluster_ref' => 'ck_canvas',
+                    'name' => 'túi canvas',
+                    'weight' => 100.0,
+                    'keyword_count' => 5,
+                    'source' => 'auto',
+                    'state' => 'active',
+                    'priority' => null,
+                    'intent' => 'commercial',
+                    'coverage' => 'weak',
+                    'dna' => [],
+                ],
+            ],
+        ]);
 
         $topics = $draft['keyword_context']['main_topics'];
         self::assertSame(['túi canvas'], $topics);
@@ -118,16 +138,13 @@ final class SiteMcpDraftGeneratorTest extends TestCase
         ));
 
         self::assertSame('production', $draft['site']['website_type']);
-        self::assertSame(['balo quà tặng', 'túi giữ nhiệt'], $draft['keyword_context']['main_topics']);
-        self::assertNotContains('balo con', $draft['keyword_context']['main_topics']);
+        self::assertSame([], $draft['keyword_context']['main_topics']);
         self::assertSame(2, $draft['counts']['products']);
         self::assertSame(2, $draft['counts']['root_product_cat']);
-
-        foreach ($draft['keyword_context']['main_topic_records'] as $record) {
-            self::assertSame('product_category', $record['source_type']);
-            self::assertSame('product_cat', $record['taxonomy']);
-            self::assertSame(0, (int) $record['parent_term_id']);
-        }
+        self::assertCount(2, $draft['important_pages']);
+        $pageKeywords = array_map(static fn (array $p): string => (string) ($p['keyword'] ?? ''), $draft['important_pages']);
+        self::assertSame(['balo quà tặng', 'túi giữ nhiệt'], $pageKeywords);
+        self::assertNotContains('balo con', $pageKeywords);
     }
 
     public function test_fail_closed_excludes_missing_taxonomy_parent_and_product_without_parent(): void
@@ -174,8 +191,9 @@ final class SiteMcpDraftGeneratorTest extends TestCase
             ],
         ));
 
-        self::assertSame(['balo học sinh'], $draft['keyword_context']['main_topics']);
+        self::assertSame([], $draft['keyword_context']['main_topics']);
         self::assertCount(1, $draft['important_pages']);
+        self::assertSame('balo học sinh', $draft['important_pages'][0]['keyword'] ?? null);
         self::assertSame('/product-category/balo-hs/', parse_url((string) $draft['important_pages'][0]['url'], PHP_URL_PATH));
     }
 
@@ -209,8 +227,9 @@ final class SiteMcpDraftGeneratorTest extends TestCase
             ],
         ));
 
-        self::assertSame(['Balo laptop'], $draft['keyword_context']['main_topics']);
+        self::assertSame([], $draft['keyword_context']['main_topics']);
         self::assertSame('product_cat', $draft['important_pages'][0]['taxonomy']);
+        self::assertSame('Balo laptop', $draft['important_pages'][0]['keyword'] ?? null);
         self::assertNotEmpty($draft['important_pages']);
     }
 
@@ -235,7 +254,8 @@ final class SiteMcpDraftGeneratorTest extends TestCase
             productCategories: [$normalized + ['title' => 'Balo quà tặng', 'focus_keyword' => 'balo quà tặng']],
         ));
 
-        self::assertSame(['balo quà tặng'], $draft['keyword_context']['main_topics']);
+        self::assertSame([], $draft['keyword_context']['main_topics']);
+        self::assertSame('balo quà tặng', $draft['important_pages'][0]['keyword'] ?? null);
         self::assertSame(0, (int) $draft['important_pages'][0]['parent_term_id']);
     }
 
@@ -253,8 +273,10 @@ final class SiteMcpDraftGeneratorTest extends TestCase
             ],
         ));
 
-        self::assertSame(['root cat'], $draft['keyword_context']['main_topics']);
-        self::assertNotContains('child cat', $draft['keyword_context']['main_topics']);
+        self::assertSame([], $draft['keyword_context']['main_topics']);
+        $pageKeywords = array_map(static fn (array $p): string => (string) ($p['keyword'] ?? ''), $draft['important_pages']);
+        self::assertSame(['root cat'], $pageKeywords);
+        self::assertNotContains('child cat', $pageKeywords);
         self::assertSame(1, $draft['counts']['child_product_cat']);
         self::assertSame(1, $draft['counts']['excluded']['child_product_cat']);
     }
@@ -284,8 +306,9 @@ final class SiteMcpDraftGeneratorTest extends TestCase
             strategy: 'production_catalog',
             productCategories: [$incomplete, $verified],
         ));
-        // Generator root filter also drops incomplete; one topic from verified.
-        self::assertSame(['verified root'], $draft['keyword_context']['main_topics']);
+        // Generator root filter also drops incomplete; one important page from verified.
+        self::assertSame([], $draft['keyword_context']['main_topics']);
+        self::assertSame(['verified root'], array_map(static fn (array $p): string => (string) ($p['keyword'] ?? ''), $draft['important_pages']));
     }
 
     public function test_old_plugin_unavailable_does_not_claim_zero_roots(): void
@@ -344,8 +367,9 @@ final class SiteMcpDraftGeneratorTest extends TestCase
             ],
         ));
 
-        self::assertSame(['balo học sinh'], $draft['keyword_context']['main_topics']);
+        self::assertSame([], $draft['keyword_context']['main_topics']);
         self::assertCount(1, $draft['important_pages']);
+        self::assertSame('balo học sinh', $draft['important_pages'][0]['keyword'] ?? null);
     }
 
     public function test_live_taxonomy_row_with_parent_zero_populates_main_topics(): void
@@ -376,7 +400,8 @@ final class SiteMcpDraftGeneratorTest extends TestCase
             hasWoo: true,
         ));
 
-        self::assertContains('balo quà tặng', $draft['keyword_context']['main_topics']);
+        self::assertSame([], $draft['keyword_context']['main_topics']);
+        self::assertContains('balo quà tặng', array_map(static fn (array $p): string => (string) ($p['keyword'] ?? ''), $draft['important_pages']));
         self::assertGreaterThanOrEqual(1, (int) $draft['counts']['root_product_cat']);
         self::assertNotEmpty($draft['important_pages']);
     }
@@ -430,7 +455,7 @@ HTML;
         self::assertNotEmpty($broken['phones']);
     }
 
-    public function test_news_main_topics_remain_manual(): void
+    public function test_news_without_cluster_profile_has_empty_main_topics(): void
     {
         $draft = $this->generator()->buildFromDiscovery([
             'domain' => 'news.example',
@@ -479,7 +504,25 @@ HTML;
                 $this->cat('balo laptop', 'balo-laptop', 50, 0, 'balo laptop'),
             ],
             homepageHtml: '<a href="tel:0901234567">Call</a><a href="mailto:hi@shop.example">Mail</a>',
-        ));
+        ), [
+            'source' => 'keyword_clusters.v1',
+            'built_at' => gmdate('c'),
+            'total_clustered_keywords' => 10,
+            'topics' => [
+                [
+                    'cluster_ref' => 'ck_balo',
+                    'name' => 'balo laptop',
+                    'weight' => 100.0,
+                    'keyword_count' => 10,
+                    'source' => 'auto',
+                    'state' => 'active',
+                    'priority' => null,
+                    'intent' => 'commercial',
+                    'coverage' => 'medium',
+                    'dna' => [],
+                ],
+            ],
+        ]);
 
         $preview = (new SiteMcpPreview)->present($draft);
         $article = $preview['article_context'];
@@ -489,7 +532,8 @@ HTML;
         self::assertStringContainsString('ARTICLE CONTEXT PREVIEW', $article['text']);
         self::assertStringNotContainsString('[phone]', $article['text']);
         self::assertStringContainsString('KEYWORD CONTEXT PREVIEW', $keyword['text']);
-        self::assertStringContainsString('balo laptop', $keyword['text']);
+        self::assertStringContainsString('Topical profile:', $keyword['text']);
+        self::assertStringContainsString('balo laptop — 100%', $keyword['text']);
         self::assertStringNotContainsString('https://', (string) json_encode($preview['ai_context']));
         self::assertStringContainsString('https://', (string) ($draft['important_pages'][0]['url'] ?? ''));
         self::assertFalse($preview['official_fields_modified']);

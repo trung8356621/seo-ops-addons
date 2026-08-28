@@ -16,9 +16,9 @@ final class SiteMcpDraft
 {
     public const META_KEY = 'site_mcp_draft';
 
-    public const VERSION = 3;
+    public const VERSION = 4;
 
-    public const SOURCE = 'site_mcp_generator.v3';
+    public const SOURCE = 'site_mcp_generator.v4';
 
     public const COMPANY_SHORT_IDENTITY_MAX = 80;
 
@@ -84,6 +84,12 @@ final class SiteMcpDraft
             'keyword_context' => [
                 'main_topics' => [],
                 'main_topic_records' => [],
+                'topical_profile' => [
+                    'source' => 'keyword_clusters.v1',
+                    'built_at' => null,
+                    'total_clustered_keywords' => 0,
+                    'topics' => [],
+                ],
                 'warnings' => [],
             ],
             'counts' => [

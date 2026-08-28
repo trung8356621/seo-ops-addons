@@ -155,14 +155,9 @@ final class SeoConnectionContext
     public static function panelPath(string $path = ''): string
     {
         $path = ltrim($path, '/');
-        $routeHash = request()->route('connection_hash');
 
-        // Explicit hash route (secondary / deep link) keeps hash in the URL.
-        if (is_string($routeHash) && self::isValidHashFormat($routeHash)) {
-            return $path === '' ? '/seo/'.$routeHash : '/seo/'.$routeHash.'/'.$path;
-        }
-
-        // Short Main Service presentation — context lives in session, not the path.
+        // User-facing presentation is always short Main (/seo/...).
+        // connection_hash remains an internal/session identifier, not a browser path.
         return $path === '' ? '/seo' : '/seo/'.$path;
     }
 

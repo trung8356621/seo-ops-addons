@@ -9,6 +9,8 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordClassification;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordDna;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicClusterAlias;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicClusterMeta;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Canonical\CanonicalClusterPhraseResolver;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Canonical\CanonicalClusterResolverService;
@@ -17,12 +19,19 @@ use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Dto\Reclu
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordClassificationVisibility;
 
 /**
- * Full-domain Topic Cluster repair.
+ * Full-domain Topic Cluster rebuild.
  *
- * Pass 1 — canonicalize existing inventory (promote/merge)
- * Pass 2 — attach by exact canonical-core token containment
- * Pass 3 — conservative semantic/similarity (resolver high confidence)
- * Pass 4 — self/root clusters for remaining valid keywords (shortest-first)
+ * "Tách lại cluster" wipes derived memberships for the site, then re-runs the
+ * canonical resolver pipeline on ALL eligible keywords (current phrases).
+ * Old cluster_key / canonical meta are NOT hard constraints.
+ *
+ * Pass 0 — ensure classifications for site keywords
+ * Pass 0b — wipe derived cluster_key + site meta/aliases/DNA (full rebuild)
+ * Pass 1 — canonicalize inventory (empty after wipe; kept for incremental paths)
+ * Pass 2 — contiguous core containment against live inventory
+ * Pass 3 — conservative semantic/similarity (high confidence only)
+ * Pass 4 — self/root clusters (shortest-first; grows inventory in-run)
+ * Pass 4b — PRUNE AUTO SINGLETONS (member_count < 2, unless manual canonical)
  * Pass 5 — rebuild DNA from final assignments
  */
 final class ReclusterTopicClustersService
@@ -38,6 +47,7 @@ final class ReclusterTopicClustersService
         private readonly TopicClusterApplySideEffects $sideEffects,
         private readonly KeywordClusterEligibility $eligibility,
         private readonly KeywordClassificationService $classification,
+        private readonly PruneAutoSingletonClustersService $singletonPruner,
     ) {}
 
     public function recluster(int $siteId): ReclusterTopicClustersResult
@@ -78,6 +88,11 @@ final class ReclusterTopicClustersService
             'dna_removed' => 0,
             'dna_unchanged' => 0,
             'classifications_ensured' => 0,
+            'full_rebuild' => 1,
+            'memberships_wiped' => 0,
+            'manual_canonical_seeds' => 0,
+            'auto_singletons_pruned' => 0,
+            'singleton_keywords_unclustered' => 0,
         ];
 
         try {
@@ -112,17 +127,29 @@ final class ReclusterTopicClustersService
                 $work[] = $row;
             }
 
+            // Full rebuild: wipe derived memberships; PRESERVE manual canonical seeds.
+            $manualSeeds = $this->loadManualCanonicalSeeds($siteId);
+            $metrics['memberships_wiped'] = $this->wipeDerivedClusterState($siteId, $work, $manualSeeds);
+            foreach ($work as $i => $row) {
+                $work[$i]['cluster_key'] = '';
+            }
+
             /** @var array<string, true> $touchedClusters */
             $touchedClusters = [];
 
-            // PASS 1 — canonicalize inventory first so shorter cores exist in-memory.
-            $inventory = $this->pass1CanonicalizeInventory($siteId, $metrics, $touchedClusters);
+            // Seed inventory from persisted manual canonicals BEFORE Pass 2–4.
+            $inventory = $this->inventoryFromManualSeeds($manualSeeds);
+            foreach ($inventory as $item) {
+                $touchedClusters[$item['cluster_key']] = true;
+            }
+            $metrics['manual_canonical_seeds'] = count($inventory);
             $metrics['clusters_before'] = max(
                 $metrics['clusters_before'],
-                count($inventory),
+                (int) ($metrics['previously_clustered'] > 0 ? 1 : 0),
             );
 
-            // PASS 2 — core containment against live inventory.
+            // PASS 1 skipped after wipe (manual seeds already loaded).
+            // PASS 2 — core containment against manual seeds (+ growing inventory).
             $work = $this->pass2AttachByCoreContainment(
                 $siteId,
                 $work,
@@ -149,18 +176,40 @@ final class ReclusterTopicClustersService
                 $touchedClusters,
             );
 
-            // Residual merge among same-core clusters.
+            // Residual merge among same-core clusters (never dissolve manual losers).
             foreach ($this->resolver->findMergeCandidates($siteId) as $candidate) {
                 if (($candidate['confidence'] ?? '') !== 'high') {
                     $metrics['needs_review']++;
 
                     continue;
                 }
+                $loserKey = (string) $candidate['loser_key'];
+                if ($this->isManualCluster($siteId, $loserKey)) {
+                    // Prefer keeping the manual seed as survivor when possible.
+                    if ($this->isManualCluster($siteId, (string) $candidate['survivor_key'])) {
+                        continue;
+                    }
+                    try {
+                        $this->mergeService->merge(
+                            $siteId,
+                            $loserKey,
+                            (string) $candidate['survivor_key'],
+                        );
+                        $metrics['clusters_merged']++;
+                        $touchedClusters[$loserKey] = true;
+
+                        continue;
+                    } catch (\Throwable) {
+                        $metrics['failed']++;
+
+                        continue;
+                    }
+                }
                 try {
                     $this->mergeService->merge(
                         $siteId,
                         (string) $candidate['survivor_key'],
-                        (string) $candidate['loser_key'],
+                        $loserKey,
                     );
                     $metrics['clusters_merged']++;
                     $touchedClusters[(string) $candidate['survivor_key']] = true;
@@ -170,6 +219,21 @@ final class ReclusterTopicClustersService
             }
 
             // Refresh assignment snapshot after merges.
+            $finalRows = $this->loadEligibleRows($siteId);
+            foreach ($finalRows as $row) {
+                if (isset($excludedIds[$row['keyword_id']])) {
+                    continue;
+                }
+                if ($row['cluster_key'] !== '') {
+                    $touchedClusters[$row['cluster_key']] = true;
+                }
+            }
+
+            // PASS 4b — prune AUTO singletons before DNA (persistence must stay clean).
+            $pruneStats = $this->singletonPruner->prune($siteId, $touchedClusters);
+            $metrics['auto_singletons_pruned'] = $pruneStats['pruned'];
+            $metrics['singleton_keywords_unclustered'] = $pruneStats['keywords_unclustered'];
+
             $finalRows = $this->loadEligibleRows($siteId);
             $metrics['remaining_unclustered'] = 0;
             foreach ($finalRows as $row) {
@@ -203,6 +267,7 @@ final class ReclusterTopicClustersService
             $metrics['canonical_phrases_changed'] = $metrics['canonical_changed'];
 
             $this->sideEffects->afterRecluster($siteId, $metrics);
+            TopicClusterDirtyState::clear($siteId);
 
             Log::info('topic_cluster.recluster.completed', [
                 'site_id' => $siteId,
@@ -666,15 +731,32 @@ final class ReclusterTopicClustersService
             return $canonical;
         }
 
+        $existing = SeoTopicClusterMeta::query()
+            ->where('site_id', $siteId)
+            ->where('cluster_key', $clusterKey)
+            ->first();
+        if ($existing instanceof SeoTopicClusterMeta && $existing->isManual()) {
+            foreach ($phrases as $phrase) {
+                $this->resolver->recordAlias($siteId, $clusterKey, $phrase);
+            }
+
+            return (string) $existing->canonical_phrase;
+        }
+
         $normalized = $this->phraseResolver->normalizedKey($canonical);
+        $payload = [
+            'canonical_phrase' => $canonical,
+            'normalized_canonical' => $normalized,
+            'confidence' => 'high',
+            'needs_review' => false,
+        ];
+        if (Schema::connection('omi_seo_ai')->hasColumn('seo_topic_cluster_meta', 'canonical_source')) {
+            $payload['canonical_source'] = SeoTopicClusterMeta::SOURCE_AUTO;
+        }
+
         SeoTopicClusterMeta::query()->updateOrCreate(
             ['site_id' => $siteId, 'cluster_key' => $clusterKey],
-            [
-                'canonical_phrase' => $canonical,
-                'normalized_canonical' => $normalized,
-                'confidence' => 'high',
-                'needs_review' => false,
-            ],
+            $payload,
         );
         foreach ($phrases as $phrase) {
             $this->resolver->recordAlias($siteId, $clusterKey, $phrase);
@@ -682,6 +764,129 @@ final class ReclusterTopicClustersService
         $this->resolver->recordAlias($siteId, $clusterKey, $canonical);
 
         return $canonical;
+    }
+
+    /**
+     * @return list<array{cluster_key: string, canonical_phrase: string}>
+     */
+    private function loadManualCanonicalSeeds(int $siteId): array
+    {
+        if (! Schema::connection('omi_seo_ai')->hasTable('seo_topic_cluster_meta')) {
+            return [];
+        }
+        if (! Schema::connection('omi_seo_ai')->hasColumn('seo_topic_cluster_meta', 'canonical_source')) {
+            return [];
+        }
+
+        return SeoTopicClusterMeta::query()
+            ->where('site_id', $siteId)
+            ->where('canonical_source', SeoTopicClusterMeta::SOURCE_MANUAL)
+            ->get(['cluster_key', 'canonical_phrase'])
+            ->map(static fn (SeoTopicClusterMeta $m): array => [
+                'cluster_key' => (string) $m->cluster_key,
+                'canonical_phrase' => (string) $m->canonical_phrase,
+            ])
+            ->filter(static fn (array $r): bool => $r['cluster_key'] !== '' && $r['canonical_phrase'] !== '')
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @param  list<array{cluster_key: string, canonical_phrase: string}>  $manualSeeds
+     * @return list<array{cluster_key: string, canonical_phrase: string, normalized: string, tokens: list<string>, token_count: int, keyword_count: int}>
+     */
+    private function inventoryFromManualSeeds(array $manualSeeds): array
+    {
+        $out = [];
+        foreach ($manualSeeds as $seed) {
+            $out[] = $this->inventoryEntry($seed['cluster_key'], $seed['canonical_phrase'], 1);
+        }
+
+        return $out;
+    }
+
+    private function isManualCluster(int $siteId, string $clusterKey): bool
+    {
+        if (! Schema::connection('omi_seo_ai')->hasColumn('seo_topic_cluster_meta', 'canonical_source')) {
+            return false;
+        }
+
+        $meta = SeoTopicClusterMeta::query()
+            ->where('site_id', $siteId)
+            ->where('cluster_key', $clusterKey)
+            ->first();
+
+        return $meta instanceof SeoTopicClusterMeta && $meta->isManual();
+    }
+
+    /**
+     * Remove derived cluster assignments for a full rebuild.
+     * Preserves manual canonical meta rows (user-authored seeds).
+     *
+     * @param  list<array{keyword_id: int, phrase: string, cluster_key: string}>  $work
+     * @param  list<array{cluster_key: string, canonical_phrase: string}>  $manualSeeds
+     */
+    private function wipeDerivedClusterState(int $siteId, array $work, array $manualSeeds = []): int
+    {
+        $ids = array_values(array_unique(array_map(
+            static fn (array $row): int => $row['keyword_id'],
+            $work,
+        )));
+        if ($ids === []) {
+            return 0;
+        }
+
+        $protectedKeys = array_values(array_unique(array_map(
+            static fn (array $s): string => $s['cluster_key'],
+            $manualSeeds,
+        )));
+
+        $wiped = 0;
+        DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $ids, $protectedKeys, &$wiped): void {
+            $wiped = SeoKeywordClassification::query()
+                ->whereIn('keyword_id', $ids)
+                ->whereNotNull('cluster_key')
+                ->where('cluster_key', '!=', '')
+                ->count();
+
+            SeoKeywordClassification::query()
+                ->whereIn('keyword_id', $ids)
+                ->update(['cluster_key' => null]);
+
+            if (Schema::connection('omi_seo_ai')->hasTable('seo_keyword_dna')) {
+                SeoKeywordDna::query()
+                    ->where('site_id', $siteId)
+                    ->whereIn('keyword_id', $ids)
+                    ->delete();
+            }
+
+            if (Schema::connection('omi_seo_ai')->hasTable('seo_topic_cluster_meta')) {
+                if ($protectedKeys !== []
+                    && Schema::connection('omi_seo_ai')->hasColumn('seo_topic_cluster_meta', 'canonical_source')
+                ) {
+                    SeoTopicClusterMeta::query()
+                        ->where('site_id', $siteId)
+                        ->where(function ($q) use ($protectedKeys): void {
+                            $q->whereNotIn('cluster_key', $protectedKeys)
+                                ->orWhere('canonical_source', '!=', SeoTopicClusterMeta::SOURCE_MANUAL)
+                                ->orWhereNull('canonical_source');
+                        })
+                        ->delete();
+                } else {
+                    SeoTopicClusterMeta::query()->where('site_id', $siteId)->delete();
+                }
+            }
+
+            if (Schema::connection('omi_seo_ai')->hasTable('seo_topic_cluster_aliases')) {
+                $aliasQuery = SeoTopicClusterAlias::query()->where('site_id', $siteId);
+                if ($protectedKeys !== []) {
+                    $aliasQuery->whereNotIn('cluster_key', $protectedKeys);
+                }
+                $aliasQuery->delete();
+            }
+        });
+
+        return $wiped;
     }
 
     /**
@@ -777,8 +982,15 @@ final class ReclusterTopicClustersService
 
         $ids = DB::connection('omi_seo_ai')->table('keyword_meta')
             ->whereIn('keyword_id', $keywordIds)
-            ->where('meta_key', self::META_MANUAL_EXCLUDE)
-            ->where('meta_value', '1')
+            ->where(function ($q): void {
+                $q->where(function ($inner): void {
+                    $inner->where('meta_key', self::META_MANUAL_EXCLUDE)
+                        ->where('meta_value', '1');
+                })->orWhere(function ($inner): void {
+                    $inner->where('meta_key', \Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey::SeoHidden->value)
+                        ->where('meta_value', '1');
+                });
+            })
             ->pluck('keyword_id')
             ->all();
 

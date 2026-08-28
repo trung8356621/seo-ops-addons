@@ -73,6 +73,8 @@ final class ContentProjectActionCodes
 
     public const SUGGESTIONS_ADDED = 'suggestions.added';
 
+    public const IDEA_CANDIDATES_ADDED = 'idea_candidates.added';
+
     public const SUGGESTIONS_DISMISSED = 'suggestions.dismissed';
 
     public const SUGGESTIONS_RESTORED = 'suggestions.restored';

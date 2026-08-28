@@ -38,6 +38,8 @@ final class DefaultSplitOutlinePromptsInstallerTest extends TestCase
     public function test_vocabulary_markdown_contains_only_task_2(): void
     {
         $markdown = DefaultSplitOutlinePromptsInstaller::VOCABULARY_MARKDOWN;
+        self::assertStringContainsString('{{post_title}}', $markdown);
+        self::assertStringContainsString('{{outline}}', $markdown);
         self::assertStringContainsString('Holonymy', $markdown);
         self::assertStringContainsString('[START_TASK_2_VOCABULARY]', $markdown);
         self::assertStringNotContainsString('START_TASK_1_OUTLINE', $markdown);
@@ -54,14 +56,17 @@ final class DefaultSplitOutlinePromptsInstallerTest extends TestCase
         self::assertStringContainsString('findExisting', $source);
     }
 
-    public function test_split_executor_does_not_fallback_to_combined_prompt(): void
+    public function test_split_executor_binds_outline_and_post_title_for_vocabulary(): void
     {
         $source = (string) file_get_contents(
             ProjectRoot::addonsPath().'/ai-prompt/src/Services/ArticleOutlineVocabularySplitExecutor.php',
         );
         self::assertStringNotContainsString('normalizeOutlinePromptHook', $source);
         self::assertStringNotContainsString('normalizeOutlinePromptHook($fallbackPrompt', $source);
-        self::assertStringNotContainsString("['outline' => \$outlineMarkdown]", $source);
+        self::assertStringContainsString('bindVocabularyVariables', $source);
+        self::assertStringContainsString("missing required post_title", $source);
+        self::assertStringContainsString("missing required outline", $source);
+        self::assertStringContainsString("\$out['outline'] = \$outlineMarkdown", $source);
     }
 
     public function test_command_and_migration_are_registered(): void

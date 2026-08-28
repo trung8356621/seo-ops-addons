@@ -200,7 +200,6 @@ final class VocabularyKeywordIntelligenceIngestionService
             Keyword::TYPE_SUGGEST,
             $siteId,
             null,
-            null,
             [
                 'origin' => 'article_vocabulary',
                 'vocabulary_group' => $canonicalGroup,
@@ -278,9 +277,11 @@ final class VocabularyKeywordIntelligenceIngestionService
             'article_id' => (int) $article->getKey(),
             'vocabulary_group' => $canonicalGroup,
             'origin' => 'article_vocabulary',
+            'source_tag' => 'Vocabulary Suggest',
             'prompt_result_id' => isset($provenance['prompt_result_id']) ? (int) $provenance['prompt_result_id'] : null,
             'project_id' => isset($provenance['project_id']) ? (int) $provenance['project_id'] : null,
             'project_task_id' => isset($provenance['project_task_id']) ? (int) $provenance['project_task_id'] : null,
+            'project_run_id' => isset($provenance['project_run_id']) ? (int) $provenance['project_run_id'] : null,
             'workflow_node_id' => isset($provenance['workflow_node_id']) ? (string) $provenance['workflow_node_id'] : null,
             'at' => now()->toIso8601String(),
         ], static fn (mixed $v): bool => $v !== null && $v !== '' && $v !== 0);

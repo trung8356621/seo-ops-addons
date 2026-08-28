@@ -27,14 +27,9 @@ final class KeywordOrphanCleanup
             ->whereKey($ids->all())
             ->get()
             ->each(function (Keyword $keyword): void {
-                if ($keyword->parent_id !== null) {
-                    return;
-                }
-
                 if (
                     $keyword->linkMaps()->exists()
                     || $keyword->metas()->exists()
-                    || $keyword->children()->exists()
                 ) {
                     return;
                 }

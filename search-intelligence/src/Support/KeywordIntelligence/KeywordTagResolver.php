@@ -253,13 +253,11 @@ final class KeywordTagResolver
     {
         return [
             'seoClassification',
-            'parent:id,phrase',
             'metas',
             'mainArticles.site',
             'mainArticles.wordpressLink',
             'mainArticles.publishingState',
             'mainArticles.projectTasks',
-            'children' => static fn ($query) => $query->orderBy('phrase'),
             'linkMaps' => static fn ($mapQuery): mixed => $mapQuery
                 ->orderBy('id')
                 ->with([

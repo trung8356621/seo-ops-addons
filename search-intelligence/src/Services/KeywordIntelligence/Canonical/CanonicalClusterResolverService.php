@@ -94,6 +94,14 @@ final class CanonicalClusterResolverService
         }
 
         $existing = $this->metaForKey($siteId, $clusterKey);
+        if ($existing instanceof SeoTopicClusterMeta && $existing->isManual()) {
+            foreach ($memberPhrases as $phrase) {
+                $this->recordAlias($siteId, $clusterKey, $phrase);
+            }
+
+            return (string) $existing->canonical_phrase;
+        }
+
         $canonical = $this->phraseResolver->pickCanonicalFromMembers($memberPhrases);
         if ($existing instanceof SeoTopicClusterMeta) {
             $existingCanonical = (string) $existing->canonical_phrase;
@@ -109,14 +117,19 @@ final class CanonicalClusterResolverService
 
         $normalized = $this->phraseResolver->normalizedKey($canonical);
 
+        $payload = [
+            'canonical_phrase' => $canonical,
+            'normalized_canonical' => $normalized,
+            'confidence' => $confidence,
+            'needs_review' => $needsReview,
+        ];
+        if (Schema::connection('omi_seo_ai')->hasColumn('seo_topic_cluster_meta', 'canonical_source')) {
+            $payload['canonical_source'] = SeoTopicClusterMeta::SOURCE_AUTO;
+        }
+
         SeoTopicClusterMeta::query()->updateOrCreate(
             ['site_id' => $siteId, 'cluster_key' => $clusterKey],
-            [
-                'canonical_phrase' => $canonical,
-                'normalized_canonical' => $normalized,
-                'confidence' => $confidence,
-                'needs_review' => $needsReview,
-            ],
+            $payload,
         );
 
         foreach ($memberPhrases as $phrase) {

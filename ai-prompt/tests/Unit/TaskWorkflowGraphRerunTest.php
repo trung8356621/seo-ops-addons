@@ -195,17 +195,57 @@ final class TaskWorkflowGraphRerunTest extends TestCase
         self::assertStringNotContainsString('keyword.vocabulary.save', $createSrc);
     }
 
-    public function test_outline_only_single_step_does_not_run_descendants(): void
+    public function test_outline_vocabulary_scope_skips_content_keeps_save(): void
     {
         $runner = $this->runnerWithMinimalDeps();
-        $step = $runner->runSingleStep(
-            $this->makeTask(),
-            $this->makeContext('outline only', ['input' => 'topic'], siteId: 1),
+        $flow = [
+            'nodes' => [
+                ['id' => 'outline', 'type' => 'end', 'title' => 'Outline', 'data' => []],
+                ['id' => 'extract', 'type' => 'end', 'title' => 'Extract', 'data' => []],
+                [
+                    'id' => 'writing',
+                    'type' => 'prompt',
+                    'title' => 'Viết bài',
+                    'data' => ['hook_key' => 'article.content.generate'],
+                ],
+                [
+                    'id' => 'save_vocab',
+                    'type' => 'action',
+                    'title' => 'Save vocabulary research',
+                    'data' => ['actionType' => 'save_vocabulary_research'],
+                ],
+            ],
+            'edges' => [
+                ['sourceNode' => 'outline', 'targetNode' => 'extract'],
+                ['sourceNode' => 'extract', 'targetNode' => 'writing'],
+                ['sourceNode' => 'writing', 'targetNode' => 'save_vocab'],
+            ],
+        ];
+
+        $steps = $runner->runFromNodeId(
+            $this->makeTask($flow),
+            $this->makeContext('outline vocab scope', ['input' => 'topic'], siteId: 1),
             'outline',
+            seedOutlineFromArticle: false,
+            skipContentWriting: true,
         );
 
-        self::assertSame('outline', $step['node_id'] ?? null);
-        self::assertSame('ok', $step['status'] ?? null);
+        $byId = [];
+        foreach ($steps as $step) {
+            $byId[(string) ($step['node_id'] ?? '')] = $step;
+        }
+
+        self::assertSame('ok', $byId['outline']['status'] ?? null);
+        self::assertSame('ok', $byId['extract']['status'] ?? null);
+        self::assertSame('skipped', $byId['writing']['status'] ?? null);
+        self::assertSame('outline_vocabulary_scope', $byId['writing']['skip_reason'] ?? null);
+        // save_vocabulary must still be attempted (not scope-skipped), even when after content.
+        self::assertArrayHasKey('save_vocab', $byId);
+        self::assertNotSame('outline_vocabulary_scope', $byId['save_vocab']['skip_reason'] ?? null);
+        self::assertNotSame(
+            'Bỏ qua — phạm vi outline/vocabulary (không viết bài).',
+            $byId['save_vocab']['message'] ?? null,
+        );
     }
 
     public function test_disconnected_branch_not_executed_when_topo_places_it_after_outline(): void

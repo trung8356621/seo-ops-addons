@@ -23,12 +23,17 @@
     $draftItemCount = (int) ($splitUi['count'] ?? 0);
     $selectedCount = (int) ($splitUi['selected'] ?? 0);
     $monthOptions = is_array($splitUi['month_options'] ?? null) ? $splitUi['month_options'] : [];
+    $ideaPayload = $this->ideaCandidatesPayload ?? [];
+    $ideaPaginator = $ideaPayload['paginator'] ?? null;
+    $ideaTotal = $ideaPaginator instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator
+        ? (int) $ideaPaginator->total()
+        : count(is_array($ideaPayload['rows'] ?? null) ? $ideaPayload['rows'] : []);
 @endphp
 
 <div
     class="space-y-4"
     wire:key="cp-draft-content-planner"
-    x-data="{ filtersOpen: false }"
+    x-data="{ filtersOpen: true, createTab: 'ideas' }"
 >
     @if ($showProjectActions)
         <div class="flex flex-wrap items-end justify-between gap-3">
@@ -124,6 +129,7 @@
                 </button>
             </div>
 
+            <div class="cp-plan-card__scroll" data-plan-scroll="improve">
             <div class="cp-plan-meta">
                 <div class="cp-plan-chips">
                     <span class="cp-plan-chips__label">{{ __('seo-content-ai::filament.projects.content_planning_recent_filters') }}</span>
@@ -243,9 +249,58 @@
                     </div>
                 </div>
             </div>
+            </div>
         </div>
 
-        <x-seo-content-ai::content-project-new-content-card />
+        {{-- Create / ideas (blue outer panel; tab panels stacked for stable height) --}}
+        <div class="cp-plan-card cp-plan-card--create" data-planner-card="create">
+            <div class="cp-plan-create-tabs" role="tablist" aria-label="{{ __('seo-content-ai::filament.projects.planner_create_heading') }}">
+                <button
+                    type="button"
+                    role="tab"
+                    class="cp-plan-create-tab"
+                    :class="createTab === 'ideas' && 'is-active'"
+                    :aria-selected="createTab === 'ideas'"
+                    @click="createTab = 'ideas'"
+                    data-create-tab="ideas"
+                >
+                    {{ __('seo-content-ai::filament.projects.idea_candidate_tab_available') }}
+                    <span class="cp-plan-create-tab__badge" data-idea-total-badge="1">{{ $ideaTotal }}</span>
+                </button>
+                <button
+                    type="button"
+                    role="tab"
+                    class="cp-plan-create-tab"
+                    :class="createTab === 'ai' && 'is-active'"
+                    :aria-selected="createTab === 'ai'"
+                    @click="createTab = 'ai'"
+                    data-create-tab="ai"
+                >
+                    {{ __('seo-content-ai::filament.projects.idea_candidate_tab_ai') }}
+                </button>
+            </div>
+
+            <div class="cp-plan-tab-panels">
+                <div
+                    class="cp-plan-tab-panel"
+                    data-create-panel="ideas"
+                    :class="createTab === 'ideas' ? 'is-active' : 'is-inactive'"
+                    :aria-hidden="createTab !== 'ideas'"
+                >
+                    <x-seo-content-ai::content-project-idea-candidate-picker :embedded="true" />
+                </div>
+                <div
+                    class="cp-plan-tab-panel"
+                    data-create-panel="ai"
+                    :class="createTab === 'ai' ? 'is-active' : 'is-inactive'"
+                    :aria-hidden="createTab !== 'ai'"
+                >
+                    <div class="cp-plan-card__scroll" data-plan-scroll="ai">
+                        <x-seo-content-ai::content-project-new-content-card :embedded="true" />
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     {{-- Split modal --}}

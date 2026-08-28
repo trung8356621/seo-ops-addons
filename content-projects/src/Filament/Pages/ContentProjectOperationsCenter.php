@@ -61,9 +61,9 @@ final class ContentProjectOperationsCenter extends SeoPanelPage
 
     protected static ?string $navigationIcon = 'heroicon-o-signal';
 
-    protected static ?string $navigationGroup = null;
+    protected static ?string $navigationGroup = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::GROUP_SYSTEM;
 
-    protected static ?int $navigationSort = 7;
+    protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_SYSTEM;
 
     protected static string $view = 'seo-content-ai::filament.pages.content-project-operations-center';
 

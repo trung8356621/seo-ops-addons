@@ -119,15 +119,21 @@ final class FullDomainReclusterRepairTest extends TestCase
 
         $result = app(ReclusterTopicClustersService::class)->recluster(self::SITE_A);
         self::assertTrue($result->success);
+        self::assertSame(1, (int) ($result->metrics['full_rebuild'] ?? 0));
 
         foreach (['xưởng may balo dây rút', 'Xưởng May Balo Giá Rẻ'] as $phrase) {
             $ck = SeoKeywordClassification::query()
                 ->where('keyword_id', Keyword::query()->where('phrase', $phrase)->value('id'))
                 ->value('cluster_key');
-            self::assertSame('ck_xuong_may_balo', $ck, $phrase);
+            self::assertNotEmpty($ck, $phrase);
+            $canon = mb_strtolower((string) SeoTopicClusterMeta::query()
+                ->where('site_id', self::SITE_A)
+                ->where('cluster_key', $ck)
+                ->value('canonical_phrase'));
+            self::assertStringContainsString('xưởng may balo', $canon, $phrase);
         }
 
-        self::assertGreaterThanOrEqual(2, (int) ($result->metrics['attached_by_core_match'] ?? 0));
+        self::assertGreaterThanOrEqual(1, (int) ($result->metrics['memberships_wiped'] ?? 0));
         unset($rootId);
     }
 
@@ -158,7 +164,13 @@ final class FullDomainReclusterRepairTest extends TestCase
         $ck = SeoKeywordClassification::query()
             ->where('keyword_id', Keyword::query()->where('phrase', 'xưởng may balo giá rẻ')->value('id'))
             ->value('cluster_key');
-        self::assertSame('ck_xmb', $ck);
+        self::assertNotEmpty($ck);
+        $canon = mb_strtolower((string) SeoTopicClusterMeta::query()
+            ->where('site_id', self::SITE_A)
+            ->where('cluster_key', $ck)
+            ->value('canonical_phrase'));
+        self::assertStringContainsString('xưởng may balo', $canon);
+        self::assertNotSame('balo', $canon);
     }
 
     public function test_promote_then_same_run_attaches_unclustered(): void
@@ -221,6 +233,7 @@ final class FullDomainReclusterRepairTest extends TestCase
             'normalized_canonical' => app(CanonicalClusterPhraseResolver::class)->normalizedKey('Xưởng may balo'),
             'confidence' => 'high',
             'needs_review' => false,
+            'canonical_source' => 'auto',
         ]);
         $id = $this->seedKeyword(self::SITE_A, 'xưởng may balo dây kéo', null);
 
@@ -237,16 +250,235 @@ final class FullDomainReclusterRepairTest extends TestCase
         );
     }
 
-    public function test_single_keyword_gets_self_cluster(): void
+    public function test_manual_canonical_edit_does_not_mutate_keyword_phrase(): void
+    {
+        $kid = $this->seedKeyword(self::SITE_A, 'cách may balo', 'ck_may');
+        $this->seedKeyword(self::SITE_A, 'may túi không dệt', 'ck_may');
+        SeoTopicClusterMeta::query()->create([
+            'site_id' => self::SITE_A,
+            'cluster_key' => 'ck_may',
+            'canonical_phrase' => 'may',
+            'normalized_canonical' => app(CanonicalClusterPhraseResolver::class)->normalizedKey('may'),
+            'confidence' => 'high',
+            'needs_review' => false,
+            'canonical_source' => 'auto',
+        ]);
+
+        $result = app(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\UpdateClusterCanonicalService::class)
+            ->setManualCanonical(self::SITE_A, 'ck_may', 'may balo');
+
+        self::assertSame('may balo', $result['canonical_phrase']);
+        self::assertSame('cách may balo', Keyword::query()->whereKey($kid)->value('phrase'));
+        self::assertSame(
+            'manual',
+            SeoTopicClusterMeta::query()->where('cluster_key', 'ck_may')->value('canonical_source'),
+        );
+        self::assertSame(
+            'may balo',
+            SeoTopicClusterMeta::query()->where('cluster_key', 'ck_may')->value('canonical_phrase'),
+        );
+        // Non-matching member detached
+        $tuiCk = SeoKeywordClassification::query()
+            ->where('keyword_id', Keyword::query()->where('phrase', 'may túi không dệt')->value('id'))
+            ->value('cluster_key');
+        self::assertTrue($tuiCk === null || $tuiCk === '');
+        // Matching stays
+        self::assertSame(
+            'ck_may',
+            SeoKeywordClassification::query()->where('keyword_id', $kid)->value('cluster_key'),
+        );
+        self::assertTrue(
+            \Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\TopicClusterDirtyState::isDirty(self::SITE_A),
+        );
+    }
+
+    public function test_full_rebuild_preserves_manual_canonical_not_old_membership(): void
+    {
+        $a = $this->seedKeyword(self::SITE_A, 'cách may balo', 'old_x');
+        $b = $this->seedKeyword(self::SITE_A, 'xưởng may balo', 'old_x');
+        $c = $this->seedKeyword(self::SITE_A, 'may túi không dệt', 'old_x');
+        SeoTopicClusterMeta::query()->create([
+            'site_id' => self::SITE_A,
+            'cluster_key' => 'old_x',
+            'canonical_phrase' => 'may balo',
+            'normalized_canonical' => app(CanonicalClusterPhraseResolver::class)->normalizedKey('may balo'),
+            'confidence' => 'high',
+            'needs_review' => false,
+            'canonical_source' => 'manual',
+        ]);
+
+        $result = app(ReclusterTopicClustersService::class)->recluster(self::SITE_A);
+        self::assertTrue($result->success);
+        self::assertSame(1, (int) ($result->metrics['manual_canonical_seeds'] ?? 0));
+
+        $meta = SeoTopicClusterMeta::query()
+            ->where('site_id', self::SITE_A)
+            ->where('canonical_source', 'manual')
+            ->first();
+        self::assertNotNull($meta);
+        self::assertSame('may balo', $meta->canonical_phrase);
+
+        $ckA = SeoKeywordClassification::query()->where('keyword_id', $a)->value('cluster_key');
+        $ckB = SeoKeywordClassification::query()->where('keyword_id', $b)->value('cluster_key');
+        $ckC = SeoKeywordClassification::query()->where('keyword_id', $c)->value('cluster_key');
+        self::assertSame((string) $meta->cluster_key, $ckA);
+        self::assertSame((string) $meta->cluster_key, $ckB);
+        self::assertNotSame((string) $meta->cluster_key, $ckC);
+        self::assertFalse(
+            \Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\TopicClusterDirtyState::isDirty(self::SITE_A),
+        );
+    }
+
+    public function test_reset_manual_canonical_to_auto(): void
+    {
+        $this->seedKeyword(self::SITE_A, 'xưởng may balo', 'ck_x');
+        SeoTopicClusterMeta::query()->create([
+            'site_id' => self::SITE_A,
+            'cluster_key' => 'ck_x',
+            'canonical_phrase' => 'may balo',
+            'normalized_canonical' => app(CanonicalClusterPhraseResolver::class)->normalizedKey('may balo'),
+            'confidence' => 'high',
+            'needs_review' => false,
+            'canonical_source' => 'manual',
+        ]);
+
+        $out = app(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\UpdateClusterCanonicalService::class)
+            ->resetToAuto(self::SITE_A, 'ck_x');
+
+        self::assertSame(
+            'auto',
+            SeoTopicClusterMeta::query()->where('cluster_key', 'ck_x')->value('canonical_source'),
+        );
+        self::assertNotSame('', $out['canonical_phrase']);
+    }
+
+    public function test_auto_singleton_is_pruned_after_recluster(): void
+    {
+        $solo = $this->seedKeyword(self::SITE_A, 'khóa kéo ykk độc nhất xyz', 'ck_auto_solo');
+        SeoTopicClusterMeta::query()->create([
+            'site_id' => self::SITE_A,
+            'cluster_key' => 'ck_auto_solo',
+            'canonical_phrase' => 'khóa kéo ykk độc nhất xyz',
+            'normalized_canonical' => app(CanonicalClusterPhraseResolver::class)->normalizedKey('khóa kéo ykk độc nhất xyz'),
+            'confidence' => 'high',
+            'needs_review' => false,
+            'canonical_source' => 'auto',
+        ]);
+
+        $result = app(ReclusterTopicClustersService::class)->recluster(self::SITE_A);
+        self::assertTrue($result->success);
+
+        $ck = SeoKeywordClassification::query()->where('keyword_id', $solo)->value('cluster_key');
+        // Unique phrase may self-cluster then get pruned as AUTO singleton.
+        self::assertTrue($ck === null || $ck === '');
+        self::assertGreaterThanOrEqual(1, (int) ($result->metrics['auto_singletons_pruned'] ?? 0));
+        self::assertNotNull(Keyword::query()->find($solo));
+        self::assertSame(
+            0,
+            (int) SeoTopicClusterMeta::query()->where('cluster_key', 'ck_auto_solo')->count(),
+        );
+    }
+
+    public function test_manual_singleton_is_preserved_after_recluster(): void
+    {
+        $solo = $this->seedKeyword(self::SITE_A, 'brand riêng biệt abc', null);
+        SeoTopicClusterMeta::query()->create([
+            'site_id' => self::SITE_A,
+            'cluster_key' => 'ck_manual_solo',
+            'canonical_phrase' => 'brand riêng biệt abc',
+            'normalized_canonical' => app(CanonicalClusterPhraseResolver::class)->normalizedKey('brand riêng biệt abc'),
+            'confidence' => 'high',
+            'needs_review' => false,
+            'canonical_source' => 'manual',
+        ]);
+
+        $result = app(ReclusterTopicClustersService::class)->recluster(self::SITE_A);
+        self::assertTrue($result->success);
+        self::assertSame(1, (int) ($result->metrics['manual_canonical_seeds'] ?? 0));
+
+        $meta = SeoTopicClusterMeta::query()
+            ->where('site_id', self::SITE_A)
+            ->where('canonical_source', 'manual')
+            ->where('canonical_phrase', 'brand riêng biệt abc')
+            ->first();
+        self::assertNotNull($meta);
+        self::assertSame(
+            (string) $meta->cluster_key,
+            (string) SeoKeywordClassification::query()->where('keyword_id', $solo)->value('cluster_key'),
+        );
+    }
+
+    public function test_prune_auto_singleton_service_keeps_manual(): void
+    {
+        $autoId = $this->seedKeyword(self::SITE_A, 'auto solo phrase', 'ck_auto_one');
+        $manualId = $this->seedKeyword(self::SITE_A, 'manual solo phrase', 'ck_manual_one');
+        SeoTopicClusterMeta::query()->create([
+            'site_id' => self::SITE_A,
+            'cluster_key' => 'ck_auto_one',
+            'canonical_phrase' => 'auto solo phrase',
+            'normalized_canonical' => 'auto solo phrase',
+            'confidence' => 'high',
+            'needs_review' => false,
+            'canonical_source' => 'auto',
+        ]);
+        SeoTopicClusterMeta::query()->create([
+            'site_id' => self::SITE_A,
+            'cluster_key' => 'ck_manual_one',
+            'canonical_phrase' => 'manual solo phrase',
+            'normalized_canonical' => 'manual solo phrase',
+            'confidence' => 'high',
+            'needs_review' => false,
+            'canonical_source' => 'manual',
+        ]);
+
+        $stats = app(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\PruneAutoSingletonClustersService::class)
+            ->prune(self::SITE_A);
+
+        self::assertSame(1, $stats['pruned']);
+        self::assertSame(1, $stats['keywords_unclustered']);
+        self::assertTrue(
+            SeoKeywordClassification::query()->where('keyword_id', $autoId)->value('cluster_key') === null
+            || SeoKeywordClassification::query()->where('keyword_id', $autoId)->value('cluster_key') === '',
+        );
+        self::assertSame(
+            'ck_manual_one',
+            SeoKeywordClassification::query()->where('keyword_id', $manualId)->value('cluster_key'),
+        );
+        self::assertSame(0, (int) SeoTopicClusterMeta::query()->where('cluster_key', 'ck_auto_one')->count());
+        self::assertSame(1, (int) SeoTopicClusterMeta::query()->where('cluster_key', 'ck_manual_one')->count());
+    }
+
+    public function test_full_rebuild_loads_all_eligible_and_ignores_old_membership(): void
+    {
+        $a = $this->seedKeyword(self::SITE_A, 'xưởng may balo', 'old_x');
+        $b = $this->seedKeyword(self::SITE_A, 'xưởng may balo dây rút', 'old_x');
+        $c = $this->seedKeyword(self::SITE_A, 'khóa kéo YKK', 'old_y');
+
+        $result = app(ReclusterTopicClustersService::class)->recluster(self::SITE_A);
+        self::assertTrue($result->success);
+        self::assertSame(3, (int) ($result->metrics['eligible_keywords'] ?? 0));
+        self::assertSame(3, (int) ($result->metrics['memberships_wiped'] ?? 0));
+
+        $ckA = SeoKeywordClassification::query()->where('keyword_id', $a)->value('cluster_key');
+        $ckB = SeoKeywordClassification::query()->where('keyword_id', $b)->value('cluster_key');
+        $ckC = SeoKeywordClassification::query()->where('keyword_id', $c)->value('cluster_key');
+        self::assertSame($ckA, $ckB);
+        self::assertNotSame($ckA, $ckC);
+        self::assertNotSame('old_x', $ckA);
+        self::assertNotSame('old_y', $ckC);
+    }
+
+    public function test_single_keyword_auto_self_cluster_is_pruned(): void
     {
         $this->seedKeyword(self::SITE_A, 'khóa kéo YKK', null);
 
         $result = app(ReclusterTopicClustersService::class)->recluster(self::SITE_A);
         self::assertTrue($result->success);
         self::assertSame(1, (int) ($result->metrics['self_clusters_created'] ?? 0));
+        self::assertGreaterThanOrEqual(1, (int) ($result->metrics['auto_singletons_pruned'] ?? 0));
 
         $ck = SeoKeywordClassification::query()->value('cluster_key');
-        self::assertNotEmpty($ck);
+        self::assertTrue($ck === null || $ck === '');
     }
 
     public function test_service_vs_product_intent_not_merged(): void
@@ -259,28 +491,37 @@ final class FullDomainReclusterRepairTest extends TestCase
         $keys = SeoKeywordClassification::query()
             ->orderBy('keyword_id')
             ->pluck('cluster_key')
+            ->map(static fn ($k): string => trim((string) $k))
             ->all();
 
         self::assertCount(2, $keys);
-        self::assertNotSame($keys[0], $keys[1]);
+        // Distinct auto singletons must not share a cluster; after prune both are empty.
+        self::assertSame('', $keys[0]);
+        self::assertSame('', $keys[1]);
     }
 
     public function test_domain_isolation(): void
     {
         $this->seedKeyword(self::SITE_A, 'Xưởng may balo Anh Văn', null);
+        $this->seedKeyword(self::SITE_A, 'Xưởng may balo dây kéo Anh Văn', null);
         $this->seedKeyword(self::SITE_B, 'Xưởng may balo chuyên sỉ', null);
 
         app(ReclusterTopicClustersService::class)->recluster(self::SITE_A);
 
-        $a = SeoKeywordClassification::query()
+        $aKeys = SeoKeywordClassification::query()
             ->whereIn('keyword_id', Keyword::query()->forSite(self::SITE_A)->pluck('id'))
-            ->value('cluster_key');
+            ->pluck('cluster_key')
+            ->map(static fn ($k): string => trim((string) $k))
+            ->filter(static fn (string $k): bool => $k !== '')
+            ->unique()
+            ->values()
+            ->all();
         $b = SeoKeywordClassification::query()
             ->whereIn('keyword_id', Keyword::query()->forSite(self::SITE_B)->pluck('id'))
             ->value('cluster_key');
 
-        self::assertNotEmpty($a);
-        self::assertNull($b);
+        self::assertNotEmpty($aKeys);
+        self::assertTrue($b === null || $b === '');
     }
 
     public function test_second_recluster_idempotent(): void
@@ -388,7 +629,9 @@ final class FullDomainReclusterRepairTest extends TestCase
         self::assertGreaterThanOrEqual(1, (int) ($result->metrics['classifications_ensured'] ?? 0));
 
         $ck = SeoKeywordClassification::query()->where('keyword_id', $keyword->id)->value('cluster_key');
-        self::assertSame('ck_xmb', $ck);
+        self::assertNotEmpty($ck);
+        $canon = mb_strtolower((string) SeoTopicClusterMeta::query()->where('cluster_key', $ck)->value('canonical_phrase'));
+        self::assertStringContainsString('xưởng may balo', $canon);
     }
 
     private function seedKeyword(int $siteId, string $phrase, ?string $clusterKey): int
@@ -464,6 +707,13 @@ final class FullDomainReclusterRepairTest extends TestCase
             $table->string('cluster_key')->nullable()->index();
             $table->boolean('is_seo_keyword')->nullable();
             $table->boolean('is_dirty')->nullable();
+            $table->unsignedBigInteger('canonical_keyword_id')->nullable();
+            $table->boolean('is_anchor_candidate')->nullable();
+            $table->integer('anchor_priority')->nullable();
+            $table->float('classification_confidence')->nullable();
+            $table->timestamp('classified_at')->nullable();
+            $table->string('input_hash')->nullable();
+            $table->string('classification_hash')->nullable();
             $table->timestamps();
         });
 
@@ -475,6 +725,7 @@ final class FullDomainReclusterRepairTest extends TestCase
             $table->string('normalized_canonical');
             $table->string('confidence')->default('high');
             $table->boolean('needs_review')->default(false);
+            $table->string('canonical_source')->default('auto');
             $table->timestamps();
             $table->unique(['site_id', 'cluster_key']);
         });

@@ -24,9 +24,9 @@ class WatermarkEditor extends SeoPanelPage
 
     protected static ?string $navigationGroup = null;
 
-    protected static ?string $navigationParentItem = 'Media library';
+    protected static ?string $navigationParentItem = null;
 
-    protected static ?int $navigationSort = 8;
+    protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_MEDIA + 2;
 
     protected static string $view = 'seo-content-ai::filament.pages.watermark-editor';
 
@@ -192,7 +192,7 @@ class WatermarkEditor extends SeoPanelPage
 
     public static function getNavigationParentItem(): ?string
     {
-        return __('seo-content-ai::filament.nav.media_library');
+        return MediaLibrary::getNavigationLabel();
     }
 
     public function getTitle(): string

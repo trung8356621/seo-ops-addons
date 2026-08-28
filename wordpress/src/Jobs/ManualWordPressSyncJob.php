@@ -14,6 +14,8 @@ use Omnichannel\Addons\WordPress\Services\ArticleWordPressBusinessSequence;
 use Omnichannel\Addons\WordPress\Services\ManualSyncContext;
 use Omnichannel\Addons\WordPress\Services\WpSyncLeaseHeartbeat;
 use Omnichannel\Addons\ContentProjects\Support\SeoQueueContext;
+use Omnichannel\Addons\SearchFoundation\Services\SeoDatabaseConnectionService;
+use App\Models\User;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -71,6 +73,7 @@ final class ManualWordPressSyncJob implements ShouldBeUnique, ShouldQueue
         BusinessHookEmitter $emitter,
         ArticleWpSyncLeaseService $lease,
         ProductReviewAutomationSettingsResolver $reviewSettingsResolver,
+        SeoDatabaseConnectionService $databaseConnection,
     ): void {
         $workerId = (string) Str::uuid();
         $claimed = $lease->claim($this->syncJobId, $workerId);
@@ -84,7 +87,19 @@ final class ManualWordPressSyncJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
+        $databaseConnection->bootstrapLegacySharedConnection();
+
         $article = SeoArticle::query()->find($this->articleId);
+        if ($article instanceof SeoArticle && (int) ($article->site_id ?? 0) > 0) {
+            $databaseConnection->bootstrapSeoDatabaseConnection((int) $article->site_id);
+            $article = SeoArticle::query()->find($this->articleId) ?? $article;
+        }
+
+        $user = User::query()->find($this->userId);
+        if ($user instanceof User) {
+            auth()->setUser($user);
+        }
+
         if (! $article instanceof SeoArticle) {
             $lease->fail($claimed, 'Article missing at claim time.');
             Log::warning('manual_wordpress_sync.article_missing', [

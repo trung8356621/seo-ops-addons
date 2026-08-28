@@ -56,7 +56,6 @@ class Keyword extends Model
     protected $fillable = [
         'phrase',
         'type',
-        'parent_id',
         'source',
         'source_locked',
         'review_status',
@@ -67,7 +66,6 @@ class Keyword extends Model
     ];
 
     protected $casts = [
-        'parent_id' => 'integer',
         'source_locked' => 'boolean',
         'review_reason_id' => 'integer',
         'reviewed_by' => 'integer',
@@ -195,16 +193,6 @@ class Keyword extends Model
         }
 
         return [self::METRIC_RESCRAPE_KEEP => true];
-    }
-
-    public function parent(): BelongsTo
-    {
-        return $this->belongsTo(self::class, 'parent_id');
-    }
-
-    public function children(): HasMany
-    {
-        return $this->hasMany(self::class, 'parent_id');
     }
 
     public function seoClassification(): HasOne

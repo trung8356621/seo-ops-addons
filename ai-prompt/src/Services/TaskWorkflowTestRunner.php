@@ -206,6 +206,8 @@ final class TaskWorkflowTestRunner
     /**
      * Chạy từ node này và mọi downstream nodes theo directed graph (không phải topo index slice).
      * Node trước start được skip; khi $seedOutlineFromArticle=true, hydrate outline từ article hiện có.
+     * Khi $skipContentWriting=true (outline-only / vocabulary persistence): bỏ qua content generate
+     * và article-body persist, nhưng vẫn chạy parse_keywords + save_vocabulary_research.
      *
      * @return list<array<string, mixed>>
      */
@@ -214,6 +216,7 @@ final class TaskWorkflowTestRunner
         TaskTestContext $context,
         string $startNodeId,
         bool $seedOutlineFromArticle = false,
+        bool $skipContentWriting = false,
     ): array {
         $startNodeId = trim($startNodeId);
         if ($startNodeId === '') {
@@ -269,6 +272,21 @@ final class TaskWorkflowTestRunner
                     'skip_reason' => 'not_reachable',
                 ];
                 $statusByNodeId[$nodeId] = 'not_reachable';
+
+                continue;
+            }
+
+            if ($skipContentWriting && $this->shouldSkipForOutlineVocabularyScope($node)) {
+                $steps[] = [
+                    'node_id' => $nodeId,
+                    'type' => (string) ($node['type'] ?? ''),
+                    'title' => (string) ($node['title'] ?? 'Bước'),
+                    'status' => 'skipped',
+                    'message' => 'Bỏ qua — phạm vi outline/vocabulary (không viết bài).',
+                    'skip_reason' => 'outline_vocabulary_scope',
+                ];
+                // Non-blocking: save_vocabulary may sit after content in some graphs.
+                $statusByNodeId[$nodeId] = 'skipped_scope';
 
                 continue;
             }
@@ -1775,10 +1793,16 @@ final class TaskWorkflowTestRunner
             $sync = $this->syncKeywordResearchForArticle($article, $context, $state);
         } catch (\InvalidArgumentException $exception) {
             $message = trim($exception->getMessage());
-            if ($message !== '' && (
-                str_contains(strtolower($message), 'vocabulary save failed')
-                || str_contains(strtolower($message), 'save failed')
-            )) {
+            $lower = mb_strtolower($message);
+            $isEmptyPayload = $message !== '' && (
+                str_contains($lower, 'không có dữ liệu từ khóa')
+                || str_contains($lower, 'không xác định được từ khóa chính')
+                || str_contains($lower, 'từ khóa chính quá rộng')
+            );
+
+            // Soft-skip only when rerun has no new parsed vocabulary payload.
+            // Infrastructure / dispatcher failures must fail hard.
+            if (! $isEmptyPayload) {
                 return [
                     'node_id' => $nodeId,
                     'type' => 'action',
@@ -1786,12 +1810,10 @@ final class TaskWorkflowTestRunner
                     'action_type' => $actionType,
                     'status' => 'failed',
                     'article_id' => $article->id,
-                    'message' => $message,
+                    'message' => $message !== '' ? $message : 'Vocabulary save failed.',
                 ];
             }
 
-            // Rerun từ article thường skip bước parse keywords → không có data mới.
-            // Không fail cả pipeline; giữ từ khóa hiện có trên bài.
             return [
                 'node_id' => $nodeId,
                 'type' => 'action',
@@ -1821,15 +1843,15 @@ final class TaskWorkflowTestRunner
     }
 
     /**
-     * @param  array{parent_id: int, parent_phrase: string, children_count: int, suggest_count?: int, tags_count?: int, ki_feedback?: array<string, mixed>}  $sync
+     * @param  array{focus_keyword_id: int, focus_phrase: string, vocabulary_count: int, suggest_count?: int, tags_count?: int, ki_feedback?: array<string, mixed>}  $sync
      */
-    private function formatVocabularyResearchSyncMessage(array $sync, bool $includeParentId = false): string
+    private function formatVocabularyResearchSyncMessage(array $sync, bool $includeFocusId = false): string
     {
         $parts = [];
-        $childrenCount = (int) ($sync['children_count'] ?? 0);
+        $vocabularyCount = (int) ($sync['vocabulary_count'] ?? 0);
         $suggestCount = (int) ($sync['suggest_count'] ?? 0);
         $tagsCount = (int) ($sync['tags_count'] ?? 0);
-        $parentPhrase = trim((string) ($sync['parent_phrase'] ?? ''));
+        $focusPhrase = trim((string) ($sync['focus_phrase'] ?? ''));
         $ki = is_array($sync['ki_feedback'] ?? null) ? $sync['ki_feedback'] : [];
 
         if ($ki !== []) {
@@ -1844,11 +1866,11 @@ final class TaskWorkflowTestRunner
             $parts[] = sprintf('%d gợi ý chủ đề (Related topics)', $suggestCount);
         }
 
-        if ($parentPhrase !== '') {
-            $clusterMessage = $includeParentId
-                ? sprintf('cụm «%s» (#%d) + %d từ khóa con (Topic Cluster)', $parentPhrase, (int) ($sync['parent_id'] ?? 0), $childrenCount)
-                : sprintf('cụm «%s» + %d từ khóa con', $parentPhrase, $childrenCount);
-            $parts[] = $clusterMessage;
+        if ($focusPhrase !== '') {
+            $vocabularyMessage = $includeFocusId
+                ? sprintf('focus «%s» (#%d) + %d từ khóa vocabulary', $focusPhrase, (int) ($sync['focus_keyword_id'] ?? 0), $vocabularyCount)
+                : sprintf('focus «%s» + %d từ khóa vocabulary', $focusPhrase, $vocabularyCount);
+            $parts[] = $vocabularyMessage;
         }
 
         if ($tagsCount > 0) {
@@ -1863,7 +1885,7 @@ final class TaskWorkflowTestRunner
     }
 
     /**
-     * @return array{parent_id: int, parent_phrase: string, children_count: int, suggest_count: int, tags_count: int}
+     * @return array{focus_keyword_id: int, focus_phrase: string, vocabulary_count: int, suggest_count: int, tags_count: int}
      */
     private function syncKeywordResearchForArticle(
         SeoArticle $article,
@@ -1895,6 +1917,9 @@ final class TaskWorkflowTestRunner
                 'project_task_id' => isset($context->variables['project_task_id'])
                     ? (int) $context->variables['project_task_id']
                     : (isset($context->variables['task_id']) ? (int) $context->variables['task_id'] : null),
+                'project_run_id' => isset($context->variables['run_id'])
+                    ? (int) $context->variables['run_id']
+                    : (isset($context->variables['project_run_id']) ? (int) $context->variables['project_run_id'] : null),
                 'workflow_node_id' => isset($state->meta['current_node_id'])
                     ? (string) $state->meta['current_node_id']
                     : null,
@@ -1909,9 +1934,9 @@ final class TaskWorkflowTestRunner
         $ki = is_array($vocab->output['ki_feedback'] ?? null) ? $vocab->output['ki_feedback'] : [];
 
         return [
-            'parent_id' => (int) ($vocab->output['parent_id'] ?? 0),
-            'parent_phrase' => (string) ($vocab->output['parent_phrase'] ?? $focusPhrase ?? ''),
-            'children_count' => (int) ($vocab->output['children_count'] ?? 0),
+            'focus_keyword_id' => (int) ($vocab->output['focus_keyword_id'] ?? 0),
+            'focus_phrase' => (string) ($vocab->output['focus_phrase'] ?? $focusPhrase ?? ''),
+            'vocabulary_count' => (int) ($vocab->output['vocabulary_count'] ?? 0),
             'suggest_count' => (int) ($vocab->output['suggest_count'] ?? 0),
             'tags_count' => (int) ($vocab->output['tags_count'] ?? 0),
             'ki_feedback' => $ki,
@@ -2310,6 +2335,30 @@ final class TaskWorkflowTestRunner
         }
 
         $actionType = (string) ($node['data']['actionType'] ?? 'save_article');
+
+        return $this->isArticlePersistAction($actionType);
+    }
+
+    /**
+     * Outline-only / vocabulary persistence scope: keep extract+save, skip writing body.
+     *
+     * @param  array<string, mixed>  $node
+     */
+    private function shouldSkipForOutlineVocabularyScope(array $node): bool
+    {
+        if ($this->isContentRoleNode($node)) {
+            return true;
+        }
+
+        $type = (string) ($node['type'] ?? '');
+        if ($type !== 'action') {
+            return false;
+        }
+
+        $actionType = (string) ($node['data']['actionType'] ?? 'save_article');
+        if ($actionType === 'save_vocabulary_research') {
+            return false;
+        }
 
         return $this->isArticlePersistAction($actionType);
     }

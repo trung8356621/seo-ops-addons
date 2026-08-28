@@ -173,7 +173,6 @@ final class GscKeywordIntelligenceIngestionService
             Keyword::TYPE_SUGGEST,
             $siteId,
             null,
-            null,
             [
                 'origin' => 'gsc_search_performance',
                 'evidence_type' => GscPlanningSignalNormalizer::EVIDENCE_TYPE,

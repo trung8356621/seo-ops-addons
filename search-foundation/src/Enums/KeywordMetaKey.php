@@ -9,6 +9,11 @@ enum KeywordMetaKey: string
     case MainArticleId = 'main_article_id';
     case Tags = 'tags';
     case QualityFlags = 'quality_flags';
+    /** Soft-hide: excluded from clustering / SEO planning lists, data preserved. */
+    case SeoHidden = 'seo_keyword_hidden';
+
+    /** Soft-skip: still SEO-eligible, excluded from Site MCP payload / share / tokens. */
+    case McpExcluded = 'mcp_keyword_excluded';
 
     public static function siteTargetUrl(int $siteId): string
     {

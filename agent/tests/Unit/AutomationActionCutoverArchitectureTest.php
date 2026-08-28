@@ -86,7 +86,7 @@ final class AutomationActionCutoverArchitectureTest extends TestCase
 
         self::assertStringContainsString('keyword.vocabulary.save', $source);
         self::assertStringNotContainsString(
-            'return $this->keywordResearch->syncTopicCluster',
+            'return $this->keywordResearch->syncVocabularyKeywords',
             $source,
         );
     }

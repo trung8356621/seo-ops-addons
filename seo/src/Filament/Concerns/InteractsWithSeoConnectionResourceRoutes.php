@@ -14,7 +14,8 @@ trait InteractsWithSeoConnectionResourceRoutes
 {
     public static function panelId(): string
     {
-        return 'seo';
+        // User-facing resource URLs use the short Main panel (/seo/{page}).
+        return 'seo-main';
     }
 
     /**
@@ -27,11 +28,17 @@ trait InteractsWithSeoConnectionResourceRoutes
         ?string $panel = null,
         ?\Illuminate\Database\Eloquent\Model $tenant = null,
     ): string {
+        $panelId = $panel ?? static::panelId();
+
+        if ($panelId === 'seo-main') {
+            return parent::getUrl($name, $parameters, $isAbsolute, $panelId, $tenant);
+        }
+
         return parent::getUrl(
             $name,
             SeoConnectionContext::mergePanelRouteParameters($parameters),
             $isAbsolute,
-            $panel ?? static::panelId(),
+            $panelId,
             $tenant,
         );
     }

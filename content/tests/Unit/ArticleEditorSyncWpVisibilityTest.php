@@ -22,7 +22,21 @@ final class ArticleEditorSyncWpVisibilityTest extends TestCase
         self::assertStringContainsString('articleIsInContentProject', $actions);
     }
 
-    public function test_content_project_branch_never_renders_sync_wp(): void
+    public function test_content_project_rewrite_renders_sync_wp(): void
+    {
+        $actions = (string) file_get_contents(
+            LegacyAddonPath::resolve('resources/views/filament/resources/article-resource/pages/partials/article-editor-page-actions.blade.php'),
+        );
+
+        self::assertStringContainsString('$contentProjectRewriteSyncEligible', $actions);
+        self::assertStringContainsString('data-seo-sync-origin="content_project_rewrite"', $actions);
+        self::assertMatchesRegularExpression(
+            '/@if\s*\(\$contentProjectRewriteSyncEligible\)(?:(?!@elseif).)*data-seo-page-action="sync"/s',
+            $actions,
+        );
+    }
+
+    public function test_content_project_post_publish_branch_never_renders_sync_wp(): void
     {
         $actions = (string) file_get_contents(
             LegacyAddonPath::resolve('resources/views/filament/resources/article-resource/pages/partials/article-editor-page-actions.blade.php'),
@@ -32,11 +46,11 @@ final class ArticleEditorSyncWpVisibilityTest extends TestCase
         self::assertStringContainsString('Sync WP hidden (UI-only)', $actions);
 
         self::assertMatchesRegularExpression(
-            '/@if\s*\(\$inContentProject\s*&&\s*\$contentProjectWpSyncEligible\)(?:(?!@elseif\s*\(\$inContentProject\)).)*data-seo-page-action="save-close"/s',
+            '/@elseif\s*\(\$inContentProject\s*&&\s*\$contentProjectWpSyncEligible\)(?:(?!@elseif\s*\(\$inContentProject\)).)*data-seo-page-action="save-close"/s',
             $actions,
         );
         self::assertDoesNotMatchRegularExpression(
-            '/@if\s*\(\$inContentProject\s*&&\s*\$contentProjectWpSyncEligible\)(?:(?!@elseif\s*\(\$inContentProject\)).)*data-seo-page-action="sync"/s',
+            '/@elseif\s*\(\$inContentProject\s*&&\s*\$contentProjectWpSyncEligible\)(?:(?!@elseif\s*\(\$inContentProject\)).)*data-seo-page-action="sync"/s',
             $actions,
         );
 
@@ -54,6 +68,12 @@ final class ArticleEditorSyncWpVisibilityTest extends TestCase
         self::assertStringNotContainsString('data-seo-page-action="sync"', $contentProjectBranch);
         self::assertStringContainsString('data-seo-page-action="save-close"', $contentProjectBranch);
         self::assertStringContainsString('data-seo-page-action="sync"', $standaloneBranch);
+    }
+
+    public function test_content_project_branch_never_renders_sync_wp(): void
+    {
+        // Backward-compatible alias — post-publish CP still hides Sync; rewrite shows Sync (see test above).
+        $this->test_content_project_post_publish_branch_never_renders_sync_wp();
     }
 
     public function test_ai_media_workspace_and_context_helpers_exist(): void

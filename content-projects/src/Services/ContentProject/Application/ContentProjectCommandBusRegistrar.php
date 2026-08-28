@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\Application;
 
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\AddContentProjectItemsCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\AddIdeaCandidatesCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\AddSeoAuditSuggestionsCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\AcknowledgeProjectItemGenerationErrorCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ApproveProjectItemsCommand;
@@ -49,6 +50,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Comma
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SetItemGenerationKeywordOverrideCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\UpdateContentProjectItemCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\AddContentProjectItemsHandler;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\AddIdeaCandidatesHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\AddSeoAuditSuggestionsHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\AcknowledgeProjectItemGenerationErrorHandler;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\ApproveProjectItemsHandler;
@@ -169,6 +171,7 @@ final class ContentProjectCommandBusRegistrar
             UpdateContentProjectCommand::class => UpdateContentProjectHandler::class,
             SyncContentProjectItemsCommand::class => SyncContentProjectItemsHandler::class,
             AddContentProjectItemsCommand::class => AddContentProjectItemsHandler::class,
+            AddIdeaCandidatesCommand::class => AddIdeaCandidatesHandler::class,
             AddSeoAuditSuggestionsCommand::class => AddSeoAuditSuggestionsHandler::class,
             FillSeoAuditSuggestionsCommand::class => FillSeoAuditSuggestionsHandler::class,
             GenerateNewContentSuggestionsCommand::class => GenerateNewContentSuggestionsHandler::class,

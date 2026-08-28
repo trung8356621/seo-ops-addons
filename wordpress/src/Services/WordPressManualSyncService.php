@@ -6,23 +6,30 @@ namespace Omnichannel\Addons\WordPress\Services;
 
 use Omnichannel\Addons\Agent\Automation\Contracts\BusinessActionDispatcher;
 use Omnichannel\Addons\Agent\Automation\Data\ActionContext;
+use Omnichannel\Addons\Commerce\Services\ProductReview\ProductReviewAutomationSettingsResolver;
 use Omnichannel\Addons\WordPress\Jobs\ManualWordPressSyncJob;
+use Omnichannel\Addons\WordPress\Services\ArticleWordPressBusinessSequence;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Services\ArticleEditorBundleApplyService;
 use Omnichannel\Addons\WordPress\Services\ArticleWordPressSyncEligibility;
 use Omnichannel\Addons\WordPress\Services\ArticleWpSyncLeaseService;
 use Omnichannel\Addons\WordPress\Services\ArticleWpSyncQueueService;
+use Omnichannel\Addons\WordPress\Services\ManualSyncContext;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ActorContext;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\PublishProjectItemsNowCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SyncPublishedArticleToWordPressCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectActionResult;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectCommandBus;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectArticleMembership;
+use Omnichannel\Addons\ContentProjects\Support\SeoQueueContext;
 use Omnichannel\Addons\Publishing\Services\Publishing\PostPublishWordPressSyncEligibility;
 use Omnichannel\Addons\WordPress\Services\SideEffect\ManualWordPressContext;
+use Omnichannel\Addons\WordPress\Services\SideEffect\WordPressExecutionContext;
 use Omnichannel\Addons\WordPress\Services\WordPressArticleSyncService;
 use Omnichannel\Addons\Content\Support\ArticleEditorSaveContext;
+use Omnichannel\Addons\SearchFoundation\Services\SeoDatabaseConnectionService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\Seo\Support\SeoConnectionContext;
 use App\Models\User;
 use App\Support\RuntimeLogger;
 use Illuminate\Contracts\Cache\Lock;
@@ -46,6 +53,8 @@ final class WordPressManualSyncService
         private readonly ContentProjectCommandBus $contentProjectCommandBus,
         private readonly ArticleWordPressSyncEligibility $syncEligibility,
         private readonly WordPressArticleSyncService $articleSync,
+        private readonly ArticleWordPressBusinessSequence $businessSequence,
+        private readonly ProductReviewAutomationSettingsResolver $reviewSettingsResolver,
     ) {}
 
     /**
@@ -683,6 +692,19 @@ final class WordPressManualSyncService
             ];
         }
 
+        $reviewSideEffect = ManualSyncContext::make(
+            initiatedBy: max(1, (int) $actor->id),
+            source: $initiatedFrom !== '' ? $initiatedFrom : 'article_editor.rewrite_existing_sync',
+            articleId: (int) $article->id,
+            domainId: (int) ($article->site_id ?? 0),
+            correlationId: $operationId,
+            requestId: $operationId,
+        )->toSideEffectContext('rewrite_existing_product_reviews');
+        $productReview = $this->runProductReviewsAfterArticleSync(
+            $article->fresh() ?? $article,
+            $reviewSideEffect,
+        );
+
         RuntimeLogger::info('rewrite_existing_wp.synced', [
             'article_id' => (int) $article->id,
             'wp_post_id' => $remotePostId,
@@ -691,6 +713,8 @@ final class WordPressManualSyncService
             'create_post_called' => false,
             'initiated_from' => $initiatedFrom,
             'operation_id' => $operationId,
+            'product_review_create' => $productReview['product_review_create'] ?? null,
+            'product_review_sync' => $productReview['product_review_sync'] ?? null,
         ]);
 
         return [
@@ -709,6 +733,8 @@ final class WordPressManualSyncService
                 'operation_id' => $operationId,
                 'create_post_called' => false,
                 'publish_queue_status_unchanged' => true,
+                'product_review_create' => $productReview['product_review_create'] ?? null,
+                'product_review_sync' => $productReview['product_review_sync'] ?? null,
             ],
             'notification' => [
                 'title' => 'Đã đồng bộ bài viết lên WordPress.',
@@ -778,6 +804,175 @@ final class WordPressManualSyncService
                 'body' => $result->message,
                 'status' => 'danger',
             ],
+        ];
+    }
+
+    /**
+     * @return array{product_review_create: array<string, mixed>, product_review_sync: array<string, mixed>}
+     */
+    private function runProductReviewsAfterArticleSync(
+        SeoArticle $article,
+        WordPressExecutionContext $sideEffect,
+    ): array {
+        $articleId = (int) $article->id;
+        $siteId = (int) ($article->site_id ?? 0);
+        $wpPostId = (int) ($article->wordpressLink?->wp_post_id ?? 0) ?: null;
+        $syncSource = $sideEffect instanceof ManualWordPressContext
+            ? $sideEffect->reason
+            : $sideEffect->origin();
+
+        // HTTP middleware usually binds context; re-bootstrap from article site so create never depends on stale request state.
+        if ($siteId > 0) {
+            try {
+                app(SeoDatabaseConnectionService::class)->bootstrapSeoDatabaseConnection($siteId);
+            } catch (Throwable $e) {
+                Log::warning('[WP_SYNC_TRACE] review_create_bootstrap_failed', [
+                    'article_id' => $articleId,
+                    'site_id' => $siteId,
+                    'wp_post_id' => $wpPostId,
+                    'sync_source' => $syncSource,
+                    'phase' => 'review_create_start',
+                    'exception' => $e::class,
+                    'message' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        $connectionId = (int) (SeoConnectionContext::current()?->id ?? 0);
+        Log::info('[WP_SYNC_TRACE]', [
+            'article_id' => $articleId,
+            'site_id' => $siteId,
+            'wp_post_id' => $wpPostId,
+            'connection_id' => $connectionId > 0 ? $connectionId : null,
+            'sync_source' => $syncSource,
+            'phase' => 'review_create_start',
+            'domain' => (string) ($article->site?->domain ?? $article->site?->name ?? ''),
+        ]);
+
+        if ($connectionId <= 0) {
+            $failed = [
+                'article_id' => $articleId,
+                'wp_post_id' => $wpPostId,
+                'created_count' => 0,
+                'pending_review_ids' => [],
+                'status' => 'failed',
+                'reason' => 'missing_seo_connection_context',
+                'message' => 'Thiếu SEO connection context.',
+            ];
+            Log::error('[WP_SYNC_TRACE]', [
+                'article_id' => $articleId,
+                'site_id' => $siteId,
+                'wp_post_id' => $wpPostId,
+                'sync_source' => $syncSource,
+                'phase' => 'review_create_failed',
+                'exception' => 'RuntimeException',
+                'message' => 'Thiếu SEO connection context.',
+            ]);
+
+            return [
+                'product_review_create' => $failed,
+                'product_review_sync' => [
+                    'article_id' => $articleId,
+                    'status' => 'skipped',
+                    'reason' => 'missing_seo_connection_context',
+                ],
+            ];
+        }
+
+        $reviewSettings = $this->reviewSettingsResolver->resolve();
+
+        try {
+            $create = $this->businessSequence->runCreate($article, $reviewSettings);
+        } catch (Throwable $e) {
+            Log::error('[WP_SYNC_TRACE]', [
+                'article_id' => $articleId,
+                'site_id' => $siteId,
+                'wp_post_id' => $wpPostId,
+                'sync_source' => $syncSource,
+                'phase' => 'review_create_failed',
+                'exception' => $e::class,
+                'message' => $e->getMessage(),
+            ]);
+            throw $e;
+        }
+
+        $createStatus = (string) ($create['status'] ?? '');
+        $createdCount = (int) ($create['created_count'] ?? 0);
+        if ($createStatus === 'failed' || (($create['success'] ?? true) === false && $createdCount === 0 && $createStatus !== 'skipped')) {
+            Log::warning('[WP_SYNC_TRACE]', [
+                'article_id' => $articleId,
+                'site_id' => $siteId,
+                'wp_post_id' => $wpPostId,
+                'sync_source' => $syncSource,
+                'phase' => 'review_create_failed',
+                'exception' => 'ProductReviewCreateFailed',
+                'message' => (string) ($create['message'] ?? $create['reason'] ?? 'review create failed'),
+                'create' => $create,
+            ]);
+        } else {
+            Log::info('[WP_SYNC_TRACE]', [
+                'article_id' => $articleId,
+                'site_id' => $siteId,
+                'wp_post_id' => $wpPostId,
+                'sync_source' => $syncSource,
+                'phase' => 'review_create_done',
+                'created_count' => $createdCount,
+                'status' => $createStatus !== '' ? $createStatus : null,
+                'reason' => $create['reason'] ?? null,
+            ]);
+        }
+
+        Log::info('[WP_SYNC_TRACE]', [
+            'article_id' => $articleId,
+            'site_id' => $siteId,
+            'wp_post_id' => $wpPostId,
+            'sync_source' => $syncSource,
+            'phase' => 'review_sync_start',
+        ]);
+
+        try {
+            $sync = SeoQueueContext::runWpSyncFromQueue(
+                fn (): array => $this->businessSequence->runSync($article->fresh() ?? $article, $sideEffect, $reviewSettings),
+            );
+        } catch (Throwable $e) {
+            Log::error('[WP_SYNC_TRACE]', [
+                'article_id' => $articleId,
+                'site_id' => $siteId,
+                'wp_post_id' => $wpPostId,
+                'sync_source' => $syncSource,
+                'phase' => 'review_sync_failed',
+                'exception' => $e::class,
+                'message' => $e->getMessage(),
+            ]);
+            throw $e;
+        }
+
+        $failedSync = is_array($sync['failed'] ?? null) ? $sync['failed'] : [];
+        if ($failedSync !== []) {
+            Log::warning('[WP_SYNC_TRACE]', [
+                'article_id' => $articleId,
+                'site_id' => $siteId,
+                'wp_post_id' => $wpPostId,
+                'sync_source' => $syncSource,
+                'phase' => 'review_sync_partial',
+                'failed_count' => count($failedSync),
+                'failed' => $failedSync,
+            ]);
+        } else {
+            Log::info('[WP_SYNC_TRACE]', [
+                'article_id' => $articleId,
+                'site_id' => $siteId,
+                'wp_post_id' => $wpPostId,
+                'sync_source' => $syncSource,
+                'phase' => 'review_sync_done',
+                'created' => $sync['created'] ?? [],
+                'status' => $sync['status'] ?? null,
+            ]);
+        }
+
+        return [
+            'product_review_create' => $create,
+            'product_review_sync' => $sync,
         ];
     }
 

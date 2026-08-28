@@ -757,7 +757,9 @@ class SeoPanelProvider extends PanelProvider
             ->sidebarWidth('16rem')
             ->collapsedSidebarWidth('4rem')
             ->maxContentWidth(MaxWidth::Full)
-            ->navigationGroups([])
+            ->navigationGroups([
+                \Filament\Navigation\NavigationGroup::make(\Omnichannel\Addons\Seo\Support\SeoUserNavigation::GROUP_SYSTEM),
+            ])
             ->discoverResources(
                 in: __DIR__.'/../Filament/Resources',
                 for: 'App\\Addons\\SeoContentAi\\Filament\\Resources'

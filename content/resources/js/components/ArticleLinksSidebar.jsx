@@ -191,6 +191,7 @@ function DomainInsertableList({
     hiddenRowKeys,
     onKeywordClick,
     onInsert,
+    onCopyKeyword,
     emptyText,
 }) {
     if (!items.length) {
@@ -233,7 +234,7 @@ function DomainInsertableList({
                     >
                         <button
                             type="button"
-                            className={`wp-article-links-keyword${isActive ? ' is-active' : ''} is-suggestion`}
+                            className={`wp-article-links-keyword${isActive ? ' is-active' : ''}${variant === 'cta' ? ' is-suggestion' : ''}`}
                             title={
                                 variant === 'cta'
                                     ? t('cta_widget_find', { label, type: item?.type ?? '' })
@@ -257,6 +258,21 @@ function DomainInsertableList({
                                 `${label}${countSuffix}`
                             )}
                         </button>
+                        {onCopyKeyword && variant === 'domain-link' ? (
+                            <button
+                                type="button"
+                                className="wp-article-links-copy-btn"
+                                aria-label={t('links_copy_keyword', { label })}
+                                title={t('links_copy_title', { label })}
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={(e) => {
+                                    e.stopPropagation();
+                                    onCopyKeyword(label);
+                                }}
+                            >
+                                <Copy size={14} aria-hidden />
+                            </button>
+                        ) : null}
                         {onInsert ? (
                             <button
                                 type="button"
@@ -334,11 +350,22 @@ function MainDomainSuggestionList({ items, relationship, onInsert }) {
     );
 }
 
-const applyDomainLinkFilters = (allLinks, blocks, internalLinks, externalLinks = []) => {
+const applyDomainLinkFilters = (
+    allLinks,
+    blocks,
+    internalLinks,
+    externalLinks = [],
+    pendingInternalLinks = [],
+) => {
     const sourceBlocks = Array.isArray(blocks) && blocks.length > 0
         ? blocks
         : collectEditorBlocksFromDom();
-    return buildDomainLinkListForEditor(allLinks, sourceBlocks, internalLinks, externalLinks);
+    const linkedInternal = [
+        ...(Array.isArray(internalLinks) ? internalLinks : []),
+        ...(Array.isArray(pendingInternalLinks) ? pendingInternalLinks : []),
+    ];
+
+    return buildDomainLinkListForEditor(allLinks, sourceBlocks, linkedInternal, externalLinks);
 };
 
 function keywordLabel(item) {
@@ -954,6 +981,8 @@ export default function ArticleLinksSidebar({
     const stableSuggestionsKeyRef = useRef('');
     const stableExternalSuggestionsRef = useRef([]);
     const stableExternalSuggestionsKeyRef = useRef('');
+    /** Visible internal suggestions — kept in ref for domain-list cross-filter in event handlers. */
+    const suggestedInternalRef = useRef([]);
     const [links, setLinks] = useState(() => ({
         internal: editorSeoBootstrap.current?.extracted_links?.internal ?? [],
         external: (editorSeoBootstrap.current?.extracted_links?.external ?? []).filter(
@@ -1359,13 +1388,14 @@ export default function ArticleLinksSidebar({
         saveExcludedLinkSuggestions(articleId, siteId, [...excludedPersistRef.current]);
     }, 400);
 
-    const { debounced: debouncedRebuildDomainLinks } = useDebouncedCallback((internal, external) => {
+    const { debounced: debouncedRebuildDomainLinks } = useDebouncedCallback((internal, external, pendingInternal = []) => {
         setDomainLinks(
             applyDomainLinkFilters(
                 allDomainLinksRef.current,
                 editorBlocksRef.current,
                 Array.isArray(internal) ? internal : [],
                 Array.isArray(external) ? external : [],
+                Array.isArray(pendingInternal) ? pendingInternal : [],
             ),
         );
     }, 400);
@@ -1529,6 +1559,7 @@ export default function ArticleLinksSidebar({
                             editorBlocksRef.current,
                             linksRef.current.internal ?? [],
                             linksRef.current.external ?? [],
+                            suggestedInternalRef.current,
                         ),
                     );
                 }
@@ -1706,7 +1737,7 @@ export default function ArticleLinksSidebar({
             }
 
             if (detail.source === 'client-document') {
-                debouncedRebuildDomainLinks(internal, external);
+                debouncedRebuildDomainLinks(internal, external, suggestedInternalRef.current);
             } else {
                 setDomainLinks(
                     applyDomainLinkFilters(
@@ -1714,6 +1745,7 @@ export default function ArticleLinksSidebar({
                         editorBlocksRef.current,
                         internal,
                         external,
+                        suggestedInternalRef.current,
                     ),
                 );
             }
@@ -1732,23 +1764,11 @@ export default function ArticleLinksSidebar({
             }
         };
 
-        const onDomainInserted = (event) => {
-            const text = normalizeLinkLabel(event.detail?.text);
-            const hrefKey = normalizeHrefForCompare(event.detail?.href);
-            if (!text && !hrefKey) {
-                return;
-            }
-
-            setDomainLinks((prev) =>
-                prev.filter((item) => {
-                    if (text && normalizeLinkLabel(item.text) === text) {
-                        return false;
-                    }
-                    if (hrefKey && normalizeHrefForCompare(item.href ?? item.target_url) === hrefKey) {
-                        return false;
-                    }
-                    return true;
-                }),
+        const onDomainInserted = () => {
+            debouncedRebuildDomainLinks(
+                linksRef.current.internal ?? [],
+                linksRef.current.external ?? [],
+                suggestedInternalRef.current,
             );
             setDomainHiddenRowKeys(new Set());
         };
@@ -1838,8 +1858,11 @@ export default function ArticleLinksSidebar({
         ];
     }, [internal, external, excludedSuggestionLabels, articlePlainText, catalogVersion, anchorEditTick, mainDomainSuggestions.relationship, visibleMainDomainSuggestions]);
 
-    const suggestedInternalRef = useRef(suggestedInternal);
     suggestedInternalRef.current = suggestedInternal;
+
+    useEffect(() => {
+        debouncedRebuildDomainLinks(internal, external, suggestedInternal);
+    }, [internal, external, suggestedInternal, catalogVersion]);
 
     const suggestedExternal = useMemo(() => {
         const plain = articlePlainText.trim();
@@ -2335,26 +2358,32 @@ export default function ArticleLinksSidebar({
                 ) : null}
 
                 <LinkAssistantSection
-                    title={`${t('domain_link_widget_title')} (${domainLinks.length})`}
+                    title={`Link list domain (${domainLinks.length})`}
                     count={domainLinks.length}
                     collapsed={domainLinksCollapsed}
                     onToggle={() => setDomainLinksCollapsed((value) => !value)}
                     sectionKey="links"
                 >
-                    <p className="wp-article-links-hint">{t('domain_link_widget_hint')}</p>
-                    <DomainInsertableList
-                        items={domainLinks}
-                        variant="domain-link"
-                        activeKey={domainLinkActiveKey}
-                        hiddenRowKeys={domainHiddenRowKeys}
-                        emptyText={
-                            domainLinkCatalogCount > 0
-                                ? t('domain_link_widget_empty_in_article')
-                                : t('domain_link_widget_empty')
-                        }
-                        onKeywordClick={(item, _index, itemKey) => scrollToDomainItem(item, itemKey, 'domain-link')}
-                        onInsert={insertDomainLink}
-                    />
+                    <div className="wp-article-links-group">
+                        <h3 className="wp-article-links-group__title">
+                            {t('domain_link_list_title', { count: domainLinks.length })}
+                        </h3>
+                        <p className="wp-article-links-hint">{t('domain_link_widget_hint')}</p>
+                        <DomainInsertableList
+                            items={domainLinks}
+                            variant="domain-link"
+                            activeKey={domainLinkActiveKey}
+                            hiddenRowKeys={domainHiddenRowKeys}
+                            emptyText={
+                                domainLinkCatalogCount > 0
+                                    ? t('domain_link_widget_empty_in_article')
+                                    : t('domain_link_widget_empty')
+                            }
+                            onKeywordClick={(item, _index, itemKey) => scrollToDomainItem(item, itemKey, 'domain-link')}
+                            onInsert={insertDomainLink}
+                            onCopyKeyword={copyKeyword}
+                        />
+                    </div>
                 </LinkAssistantSection>
                     </>
                 ) : null}

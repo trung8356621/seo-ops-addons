@@ -13,13 +13,9 @@ final class KeywordOperationalTagUiTest extends TestCase
     public function test_default_table_shows_phrase_tag_cluster_articles_links(): void
     {
         $resource = $this->keywordResourceSource();
-        self::assertStringContainsString("ViewColumn::make('phrase')", $resource);
-        self::assertStringContainsString("ViewColumn::make('operational_tags')", $resource);
-        self::assertStringContainsString('keyword-operational-tags', $resource);
-        self::assertStringContainsString("TextColumn::make('cluster_label')", $resource);
-        self::assertStringContainsString("getUrl('cluster'", $resource);
-        self::assertStringNotContainsString('buildChildrenFilterUrl($parentId)', $resource);
-        self::assertStringContainsString("TextColumn::make('linked_articles_count')", $resource);
+        self::assertStringContainsString("ViewColumn::make('keyword_item')", $resource);
+        self::assertStringContainsString('keyword-item', $resource);
+        self::assertStringNotContainsString("ViewColumn::make('operational_tags')", $resource);
         self::assertStringNotContainsString("TextColumn::make('site_links_count')", $resource);
     }
 
@@ -50,6 +46,10 @@ final class KeywordOperationalTagUiTest extends TestCase
         self::assertStringContainsString('advanced_classification', $resource);
         self::assertStringContainsString("Filter::make('seo_intent')", $resource);
         self::assertStringContainsString("Filter::make('source_kind')", $resource);
+        self::assertStringContainsString('KeywordRuleClassifier::intentFilterOptions()', $resource);
+        self::assertStringContainsString('KeywordSourceNormalizer::filterOptions()', $resource);
+        self::assertStringContainsString('KeywordRuleClassifier::intentLabel', $resource);
+        self::assertStringContainsString('KeywordSourceNormalizer::label', $resource);
         self::assertTrue(strpos($resource, "Filter::make('operational_tags')") < strpos($resource, "Filter::make('keyword_type')"));
     }
 
@@ -58,7 +58,20 @@ final class KeywordOperationalTagUiTest extends TestCase
         self::assertSame(['normal', 'suggest', 'free'], Keyword::allowedTypes());
         $resource = $this->keywordResourceSource();
         self::assertStringContainsString("return \$query->whereIn('type', \$types);", $resource);
-        self::assertStringContainsString('Keyword::allowedTypes()', $resource);
+        self::assertStringContainsString('keywordTypeFilterOptions()', $resource);
+        self::assertStringNotContainsString('TYPE_SUGGEST', $this->methodSource($resource, 'keywordTypeFilterOptions'));
+    }
+
+    /**
+     * @return string
+     */
+    private function methodSource(string $file, string $method): string
+    {
+        if (! preg_match('/function '.$method.'\([^{]*\{([\s\S]*?)\n    \}/', $file, $m)) {
+            self::fail("method {$method} not found");
+        }
+
+        return $m[1];
     }
 
     public function test_keyword_model_still_defines_classification_relation(): void
@@ -72,6 +85,7 @@ final class KeywordOperationalTagUiTest extends TestCase
         self::assertStringNotContainsString('filterTagsAction', $list);
         self::assertStringNotContainsString('manage_tags', $list);
         self::assertStringContainsString('getClassificationSummary', $list);
+        self::assertStringContainsString('InteractsWithKeywordItemActions', $list);
     }
 
     public function test_drawer_starts_with_operational_tags(): void
@@ -89,10 +103,10 @@ final class KeywordOperationalTagUiTest extends TestCase
     public function test_tag_column_uses_semantic_badges(): void
     {
         $cell = (string) file_get_contents(LegacyAddonPath::resolve(
-            'resources/views/filament/tables/columns/keyword-operational-tags.blade.php',
+            'resources/views/filament/resources/keywords/pages/partials/keyword-item.blade.php',
         ));
-        self::assertStringContainsString('displayTags', $cell);
-        self::assertStringContainsString('KeywordTagResolver', $cell);
+        self::assertStringContainsString('keyword-item__semantic', $cell);
+        self::assertStringContainsString('KeywordItemPresenter', $cell);
     }
 
     private function keywordResourceSource(): string

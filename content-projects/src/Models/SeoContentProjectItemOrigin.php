@@ -13,6 +13,8 @@ class SeoContentProjectItemOrigin extends Model
 
     public const SOURCE_AI_NEW_CONTENT = 'ai_new_content';
 
+    public const SOURCE_VOCABULARY_SUGGEST = 'vocabulary_suggest';
+
     public const SOURCE_MANUAL = 'manual';
 
     public $timestamps = false;

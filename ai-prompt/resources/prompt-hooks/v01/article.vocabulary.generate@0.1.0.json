@@ -28,12 +28,26 @@
   "input_schema": {
     "post_title": {
       "type": "string",
+      "required": true,
+      "nullable": false,
+      "max_length": 500,
+      "allowed_source": ["runtime", "task", "article"]
+    },
+    "outline": {
+      "type": "string",
+      "required": true,
+      "nullable": false,
+      "max_length": 50000,
+      "allowed_source": ["runtime", "previous_outputs"]
+    },
+    "keyword": {
+      "type": "string",
       "required": false,
       "nullable": true,
       "max_length": 500,
-      "allowed_source": ["runtime", "task", "previous_outputs"]
+      "allowed_source": ["runtime", "task"]
     },
-    "keyword": {
+    "focus_keyword": {
       "type": "string",
       "required": false,
       "nullable": true,
@@ -108,14 +122,16 @@
   },
 
   "presentation": {
-    "description": "Generate semantic vocabulary from article topic/keyword — not outline summarization.",
+    "description": "Generate semantic vocabulary from article title + outline — not outline summarization.",
     "default_instructions": [],
     "output_format": [
       "Vocabulary only — wrapped in [START_TASK_2_VOCABULARY] / [END_TASK_2_VOCABULARY]."
     ],
     "variables": [
-      { "key": "post_title", "required": false },
+      { "key": "post_title", "required": true },
+      { "key": "outline", "required": true },
       { "key": "keyword", "required": false },
+      { "key": "focus_keyword", "required": false },
       { "key": "topic", "required": false },
       { "key": "site_description", "required": false },
       { "key": "tone", "required": false },
@@ -145,7 +161,7 @@
   "metadata": {
     "prompt_concern": "semantic vocabulary only",
     "workflow_concern": "split outline step — call 2",
-    "require_any_of": [["post_title", "keyword"]]
+    "required_inputs": ["post_title", "outline"]
   },
 
   "side_effects": []

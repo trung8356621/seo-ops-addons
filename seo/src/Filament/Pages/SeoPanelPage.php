@@ -17,6 +17,6 @@ abstract class SeoPanelPage extends Page
 
     public static function getNavigationGroup(): ?string
     {
-        return null;
+        return static::$navigationGroup;
     }
 }

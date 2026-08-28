@@ -40,12 +40,13 @@ final class SaveKeywordVocabularyAction implements BusinessAction
                 'prompt_result_id' => ['type' => 'integer', 'required' => false],
                 'project_id' => ['type' => 'integer', 'required' => false],
                 'project_task_id' => ['type' => 'integer', 'required' => false],
+                'project_run_id' => ['type' => 'integer', 'required' => false],
                 'workflow_node_id' => ['type' => 'string', 'required' => false],
             ],
             outputSchema: [
                 'article_id' => ['type' => 'integer'],
-                'parent_id' => ['type' => 'integer'],
-                'children_count' => ['type' => 'integer'],
+                'focus_keyword_id' => ['type' => 'integer'],
+                'vocabulary_count' => ['type' => 'integer'],
                 'ki_feedback' => ['type' => 'object'],
             ],
             emittedEvents: ['keyword.vocabulary_saved'],
@@ -71,18 +72,19 @@ final class SaveKeywordVocabularyAction implements BusinessAction
             'prompt_result_id' => isset($input['prompt_result_id']) ? (int) $input['prompt_result_id'] : null,
             'project_id' => isset($input['project_id']) ? (int) $input['project_id'] : null,
             'project_task_id' => isset($input['project_task_id']) ? (int) $input['project_task_id'] : null,
+            'project_run_id' => isset($input['project_run_id']) ? (int) $input['project_run_id'] : null,
             'workflow_node_id' => isset($input['workflow_node_id']) ? trim((string) $input['workflow_node_id']) : null,
         ], static fn (mixed $v): bool => $v !== null && $v !== '' && $v !== 0);
 
         try {
-            // Persist vocabulary + topic cluster first; Related Topics KI feedback runs after commit.
             $sync = DB::connection('omi_seo_ai')->transaction(function () use ($article, $groups, $focus) {
+                // Canonical Vocabulary Research payload (article-scoped business meta).
                 $article->articleMetas()->updateOrCreate(
                     ['meta_key' => 'seo_article_keywords'],
                     ['meta_value' => json_encode($groups, JSON_UNESCAPED_UNICODE)],
                 );
 
-                return $this->keywordResearch->syncTopicCluster(
+                return $this->keywordResearch->syncVocabularyKeywords(
                     $article,
                     $groups,
                     $focus,
@@ -95,7 +97,6 @@ final class SaveKeywordVocabularyAction implements BusinessAction
             return ActionResult::failure('vocabulary_save_failed', $exception->getMessage());
         }
 
-        $relatedTopics = is_array($sync['related_topics'] ?? null) ? $sync['related_topics'] : [];
         $kiFeedback = [
             'discovered' => 0,
             'ingested' => 0,
@@ -107,19 +108,16 @@ final class SaveKeywordVocabularyAction implements BusinessAction
             'errors' => [],
         ];
 
-        if ($relatedTopics !== []) {
-            try {
-                $kiFeedback = $this->keywordResearch->ingestRelatedTopicsSafe($article, $relatedTopics, $provenance);
-            } catch (Throwable $exception) {
-                // Vocabulary already saved — secondary KI enrichment must not destroy workflow success.
-                RuntimeLogger::error('vocabulary.ki_feedback_failed', [
-                    'article_id' => $articleId,
-                    'message' => $exception->getMessage(),
-                ]);
-                $kiFeedback['errors'][] = mb_substr($exception->getMessage(), 0, 160);
-                $kiFeedback['discovered'] = count($relatedTopics);
-                $kiFeedback['filtered'] = count($relatedTopics);
-            }
+        // Suggest reads keywords business table via KI ingestion — never Prompt History.
+        try {
+            $kiFeedback = $this->keywordResearch->ingestVocabularySuggestGroupsSafe($article, $groups, $provenance);
+        } catch (Throwable $exception) {
+            RuntimeLogger::error('vocabulary.ki_feedback_failed', [
+                'article_id' => $articleId,
+                'message' => $exception->getMessage(),
+            ]);
+            $kiFeedback['errors'][] = mb_substr($exception->getMessage(), 0, 160);
+            $kiFeedback['discovered'] = 0;
         }
 
         $suggestCount = (int) (($kiFeedback['ingested'] ?? 0) + ($kiFeedback['duplicates'] ?? 0));
@@ -127,16 +125,16 @@ final class SaveKeywordVocabularyAction implements BusinessAction
         return ActionResult::success(
             output: [
                 'article_id' => $articleId,
-                'parent_id' => (int) ($sync['parent_id'] ?? 0),
-                'parent_phrase' => (string) ($sync['parent_phrase'] ?? ''),
-                'children_count' => (int) ($sync['children_count'] ?? 0),
+                'focus_keyword_id' => (int) ($sync['focus_keyword_id'] ?? 0),
+                'focus_phrase' => (string) ($sync['focus_phrase'] ?? ''),
+                'vocabulary_count' => (int) ($sync['vocabulary_count'] ?? 0),
                 'suggest_count' => $suggestCount,
                 'tags_count' => (int) ($sync['tags_count'] ?? 0),
                 'ki_feedback' => $kiFeedback,
             ],
             events: [
                 ActionSupport::articleEvent('keyword.vocabulary_saved', $context, $articleId, [
-                    'parent_id' => (int) ($sync['parent_id'] ?? 0),
+                    'focus_keyword_id' => (int) ($sync['focus_keyword_id'] ?? 0),
                     'ki_ingested' => (int) ($kiFeedback['ingested'] ?? 0),
                 ]),
             ],

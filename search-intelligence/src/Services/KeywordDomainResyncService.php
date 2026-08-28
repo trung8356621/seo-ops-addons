@@ -118,7 +118,6 @@ final class KeywordDomainResyncService
                     'mainArticles as main_articles_on_site_count' => static fn ($query) => $query->where('articles.site_id', $siteId),
                     'linkMaps as inbound_link_maps_on_site_count' => static fn ($query) => $query
                         ->whereHas('sourceArticle', static fn ($articleQuery) => $articleQuery->where('site_id', $siteId)),
-                    'children',
                 ])
                 ->orderBy('id')
                 ->chunkById(200, function ($keywords) use ($siteId, &$deleted, &$kept): void {
@@ -196,10 +195,6 @@ final class KeywordDomainResyncService
 
     public function deleteKeywordRecord(Keyword $keyword): void
     {
-        Keyword::query()
-            ->where('parent_id', $keyword->id)
-            ->update(['parent_id' => null]);
-
         SeoLinkMap::query()->where('keyword_id', $keyword->id)->delete();
         $this->metaRepository->deleteAllForKeyword((int) $keyword->id);
         $keyword->delete();
@@ -214,10 +209,6 @@ final class KeywordDomainResyncService
         if (KeywordFocusAttach::isFocusKeywordForSite($keyword, $siteId)
             || KeywordFocusAttach::phraseMatchesFocusOnSite($keyword, $siteId)) {
             return false;
-        }
-
-        if ((int) ($keyword->children_count ?? 0) > 0) {
-            return true;
         }
 
         if ((int) ($keyword->inbound_link_maps_on_site_count ?? 0) > 0) {

@@ -7,14 +7,14 @@ namespace Omnichannel\Addons\Seo\Filament\Concerns;
 use Filament\Facades\Filament;
 
 /**
- * Automation product UI lives on the SEO panel (/seo/{hash}/...), not /admin.
- * /admin is the local client shell (users, sites, SEO DB connections).
+ * Automation product UI lives on /admin/automation/*.
+ * Legacy /seo/.../automation/* mounts redirect here.
  */
 trait BelongsToAdminAutomationPanel
 {
     public static function getNavigationGroup(): ?string
     {
-        if (Filament::getCurrentPanel()?->getId() !== 'seo') {
+        if (Filament::getCurrentPanel()?->getId() !== 'admin') {
             return null;
         }
 
@@ -27,21 +27,22 @@ trait BelongsToAdminAutomationPanel
     }
 
     /**
-     * Shown in the SEO sidebar. Never registered into /admin.
-     * Match Filament Page/Resource signature (no params).
+     * Shown only in the /admin sidebar.
      */
     public static function shouldRegisterNavigation(): bool
     {
-        return Filament::getCurrentPanel()?->getId() === 'seo';
+        return Filament::getCurrentPanel()?->getId() === 'admin';
     }
 
     public static function adminPanelId(): string
     {
-        return 'seo';
+        return 'admin';
     }
 
     public static function isSeoPanelRequest(): bool
     {
-        return Filament::getCurrentPanel()?->getId() === 'seo';
+        $panelId = Filament::getCurrentPanel()?->getId();
+
+        return in_array($panelId, ['seo', 'seo-main'], true);
     }
 }

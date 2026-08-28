@@ -29,13 +29,13 @@ final class ProductGalleryCanaryPage extends Page implements HasForms
 
     protected static ?string $navigationIcon = 'heroicon-o-beaker';
 
-    protected static ?string $navigationGroup = null;
+    protected static ?string $navigationGroup = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::GROUP_SYSTEM;
 
     protected static ?string $navigationLabel = 'PG Canary';
 
     protected static ?string $title = 'Product Gallery Canary';
 
-    protected static ?int $navigationSort = 17;
+    protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_SYSTEM + 1;
 
     protected static string $view = 'seo-content-ai::filament.pages.product-gallery-canary';
 

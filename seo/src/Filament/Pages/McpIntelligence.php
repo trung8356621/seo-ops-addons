@@ -44,11 +44,13 @@ final class McpIntelligence extends SeoPanelPage
 
     protected static ?string $navigationGroup = null;
 
-    protected static ?int $navigationSort = 4;
+    protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_SEO + 1;
 
     protected static ?string $slug = 'mcp-intelligence';
 
     protected static string $view = 'seo-content-ai::filament.pages.mcp-intelligence';
+
+    protected static bool $shouldRegisterNavigation = false;
 
     #[Url(as: 'site')]
     public ?int $siteId = null;
@@ -79,7 +81,8 @@ final class McpIntelligence extends SeoPanelPage
 
     public static function shouldRegisterNavigation(array $parameters = []): bool
     {
-        return SeoAccessControl::canAccessPlannerFeatures();
+        // Nested under SEO module via SeoPerformanceHub::getNavigationItems().
+        return false;
     }
 
     public static function getNavigationLabel(): string

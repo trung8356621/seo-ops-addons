@@ -42,6 +42,35 @@ final class KeywordSourceNormalizer
         ];
     }
 
+    public static function label(string $source): string
+    {
+        return match ($source) {
+            self::MANUAL => __('seo-content-ai::filament.keyword.source_manual'),
+            self::SITE_SYNC => __('seo-content-ai::filament.keyword.source_site_sync'),
+            self::ANCHOR_TEXT => __('seo-content-ai::filament.keyword.source_anchor_text'),
+            self::SEARCH_CONSOLE => __('seo-content-ai::filament.keyword.source_search_console'),
+            self::KEYWORD_DISCOVERY => __('seo-content-ai::filament.keyword.source_keyword_discovery'),
+            self::CONTENT_PROJECT => __('seo-content-ai::filament.keyword.source_content_project'),
+            self::IMPORT => __('seo-content-ai::filament.keyword.source_import'),
+            self::AI_GENERATED => __('seo-content-ai::filament.keyword.source_ai_generated'),
+            self::OTHER => __('seo-content-ai::filament.keyword.source_other'),
+            default => $source,
+        };
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public static function filterOptions(): array
+    {
+        $options = [];
+        foreach (self::all() as $source) {
+            $options[$source] = self::label($source);
+        }
+
+        return $options;
+    }
+
     public function normalize(?string $raw): string
     {
         $value = mb_strtolower(trim((string) $raw));

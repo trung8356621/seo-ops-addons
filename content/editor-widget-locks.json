@@ -134,7 +134,7 @@
     },
     "reviews": {
       "label": "Reviews",
-      "locked": true,
+      "locked": false,
       "note": "Stable Reviews sidebar widget (product posts). Unlock only this id before intentional Reviews changes.",
       "paths": [
         {
@@ -169,7 +169,7 @@
     },
     "links": {
       "label": "Links",
-      "locked": true,
+      "locked": false,
       "note": "Stable Links sidebar widget. Unlock only this id before intentional Links changes.",
       "paths": [
         {
