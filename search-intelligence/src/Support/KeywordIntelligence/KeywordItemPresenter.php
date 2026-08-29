@@ -79,6 +79,13 @@ final class KeywordItemPresenter
         $isHidden = $this->hideService->isHidden($keywordId);
         $isMcpSkipped = $this->mcpSkipService->isSkipped($keywordId);
         $groupedTags = $this->groupedTags($keyword);
+        if ($isHidden) {
+            array_unshift($groupedTags['planning'], [
+                'code' => 'seo_hidden',
+                'label' => __('seo-content-ai::filament.keyword.keyword_item_tag_seo_excluded'),
+                'badge_class' => 'keyword-item-tag keyword-item-tag--planning',
+            ]);
+        }
         if ($isMcpSkipped) {
             array_unshift($groupedTags['planning'], [
                 'code' => 'mcp_excluded',

@@ -322,11 +322,14 @@ final class ViewSeoProject extends Page
             return null;
         }
 
-        return implode(' · ', [
-            (string) ($project->site?->domain ?? '—'),
+        $parts = [
             (string) ($project->user?->name ?? '—'),
-            (string) ($project->month?->format('m/Y') ?? '—'),
-        ]);
+        ];
+        if (! $project->isDraftPlanning()) {
+            $parts[] = (string) ($project->month?->format('m/Y') ?? '—');
+        }
+
+        return implode(' · ', $parts);
     }
 
     /**

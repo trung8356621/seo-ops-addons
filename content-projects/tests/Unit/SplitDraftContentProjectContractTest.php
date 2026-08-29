@@ -61,8 +61,11 @@ final class SplitDraftContentProjectContractTest extends TestCase
 
         self::assertSame('project.not_draft', ContentProjectActionCodes::PROJECT_NOT_DRAFT);
         self::assertSame('draft.split', ContentProjectActionCodes::DRAFT_SPLIT);
-        self::assertSame(30, ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS);
         self::assertSame(30, ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS);
+        self::assertSame(
+            ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS,
+            ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS,
+        );
     }
 
     public function test_service_moves_same_task_ids_reviewed_only_and_real_writer(): void
@@ -82,8 +85,12 @@ final class SplitDraftContentProjectContractTest extends TestCase
         self::assertStringContainsString('planAllocations', $src);
         self::assertStringContainsString('ContentProjectWriterAllocator', $src);
         self::assertStringContainsString('nextExecutionProjectName', $src);
-        self::assertStringContainsString('MAX_WRITER_MONTHLY_ITEMS', $src);
+        self::assertStringContainsString('MAX_EXECUTION_PROJECT_ITEMS', $src);
+        self::assertStringContainsString('ContentProjectExecutionPackingService', $src);
+        self::assertStringContainsString('planPack', $src);
         self::assertStringContainsString("'user_id' => \$writerId", $src);
+        self::assertStringContainsString("->where('user_id', \$userId)", $src);
+        self::assertStringContainsString('reservedNamesByWriter', $src);
         self::assertStringContainsString('defaultNameFromMonth', $src);
         self::assertStringContainsString('SeoContentProjectItemOrigin', $src);
         self::assertStringContainsString('orderBy(\'id\')', $src);
@@ -91,7 +98,8 @@ final class SplitDraftContentProjectContractTest extends TestCase
         self::assertStringContainsString('forceFill([', $src);
         self::assertStringContainsString('normalizeUserIds', $src);
         self::assertStringNotContainsString('SeoOpsSystemUser::id()', $src);
-        self::assertStringNotContainsString('chunkByMaxItems', $src);
+        self::assertStringNotContainsString('insufficient_slots', $src);
+        self::assertStringNotContainsString('remainingByUserId', $src);
         self::assertStringNotContainsString('partitionEvenly', $src);
         self::assertStringNotContainsString('normalizeSplitMonths', $src);
         self::assertStringNotContainsString('splitMonths', $src);
@@ -102,15 +110,14 @@ final class SplitDraftContentProjectContractTest extends TestCase
         self::assertStringNotContainsString('auth()->id()', $src);
     }
 
-    public function test_allocator_is_deterministic_and_respects_capacity(): void
+    public function test_allocator_fair_distributes_deterministically(): void
     {
         $result = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectWriterAllocator::allocate(
             range(1, 62),
             [1, 2, 3],
-            [1 => 30, 2 => 30, 3 => 30],
         );
 
-        self::assertSame([30, 30, 2], array_column($result['allocations'], 'item_count'));
+        self::assertSame([21, 21, 20], array_column($result['allocations'], 'item_count'));
         self::assertSame(0, $result['unallocated_count']);
     }
 
@@ -125,7 +132,8 @@ final class SplitDraftContentProjectContractTest extends TestCase
         self::assertStringContainsString('PROJECT_NOT_DRAFT', $src);
         self::assertStringContainsString('dryRun', $src);
         self::assertStringContainsString('assigneeIds', $src);
-        self::assertStringContainsString('insufficient_slots', $src);
+        self::assertStringContainsString('draft_split_no_writers', $src);
+        self::assertStringNotContainsString('insufficient_slots', $src);
         self::assertStringNotContainsString('splitMonths', $src);
     }
 
@@ -179,19 +187,29 @@ final class SplitDraftContentProjectContractTest extends TestCase
         self::assertStringContainsString('draft_split_first_n', $draftPlanner);
         self::assertStringContainsString('draft_split_all', $draftPlanner);
         self::assertStringContainsString('draft_split_eligible', $draftPlanner);
-        self::assertStringContainsString('draft_split_preview_heading', $draftPlanner);
         self::assertStringContainsString('draft_split_writers_heading', $draftPlanner);
+        self::assertStringContainsString('draft_split_existing', $draftPlanner);
+        self::assertStringContainsString('draft_split_new', $draftPlanner);
+        self::assertStringContainsString('draft_split_result', $draftPlanner);
+        self::assertStringContainsString('draft_split_projects_hint', $draftPlanner);
+        self::assertStringContainsString("\$writer['project_count']", $draftPlanner);
+        self::assertStringNotContainsString('draft_split_insufficient', $draftPlanner);
+        self::assertStringNotContainsString('draft_split_full', $draftPlanner);
         self::assertStringContainsString('wire:model.live.debounce.300ms="draftSplitQuantity"', $draftPlanner);
-        self::assertStringContainsString('wire:model.live="draftSplitWriterIds"', $draftPlanner);
-        self::assertStringContainsString('data-split-preview', $draftPlanner);
-        self::assertStringContainsString('data-split-preview-loading', $draftPlanner);
+        self::assertStringContainsString('excludeDraftSplitWriter', $draftPlanner);
+        self::assertStringContainsString('includeDraftSplitWriter', $draftPlanner);
         self::assertStringContainsString('data-split-writers', $draftPlanner);
+        self::assertStringContainsString('data-split-writer-included', $draftPlanner);
+        self::assertStringContainsString('data-split-excluded', $draftPlanner);
         self::assertStringContainsString('cp-draft-split-layout', $draftPlanner);
-        self::assertStringContainsString('wire:target="draftSplitQuantity,draftSplitMode,draftSplitWriterIds"', $draftPlanner);
-        self::assertStringContainsString('draft_split_preview_loading', $draftPlanner);
-        self::assertStringContainsString('cp-draft-split-preview', $draftPlanner);
+        self::assertStringContainsString('wire:target="draftSplitQuantity,draftSplitMode,excludeDraftSplitWriter,includeDraftSplitWriter"', $draftPlanner);
         self::assertStringContainsString('cp-ops-dialog--split', $draftPlanner);
-        self::assertStringContainsString("\$row['user_name']", $draftPlanner);
+        self::assertStringContainsString("\$writer['new_allocation']", $draftPlanner);
+        self::assertStringNotContainsString('draftSplitWriterIds', $draftPlanner);
+        self::assertStringNotContainsString('data-split-preview', $draftPlanner);
+        self::assertStringNotContainsString('cp-draft-split-preview', $draftPlanner);
+        self::assertStringNotContainsString('draft_split_preview_heading', $draftPlanner);
+        self::assertStringNotContainsString('type="checkbox"', $draftPlanner);
         self::assertStringNotContainsString("\$row['project_name']", $draftPlanner);
         self::assertStringNotContainsString('z-[70]', $draftPlanner);
         self::assertStringNotContainsString('data-split-field="month"', $draftPlanner);
@@ -210,22 +228,65 @@ final class SplitDraftContentProjectContractTest extends TestCase
         $opsStyles = LegacyAddonPath::read('resources/views/components/content-project-ops-styles.blade.php');
         self::assertStringContainsString('.cp-ops-dialog-overlay', $opsStyles);
         self::assertStringContainsString('z-index: 200', $opsStyles);
-        self::assertStringContainsString('.cp-draft-split-preview', $opsStyles);
         self::assertStringContainsString('.cp-draft-split-layout', $opsStyles);
+        self::assertStringContainsString('.cp-draft-split-writer-row', $opsStyles);
+        self::assertStringContainsString('.cp-draft-split-metric--new', $opsStyles);
+        self::assertStringNotContainsString('.cp-draft-split-preview', $opsStyles);
 
         self::assertStringContainsString('draft_empty_title', $ops);
         self::assertStringContainsString('project_no_assignee_badge', $ops);
         self::assertStringContainsString('openDraftSplitModal', $trait);
         self::assertStringContainsString('activateAllDraftItems', $trait);
-        self::assertStringContainsString('draftSplitWriterIds = []', $trait);
-        self::assertStringContainsString('MAX_WRITER_MONTHLY_ITEMS', $trait);
+        self::assertStringContainsString('draftSplitIncludedUserIds', $trait);
+        self::assertStringContainsString('defaultEligibleIncludedUserIds', $trait);
+        self::assertStringContainsString('excludeDraftSplitWriter', $trait);
+        self::assertStringContainsString('includeDraftSplitWriter', $trait);
+        self::assertStringContainsString('MAX_EXECUTION_PROJECT_ITEMS', $trait);
         self::assertStringContainsString('currentReviewedDraftItemCount', $trait);
         self::assertStringContainsString('assigneeIds:', $trait);
+        self::assertStringContainsString('new_allocation', $trait);
+        self::assertStringContainsString('resulting', $trait);
+        self::assertStringContainsString('project_count', $trait);
+        self::assertStringNotContainsString('draftSplitWriterIds', $trait);
+        self::assertStringNotContainsString('full_writers', $trait);
+        self::assertStringNotContainsString('insufficient_slots', $trait);
+        self::assertStringNotContainsString("'preview' =>", $trait);
         self::assertStringNotContainsString('draftSplitMonths', $trait);
         self::assertStringNotContainsString('public string $draftSplitMonth', $trait);
         self::assertStringNotContainsString('public string $draftSplitName', $trait);
         self::assertStringNotContainsString('auth()->id() fallback', $trait);
         self::assertStringContainsString('MODE_ALL', $trait);
+    }
+
+    public function test_included_assignee_state_defaults_and_survives_quantity_updates(): void
+    {
+        $trait = (string) file_get_contents(
+            dirname(__DIR__, 2).'/src/Filament/Resources/SeoProjectResource/Concerns/InteractsWithDraftSplit.php',
+        );
+
+        self::assertStringContainsString('draftSplitIncludedUserIds = $this->defaultEligibleIncludedUserIds()', $trait);
+        self::assertStringContainsString('function excludeDraftSplitWriter', $trait);
+        self::assertStringContainsString('function includeDraftSplitWriter', $trait);
+        self::assertStringContainsString('function orderedIncludedUserIds', $trait);
+        self::assertMatchesRegularExpression(
+            '/function updatedDraftSplitQuantity\(\): void\s*\{\s*\$this->clampDraftSplitInputs\(\);\s*\}/s',
+            $trait,
+        );
+        self::assertMatchesRegularExpression(
+            '/function updatedDraftSplitMode\(\): void\s*\{\s*\$this->clampDraftSplitInputs\(\);\s*\}/s',
+            $trait,
+        );
+        self::assertStringContainsString("'new_allocation' => \$newAllocation", $trait);
+        self::assertStringContainsString("'resulting' => \$current + \$newAllocation", $trait);
+        self::assertStringContainsString("'project_count' => \$projectCount", $trait);
+        self::assertStringContainsString('included_writers', $trait);
+        self::assertStringContainsString('excluded_writers', $trait);
+        self::assertStringNotContainsString('full_writers', $trait);
+        self::assertSame(
+            1,
+            substr_count($trait, '$this->defaultEligibleIncludedUserIds()'),
+            'defaultEligibleIncludedUserIds() must only be invoked on modal open/reset',
+        );
     }
 
     public function test_generation_gate_blocks_missing_assignee(): void

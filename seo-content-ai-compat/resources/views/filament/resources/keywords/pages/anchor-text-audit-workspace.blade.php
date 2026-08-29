@@ -43,13 +43,11 @@
             </div>
         </div>
 
-        <div class="link-triage-table-shell overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-white/10 dark:bg-gray-900/40">
-            <div wire:loading.flex wire:target="setTriageFilter,keywordWorkspaceSiteId" class="link-triage-loading-overlay">
-                @for ($i = 0; $i < 6; $i++)
-                    <div class="link-triage-skeleton-row animate-pulse"></div>
-                @endfor
-            </div>
-
+        <x-seo-content-ai::list-table-loading-shell
+            class="link-triage-table-shell overflow-hidden rounded-xl border border-gray-200 bg-white shadow-sm dark:border-white/10 dark:bg-gray-900/40"
+            preset="livewire-page"
+            targets="setTriageFilter,triageFilter,keywordLanguageFilter,updatedKeywordLanguageFilter,keywordWorkspaceSiteId,onKeywordWorkspaceSiteFilterChanged"
+        >
             @if ($paginator->isEmpty())
                 <div class="px-6 py-14 text-center">
                     <p class="text-sm text-gray-500 dark:text-gray-400">
@@ -83,7 +81,7 @@
                     </div>
                 @endif
             @endif
-        </div>
+        </x-seo-content-ai::list-table-loading-shell>
     </div>
     </div>
 

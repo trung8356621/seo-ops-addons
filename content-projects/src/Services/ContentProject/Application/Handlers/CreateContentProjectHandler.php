@@ -85,15 +85,16 @@ final class CreateContentProjectHandler extends AbstractPublishingHandler
                 }
                 $kind = SeoProject::KIND_MONTHLY;
 
-                // Product invariant: one reusable Planning Draft per site.
-                $existing = $this->planningDrafts->findPlanningDraftForSite($siteId);
+                // Shared Planning Draft pool (not per-domain).
+                $existing = $this->planningDrafts->findCanonicalSharedDraft()
+                    ?? ($siteId > 0 ? $this->planningDrafts->findPlanningDraftForSite($siteId) : null);
                 if ($existing instanceof SeoProject) {
                     return ContentProjectActionResult::ok(
                         ContentProjectActionCodes::PROJECT_CREATED,
-                        'Planning Draft already exists for this domain.',
+                        'Planning Draft already exists.',
                         (int) $existing->getKey(),
                         metadata: [
-                            'site_id' => $siteId,
+                            'site_id' => (int) ($existing->site_id ?? 0),
                             'reused_existing_draft' => true,
                             'tasks_synced' => false,
                         ],
@@ -103,9 +104,11 @@ final class CreateContentProjectHandler extends AbstractPublishingHandler
 
             $project = DB::connection('omi_seo_ai')->transaction(function () use ($attrs, $siteId, $name, $userId, $totalTasks, $status, $kind, $month): SeoProject {
                 return SeoProject::query()->create([
-                    'name' => $name,
-                    'site_id' => $siteId,
-                    'month' => $month,
+                    'name' => $name !== '' ? $name : SeoProject::defaultDraftName(),
+                    'site_id' => $status === SeoProject::STATUS_DRAFT ? null : ($siteId > 0 ? $siteId : null),
+                    'month' => $status === SeoProject::STATUS_DRAFT
+                        ? SeoProject::draftCompatibilityMonth()
+                        : $month,
                     'status' => $status,
                     'kind' => $kind,
                     'user_id' => $userId,

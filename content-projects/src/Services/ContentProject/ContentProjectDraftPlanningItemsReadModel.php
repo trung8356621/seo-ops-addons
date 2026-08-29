@@ -47,6 +47,7 @@ final class ContentProjectDraftPlanningItemsReadModel
                 'itemOrigin',
                 'article.seoProfile',
                 'article.articleMetas' => static fn ($q) => $q->where('meta_key', 'wp_permalink'),
+                'site:id,domain',
             ])
             ->orderByDesc('updated_at')
             ->orderByDesc('id')
@@ -202,6 +203,8 @@ final class ContentProjectDraftPlanningItemsReadModel
         return [
             'id' => $taskId,
             'title' => $title,
+            'domain' => $this->resolveItemDomain($task),
+            'site_id' => (int) ($task->site_id ?? 0) ?: null,
             'description' => $description !== '' ? $description : null,
             'product_description' => $productDescription,
             'keyword' => $keyword !== '' ? $keyword : null,
@@ -263,6 +266,25 @@ final class ContentProjectDraftPlanningItemsReadModel
             SeoProjectTask::POST_TYPE_PRODUCT_CATEGORY => (string) __('seo-content-ai::filament.article_list.post_type_product_category'),
             default => $key !== '' ? ucfirst($key) : (string) __('seo-content-ai::filament.article_list.post_type_post'),
         };
+    }
+
+    private function resolveItemDomain(SeoProjectTask $task): string
+    {
+        $site = $task->relationLoaded('site') ? $task->site : null;
+        if ($site instanceof \App\Models\Site) {
+            $domain = trim((string) ($site->domain ?? ''));
+
+            return $domain !== '' ? $domain : '—';
+        }
+
+        $siteId = (int) ($task->site_id ?? 0);
+        if ($siteId <= 0) {
+            return '—';
+        }
+
+        $domain = trim((string) (\App\Models\Site::query()->whereKey($siteId)->value('domain') ?? ''));
+
+        return $domain !== '' ? $domain : '—';
     }
 
     private function resolveArticlePublicUrl(?SeoArticle $article): ?string

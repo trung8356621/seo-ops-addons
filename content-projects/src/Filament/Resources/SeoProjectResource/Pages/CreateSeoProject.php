@@ -90,7 +90,11 @@ class CreateSeoProject extends SeoCreateRecord
 
         if (! empty($data['month'])) {
             $data['month'] = Carbon::parse($data['month'])->startOfMonth()->format('Y-m-d');
-            $data['name'] = SeoProject::defaultNameFromMonth($data['month']);
+            $writerId = (int) ($data['user_id'] ?? 0);
+            $data['name'] = $writerId > 0
+                ? app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\SplitDraftContentProjectService::class)
+                    ->nextExecutionProjectName($writerId, $data['month'])
+                : SeoProject::defaultNameFromMonth($data['month']);
         }
 
         $month = (string) ($data['month'] ?? '');

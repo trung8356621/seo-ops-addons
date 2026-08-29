@@ -83,11 +83,10 @@ final class SplitDraftContentProjectHandler extends AbstractPublishingHandler
                 );
             }
 
-            $shortfall = (int) ($preview['insufficient_slots'] ?? 0);
-            if ($shortfall > 0) {
+            if ($command->assigneeIds === [] && $assigneeIds === []) {
                 return ContentProjectActionResult::fail(
                     ContentProjectActionCodes::VALIDATION_FAILED,
-                    (string) ($preview['insufficient_message'] ?? ''),
+                    (string) __('seo-content-ai::filament.projects.draft_split_no_writers'),
                     $projectId,
                 );
             }

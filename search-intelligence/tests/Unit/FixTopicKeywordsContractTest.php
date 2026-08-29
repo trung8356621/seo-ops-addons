@@ -60,6 +60,8 @@ final class FixTopicKeywordsContractTest extends TestCase
         self::assertStringContainsString('->setManualCanonical(', $detailSrc);
         self::assertStringContainsString('canEditClusterCanonical', $detailSrc);
         self::assertStringContainsString('refreshClusterSummaryCounters', $detailSrc);
+        self::assertStringContainsString('focusReconciler', $serviceSrc);
+        self::assertStringContainsString('containsCanonicalCoreForTopic', $serviceSrc);
         // No duplicated matching heuristic in the Livewire page.
         self::assertStringNotContainsString('containsCanonicalCore', $detailSrc);
         self::assertStringNotContainsString('matchesCanonical', $detailSrc);

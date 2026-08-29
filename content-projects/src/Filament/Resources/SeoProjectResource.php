@@ -33,6 +33,7 @@ use Omnichannel\Addons\ContentProjects\Services\SeoProjectTaskSyncService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectRunConsolidationService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectWorkflowRunService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemIdentity;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectListBucket;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\Seo\Support\SeoPanelRoutes;
 use Omnichannel\Addons\Seo\Support\SeoConnectionContext;
@@ -110,8 +111,12 @@ class SeoProjectResource extends SeoPanelResource
 
         $siteId = (int) ($record->site_id ?? 0);
 
-        // Authorization theo quyền site — không dùng global domain làm auth.
-        return $siteId > 0 && SeoAccessControl::canAccessSite($siteId);
+        // Draft pool is domain-neutral (null site_id). Other rows authorize by item/project site.
+        if ($siteId <= 0) {
+            return $record->isDraftPlanning();
+        }
+
+        return SeoAccessControl::canAccessSite($siteId);
     }
 
     public static function projectRecordUrl(SeoProject $record): string
@@ -279,9 +284,26 @@ class SeoProjectResource extends SeoPanelResource
                                     return (string) $record->name;
                                 }
 
-                                return $get('month')
-                                    ? SeoProject::defaultNameFromMonth($get('month'))
-                                    : __('seo-content-ai::filament.projects.project_name_placeholder');
+                                $month = $get('month');
+                                if (! $month) {
+                                    return __('seo-content-ai::filament.projects.project_name_placeholder');
+                                }
+
+                                $monthDate = \Carbon\Carbon::parse($month)->startOfMonth()->format('Y-m-d');
+                                if ($record instanceof SeoProject) {
+                                    $recordMonth = $record->month?->format('Y-m-d');
+                                    if ($recordMonth === $monthDate) {
+                                        return (string) $record->name;
+                                    }
+                                }
+
+                                $writerId = (int) ($get('user_id') ?? 0);
+                                if ($writerId > 0) {
+                                    return app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\SplitDraftContentProjectService::class)
+                                        ->nextExecutionProjectName($writerId, $monthDate);
+                                }
+
+                                return SeoProject::defaultNameFromMonth($monthDate);
                             },
                         )
                         ->columnSpanFull(),
@@ -340,32 +362,11 @@ class SeoProjectResource extends SeoPanelResource
                         ->default(false)
                         ->dehydrated(fn (?SeoProject $record): bool => $record === null),
 
-                    Forms\Components\Select::make('site_id')
-                        ->label(__('seo-content-ai::filament.projects.domain'))
-                        ->options(fn (): array => static::siteSelectOptions())
-                        ->default(fn (): ?int => SeoAccessControl::globalSiteId())
-                        ->searchable()
-                        ->preload()
-                        ->required()
-                        ->native(false)
-                        ->live()
-                        ->disabled(function (?SeoProject $record): bool {
-                            if (! $record instanceof SeoProject) {
-                                return false;
-                            }
-
-                            return $record->isArchive() || $record->hasLinkedOrGeneratedArticles();
-                        })
-                        ->helperText(function (?SeoProject $record): ?string {
-                            if ($record instanceof SeoProject && $record->hasLinkedOrGeneratedArticles()) {
-                                return (string) __('seo-content-ai::filament.projects.domain_locked_linked_articles');
-                            }
-
-                            return null;
-                        })
+                    // Project is domain-neutral — site/domain lives on items.
+                    Forms\Components\Hidden::make('site_id')
                         ->dehydrated()
-                        ->dehydrateStateUsing(fn (mixed $state): ?int => $state !== null && $state !== ''
-                            ? (int) $state
+                        ->dehydrateStateUsing(fn (mixed $state, ?SeoProject $record): ?int => $record instanceof SeoProject
+                            ? ((int) ($record->site_id ?? 0) ?: null)
                             : null),
 
                     Forms\Components\DatePicker::make('month')
@@ -382,7 +383,7 @@ class SeoProjectResource extends SeoPanelResource
                                 ? \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::toDateString($fromQuery)
                                 : now()->startOfMonth()->format('Y-m-d');
                         })
-                        ->required()
+                        ->required(fn (?SeoProject $record): bool => ! ($record instanceof SeoProject && $record->isDraftPlanning()))
                         ->live()
                         ->afterStateUpdated(function ($state, callable $set, Get $get): void {
                             if ($state === null || $state === '') {
@@ -420,8 +421,8 @@ class SeoProjectResource extends SeoPanelResource
                                 ]))
                                 ->send();
                         })
-                        ->visible(fn (?SeoProject $record): bool => ! ($record instanceof SeoProject && $record->isArchive()))
-                        ->dehydrated(fn (?SeoProject $record): bool => ! ($record instanceof SeoProject && $record->isArchive())),
+                        ->visible(fn (?SeoProject $record): bool => ! ($record instanceof SeoProject && ($record->isArchive() || $record->isDraftPlanning())))
+                        ->dehydrated(fn (?SeoProject $record): bool => ! ($record instanceof SeoProject && ($record->isArchive() || $record->isDraftPlanning()))),
 
                     Forms\Components\Hidden::make('status')
                         ->default(SeoProject::STATUS_MANUAL)
@@ -878,15 +879,17 @@ class SeoProjectResource extends SeoPanelResource
                     ->searchable()
                     ->getStateUsing(fn (SeoProject $record): string => \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectWriterAssignment::displayLabel($record)),
 
-                Tables\Columns\TextColumn::make('site.domain')
-                    ->label(__('seo-content-ai::filament.projects.domain'))
-                    ->sortable()
-                    ->searchable()
-                    ->placeholder('—'),
-
                 Tables\Columns\TextColumn::make('month')
                     ->label(__('seo-content-ai::filament.projects.month'))
-                    ->date('m/Y')
+                    ->formatStateUsing(function ($state, SeoProject $record): string {
+                        if ($record->isDraftPlanning()) {
+                            return '—';
+                        }
+
+                        return $state
+                            ? Carbon::parse((string) $state)->format('m/Y')
+                            : '—';
+                    })
                     ->sortable(),
 
                 Tables\Columns\TextColumn::make('active_tasks_count')
@@ -932,24 +935,8 @@ class SeoProjectResource extends SeoPanelResource
             ])
             ->defaultSort('month', 'desc')
             ->filters([
-                Tables\Filters\SelectFilter::make('status')
-                    ->label(__('seo-content-ai::filament.projects.status'))
-                    ->options(SeoProject::statusOptions()),
-
-                Tables\Filters\SelectFilter::make('user_id')
-                    ->label(__('seo-content-ai::filament.projects.writer'))
-                    ->options(fn (): array => static::userSelectOptions())
-                    ->searchable()
-                    ->preload()
-                    ->native(false),
-
-                Tables\Filters\SelectFilter::make('site_id')
-                    ->label(__('seo-content-ai::filament.projects.domain'))
-                    ->options(fn (): array => static::siteSelectOptions())
-                    ->searchable()
-                    ->preload()
-                    ->native(false),
-
+                // Month + project_type are applied in ListSeoProjects::getTableQuery
+                // (toolbar-driven buckets). Keep filter keys for URL/tableFilters sync only.
                 Tables\Filters\Filter::make('month')
                     ->form([
                         Forms\Components\DatePicker::make('month')
@@ -958,15 +945,27 @@ class SeoProjectResource extends SeoPanelResource
                             ->displayFormat('m/Y')
                             ->format('Y-m-d'),
                     ])
-                    ->query(function (Builder $query, array $data): Builder {
-                        if (empty($data['month'])) {
-                            return $query;
-                        }
+                    ->query(static fn (Builder $query): Builder => $query),
 
-                        $start = Carbon::parse($data['month'])->startOfMonth();
+                Tables\Filters\Filter::make('project_type')
+                    ->form([
+                        Forms\Components\Select::make('value')
+                            ->label(__('seo-content-ai::filament.projects.project_type'))
+                            ->options([
+                                ContentProjectListBucket::DRAFT => (string) __('seo-content-ai::filament.projects.project_type_draft'),
+                                ContentProjectListBucket::PROJECT => (string) __('seo-content-ai::filament.projects.project_type_project'),
+                                ContentProjectListBucket::ARCHIVED => (string) __('seo-content-ai::filament.projects.project_type_archived'),
+                            ])
+                            ->native(false),
+                    ])
+                    ->query(static fn (Builder $query): Builder => $query),
 
-                        return $query->whereDate('month', $start->format('Y-m-d'));
-                    }),
+                Tables\Filters\SelectFilter::make('user_id')
+                    ->label(__('seo-content-ai::filament.projects.writer'))
+                    ->options(fn (): array => static::userSelectOptions())
+                    ->searchable()
+                    ->preload()
+                    ->native(false),
             ])
             ->actions([
                 Tables\Actions\ActionGroup::make([
@@ -1141,7 +1140,7 @@ class SeoProjectResource extends SeoPanelResource
     {
         // List hiện cả project đã archive (click → archive preview). Vault riêng vẫn giữ.
         // Staff/assign vẫn lọc active ở ContentProjectStaffAvailabilityService.
-        $query = static::applyGlobalSiteScopeToProjectQuery(
+        return static::applyProjectTenantScope(
             parent::getEloquentQuery()
                 ->with(['user', 'site', 'currentArchive'])
                 ->withCount([
@@ -1157,26 +1156,30 @@ class SeoProjectResource extends SeoPanelResource
                         ->where('article_id', '>', 0),
                 ]),
         );
-
-        if (SeoAccessControl::isContentManager()) {
-            $query->where('user_id', (int) auth()->id());
-        }
-
-        return $query;
     }
 
     /**
-     * Detail/edit/preview route binding: không lọc theo global domain.
-     * Global domain chỉ là UI context cho list/create default.
+     * Detail/edit/preview route binding: tenant isolation only.
+     * Global Domain must not hide Draft (null site_id) or cross-site item projects.
      */
     public static function getRecordRouteBindingEloquentQuery(): Builder
     {
-        $query = parent::getEloquentQuery()->with(['user', 'site']);
+        return static::applyProjectTenantScope(
+            parent::getEloquentQuery()->with(['user', 'site']),
+        );
+    }
 
+    /**
+     * Account/writer isolation. Does not read Global Domain / globalSiteId().
+     */
+    public static function applyProjectTenantScope(Builder $query): Builder
+    {
         if (SeoAccessControl::isContentManager()) {
-            $query->where('user_id', (int) auth()->id());
-        } elseif (SeoAccessControl::shouldScopeToAccountOwner()) {
-            SeoAccessControl::applyAccessibleSiteScope($query);
+            return $query->where('user_id', (int) auth()->id());
+        }
+
+        if (SeoAccessControl::shouldScopeToAccountOwner()) {
+            return SeoAccessControl::applyAccessibleSiteScopeAllowingUnassigned($query);
         }
 
         return $query;
@@ -1197,19 +1200,14 @@ class SeoProjectResource extends SeoPanelResource
             ->first();
     }
 
+    /**
+     * @deprecated Projects are domain-neutral. Kept as a no-op so leftover callers cannot reintroduce global site filtering.
+     */
     public static function applyGlobalSiteScopeToProjectQuery(Builder $query): Builder
     {
-        if (! SeoAccessControl::shouldApplyGlobalSiteScope()) {
-            return $query;
-        }
-
-        return $query->where('site_id', (int) SeoAccessControl::globalSiteId());
+        return $query;
     }
 
-    /**
-     * @param  array<string, mixed>  $data
-     * @return array<string, mixed>
-     */
     /**
      * @param  array<string, mixed>  $data
      * @return array<string, mixed>
@@ -1227,12 +1225,6 @@ class SeoProjectResource extends SeoPanelResource
             $data['site_id'] = (int) $record->site_id;
 
             return $data;
-        }
-
-        // Create form only: fill from the selected topbar domain when the field is empty.
-        $globalSiteId = SeoAccessControl::globalSiteId();
-        if ($globalSiteId !== null) {
-            $data['site_id'] = $globalSiteId;
         }
 
         return $data;

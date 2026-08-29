@@ -451,7 +451,11 @@
         </div>
     @endif
 
-    <div class="cp-plan-draft__body" wire:loading.class="opacity-60" wire:target="setDraftReviewFilter,setDraftTypeFilter,archiveOne,skipSeoAuditOne">
+    <x-seo-content-ai::list-table-loading-shell
+        class="cp-plan-draft__body"
+        preset="livewire-page"
+        targets="setDraftReviewFilter,setDraftTypeFilter,draftReviewFilter,draftTypeFilter,filterSiteId,updatedFilterSiteId"
+    >
         @if (! $hasDraft)
             <div class="cp-plan-draft__empty text-sm text-gray-500 dark:text-gray-400">
                 {{ __('seo-content-ai::filament.projects.content_planning_create_draft_first') }}
@@ -489,6 +493,7 @@
                         <tr>
                             <th class="w-10 px-4 py-2.5"></th>
                             <th class="px-3 py-2.5">{{ __('seo-content-ai::filament.projects.suggestions_col_article') }}</th>
+                            <th class="px-3 py-2.5">{{ __('seo-content-ai::filament.projects.planning_col_domain') }}</th>
                             <th class="px-3 py-2.5">{{ __('seo-content-ai::filament.projects.planning_col_keywords') }}</th>
                             <th class="px-3 py-2.5 cp-plan-draft-table__col-post-type">{{ __('seo-content-ai::filament.projects.planning_col_post_type') }}</th>
                             <th class="px-3 py-2.5">{{ __('seo-content-ai::filament.projects.suggestions_col_plan') }}</th>
@@ -518,6 +523,9 @@
                                             @endif
                                         </div>
                                     </div>
+                                </td>
+                                <td class="px-3 py-3 align-top text-xs text-gray-600 dark:text-gray-300">
+                                    {{ $ssrRow['domain'] ?? '—' }}
                                 </td>
                                 <td class="px-3 py-3 align-top text-sm text-gray-700 dark:text-gray-200">{{ $ssrRow['keyword'] }}</td>
                                 <td class="px-3 py-3 align-top text-xs text-gray-600 cp-plan-draft-table__col-post-type">{{ $ssrRow['post_type_label'] }}</td>
@@ -691,5 +699,5 @@
                 </table>
             </div>
         @endif
-    </div>
+    </x-seo-content-ai::list-table-loading-shell>
 </section>

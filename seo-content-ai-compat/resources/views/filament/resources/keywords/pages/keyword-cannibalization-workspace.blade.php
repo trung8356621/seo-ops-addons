@@ -25,6 +25,10 @@
             </div>
         </header>
 
+        <x-seo-content-ai::list-table-loading-shell
+            preset="livewire-page"
+            targets="keywordLanguageFilter,updatedKeywordLanguageFilter,keywordWorkspaceSiteId,onKeywordWorkspaceSiteFilterChanged"
+        >
         <section class="performance-hub-panel">
             <p class="performance-hub-panel-hint">{{ __('seo-content-ai::filament.performance_hub.cannibalization_hint') }}</p>
             <div class="performance-hub-table-wrap">
@@ -67,5 +71,6 @@
                 </table>
             </div>
         </section>
+        </x-seo-content-ai::list-table-loading-shell>
     </div>
 </x-filament-panels::page>

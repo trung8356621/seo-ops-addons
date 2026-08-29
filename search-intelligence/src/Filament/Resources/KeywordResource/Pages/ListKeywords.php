@@ -217,22 +217,12 @@ class ListKeywords extends ListRecords
             ];
         }
 
+        $dictionaryQuery = app(KeywordDictionaryQuery::class);
+
         return [
             'total' => (clone $query)->count(),
-            'active' => (clone $query)->where(function (Builder $builder): void {
-                $builder
-                    ->whereHas('mainArticles')
-                    ->orWhereHas(
-                        'linkMaps',
-                        static fn (Builder $mapQuery): Builder => $mapQuery->whereNotNull('source_article_id'),
-                    );
-            })->where('review_status', KeywordReviewStatus::Active->value)->count(),
-            'errors' => (clone $query)
-                ->whereIn('review_status', [
-                    KeywordReviewStatus::Danger->value,
-                    KeywordReviewStatus::Warning->value,
-                ])
-                ->count(),
+            'active' => $dictionaryQuery->applyActiveSeoKeywords(clone $query)->count(),
+            'errors' => $dictionaryQuery->applyUnderperformingReview(clone $query)->count(),
         ];
     }
 
@@ -525,19 +515,11 @@ class ListKeywords extends ListRecords
             return $query;
         }
 
+        $dictionaryQuery = app(KeywordDictionaryQuery::class);
+
         return match ($statKey) {
-            'active' => $query->where(function (Builder $builder): void {
-                $builder
-                    ->whereHas('mainArticles')
-                    ->orWhereHas(
-                        'linkMaps',
-                        static fn (Builder $mapQuery): Builder => $mapQuery->whereNotNull('source_article_id'),
-                    );
-            })->where('review_status', KeywordReviewStatus::Active->value),
-            'errors', 'needs_optimization' => $query->whereIn('review_status', [
-                KeywordReviewStatus::Danger->value,
-                KeywordReviewStatus::Warning->value,
-            ]),
+            'active' => $dictionaryQuery->applyActiveSeoKeywords($query),
+            'errors', 'needs_optimization' => $dictionaryQuery->applyUnderperformingReview($query),
             default => $query,
         };
     }

@@ -4,6 +4,7 @@ import {
     ALL_KEY,
     buildUrlWithDomain,
     isAllDomains,
+    isDomainNeutralPanelPath,
     normalizeDomainKey,
     readDomainFromUrl,
     resolveDomainContext,
@@ -139,18 +140,26 @@ describe('site_id URL ↔ domain key', () => {
 });
 
 describe('URL representation', () => {
-    it('reads and writes ?domain=', () => {
+    it('reads leftover ?domain= but does not write it onto Projects URLs', () => {
         assert.equal(readDomainFromUrl('/seo/abc/content-projects?domain=baloquatang.net'), 'baloquatang.net');
         assert.equal(
             buildUrlWithDomain('/seo/abc/content-projects?month=2026-07', 'baloquatang.net'),
-            '/seo/abc/content-projects?month=2026-07&domain=baloquatang.net',
+            '/seo/abc/content-projects?month=2026-07',
         );
         const allUrl = new URL(
             buildUrlWithDomain('/seo/abc/content-projects?domain=congtybalo.com&month=2026-07', 'all'),
             'http://local.test',
         );
-        assert.equal(allUrl.searchParams.get('domain'), 'all');
+        assert.equal(allUrl.searchParams.get('domain'), null);
+        assert.equal(allUrl.searchParams.get('site_id'), null);
         assert.equal(allUrl.searchParams.get('month'), '2026-07');
-        assert.equal(allUrl.searchParams.has('site_id'), false);
+    });
+
+    it('treats Projects and publishing-queue as domain-neutral paths', () => {
+        assert.equal(isDomainNeutralPanelPath('/seo/abc/content-projects'), true);
+        assert.equal(isDomainNeutralPanelPath('/seo/abc/content-projects/12/edit'), true);
+        assert.equal(isDomainNeutralPanelPath('/seo/abc/publishing-queue'), true);
+        assert.equal(isDomainNeutralPanelPath('/seo/abc/articles'), false);
+        assert.equal(isDomainNeutralPanelPath('/seo/abc/keywords'), false);
     });
 });

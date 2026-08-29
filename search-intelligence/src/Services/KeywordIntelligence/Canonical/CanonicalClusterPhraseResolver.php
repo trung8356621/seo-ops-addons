@@ -164,6 +164,9 @@ final class CanonicalClusterPhraseResolver
      *
      * Example MATCH: "hợp phát xưởng may balo giá rẻ" ⊇ "xưởng may balo"
      * Example NO:    "may chuyên dụng cho da" ⊉ "may balo da"
+     *
+     * Includes service/product intent compatibility (legacy callers).
+     * For Topic membership umbrella matching use {@see containsCanonicalCoreForTopic()}.
      */
     public function containsCanonicalCore(string $keywordPhrase, string $canonicalPhrase): bool
     {
@@ -175,6 +178,32 @@ final class CanonicalClusterPhraseResolver
             return false;
         }
 
+        return $this->containsContiguousCanonicalTokens($keywordPhrase, $canonicalPhrase);
+    }
+
+    /**
+     * Topic membership containment: same contiguous-token core check WITHOUT
+     * service/product intent as a hard gate.
+     *
+     * Topics are umbrella entities — product + service + local modifiers may share
+     * one Topic when the canonical core is genuinely present.
+     */
+    public function containsCanonicalCoreForTopic(string $keywordPhrase, string $canonicalPhrase): bool
+    {
+        if (trim($keywordPhrase) === '' || trim($canonicalPhrase) === '') {
+            return false;
+        }
+
+        $coreTokens = $this->significantTokens($canonicalPhrase);
+        if ($this->isGenericSingletonCore($coreTokens)) {
+            return false;
+        }
+
+        return $this->containsContiguousCanonicalTokens($keywordPhrase, $canonicalPhrase);
+    }
+
+    private function containsContiguousCanonicalTokens(string $keywordPhrase, string $canonicalPhrase): bool
+    {
         $keywordTokens = $this->significantTokens($keywordPhrase);
         $coreTokens = $this->significantTokens($canonicalPhrase);
         if ($coreTokens === [] || count($keywordTokens) < count($coreTokens)) {

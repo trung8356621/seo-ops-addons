@@ -106,11 +106,11 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
         self::assertTrue($result['has_real_writer'] ?? false);
         self::assertSame('2026-08-01', $result['month']);
 
-        $execution = SeoProject::query()->find($result['execution_project_id']);
+        $execution = SeoProject::query()->find($result['execution_project_ids'][0] ?? 0);
         self::assertInstanceOf(SeoProject::class, $execution);
         self::assertSame(88101, (int) $execution->user_id);
         self::assertTrue(\Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectWriterAssignment::hasRealWriter($execution));
-        self::assertSame(SeoProject::defaultNameFromMonth('2026-08-01'), (string) $execution->name);
+        self::assertMatchesRegularExpression('/^project 8\/2026(-\d+)?$/', (string) $execution->name);
         self::assertSame('2026-08-01', Carbon::parse((string) $execution->month)->format('Y-m-d'));
 
         $moved = array_slice($reviewed, 0, 3);
@@ -127,7 +127,7 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
         Carbon::setTestNow();
     }
 
-    public function test_62_items_three_empty_users_create_30_30_2(): void
+    public function test_62_items_three_users_fair_21_21_20(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-08-15 12:00:00'));
 
@@ -149,9 +149,11 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
         self::assertSame(3, count($result['execution_project_ids']));
         self::assertSame(62, $result['moved_count']);
         self::assertSame(0, $result['remaining_count']);
-        self::assertSame(ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS, $result['max_writer_monthly_items']);
-        self::assertSame([30, 30, 2], array_column($result['projects'], 'moved_count'));
+        self::assertSame(ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS, $result['max_items_per_project']);
+        self::assertSame([21, 21, 20], array_column($result['projects'], 'moved_count'));
         self::assertSame([88111, 88112, 88113], array_column($result['projects'], 'user_id'));
+        self::assertNull($result['execution_project_id']);
+        self::assertSame('2026-08', $result['redirect_month'] ?? $result['month']);
 
         $p1 = SeoProject::query()->find($result['execution_project_ids'][0]);
         $p2 = SeoProject::query()->find($result['execution_project_ids'][1]);
@@ -160,46 +162,53 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
         self::assertInstanceOf(SeoProject::class, $p2);
         self::assertInstanceOf(SeoProject::class, $p3);
         self::assertSame('2026-08-01', Carbon::parse((string) $p1->month)->format('Y-m-d'));
-        self::assertSame(30, $p1->registeredTaskCount());
-        self::assertSame(30, $p2->registeredTaskCount());
-        self::assertSame(2, $p3->registeredTaskCount());
+        self::assertSame(21, $p1->registeredTaskCount());
+        self::assertSame(21, $p2->registeredTaskCount());
+        self::assertSame(20, $p3->registeredTaskCount());
         self::assertSame(88111, (int) $p1->user_id);
         self::assertSame(88112, (int) $p2->user_id);
         self::assertSame(88113, (int) $p3->user_id);
-        self::assertSame(SeoProject::defaultNameFromMonth('2026-08-01'), (string) $p1->name);
-        self::assertSame(SeoProject::defaultNameFromMonth('2026-08-01').'-2', (string) $p2->name);
-        self::assertSame(SeoProject::defaultNameFromMonth('2026-08-01').'-3', (string) $p3->name);
+        // Domain-neutral create: project.site_id null; same display name OK across writers.
+        self::assertNull($p1->site_id);
+        $base = SeoProject::defaultNameFromMonth('2026-08-01');
+        self::assertSame($base, (string) $p1->name);
+        self::assertSame($base, (string) $p2->name);
+        self::assertSame($base, (string) $p3->name);
 
-        foreach (array_slice($ids, 0, 30) as $taskId) {
+        foreach (array_slice($ids, 0, 21) as $taskId) {
             self::assertSame((int) $p1->id, (int) SeoProjectTask::query()->find($taskId)?->project_id);
         }
-        foreach (array_slice($ids, 30, 30) as $taskId) {
+        foreach (array_slice($ids, 21, 21) as $taskId) {
             self::assertSame((int) $p2->id, (int) SeoProjectTask::query()->find($taskId)?->project_id);
         }
-        foreach (array_slice($ids, 60) as $taskId) {
+        foreach (array_slice($ids, 42) as $taskId) {
             self::assertSame((int) $p3->id, (int) SeoProjectTask::query()->find($taskId)?->project_id);
         }
 
         Carbon::setTestNow();
     }
 
-    public function test_allocation_sizes_follow_selected_writer_capacity(): void
+    public function test_fair_allocation_and_project_chunking_sizes(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-08-01'));
 
         $cases = [
-            7 => [[88141], [7]],
-            30 => [[88142], [30]],
-            31 => [[88143, 88144], [30, 1]],
-            60 => [[88145, 88146], [30, 30]],
-            90 => [[88147, 88148, 88149], [30, 30, 30]],
+            // [total, writers, expected per-project moved counts, expected project user ids]
+            [7, [88141], [7], [88141]],
+            [30, [88142], [30], [88142]],
+            [31, [88143], [30, 1], [88143, 88143]],
+            [61, [88150], [30, 30, 1], [88150, 88150, 88150]],
+            [31, [88143, 88144], [16, 15], [88143, 88144]],
+            [60, [88145, 88146], [30, 30], [88145, 88146]],
+            [62, [88151, 88152], [30, 1, 30, 1], [88151, 88151, 88152, 88152]],
+            [90, [88147, 88148, 88149], [30, 30, 30], [88147, 88148, 88149]],
         ];
 
         $siteBase = 94200;
-        foreach ($cases as $total => [$writerIds, $expectedCounts]) {
-            $draft = $this->createDraft(93200 + $total, $siteBase + $total);
+        foreach ($cases as $caseIndex => [$total, $writerIds, $expectedCounts, $expectedUsers]) {
+            $draft = $this->createDraft(93200 + $caseIndex, $siteBase + $caseIndex);
             for ($i = 0; $i < $total; $i++) {
-                $this->createTask($draft, 'c'.$total.'-'.$i, reviewed: true);
+                $this->createTask($draft, 'c'.$caseIndex.'-'.$i, reviewed: true);
             }
 
             $result = app(SplitDraftContentProjectService::class)->split(
@@ -211,14 +220,62 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
                 $writerIds,
             );
 
-            self::assertSame($expectedCounts, array_column($result['projects'], 'moved_count'), 'total='.$total);
-            self::assertSame($writerIds, array_column($result['projects'], 'user_id'), 'writers total='.$total);
+            self::assertSame($expectedCounts, array_column($result['projects'], 'moved_count'), 'total='.$total.' case='.$caseIndex);
+            self::assertSame($expectedUsers, array_column($result['projects'], 'user_id'), 'writers total='.$total.' case='.$caseIndex);
             foreach ($result['projects'] as $row) {
                 self::assertSame('2026-08-01', $row['month']);
                 self::assertTrue($row['has_real_writer']);
                 self::assertGreaterThan(0, (int) $row['user_id']);
+                self::assertLessThanOrEqual(
+                    ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS,
+                    (int) $row['moved_count'],
+                );
             }
         }
+
+        Carbon::setTestNow();
+    }
+
+    public function test_packing_reuses_existing_free_slots(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-08-15 12:00:00'));
+
+        $existing = SeoProject::query()->create([
+            'name' => SeoProject::defaultNameFromMonth('2026-08-01'),
+            'user_id' => 88301,
+            'site_id' => null,
+            'month' => '2026-08-01',
+            'status' => SeoProject::STATUS_PENDING,
+            'kind' => SeoProject::KIND_MONTHLY,
+            'total_tasks' => 0,
+        ]);
+        for ($i = 0; $i < 11; $i++) {
+            $this->createTask($existing, 'ex-'.$i, reviewed: true);
+        }
+        $existing->syncTotalTasksCounter();
+
+        $draft = $this->createDraft(93301, 94401);
+        for ($i = 0; $i < 25; $i++) {
+            $this->createTask($draft, 'pack-'.$i, reviewed: true);
+        }
+
+        $result = app(SplitDraftContentProjectService::class)->split(
+            $draft,
+            SplitDraftContentProjectCommand::MODE_ALL,
+            null,
+            [],
+            null,
+            [88301],
+        );
+
+        self::assertSame(25, $result['moved_count']);
+        self::assertSame(1, (int) ($result['reused_count'] ?? 0));
+        self::assertSame(1, (int) ($result['created_count'] ?? 0));
+        self::assertSame(30, $existing->fresh()?->registeredTaskCount());
+        $createdId = (int) ($result['created_projects'][0]['execution_project_id'] ?? 0);
+        self::assertSame(6, SeoProject::query()->find($createdId)?->registeredTaskCount());
+        self::assertNull($result['execution_project_id']);
+        self::assertSame('2026-08', $result['redirect_month']);
 
         Carbon::setTestNow();
     }
@@ -234,8 +291,8 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
 
         SeoProject::query()->create([
             'name' => SeoProject::defaultNameFromMonth('2026-08-01'),
-            'user_id' => 88120,
-            'site_id' => 94120,
+            'user_id' => 88121,
+            'site_id' => null,
             'month' => '2026-08-01',
             'status' => SeoProject::STATUS_PENDING,
             'kind' => SeoProject::KIND_MONTHLY,
@@ -243,14 +300,15 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
         ]);
         SeoProject::query()->create([
             'name' => SeoProject::defaultNameFromMonth('2026-08-01').'-3',
-            'user_id' => 88120,
-            'site_id' => 94120,
+            'user_id' => 88121,
+            'site_id' => null,
             'month' => '2026-08-01',
             'status' => SeoProject::STATUS_PENDING,
             'kind' => SeoProject::KIND_MONTHLY,
             'total_tasks' => 0,
         ]);
 
+        // Both existing are empty but reusable for writer 88121 — packing fills base first.
         $result = app(SplitDraftContentProjectService::class)->split(
             $draft,
             SplitDraftContentProjectCommand::MODE_ALL,
@@ -260,8 +318,10 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
             [88121],
         );
 
+        self::assertSame(1, (int) ($result['reused_count'] ?? 0));
+        self::assertSame(0, (int) ($result['created_count'] ?? 0));
         self::assertSame(
-            SeoProject::defaultNameFromMonth('2026-08-01').'-4',
+            SeoProject::defaultNameFromMonth('2026-08-01'),
             (string) ($result['projects'][0]['project_name'] ?? ''),
         );
 
@@ -317,12 +377,13 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
 
         self::assertSame(1, $result['moved_count']);
         $task = SeoProjectTask::query()->find($t2);
+        $executionId = (int) ($result['execution_project_ids'][0] ?? 0);
         self::assertSame($t2, (int) $task?->id);
         self::assertSame($articleId, (int) $task?->article_id);
-        self::assertSame((int) $result['execution_project_id'], (int) $task?->project_id);
+        self::assertSame($executionId, (int) $task?->project_id);
 
         $origin->refresh();
-        self::assertSame((int) $result['execution_project_id'], (int) $origin->project_id);
+        self::assertSame($executionId, (int) $origin->project_id);
 
         self::assertSame((int) $draft->id, (int) SeoProjectTask::query()->find($t1)?->project_id);
         self::assertSame((int) $draft->id, (int) SeoProjectTask::query()->find($t3)?->project_id);
@@ -408,9 +469,10 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
         self::assertTrue($preview->success);
         self::assertSame(35, (int) ($preview->metadata['moved_count'] ?? 0));
         self::assertSame(2, (int) ($preview->metadata['project_count'] ?? 0));
-        self::assertSame(0, (int) ($preview->metadata['insufficient_slots'] ?? -1));
+        self::assertSame(ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS, (int) ($preview->metadata['max_items_per_project'] ?? 0));
+        self::assertArrayNotHasKey('insufficient_slots', $preview->metadata);
         self::assertCount(2, $preview->metadata['allocations'] ?? []);
-        self::assertSame([30, 5], array_column($preview->metadata['allocations'], 'item_count'));
+        self::assertSame([18, 17], array_column($preview->metadata['allocations'], 'item_count'));
         self::assertSame([88104, 88105], array_column($preview->metadata['allocations'], 'user_id'));
         self::assertSame(35, $draft->fresh()?->registeredTaskCount());
 
@@ -451,8 +513,8 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
             (bool) ($second->metadata['idempotent_replay'] ?? $second->metadata['idempotent'] ?? false),
         );
         self::assertSame(
-            (int) ($first->metadata['execution_project_id'] ?? 0),
-            (int) ($second->metadata['execution_project_id'] ?? 0),
+            (int) (($first->metadata['execution_project_ids'][0] ?? 0)),
+            (int) (($second->metadata['execution_project_ids'][0] ?? 0)),
         );
         self::assertSame(1, SeoProject::query()
             ->where('source_draft_project_id', $draft->id)
@@ -478,7 +540,7 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
             [88107],
         );
 
-        $execution = SeoProject::query()->find($result['execution_project_id']);
+        $execution = SeoProject::query()->find($result['execution_project_ids'][0] ?? 0);
         self::assertInstanceOf(SeoProject::class, $execution);
         self::assertSame(88107, (int) $execution->user_id);
         self::assertTrue(\Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectWriterAssignment::hasRealWriter($execution));
@@ -514,7 +576,7 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
             [88130],
         );
 
-        $execution = SeoProject::query()->find($result['execution_project_id']);
+        $execution = SeoProject::query()->find($result['execution_project_ids'][0] ?? 0);
         self::assertInstanceOf(SeoProject::class, $execution);
         self::assertSame(25, $execution->registeredTaskCount());
         self::assertSame(2, $draft->fresh()?->registeredTaskCount());
@@ -554,7 +616,7 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
             [88131],
         );
 
-        $execution = SeoProject::query()->find($result['execution_project_id']);
+        $execution = SeoProject::query()->find($result['execution_project_ids'][0] ?? 0);
         self::assertInstanceOf(SeoProject::class, $execution);
 
         SeoProjectRun::query()->create([
@@ -583,7 +645,7 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
         Carbon::setTestNow();
     }
 
-    public function test_existing_workload_and_insufficient_capacity_and_second_project(): void
+    public function test_existing_workload_does_not_block_and_full_user_still_receives_items(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-08-15 12:00:00'));
 
@@ -629,67 +691,14 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
             [88201, 88202, 88203],
         );
 
-        self::assertSame([10, 25, 5], array_column($result['projects'], 'moved_count'));
-        self::assertSame([88201, 88202, 88203], array_column($result['projects'], 'user_id'));
-        self::assertSame(20, $existingA->fresh()?->registeredTaskCount());
+        // Fair ignore existing workload: 40/3 => 14,13,13 then pack into free slots.
+        // Writer A has 20 existing => free 10 => projects 10 + 4
+        // Writer B has 5 existing => free 25 => one project 13
+        // Writer C empty => one project 13
+        self::assertSame([10, 4, 13, 13], array_column($result['projects'], 'moved_count'));
+        self::assertSame([88201, 88201, 88202, 88203], array_column($result['projects'], 'user_id'));
+        self::assertSame(30, $existingA->fresh()?->registeredTaskCount());
         self::assertSame(2, SeoProject::query()->where('user_id', 88201)->whereDate('month', '2026-08-01')->where('status', '!=', SeoProject::STATUS_DRAFT)->count());
-
-        $shortA = SeoProject::query()->create([
-            'name' => 'short-a',
-            'user_id' => 88221,
-            'site_id' => 94221,
-            'month' => '2026-08-01',
-            'status' => SeoProject::STATUS_PENDING,
-            'kind' => SeoProject::KIND_MONTHLY,
-            'total_tasks' => 0,
-        ]);
-        for ($i = 0; $i < 20; $i++) {
-            $this->createTask($shortA, 'sa-'.$i, reviewed: true);
-        }
-        $shortA->syncTotalTasksCounter();
-
-        $shortB = SeoProject::query()->create([
-            'name' => 'short-b',
-            'user_id' => 88222,
-            'site_id' => 94222,
-            'month' => '2026-08-01',
-            'status' => SeoProject::STATUS_PENDING,
-            'kind' => SeoProject::KIND_MONTHLY,
-            'total_tasks' => 0,
-        ]);
-        for ($i = 0; $i < 5; $i++) {
-            $this->createTask($shortB, 'sb-'.$i, reviewed: true);
-        }
-        $shortB->syncTotalTasksCounter();
-
-        $blockedDraft = $this->createDraft(93202, 94302);
-        for ($i = 0; $i < 50; $i++) {
-            $this->createTask($blockedDraft, 'short-'.$i, reviewed: true);
-        }
-
-        $preview = app(SplitDraftContentProjectService::class)->preview(
-            $blockedDraft,
-            SplitDraftContentProjectCommand::MODE_ALL,
-            null,
-            [],
-            [88221, 88222],
-        );
-        self::assertSame(15, (int) $preview['insufficient_slots']);
-        self::assertStringContainsString('15', (string) $preview['insufficient_message']);
-
-        try {
-            app(SplitDraftContentProjectService::class)->split(
-                $blockedDraft,
-                SplitDraftContentProjectCommand::MODE_ALL,
-                null,
-                [],
-                null,
-                [88221, 88222],
-            );
-            self::fail('Expected insufficient capacity');
-        } catch (InvalidArgumentException $e) {
-            self::assertStringContainsString('15', $e->getMessage());
-        }
 
         $full = SeoProject::query()->create([
             'name' => 'full-user',
@@ -705,16 +714,278 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
         }
         $full->syncTotalTasksCounter();
 
-        $remaining = app(\Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterMonthlyCapacityService::class)
-            ->remainingByUserId([88210, 88203], '2026-08');
-        self::assertSame(0, $remaining[88210]);
-        self::assertSame(25, $remaining[88203]);
+        $counts = app(\Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterMonthlyCapacityService::class)
+            ->itemCountsByUserId([88210, 88203], '2026-08');
+        self::assertSame(30, $counts[88210]);
+        self::assertSame(13, $counts[88203]);
+
+        $overDraft = $this->createDraft(93202, 94302);
+        for ($i = 0; $i < 31; $i++) {
+            $this->createTask($overDraft, 'over-'.$i, reviewed: true);
+        }
+
+        $over = app(SplitDraftContentProjectService::class)->split(
+            $overDraft,
+            SplitDraftContentProjectCommand::MODE_ALL,
+            null,
+            [],
+            null,
+            [88210],
+        );
+        self::assertSame([30, 1], array_column($over['projects'], 'moved_count'));
+        self::assertSame([88210, 88210], array_column($over['projects'], 'user_id'));
+        self::assertSame(30, $full->fresh()?->registeredTaskCount());
 
         $draftIgnore = $this->createDraft(93210, 94310);
         $this->createTask($draftIgnore, 'draft-work', reviewed: true);
         $draftCounts = app(\Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterMonthlyCapacityService::class)
             ->itemCountsByUserId([93210], '2026-08');
         self::assertSame(0, $draftCounts[93210]);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_delete_one_unstarted_chunk_restores_only_that_project(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-08-01'));
+
+        $draft = $this->createDraft(93160, 94160);
+        for ($i = 0; $i < 61; $i++) {
+            $this->createTask($draft, 'chunk-'.$i, reviewed: true);
+        }
+
+        $result = app(SplitDraftContentProjectService::class)->split(
+            $draft,
+            SplitDraftContentProjectCommand::MODE_ALL,
+            null,
+            [],
+            null,
+            [88160],
+        );
+
+        self::assertSame([30, 30, 1], array_column($result['projects'], 'moved_count'));
+        $ids = $result['execution_project_ids'];
+        self::assertCount(3, $ids);
+
+        $middle = SeoProject::query()->find($ids[1]);
+        self::assertInstanceOf(SeoProject::class, $middle);
+        self::assertSame(30, $middle->registeredTaskCount());
+
+        $delete = app(SeoProjectTaskMoveService::class)->deleteProject($middle);
+        self::assertTrue($delete['deleted']);
+        self::assertSame(30, $delete['restored']);
+
+        self::assertNull(SeoProject::query()->find($ids[1]));
+        self::assertNotNull(SeoProject::query()->find($ids[0]));
+        self::assertNotNull(SeoProject::query()->find($ids[2]));
+        self::assertSame(30, SeoProject::query()->find($ids[0])?->registeredTaskCount());
+        self::assertSame(1, SeoProject::query()->find($ids[2])?->registeredTaskCount());
+        self::assertSame(30, $draft->fresh()?->registeredTaskCount());
+        self::assertSame(30, app(SplitDraftContentProjectService::class)->currentReviewedDraftItemCount($draft->fresh() ?? $draft));
+
+        Carbon::setTestNow();
+    }
+
+    public function test_execution_naming_is_scoped_per_writer_not_global_month(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-08-15 12:00:00'));
+
+        $base = SeoProject::defaultNameFromMonth('2026-08-01');
+        $splitter = app(SplitDraftContentProjectService::class);
+
+        // Writer A already has two chunks (base + -2).
+        SeoProject::query()->create([
+            'name' => $base,
+            'user_id' => 88501,
+            'site_id' => null,
+            'month' => '2026-08-01',
+            'status' => SeoProject::STATUS_PENDING,
+            'kind' => SeoProject::KIND_MONTHLY,
+            'total_tasks' => 0,
+        ]);
+        SeoProject::query()->create([
+            'name' => $base.'-2',
+            'user_id' => 88501,
+            'site_id' => null,
+            'month' => '2026-08-01',
+            'status' => SeoProject::STATUS_PENDING,
+            'kind' => SeoProject::KIND_MONTHLY,
+            'total_tasks' => 0,
+        ]);
+
+        self::assertSame($base.'-3', $splitter->nextExecutionProjectName(88501, '2026-08-01'));
+        self::assertSame($base, $splitter->nextExecutionProjectName(88502, '2026-08-01'));
+        self::assertSame($base, $splitter->nextExecutionProjectName(88503, '2026-08-01'));
+
+        $draftB = $this->createDraft(93502, 94502);
+        for ($i = 0; $i < 5; $i++) {
+            $this->createTask($draftB, 'b-'.$i, reviewed: true);
+        }
+        $draftC = $this->createDraft(93503, 94503);
+        for ($i = 0; $i < 5; $i++) {
+            $this->createTask($draftC, 'c-'.$i, reviewed: true);
+        }
+
+        $resultB = $splitter->split(
+            $draftB,
+            SplitDraftContentProjectCommand::MODE_ALL,
+            null,
+            [],
+            null,
+            [88502],
+        );
+        $resultC = $splitter->split(
+            $draftC,
+            SplitDraftContentProjectCommand::MODE_ALL,
+            null,
+            [],
+            null,
+            [88503],
+        );
+
+        self::assertSame($base, (string) ($resultB['projects'][0]['project_name'] ?? ''));
+        self::assertSame($base, (string) ($resultC['projects'][0]['project_name'] ?? ''));
+        self::assertSame($base, SeoProject::query()->find((int) $resultB['execution_project_ids'][0])?->name);
+        self::assertSame($base, SeoProject::query()->find((int) $resultC['execution_project_ids'][0])?->name);
+
+        // Same writer second/third chunk naming via resolver (create path).
+        $draftA = $this->createDraft(93501, 94501);
+        for ($i = 0; $i < 61; $i++) {
+            $this->createTask($draftA, 'a-'.$i, reviewed: true);
+        }
+        // Fill existing empty A projects first via packing reuse, then create -3.
+        $resultA = $splitter->split(
+            $draftA,
+            SplitDraftContentProjectCommand::MODE_ALL,
+            null,
+            [],
+            null,
+            [88501],
+        );
+        $namesA = array_column($resultA['projects'], 'project_name');
+        self::assertContains($base, $namesA);
+        self::assertContains($base.'-2', $namesA);
+        self::assertContains($base.'-3', $namesA);
+
+        // Domain-neutral: site_id on other writers' projects does not affect naming.
+        SeoProject::query()->create([
+            'name' => $base.'-9',
+            'user_id' => 88599,
+            'site_id' => 99999,
+            'month' => '2026-08-01',
+            'status' => SeoProject::STATUS_PENDING,
+            'kind' => SeoProject::KIND_MONTHLY,
+            'total_tasks' => 0,
+        ]);
+        self::assertSame($base, $splitter->nextExecutionProjectName(88504, '2026-08-01'));
+
+        Carbon::setTestNow();
+    }
+
+    public function test_naming_repair_normalizes_global_suffixes_per_writer(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-08-15 12:00:00'));
+
+        $base = SeoProject::defaultNameFromMonth('2026-08-01');
+
+        $q1 = SeoProject::query()->create([
+            'name' => $base.'-2',
+            'user_id' => 88601,
+            'site_id' => null,
+            'month' => '2026-08-01',
+            'status' => SeoProject::STATUS_PENDING,
+            'kind' => SeoProject::KIND_MONTHLY,
+            'total_tasks' => 0,
+        ]);
+        $this->createTask($q1, 'q1', reviewed: true);
+        $q1->syncTotalTasksCounter();
+
+        $t1 = SeoProject::query()->create([
+            'name' => $base.'-5',
+            'user_id' => 88602,
+            'site_id' => null,
+            'month' => '2026-08-01',
+            'status' => SeoProject::STATUS_PENDING,
+            'kind' => SeoProject::KIND_MONTHLY,
+            'total_tasks' => 0,
+        ]);
+        $this->createTask($t1, 't1', reviewed: true);
+        $t1->syncTotalTasksCounter();
+
+        $w1 = SeoProject::query()->create([
+            'name' => $base.'-4',
+            'user_id' => 88603,
+            'site_id' => null,
+            'month' => '2026-08-01',
+            'status' => SeoProject::STATUS_PENDING,
+            'kind' => SeoProject::KIND_MONTHLY,
+            'total_tasks' => 0,
+        ]);
+        $w2 = SeoProject::query()->create([
+            'name' => $base.'-7',
+            'user_id' => 88603,
+            'site_id' => null,
+            'month' => '2026-08-01',
+            'status' => SeoProject::STATUS_PENDING,
+            'kind' => SeoProject::KIND_MONTHLY,
+            'total_tasks' => 0,
+        ]);
+        $this->createTask($w1, 'w1', reviewed: true);
+        $this->createTask($w2, 'w2', reviewed: true);
+        $w1->syncTotalTasksCounter();
+        $w2->syncTotalTasksCounter();
+
+        $repair = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectExecutionNamingRepairService::class);
+        $result = $repair->repair('2026-08', null, dryRun: false);
+
+        self::assertGreaterThanOrEqual(3, (int) $result['repaired']);
+        self::assertSame($base, (string) $q1->fresh()?->name);
+        self::assertSame($base, (string) $t1->fresh()?->name);
+        self::assertSame($base, (string) $w1->fresh()?->name);
+        self::assertSame($base.'-2', (string) $w2->fresh()?->name);
+        // No merge: still two projects for writer 88603.
+        self::assertSame(2, SeoProject::query()->where('user_id', 88603)->whereDate('month', '2026-08-01')->count());
+
+        Carbon::setTestNow();
+    }
+
+    public function test_project_actions_use_project_id_not_name(): void
+    {
+        $decision = (string) file_get_contents(
+            (string) (new \ReflectionClass(\Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectProjectActionDecision::class))->getFileName(),
+        );
+        self::assertStringNotContainsString("where('name'", $decision);
+
+        $move = (string) file_get_contents(
+            dirname(__DIR__, 2).'/src/Services/SeoProjectTaskMoveService.php',
+        );
+        self::assertStringNotContainsString("->where('name',", $move);
+        self::assertStringContainsString('whereKey', $move);
+
+        Carbon::setTestNow(Carbon::parse('2026-08-01'));
+        $base = SeoProject::defaultNameFromMonth('2026-08-01');
+        $a = SeoProject::query()->create([
+            'name' => $base,
+            'user_id' => 88701,
+            'site_id' => null,
+            'month' => '2026-08-01',
+            'status' => SeoProject::STATUS_PENDING,
+            'kind' => SeoProject::KIND_MONTHLY,
+            'total_tasks' => 0,
+        ]);
+        $b = SeoProject::query()->create([
+            'name' => $base,
+            'user_id' => 88702,
+            'site_id' => null,
+            'month' => '2026-08-01',
+            'status' => SeoProject::STATUS_PENDING,
+            'kind' => SeoProject::KIND_MONTHLY,
+            'total_tasks' => 0,
+        ]);
+        self::assertSame($base, $a->name);
+        self::assertSame($base, $b->name);
+        self::assertNotSame((int) $a->getKey(), (int) $b->getKey());
+        self::assertSame((int) $a->getKey(), (int) (SeoProject::query()->find($a->getKey())?->getKey() ?? 0));
 
         Carbon::setTestNow();
     }

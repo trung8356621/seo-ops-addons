@@ -25,7 +25,10 @@
 @endphp
 
 <div
-    class="keyword-item"
+    @class([
+        'keyword-item',
+        'keyword-item--seo-excluded' => (bool) ($item['is_hidden'] ?? false),
+    ])
     wire:key="keyword-item-{{ $item['keyword_id'] }}-{{ $item['context'] }}"
     x-data="{
         menuOpen: false,

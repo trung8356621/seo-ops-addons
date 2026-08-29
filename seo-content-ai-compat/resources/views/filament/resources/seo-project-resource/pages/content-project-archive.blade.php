@@ -169,6 +169,10 @@
                     @endif
                 </div>
 
+                <x-seo-content-ai::list-table-loading-shell
+                    preset="livewire-page"
+                    targets="search,siteFilter,monthFilter,yearFilter,ownerFilter,archivedByFilter,clearFilters,updatedSearch,setActiveTab"
+                >
                 <div class="w-full overflow-x-auto rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
                     <table class="w-full min-w-full table-fixed divide-y divide-gray-200 text-sm dark:divide-gray-700">
                         <thead class="bg-gray-50 dark:bg-gray-800/60">
@@ -277,6 +281,7 @@
                         {{ $archives->links() }}
                     </div>
                 @endif
+                </x-seo-content-ai::list-table-loading-shell>
             </div>
         @else
             <div class="w-full overflow-visible">

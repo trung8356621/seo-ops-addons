@@ -70,4 +70,16 @@ final class SeoAccessControlDomainPickerTest extends TestCase
 
         $this->assertFalse(SeoAccessControl::shouldShowGlobalSitePicker());
     }
+
+    public function test_hides_domain_picker_on_content_projects_list(): void
+    {
+        Route::get('/seo/test-hash/content-projects', fn () => 'ok')->name('filament.seo.resources.content-projects.index');
+
+        $request = Request::create('/seo/test-hash/content-projects', 'GET');
+        $route = Route::getRoutes()->match($request);
+        $request->setRouteResolver(static fn () => $route);
+        $this->app->instance('request', $request);
+
+        $this->assertFalse(SeoAccessControl::shouldShowGlobalSitePicker());
+    }
 }

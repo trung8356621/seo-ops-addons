@@ -2945,6 +2945,19 @@ a.topic-index-stat:hover {
     background: rgb(15 23 42);
 }
 
+/* Exclude from SEO: muted but still readable — not deleted styling */
+.keyword-item--seo-excluded {
+    opacity: 0.82;
+}
+
+.keyword-item--seo-excluded .keyword-item__phrase {
+    color: rgb(71 85 105);
+}
+
+.dark .keyword-item--seo-excluded .keyword-item__phrase {
+    color: rgb(148 163 184);
+}
+
 .keyword-item-table-cell .keyword-item {
     width: 100%;
     border: 0;

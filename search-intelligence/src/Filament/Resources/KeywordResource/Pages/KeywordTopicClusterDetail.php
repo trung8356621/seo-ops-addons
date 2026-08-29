@@ -273,6 +273,7 @@ final class KeywordTopicClusterDetail extends Page
                 'attached' => $result['attached'],
                 'detached' => $result['detached'],
                 'changed' => $result['changed'],
+                'focus_orphans_after' => $result['focus_orphans_after'] ?? 0,
             ]))
             ->success()
             ->send();

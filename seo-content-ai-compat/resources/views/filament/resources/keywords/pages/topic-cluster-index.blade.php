@@ -78,6 +78,11 @@
             'navItems' => $this->getKeywordWorkspaceNavItems(),
         ])
 
+        <x-seo-content-ai::list-table-loading-shell
+            class="space-y-4"
+            preset="livewire-page"
+            targets="clusterSearch,coverageFilter,clusterSort,clusterProjection,hasArticles,keywordLanguageFilter,updatedKeywordLanguageFilter,keywordWorkspaceSiteId,onKeywordWorkspaceSiteFilterChanged"
+        >
         <div class="topic-index-stats" wire:key="topic-index-stats-{{ $this->clusterDataEpoch }}">
             <div class="topic-index-stat">
                 <div class="topic-index-stat__label">{{ __('seo-content-ai::filament.keyword.topic_summary_clusters') }}</div>
@@ -569,6 +574,7 @@
             </div>
             <div>{{ $clusters->links() }}</div>
         @endif
+        </x-seo-content-ai::list-table-loading-shell>
 
         @include('seo-content-ai::filament.resources.keywords.pages.partials.dissolve-cluster-modal')
         @include('seo-content-ai::filament.resources.keywords.pages.partials.mcp-group-modal')

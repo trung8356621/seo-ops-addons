@@ -12,105 +12,91 @@ use Tests\Support\LegacyAddonPath;
 
 final class ContentProjectWriterAllocatorTest extends TestCase
 {
-    public function test_max_writer_monthly_items_is_centralized_at_30(): void
+    public function test_max_execution_project_items_is_centralized_at_30(): void
     {
-        self::assertSame(30, ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS);
+        self::assertSame(30, ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS);
         self::assertSame(
-            ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS,
             ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS,
+            ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS,
         );
     }
 
-    public function test_62_items_three_empty_users_fill_30_30_2(): void
+    public function test_62_items_three_users_fair_21_21_20(): void
     {
-        $result = ContentProjectWriterAllocator::allocate(
-            range(1, 62),
-            [11, 22, 33],
-            [11 => 30, 22 => 30, 33 => 30],
-        );
+        $result = ContentProjectWriterAllocator::allocate(range(1, 62), [11, 22, 33]);
 
         self::assertSame(0, $result['unallocated_count']);
-        self::assertSame(
-            [30, 30, 2],
-            array_column($result['allocations'], 'item_count'),
-        );
+        self::assertSame([21, 21, 20], array_column($result['allocations'], 'item_count'));
         self::assertSame([11, 22, 33], array_column($result['allocations'], 'user_id'));
-        self::assertSame(range(1, 30), $result['allocations'][0]['task_ids']);
-        self::assertSame(range(31, 60), $result['allocations'][1]['task_ids']);
-        self::assertSame([61, 62], $result['allocations'][2]['task_ids']);
+        self::assertSame([1, 1, 1], array_column($result['allocations'], 'project_count'));
     }
 
-    public function test_existing_workload_is_respected_deterministically(): void
+    public function test_64_items_three_users_fair_22_21_21(): void
     {
-        // A=20/30 → 10, B=5/30 → 25, C=0/30 → 30; 40 items → 10/25/5
-        $result = ContentProjectWriterAllocator::allocate(
-            range(1, 40),
-            [1, 2, 3],
-            [1 => 10, 2 => 25, 3 => 30],
-        );
+        $result = ContentProjectWriterAllocator::allocate(range(1, 64), [1, 2, 3]);
 
-        self::assertSame(0, $result['unallocated_count']);
+        self::assertSame([22, 21, 21], array_column($result['allocations'], 'item_count'));
+    }
+
+    public function test_62_items_five_users_fair_13_13_12_12_12(): void
+    {
+        $result = ContentProjectWriterAllocator::allocate(range(1, 62), [1, 2, 3, 4, 5]);
+
+        self::assertSame([13, 13, 12, 12, 12], array_column($result['allocations'], 'item_count'));
+    }
+
+    public function test_fair_counts_helper_is_deterministic(): void
+    {
+        self::assertSame([21, 21, 20], ContentProjectWriterAllocator::fairCounts(62, 3));
+        self::assertSame([22, 21, 21], ContentProjectWriterAllocator::fairCounts(64, 3));
+        self::assertSame([13, 13, 12, 12, 12], ContentProjectWriterAllocator::fairCounts(62, 5));
+        self::assertSame([31, 31], ContentProjectWriterAllocator::fairCounts(62, 2));
+    }
+
+    public function test_one_user_can_exceed_30_and_is_chunked(): void
+    {
+        $result = ContentProjectWriterAllocator::allocate(range(1, 31), [7]);
+
+        self::assertSame(31, $result['allocations'][0]['item_count']);
+        self::assertSame(2, $result['allocations'][0]['project_count']);
         self::assertSame(
-            [10, 25, 5],
-            array_column($result['allocations'], 'item_count'),
+            [30, 1],
+            array_map('count', $result['allocations'][0]['project_chunks']),
         );
-        self::assertSame([1, 2, 3], array_column($result['allocations'], 'user_id'));
     }
 
-    public function test_full_user_is_skipped_and_never_exceeds_remaining(): void
+    public function test_chunk_61_is_30_30_1(): void
     {
-        $result = ContentProjectWriterAllocator::allocate(
-            range(1, 12),
-            [7, 8, 9],
-            [7 => 0, 8 => 5, 9 => 30],
-        );
+        $chunks = ContentProjectWriterAllocator::chunkByMaxItems(range(1, 61));
 
-        self::assertSame(0, $result['unallocated_count']);
-        self::assertSame([8, 9], array_column($result['allocations'], 'user_id'));
-        self::assertSame([5, 7], array_column($result['allocations'], 'item_count'));
-        self::assertLessThanOrEqual(30, max(array_column($result['allocations'], 'item_count')));
+        self::assertSame([30, 30, 1], array_map('count', $chunks));
     }
 
-    public function test_insufficient_selected_capacity_reports_shortfall(): void
+    public function test_two_users_62_each_get_31_chunked_to_30_1(): void
     {
-        $result = ContentProjectWriterAllocator::allocate(
-            range(1, 50),
-            [1, 2],
-            [1 => 10, 2 => 25],
-        );
+        $result = ContentProjectWriterAllocator::allocate(range(1, 62), [8, 9]);
 
-        self::assertSame(15, $result['unallocated_count']);
-        self::assertCount(15, $result['unallocated_task_ids']);
-        self::assertSame([10, 25], array_column($result['allocations'], 'item_count'));
-    }
-
-    public function test_selection_order_is_deterministic_not_random(): void
-    {
-        $first = ContentProjectWriterAllocator::allocate(
-            range(1, 40),
-            [3, 1, 2],
-            [1 => 30, 2 => 30, 3 => 30],
+        self::assertSame([31, 31], array_column($result['allocations'], 'item_count'));
+        self::assertSame([2, 2], array_column($result['allocations'], 'project_count'));
+        self::assertSame(
+            [30, 1],
+            array_map('count', $result['allocations'][0]['project_chunks']),
         );
-        $second = ContentProjectWriterAllocator::allocate(
-            range(1, 40),
-            [3, 1, 2],
-            [1 => 30, 2 => 30, 3 => 30],
+        self::assertSame(
+            [30, 1],
+            array_map('count', $result['allocations'][1]['project_chunks']),
         );
-
-        self::assertSame([3, 1], array_column($first['allocations'], 'user_id'));
-        self::assertSame([30, 10], array_column($first['allocations'], 'item_count'));
-        self::assertSame($first, $second);
     }
 
     public function test_empty_selection_allocates_nothing(): void
     {
-        $result = ContentProjectWriterAllocator::allocate(range(1, 10), [], [1 => 30]);
+        $result = ContentProjectWriterAllocator::allocate(range(1, 10), []);
 
         self::assertSame([], $result['allocations']);
         self::assertSame(10, $result['unallocated_count']);
     }
 
-    public function test_capacity_service_excludes_draft_and_system_user(): void
+    public function test_workload_service_is_display_only_not_hard_cap(): void
     {
         $src = (string) file_get_contents(
             (string) (new ReflectionClass(
@@ -123,18 +109,21 @@ final class ContentProjectWriterAllocatorTest extends TestCase
         self::assertStringContainsString('SeoOpsSystemUser::isSystemUserId', $src);
         self::assertStringContainsString("whereNull('p.archived_at')", $src);
         self::assertStringContainsString('COUNT(t.id)', $src);
+        self::assertStringNotContainsString('remainingByUserId', $src);
+        self::assertStringNotContainsString("'full'", $src);
         self::assertStringNotContainsString('auth()->id()', $src);
     }
 
-    public function test_insufficient_copy_lives_in_lang(): void
+    public function test_lang_uses_month_total_not_hard_cap_fraction(): void
     {
         $en = LegacyAddonPath::read('lang/en/filament.php');
         $vi = LegacyAddonPath::read('lang/vi/filament.php');
 
-        self::assertStringContainsString("'draft_split_insufficient'", $en);
-        self::assertStringContainsString("'draft_split_insufficient'", $vi);
-        self::assertStringContainsString('Cần thêm :count chỗ phân công', $vi);
-        self::assertStringContainsString('draft_split_writers_heading', $vi);
-        self::assertStringContainsString('Phân bổ dự kiến', $vi);
+        self::assertStringContainsString("'draft_split_existing' => ':count existing'", $en);
+        self::assertStringContainsString("'draft_split_result' => '→ :count this month'", $en);
+        self::assertStringContainsString("'draft_split_projects_hint'", $en);
+        self::assertStringContainsString("'draft_split_existing' => ':count hiện có'", $vi);
+        self::assertStringContainsString("'draft_split_result' => '→ :count tháng này'", $vi);
+        self::assertStringContainsString("'draft_split_projects_hint'", $vi);
     }
 }

@@ -1342,15 +1342,10 @@
         </div>
         </template>
 
-        {{-- Loading skeleton --}}
-        <div wire:loading.delay.shortest wire:target="applySummaryFilter,clearFilters,search,generationFilter,lifecycleFilter,workflowFilter,reportingFilter,queueFilter,scheduledFilter,failedOnly,failureTypeFilter,gotoPage,previousPage,nextPage" class="space-y-2">
-            @foreach (range(1, 4) as $_)
-                <div class="h-14 animate-pulse rounded-lg bg-gray-100 dark:bg-gray-800"></div>
-            @endforeach
-        </div>
-
-        {{-- Canonical table (desktop) + cards (mobile) --}}
-        <div wire:loading.remove.delay.shortest wire:target="applySummaryFilter,clearFilters,search,generationFilter,lifecycleFilter,workflowFilter,reportingFilter,queueFilter,scheduledFilter,failedOnly,failureTypeFilter">
+        <x-seo-content-ai::list-table-loading-shell
+            preset="livewire-page"
+            targets="applySummaryFilter,applyFailureTypeFilter,clearFilters,search,generationFilter,lifecycleFilter,workflowFilter,reportingFilter,queueFilter,scheduledFilter,failedOnly,failureTypeFilter,updatedSearch,updatedGenerationFilter,updatedLifecycleFilter,updatedWorkflowFilter,updatedReportingFilter,updatedQueueFilter,updatedScheduledFilter,updatedFailedOnly,updatedFailureTypeFilter,setWorkspaceTab"
+        >
             @if ($totalItems === 0)
                 <div class="rounded-xl border border-dashed border-gray-300 bg-white px-4 py-12 text-center dark:border-gray-600 dark:bg-gray-900">
                     <x-filament::icon icon="heroicon-o-inbox" class="mx-auto h-8 w-8 text-gray-400" />
@@ -1371,11 +1366,11 @@
                     :use-row-visibility="true"
                 />
             @endif
-        </div>
 
-        @if ($paginator && count($rows) > 0)
-            <div class="mt-2">{{ $paginator->links() }}</div>
-        @endif
+            @if ($paginator && count($rows) > 0)
+                <div class="mt-2">{{ $paginator->links() }}</div>
+            @endif
+        </x-seo-content-ai::list-table-loading-shell>
 
         @endif {{-- workspaceTab items --}}
 

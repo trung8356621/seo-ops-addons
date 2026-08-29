@@ -8,8 +8,8 @@ import {
     STORAGE_ACTIVE,
     STORAGE_LAST,
     buildUrlWithDomain,
-    clearStorageKey,
     isAllDomains,
+    isDomainNeutralPanelPath,
     isSeoPanelPath,
     normalizeDomainKey,
     readDomainFromUrl,
@@ -19,10 +19,16 @@ import {
     sanitizeDomainKey,
     writeStorage,
 } from './domainContextStore';
+import {
+    beginDomainLoading,
+    bootPanelLoading,
+    endDomainLoading,
+    exposePanelLoadingApi,
+} from './panelLoading';
 
 const BOOT_FLAG = '__SEO_DOMAIN_CONTEXT_BOOTED__';
-const LOADING_CLASS = 'is-domain-context-loading';
-const LOADING_DELAY_MS = 150;
+const DOMAIN_QUIET_MS = 150;
+const DOMAIN_FAILSAFE_MS = 20000;
 
 function accessibleDomains() {
     const raw = window.__SEO_ACCESSIBLE_DOMAINS__;
@@ -76,24 +82,114 @@ function syncAlpine(domainKey) {
     }
 }
 
-let loadingTimer = null;
-let loadingSeq = 0;
+let domainHold = false;
+let domainToken = 0;
+let domainCommitsOpen = 0;
+let domainQuietTimer = null;
+let domainFailsafeTimer = null;
+let domainTransitionKey = null;
 
-function beginLoading() {
-    const seq = ++loadingSeq;
-    window.clearTimeout(loadingTimer);
-    loadingTimer = window.setTimeout(() => {
-        if (seq !== loadingSeq) {
-            return;
-        }
-        document.querySelector('.fi-main')?.classList.add(LOADING_CLASS);
-    }, LOADING_DELAY_MS);
+function isPollCommit(commit) {
+    const calls = Array.isArray(commit?.calls) ? commit.calls : [];
+
+    return calls.some((call) => /^poll/i.test(String(call?.method ?? '')));
 }
 
-function endLoading() {
-    loadingSeq += 1;
-    window.clearTimeout(loadingTimer);
-    document.querySelector('.fi-main')?.classList.remove(LOADING_CLASS);
+function isGlobalSeoBar(component) {
+    const el = component?.el;
+    if (!el) {
+        return component?.name === 'global-seo-bar';
+    }
+
+    return component?.name === 'global-seo-bar'
+        || el.matches?.('[data-seo-domain-context-bar]')
+        || !!el.querySelector?.('[data-seo-domain-context-bar]')
+        || !!el.closest?.('[data-seo-domain-context-bar]');
+}
+
+function isDomainKeyCommit(commit) {
+    const updates = commit?.updates && typeof commit.updates === 'object' ? commit.updates : {};
+    if (Object.prototype.hasOwnProperty.call(updates, 'domainKey')) {
+        return true;
+    }
+
+    const calls = Array.isArray(commit?.calls) ? commit.calls : [];
+
+    return calls.some((call) => {
+        const method = String(call?.method ?? '');
+        if (method === 'updatedDomainKey') {
+            return true;
+        }
+
+        return (method === '$set' || method === 'set') && String(call?.params?.[0] ?? '') === 'domainKey';
+    });
+}
+
+function commitDomainKey(commit) {
+    const updates = commit?.updates && typeof commit.updates === 'object' ? commit.updates : {};
+    if (Object.prototype.hasOwnProperty.call(updates, 'domainKey')) {
+        return sanitizeDomainKey(updates.domainKey, accessibleDomains());
+    }
+
+    return currentKey();
+}
+
+function armQuietDrain(token) {
+    window.clearTimeout(domainQuietTimer);
+    domainQuietTimer = window.setTimeout(() => {
+        if (token !== domainToken) {
+            return;
+        }
+        if (domainCommitsOpen === 0) {
+            finishDomainTransition();
+        }
+    }, DOMAIN_QUIET_MS);
+}
+
+function finishDomainTransition() {
+    domainHold = false;
+    domainCommitsOpen = 0;
+    domainTransitionKey = null;
+    window.clearTimeout(domainQuietTimer);
+    window.clearTimeout(domainFailsafeTimer);
+    endDomainLoading();
+}
+
+function beginDomainTransition(rawKey = null) {
+    const key = rawKey == null ? currentKey() : sanitizeDomainKey(rawKey, accessibleDomains());
+
+    if (domainHold && domainTransitionKey === key) {
+        beginDomainLoading();
+
+        return;
+    }
+
+    domainToken += 1;
+    const token = domainToken;
+    domainHold = true;
+    domainTransitionKey = key;
+    domainCommitsOpen = 0;
+    beginDomainLoading();
+
+    window.clearTimeout(domainFailsafeTimer);
+    domainFailsafeTimer = window.setTimeout(() => {
+        if (token === domainToken) {
+            finishDomainTransition();
+        }
+    }, DOMAIN_FAILSAFE_MS);
+
+    armQuietDrain(token);
+}
+
+function onDomainCommitSettled(token) {
+    return () => {
+        if (token !== domainToken) {
+            return;
+        }
+
+        domainCommitsOpen = Math.max(0, domainCommitsOpen - 1);
+        armQuietDrain(token);
+    };
 }
 
 function dispatchLivewire(domainKey) {
@@ -109,7 +205,7 @@ function dispatchLivewire(domainKey) {
 function select(rawKey) {
     const key = applyClientState(rawKey);
     syncAlpine(key);
-    beginLoading();
+    beginDomainTransition(key);
 }
 
 function resolveFromBrowser() {
@@ -127,8 +223,12 @@ function hydrateFromStorage() {
     syncAlpine(key);
 
     const serverKey = normalizeDomainKey(window.__SEO_DOMAIN_CONTEXT_FROM_SERVER__);
+    if (isDomainNeutralPanelPath(window.location.href)) {
+        return key;
+    }
+
     if (key !== serverKey && window.Livewire) {
-        beginLoading();
+        beginDomainTransition(key);
         const bars = typeof window.Livewire.getByName === 'function'
             ? window.Livewire.getByName('global-seo-bar')
             : [];
@@ -183,9 +283,21 @@ function attachLivewireHeader() {
         options.headers = applyDomainHeader(options.headers, currentKey());
     });
 
-    window.Livewire.hook('commit', ({ succeed, fail }) => {
-        succeed(() => endLoading());
-        fail(() => endLoading());
+    window.Livewire.hook('commit', ({ component, commit, succeed, fail }) => {
+        if (isGlobalSeoBar(component) && isDomainKeyCommit(commit)) {
+            beginDomainTransition(commitDomainKey(commit));
+        }
+
+        if (!domainHold || isPollCommit(commit)) {
+            return;
+        }
+
+        const token = domainToken;
+        domainCommitsOpen += 1;
+        window.clearTimeout(domainQuietTimer);
+        const done = onDomainCommitSettled(token);
+        succeed(done);
+        fail(done);
     });
 }
 
@@ -211,6 +323,16 @@ function interceptSeoLinks(event) {
         return;
     }
 
+    if (isDomainNeutralPanelPath(url.href)) {
+        if (url.searchParams.has(QUERY_KEY) || url.searchParams.has(SITE_ID_QUERY_KEY)) {
+            url.searchParams.delete(QUERY_KEY);
+            url.searchParams.delete(SITE_ID_QUERY_KEY);
+            anchor.setAttribute('href', `${url.pathname}${url.search}${url.hash}`);
+        }
+
+        return;
+    }
+
     if (url.searchParams.has(QUERY_KEY) || url.searchParams.has(SITE_ID_QUERY_KEY)) {
         return;
     }
@@ -228,7 +350,17 @@ function attachNavigateHook() {
 
         try {
             const next = new URL(url, window.location.origin);
-            if (!isSeoPanelPath(next.href) || next.searchParams.has(QUERY_KEY) || next.searchParams.has(SITE_ID_QUERY_KEY)) {
+            if (!isSeoPanelPath(next.href)) {
+                return;
+            }
+            if (isDomainNeutralPanelPath(next.href)) {
+                next.searchParams.delete(QUERY_KEY);
+                next.searchParams.delete(SITE_ID_QUERY_KEY);
+                event.detail.url = next.toString();
+
+                return;
+            }
+            if (next.searchParams.has(QUERY_KEY) || next.searchParams.has(SITE_ID_QUERY_KEY)) {
                 return;
             }
             next.searchParams.set(QUERY_KEY, currentKey());
@@ -277,12 +409,15 @@ function exposeApi() {
 
 export function bootDomainContext() {
     if (window[BOOT_FLAG]) {
+        bootPanelLoading();
         hydrateFromStorage();
 
         return;
     }
 
     window[BOOT_FLAG] = true;
+    exposePanelLoadingApi();
+    bootPanelLoading();
     exposeApi();
 
     const initial = resolveFromBrowser();
@@ -309,6 +444,7 @@ export function bootDomainContext() {
     }
 
     document.addEventListener('livewire:navigated', () => {
+        bootPanelLoading();
         hydrateFromStorage();
     });
 }

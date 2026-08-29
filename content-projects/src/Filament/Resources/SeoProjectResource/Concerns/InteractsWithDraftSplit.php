@@ -27,20 +27,21 @@ trait InteractsWithDraftSplit
     /** first_n|all */
     public string $draftSplitMode = SplitDraftContentProjectCommand::MODE_FIRST_N;
 
-    public int $draftSplitQuantity = ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS;
+    public int $draftSplitQuantity = ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS;
 
     /**
-     * Selected writer user ids — never auto-filled.
+     * Included writer user ids (exclude-to-remove UX).
+     * Default on open = all eligible real writers. Not reset on quantity/mode change.
      *
      * @var list<int|string>
      */
-    public array $draftSplitWriterIds = [];
+    public array $draftSplitIncludedUserIds = [];
 
     public function mountInteractsWithDraftSplit(): void
     {
-        $this->draftSplitQuantity = ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS;
+        $this->draftSplitQuantity = ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS;
         $this->draftSplitMode = SplitDraftContentProjectCommand::MODE_FIRST_N;
-        $this->draftSplitWriterIds = [];
+        $this->draftSplitIncludedUserIds = [];
         $this->draftSplitModalOpen = false;
     }
 
@@ -69,10 +70,10 @@ trait InteractsWithDraftSplit
 
         $this->draftSplitMode = $mode;
         $this->draftSplitQuantity = min(
-            ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS,
+            ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS,
             $reviewed,
         );
-        $this->draftSplitWriterIds = [];
+        $this->draftSplitIncludedUserIds = $this->defaultEligibleIncludedUserIds();
         $this->draftSplitModalOpen = true;
     }
 
@@ -91,9 +92,49 @@ trait InteractsWithDraftSplit
         $this->clampDraftSplitInputs();
     }
 
-    public function updatedDraftSplitWriterIds(): void
+    public function excludeDraftSplitWriter(int|string $userId): void
     {
-        $this->draftSplitWriterIds = $this->orderedSelectedWriterIds();
+        $excludeId = (int) $userId;
+        if ($excludeId <= 0) {
+            return;
+        }
+
+        $this->draftSplitIncludedUserIds = array_values(array_filter(
+            array_map(static fn (mixed $id): int => (int) $id, $this->draftSplitIncludedUserIds),
+            static fn (int $id): bool => $id > 0 && $id !== $excludeId,
+        ));
+    }
+
+    public function includeDraftSplitWriter(int|string $userId): void
+    {
+        $includeId = (int) $userId;
+        if ($includeId <= 0) {
+            return;
+        }
+
+        $writers = $this->currentWriterSelectorPayload()['writers'];
+        $eligible = false;
+        foreach ($writers as $writer) {
+            if ((int) ($writer['id'] ?? 0) === $includeId) {
+                $eligible = true;
+                break;
+            }
+        }
+
+        if (! $eligible) {
+            return;
+        }
+
+        $included = [];
+        foreach ($this->draftSplitIncludedUserIds as $raw) {
+            $id = (int) $raw;
+            if ($id > 0) {
+                $included[$id] = true;
+            }
+        }
+        $included[$includeId] = true;
+
+        $this->draftSplitIncludedUserIds = $this->orderedIncludedUserIds($writers, $included);
     }
 
     public function activateAllDraftItems(): void
@@ -109,8 +150,17 @@ trait InteractsWithDraftSplit
         }
 
         $this->clampDraftSplitInputs();
-        $writerIds = $this->orderedSelectedWriterIds();
-        $this->draftSplitWriterIds = $writerIds;
+        $writerIds = $this->orderedIncludedUserIds();
+
+        if ($writerIds === []) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.draft_split_failed'))
+                ->body(__('seo-content-ai::filament.projects.draft_split_no_writers'))
+                ->danger()
+                ->send();
+
+            return;
+        }
 
         $mode = strtolower(trim($this->draftSplitMode));
         $quantity = null;
@@ -150,40 +200,60 @@ trait InteractsWithDraftSplit
         }
 
         $this->draftSplitModalOpen = false;
-        $this->draftSplitWriterIds = [];
+        $this->draftSplitIncludedUserIds = [];
 
-        $moved = (int) ($result->metadata['moved_count'] ?? 0);
-        $remaining = (int) ($result->metadata['remaining_count'] ?? 0);
-        $executionIds = $result->metadata['execution_project_ids'] ?? [];
-        if (! is_array($executionIds)) {
-            $executionIds = [];
+        $moved = (int) ($result->metadata['moved_count'] ?? $result->metadata['assigned_items'] ?? 0);
+        $createdCount = (int) ($result->metadata['created_count'] ?? count($result->metadata['created_projects'] ?? []));
+        $reusedCount = (int) ($result->metadata['reused_count'] ?? count($result->metadata['reused_projects'] ?? []));
+        $projectCount = (int) ($result->metadata['project_count'] ?? ($createdCount + $reusedCount));
+        $redirectMonth = (string) ($result->metadata['redirect_month']
+            ?? $result->metadata['month']
+            ?? now()->format('Y-m'));
+        if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $redirectMonth) === 1) {
+            $redirectMonth = substr($redirectMonth, 0, 7);
         }
-        $executionId = (int) ($executionIds[0] ?? $result->metadata['execution_project_id'] ?? 0);
-        $projectCount = count($executionIds) > 0 ? count($executionIds) : ($executionId > 0 ? 1 : 0);
+
+        $body = __('seo-content-ai::filament.projects.draft_split_success_body', [
+            'moved' => $moved,
+            'projects' => max(1, $projectCount),
+            'created' => $createdCount,
+            'reused' => $reusedCount,
+        ]);
+
+        $listUrl = null;
+        try {
+            $listUrl = SeoProjectResource::getUrl('index', [
+                'month' => $redirectMonth,
+                'tableFilters' => [
+                    'month' => [
+                        'month' => $redirectMonth.'-01',
+                    ],
+                ],
+            ]);
+        } catch (\Throwable) {
+            $listUrl = null;
+        }
 
         $notification = Notification::make()
             ->title(__('seo-content-ai::filament.projects.draft_split_success_title'))
-            ->body(__('seo-content-ai::filament.projects.draft_split_success_body', [
-                'moved' => $moved,
-                'remaining' => $remaining,
-                'projects' => $projectCount,
-            ]))
+            ->body($body)
             ->success();
 
-        if ($executionId > 0) {
-            try {
-                $url = SeoProjectResource::getUrl('view', ['record' => $executionId]);
-                $notification->actions([
-                    NotificationAction::make('open')
-                        ->label(__('seo-content-ai::filament.projects.draft_split_open_execution'))
-                        ->url($url),
-                ]);
-            } catch (\Throwable) {
-                // ignore URL resolution failures
-            }
+        if (is_string($listUrl) && $listUrl !== '') {
+            $notification->actions([
+                NotificationAction::make('view_month')
+                    ->label(__('seo-content-ai::filament.projects.draft_split_view_month_projects'))
+                    ->url($listUrl),
+            ]);
         }
 
         $notification->send();
+
+        if (is_string($listUrl) && $listUrl !== '') {
+            $this->redirect($listUrl, navigate: false);
+
+            return;
+        }
 
         $this->selectedTaskIds = [];
         $this->project = $project->fresh() ?? $project;
@@ -198,11 +268,9 @@ trait InteractsWithDraftSplit
      *   start_month: string,
      *   start_month_label: string,
      *   writers: list<array<string, mixed>>,
-     *   preview: list<array{user_id: int, user_name: string, item_count: int}>,
-     *   insufficient_slots: int,
-     *   insufficient_message: string,
+     *   included_writers: list<array<string, mixed>>,
+     *   excluded_writers: list<array<string, mixed>>,
      *   can_create: bool,
-     *   selected_capacity: int,
      *   max: int
      * }
      */
@@ -210,14 +278,12 @@ trait InteractsWithDraftSplit
     {
         $project = $this->project;
         $now = Carbon::now()->startOfMonth();
-        $capacity = app(ContentProjectWriterMonthlyCapacityService::class);
         $selector = $this->draftSplitModalOpen
-            ? $capacity->writerSelectorPayload($now)
+            ? $this->currentWriterSelectorPayload($now)
             : [
                 'writers' => [],
                 'month' => $now->format('Y-m-d'),
                 'month_label' => $now->format('m/Y'),
-                'max' => ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS,
             ];
         $empty = [
             'count' => 0,
@@ -225,13 +291,11 @@ trait InteractsWithDraftSplit
             'selected' => 0,
             'start_month' => $now->format('Y-m-d'),
             'start_month_label' => $now->format('m/Y'),
-            'writers' => $selector['writers'],
-            'preview' => [],
-            'insufficient_slots' => 0,
-            'insufficient_message' => '',
+            'writers' => [],
+            'included_writers' => [],
+            'excluded_writers' => [],
             'can_create' => false,
-            'selected_capacity' => 0,
-            'max' => ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS,
+            'max' => ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS,
         ];
 
         if (! $project instanceof SeoProject || ! $project->isDraftPlanning()) {
@@ -241,15 +305,14 @@ trait InteractsWithDraftSplit
         $splitter = app(SplitDraftContentProjectService::class);
         $reviewed = $splitter->currentReviewedDraftItemCount($project);
         $total = $splitter->currentDraftItemCount($project);
-        $writerIds = $this->orderedSelectedWriterIds($selector['writers']);
+        $writerIds = $this->orderedIncludedUserIds($selector['writers']);
         $selectedCount = $this->selectedItemCount($reviewed);
 
-        $previewRows = [];
-        $insufficient = 0;
-        $insufficientMessage = '';
-        $selectedCapacity = 0;
+        $allocationByUser = [];
+        $projectCountByUser = [];
+        $hasPositiveAllocation = false;
 
-        if ($reviewed > 0) {
+        if ($reviewed > 0 && $writerIds !== []) {
             try {
                 $preview = $splitter->preview(
                     $project,
@@ -260,21 +323,59 @@ trait InteractsWithDraftSplit
                     [],
                     $writerIds,
                 );
-                $selectedCapacity = (int) ($preview['selected_capacity'] ?? 0);
-                $insufficient = (int) ($preview['insufficient_slots'] ?? 0);
-                $insufficientMessage = (string) ($preview['insufficient_message'] ?? '');
                 foreach ($preview['allocations'] ?? [] as $row) {
                     if (! is_array($row)) {
                         continue;
                     }
-                    $previewRows[] = [
-                        'user_id' => (int) ($row['user_id'] ?? 0),
-                        'user_name' => (string) ($row['user_name'] ?? ''),
-                        'item_count' => (int) ($row['item_count'] ?? 0),
-                    ];
+                    $userId = (int) ($row['user_id'] ?? 0);
+                    $count = (int) ($row['item_count'] ?? 0);
+                    if ($userId <= 0) {
+                        continue;
+                    }
+                    $allocationByUser[$userId] = $count;
+                    $projectCountByUser[$userId] = (int) ($row['project_count'] ?? 0);
+                    if ($count > 0) {
+                        $hasPositiveAllocation = true;
+                    }
                 }
             } catch (\Throwable) {
-                $previewRows = [];
+                $allocationByUser = [];
+            }
+        }
+
+        $includedLookup = array_fill_keys($writerIds, true);
+        $includedWriters = [];
+        $excludedWriters = [];
+        $allWriters = [];
+
+        foreach ($selector['writers'] as $writer) {
+            if (! is_array($writer)) {
+                continue;
+            }
+            $id = (int) ($writer['id'] ?? 0);
+            if ($id <= 0) {
+                continue;
+            }
+
+            $current = (int) ($writer['current'] ?? 0);
+            $included = isset($includedLookup[$id]);
+            $newAllocation = $included ? (int) ($allocationByUser[$id] ?? 0) : 0;
+            $projectCount = $included ? (int) ($projectCountByUser[$id] ?? 0) : 0;
+            $row = [
+                'id' => $id,
+                'name' => (string) ($writer['name'] ?? ''),
+                'current' => $current,
+                'included' => $included,
+                'new_allocation' => $newAllocation,
+                'resulting' => $current + $newAllocation,
+                'project_count' => $projectCount,
+            ];
+            $allWriters[] = $row;
+
+            if ($included) {
+                $includedWriters[] = $row;
+            } else {
+                $excludedWriters[] = $row;
             }
         }
 
@@ -285,17 +386,14 @@ trait InteractsWithDraftSplit
             'selected' => $selectedCount,
             'start_month' => $now->format('Y-m-d'),
             'start_month_label' => $now->format('m/Y'),
-            'writers' => $selector['writers'],
-            'preview' => $previewRows,
-            'insufficient_slots' => $insufficient,
-            'insufficient_message' => $insufficientMessage,
+            'writers' => $allWriters,
+            'included_writers' => $includedWriters,
+            'excluded_writers' => $excludedWriters,
             'can_create' => $reviewed > 0
                 && $selectedCount > 0
                 && $writerIds !== []
-                && $insufficient < 1
-                && $previewRows !== [],
-            'selected_capacity' => $selectedCapacity,
-            'max' => ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS,
+                && $hasPositiveAllocation,
+            'max' => ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS,
         ];
     }
 
@@ -317,37 +415,67 @@ trait InteractsWithDraftSplit
     }
 
     /**
-     * @param  list<array<string, mixed>>|null  $writers
      * @return list<int>
      */
-    protected function orderedSelectedWriterIds(?array $writers = null): array
+    protected function defaultEligibleIncludedUserIds(): array
     {
-        $selected = [];
-        foreach ($this->draftSplitWriterIds as $raw) {
-            $id = (int) $raw;
-            if ($id > 0) {
-                $selected[$id] = true;
+        $ids = [];
+        foreach ($this->currentWriterSelectorPayload()['writers'] as $writer) {
+            $id = (int) ($writer['id'] ?? 0);
+            if ($id <= 0) {
+                continue;
+            }
+            $ids[] = $id;
+        }
+
+        return $ids;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>|null  $writers
+     * @param  array<int, true>|null  $includedLookup
+     * @return list<int>
+     */
+    protected function orderedIncludedUserIds(?array $writers = null, ?array $includedLookup = null): array
+    {
+        if ($includedLookup === null) {
+            $includedLookup = [];
+            foreach ($this->draftSplitIncludedUserIds as $raw) {
+                $id = (int) $raw;
+                if ($id > 0) {
+                    $includedLookup[$id] = true;
+                }
             }
         }
 
         if ($writers === null) {
-            $writers = app(ContentProjectWriterMonthlyCapacityService::class)
-                ->writerSelectorPayload(Carbon::now()->startOfMonth())['writers'];
+            $writers = $this->currentWriterSelectorPayload()['writers'];
         }
 
         $ordered = [];
         foreach ($writers as $writer) {
             $id = (int) ($writer['id'] ?? 0);
-            if ($id <= 0 || ! isset($selected[$id])) {
-                continue;
-            }
-            if (! empty($writer['full'])) {
+            if ($id <= 0 || ! isset($includedLookup[$id])) {
                 continue;
             }
             $ordered[] = $id;
         }
 
         return $ordered;
+    }
+
+    /**
+     * @return array{
+     *     month: string,
+     *     month_label: string,
+     *     month_display?: string,
+     *     writers: list<array<string, mixed>>
+     * }
+     */
+    protected function currentWriterSelectorPayload(?Carbon $month = null): array
+    {
+        return app(ContentProjectWriterMonthlyCapacityService::class)
+            ->writerSelectorPayload($month ?? Carbon::now()->startOfMonth());
     }
 
     protected function selectedItemCount(int $reviewed): int

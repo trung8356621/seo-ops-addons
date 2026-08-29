@@ -258,12 +258,8 @@ class KeywordResource extends SeoPanelResource
                                 ->where('meta_key', KeywordMetaKey::SeoHidden->value)
                                 ->where('meta_value', '1'),
                         ),
-                        blank: fn (Builder $query): Builder => $query->whereDoesntHave(
-                            'metas',
-                            static fn (Builder $meta): Builder => $meta
-                                ->where('meta_key', KeywordMetaKey::SeoHidden->value)
-                                ->where('meta_value', '1'),
-                        ),
+                        // Blank = full Dictionary (includes Exclude from SEO); do not hide excluded.
+                        blank: fn (Builder $query): Builder => $query,
                     ),
                 Tables\Filters\SelectFilter::make('site_id')
                     ->label(__('seo-content-ai::filament.keyword.domain'))

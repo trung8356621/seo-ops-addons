@@ -366,10 +366,7 @@ final class ReconcileFocusArticleTopicsService
             return true;
         }
 
-        return $this->phraseResolver->containsCanonicalCore($phrase, $canonical)
-            && ! $this->phraseResolver->isGenericSingletonCore(
-                $this->phraseResolver->significantTokens($canonical),
-            );
+        return $this->phraseResolver->containsCanonicalCoreForTopic($phrase, $canonical);
     }
 
     /**

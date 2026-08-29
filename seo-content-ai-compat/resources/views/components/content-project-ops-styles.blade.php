@@ -737,8 +737,97 @@
             display: flex;
             flex-direction: column;
             gap: 0.5rem;
-            max-height: 16rem;
+            max-height: 18rem;
             overflow-y: auto;
+        }
+        .cp-draft-split-writer-row {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+            border: 1px solid rgb(229 231 235);
+            border-radius: 0.5rem;
+            padding: 0.625rem 0.75rem;
+            background: #fff;
+        }
+        .dark .cp-draft-split-writer-row {
+            border-color: rgb(255 255 255 / 0.1);
+            background: transparent;
+        }
+        .cp-draft-split-writer-row.is-full,
+        .cp-draft-split-writer-row.is-excluded {
+            opacity: 0.72;
+            background: rgb(249 250 251);
+        }
+        .dark .cp-draft-split-writer-row.is-full,
+        .dark .cp-draft-split-writer-row.is-excluded {
+            background: rgb(255 255 255 / 0.04);
+        }
+        .cp-draft-split-writer-metrics {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.375rem 0.5rem;
+        }
+        .cp-draft-split-metric {
+            font-size: 0.6875rem;
+            line-height: 1.25;
+            font-variant-numeric: tabular-nums;
+        }
+        .cp-draft-split-metric--existing {
+            color: rgb(107 114 128);
+        }
+        .dark .cp-draft-split-metric--existing {
+            color: rgb(156 163 175);
+        }
+        .cp-draft-split-metric--new {
+            color: rgb(37 99 235);
+            font-weight: 600;
+        }
+        .dark .cp-draft-split-metric--new {
+            color: rgb(96 165 250);
+        }
+        .cp-draft-split-metric--result {
+            color: rgb(17 24 39);
+            font-weight: 600;
+        }
+        .dark .cp-draft-split-metric--result {
+            color: rgb(243 244 246);
+        }
+        .cp-draft-split-exclude {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+            width: 1.75rem;
+            height: 1.75rem;
+            border-radius: 0.375rem;
+            color: rgb(107 114 128);
+        }
+        .cp-draft-split-exclude:hover {
+            background: rgb(243 244 246);
+            color: rgb(17 24 39);
+        }
+        .dark .cp-draft-split-exclude:hover {
+            background: rgb(255 255 255 / 0.08);
+            color: rgb(243 244 246);
+        }
+        .cp-draft-split-add-back {
+            flex-shrink: 0;
+            font-size: 0.6875rem;
+            font-weight: 600;
+            color: rgb(37 99 235);
+            white-space: nowrap;
+        }
+        .dark .cp-draft-split-add-back {
+            color: rgb(96 165 250);
+        }
+        .cp-draft-split-excluded {
+            margin-top: 0.25rem;
+            padding-top: 0.5rem;
+            border-top: 1px dashed rgb(229 231 235);
+        }
+        .dark .cp-draft-split-excluded {
+            border-top-color: rgb(255 255 255 / 0.1);
         }
         .cp-ops-dialog__header,
         .cp-ops-dialog__body {
@@ -762,11 +851,6 @@
             overflow-y: auto;
             padding: 0.75rem 1.5rem 1rem;
             box-sizing: border-box;
-        }
-
-        /* Draft split preview — stable height while Livewire recalculates */
-        .cp-draft-split-preview {
-            min-height: 6.25rem;
         }
 
         /* —— Content Planning (Draft Planner) —— */

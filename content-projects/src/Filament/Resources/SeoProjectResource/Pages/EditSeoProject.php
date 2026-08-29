@@ -83,7 +83,14 @@ class EditSeoProject extends SeoEditRecord
 
         if (! empty($data['month'])) {
             $data['month'] = Carbon::parse($data['month'])->startOfMonth()->format('Y-m-d');
-            $data['name'] = SeoProject::defaultNameFromMonth($data['month']);
+            $originalMonth = $record->month?->format('Y-m-d');
+            if ($originalMonth !== $data['month']) {
+                $writerId = (int) ($data['user_id'] ?? $record->user_id ?? 0);
+                $data['name'] = $writerId > 0
+                    ? app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\SplitDraftContentProjectService::class)
+                        ->nextExecutionProjectName($writerId, $data['month'])
+                    : SeoProject::defaultNameFromMonth($data['month']);
+            }
         }
 
         $projectSiteId = isset($data['site_id']) ? (int) $data['site_id'] : null;

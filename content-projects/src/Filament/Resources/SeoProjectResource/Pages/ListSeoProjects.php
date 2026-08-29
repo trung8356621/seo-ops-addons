@@ -7,17 +7,15 @@ namespace Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResour
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectStaffAvailabilityService;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectListBucket;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Filament\Actions;
 use Filament\Resources\Pages\ListRecords;
 use Illuminate\Database\Eloquent\Builder;
-use Omnichannel\Addons\Seo\Livewire\Concerns\RefreshesOnDomainContextChanged;
 
 class ListSeoProjects extends ListRecords
 {
-    use RefreshesOnDomainContextChanged;
-
     protected static string $resource = SeoProjectResource::class;
 
     protected static string $view = 'seo-content-ai::filament.resources.seo-project-resource.pages.list-seo-projects';
@@ -25,24 +23,33 @@ class ListSeoProjects extends ListRecords
     /** Month context YYYY-MM — sync toolbar + table filter. */
     public string $planningMonth = '';
 
+    /** High-level list bucket: all|draft|project|archived */
+    public string $projectType = ContentProjectListBucket::ALL;
+
     public function mount(): void
     {
         parent::mount();
 
         $this->planningMonth = $this->resolvePlanningMonthFromRequest();
-        $this->applyPlanningMonthToTableFilters($this->planningMonth);
+        $this->projectType = $this->resolveProjectTypeFromRequest();
+        $this->syncToolbarFiltersToTableState();
     }
 
     protected function getTableQuery(): Builder
     {
-        // Hiện cả project đã archive trên list; click → archive preview (projectRecordUrl).
-        return SeoProjectResource::applyGlobalSiteScopeToProjectQuery(
-            parent::getTableQuery()
-                ->where(function (Builder $builder): void {
-                    $builder
-                        ->where('kind', SeoProject::KIND_MONTHLY)
-                        ->orWhereNull('kind');
-                }),
+        // No global Domain scope — projects are domain-neutral; items own site_id.
+        // Include archived rows so bucket=archived / all can surface them.
+        $query = parent::getTableQuery()
+            ->where(function (Builder $builder): void {
+                $builder
+                    ->where('kind', SeoProject::KIND_MONTHLY)
+                    ->orWhereNull('kind');
+            });
+
+        return ContentProjectListBucket::apply(
+            $query,
+            $this->projectType,
+            ContentProjectMonthContext::toDateString($this->planningMonth ?: null),
         );
     }
 
@@ -80,22 +87,29 @@ class ListSeoProjects extends ListRecords
     {
         $normalized = ContentProjectMonthContext::normalize(is_string($value) ? $value : null);
         $this->planningMonth = $normalized;
-        $this->applyPlanningMonthToTableFilters($normalized);
-        $this->redirect($this->planningMonthUrl($normalized), navigate: true);
+        $this->syncToolbarFiltersToTableState();
+        $this->redirect($this->planningMonthUrl($normalized, $this->projectType), navigate: true);
+    }
+
+    public function updatedProjectType(mixed $value): void
+    {
+        $type = ContentProjectListBucket::normalize(is_string($value) ? $value : ContentProjectListBucket::ALL);
+        $this->projectType = $type;
+        $this->syncToolbarFiltersToTableState();
+        $this->redirect($this->planningMonthUrl($this->planningMonth, $type), navigate: true);
     }
 
     public function updatedTableFilters(): void
     {
         $fromFilter = $this->monthFromTableFilters();
-        if ($fromFilter === null) {
-            return;
+        if ($fromFilter !== null && $fromFilter !== $this->planningMonth) {
+            $this->planningMonth = $fromFilter;
         }
 
-        if ($fromFilter === $this->planningMonth) {
-            return;
+        $fromType = $this->projectTypeFromTableFilters();
+        if ($fromType !== null && $fromType !== $this->projectType) {
+            $this->projectType = $fromType;
         }
-
-        $this->planningMonth = $fromFilter;
     }
 
     /**
@@ -106,6 +120,14 @@ class ListSeoProjects extends ListRecords
         return ContentProjectMonthContext::selectOptions();
     }
 
+    /**
+     * @return list<array{value: string, label: string}>
+     */
+    public function getProjectTypeOptions(): array
+    {
+        return ContentProjectListBucket::selectOptions();
+    }
+
     public function createProjectUrl(?int $staffId = null): string
     {
         $month = ContentProjectMonthContext::normalize($this->planningMonth ?: null);
@@ -114,9 +136,10 @@ class ListSeoProjects extends ListRecords
             ->createProjectUrl($staffId ?? 0, $month);
     }
 
-    public function planningMonthUrl(string $month): string
+    public function planningMonthUrl(string $month, ?string $projectType = null): string
     {
         $normalized = ContentProjectMonthContext::normalize($month);
+        $type = ContentProjectListBucket::normalize($projectType ?? $this->projectType);
         $base = SeoProjectResource::getUrl('index');
         $monthDate = ContentProjectMonthContext::toDateString($normalized);
 
@@ -128,6 +151,10 @@ class ListSeoProjects extends ListRecords
                 ],
             ],
         ];
+        if ($type !== ContentProjectListBucket::ALL) {
+            $params['project_type'] = $type;
+            $params['tableFilters']['project_type'] = ['value' => $type];
+        }
 
         return $base.(str_contains($base, '?') ? '&' : '?').http_build_query($params);
     }
@@ -158,6 +185,22 @@ class ListSeoProjects extends ListRecords
         return ContentProjectMonthContext::current();
     }
 
+    private function resolveProjectTypeFromRequest(): string
+    {
+        $fromQuery = request()->query('project_type');
+        if (is_string($fromQuery) && $fromQuery !== '') {
+            return ContentProjectListBucket::normalize($fromQuery);
+        }
+
+        // Legacy ?status= raw lifecycle → bucket map.
+        $legacyStatus = request()->query('status');
+        if (is_string($legacyStatus) && $legacyStatus !== '') {
+            return ContentProjectListBucket::normalize($legacyStatus);
+        }
+
+        return $this->projectTypeFromTableFilters() ?? ContentProjectListBucket::ALL;
+    }
+
     private function monthFromTableFilters(): ?string
     {
         $filters = is_array($this->tableFilters ?? null) ? $this->tableFilters : [];
@@ -168,12 +211,35 @@ class ListSeoProjects extends ListRecords
             : null);
     }
 
-    private function applyPlanningMonthToTableFilters(string $yyyyMm): void
+    private function projectTypeFromTableFilters(): ?string
+    {
+        $filters = is_array($this->tableFilters ?? null) ? $this->tableFilters : [];
+        $raw = $filters['project_type']['value']
+            ?? $filters['project_type']
+            ?? $filters['status']['value']
+            ?? $filters['status']
+            ?? null;
+        if (! is_string($raw) || $raw === '') {
+            return null;
+        }
+
+        return ContentProjectListBucket::normalize($raw);
+    }
+
+    private function syncToolbarFiltersToTableState(): void
     {
         $this->tableFilters ??= [];
         $this->tableFilters['month'] = [
-            'month' => ContentProjectMonthContext::toDateString($yyyyMm),
+            'month' => ContentProjectMonthContext::toDateString($this->planningMonth),
         ];
+
+        $type = ContentProjectListBucket::normalize($this->projectType);
+        if ($type === ContentProjectListBucket::ALL) {
+            unset($this->tableFilters['project_type'], $this->tableFilters['status']);
+        } else {
+            $this->tableFilters['project_type'] = ['value' => $type];
+            unset($this->tableFilters['status']);
+        }
 
         if (method_exists($this, 'getTableFiltersForm')) {
             try {

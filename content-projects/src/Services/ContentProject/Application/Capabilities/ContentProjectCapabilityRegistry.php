@@ -273,7 +273,7 @@ final class ContentProjectCapabilityRegistry
             ),
             $this->cap(
                 'content_project.split_draft',
-                'Move reviewed Draft items into current-month execution Content Project(s) assigned to selected writers (30 items/user/month). Does not generate articles or publish.',
+                'Move reviewed Draft items into current-month execution Content Project(s): fair-distribute across selected writers, then chunk at 30 items/project. Does not generate articles or publish.',
                 SplitDraftContentProjectCommand::class,
                 'content_project.split_draft',
                 riskLevel: 'write',
@@ -292,7 +292,7 @@ final class ContentProjectCapabilityRegistry
                 ],
                 confirmation: false,
                 presentation: [
-                    'description' => 'Split reviewed Draft items into current-month execution projects, one per selected writer, capped at 30 items/user/month. Requires real writer ids.',
+                    'description' => 'Fair-split reviewed Draft items across selected writers for the current month; chunk each writer at 30 items/project. Requires real writer ids.',
                     'required_context' => ['site_ref', 'project_ref'],
                     'side_effect_level' => 'write',
                 ],

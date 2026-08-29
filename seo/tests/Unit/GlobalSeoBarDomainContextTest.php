@@ -57,9 +57,11 @@ final class GlobalSeoBarDomainContextTest extends TestCase
         $this->assertStringContainsString('forgetLegacyGlobalSitePersistence', $setSource);
     }
 
-    public function test_content_projects_list_refreshes_without_resetting_month(): void
+    public function test_content_projects_list_is_domain_neutral_and_keeps_month(): void
     {
-        $this->assertContains(RefreshesOnDomainContextChanged::class, class_uses(ListSeoProjects::class) ?: []);
+        $this->assertNotContains(RefreshesOnDomainContextChanged::class, class_uses(ListSeoProjects::class) ?: []);
+        $this->assertNotContains(RefreshesOnDomainContextChanged::class, class_uses(ContentProjectArchive::class) ?: []);
+        $this->assertNotContains(RefreshesOnDomainContextChanged::class, class_uses(ContentProjectQueueHealthWidget::class) ?: []);
 
         $traitSource = (string) file_get_contents((string) (new ReflectionClass(RefreshesOnDomainContextChanged::class))->getFileName());
         $this->assertStringContainsString('resetPage', $traitSource);
@@ -67,14 +69,13 @@ final class GlobalSeoBarDomainContextTest extends TestCase
 
         $listSource = (string) file_get_contents((string) (new ReflectionClass(ListSeoProjects::class))->getFileName());
         $this->assertStringContainsString('planningMonth', $listSource);
-        $this->assertStringContainsString('applyGlobalSiteScopeToProjectQuery', $listSource);
+        $this->assertStringNotContainsString('applyGlobalSiteScopeToProjectQuery', $listSource);
+        $this->assertStringNotContainsString('RefreshesOnDomainContextChanged', $listSource);
     }
 
-    public function test_articles_list_and_archive_listen_for_domain_context(): void
+    public function test_articles_list_listens_for_domain_context(): void
     {
         $this->assertContains(RefreshesOnDomainContextChanged::class, class_uses(ListArticles::class) ?: []);
-        $this->assertContains(RefreshesOnDomainContextChanged::class, class_uses(ContentProjectArchive::class) ?: []);
-        $this->assertContains(RefreshesOnDomainContextChanged::class, class_uses(ContentProjectQueueHealthWidget::class) ?: []);
     }
 
     public function test_mcp_page_hides_global_domain_picker(): void
@@ -122,7 +123,7 @@ final class GlobalSeoBarDomainContextTest extends TestCase
         $source = $this->readMethodSource($method);
 
         $this->assertStringNotContainsString('applyGlobalSiteScopeToProjectQuery', $source);
-        $this->assertStringContainsString('applyAccessibleSiteScope', $source);
+        $this->assertStringContainsString('applyProjectTenantScope', $source);
     }
 
     public function test_js_store_is_tab_scoped_and_ignores_storage_events(): void
@@ -141,6 +142,8 @@ final class GlobalSeoBarDomainContextTest extends TestCase
         $this->assertStringContainsString('X-Seo-Domain-Context', $store);
         $this->assertStringContainsString('resolveDomainKeyFromSiteId', $store);
         $this->assertStringContainsString('SITE_ID_QUERY_KEY', $store);
+        $this->assertStringContainsString('isDomainNeutralPanelPath', $store);
+        $this->assertStringContainsString('isDomainNeutralPanelPath', $boot);
         $this->assertStringNotContainsString('siteId: null', $boot);
         $this->assertStringNotContainsString("addEventListener('storage'", $boot);
         $this->assertStringNotContainsString('location.reload', $boot);

@@ -10,25 +10,21 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Log;
 
 /**
- * Canonical resolver: one reusable Planning Draft per site/domain.
+ * Canonical shared Planning Draft pool.
+ * Draft is NOT month-versioned and NOT domain-bound — items own site_id.
  */
 final class PlanningDraftResolver
 {
     /**
-     * Find the canonical reusable Planning Draft for a site.
-     * When legacy duplicates exist, picks safest candidate and logs — no destructive merge.
+     * Find the canonical shared Planning Draft (any site_id / null).
+     * Prefer most recently updated active draft.
      */
-    public function findPlanningDraftForSite(int $siteId): ?SeoProject
+    public function findCanonicalSharedDraft(): ?SeoProject
     {
-        if ($siteId <= 0) {
-            return null;
-        }
-
         $drafts = $this->baseQuery()
-            ->where('site_id', $siteId)
             ->orderByDesc('updated_at')
             ->orderByDesc('id')
-            ->limit(10)
+            ->limit(20)
             ->get()
             ->filter(static fn (mixed $p): bool => $p instanceof SeoProject && $p->isDraftPlanning())
             ->values();
@@ -38,8 +34,7 @@ final class PlanningDraftResolver
         }
 
         if ($drafts->count() > 1) {
-            Log::warning('content_project.planning_draft.duplicate_detected', [
-                'site_id' => $siteId,
+            Log::warning('content_project.planning_draft.multiple_shared_detected', [
                 'draft_ids' => $drafts->map(static fn (SeoProject $p): int => (int) $p->getKey())->all(),
                 'canonical_id' => (int) $drafts->first()->getKey(),
             ]);
@@ -48,6 +43,41 @@ final class PlanningDraftResolver
         $canonical = $drafts->first();
 
         return $canonical instanceof SeoProject ? $canonical : null;
+    }
+
+    /**
+     * @deprecated Prefer {@see findCanonicalSharedDraft()} — Draft is no longer per-site.
+     * Kept for callers; ignores site uniqueness and returns the shared pool
+     * (or a draft that happens to match site_id when several still exist).
+     */
+    public function findPlanningDraftForSite(int $siteId): ?SeoProject
+    {
+        if ($siteId > 0) {
+            $forSite = $this->baseQuery()
+                ->where('site_id', $siteId)
+                ->orderByDesc('updated_at')
+                ->orderByDesc('id')
+                ->limit(5)
+                ->get()
+                ->filter(static fn (mixed $p): bool => $p instanceof SeoProject && $p->isDraftPlanning())
+                ->values();
+
+            if ($forSite->isNotEmpty()) {
+                if ($forSite->count() > 1) {
+                    Log::warning('content_project.planning_draft.duplicate_detected', [
+                        'site_id' => $siteId,
+                        'draft_ids' => $forSite->map(static fn (SeoProject $p): int => (int) $p->getKey())->all(),
+                        'canonical_id' => (int) $forSite->first()->getKey(),
+                    ]);
+                }
+
+                $hit = $forSite->first();
+
+                return $hit instanceof SeoProject ? $hit : null;
+            }
+        }
+
+        return $this->findCanonicalSharedDraft();
     }
 
     /**
@@ -72,6 +102,20 @@ final class PlanningDraftResolver
         }
 
         return $drafts->all();
+    }
+
+    /**
+     * @return list<SeoProject>
+     */
+    public function listAllActiveDrafts(): array
+    {
+        return $this->baseQuery()
+            ->orderByDesc('updated_at')
+            ->orderByDesc('id')
+            ->get()
+            ->filter(static fn (mixed $p): bool => $p instanceof SeoProject && $p->isDraftPlanning())
+            ->values()
+            ->all();
     }
 
     private function baseQuery(): Builder

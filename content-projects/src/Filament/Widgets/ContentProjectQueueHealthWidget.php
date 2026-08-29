@@ -9,7 +9,6 @@ use Omnichannel\Addons\ContentProjects\Support\ContentProject\OperationalStatusF
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\OperationalStatusParser;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\Seo\Support\SeoConnectionContext;
-use Omnichannel\Addons\Seo\Livewire\Concerns\RefreshesOnDomainContextChanged;
 use App\Models\SeoDatabaseConnection;
 use Filament\Widgets\StatsOverviewWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
@@ -19,8 +18,6 @@ use Filament\Widgets\StatsOverviewWidget\Stat;
  */
 final class ContentProjectQueueHealthWidget extends StatsOverviewWidget
 {
-    use RefreshesOnDomainContextChanged;
-
     protected static ?int $sort = 2;
 
     protected int|string|array $columnSpan = 'full';
@@ -35,10 +32,7 @@ final class ContentProjectQueueHealthWidget extends StatsOverviewWidget
 
     protected function getStats(): array
     {
-        $globalSiteId = SeoAccessControl::globalSiteId();
-        $siteIds = $globalSiteId !== null
-            ? [$globalSiteId]
-            : SeoAccessControl::accessibleSiteIds();
+        $siteIds = SeoAccessControl::accessibleSiteIds();
         $connectionId = null;
         $current = SeoConnectionContext::current();
         if ($current instanceof SeoDatabaseConnection) {

@@ -127,6 +127,7 @@
                             <span class="sr-only">{{ __('seo-content-ai::filament.projects.ops_col_thumbnail') }}</span>
                         </th>
                         <th class="cp-ops-col-item" scope="col">Item</th>
+                        <th class="cp-ops-col-domain" scope="col">{{ __('seo-content-ai::filament.projects.ops_col_domain') }}</th>
                         @if ($isPublishingQueue)
                             <th class="cp-ops-col-gen" scope="col">Publish state</th>
                             <th class="cp-ops-col-life" scope="col">Schedule</th>
@@ -190,6 +191,9 @@
                             </td>
                             <td>
                                 <x-seo-content-ai::content-project-item-meta :row="$row" />
+                            </td>
+                            <td class="cp-ops-muted cp-ops-col-domain">
+                                {{ $row['domain'] ?? '—' }}
                             </td>
                             @if ($isPublishingQueue)
                                 <td>

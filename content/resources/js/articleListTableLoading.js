@@ -18,6 +18,7 @@ export function initArticleListTableLoading() {
             el.classList.add('is-table-loading');
             el.setAttribute('aria-busy', 'true');
         }
+        window.SeoPanelLoading?.beginBar?.();
     };
 
     const hide = () => {
@@ -31,6 +32,7 @@ export function initArticleListTableLoading() {
             el.classList.remove('is-table-loading');
             el.removeAttribute('aria-busy');
         }
+        window.SeoPanelLoading?.endBar?.();
     };
 
     let registered = false;

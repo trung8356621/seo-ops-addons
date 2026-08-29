@@ -105,6 +105,7 @@ final class ContentProjectItemOperationsReadModel
                 ]),
                 'article.wordpressLink',
                 'itemOrigin',
+                'site:id,domain',
             ])
             ->orderBy('id')
             ->get();
@@ -536,6 +537,8 @@ final class ContentProjectItemOperationsReadModel
             'generation_keyword_dirty' => $isGenerationKeywordDirty,
             'can_edit_keyword_override' => $type !== SeoProjectTask::TYPE_IMPROVE && ! $task->isGenerationBlocked(),
             'title' => $title !== '' ? $title : '—',
+            'domain' => $this->resolveItemDomain($task),
+            'site_id' => (int) ($task->site_id ?? 0) ?: null,
             'suggestion_reason' => $this->resolveSuggestionReason($task),
             'article_id' => $articleId > 0 ? $articleId : null,
             'article_missing' => $articleId > 0 && ! ($article instanceof SeoArticle),
@@ -905,6 +908,31 @@ final class ContentProjectItemOperationsReadModel
         }
 
         return $reason;
+    }
+
+    private function resolveItemDomain(SeoProjectTask $task): string
+    {
+        $siteId = (int) ($task->site_id ?? 0);
+        if ($siteId <= 0) {
+            $article = $task->relationLoaded('article') ? $task->article : null;
+            if ($article instanceof SeoArticle) {
+                $siteId = (int) ($article->site_id ?? 0);
+            }
+        }
+        if ($siteId <= 0) {
+            return '—';
+        }
+
+        $site = $task->relationLoaded('site') ? $task->site : null;
+        if ($site instanceof \App\Models\Site) {
+            $domain = trim((string) ($site->domain ?? ''));
+
+            return $domain !== '' ? $domain : '—';
+        }
+
+        $domain = trim((string) (\App\Models\Site::query()->whereKey($siteId)->value('domain') ?? ''));
+
+        return $domain !== '' ? $domain : '—';
     }
 
     private function resolveSuggestionSource(SeoProjectTask $task): string

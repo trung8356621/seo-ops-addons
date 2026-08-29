@@ -495,10 +495,7 @@ final class ReclusterTopicClustersService
             return true;
         }
 
-        return $this->phraseResolver->containsCanonicalCore($phrase, $canonical)
-            && ! $this->phraseResolver->isGenericSingletonCore(
-                $this->phraseResolver->significantTokens($canonical),
-            );
+        return $this->phraseResolver->containsCanonicalCoreForTopic($phrase, $canonical);
     }
 
     private function pass3AttachBySimilarity(
@@ -675,7 +672,7 @@ final class ReclusterTopicClustersService
             if ($this->phraseResolver->isGenericSingletonCore($item['tokens'])) {
                 continue;
             }
-            if (! $this->phraseResolver->containsCanonicalCore($phrase, $item['canonical_phrase'])) {
+            if (! $this->phraseResolver->containsCanonicalCoreForTopic($phrase, $item['canonical_phrase'])) {
                 continue;
             }
 

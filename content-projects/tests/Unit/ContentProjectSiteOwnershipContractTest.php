@@ -171,9 +171,13 @@ final class ContentProjectSiteOwnershipContractTest extends TestCase
         self::assertStringNotContainsString('globalSiteId', $normalizer);
 
         $resource = $this->source(SeoProjectResource::class);
-        self::assertStringContainsString('hasLinkedOrGeneratedArticles', $resource);
         self::assertStringContainsString('Existing project: never fall back to global Domain Context', $resource);
         self::assertStringContainsString('Domain Context / ?domain=all is UI-only', $resource);
+        self::assertStringContainsString('applyProjectTenantScope', $resource);
+        self::assertStringNotContainsString('where(\'site_id\', (int) SeoAccessControl::globalSiteId())', $resource);
+
+        $project = $this->source(SeoProject::class);
+        self::assertStringContainsString('hasLinkedOrGeneratedArticles', $project);
 
         $update = $this->source(UpdateContentProjectHandler::class);
         self::assertStringContainsString('site_change_blocked_linked_articles', $update);

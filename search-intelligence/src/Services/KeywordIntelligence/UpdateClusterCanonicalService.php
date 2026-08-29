@@ -27,6 +27,7 @@ final class UpdateClusterCanonicalService
         private readonly KeywordDnaService $dnaService,
         private readonly KeywordClusterEligibility $eligibility,
         private readonly PruneAutoSingletonClustersService $singletonPruner,
+        private readonly ReconcileFocusArticleTopicsService $focusReconciler,
     ) {}
 
     /**
@@ -92,6 +93,7 @@ final class UpdateClusterCanonicalService
     /**
      * Re-run the same membership reconciliation used after rename, without changing the canonical.
      * Site/domain scope: all SEO-eligible keywords (not only current Topic members).
+     * Then enforces Focus Article ⇒ Topic invariant via ReconcileFocusArticleTopicsService.
      *
      * @return array{
      *     cluster_key: string,
@@ -100,7 +102,11 @@ final class UpdateClusterCanonicalService
      *     detached: int,
      *     checked: int,
      *     kept: int,
-     *     changed: int
+     *     changed: int,
+     *     focus_orphans_before: int,
+     *     focus_orphans_after: int,
+     *     focus_attached_to_existing: int,
+     *     focus_singletons_created: int
      * }
      */
     public function reconcileMembership(int $siteId, string $clusterKey): array
@@ -116,6 +122,10 @@ final class UpdateClusterCanonicalService
         }
 
         $stats = $this->reevaluateMembershipForCanonical($siteId, $clusterKey, $canonical);
+
+        // Focus Article keywords must never remain Topic=NULL (reuse shared orphan reconciler).
+        $focusStats = $this->focusReconciler->reconcile($siteId);
+
         TopicClusterDirtyState::mark($siteId, 'membership_reconciled');
         \Omnichannel\Addons\SearchIntelligence\Services\SiteMcp\SiteMcpTopicalProfileStaleState::mark(
             $siteId,
@@ -130,6 +140,10 @@ final class UpdateClusterCanonicalService
             'checked' => $stats['checked'],
             'kept' => $stats['kept'],
             'changed' => $stats['attached'] + $stats['detached'],
+            'focus_orphans_before' => (int) ($focusStats['orphans_before'] ?? 0),
+            'focus_orphans_after' => (int) ($focusStats['orphans_after'] ?? 0),
+            'focus_attached_to_existing' => (int) ($focusStats['attached_to_existing'] ?? 0),
+            'focus_singletons_created' => (int) ($focusStats['singletons_created'] ?? 0),
         ];
     }
 
@@ -279,10 +293,8 @@ final class UpdateClusterCanonicalService
             return true;
         }
 
-        return $this->phraseResolver->containsCanonicalCore($phrase, $canonical)
-            && ! $this->phraseResolver->isGenericSingletonCore(
-                $this->phraseResolver->significantTokens($canonical),
-            );
+        // Topic membership: contiguous core without service/product intent hard-gate.
+        return $this->phraseResolver->containsCanonicalCoreForTopic($phrase, $canonical);
     }
 
     /**

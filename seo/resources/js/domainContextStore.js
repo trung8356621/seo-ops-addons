@@ -194,6 +194,10 @@ export function buildUrlWithDomain(href, domainKey) {
     url.searchParams.delete(QUERY_KEY);
     url.searchParams.delete(SITE_ID_QUERY_KEY);
 
+    if (isDomainNeutralPanelPath(url.href)) {
+        return `${url.pathname}${url.search}${url.hash}`;
+    }
+
     if (isAllDomains(key)) {
         url.searchParams.set(QUERY_KEY, ALL_KEY);
     } else {
@@ -217,6 +221,24 @@ export function isSeoPanelPath(href) {
         const url = new URL(href, 'http://local.test');
 
         return url.pathname === '/seo' || url.pathname.startsWith('/seo/');
+    } catch {
+        return false;
+    }
+}
+
+/**
+ * Projects / Runs / publishing queue — domain-neutral.
+ * Do not inject or keep ?domain= / ?site_id= on these paths.
+ *
+ * @param {string} href
+ * @returns {boolean}
+ */
+export function isDomainNeutralPanelPath(href) {
+    try {
+        const url = new URL(href, 'http://local.test');
+        const path = url.pathname;
+
+        return /\/content-projects(?:\/|$)/.test(path) || /\/publishing-queue(?:\/|$)/.test(path);
     } catch {
         return false;
     }

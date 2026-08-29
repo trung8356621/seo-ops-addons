@@ -222,6 +222,10 @@ final class SeoAccessControl
             return false;
         }
 
+        if (SeoPanelRoutes::isProjectsModule() || SeoPanelRoutes::isProjectsModulePath()) {
+            return false;
+        }
+
         if (
             SeoPanelRoutes::is('filament.seo.pages.articles-optimal', 'filament.seo.pages.content-projects-seo-audit')
             || request()->is(
@@ -408,6 +412,26 @@ final class SeoAccessControl
         }
 
         return $query->whereIn($column, $siteIds);
+    }
+
+    /**
+     * Tenant/account site isolation that still includes rows with null site_id
+     * (shared Draft planning pool). Never applies the Global Domain selector.
+     */
+    public static function applyAccessibleSiteScopeAllowingUnassigned(Builder $query, string $column = 'site_id'): Builder
+    {
+        if (! self::shouldScopeToAccountOwner()) {
+            return $query;
+        }
+
+        $siteIds = self::accessibleSiteIds();
+        if ($siteIds === []) {
+            return $query->whereNull($column);
+        }
+
+        return $query->where(function (Builder $builder) use ($column, $siteIds): void {
+            $builder->whereIn($column, $siteIds)->orWhereNull($column);
+        });
     }
 
     public static function accountSiteOwnerId(): int

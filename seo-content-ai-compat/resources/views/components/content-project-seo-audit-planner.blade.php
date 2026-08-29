@@ -273,6 +273,10 @@
         </div>
     @endif
 
+    <x-seo-content-ai::list-table-loading-shell
+        preset="livewire-page"
+        targets="suggestionSearch,suggestionLanguageScope,suggestionIssueKey,suggestedAction,suggestionStateFilter,suggestionPostTypeMode,suggestionPostType,suggestionTaxonomy,suggestionTermId,filterSiteId,projectId,fillLimit"
+    >
     <div class="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-white/10 dark:bg-gray-900">
         <div class="overflow-x-auto">
             <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-white/10">
@@ -415,4 +419,5 @@
     @if ($paginator && count($rows) > 0)
         <div class="mt-2">{{ $paginator->links() }}</div>
     @endif
+    </x-seo-content-ai::list-table-loading-shell>
 </div>

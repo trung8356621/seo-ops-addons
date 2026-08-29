@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence;
 
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Schema;
+use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordClassification;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordWorkspace\KeywordUiInventoryQuery;
@@ -450,6 +451,17 @@ final class KeywordClassificationVisibility
         $classified = $classifiedRows->count();
         $unclassified = max(0, $total - $classified);
         $primary = (new KeywordTagResolver())->countPrimaryTags($classifiedRows, $unclassified);
+        $seoExcludedManual = Keyword::query()
+            ->whereIn('id', $ids)
+            ->whereHas(
+                'metas',
+                static function (Builder $meta): void {
+                    $meta
+                        ->where('meta_key', KeywordMetaKey::SeoHidden->value)
+                        ->where('meta_value', '1');
+                },
+            )
+            ->count();
 
         return [
             'table_ready' => true,
@@ -463,7 +475,8 @@ final class KeywordClassificationVisibility
                 ->whereIn('id', $ids)
                 ->whereIn('review_status', ['danger', 'warning'])
                 ->count(),
-            'seo_excluded' => $primary[KeywordTag::SEO_EXCLUDED],
+            // Manual "Exclude from SEO" (seo_hidden meta) — not classifier non-SEO kinds.
+            'seo_excluded' => $seoExcludedManual,
             'kinds' => $kinds,
         ];
     }

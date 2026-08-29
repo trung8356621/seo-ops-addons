@@ -127,13 +127,18 @@ final class KeywordDictionaryQuery
 
     /**
      * Matches KeywordResource TernaryFilter seo_hidden:
-     * null/blank → visible only; true → hidden; false → visible.
+     * null/blank → no visibility filter (full Dictionary, includes Exclude from SEO);
+     * true → only excluded; false → only non-excluded.
      *
      * @param  Builder<Keyword>  $query
      * @return Builder<Keyword>
      */
     public function applySeoHidden(Builder $query, ?bool $seoHidden): Builder
     {
+        if ($seoHidden === null) {
+            return $query;
+        }
+
         $hiddenMeta = static function (Builder $meta): Builder {
             return $meta
                 ->where('meta_key', KeywordMetaKey::SeoHidden->value)
@@ -144,8 +149,59 @@ final class KeywordDictionaryQuery
             return $query->whereHas('metas', $hiddenMeta);
         }
 
-        // Default Filament blank + false both show visible-only inventory.
         return $query->whereDoesntHave('metas', $hiddenMeta);
+    }
+
+    /**
+     * Keywords marked Exclude from SEO (keyword_meta seo_hidden=1).
+     *
+     * @param  Builder<Keyword>  $query
+     * @return Builder<Keyword>
+     */
+    public function applyExcludedFromSeo(Builder $query): Builder
+    {
+        return $this->applySeoHidden($query, true);
+    }
+
+    /**
+     * Review bucket: underperforming review_status OR Exclude from SEO (deduped by query).
+     *
+     * @param  Builder<Keyword>  $query
+     * @return Builder<Keyword>
+     */
+    public function applyUnderperformingReview(Builder $query): Builder
+    {
+        return $query->where(function (Builder $builder): void {
+            $builder
+                ->whereIn('review_status', ['danger', 'warning'])
+                ->orWhereHas(
+                    'metas',
+                    static fn (Builder $meta): Builder => $meta
+                        ->where('meta_key', KeywordMetaKey::SeoHidden->value)
+                        ->where('meta_value', '1'),
+                );
+        });
+    }
+
+    /**
+     * Active Dictionary card: linked + review active, not Exclude from SEO.
+     *
+     * @param  Builder<Keyword>  $query
+     * @return Builder<Keyword>
+     */
+    public function applyActiveSeoKeywords(Builder $query): Builder
+    {
+        return $this->applySeoHidden(
+            $query->where(function (Builder $builder): void {
+                $builder
+                    ->whereHas('mainArticles')
+                    ->orWhereHas(
+                        'linkMaps',
+                        static fn (Builder $mapQuery): Builder => $mapQuery->whereNotNull('source_article_id'),
+                    );
+            })->where('review_status', 'active'),
+            false,
+        );
     }
 
     /**

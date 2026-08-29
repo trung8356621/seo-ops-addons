@@ -33,48 +33,57 @@
             @else
                 @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-dictionary-header')
             @endif
-            @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-dictionary-stats')
-            @if ($this->getKeywordWorkspaceMode() !== 'focus')
-                @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-classification-summary')
-            @endif
         @elseif ($subheading = $this->getSubheading())
             <p class="text-sm text-gray-500 dark:text-gray-400">{{ $subheading }}</p>
         @endif
 
-        <div class="keyword-detail-layout">
-            <div class="keyword-table-shell min-w-0">
-                @if ($showDictionaryChrome)
-                    <div class="keyword-dictionary-toolbar">
-                        <div class="keyword-dictionary-toolbar__actions">
-                            <button
-                                type="button"
-                                class="ws-btn ws-btn--ghost keyword-dictionary-toolbar__filters-btn"
-                                onclick="window.toggleKeywordDictionaryFilters?.()"
-                            >
-                                <x-filament::icon icon="heroicon-m-adjustments-horizontal" class="h-4 w-4" />
-                                {{ __('seo-content-ai::filament.keyword.advanced_filters') }}
-                            </button>
-                            <button
-                                type="button"
-                                class="ws-btn ws-btn--ghost"
-                                onclick="document.querySelector('.keyword-dictionary-page .fi-ta-filters-trigger')?.click()"
-                            >
-                                <x-filament::icon icon="heroicon-m-bookmark" class="h-4 w-4" />
-                                {{ __('seo-content-ai::filament.keyword.save_filters') }}
-                            </button>
-                        </div>
-                    </div>
+        <x-seo-content-ai::list-table-loading-shell
+            class="space-y-6"
+            preset="filament-table"
+            targets="onKeywordWorkspaceSiteFilterChanged,applyDictionaryStatFilter,dictionaryStatFilter,clusterKeyFilter,keywordLanguageFilter,updatedKeywordLanguageFilter,keywordWorkspaceSiteId"
+        >
+            @if ($showDictionaryChrome)
+                @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-dictionary-stats')
+                @if ($this->getKeywordWorkspaceMode() !== 'focus')
+                    @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-classification-summary')
                 @endif
+            @endif
 
-                <div class="keyword-dictionary-table-card">
-                    {{ $this->table }}
+            <div class="keyword-detail-layout">
+                <div class="keyword-table-shell min-w-0">
+                    @if ($showDictionaryChrome)
+                        <div class="keyword-dictionary-toolbar">
+                            <div class="keyword-dictionary-toolbar__actions">
+                                <button
+                                    type="button"
+                                    class="ws-btn ws-btn--ghost keyword-dictionary-toolbar__filters-btn"
+                                    onclick="window.toggleKeywordDictionaryFilters?.()"
+                                >
+                                    <x-filament::icon icon="heroicon-m-adjustments-horizontal" class="h-4 w-4" />
+                                    {{ __('seo-content-ai::filament.keyword.advanced_filters') }}
+                                </button>
+                                <button
+                                    type="button"
+                                    class="ws-btn ws-btn--ghost"
+                                    onclick="document.querySelector('.keyword-dictionary-page .fi-ta-filters-trigger')?.click()"
+                                >
+                                    <x-filament::icon icon="heroicon-m-bookmark" class="h-4 w-4" />
+                                    {{ __('seo-content-ai::filament.keyword.save_filters') }}
+                                </button>
+                            </div>
+                        </div>
+                    @endif
+
+                    <div class="keyword-dictionary-table-card">
+                        {{ $this->table }}
+                    </div>
                 </div>
-            </div>
 
-            @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-detail-drawer', [
-                'keywordDetailPanelConfig' => $keywordDetailPanelConfig,
-            ])
-        </div>
+                @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-detail-drawer', [
+                    'keywordDetailPanelConfig' => $keywordDetailPanelConfig,
+                ])
+            </div>
+        </x-seo-content-ai::list-table-loading-shell>
     </div>
 
     @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-move-cluster-modal')

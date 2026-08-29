@@ -125,6 +125,41 @@ final class SeoPanelRoutes
         );
     }
 
+    /**
+     * Path-based Projects/Runs module check (Livewire update / referer fallback).
+     */
+    public static function isProjectsModulePath(?string $path = null): bool
+    {
+        $path = strtolower(trim((string) ($path ?? self::resolveUiPath()), '/'));
+        if ($path === '') {
+            return false;
+        }
+
+        return (bool) preg_match('#(?:^|/)content-projects(?:/|$)#', $path)
+            || (bool) preg_match('#(?:^|/)publishing-queue(?:/|$)#', $path);
+    }
+
+    public static function resolveUiPath(): string
+    {
+        if (! app()->bound('request')) {
+            return '';
+        }
+
+        $path = trim((string) request()->path(), '/');
+        if ($path !== '' && ! str_starts_with($path, 'livewire/')) {
+            return $path;
+        }
+
+        $referer = (string) request()->headers->get('referer', '');
+        if ($referer === '') {
+            return $path;
+        }
+
+        $fromReferer = (string) parse_url($referer, PHP_URL_PATH);
+
+        return trim($fromReferer, '/');
+    }
+
     // ─── Bài viết ────────────────────────────────────────────────────────
 
     public static function isArticlesModule(?string $route = null): bool

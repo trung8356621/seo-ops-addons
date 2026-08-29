@@ -27,7 +27,11 @@
         <a href="{{ $this->backUrl() }}" class="topic-index-link text-sm">← {{ __('seo-content-ai::filament.keyword.topic_cluster_title') }}</a>
 
         <div class="keyword-detail-layout keyword-master-detail-page">
-            <div class="keyword-table-shell min-w-0 space-y-5">
+            <x-seo-content-ai::list-table-loading-shell
+                class="keyword-table-shell min-w-0 space-y-5"
+                preset="livewire-page"
+                targets="keywordLanguageFilter,updatedKeywordLanguageFilter,keywordWorkspaceSiteId,onKeywordWorkspaceSiteFilterChanged"
+            >
 
         @if ($detail)
             @php
@@ -216,7 +220,7 @@
             </p>
         @endif
 
-            </div>
+            </x-seo-content-ai::list-table-loading-shell>
 
             @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-detail-drawer', [
                 'keywordDetailPanelConfig' => $keywordDetailPanelConfig,

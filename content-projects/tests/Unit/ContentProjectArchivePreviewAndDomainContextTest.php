@@ -64,18 +64,43 @@ final class ContentProjectArchivePreviewAndDomainContextTest extends TestCase
 
         self::assertStringNotContainsString('applyGlobalSiteScopeToProjectQuery', $source);
         self::assertStringNotContainsString('activeProjects()', $source);
-        self::assertStringContainsString('applyAccessibleSiteScope', $source);
+        self::assertStringContainsString('applyProjectTenantScope', $source);
     }
 
-    public function test_project_list_query_still_applies_global_site_scope(): void
+    public function test_project_list_query_does_not_apply_global_site_scope(): void
     {
         $method = new ReflectionMethod(SeoProjectResource::class, 'getEloquentQuery');
         $source = $this->readMethodSource($method);
 
-        self::assertStringContainsString('applyGlobalSiteScopeToProjectQuery', $source);
+        self::assertStringNotContainsString('applyGlobalSiteScopeToProjectQuery', $source);
+        self::assertStringContainsString('applyProjectTenantScope', $source);
         self::assertStringContainsString('currentArchive', $source);
         self::assertStringContainsString('activeGenerated()', $source);
         self::assertStringNotContainsString('activeProjects()', $source);
+        self::assertStringNotContainsString('globalSiteId()', $source);
+    }
+
+    public function test_project_tenant_scope_keeps_account_isolation_and_null_site_drafts(): void
+    {
+        $method = new ReflectionMethod(SeoProjectResource::class, 'applyProjectTenantScope');
+        $source = $this->readMethodSource($method);
+
+        self::assertStringContainsString('applyAccessibleSiteScopeAllowingUnassigned', $source);
+        self::assertStringContainsString('isContentManager', $source);
+        self::assertStringNotContainsString('globalSiteId', $source);
+        self::assertStringNotContainsString('shouldApplyGlobalSiteScope', $source);
+    }
+
+    public function test_archive_page_does_not_listen_to_global_domain(): void
+    {
+        $source = (string) file_get_contents((new ReflectionClass(
+            \Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Pages\ContentProjectArchive::class,
+        ))->getFileName());
+
+        self::assertStringNotContainsString('RefreshesOnDomainContextChanged', $source);
+        self::assertStringNotContainsString('onDomainContextChanged', $source);
+        self::assertStringNotContainsString('globalSiteId', $source);
+        self::assertStringContainsString('applyTenantArchiveScope', $source);
     }
 
     public function test_project_record_url_routes_archived_to_archive_preview(): void

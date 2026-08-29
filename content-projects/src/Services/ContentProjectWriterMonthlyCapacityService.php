@@ -6,7 +6,6 @@ namespace Omnichannel\Addons\ContentProjects\Services;
 
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
-use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExecutionLimits;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use App\Models\User;
 use App\Services\Users\SeoOpsSystemUser;
@@ -16,8 +15,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Writer monthly workload = planned items on active, non-draft execution projects
- * in the given calendar month. Draft planning projects are excluded.
+ * Writer monthly workload (display context) — planned items on active,
+ * non-draft execution projects in the given calendar month.
+ * Draft planning projects are excluded. Not a hard monthly capacity gate.
  */
 final class ContentProjectWriterMonthlyCapacityService
 {
@@ -80,44 +80,23 @@ final class ContentProjectWriterMonthlyCapacityService
     }
 
     /**
-     * @return array<int, int> user_id => remaining slots (0 when full)
-     */
-    public function remainingByUserId(
-        array $userIds,
-        CarbonImmutable|Carbon|string|null $month = null,
-    ): array {
-        $max = ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS;
-        $remaining = [];
-        foreach ($this->itemCountsByUserId($userIds, $month) as $userId => $current) {
-            $remaining[(int) $userId] = max(0, $max - (int) $current);
-        }
-
-        return $remaining;
-    }
-
-    /**
-     * Assignable staff for the current month with capacity — never auto-selected.
-     * System user is excluded by the staff query (`is_system`).
+     * Assignable staff with current-month workload for display.
+     * System user is excluded. No monthly hard-cap / full flag.
      *
      * @return array{
      *     month: string,
      *     month_label: string,
      *     month_display: string,
-     *     max: int,
      *     writers: list<array{
      *         id: int,
      *         name: string,
-     *         current: int,
-     *         remaining: int,
-     *         max: int,
-     *         full: bool
+     *         current: int
      *     }>
      * }
      */
     public function writerSelectorPayload(CarbonImmutable|Carbon|string|null $month = null): array
     {
         $normalized = ContentProjectMonthContext::normalize($month);
-        $max = ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS;
         $staff = $this->staff->listUnassigned($normalized, null, null);
         $userIds = $staff
             ->map(static fn (User $user): int => (int) $user->getKey())
@@ -137,18 +116,13 @@ final class ContentProjectWriterMonthlyCapacityService
                 continue;
             }
 
-            $current = (int) ($counts[$id] ?? 0);
-            $remaining = max(0, $max - $current);
             $name = trim((string) ($user->name ?? ''));
             $email = trim((string) ($user->email ?? ''));
 
             $writers[] = [
                 'id' => $id,
                 'name' => $name !== '' ? $name : ($email !== '' ? $email : '#'.$id),
-                'current' => $current,
-                'remaining' => $remaining,
-                'max' => $max,
-                'full' => $remaining < 1,
+                'current' => (int) ($counts[$id] ?? 0),
             ];
         }
 
@@ -156,7 +130,6 @@ final class ContentProjectWriterMonthlyCapacityService
             'month' => ContentProjectMonthContext::toDateString($normalized),
             'month_label' => ContentProjectMonthContext::display($normalized),
             'month_display' => 'Tháng '.ContentProjectMonthContext::display($normalized),
-            'max' => $max,
             'writers' => $writers,
         ];
     }

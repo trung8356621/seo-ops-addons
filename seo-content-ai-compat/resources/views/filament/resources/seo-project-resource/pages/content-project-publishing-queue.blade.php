@@ -195,7 +195,11 @@
     </div>
 
     {{-- Queue table --}}
-    <div class="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
+    <x-seo-content-ai::list-table-loading-shell
+        class="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900"
+        preset="livewire-page"
+        targets="statusFilter,search,updatedSearch"
+    >
         <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-700">
             <thead class="bg-gray-50 dark:bg-gray-800/60">
                 <tr>
@@ -261,9 +265,9 @@
                 @endforelse
             </tbody>
         </table>
-    </div>
 
-    <div class="mt-4">
-        {{ $rows->links() }}
-    </div>
+        <div class="mt-4 px-3 pb-3">
+            {{ $rows->links() }}
+        </div>
+    </x-seo-content-ai::list-table-loading-shell>
 </x-filament-panels::page>

@@ -8,6 +8,7 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ActorContext;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\CreateContentProjectCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectCommandBus;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\SplitDraftContentProjectService;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\DB;
@@ -112,8 +113,12 @@ final class ContentProjectContinuationService
         $siteId = (int) ($source->site_id ?? 0);
         $userId = (int) ($source->user_id ?? 0);
 
+        $name = $userId > 0
+            ? app(SplitDraftContentProjectService::class)->nextExecutionProjectName($userId, $carbonMonth)
+            : SeoProject::defaultNameFromMonth($carbonMonth);
+
         return [
-            'name' => SeoProject::defaultNameFromMonth($carbonMonth),
+            'name' => $name,
             'user_id' => $userId,
             'site_id' => $siteId,
             'month' => $carbonMonth->format('Y-m-d'),
