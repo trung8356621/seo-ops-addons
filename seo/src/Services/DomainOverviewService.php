@@ -4,13 +4,16 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Seo\Services;
 
+use Omnichannel\Addons\Content\Enums\ContentType;
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
+use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Models\SeoLinkMap;
 use Omnichannel\Addons\SearchFoundation\Support\InternalAnchorKeywordFilter;
 use App\Models\Site;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
+use Illuminate\Database\Eloquent\Builder as EloquentBuilder;
 use Illuminate\Database\Query\Builder as QueryBuilder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -229,17 +232,15 @@ final class DomainOverviewService
     {
         $base = SeoArticle::query()->where('site_id', $siteId);
 
-        $articles = (clone $base)->where(function ($q): void {
-            $q->where('type', 'article')->orWhereNull('type');
-        })->count();
+        // "articles" keeps the legacy meaning: every non-term post + page.
+        $articles = $this->countNonTerm($base, ContentType::Post)
+            + $this->countNonTerm($base, ContentType::Page);
+        $products = $this->countNonTerm($base, ContentType::Product);
+        $categories = $this->countTerm($base, ContentType::Post);
+        $productCategories = $this->countTerm($base, ContentType::Product);
 
-        $products = (clone $base)->where('type', 'product')->count();
-        $categories = (clone $base)->where('type', 'category')->count();
-        $productCategories = (clone $base)->where('type', 'product_category')->count();
-
-        $other = (clone $base)->whereNotNull('type')
-            ->whereNotIn('type', ['article', 'product', 'category', 'product_category'])
-            ->count();
+        $total = (clone $base)->count();
+        $other = max(0, $total - ($articles + $products + $categories + $productCategories));
 
         $wpManifest = $this->resolveWpManifestCounts($siteId);
         $wpPosts = (int) ($wpManifest['counts']['article'] ?? 0);
@@ -255,7 +256,7 @@ final class DomainOverviewService
             'categories' => $categories,
             'product_categories' => $productCategories,
             'other' => $other,
-            'total' => $articles + $products + $categories + $productCategories + $other,
+            'total' => $total,
             'wp_posts' => $wpPosts,
             'wp_pages' => $wpPages,
             'wp_articles_total' => $wpArticlesTotal,
@@ -263,6 +264,26 @@ final class DomainOverviewService
             'article_gap' => max(0, $wpArticlesTotal - $articles),
             'wp_post_type_counts' => $wpPostTypeCounts,
         ];
+    }
+
+    /**
+     * @param  EloquentBuilder<SeoArticle>  $base
+     */
+    private function countNonTerm(EloquentBuilder $base, ContentType $type): int
+    {
+        $query = ArticleContentClassification::scopeContentType(clone $base, $type);
+
+        return ArticleContentClassification::scopeNonTerm($query)->count();
+    }
+
+    /**
+     * @param  EloquentBuilder<SeoArticle>  $base
+     */
+    private function countTerm(EloquentBuilder $base, ContentType $type): int
+    {
+        $query = ArticleContentClassification::scopeContentType(clone $base, $type);
+
+        return ArticleContentClassification::scopeIsTerm($query, true)->count();
     }
 
     /**

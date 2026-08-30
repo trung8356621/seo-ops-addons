@@ -16,6 +16,7 @@ import {
 } from '../utils/googleSerpLineScores';
 import { t } from '@content-addon/utils/i18n.js';
 import GoogleSerpSnippetPreview from './GoogleSerpSnippetPreview';
+import ContextHelpButton from '@content-addon/components/ContextHelpButton.jsx';
 
 function previewTitle(preview) {
     const title = String(preview?.title ?? '').trim();
@@ -607,6 +608,7 @@ export default function ArticleGoogleSerpPreview({
                     <div className="wp-postbox-header">
                         <div className="wp-seo-preview-header-title">
                             <h2>{t('google_serp_preview_heading')}</h2>
+                            <ContextHelpButton contextKey="article_editor.widget.google_preview" title="Google preview Help" />
                         </div>
                         <PreviewDeviceToggle device={device} onChange={setDevice} />
                     </div>

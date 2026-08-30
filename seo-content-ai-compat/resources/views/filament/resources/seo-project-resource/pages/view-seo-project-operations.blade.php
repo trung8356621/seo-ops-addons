@@ -884,7 +884,7 @@
             :active="$activeCard"
             wire-method="applySummaryFilter"
             aria-label="Project summary"
-            loading-targets="applySummaryFilter,clearFilters,search,generationFilter,lifecycleFilter,workflowFilter,reportingFilter,queueFilter,scheduledFilter,failedOnly,failureTypeFilter,manualRefreshOps,lazyRefreshOps"
+            loading-targets="applySummaryFilter,clearFilters,applySearch,clearSearch,search,generationFilter,lifecycleFilter,workflowFilter,reportingFilter,queueFilter,scheduledFilter,failedOnly,failureTypeFilter,manualRefreshOps,lazyRefreshOps"
         />
 
         @if ($activeCard === 'failed' || $this->failedOnly)
@@ -1344,7 +1344,7 @@
 
         <x-seo-content-ai::list-table-loading-shell
             preset="livewire-page"
-            targets="applySummaryFilter,applyFailureTypeFilter,clearFilters,search,generationFilter,lifecycleFilter,workflowFilter,reportingFilter,queueFilter,scheduledFilter,failedOnly,failureTypeFilter,updatedSearch,updatedGenerationFilter,updatedLifecycleFilter,updatedWorkflowFilter,updatedReportingFilter,updatedQueueFilter,updatedScheduledFilter,updatedFailedOnly,updatedFailureTypeFilter,setWorkspaceTab"
+            targets="applySummaryFilter,applyFailureTypeFilter,clearFilters,applySearch,clearSearch,search,generationFilter,lifecycleFilter,workflowFilter,reportingFilter,queueFilter,scheduledFilter,failedOnly,failureTypeFilter,updatedGenerationFilter,updatedLifecycleFilter,updatedWorkflowFilter,updatedReportingFilter,updatedQueueFilter,updatedScheduledFilter,updatedFailedOnly,updatedFailureTypeFilter,setWorkspaceTab"
         >
             @if ($totalItems === 0)
                 <div class="rounded-xl border border-dashed border-gray-300 bg-white px-4 py-12 text-center dark:border-gray-600 dark:bg-gray-900">

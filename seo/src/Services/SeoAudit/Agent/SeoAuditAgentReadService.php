@@ -6,6 +6,8 @@ namespace Omnichannel\Addons\Seo\Services\SeoAudit\Agent;
 
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Enums\ContentType;
+use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Agent\AgentExecutionContext;
 use Omnichannel\Addons\Seo\Services\SeoAuditKeywordFlagService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
@@ -73,11 +75,12 @@ final class SeoAuditAgentReadService
      */
     private function baseArticleQuery(int $siteId, ?string $postType): Builder
     {
-        $query = SeoArticle::query()
-            ->countsTowardSeoScore()
-            ->whereNotIn('type', ['category', 'product_category'])
-            ->where('status', '!=', 'trash')
-            ->orderByDesc('updated_at');
+        $query = ArticleContentClassification::scopeNonTerm(
+            SeoArticle::query()
+                ->countsTowardSeoScore()
+                ->where('status', '!=', 'trash')
+                ->orderByDesc('updated_at'),
+        );
 
         ArticleResource::applySeoAuditCandidateScope($query);
 
@@ -91,7 +94,13 @@ final class SeoAuditAgentReadService
         }
 
         if ($postType !== null && $postType !== '') {
-            $query->where('type', $postType);
+            $mapped = match ($postType) {
+                'article' => ContentType::Post,
+                default => ContentType::tryFromString($postType),
+            };
+            if ($mapped !== null) {
+                ArticleContentClassification::scopeContentType($query, $mapped);
+            }
         }
 
         return $query;

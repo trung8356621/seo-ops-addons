@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\SearchIntelligence\Filament\Pages;
 use Omnichannel\Addons\SearchFoundation\Services\CtaKeywordBlacklistDebugService;
 use Omnichannel\Addons\Seo\Services\SeoKeywordSettingsService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use App\Help\HelpUi;
 use App\Models\Site;
 use Filament\Forms;
 use Filament\Forms\Concerns\InteractsWithForms;
@@ -47,13 +48,13 @@ class SeoSettingsKeywords extends Page implements HasForms
         return $form
             ->schema([
                 Forms\Components\Section::make(__('seo-content-ai::filament.settings_keywords.cta_blacklist'))
-                    ->description(__('seo-content-ai::filament.settings_keywords.cta_blacklist_description'))
+                    ->headerActions([HelpUi::fieldHintAction('settings.keywords.cta_blacklist')])
                     ->schema([
                         Forms\Components\TagsInput::make(SeoKeywordSettingsService::KEY_CTA_BLACKLIST)
                             ->label(__('seo-content-ai::filament.settings_keywords.cta_blacklist_label'))
                             ->placeholder(__('seo-content-ai::filament.settings_keywords.cta_blacklist_placeholder'))
                             ->columnSpanFull()
-                            ->helperText(__('seo-content-ai::filament.settings_keywords.cta_blacklist_hint')),
+                            ->hintAction(HelpUi::fieldHintAction('settings.keywords.cta_blacklist', null, 'tags')),
                     ]),
             ])
             ->statePath('keywordSettingsData');

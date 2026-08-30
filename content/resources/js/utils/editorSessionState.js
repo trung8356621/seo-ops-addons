@@ -94,6 +94,10 @@ export function getArticleEditorSessionState() {
 }
 
 export function canMutateEditor() {
+    // Standalone TipTap hosts (Help Admin, etc.) — never use Article session lock.
+    if (window.__STANDALONE_EDITOR_WRITABLE__ === true) {
+        return true;
+    }
     if (window.__SEO_EDITOR_EXITING__) {
         return false;
     }

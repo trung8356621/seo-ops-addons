@@ -14,6 +14,8 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectPub
 use Omnichannel\Addons\Content\Support\ArticleEditorContentLifecycle;
 use Omnichannel\Addons\Content\Support\ArticleEditorSaveContext;
 use Omnichannel\Addons\Content\Support\ArticleEditorSessionErrorCode;
+use Omnichannel\Addons\Content\Support\ArticleContentClassification;
+use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
 use App\Support\LocalArticleSaveTimer;
 use Omnichannel\Addons\Media\Services\ArticlePostImagesService;
 use Omnichannel\Addons\SearchFoundation\Services\ArticleKeywordLinkReconcileService;
@@ -185,7 +187,6 @@ final class ArticleEditorPersistService
         $payload = [
             'title' => trim($context->title),
             'slug' => $slug !== '' ? $slug : null,
-            'type' => $postType,
             'status' => $context->status,
             'published_at' => $publishAt,
             'body' => $html,
@@ -203,6 +204,17 @@ final class ArticleEditorPersistService
         }
 
         $article->update($payload);
+
+        // Prefer explicit page content_type from editor context when present.
+        $classification = ArticleContentClassification::fromTaskPostType($postType);
+        if (strtolower(trim((string) $context->postType)) === 'page') {
+            $classification = ArticleContentClassification::fromTaskPostType('page');
+        } elseif (ArticlePostTypeResolver::isPage($article) && $postType === SeoProjectTask::POST_TYPE_ARTICLE) {
+            // Keep page when editor still sends legacy article label.
+            $classification['content_type'] = \Omnichannel\Addons\Content\Enums\ContentType::Page;
+            $classification['wp_post_type'] = 'page';
+        }
+        ArticleContentClassification::persist($article, $classification);
 
         if (class_exists(\Omnichannel\Addons\Publishing\Services\PublishingArticleStateWriter::class)) {
             app(\Omnichannel\Addons\Publishing\Services\PublishingArticleStateWriter::class)->upsert($article, [

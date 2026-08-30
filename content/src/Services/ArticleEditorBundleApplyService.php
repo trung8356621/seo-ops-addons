@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Services;
 
+use Omnichannel\Addons\Content\Enums\ContentType;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\Content\Support\ArticleEditorSaveContext;
 use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordFocusAttach;
-use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 use Omnichannel\Addons\Media\Services\ArticleMediaLocalService;
 
 final class ArticleEditorBundleApplyService
@@ -17,7 +18,6 @@ final class ArticleEditorBundleApplyService
     public function __construct(
         private readonly ArticleFaqEditorService $faqEditor,
         private readonly ArticleMediaLocalService $mediaLocal,
-        private readonly WordPressArticleContentService $wpContent,
     ) {}
 
     /**
@@ -204,33 +204,28 @@ final class ArticleEditorBundleApplyService
     {
         $normalized = SeoProjectTask::normalizePostType($postType);
 
-        $wpSlug = match ($normalized) {
-            SeoProjectTask::POST_TYPE_PRODUCT => 'product',
-            SeoProjectTask::POST_TYPE_PRODUCT_CATEGORY => 'product_cat',
-            SeoProjectTask::POST_TYPE_CATEGORY => 'category',
-            default => 'post',
-        };
+        $classification = ArticleContentClassification::fromTaskPostType($normalized);
 
-        $article->articleMetas()->where('meta_key', 'wp_post_type')->delete();
-
-        if (in_array($wpSlug, ['product_cat', 'category'], true)) {
-            $article->articleMetas()->updateOrCreate(
-                ['meta_key' => 'wp_entity'],
-                ['meta_value' => 'term'],
-            );
-            $article->articleMetas()->updateOrCreate(
-                ['meta_key' => 'wp_taxonomy'],
-                ['meta_value' => $wpSlug],
-            );
-
-            return;
+        // Task vocabulary has no `page` label — keep content_type=page when the editor
+        // still sends the legacy `article` label for an existing page.
+        if ($normalized === SeoProjectTask::POST_TYPE_ARTICLE
+            && ArticlePostTypeResolver::isPage($article)) {
+            $classification['content_type'] = ContentType::Page;
+            $classification['wp_post_type'] = 'page';
         }
 
-        $article->articleMetas()->updateOrCreate(
-            ['meta_key' => 'wp_entity'],
-            ['meta_value' => 'post'],
-        );
-        $article->articleMetas()->where('meta_key', 'wp_taxonomy')->delete();
+        ArticleContentClassification::persist($article, $classification);
+
+        if ($classification['wp_is_term']) {
+            $article->articleMetas()->updateOrCreate(
+                ['meta_key' => 'wp_taxonomy'],
+                ['meta_value' => $classification['wp_post_type']],
+            );
+        } else {
+            $article->articleMetas()->where('meta_key', 'wp_taxonomy')->delete();
+        }
+
+        $article->unsetRelation('articleMetas');
     }
 
     /**
@@ -350,12 +345,12 @@ final class ArticleEditorBundleApplyService
             return false;
         }
 
-        return ! $this->wpContent->isTaxonomyRecord($article);
+        return ! ArticlePostTypeResolver::isTerm($article);
     }
 
     private function isTaxonomyEntity(SeoArticle $article, string $postType): bool
     {
-        if ($this->wpContent->isTaxonomyRecord($article)) {
+        if (ArticlePostTypeResolver::isTerm($article)) {
             return true;
         }
 

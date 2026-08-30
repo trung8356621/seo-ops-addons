@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchFoundation\Services\SiteMcp;
 
+use Omnichannel\Addons\Content\Enums\ContentType;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\SiteSync\Services\Inbound\WordPressSiteSyncClient;
 use App\Models\Site;
 use App\Support\RuntimeLogger;
@@ -93,11 +95,11 @@ final class SiteMcpProductCatLiveSource
             }
 
             try {
-                $article = SeoArticle::query()
+                $query = SeoArticle::query()
                     ->where('site_id', $siteId)
-                    ->whereWpPostId($termId)
-                    ->whereIn('type', ['product_category', 'product_cat'])
-                    ->first();
+                    ->whereWpPostId($termId);
+                ArticleContentClassification::scopeContentType($query, ContentType::Product);
+                $article = ArticleContentClassification::scopeIsTerm($query, true)->first();
                 if ($article === null) {
                     continue;
                 }
@@ -111,10 +113,11 @@ final class SiteMcpProductCatLiveSource
                     ['meta_key' => 'wp_taxonomy'],
                     ['meta_value' => 'product_cat'],
                 );
-                $article->articleMetas()->updateOrCreate(
-                    ['meta_key' => 'wp_entity'],
-                    ['meta_value' => 'term'],
-                );
+                ArticleContentClassification::persist($article, [
+                    'content_type' => ContentType::Product,
+                    'wp_is_term' => true,
+                    'wp_post_type' => 'product_cat',
+                ]);
                 if (array_key_exists('post_count', $term)) {
                     $article->articleMetas()->updateOrCreate(
                         ['meta_key' => 'wp_term_count'],

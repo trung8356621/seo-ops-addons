@@ -860,6 +860,7 @@ class SeoProjectResource extends SeoPanelResource
     public static function table(Table $table): Table
     {
         return $table
+            ->searchPlaceholder('Nhập tên project rồi nhấn Enter để tìm...')
             ->recordUrl(
                 fn (SeoProject $record): string => static::projectRecordUrl($record),
             )

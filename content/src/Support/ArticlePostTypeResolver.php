@@ -4,35 +4,54 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Support;
 
+use Omnichannel\Addons\Content\Enums\ContentType;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 
+/**
+ * Bridges Article core content_type → legacy SeoProjectTask post-type vocabulary
+ * still used by Content Projects / some editor widgets.
+ *
+ * Article business behavior MUST use ArticleContentClassification / ContentType.
+ * This resolver only provides compatibility labels (article|product|category|product_category).
+ */
 final class ArticlePostTypeResolver
 {
     public static function resolve(SeoArticle $article): string
     {
-        $article->loadMissing('articleMetas');
+        $classification = ArticleContentClassification::for($article);
 
-        $wpEntity = strtolower(trim((string) (
-            $article->articleMetas->firstWhere('meta_key', 'wp_entity')?->meta_value ?? ''
-        )));
-        if ($wpEntity === 'term') {
-            $taxonomy = app(\Omnichannel\Addons\WordPress\Services\WordPressArticleContentService::class)
-                ->resolveWpTaxonomy($article);
-
-            return match ($taxonomy) {
-                'product_cat' => SeoProjectTask::POST_TYPE_PRODUCT_CATEGORY,
-                'category' => SeoProjectTask::POST_TYPE_CATEGORY,
-                default => SeoProjectTask::normalizePostType((string) ($article->type ?? '')),
-            };
+        if ($classification->isTerm()) {
+            return $classification->contentType() === ContentType::Product
+                ? SeoProjectTask::POST_TYPE_PRODUCT_CATEGORY
+                : SeoProjectTask::POST_TYPE_CATEGORY;
         }
 
-        // Laravel articles.type là nguồn sự thật cho editor / rewrite.
-        $type = trim((string) ($article->type ?? ''));
-        if ($type !== '') {
-            return SeoProjectTask::normalizePostType($type);
-        }
+        return match ($classification->contentType()) {
+            ContentType::Product => SeoProjectTask::POST_TYPE_PRODUCT,
+            // Page shares editorial surface with posts in task vocabulary;
+            // page-specific behavior uses ContentType::Page / content_type meta.
+            ContentType::Page, ContentType::Post => SeoProjectTask::POST_TYPE_ARTICLE,
+        };
+    }
 
-        return SeoProjectTask::POST_TYPE_ARTICLE;
+    public static function contentType(SeoArticle $article): ContentType
+    {
+        return ArticleContentClassification::for($article)->contentType();
+    }
+
+    public static function isTerm(SeoArticle $article): bool
+    {
+        return ArticleContentClassification::for($article)->isTerm();
+    }
+
+    public static function isPage(SeoArticle $article): bool
+    {
+        return ArticleContentClassification::for($article)->equals(ContentType::Page);
+    }
+
+    public static function isProduct(SeoArticle $article): bool
+    {
+        return ArticleContentClassification::for($article)->equals(ContentType::Product);
     }
 }

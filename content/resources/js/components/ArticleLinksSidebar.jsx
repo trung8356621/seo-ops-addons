@@ -2226,6 +2226,11 @@ export default function ArticleLinksSidebar({
             badge={linkCountBadge > 0 ? linkCountBadge : null}
             defaultCollapsed={false}
             className="seo-assistant-widget--links"
+            helpContextKey={
+                linkSectionFilter === 'cta'
+                    ? 'article_editor.panel.cta'
+                    : 'article_editor.panel.links'
+            }
         >
             <div className="seo-link-assistant">
                 {baseLoading ? (

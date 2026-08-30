@@ -180,21 +180,21 @@
 
                 <div class="seo-media-library-field seo-media-library-field-search">
                     <label class="seo-media-library-label" for="media-library-search">Search</label>
-                    <div class="seo-media-library-search-row">
+                <form wire:submit="applyFilterSearch" class="seo-media-library-search-row">
                         <input
                             id="media-library-search"
                             type="search"
-                            wire:model.live.debounce.400ms="filterSearch"
+                            wire:model="filterSearchInput"
                             class="seo-media-library-search"
-                            placeholder="{{ $activeTab === 'original' ? 'Slug, alt, caption (WP search)...' : 'Slug, alt, title...' }}"
+                            placeholder="{{ $activeTab === 'original' ? 'Nhập slug/alt/caption rồi nhấn Enter để tìm...' : 'Nhập slug/alt/title rồi nhấn Enter để tìm...' }}"
                             autocomplete="off"
                         />
-                        @if (filled($filterSearch))
+                        @if (filled($filterSearch) || filled($filterSearchInput))
                             <button type="button" wire:click="clearSearchFilter" class="seo-media-library-clear-search">
                                 Clear
                             </button>
                         @endif
-                    </div>
+                </form>
                 </div>
 
                 <div class="seo-media-library-field">
@@ -330,7 +330,7 @@
         @endif
 
         @if ($activeTab !== 'watermark-config')
-        <div class="seo-media-library-meta" wire:loading.remove wire:target="activeTab,siteId,filterMonth,filterSearch,page,loadImages,previousPage,nextPage,clearMonthFilter,clearSearchFilter,previewApplyWatermark,previewOptimize">
+        <div class="seo-media-library-meta" wire:loading.remove wire:target="activeTab,siteId,filterMonth,filterSearch,applyFilterSearch,clearSearchFilter,page,loadImages,previousPage,nextPage,clearMonthFilter,previewApplyWatermark,previewOptimize">
             @if ($total > 0)
                 {{ $total }} images · Page {{ $page }}/{{ $totalPages }}
                 @if (filled($filterSearch))

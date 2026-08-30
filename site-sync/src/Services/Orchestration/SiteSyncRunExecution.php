@@ -106,7 +106,7 @@ final class SiteSyncRunExecution
     ): bool {
         if (! $this->canDispatchContinuation($runId, $fromGeneration)) {
             $run = $this->freshRun($runId);
-            RuntimeLogger::warning('site_sync.continuation_skipped_canceled', [
+            $skipData = [
                 'run_id' => $runId,
                 'step' => $step,
                 'subphase' => $subphase,
@@ -114,7 +114,9 @@ final class SiteSyncRunExecution
                 'run_generation' => $run !== null ? $this->readGeneration($run) : null,
                 'run_status' => $run !== null ? (string) $run->status : null,
                 'cursor' => $run?->cursor,
-            ]);
+                'skip_reason' => $run === null ? 'missing_run' : ($this->isCanceled($run) ? 'canceled' : ((string) $run->status !== 'running' ? 'invalid_run_state:'.$run->status : 'generation_mismatch')),
+            ];
+            RuntimeLogger::warning('site_sync.continuation_skipped', $skipData);
 
             return false;
         }

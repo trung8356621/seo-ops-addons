@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\WordPress\Tests\Unit;
 
+use Omnichannel\Addons\Content\Enums\ContentType;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\WordPress\Services\SyncDomainContentService;
 use App\Addons\SeoContentAi\Tests\Compat\UsesSeoDatabase;
 use App\Models\Site;
@@ -44,7 +46,8 @@ final class WpPostTypeMetaSyncTest extends TestCase
             ->first();
 
         self::assertInstanceOf(SeoArticle::class, $article);
-        self::assertSame('article', (string) $article->type);
+        self::assertSame(ContentType::Page, ArticleContentClassification::for($article)->contentType());
+        self::assertFalse(ArticleContentClassification::for($article)->isTerm());
         self::assertSame(
             'page',
             (string) $article->articleMetas()->where('meta_key', 'wp_post_type')->value('meta_value'),
@@ -84,7 +87,7 @@ final class WpPostTypeMetaSyncTest extends TestCase
         ]]);
 
         $article->refresh();
-        self::assertSame('article', (string) $article->type);
+        self::assertSame(ContentType::Page, ArticleContentClassification::for($article)->contentType());
         self::assertSame(
             'page',
             (string) $article->articleMetas()->where('meta_key', 'wp_post_type')->value('meta_value'),
@@ -117,7 +120,7 @@ final class WpPostTypeMetaSyncTest extends TestCase
             ->first();
 
         self::assertInstanceOf(SeoArticle::class, $article);
-        self::assertSame('article', (string) $article->type);
+        self::assertSame(ContentType::Post, ArticleContentClassification::for($article)->contentType());
         self::assertSame(
             'portfolio',
             (string) $article->articleMetas()->where('meta_key', 'wp_post_type')->value('meta_value'),

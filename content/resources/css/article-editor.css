@@ -1639,6 +1639,21 @@ p.article-cta a.article-cta__value {
     min-width: 0;
 }
 
+.google-serp-snippet-line__help {
+    margin-top: 0.05rem;
+    flex-shrink: 0;
+}
+
+.seo-assistant-score__keyword .seo-context-help-btn,
+.seo-assistant-score__issue-help {
+    margin-left: 0.25rem;
+    vertical-align: middle;
+}
+
+.seo-assistant-score__hero .seo-context-help-btn {
+    margin-left: auto;
+}
+
 .google-serp-score-badge {
     flex: 0 0 auto;
     display: inline-block;
@@ -10656,10 +10671,57 @@ section[data-seo-section-id].is-outline-jump-highlight {
 
 .seo-assistant-widget__header {
     border-bottom: 1px solid #f3f4f6;
+    display: flex;
+    align-items: center;
+    gap: 0.25rem;
 }
 
 .dark .seo-assistant-widget__header {
     border-bottom-color: rgb(31 41 55);
+}
+
+.seo-assistant-widget__header .seo-assistant-widget__toggle {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.seo-assistant-widget__header .seo-context-help-btn,
+.seo-assistant-widget__header .seo-assistant-widget__help {
+    margin-right: 0.45rem;
+}
+
+.seo-context-help-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 1.35rem;
+    height: 1.35rem;
+    padding: 0;
+    margin: 0;
+    border: none;
+    border-radius: 999px;
+    background: transparent;
+    color: #94a3b8;
+    cursor: pointer;
+    line-height: 1;
+}
+
+.seo-context-help-btn:hover,
+.seo-context-help-btn:focus-visible {
+    color: #0f172a;
+    background: #f1f5f9;
+    outline: none;
+}
+
+.dark .seo-context-help-btn {
+    color: #64748b;
+}
+
+.dark .seo-context-help-btn:hover,
+.dark .seo-context-help-btn:focus-visible {
+    color: #e2e8f0;
+    background: rgb(51 65 85 / 55%);
 }
 
 .seo-assistant-widget__toggle {
@@ -11194,6 +11256,16 @@ section[data-seo-section-id].is-outline-jump-highlight {
 .seo-assistant-host.is-panel-filter .seo-assistant-widget--publishing > .seo-assistant-widget__header--static,
 .seo-assistant-host.is-panel-filter .seo-assistant-widget--featured-image > .seo-assistant-widget__header--static,
 .seo-assistant-host.is-panel-filter .seo-assistant-widget--product-album > .seo-assistant-widget__header--static {
+    /* Chip mode previously hid whole header — that also hid Contextual Help `?`. */
+    display: flex;
+    position: sticky;
+    top: 0;
+    z-index: 2;
+    background: inherit;
+}
+
+.seo-assistant-host.is-panel-filter .seo-assistant-widget__toggle > svg:first-child {
+    /* Body always expanded in chip mode — hide collapse chevron only. */
     display: none;
 }
 

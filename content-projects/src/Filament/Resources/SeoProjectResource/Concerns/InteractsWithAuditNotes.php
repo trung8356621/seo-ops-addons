@@ -22,6 +22,8 @@ trait InteractsWithAuditNotes
 
     public string $auditNoteSearch = '';
 
+    public string $auditNoteSearchInput = '';
+
     /** all|mcp_low|has_focus|no_focus */
     public string $auditNoteFilter = 'all';
 
@@ -45,6 +47,7 @@ trait InteractsWithAuditNotes
     {
         $this->auditNoteItems = [];
         $this->auditNoteSearch = '';
+        $this->auditNoteSearchInput = '';
         $this->auditNoteFilter = 'all';
         $this->auditNoteDnaPhrase = '';
         $this->auditNoteDnaWeight = '';
@@ -61,8 +64,18 @@ trait InteractsWithAuditNotes
         $this->refreshAuditNoteSuggestions();
     }
 
-    public function updatedAuditNoteSearch(): void
+    public function applyAuditNoteSearch(): void
     {
+        $this->auditNoteSearch = trim($this->auditNoteSearchInput);
+        $this->auditNoteSearchInput = $this->auditNoteSearch;
+        $this->resetPage('auditNotesPage');
+        $this->refreshAuditNoteSuggestions();
+    }
+
+    public function clearAuditNoteSearch(): void
+    {
+        $this->auditNoteSearch = '';
+        $this->auditNoteSearchInput = '';
         $this->resetPage('auditNotesPage');
         $this->refreshAuditNoteSuggestions();
     }

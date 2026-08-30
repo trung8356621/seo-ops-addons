@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
+import ContextHelpButton from '@content-addon/components/ContextHelpButton.jsx';
 
 /**
  * @param {{
@@ -10,6 +11,7 @@ import { ChevronDown, ChevronRight } from 'lucide-react';
  *   defaultCollapsed?: boolean,
  *   collapsible?: boolean,
  *   className?: string,
+ *   helpContextKey?: string,
  *   children: React.ReactNode,
  * }} props
  */
@@ -21,6 +23,7 @@ export default function ArticleAssistantWidget({
     defaultCollapsed = false,
     collapsible = true,
     className = '',
+    helpContextKey = '',
     children,
 }) {
     const [collapsed, setCollapsed] = useState(() => (
@@ -123,6 +126,9 @@ export default function ArticleAssistantWidget({
                         <span className="seo-assistant-widget__badge">{badge}</span>
                     ) : null}
                 </button>
+                {helpContextKey ? (
+                    <ContextHelpButton contextKey={helpContextKey} className="seo-assistant-widget__help" />
+                ) : null}
             </header>
             {/*
               Keep body mounted. Do NOT use the HTML `hidden` attribute — UA

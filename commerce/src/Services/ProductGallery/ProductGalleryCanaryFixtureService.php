@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\Commerce\Services\ProductGallery;
 
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\Media\Models\SeoMedia;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
@@ -220,16 +221,18 @@ final class ProductGalleryCanaryFixtureService
             ]);
 
             $slug = Str::slug($keyword !== '' ? $keyword : $title);
+            $classification = ArticleContentClassification::fromTaskPostType(SeoProjectTask::POST_TYPE_PRODUCT);
             $article = SeoArticle::query()->create([
                 'site_id' => $siteId,
                 'user_id' => $userId,
-                'type' => SeoProjectTask::POST_TYPE_PRODUCT,
                 'title' => $title,
                 'slug' => $slug !== '' ? $slug.'-canary-'.Str::lower(Str::random(4)) : null,
                 'status' => 'draft',
                 'body' => '',
                 'language' => (string) ($payload['language'] ?? 'vi'),
+                'parent_id' => $classification['parent_id'],
             ]);
+            ArticleContentClassification::persist($article, $classification);
 
             $this->writeArticleMetas($article, $payload, $keyword, $userId);
             $this->stampProjectCanaryMeta($project, (int) $article->id, $userId);

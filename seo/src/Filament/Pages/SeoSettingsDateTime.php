@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\Seo\Filament\Pages;
 use Omnichannel\Addons\Seo\Services\SeoDateTimeSettingsService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\Content\Support\SystemDateTime;
+use App\Help\HelpUi;
 use Filament\Forms;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
@@ -40,11 +41,11 @@ class SeoSettingsDateTime extends Page implements HasForms
         return $form
             ->schema([
                 Forms\Components\Section::make(__('seo-content-ai::filament.settings_datetime.section'))
-                    ->description(__('seo-content-ai::filament.settings_datetime.section_description'))
+                    ->headerActions([HelpUi::fieldHintAction('settings.general.datetime')])
                     ->schema([
                         Forms\Components\Select::make(SeoDateTimeSettingsService::KEY_TIMEZONE)
                             ->label(__('seo-content-ai::filament.settings_datetime.timezone'))
-                            ->helperText(__('seo-content-ai::filament.settings_datetime.timezone_hint'))
+                            ->hintAction(HelpUi::fieldHintAction('settings.general.datetime', null, 'timezone'))
                             ->options(fn (): array => SystemDateTime::timezoneSelectOptions())
                             ->searchable()
                             ->required()
@@ -58,7 +59,7 @@ class SeoSettingsDateTime extends Page implements HasForms
                             ]),
                         Forms\Components\Radio::make(SeoDateTimeSettingsService::KEY_PRESET)
                             ->label(__('seo-content-ai::filament.settings_datetime.preset'))
-                            ->helperText(__('seo-content-ai::filament.settings_datetime.preset_hint'))
+                            ->hintAction(HelpUi::fieldHintAction('settings.general.datetime', null, 'preset'))
                             ->options([
                                 SeoDateTimeSettingsService::PRESET_VI => __('seo-content-ai::filament.settings_datetime.preset_vi'),
                                 SeoDateTimeSettingsService::PRESET_EN => __('seo-content-ai::filament.settings_datetime.preset_en'),

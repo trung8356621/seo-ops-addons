@@ -9,6 +9,9 @@ namespace Omnichannel\Addons\Content\Filament\Resources;
 use Omnichannel\Addons\Seo\Filament\Resources\SeoPanelResource;
 use Omnichannel\Addons\Content\Enums\ArticleReviewActionType;
 use Omnichannel\Addons\Content\Enums\ArticleReviewStatus;
+use Omnichannel\Addons\Content\Enums\ContentType;
+use Omnichannel\Addons\Content\Support\ArticleContentClassification;
+use Omnichannel\Addons\Content\Support\NativeContentTypeMapper;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapType;
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource\Pages;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
@@ -119,6 +122,7 @@ class ArticleResource extends SeoPanelResource
     public static function table(Table $table): Table
     {
         return $table
+            ->searchPlaceholder('Nhập từ khóa rồi nhấn Enter để tìm...')
             ->recordAction('edit')
             ->columns([
                 Tables\Columns\ViewColumn::make('featured_thumb')
@@ -171,10 +175,9 @@ class ArticleResource extends SeoPanelResource
                     ->toggleable(isToggledHiddenByDefault: true),
                 Tables\Columns\TextColumn::make('type')
                     ->label(__('seo-content-ai::filament.article_list.type'))
-                    ->sortable()
                     ->badge()
                     ->color('info')
-                    ->formatStateUsing(fn (?string $state, SeoArticle $record): string => static::resolveWordPressPostTypeLabel($record))
+                    ->state(fn (SeoArticle $record): string => static::resolveWordPressPostTypeLabel($record))
                     ->toggleable(isToggledHiddenByDefault: false),
                 Tables\Columns\TextColumn::make('articles_in_category_count')
                     ->label(__('seo-content-ai::filament.article_list.articles_in_category'))
@@ -342,31 +345,36 @@ class ArticleResource extends SeoPanelResource
                 SelectFilter::make('post_type')
                     ->label(__('seo-content-ai::filament.article_list.post_type'))
                     ->options(static function (): array {
-                        $defaultLabels = [
-                            'post' => __('seo-content-ai::filament.article_list.post_type_post'),
-                            'page' => __('seo-content-ai::filament.article_list.post_type_page'),
-                            'product' => __('seo-content-ai::filament.article_list.post_type_product'),
+                        // Canonical filter keys = stored content_type values (lowercase).
+                        $options = [
+                            ContentType::Post->value => __('seo-content-ai::filament.article_list.post_type_post'),
+                            ContentType::Page->value => __('seo-content-ai::filament.article_list.post_type_page'),
+                            ContentType::Product->value => __('seo-content-ai::filament.article_list.post_type_product'),
                         ];
+
                         if (! \Illuminate\Support\Facades\Schema::connection('omi_seo_ai')->hasTable('article_meta')) {
-                            return $defaultLabels;
+                            return $options;
                         }
+
+                        // Extra technical options: raw CPT slugs not already covered by the 3 cores.
                         $slugs = \Omnichannel\Addons\Content\Models\ArticleMeta::query()
                             ->where('meta_key', 'wp_post_type')
                             ->whereNotNull('meta_value')
                             ->where('meta_value', '!=', '')
                             ->distinct()
                             ->pluck('meta_value')
+                            ->map(static fn (mixed $slug): string => strtolower(trim((string) $slug)))
+                            ->filter(static fn (string $slug): bool => $slug !== ''
+                                && ! array_key_exists($slug, $options)
+                                && ContentType::tryFromString($slug) === null)
                             ->sort()
                             ->values()
                             ->all();
-                        if ($slugs === []) {
-                            return $defaultLabels;
-                        }
-                        $options = [];
+
                         foreach ($slugs as $slug) {
-                            $options[$slug] = $defaultLabels[$slug]
-                                ?? ucfirst(str_replace(['_', '-'], ' ', (string) $slug));
+                            $options[$slug] = ucfirst(str_replace(['_', '-'], ' ', $slug));
                         }
+
                         return $options;
                     })
                     ->default('post')
@@ -410,7 +418,7 @@ class ArticleResource extends SeoPanelResource
                             return;
                         }
 
-                        $query->where('articles.type', $taxonomy);
+                        static::applyTaxonomyFilterScope($query, $taxonomy);
                     }),
                 SelectFilter::make('category_id')
                     ->label(__('seo-content-ai::filament.article_list.category_filter'))
@@ -730,88 +738,89 @@ class ArticleResource extends SeoPanelResource
             ]));
     }
 
-    public static function applyPostTypeFilterScope(Builder $query, string $wpPostType): void
+    /**
+     * Business post-type filter. Canonical values: post|page|product → content_type meta.
+     *
+     * Transitional (pre-backfill): rows missing content_type still match via wp_post_type
+     * using NativeContentTypeMapper (never articles.type).
+     * Any other value is a raw platform CPT slug → technical wp_post_type equality.
+     */
+    public static function applyPostTypeFilterScope(Builder $query, string $postType): void
     {
-        $wpPostType = strtolower(trim($wpPostType));
-        if ($wpPostType === '') {
+        $postType = strtolower(trim($postType));
+        if ($postType === '') {
             return;
         }
 
-        if ($wpPostType === 'post') {
-            $query->where(static function (Builder $scopeQuery): void {
-                $scopeQuery
-                    ->whereHas('articleMetas', static function (Builder $metaQ): void {
-                        $metaQ->where('meta_key', 'wp_post_type')->where('meta_value', 'post');
-                    })
-                    ->orWhere(static function (Builder $legacyQ): void {
-                        $legacyQ
-                            ->whereDoesntHave('articleMetas', static function (Builder $metaQ): void {
-                                $metaQ->where('meta_key', 'wp_post_type');
-                            })
-                            ->where(function (Builder $typeQ): void {
-                                $typeQ->whereIn('articles.type', ['article'])
-                                    ->orWhereNull('articles.type')
-                                    ->orWhere('articles.type', '');
-                            });
-                    });
-            });
+        $contentType = ContentType::tryFromString($postType);
+        if ($contentType === null) {
+            static::applyArticlesWithWpPostTypeMetaScope($query, $postType);
 
             return;
         }
 
-        if ($wpPostType === 'product') {
-            $query->where(static function (Builder $scopeQuery): void {
-                $scopeQuery
-                    ->whereHas('articleMetas', static function (Builder $metaQ): void {
-                        $metaQ->where('meta_key', 'wp_post_type')->where('meta_value', 'product');
-                    })
-                    ->orWhere(static function (Builder $legacyQ): void {
-                        $legacyQ
-                            ->whereDoesntHave('articleMetas', static function (Builder $metaQ): void {
-                                $metaQ->where('meta_key', 'wp_post_type');
-                            })
-                            ->where('articles.type', 'product');
-                    });
-            });
+        $nativeSlugs = NativeContentTypeMapper::nativeSlugsFor($contentType);
 
+        $query->where(static function (Builder $outer) use ($contentType, $nativeSlugs): void {
+            $outer
+                ->whereHas('articleMetas', static function (Builder $meta) use ($contentType): void {
+                    $meta->where('meta_key', ArticleContentClassification::META_CONTENT_TYPE)
+                        ->where('meta_value', $contentType->value);
+                })
+                ->orWhere(static function (Builder $legacy) use ($nativeSlugs): void {
+                    $legacy
+                        ->whereDoesntHave('articleMetas', static function (Builder $meta): void {
+                            $meta->where('meta_key', ArticleContentClassification::META_CONTENT_TYPE)
+                                ->whereNotNull('meta_value')
+                                ->where('meta_value', '!=', '');
+                        })
+                        ->whereHas('articleMetas', static function (Builder $meta) use ($nativeSlugs): void {
+                            $meta->where('meta_key', ArticleContentClassification::META_WP_POST_TYPE)
+                                ->whereIn('meta_value', $nativeSlugs);
+                        });
+                });
+        });
+    }
+
+    /**
+     * Taxonomy filter for the Categories tab (`category` / `product_category`).
+     */
+    public static function applyTaxonomyFilterScope(Builder $query, string $taxonomy): void
+    {
+        $taxonomy = strtolower(trim($taxonomy));
+        if ($taxonomy === '') {
             return;
         }
 
-        static::applyArticlesWithWpPostTypeMetaScope($query, $wpPostType);
+        ArticleContentClassification::scopeIsTerm($query, true);
+        ArticleContentClassification::scopeContentType(
+            $query,
+            in_array($taxonomy, ['product_category', 'product_cat'], true)
+                ? ContentType::Product
+                : ContentType::Post,
+        );
     }
 
     public static function resolveWordPressPostTypeLabel(SeoArticle $record): string
     {
-        $wpPostType = null;
-        if ($record->relationLoaded('articleMetas')) {
-            $meta = $record->articleMetas->firstWhere('meta_key', 'wp_post_type');
-            $wpPostType = $meta?->meta_value;
-        } else {
-            $wpPostType = $record->articleMetas()
-                ->where('meta_key', 'wp_post_type')
-                ->value('meta_value');
+        $classification = ArticleContentClassification::for($record);
+
+        if ($classification->isTerm()) {
+            return $classification->equals(ContentType::Product)
+                ? __('seo-content-ai::filament.article_list.post_type_product_category')
+                : __('seo-content-ai::filament.article_list.post_type_category');
         }
 
-        $wpPostType = strtolower(trim((string) ($wpPostType ?? '')));
-
-        if ($wpPostType !== '') {
-            $labels = [
-                'post' => __('seo-content-ai::filament.article_list.post_type_post'),
-                'page' => __('seo-content-ai::filament.article_list.post_type_page'),
-                'product' => __('seo-content-ai::filament.article_list.post_type_product'),
-            ];
-            return $labels[$wpPostType] ?? ucfirst(str_replace(['_', '-'], ' ', $wpPostType));
-        }
-
-        $type = strtolower(trim((string) ($record->type ?? 'article')));
-        return match ($type) {
-            'product' => __('seo-content-ai::filament.article_list.post_type_product'),
-            'category' => __('seo-content-ai::filament.article_list.post_type_category'),
-            'product_category', 'product_cat' => __('seo-content-ai::filament.article_list.post_type_product_category'),
-            default => __('seo-content-ai::filament.article_list.post_type_post'),
+        return match ($classification->contentType()) {
+            ContentType::Product => __('seo-content-ai::filament.article_list.post_type_product'),
+            ContentType::Page => __('seo-content-ai::filament.article_list.post_type_page'),
+            ContentType::Post => __('seo-content-ai::filament.article_list.post_type_post'),
         };
     }
 
+    /**
+     * Technical filter on the raw platform slug — integration surfaces only.
+     */
     private static function applyArticlesWithWpPostTypeMetaScope(Builder $query, string $wpPostType): void
     {
         $wpPostType = strtolower(trim($wpPostType));
@@ -829,16 +838,10 @@ class ArticleResource extends SeoPanelResource
         }
 
         if ($contentTab === Pages\ListArticles::TAB_CATEGORIES) {
-            return $query->whereIn('articles.type', ['category', 'product_category']);
+            return ArticleContentClassification::scopeIsTerm($query, true);
         }
 
-        return $query->where(function (Builder $scopeQuery): void {
-            $scopeQuery
-                ->whereIn('articles.type', ['article', 'product'])
-                ->orWhere(function (Builder $sub): void {
-                    $sub->whereNull('articles.type')->orWhere('articles.type', '');
-                });
-        });
+        return ArticleContentClassification::scopeNonTerm($query);
     }
 
     public static function applyCategoryMembershipScope(Builder $query, int $categoryWpId): void
@@ -861,14 +864,13 @@ class ArticleResource extends SeoPanelResource
             $subQuery->from('articles as post_articles')
                 ->selectRaw('count(*)')
                 ->whereColumn('post_articles.site_id', 'articles.site_id')
-                ->where(function ($typeQuery): void {
-                    $typeQuery
-                        ->whereIn('post_articles.type', ['article', 'product'])
-                        ->orWhere(function ($nullTypeQuery): void {
-                            $nullTypeQuery
-                                ->whereNull('post_articles.type')
-                                ->orWhere('post_articles.type', '');
-                        });
+                ->whereNotExists(function ($termQuery): void {
+                    // Non-term only; missing wp_is_term meta counts as non-term.
+                    $termQuery->selectRaw('1')
+                        ->from('article_meta as post_article_term_meta')
+                        ->whereColumn('post_article_term_meta.article_id', 'post_articles.id')
+                        ->where('post_article_term_meta.meta_key', ArticleContentClassification::META_WP_IS_TERM)
+                        ->where('post_article_term_meta.meta_value', '1');
                 })
                 ->whereIn('post_articles.id', function ($metaQuery): void {
                     $metaQuery->select('article_id')
@@ -896,6 +898,9 @@ class ArticleResource extends SeoPanelResource
 
     public static function applyWpSyncQueueScope(Builder $query): Builder
     {
+        // Terms are pushed by taxonomy sync, never by the article WP sync queue.
+        ArticleContentClassification::scopeNonTerm($query);
+
         return static::applyWpSyncQueueUnreviewedScope($query)->whereIn('articles.id', function ($subQuery): void {
             $subQuery->select('article_id')
                 ->from('article_meta')
@@ -1096,10 +1101,11 @@ class ArticleResource extends SeoPanelResource
     {
         $query = static::applyApprovedReviewScope(SeoArticle::query())
             ->whereNotNull('reviewed_at')
-            ->whereNotIn('type', ['category', 'product_category'])
             ->where('status', '!=', 'trash')
             ->with(['site', 'articleMetas'])
             ->orderByDesc('reviewed_at');
+
+        ArticleContentClassification::scopeNonTerm($query);
 
         static::applyExcludeSkipSeoAuditScope($query);
 
@@ -1262,16 +1268,17 @@ class ArticleResource extends SeoPanelResource
 
         $query = SeoArticle::query()
             ->leftJoin('wordpress_article_links as wal_cat', 'wal_cat.article_id', '=', 'articles.id')
-            ->whereIn('articles.type', ['category', 'product_category'])
             ->where('wal_cat.wp_post_id', '>', 0)
             ->orderBy('articles.title');
 
+        ArticleContentClassification::scopeIsTerm($query, true);
+
         $postType = trim((string) ($livewire->tableFilters['post_type']['value'] ?? ''));
-        if ($postType === 'post') {
-            $query->where('articles.type', 'category');
-        } elseif ($postType === 'product') {
-            $query->where('articles.type', 'product_category');
-        } elseif ($postType === 'page') {
+        if ($postType === ContentType::Post->value) {
+            ArticleContentClassification::scopeContentType($query, ContentType::Post);
+        } elseif ($postType === ContentType::Product->value) {
+            ArticleContentClassification::scopeContentType($query, ContentType::Product);
+        } elseif ($postType === ContentType::Page->value) {
             return [];
         }
 
@@ -1281,13 +1288,20 @@ class ArticleResource extends SeoPanelResource
             SeoAccessControl::applyAccessibleSiteScope($query, 'articles.site_id');
         }
 
+        $query->select([
+            'articles.id',
+            'wal_cat.wp_post_id as wp_post_id',
+            'articles.title',
+        ])->selectSub(function ($subQuery): void {
+            $subQuery->from('article_meta as cat_ct')
+                ->select('cat_ct.meta_value')
+                ->whereColumn('cat_ct.article_id', 'articles.id')
+                ->where('cat_ct.meta_key', ArticleContentClassification::META_CONTENT_TYPE)
+                ->limit(1);
+        }, 'term_content_type');
+
         return $query
-            ->get([
-                'articles.id',
-                'wal_cat.wp_post_id as wp_post_id',
-                'articles.title',
-                'articles.type',
-            ])
+            ->get()
             ->mapWithKeys(function (SeoArticle $term): array {
                 $wpId = (int) ($term->wp_post_id ?? 0);
                 if ($wpId <= 0) {
@@ -1297,7 +1311,7 @@ class ArticleResource extends SeoPanelResource
                 $title = trim((string) ($term->title ?? ''));
                 $label = $title !== '' ? $title : __('seo-content-ai::filament.article_list.category_fallback', ['id' => $wpId]);
 
-                if ($term->type === 'product_category') {
+                if (strtolower(trim((string) ($term->term_content_type ?? ''))) === ContentType::Product->value) {
                     $label = '[SP] '.$label;
                 }
 
@@ -1360,7 +1374,6 @@ class ArticleResource extends SeoPanelResource
             'articles.slug',
             'articles.language',
             'articles.status',
-            'articles.type',
             'list_sap.seo_score as seo_score',
             'list_sap.skip_seo_score as skip_seo_score',
             'list_sap.internal_link_count as internal_link_count',
@@ -1446,6 +1459,11 @@ class ArticleResource extends SeoPanelResource
             'faqs',
             'wordpressLink',
             'articleMetas' => static fn ($query) => $query->whereIn('meta_key', [
+                // Classification keys must stay in the whitelist: ArticleMetaMap reads the
+                // already-loaded relation, so omitting them silently mis-labels rows.
+                ArticleContentClassification::META_CONTENT_TYPE,
+                ArticleContentClassification::META_WP_IS_TERM,
+                ArticleContentClassification::META_WP_POST_TYPE,
                 'seo_focus_keyword',
                 'seo_rule_violations',
                 self::META_SKIP_SEO_AUDIT,

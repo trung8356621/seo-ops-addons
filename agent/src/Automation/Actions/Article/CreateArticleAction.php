@@ -15,6 +15,7 @@ use Omnichannel\Addons\Agent\Automation\Enums\ActionSideEffect;
 use Omnichannel\Addons\Agent\Automation\Support\ActionSupport;
 use Omnichannel\Addons\Agent\Automation\Support\ArticleCreateOriginResolver;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\Content\Support\ArticleLanguageCode;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordFocusAttach;
@@ -146,16 +147,20 @@ final class CreateArticleAction implements BusinessAction
                 return $again;
             }
 
+            $classification = ArticleContentClassification::fromTaskPostType($postType);
+
             $article = SeoArticle::query()->create([
                 'site_id' => $siteId,
                 'user_id' => $actorId,
-                'type' => $postType,
                 'title' => $title,
                 'slug' => $slug !== '' ? $slug : null,
                 'status' => 'draft',
                 'body' => '',
                 'language' => $language,
+                'parent_id' => $classification['parent_id'],
             ]);
+
+            ArticleContentClassification::persist($article, $classification);
 
             if ($keyword !== '') {
                 KeywordFocusAttach::attachMainKeyword($article, $siteId, $keyword);
@@ -164,8 +169,6 @@ final class CreateArticleAction implements BusinessAction
                     ['meta_value' => $keyword],
                 );
             }
-
-            $article->articleMetas()->where('meta_key', 'wp_post_type')->delete();
 
             if ($originType !== '' && $originId > 0) {
                 $this->originResolver->persistOriginMeta($article, $originType, $originId);

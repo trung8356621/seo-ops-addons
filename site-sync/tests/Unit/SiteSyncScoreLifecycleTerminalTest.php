@@ -38,7 +38,7 @@ final class SiteSyncScoreLifecycleTerminalTest extends TestCase
             '/\$isDeferredContinuation[\s\S]*?OwnedByOtherWorker[\s\S]*?return;/',
             $src,
         );
-        self::assertStringContainsString('!$isDeferredContinuation', $src);
+        self::assertMatchesRegularExpression('/!\s*\$isDeferredContinuation/', $src);
         self::assertSame('owned_by_other_worker', SiteSyncStepClaimResult::OwnedByOtherWorker->value);
     }
 

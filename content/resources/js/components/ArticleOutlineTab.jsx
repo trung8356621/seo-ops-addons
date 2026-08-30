@@ -4,6 +4,7 @@ import { csrfToken, seoArticleApiHeaders } from '@seo-addon/utils/seoArticleApi.
 import { isPersistedOutlineHeadingId } from '../utils/contentDocumentHelpers';
 import { findLocalDuplicateHeadingKeys, localDuplicateHeadingKey } from '../utils/articleEditorClientOutline';
 import { t } from '../utils/i18n';
+import ContextHelpButton from './ContextHelpButton';
 
 const outlineUrl = (articleId) => `/api/seo/articles/${articleId}/outline`;
 const outlineRefreshUrl = (articleId) => `/api/seo/articles/${articleId}/outline/refresh`;
@@ -1355,6 +1356,7 @@ export default function ArticleOutlineTab({
         >
             <div className="seo-outline-toolbar">
                 <h3 className="seo-outline-title">{t('outline_title')}</h3>
+                <ContextHelpButton contextKey="article_editor.widget.outline" title="Outline Help" />
                 <div className="seo-outline-toolbar__actions">
                     {onOutlineAddSection ? (
                         <button

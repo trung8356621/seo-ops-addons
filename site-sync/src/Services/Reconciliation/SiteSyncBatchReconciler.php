@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\SiteSync\Services\Reconciliation;
 
 use Omnichannel\Addons\SiteSync\Models\SeoSiteSyncBatch;
 use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
+use Omnichannel\Addons\Content\Support\NativeContentTypeMapper;
 use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncBatchData;
 use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncSchema;
 use Omnichannel\Addons\WordPress\Services\SyncDomainContentService;
@@ -118,6 +119,24 @@ final class SiteSyncBatchReconciler
     }
 
     /**
+     * Connector-owned native type → content_type map (WordPress Settings).
+     *
+     * @param  array<string, mixed>|null  $profile
+     */
+    private function storeNativeContentTypeMap(Site $site, ?array $profile): void
+    {
+        $map = is_array($profile) && is_array($profile['content_type_map'] ?? null)
+            ? $profile['content_type_map']
+            : [];
+
+        if ($map === []) {
+            return;
+        }
+
+        NativeContentTypeMapper::putSiteMap($site, $map);
+    }
+
+    /**
      * Auto-fill empty manual fields; otherwise store Suggest Update only (never overwrite manual).
      *
      * @param  array<string, mixed>|null  $profile
@@ -128,6 +147,8 @@ final class SiteSyncBatchReconciler
         if ($profile === null && $contacts === []) {
             return;
         }
+
+        $this->storeNativeContentTypeMap($site, $profile);
 
         $current = $this->promptContext->getRawPayloadForSite($site);
         $suggest = [];

@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\Seo\Filament\Pages;
 use Omnichannel\Addons\Content\Services\ArticleEditorHistoryService;
 use Omnichannel\Addons\Seo\Services\SeoOverviewSettingsService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use App\Help\HelpUi;
 use Filament\Forms;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
@@ -53,11 +54,11 @@ class SeoSettingsEditor extends Page implements HasForms
         return $form
             ->schema([
                 Forms\Components\Section::make(__('seo-content-ai::filament.settings_editor.section'))
-                    ->description(__('seo-content-ai::filament.settings_editor.section_description'))
+                    ->headerActions([HelpUi::fieldHintAction('settings.editor.history_autosave')])
                     ->schema([
                         Forms\Components\TextInput::make('history_step')
                             ->label(__('seo-content-ai::filament.settings_editor.history_step'))
-                            ->helperText(__('seo-content-ai::filament.settings_editor.history_step_hint'))
+                            ->hintAction(HelpUi::fieldHintAction('settings.editor.history_autosave', null, 'history_step'))
                             ->numeric()
                             ->minValue(1)
                             ->maxValue(100)
@@ -65,7 +66,7 @@ class SeoSettingsEditor extends Page implements HasForms
                             ->default(ArticleEditorHistoryService::DEFAULT_HISTORY_STEP),
                         Forms\Components\TextInput::make('autosave_interval_seconds')
                             ->label(__('seo-content-ai::filament.settings_editor.autosave_interval'))
-                            ->helperText(__('seo-content-ai::filament.settings_editor.autosave_interval_hint'))
+                            ->hintAction(HelpUi::fieldHintAction('settings.editor.history_autosave', null, 'autosave'))
                             ->numeric()
                             ->minValue(0)
                             ->maxValue(30)
@@ -75,24 +76,24 @@ class SeoSettingsEditor extends Page implements HasForms
                     ])
                     ->columns(2),
                 Forms\Components\Section::make(__('seo-content-ai::filament.settings_editor.wiki_trust_section'))
-                    ->description(__('seo-content-ai::filament.settings_editor.wiki_trust_description'))
+                    ->headerActions([HelpUi::fieldHintAction('settings.editor.wiki_trust')])
                     ->schema([
                         Forms\Components\Textarea::make('wiki_trust_domains_text')
                             ->label(__('seo-content-ai::filament.settings_editor.wiki_trust_domains'))
-                            ->helperText(__('seo-content-ai::filament.settings_editor.wiki_trust_domains_hint'))
+                            ->hintAction(HelpUi::fieldHintAction('settings.editor.wiki_trust', null, 'domains'))
                             ->rows(8)
                             ->required()
                             ->columnSpanFull(),
                     ]),
                 Forms\Components\Section::make(__('seo-content-ai::filament.settings_overview.faq_catch'))
-                    ->description(__('seo-content-ai::filament.settings_overview.faq_catch_description'))
+                    ->headerActions([HelpUi::fieldHintAction('settings.editor.faq_catch')])
                     ->schema([
                         Forms\Components\Textarea::make(SeoOverviewSettingsService::KEY_FAQ_CATCH_KEYWORDS)
                             ->label(__('seo-content-ai::filament.settings_overview.faq_keywords_label'))
                             ->rows(10)
                             ->required()
                             ->columnSpanFull()
-                            ->helperText(__('seo-content-ai::filament.settings_overview.faq_keywords_hint')),
+                            ->hintAction(HelpUi::fieldHintAction('settings.editor.faq_catch', null, 'keywords')),
                     ]),
             ])
             ->statePath('editorSettingsData');

@@ -9,6 +9,24 @@ import {
     scoreQualityLabel,
 } from '../utils/seoScoreCalculator';
 import { resolveSeoViolationAction } from '../utils/seoViolationActions';
+import ContextHelpButton from '@content-addon/components/ContextHelpButton.jsx';
+
+const VIOLATION_HELP_CONTEXT = Object.freeze({
+    image_ratio_missing: 'article_editor.widget.image_count',
+    image_ratio_poor: 'article_editor.widget.image_count',
+    image_ratio_low: 'article_editor.widget.image_count',
+    image_ratio_suboptimal: 'article_editor.widget.image_count',
+    wiki_trust_missing: 'article_editor.widget.external_links',
+    'seo.wiki_trust': 'article_editor.widget.external_links',
+    featured_snippet_missing: 'article_editor.widget.featured_snippet_table',
+    featured_snippet_below_good: 'article_editor.widget.featured_snippet_table',
+    featured_snippet_below_excellent: 'article_editor.widget.featured_snippet_table',
+});
+
+function helpContextForViolationKey(key) {
+    const normalized = String(key || '').trim();
+    return VIOLATION_HELP_CONTEXT[normalized] || null;
+}
 
 function scoreColor(score) {
     if (score >= 70) return 'text-emerald-600 dark:text-emerald-400';
@@ -130,6 +148,7 @@ export default function SeoScorePanel({
                 <span className={`seo-assistant-score__badge ${scoreBadgeClass(score)}`}>
                     {isLoading ? t('seo_score_analyzing') : quality}
                 </span>
+                <ContextHelpButton contextKey="article_editor.widget.live_score" title="Live SEO Score Help" />
             </div>
 
             <p className="seo-assistant-score__hint">
@@ -184,10 +203,12 @@ export default function SeoScorePanel({
                 <p className="seo-assistant-score__keyword">
                     <span className="text-gray-500 dark:text-gray-400">Focus keyword:</span>{' '}
                     <strong className="text-gray-900 dark:text-white">{focusKeyword}</strong>
+                    <ContextHelpButton contextKey="article_editor.widget.focus_keyword" title="Focus Keyword Help" />
                 </p>
             ) : (
                 <p className="seo-assistant-score__keyword seo-assistant-score__keyword--missing">
                     {t('seo_score_missing_focus_keyword')}
+                    <ContextHelpButton contextKey="article_editor.widget.focus_keyword" title="Focus Keyword Help" />
                 </p>
             )}
 
@@ -207,6 +228,13 @@ export default function SeoScorePanel({
                                     <span className="seo-assistant-score__issue-detail">{item.detail}</span>
                                 ) : null}
                             </span>
+                            {helpContextForViolationKey(item.key) ? (
+                                <ContextHelpButton
+                                    contextKey={helpContextForViolationKey(item.key)}
+                                    title="Help"
+                                    className="seo-assistant-score__issue-help"
+                                />
+                            ) : null}
                             <span className="seo-assistant-score__issue-deduction">(-{item.deduction})</span>
                             <ViolationActionButton
                                 item={item}

@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\Seo\Filament\Pages;
 use Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource;
 use Omnichannel\Addons\Seo\Services\SeoDomainCtaGlobalSettingsService;
 use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
+use App\Help\HelpUi;
 use Filament\Actions\Action;
 use Filament\Forms;
 use Filament\Forms\Concerns\InteractsWithForms;
@@ -46,7 +47,7 @@ class DomainGlobalCtaSettings extends Page implements HasForms
         return $form
             ->schema([
                 Forms\Components\Section::make(__('seo-content-ai::filament.domain.global_cta_shared_section'))
-                    ->description(__('seo-content-ai::filament.domain.global_cta_shared_section_description'))
+                    ->headerActions([HelpUi::fieldHintAction('domain.global_cta')])
                     ->schema([
                         Forms\Components\Repeater::make(SeoDomainCtaGlobalSettingsService::KEY_GLOBAL_CTA)
                             ->label('')

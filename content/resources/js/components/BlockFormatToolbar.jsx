@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import ParagraphStyleDropdown from './ParagraphStyleDropdown';
 import EmojiPickerModal from './EmojiPickerModal';
+import ContextHelpButton from './ContextHelpButton';
 import { RuntimeToolbarCommandButtons } from '../editor/runtime/RuntimeToolbarCommandButtons';
 import { runFaqExtractFromToolbar } from '../editor/modules/faq/faqExtractToolbarAction';
 import { t } from '../utils/i18n';
@@ -62,7 +63,15 @@ function InsertActionButton({ onClick, onMouseDown, title, children, label, disa
  * Phase 6B — history/inline/lists/align/insert from runtime toolbar registry.
  * Special UI (paragraph style, link bubble open, overflow, FAQ extract, emoji, delete) stays host-local.
  */
-export default function BlockFormatToolbar({ editor, onDelete, canDelete = true, onEditLink, onViewHtml }) {
+export default function BlockFormatToolbar({
+    editor,
+    onDelete,
+    canDelete = true,
+    onEditLink,
+    onViewHtml,
+    runtime = null,
+    showFaqExtract = true,
+}) {
     const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
     const [overflowOpen, setOverflowOpen] = useState(false);
     const savedSelectionRef = useRef(null);
@@ -133,10 +142,12 @@ export default function BlockFormatToolbar({ editor, onDelete, canDelete = true,
     return (
         <div className="seo-block-toolbar seo-block-toolbar-rich" onMouseDown={(e) => e.preventDefault()}>
             <div className="seo-toolbar-row seo-toolbar-row--format" role="toolbar" aria-label={t('toolbar_format_aria')}>
+                <ContextHelpButton contextKey="article_editor.widget.editor_toolbar" title="Editor toolbar Help" />
                 <RuntimeToolbarCommandButtons
                     editor={editor}
                     groups={['history']}
                     variant="format"
+                    runtime={runtime}
                 />
 
                 <ToolbarGroup>
@@ -147,6 +158,7 @@ export default function BlockFormatToolbar({ editor, onDelete, canDelete = true,
                     editor={editor}
                     groups={['inline', 'lists', 'align']}
                     variant="format"
+                    runtime={runtime}
                 />
 
                 <ToolbarGroup>
@@ -173,6 +185,7 @@ export default function BlockFormatToolbar({ editor, onDelete, canDelete = true,
                         <Code2 size={ICON_SIZE} />
                         <span className="seo-toolbar-btn__label">HTML</span>
                     </ToolbarButton>
+                    <ContextHelpButton contextKey="article_editor.widget.html_mode" title="HTML mode Help" />
                 </ToolbarGroup>
 
                 <ToolbarGroup className="seo-toolbar-group--overflow">
@@ -260,19 +273,21 @@ export default function BlockFormatToolbar({ editor, onDelete, canDelete = true,
                 </ToolbarGroup>
 
                 <span className="seo-toolbar-end-actions">
-                    <ToolbarButton
-                        onClick={() => {
-                            if (mutationLocked) {
-                                return;
-                            }
-                            void runFaqExtractFromToolbar();
-                        }}
-                        disabled={mutationLocked}
-                        title={mutationLocked ? lockTitle : t('toolbar_extract_faq')}
-                        data-runtime-toolbar="faq.toolbar.extract"
-                    >
-                        <ListTree size={ICON_SIZE} />
-                    </ToolbarButton>
+                    {showFaqExtract ? (
+                        <ToolbarButton
+                            onClick={() => {
+                                if (mutationLocked) {
+                                    return;
+                                }
+                                void runFaqExtractFromToolbar();
+                            }}
+                            disabled={mutationLocked}
+                            title={mutationLocked ? lockTitle : t('toolbar_extract_faq')}
+                            data-runtime-toolbar="faq.toolbar.extract"
+                        >
+                            <ListTree size={ICON_SIZE} />
+                        </ToolbarButton>
+                    ) : null}
 
                     <button
                         type="button"
@@ -299,6 +314,7 @@ export default function BlockFormatToolbar({ editor, onDelete, canDelete = true,
                     editor={editor}
                     groups={['insert']}
                     variant="insert"
+                    runtime={runtime}
                 />
                 <InsertActionButton
                     onMouseDown={(e) => {

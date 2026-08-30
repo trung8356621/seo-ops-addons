@@ -13,6 +13,7 @@ use Omnichannel\Addons\Seo\Services\SeoMainDomainService;
 use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\WordPress\Services\SitePrimaryLanguageService;
+use App\Help\HelpUi;
 use App\Models\Site;
 use Filament\Forms;
 use Filament\Forms\Components\Actions\Action as FormInputAction;
@@ -92,7 +93,8 @@ class DomainResource extends SeoPanelResource
                     ])
                     ->required()
                     ->native(false)
-                    ->live(),
+                    ->live()
+                    ->hintAction(HelpUi::fieldHintAction('domain.platform')),
                 Forms\Components\Select::make('seo_domain_type')
                     ->label(__('seo-content-ai::filament.domain.website_type'))
                     ->options([
@@ -101,7 +103,8 @@ class DomainResource extends SeoPanelResource
                         'e-commerce' => 'E-commerce',
                     ])
                     ->required()
-                    ->native(false),
+                    ->native(false)
+                    ->hintAction(HelpUi::fieldHintAction('domain.website_type')),
                 Forms\Components\TextInput::make('seo_read_token')
                     ->label('Read token')
                     ->key('seo_read_token')

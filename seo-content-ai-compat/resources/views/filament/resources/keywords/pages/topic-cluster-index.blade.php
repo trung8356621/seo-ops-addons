@@ -215,13 +215,16 @@
 
         <div class="topic-index-toolbar" x-data="{ exists: @js($this->quickCreateClusterExists()) }">
             <div class="topic-index-toolbar__primary">
-                <input
-                    type="search"
-                    wire:model.live.debounce.400ms="clusterSearch"
-                    x-on:input="exists = false"
-                    class="topic-index-input topic-index-input--search"
-                    placeholder="{{ __('seo-content-ai::filament.keyword.topic_search_or_create_cluster') }}"
-                >
+                <form wire:submit="applyClusterSearch" class="contents">
+                    <input
+                        type="search"
+                        wire:model="clusterSearchInput"
+                        x-on:input="exists = false"
+                        class="topic-index-input topic-index-input--search"
+                        placeholder="{{ __('seo-content-ai::filament.keyword.topic_search_or_create_cluster') }}"
+                        autocomplete="off"
+                    >
+                </form>
                 @if ($canEditCanonical)
                     <x-filament::button
                         type="button"
@@ -230,7 +233,7 @@
                         wire:click="quickCreateCluster"
                         wire:loading.attr="disabled"
                         wire:target="quickCreateCluster"
-                        x-bind:disabled="exists || @js(trim($clusterSearch) === '')"
+                        x-bind:disabled="exists"
                     >
                         <span wire:loading.remove wire:target="quickCreateCluster">
                             {{ __('seo-content-ai::filament.keyword.topic_quick_create_action') }}
@@ -241,7 +244,7 @@
                     </x-filament::button>
                     <span
                         wire:loading.remove
-                        wire:target="clusterSearch,quickCreateCluster"
+                        wire:target="clusterSearchInput,applyClusterSearch,quickCreateCluster"
                         x-show="exists"
                         x-cloak
                         class="text-xs text-gray-500"

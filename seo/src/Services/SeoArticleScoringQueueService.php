@@ -8,6 +8,7 @@ namespace Omnichannel\Addons\Seo\Services;
 use Omnichannel\Addons\Seo\Support\SeoScoringRulesRegistry;
 use Omnichannel\Addons\Content\Jobs\AnalyzeArticleSeoJob;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\Seo\Support\SeoScoringStatus;
 use App\Support\RuntimeLogger;
 use Illuminate\Database\Eloquent\Builder;
@@ -249,11 +250,13 @@ final class SeoArticleScoringQueueService
      */
     private function eligibleArticlesQuery(int $siteId): Builder
     {
-        return SeoArticle::query()
+        $query = SeoArticle::query()
             ->where('articles.site_id', $siteId)
             ->countsTowardSeoScore()
-            ->whereNotIn('articles.type', ['category', 'product_category'])
             ->where('articles.status', '!=', 'trash');
+
+        // Taxonomy terms are not scored.
+        return ArticleContentClassification::scopeNonTerm($query);
     }
 
     /**

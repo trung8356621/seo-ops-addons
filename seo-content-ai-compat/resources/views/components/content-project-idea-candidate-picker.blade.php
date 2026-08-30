@@ -72,13 +72,16 @@
             <label class="mb-1 block text-[11px] font-medium uppercase tracking-wide text-gray-500">
                 {{ __('seo-content-ai::filament.projects.idea_candidate_search') }}
             </label>
-            <input
-                type="search"
-                wire:model.live.debounce.300ms="ideaCandidateSearch"
-                placeholder="{{ __('seo-content-ai::filament.projects.idea_candidate_search_placeholder') }}"
-                class="fi-input w-full rounded-lg border-gray-300 text-sm dark:border-white/10 dark:bg-gray-950"
-                aria-label="{{ __('seo-content-ai::filament.projects.idea_candidate_search') }}"
-            />
+            <form wire:submit="applyIdeaCandidateSearch" class="w-full">
+                <input
+                    type="search"
+                    wire:model="ideaCandidateSearchInput"
+                    placeholder="{{ __('seo-content-ai::filament.projects.idea_candidate_search_placeholder') }}"
+                    class="fi-input w-full rounded-lg border-gray-300 text-sm dark:border-white/10 dark:bg-gray-950"
+                    aria-label="{{ __('seo-content-ai::filament.projects.idea_candidate_search') }}"
+                    autocomplete="off"
+                />
+            </form>
         </div>
     </div>
 

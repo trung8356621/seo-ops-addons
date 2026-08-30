@@ -56,6 +56,8 @@ class MediaLibrary extends Page
     #[Url]
     public ?string $filterSearch = null;
 
+    public ?string $filterSearchInput = null;
+
     #[Url]
     public int $page = 1;
 
@@ -286,6 +288,7 @@ class MediaLibrary extends Page
         }
 
         $this->normalizeFilters();
+        $this->filterSearchInput = $this->filterSearch;
         $this->loadImages();
     }
 
@@ -300,6 +303,7 @@ class MediaLibrary extends Page
 
         $this->page = 1;
         $this->normalizeFilters();
+        $this->filterSearchInput = $this->filterSearch;
         $this->loadImages();
     }
 
@@ -312,7 +316,7 @@ class MediaLibrary extends Page
 
     public function updated($propertyName): void
     {
-        if (in_array($propertyName, ['activeTab', 'siteId', 'filterMonth', 'filterSearch'], true)) {
+        if (in_array($propertyName, ['activeTab', 'siteId', 'filterMonth'], true)) {
             $this->normalizeFilters();
             $this->page = 1;
             $this->loadImages();
@@ -332,9 +336,19 @@ class MediaLibrary extends Page
         $this->loadImages();
     }
 
+    public function applyFilterSearch(): void
+    {
+        $search = trim((string) ($this->filterSearchInput ?? ''));
+        $this->filterSearch = $search !== '' ? $search : null;
+        $this->filterSearchInput = $this->filterSearch;
+        $this->page = 1;
+        $this->loadImages();
+    }
+
     public function clearSearchFilter(): void
     {
         $this->filterSearch = null;
+        $this->filterSearchInput = null;
         $this->page = 1;
         $this->loadImages();
     }

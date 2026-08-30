@@ -14,12 +14,12 @@ export function createSeoWorkspaceMediaPicker(config = {}) {
         pickerLoading: false,
         pickerSearching: false,
         pickerSearchQuery: '',
+        pickerCommittedSearch: '',
         pickerTab: 'local',
         pickerImages: [],
         pickerPage: 1,
         pickerTotalPages: 1,
         pickerError: null,
-        _pickerSearchTimer: null,
 
         init() {
             this._onOpen = (event) => {
@@ -53,6 +53,7 @@ export function createSeoWorkspaceMediaPicker(config = {}) {
             this.mode = String(detail.mode || 'ai-chat');
             this.open = true;
             this.pickerSearchQuery = '';
+            this.pickerCommittedSearch = '';
             this.pickerError = null;
             this.pickerTab = 'local';
             this.pickerPage = 1;
@@ -63,6 +64,7 @@ export function createSeoWorkspaceMediaPicker(config = {}) {
             this.open = false;
             this.pickerImages = [];
             this.pickerSearchQuery = '';
+            this.pickerCommittedSearch = '';
             this.pickerError = null;
             this.pickerLoading = false;
             this.pickerSearching = false;
@@ -70,16 +72,22 @@ export function createSeoWorkspaceMediaPicker(config = {}) {
 
         pickerSearchPlaceholder() {
             if (this.pickerTab === 'local') {
-                return 'Tìm slug, alt, tên file (Laravel)…';
+                return 'Nhập slug/alt/tên file rồi nhấn Enter để tìm...';
             }
 
-            return 'Tìm slug, alt, caption (WP search)…';
+            return 'Nhập slug/alt/caption rồi nhấn Enter để tìm...';
         },
 
-        schedulePickerSearch() {
-            this.pickerSearching = true;
-            clearTimeout(this._pickerSearchTimer);
-            this._pickerSearchTimer = setTimeout(() => this.runPickerSearch(), 400);
+        applyPickerSearch() {
+            this.pickerCommittedSearch = String(this.pickerSearchQuery || '').trim();
+            this.pickerSearchQuery = this.pickerCommittedSearch;
+            this.runPickerSearch();
+        },
+
+        clearPickerSearch() {
+            this.pickerSearchQuery = '';
+            this.pickerCommittedSearch = '';
+            this.runPickerSearch();
         },
 
         async runPickerSearch() {
@@ -93,6 +101,7 @@ export function createSeoWorkspaceMediaPicker(config = {}) {
 
             this.pickerTab = tab;
             this.pickerSearchQuery = '';
+            this.pickerCommittedSearch = '';
             this.pickerImages = [];
             this.pickerPage = 1;
             this.pickerSearching = false;
@@ -111,7 +120,7 @@ export function createSeoWorkspaceMediaPicker(config = {}) {
 
             if (
                 !skipCache
-                && this.pickerSearchQuery.trim() === ''
+                && this.pickerCommittedSearch.trim() === ''
                 && this.tryHydratePickerFromCache(this.pickerTab, this.pickerPage || 1)
             ) {
                 return;
@@ -128,8 +137,8 @@ export function createSeoWorkspaceMediaPicker(config = {}) {
                 const url = new URL(this.endpoint, window.location.origin);
                 url.searchParams.set('tab', this.pickerTab);
                 url.searchParams.set('page', String(this.pickerPage || 1));
-                if (this.pickerSearchQuery.trim() !== '') {
-                    url.searchParams.set('search', this.pickerSearchQuery.trim());
+                if (this.pickerCommittedSearch.trim() !== '') {
+                    url.searchParams.set('search', this.pickerCommittedSearch.trim());
                 }
 
                 const response = await fetch(url.toString(), {
@@ -168,7 +177,7 @@ export function createSeoWorkspaceMediaPicker(config = {}) {
         },
 
         tryHydratePickerFromCache(tab, page) {
-            if (!isArticleMediaPickerCacheableTab(tab) || this.pickerSearchQuery.trim() !== '') {
+            if (!isArticleMediaPickerCacheableTab(tab) || this.pickerCommittedSearch.trim() !== '') {
                 return false;
             }
 
@@ -189,7 +198,7 @@ export function createSeoWorkspaceMediaPicker(config = {}) {
         },
 
         persistPickerCacheFromFetch(detail) {
-            if (this.pickerSearchQuery.trim() !== '') {
+            if (this.pickerCommittedSearch.trim() !== '') {
                 return;
             }
 
@@ -207,7 +216,7 @@ export function createSeoWorkspaceMediaPicker(config = {}) {
             }
 
             const prevPage = this.pickerPage - 1;
-            if (this.pickerSearchQuery.trim() === '' && this.tryHydratePickerFromCache(this.pickerTab, prevPage)) {
+            if (this.pickerCommittedSearch.trim() === '' && this.tryHydratePickerFromCache(this.pickerTab, prevPage)) {
                 return;
             }
 
@@ -221,7 +230,7 @@ export function createSeoWorkspaceMediaPicker(config = {}) {
             }
 
             const nextPage = this.pickerPage + 1;
-            if (this.pickerSearchQuery.trim() === '' && this.tryHydratePickerFromCache(this.pickerTab, nextPage)) {
+            if (this.pickerCommittedSearch.trim() === '' && this.tryHydratePickerFromCache(this.pickerTab, nextPage)) {
                 return;
             }
 

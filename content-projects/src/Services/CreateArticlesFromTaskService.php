@@ -23,6 +23,7 @@ use Omnichannel\Addons\AiPrompt\Services\TaskWorkflowTestRunner;
 use Omnichannel\Addons\Content\Enums\ArticleWritingSourceType;
 use Omnichannel\Addons\ContentProjects\Enums\WorkflowExecutionRole;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\AiPrompt\Models\SeoTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\LocalArticleAssociationGuard;
@@ -967,16 +968,20 @@ final class CreateArticlesFromTaskService
             $slug = Str::slug($title);
         }
 
+        $classification = ArticleContentClassification::fromTaskPostType($postType);
+
         $article = SeoArticle::query()->create([
             'site_id' => $siteId,
             'user_id' => auth()->id(),
-            'type' => $postType,
             'title' => $title,
             'slug' => $slug !== '' ? $slug : null,
             'status' => 'draft',
             'body' => '',
             'language' => 'vi',
+            'parent_id' => $classification['parent_id'],
         ]);
+
+        ArticleContentClassification::persist($article, $classification);
 
         $this->attachKeyword($article, $keyword);
 
@@ -986,8 +991,6 @@ final class CreateArticlesFromTaskService
         );
 
         $this->stampCreateArticleTaskRunMeta($article, $keyword, $steps);
-
-        $article->articleMetas()->where('meta_key', 'wp_post_type')->delete();
 
         if ($originType !== null && $originType !== '' && $originId !== null && $originId > 0) {
             $this->originResolver->persistOriginMeta($article, $originType, $originId);
@@ -1033,12 +1036,17 @@ final class CreateArticlesFromTaskService
         }
 
         $postType = SeoProjectTask::normalizePostType($context->postType);
-        if (SeoProjectTask::normalizePostType((string) ($article->type ?? '')) === $postType) {
+        $desired = ArticleContentClassification::fromTaskPostType($postType);
+        $current = ArticleContentClassification::for($article);
+
+        if (
+            $current->contentType() === $desired['content_type']
+            && $current->isTerm() === $desired['wp_is_term']
+        ) {
             return;
         }
 
-        $article->update(['type' => $postType]);
-        $article->articleMetas()->where('meta_key', 'wp_post_type')->delete();
+        ArticleContentClassification::persist($article, $desired);
     }
 
     private function attachKeyword(SeoArticle $article, string $phrase): void

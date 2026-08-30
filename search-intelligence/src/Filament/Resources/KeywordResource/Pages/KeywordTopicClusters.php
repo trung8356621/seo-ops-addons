@@ -40,6 +40,8 @@ final class KeywordTopicClusters extends Page
 
     public string $clusterSearch = '';
 
+    public string $clusterSearchInput = '';
+
     public string $quickCreateInput = '';
 
     public string $coverageFilter = '';
@@ -77,6 +79,19 @@ final class KeywordTopicClusters extends Page
         $this->initializeKeywordWorkspaceSiteFilter();
         $this->redirectToFirstAccessibleDomainIfNeeded();
         $this->dispatchKeywordWorkspaceLanguageContext();
+        $this->clusterSearchInput = $this->clusterSearch;
+    }
+
+    public function applyClusterSearch(): void
+    {
+        $this->clusterSearch = trim($this->clusterSearchInput);
+        $this->clusterSearchInput = $this->clusterSearch;
+    }
+
+    public function clearClusterSearch(): void
+    {
+        $this->clusterSearch = '';
+        $this->clusterSearchInput = '';
     }
 
     public function onKeywordWorkspaceSiteFilterChanged(): void
@@ -150,7 +165,7 @@ final class KeywordTopicClusters extends Page
     public function quickCreateClusterExists(): bool
     {
         $siteId = $this->resolveKeywordWorkspaceSiteId();
-        $phrase = trim($this->quickCreateInput !== '' ? $this->quickCreateInput : $this->clusterSearch);
+        $phrase = trim($this->quickCreateInput !== '' ? $this->quickCreateInput : $this->clusterSearchInput);
         if ($siteId === null || $siteId <= 0 || $phrase === '') {
             return false;
         }
@@ -173,7 +188,7 @@ final class KeywordTopicClusters extends Page
         }
 
         $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
-        $phrase = trim($this->quickCreateInput !== '' ? $this->quickCreateInput : $this->clusterSearch);
+        $phrase = trim($this->quickCreateInput !== '' ? $this->quickCreateInput : $this->clusterSearchInput);
         if ($phrase === '') {
             Notification::make()
                 ->title(__('seo-content-ai::filament.keyword.topic_quick_create_empty'))
@@ -200,6 +215,7 @@ final class KeywordTopicClusters extends Page
 
         $this->quickCreateInput = '';
         $this->clusterSearch = '';
+        $this->clusterSearchInput = '';
         $this->refreshClusterSummaryCounters();
 
         $attached = (int) ($created['attached'] ?? 0);

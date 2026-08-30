@@ -21,14 +21,27 @@ export function registerGlobalHelpStore(Alpine) {
         existing = null;
     }
     if (existing && typeof existing.open === 'function') {
+        // Hot-patch contextual API onto an earlier inline boot store.
+        patchContextualHelpApi(existing);
         return existing;
     }
 
-    Alpine.store('help', {
+    Alpine.store('help', createHelpStoreState());
+
+    return Alpine.store('help');
+}
+
+/**
+ * @returns {Record<string, any>}
+ */
+function createHelpStoreState() {
+    return {
         isOpen: false,
         activeContext: null,
         activeGroupId: null,
         activeTopicId: null,
+        /** Exact contextual lock (context key). Null = normal browse/search. */
+        contextTopicKey: null,
         search: '',
         mobileView: 'groups',
         triggerEl: null,
@@ -52,6 +65,22 @@ export function registerGlobalHelpStore(Alpine) {
         },
 
         get filteredGroups() {
+            const locked = this.resolveLockedTopic();
+            if (locked) {
+                return this.groups
+                    .map((group) => {
+                        if (group.id !== locked.groupId) {
+                            return group;
+                        }
+
+                        return {
+                            ...group,
+                            topics: [locked.topic],
+                        };
+                    })
+                    .filter(Boolean);
+            }
+
             const q = String(this.search ?? '').trim().toLowerCase();
             if (q === '') {
                 return this.groups;
@@ -78,6 +107,11 @@ export function registerGlobalHelpStore(Alpine) {
         },
 
         get activeTopics() {
+            const locked = this.resolveLockedTopic();
+            if (locked && this.activeGroupId === locked.groupId) {
+                return [locked.topic];
+            }
+
             const group = this.activeGroup;
             if (!group) {
                 return [];
@@ -104,6 +138,29 @@ export function registerGlobalHelpStore(Alpine) {
                 ?? null;
         },
 
+        resolveLockedTopic() {
+            const key = String(this.contextTopicKey ?? '').trim();
+            if (key === '') {
+                return null;
+            }
+
+            return resolveTopicByContextKey(key);
+        },
+
+        clearContextualLock() {
+            this.contextTopicKey = null;
+        },
+
+        /**
+         * Called from search input on user edit — drop exact contextual lock.
+         */
+        onSearchInput() {
+            if (this.contextTopicKey) {
+                this.contextTopicKey = null;
+            }
+            this.ensureSelectionAfterSearch();
+        },
+
         syncContextFromLocation() {
             this.activeContext = resolveHelpContext();
             const preferred = this.activeContext?.defaultGroupId || 'overview';
@@ -122,7 +179,22 @@ export function registerGlobalHelpStore(Alpine) {
                 this.triggerEl = document.activeElement;
             }
 
+            this.contextTopicKey = null;
+            this.search = '';
             this.syncContextFromLocation();
+
+            const contextKey = String(detail.contextKey || detail.topicKey || '').trim();
+            if (contextKey) {
+                const locked = resolveTopicByContextKey(contextKey);
+                if (locked) {
+                    this.contextTopicKey = contextKey;
+                    this.selectGroup(String(locked.groupId), { resetTopic: false });
+                    this.selectTopic(String(locked.topic.id));
+                    this.search = String(locked.topic.title || '').trim();
+                } else if (window.__SEO_HELP_DEV__) {
+                    console.warn('[Help] Missing topic for context key:', contextKey);
+                }
+            }
 
             if (detail.groupId) {
                 this.selectGroup(String(detail.groupId), { resetTopic: !detail.topicId });
@@ -131,7 +203,6 @@ export function registerGlobalHelpStore(Alpine) {
                 this.selectTopic(String(detail.topicId));
             }
 
-            // Legacy article-editor topic keys: article-editor.overview → group + topic
             if (detail.topic && typeof detail.topic === 'string') {
                 this.openLegacyTopicKey(detail.topic);
             }
@@ -165,6 +236,7 @@ export function registerGlobalHelpStore(Alpine) {
         close() {
             this.isOpen = false;
             this.search = '';
+            this.contextTopicKey = null;
             this.mobileView = 'groups';
             this.unlockBody();
 
@@ -200,8 +272,6 @@ export function registerGlobalHelpStore(Alpine) {
                 return;
             }
             if (this.activeTopicId === id) {
-                // Keep one topic open — re-select same is no-op collapse optional;
-                // requirement: only one topic open; clicking open topic keeps it.
                 return;
             }
             this.selectTopic(id);
@@ -259,9 +329,79 @@ export function registerGlobalHelpStore(Alpine) {
             document.body.style.overflow = this._prevOverflow || '';
             this._prevOverflow = '';
         },
-    });
+    };
+}
 
-    return Alpine.store('help');
+/**
+ * @param {Record<string, any>} store
+ */
+function patchContextualHelpApi(store) {
+    if (!store || store.__seoHelpContextualPatched) {
+        return;
+    }
+    store.__seoHelpContextualPatched = true;
+    store.contextTopicKey = store.contextTopicKey ?? null;
+
+    const methods = createHelpStoreState();
+    store.open = methods.open;
+    store.close = methods.close;
+    store.onSearchInput = methods.onSearchInput;
+    store.clearContextualLock = methods.clearContextualLock;
+    store.resolveLockedTopic = methods.resolveLockedTopic;
+    store.ensureSelectionAfterSearch = methods.ensureSelectionAfterSearch;
+
+    const filteredDesc = Object.getOwnPropertyDescriptor(methods, 'filteredGroups');
+    if (filteredDesc?.get) {
+        Object.defineProperty(store, 'filteredGroups', {
+            configurable: true,
+            enumerable: true,
+            get: filteredDesc.get,
+        });
+    }
+
+    const topicsDesc = Object.getOwnPropertyDescriptor(methods, 'activeTopics');
+    if (topicsDesc?.get) {
+        Object.defineProperty(store, 'activeTopics', {
+            configurable: true,
+            enumerable: true,
+            get: topicsDesc.get,
+        });
+    }
+}
+
+/**
+ * @param {string} contextKey
+ * @returns {{ groupId: string, topic: object }|null}
+ */
+function resolveTopicByContextKey(contextKey) {
+    const key = String(contextKey || '').trim();
+    if (key === '') {
+        return null;
+    }
+
+    const mapped = (window.__SEO_HELP_PAYLOAD__?.topic_by_key || {})[key];
+    if (!mapped?.groupId) {
+        return null;
+    }
+
+    const groupId = String(mapped.groupId);
+    const topicId = String(mapped.topicId || key);
+    const payloadGroup = (window.__SEO_HELP_PAYLOAD__?.groups || []).find((group) => group.id === groupId);
+    const topic = (payloadGroup?.topics || []).find(
+        (row) => row?.id === topicId || row?.id === key || row?.key === key,
+    )
+        ?? findHelpTopic(groupId, topicId)
+        ?? findHelpTopic(groupId, key)
+        ?? (findHelpGroup(groupId)?.topics || []).find(
+            (row) => row?.id === topicId || row?.id === key || row?.key === key,
+        )
+        ?? null;
+
+    if (!topic) {
+        return null;
+    }
+
+    return { groupId, topic };
 }
 
 /**

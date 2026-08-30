@@ -72,12 +72,15 @@
                 <option value="cancelled">cancelled</option>
             </x-select>
 
-            <input
-                type="search"
-                wire:model.live.debounce.300ms="search"
-                placeholder="{{ __('seo-content-ai::filament.projects.queue_search') }}"
-                class="fi-input block w-56 rounded-lg border-gray-300 text-sm dark:border-gray-600 dark:bg-gray-800"
-            />
+            <form wire:submit="applySearch" class="contents">
+                <input
+                    type="search"
+                    wire:model="searchInput"
+                    placeholder="{{ __('seo-content-ai::filament.projects.queue_search') }}"
+                    class="fi-input block w-56 rounded-lg border-gray-300 text-sm dark:border-gray-600 dark:bg-gray-800"
+                    autocomplete="off"
+                />
+            </form>
 
             <button type="button" wire:click="selectPage" class="fi-btn fi-btn-color-gray fi-size-sm">
                 {{ __('seo-content-ai::filament.projects.queue_select_page') }}
@@ -198,7 +201,7 @@
     <x-seo-content-ai::list-table-loading-shell
         class="overflow-hidden rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900"
         preset="livewire-page"
-        targets="statusFilter,search,updatedSearch"
+        targets="statusFilter,search,applySearch,clearSearch,clearFilters"
     >
         <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-700">
             <thead class="bg-gray-50 dark:bg-gray-800/60">

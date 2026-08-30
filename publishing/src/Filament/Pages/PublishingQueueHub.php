@@ -62,6 +62,8 @@ final class PublishingQueueHub extends SeoPanelPage
 
     public string $search = '';
 
+    public string $searchInput = '';
+
     /** @var list<int> */
     public array $selectedTaskIds = [];
 
@@ -118,6 +120,7 @@ final class PublishingQueueHub extends SeoPanelPage
     {
         abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
         $this->resolveProject();
+        $this->searchInput = $this->search;
         if ($this->autoStartAt === '') {
             $this->autoStartAt = SystemDateTime::formatForInput(
                 SystemDateTime::currentSystemTime()->addHour()
@@ -138,8 +141,17 @@ final class PublishingQueueHub extends SeoPanelPage
         $this->clearFilters();
     }
 
-    public function updatedSearch(): void
+    public function applySearch(): void
     {
+        $this->search = trim($this->searchInput);
+        $this->selectedTaskIds = [];
+        $this->selectAllMatching = false;
+    }
+
+    public function clearSearch(): void
+    {
+        $this->searchInput = '';
+        $this->search = '';
         $this->selectedTaskIds = [];
         $this->selectAllMatching = false;
     }
@@ -307,6 +319,7 @@ final class PublishingQueueHub extends SeoPanelPage
     public function clearFilters(): void
     {
         $this->search = '';
+        $this->searchInput = '';
         $this->stateFilter = '';
         $this->selectedTaskIds = [];
         $this->selectAllMatching = false;

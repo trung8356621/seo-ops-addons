@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\Seo\Filament\Pages;
 
 use Omnichannel\Addons\Seo\Services\SeoOverviewSettingsService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use App\Help\HelpUi;
 use Filament\Forms;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
@@ -48,14 +49,14 @@ class SeoSettingsOverview extends Page implements HasForms
         return $form
             ->schema([
                 Forms\Components\Section::make(__('seo-content-ai::filament.settings_overview.team_chat_section'))
-                    ->description(__('seo-content-ai::filament.settings_overview.team_chat_section_description'))
+                    ->headerActions([HelpUi::fieldHintAction('settings.general.team_chat')])
                     ->schema([
                         Forms\Components\Textarea::make(SeoOverviewSettingsService::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS)
                             ->label(__('seo-content-ai::filament.settings_overview.team_chat_extensions_label'))
                             ->rows(6)
                             ->required()
                             ->columnSpanFull()
-                            ->helperText(__('seo-content-ai::filament.settings_overview.team_chat_extensions_hint')),
+                            ->hintAction(HelpUi::fieldHintAction('settings.general.team_chat', null, 'extensions')),
                         Forms\Components\TextInput::make(SeoOverviewSettingsService::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB)
                             ->label(__('seo-content-ai::filament.settings_overview.team_chat_max_size_label'))
                             ->numeric()
@@ -63,7 +64,7 @@ class SeoSettingsOverview extends Page implements HasForms
                             ->maxValue(100)
                             ->required()
                             ->suffix('MB')
-                            ->helperText(__('seo-content-ai::filament.settings_overview.team_chat_max_size_hint')),
+                            ->hintAction(HelpUi::fieldHintAction('settings.general.team_chat', null, 'max_size')),
                     ])
                     ->columns(2),
             ])

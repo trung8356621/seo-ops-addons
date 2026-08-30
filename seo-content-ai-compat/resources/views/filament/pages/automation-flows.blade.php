@@ -96,12 +96,15 @@
                 <div class="awv-list-col space-y-3 shrink-0">
                     <div>
                         <label class="mb-1 block text-xs font-medium text-gray-500">{{ __('seo-content-ai::filament.automation.flows.search_workflows') }}</label>
-                        <input
-                            type="search"
-                            wire:model.live.debounce.250ms="search"
-                            class="w-full rounded-lg border-gray-300 text-sm shadow-sm dark:border-white/10 dark:bg-gray-900"
-                            placeholder="{{ __('seo-content-ai::filament.automation.flows.search_placeholder') }}"
-                        />
+                        <form wire:submit="applySearch" class="w-full">
+                            <input
+                                type="search"
+                                wire:model="searchInput"
+                                class="w-full rounded-lg border-gray-300 text-sm shadow-sm dark:border-white/10 dark:bg-gray-900"
+                                placeholder="{{ __('seo-content-ai::filament.automation.flows.search_placeholder') }}"
+                                autocomplete="off"
+                            />
+                        </form>
                     </div>
 
                     {{-- Mobile: dropdown instead of long list --}}

@@ -36,6 +36,32 @@ final class SiteSyncForceFullPaginationTest extends TestCase
         self::assertStringContainsString('SiteSyncRunCompletionGuard::validate', $src);
     }
 
+    public function test_deferred_running_step_is_claimed_before_pending(): void
+    {
+        $src = (string) file_get_contents((new ReflectionClass(SiteSyncStepRunner::class))->getFileName());
+        self::assertStringContainsString('$deferredRunningStep', $src);
+        self::assertStringContainsString('Reclaiming deferred step continuation', $src);
+        self::assertStringContainsString('snapshot_complete_invariant_blocked', $src);
+        self::assertStringContainsString('Deferred continuation of an in-progress step MUST win over later pending steps', $src);
+        self::assertMatchesRegularExpression(
+            '/if \(\$deferredRunningStep !== null\) \{[\s\S]*?\} elseif \(\$pendingStep !== null\) \{/',
+            $src,
+        );
+        self::assertStringContainsString('Earlier step still in flight', $src);
+        self::assertStringContainsString('Reclaiming stale earlier running step before later pending', $src);
+        self::assertStringContainsString('KEYWORD_BATCHES_PER_JOB', $src);
+        self::assertStringContainsString('keyword_batch_offset', $src);
+    }
+
+    public function test_catalog_defer_preserves_applied_offset_checkpoint(): void
+    {
+        $src = (string) file_get_contents((new ReflectionClass(SiteSyncStepRunner::class))->getFileName());
+        self::assertStringContainsString("\$step->refresh()", $src);
+        self::assertStringContainsString("'catalog_applied_offset' => \$appliedOffset", $src);
+        self::assertStringContainsString("\$checkpoint['catalog_applied_offset'] = (int) \$metrics['catalog_applied_offset']", $src);
+        self::assertStringContainsString('Preserve cumulative inventory counters', $src);
+    }
+
     public function test_checkpoint_catalog_does_not_add_fetched_and_reconciled(): void
     {
         $src = (string) file_get_contents((new ReflectionClass(SiteSyncStepRunner::class))->getFileName());

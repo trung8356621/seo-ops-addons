@@ -8,16 +8,21 @@ namespace Omnichannel\Addons\WordPress\Services;
 use Omnichannel\Addons\Seo\Services\SeoAnalyzerService;
 use Omnichannel\Addons\Seo\Services\SeoArticleScoringQueueService;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
+use Omnichannel\Addons\Content\Enums\ContentType;
+use Omnichannel\Addons\Content\Models\ArticleMeta;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Services\ArticleLastSavedTimestampService;
 use Omnichannel\Addons\Content\Services\ArticleTocExtractionService;
 use Omnichannel\Addons\Content\Services\ClearDomainArticlesService;
+use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\SearchFoundation\Support\DomainSyncManifestComparator;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordFocusAttach;
 use Omnichannel\Addons\SearchIntelligence\Support\RankMathSeoValueNormalizer;
 use Omnichannel\Addons\WordPress\Support\WordPressPermalinkBuilder;
 use App\Models\Site;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -84,31 +89,13 @@ class SyncDomainContentService
 
             $site->loadMissing('metas');
             $readToken = trim((string) ($site->getMeta('seo_read_token') ?? ''));
-            $wpEntity = trim((string) (
-                $article->articleMetas->firstWhere('meta_key', 'wp_entity')?->meta_value ?? 'post'
-            ));
-            if ($wpEntity === '') {
-                $wpEntity = 'post';
-            }
-
-            $ref = [
-                'wp_id' => $wpPostId,
-                'wp_entity' => $wpEntity,
-            ];
-
-            if ($wpEntity === 'term') {
-                $taxonomy = trim((string) (
-                    $article->articleMetas->firstWhere('meta_key', 'wp_taxonomy')?->meta_value
-                    ?? match (strtolower(trim((string) ($article->type ?? '')))) {
-                        'product_category', 'product_cat' => 'product_cat',
-                        'category' => 'category',
-                        default => '',
-                    }
-                ));
-                if ($taxonomy !== '') {
-                    $ref['wp_post_type'] = $taxonomy;
-                }
-            }
+            $classification = ArticleContentClassification::for($article);
+            $ref = $this->buildSyncRef(
+                $wpPostId,
+                $classification->contentType(),
+                $classification->isTerm(),
+                $classification->wpPostType(),
+            );
 
             $stage = 'fetch';
             $items = $this->fetchItemsByRefs($site, $readToken, [$ref]);
@@ -128,7 +115,12 @@ class SyncDomainContentService
             }
 
             $item['wp_id'] = $wpPostId;
-            $item['type'] = (string) ($article->type ?? $item['type'] ?? 'article');
+            // Term/post identity comes from the ref we requested; content_type stays payload-driven
+            // so WordPress can still correct a stale local mapping (e.g. post → page).
+            $item['wp_is_term'] = $classification->isTerm();
+            if (trim((string) ($item['wp_post_type'] ?? '')) === '' && isset($ref['wp_post_type'])) {
+                $item['wp_post_type'] = $ref['wp_post_type'];
+            }
 
             $scoring = app(SeoArticleScoringQueueService::class);
             $previousChecksum = $scoring->buildArticleFingerprint($article);
@@ -250,17 +242,13 @@ class SyncDomainContentService
             return ['success' => false, 'message' => 'Thiếu SEO read token cho domain.'];
         }
 
-        $type = app(\Omnichannel\Addons\Content\Services\ArticleByWpIdResolver::class)
-            ->normalizeType($preferredType);
-        $wpEntity = in_array($type, ['category', 'product_category'], true) ? 'term' : 'post';
-        $ref = [
-            'wp_id' => $wpId,
-            'wp_entity' => $wpEntity,
-            'type' => $type,
-        ];
-        if ($wpEntity === 'term') {
-            $ref['wp_post_type'] = $type === 'product_category' ? 'product_cat' : 'category';
-        }
+        $preferred = ArticleContentClassification::fromSyncItem(['type' => $preferredType], $site);
+        $ref = $this->buildSyncRef(
+            $wpId,
+            $preferred['content_type'],
+            $preferred['wp_is_term'],
+            $preferred['wp_post_type'],
+        );
 
         $items = $this->fetchItemsByRefs($site, $readToken, [$ref]);
         if ($items === null || $items === []) {
@@ -279,7 +267,10 @@ class SyncDomainContentService
         }
 
         $item['wp_id'] = $wpId;
-        $item['type'] = $this->normalizeType((string) ($item['type'] ?? $type));
+        if (trim((string) ($item['wp_post_type'] ?? '')) === '' && isset($ref['wp_post_type'])) {
+            $item['wp_post_type'] = $ref['wp_post_type'];
+        }
+        $item['wp_is_term'] = ArticleContentClassification::fromSyncItem($item, $site)['wp_is_term'];
 
         $synced = [
             'article' => 0,
@@ -326,11 +317,7 @@ class SyncDomainContentService
             ];
         }
 
-        $article = SeoArticle::query()
-            ->where('site_id', (int) $site->id)
-            ->whereWpPostId($wpId)
-            ->where('type', $item['type'])
-            ->first();
+        $article = $this->findArticleByWpIdentity($site, $wpId, (bool) $item['wp_is_term']);
 
         if (! $article instanceof SeoArticle) {
             return [
@@ -519,17 +506,18 @@ class SyncDomainContentService
             $manifestTotals = is_array($manifestPayload['totals'] ?? null) ? $manifestPayload['totals'] : [];
             $this->persistManifestCounts($site, $manifestCounts, $manifestTotals);
 
-            $localArticles = SeoArticle::query()
-                ->leftJoin('wordpress_article_links as wal_fetch', 'wal_fetch.article_id', '=', 'articles.id')
-                ->where('articles.site_id', $site->id)
-                ->where('wal_fetch.wp_post_id', '>', 0)
-                ->get(['wal_fetch.wp_post_id as wp_post_id', 'articles.type as type', 'articles.updated_at as updated_at']);
+            $localArticles = $this->loadLocalClassifiedSyncState($site, 'wal_fetch');
 
             $plan = $this->manifestComparator->resolveFetchRefs($entries, $localArticles);
             $refs = $plan['refs'];
             $manifestTotal = count($entries);
             $localArticleCount = $localArticles
-                ->filter(static fn (object $article): bool => in_array((string) ($article->type ?? 'article'), ['article', ''], true))
+                ->filter(static fn (object $article): bool => ! (bool) ($article->wp_is_term ?? false)
+                    && in_array(
+                        (string) ($article->content_type ?? ''),
+                        [ContentType::Post->value, ContentType::Page->value],
+                        true,
+                    ))
                 ->count();
             $accounted = $plan['skipped'] + count($refs);
 
@@ -761,11 +749,7 @@ class SyncDomainContentService
             $manifestTotals = is_array($manifestPayload['totals'] ?? null) ? $manifestPayload['totals'] : [];
             $this->persistManifestCounts($site, $manifestCounts, $manifestTotals);
 
-            $localArticles = SeoArticle::query()
-                ->leftJoin('wordpress_article_links as wal_meta', 'wal_meta.article_id', '=', 'articles.id')
-                ->where('articles.site_id', $site->id)
-                ->where('wal_meta.wp_post_id', '>', 0)
-                ->get(['wal_meta.wp_post_id as wp_post_id', 'articles.type as type', 'articles.updated_at as updated_at']);
+            $localArticles = $this->loadLocalClassifiedSyncState($site, 'wal_meta');
 
             $plan = $this->manifestComparator->resolveMetadataRefreshRefs($entries, $localArticles);
             $refs = $plan['refs'];
@@ -1231,29 +1215,30 @@ class SyncDomainContentService
                 continue;
             }
 
-            $wpPostType = $this->resolveWpPostTypeForMeta($item);
+            $classification = ArticleContentClassification::fromSyncItem($item, $site);
+            $wpPostType = $classification['wp_post_type'];
             if ($wpPostType === '') {
                 continue;
             }
 
-            $existing = SeoArticle::query()
-                ->where('site_id', $site->id)
-                ->whereWpPostId($wpId)
-                ->first();
-
+            $existing = $this->findArticleByWpIdentity($site, $wpId, $classification['wp_is_term']);
             if (! $existing instanceof SeoArticle) {
                 continue;
             }
 
-            $current = strtolower(trim((string) $existing->articleMetas()
-                ->where('meta_key', 'wp_post_type')
-                ->value('meta_value')));
-
-            if ($current === $wpPostType) {
+            $current = ArticleContentClassification::for($existing);
+            if ($current->wpPostType() === $wpPostType
+                && $current->contentType() === $classification['content_type']
+                && $current->isTerm() === $classification['wp_is_term']
+            ) {
                 continue;
             }
 
-            $this->persistWpPostTypeMeta($existing, $wpPostType);
+            ArticleContentClassification::persist($existing, [
+                'content_type' => $classification['content_type'],
+                'wp_is_term' => $classification['wp_is_term'],
+                'wp_post_type' => $wpPostType,
+            ]);
             $updated++;
         }
 
@@ -1354,22 +1339,24 @@ class SyncDomainContentService
         ArticleWordPressSyncFlagService $syncFlags,
         bool $forceOverwrite = false,
     ): void {
-        $wpPostTypeForMeta = $this->resolveWpPostTypeForMeta($item);
-        $type = $this->normalizeType($wpPostTypeForMeta);
+        $classification = ArticleContentClassification::fromSyncItem($item, $site);
+        $contentType = $classification['content_type'];
+        $isTerm = $classification['wp_is_term'];
+        $wpPostTypeForMeta = $classification['wp_post_type'];
         $publishedAt = $this->parsePublishedAt($item['published_at'] ?? null);
 
-        $existing = SeoArticle::query()
-            ->where('site_id', $site->id)
-            ->whereWpPostId($wpId)
-            ->where('type', $type)
-            ->first();
+        $existing = $this->findArticleByWpIdentity($site, $wpId, $isTerm);
 
         if (
             ! $forceOverwrite
             && $existing instanceof SeoArticle
             && $syncFlags->shouldBlockWordPressImport($existing)
         ) {
-            $this->persistWpPostTypeMeta($existing, $wpPostTypeForMeta);
+            ArticleContentClassification::persist($existing, [
+                'content_type' => $contentType,
+                'wp_is_term' => $isTerm,
+                'wp_post_type' => $wpPostTypeForMeta,
+            ]);
             $syncFlags->markDataOutOfSync($existing);
 
             if (array_key_exists('conflict', $synced)) {
@@ -1388,8 +1375,8 @@ class SyncDomainContentService
 
         // Bài chưa có nội dung editor trên SEO (hoặc forceOverwrite): ghi đè scoring (xóa slug/body).
         // Bài đã có body: chỉ cập nhật tiêu đề/trạng thái.
+        // articles.type is retired as classification SoT — content_type/wp_is_term meta own it.
         $articleAttributes = [
-            'type' => $type,
             'title' => $title !== '' ? $title : 'Untitled',
             'status' => $this->normalizeStatus((string) ($item['status'] ?? 'draft')),
         ];
@@ -1408,10 +1395,7 @@ class SyncDomainContentService
             $article = $existing;
         } else {
             $article = SeoArticle::query()->create(array_merge(
-                [
-                    'site_id' => $site->id,
-                    'type' => $type,
-                ],
+                ['site_id' => $site->id],
                 $articleAttributes,
             ));
         }
@@ -1429,17 +1413,23 @@ class SyncDomainContentService
             );
         }
 
-        $this->persistWpPostTypeMeta($article, $wpPostTypeForMeta);
+        $persistInput = [
+            'content_type' => $contentType,
+            'wp_is_term' => $isTerm,
+            'wp_post_type' => $wpPostTypeForMeta,
+        ];
 
-        $wpEntity = trim((string) ($item['wp_entity'] ?? ''));
-        if ($wpEntity !== '') {
-            $article->articleMetas()->updateOrCreate(
-                ['meta_key' => 'wp_entity'],
-                ['meta_value' => $wpEntity],
-            );
+        // wp_parent_id (WP round-trip) stays in syncWordPressPostMeta; articles.parent_id holds
+        // the local hierarchy: 0 = root, local article id when the parent term is already imported.
+        $localParentId = $isTerm ? $this->resolveLocalTermParentId($site, $item) : null;
+        if ($localParentId !== null) {
+            $persistInput['parent_id'] = $localParentId;
         }
 
-        if ($wpEntity === 'term' && $wpPostTypeForMeta !== '') {
+        ArticleContentClassification::persist($article, $persistInput);
+
+        // wp_taxonomy kept for readers that still resolve the taxonomy slug from meta.
+        if ($isTerm && $wpPostTypeForMeta !== '') {
             $article->articleMetas()->updateOrCreate(
                 ['meta_key' => 'wp_taxonomy'],
                 ['meta_value' => $wpPostTypeForMeta],
@@ -1459,7 +1449,7 @@ class SyncDomainContentService
             }
         }
 
-        $this->syncWordPressPostMeta($article, $item, $forceOverwrite);
+        $this->syncWordPressPostMeta($article, $item, $isTerm, $forceOverwrite);
         $this->syncSchemaAndWooCommerceMeta($article, $item);
         if ($forceOverwrite) {
             app(ArticlePostImagesService::class)->importFromSyncItem($article, $item);
@@ -1506,8 +1496,9 @@ class SyncDomainContentService
         $syncFlags->clearAll($article);
         app(ArticleLastSavedTimestampService::class)->touchSynced($article);
 
-        if (array_key_exists($type, $synced)) {
-            $synced[$type]++;
+        $syncedKey = $this->legacyTypeLabel($contentType, $isTerm);
+        if (array_key_exists($syncedKey, $synced)) {
+            $synced[$syncedKey]++;
         } else {
             $synced['other']++;
         }
@@ -1551,10 +1542,12 @@ class SyncDomainContentService
     /**
      * @param  array<string, mixed>  $item
      */
-    private function syncWordPressPostMeta(SeoArticle $article, array $item, bool $forceOverwrite = false): void
-    {
-        $type = $this->normalizeType((string) ($item['type'] ?? 'article'));
-        $isTaxonomy = in_array($type, ['category', 'product_category'], true);
+    private function syncWordPressPostMeta(
+        SeoArticle $article,
+        array $item,
+        bool $isTaxonomy,
+        bool $forceOverwrite = false,
+    ): void {
         $content = $this->resolveSyncItemContent($item);
         $shouldPersistBody = $forceOverwrite || $isTaxonomy;
 
@@ -1699,8 +1692,7 @@ class SyncDomainContentService
      */
     private function syncCategoryIdsFromSyncItem(SeoArticle $article, array $item, array $categoryIds): void
     {
-        $type = $this->normalizeType((string) ($item['type'] ?? 'article'));
-        $isTaxonomy = in_array($type, ['category', 'product_category'], true);
+        $isTaxonomy = ArticleContentClassification::for($article)->isTerm();
 
         if ($categoryIds === []) {
             $article->articleMetas()->whereIn('meta_key', ['wp_category_ids', 'category_ids'])->delete();
@@ -1959,53 +1951,169 @@ class SyncDomainContentService
     }
 
     /**
-     * Canonical raw WordPress post_type slug for article_meta.wp_post_type.
+     * Identity for import/lookup = site + WordPress id + term flag.
+     * `articles.type` is no longer part of identity; canonical meta wins, legacy rows
+     * fall back to in-memory classification (no network).
+     */
+    private function findArticleByWpIdentity(Site $site, int $wpId, bool $isTerm): ?SeoArticle
+    {
+        $baseQuery = static fn (): Builder => SeoArticle::query()
+            ->where('site_id', (int) $site->id)
+            ->whereWpPostId($wpId);
+
+        $canonical = ArticleContentClassification::scopeIsTerm($baseQuery(), $isTerm)->first();
+        if ($canonical instanceof SeoArticle) {
+            return $canonical;
+        }
+
+        foreach ($baseQuery()->with('articleMetas')->get() as $candidate) {
+            if (ArticleContentClassification::for($candidate)->isTerm() === $isTerm) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * WordPress parent term id → local parent article id for `articles.parent_id`.
+     * 0 = root, and also the fail-closed value while the parent term is not imported yet.
      *
      * @param  array<string, mixed>  $item
      */
-    private function resolveWpPostTypeForMeta(array $item): string
+    private function resolveLocalTermParentId(Site $site, array $item): ?int
     {
-        $explicit = strtolower(trim((string) ($item['wp_post_type'] ?? '')));
-        if ($explicit !== '') {
-            return $explicit;
+        if (! array_key_exists('parent_term_id', $item) && ! array_key_exists('parent_id', $item)) {
+            return null;
         }
 
-        $legacyType = strtolower(trim((string) ($item['type'] ?? '')));
-        if (in_array($legacyType, ['post', 'page', 'product'], true)) {
-            return $legacyType;
-        }
-        if ($legacyType !== '' && ! in_array($legacyType, ['article', 'category', 'product_category', 'product_cat'], true)) {
-            return $legacyType;
+        $raw = array_key_exists('parent_term_id', $item)
+            ? $item['parent_term_id']
+            : $item['parent_id'];
+
+        if ($raw === null || $raw === '') {
+            return 0;
         }
 
-        return $this->normalizeType($legacyType !== '' ? $legacyType : 'article') === 'product'
-            ? 'product'
-            : 'post';
+        $wpParentId = (int) $raw;
+        if ($wpParentId <= 0) {
+            return 0;
+        }
+
+        $parent = $this->findArticleByWpIdentity($site, $wpParentId, true);
+
+        return $parent instanceof SeoArticle ? (int) $parent->id : 0;
     }
 
-    private function persistWpPostTypeMeta(SeoArticle $article, string $wpPostType): void
-    {
-        $wpPostType = strtolower(trim($wpPostType));
-        if ($wpPostType === '') {
-            return;
+    /**
+     * Outbound bridge ref (plugin speaks wp_entity + taxonomy/post_type slugs).
+     *
+     * @return array<string, mixed>
+     */
+    private function buildSyncRef(
+        int $wpId,
+        ContentType $contentType,
+        bool $isTerm,
+        ?string $wpPostType,
+    ): array {
+        $native = strtolower(trim((string) ($wpPostType ?? '')));
+        if ($native === '') {
+            $native = match (true) {
+                $isTerm => $contentType === ContentType::Product ? 'product_cat' : 'category',
+                $contentType === ContentType::Product => 'product',
+                $contentType === ContentType::Page => 'page',
+                default => 'post',
+            };
         }
 
-        $article->articleMetas()->updateOrCreate(
-            ['meta_key' => 'wp_post_type'],
-            ['meta_value' => $wpPostType],
-        );
+        return [
+            'wp_id' => $wpId,
+            'wp_entity' => $isTerm ? 'term' : 'post',
+            'wp_post_type' => $native,
+            // Legacy label kept only so the full-sync fallback filter can match payload items.
+            'type' => $this->legacyTypeLabel($contentType, $isTerm),
+        ];
     }
 
-    private function normalizeType(string $type): string
+    /**
+     * Local sync state for manifest comparison — canonical classification, not `articles.type`.
+     *
+     * @return Collection<int, SeoArticle>
+     */
+    private function loadLocalClassifiedSyncState(Site $site, string $linkAlias): Collection
     {
-        $type = strtolower(trim($type));
+        $select = [
+            "{$linkAlias}.wp_post_id as wp_post_id",
+            'articles.updated_at as updated_at',
+        ];
 
-        return match ($type) {
-            'product' => 'product',
-            'category' => 'category',
-            'product_category', 'product_cat' => 'product_category',
-            default => 'article',
-        };
+        // Transitional: prefer meta; legacy_type only while column still exists.
+        $hasLegacyType = \Illuminate\Support\Facades\Schema::connection('omi_seo_ai')
+            ->hasColumn('articles', 'type');
+        if ($hasLegacyType) {
+            $select[] = 'articles.type as legacy_type';
+        }
+
+        $rows = SeoArticle::query()
+            ->leftJoin("wordpress_article_links as {$linkAlias}", "{$linkAlias}.article_id", '=', 'articles.id')
+            ->where('articles.site_id', $site->id)
+            ->where("{$linkAlias}.wp_post_id", '>', 0)
+            ->select($select)
+            ->addSelect([
+                'meta_content_type' => $this->articleMetaValueSubQuery(ArticleContentClassification::META_CONTENT_TYPE),
+                'meta_wp_is_term' => $this->articleMetaValueSubQuery(ArticleContentClassification::META_WP_IS_TERM),
+                'meta_wp_post_type' => $this->articleMetaValueSubQuery(ArticleContentClassification::META_WP_POST_TYPE),
+            ])
+            ->get();
+
+        return $rows->map(function (SeoArticle $row): SeoArticle {
+            $contentType = ContentType::tryFromString((string) ($row->meta_content_type ?? ''));
+            $isTermRaw = $row->meta_wp_is_term;
+            $hasTermFlag = $isTermRaw !== null && trim((string) $isTermRaw) !== '';
+
+            if ($contentType === null || ! $hasTermFlag) {
+                $legacy = ArticleContentClassification::fromLegacyRow(
+                    (string) ($row->legacy_type ?? ''),
+                    (string) ($row->meta_wp_post_type ?? ''),
+                    null,
+                );
+                $contentType ??= $legacy['content_type'];
+                $isTerm = $hasTermFlag
+                    ? in_array(strtolower(trim((string) $isTermRaw)), ['1', 'true', 'yes'], true)
+                    : $legacy['wp_is_term'];
+            } else {
+                $isTerm = in_array(strtolower(trim((string) $isTermRaw)), ['1', 'true', 'yes'], true);
+            }
+
+            $row->setAttribute('content_type', $contentType->value);
+            $row->setAttribute('wp_is_term', $isTerm);
+            // Comparator vocabulary stays legacy, but is now derived from content_type.
+            $row->setAttribute('type', $this->legacyTypeLabel($contentType, $isTerm));
+
+            return $row;
+        });
+    }
+
+    private function articleMetaValueSubQuery(string $metaKey): Builder
+    {
+        return ArticleMeta::query()
+            ->select('meta_value')
+            ->whereColumn('article_id', 'articles.id')
+            ->where('meta_key', $metaKey)
+            ->limit(1);
+    }
+
+    /**
+     * Legacy per-type vocabulary (article|product|category|product_category) still used by
+     * sync counters, manifest refs and reports.
+     */
+    private function legacyTypeLabel(ContentType $contentType, bool $isTerm): string
+    {
+        if ($isTerm) {
+            return $contentType === ContentType::Product ? 'product_category' : 'category';
+        }
+
+        return $contentType === ContentType::Product ? 'product' : 'article';
     }
 
     private function normalizeStatus(string $status): string

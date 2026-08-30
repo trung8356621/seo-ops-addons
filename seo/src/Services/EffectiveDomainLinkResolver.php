@@ -6,7 +6,9 @@ namespace Omnichannel\Addons\Seo\Services;
 
 use App\Models\Site;
 use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
+use Omnichannel\Addons\Content\Enums\ContentType;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\SiteSync\Models\SeoSiteLinkCatalog;
 use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncSchema;
 use Omnichannel\Addons\SiteSync\Services\Support\SiteSyncSiteMeta;
@@ -175,7 +177,7 @@ final class EffectiveDomainLinkResolver
     }
 
     /**
-     * Synced WooCommerce product_cat terms only (articles.type = product_category).
+     * Synced WooCommerce product_cat terms only (content_type = product + wp_is_term = 1).
      *
      * @return list<array{keyword: string, link: string}>
      */
@@ -185,13 +187,16 @@ final class EffectiveDomainLinkResolver
             return [];
         }
 
-        $articles = SeoArticle::query()
+        $query = SeoArticle::query()
             ->where('site_id', $siteId)
-            ->whereIn('type', ['product_category', 'product_cat'])
             ->whereNotIn('status', ['trash', 'trashed', 'deleted'])
             ->with(['articleMetas' => static fn ($q) => $q->where('meta_key', 'wp_permalink')])
-            ->orderBy('id')
-            ->get(['id', 'title', 'status', 'type', 'site_id']);
+            ->orderBy('id');
+
+        ArticleContentClassification::scopeContentType($query, ContentType::Product);
+        ArticleContentClassification::scopeIsTerm($query, true);
+
+        $articles = $query->get(['id', 'title', 'status', 'site_id']);
 
         $out = [];
         foreach ($articles as $article) {

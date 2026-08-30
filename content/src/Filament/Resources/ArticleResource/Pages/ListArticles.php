@@ -23,11 +23,14 @@ use Filament\Actions;
 use Filament\Forms;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
+use Filament\Support\Facades\FilamentView;
 use Filament\Tables\Table;
+use Filament\Tables\View\TablesRenderHook;
 use Illuminate\Contracts\Pagination\CursorPaginator;
 use Illuminate\Contracts\Pagination\Paginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Blade;
 use Illuminate\Support\Facades\Cache;
 use Livewire\Attributes\Url;
 
@@ -48,6 +51,8 @@ class ListArticles extends ListRecords
     protected static string $resource = ArticleResource::class;
 
     protected static string $view = 'seo-content-ai::filament.resources.article-resource.pages.list-articles';
+
+    private static bool $filteredTotalHookRegistered = false;
 
     #[Url(as: 'tab')]
     public string $contentTab = self::TAB_POSTS;
@@ -109,6 +114,62 @@ class ListArticles extends ListRecords
         }
 
         return $pageOptions[0] ?? self::DEFAULT_RECORDS_PER_PAGE;
+    }
+
+    public function boot(): void
+    {
+        if (self::$filteredTotalHookRegistered) {
+            return;
+        }
+        self::$filteredTotalHookRegistered = true;
+
+        FilamentView::registerRenderHook(
+            TablesRenderHook::TOOLBAR_START,
+            function (): string {
+                $livewire = \Livewire\Livewire::current();
+                if (! $livewire instanceof self) {
+                    return '';
+                }
+                if ($livewire->contentTab === self::TAB_REVIEWED) {
+                    return '';
+                }
+
+                return Blade::render(
+                    '<div class="text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap shrink-0" wire:key="article-list-filtered-total-{{ $count }}">{{ $label }}</div>',
+                    [
+                        'count' => $livewire->getFilteredTableResultsCount(),
+                        'label' => trans_choice(
+                            'seo-content-ai::filament.article_list.filtered_results',
+                            $livewire->getFilteredTableResultsCount(),
+                            ['count' => number_format($livewire->getFilteredTableResultsCount())],
+                        ),
+                    ],
+                );
+            },
+            scopes: [static::class],
+        );
+    }
+
+    /**
+     * Filtered result total for the current table query (all active filters).
+     * Prefer paginator total to avoid an extra full-table COUNT when records are already loaded.
+     */
+    public function getFilteredTableResultsCount(): int
+    {
+        try {
+            $records = $this->getTableRecords();
+            if ($records instanceof Paginator) {
+                return (int) $records->total();
+            }
+            if ($records instanceof Collection) {
+                return $records->count();
+            }
+            // CursorPaginator has no total — fall through to COUNT.
+        } catch (\Throwable) {
+            // Fall through to query count.
+        }
+
+        return (int) $this->getFilteredTableQuery()->toBase()->getCountForPagination();
     }
 
     public function mount(): void

@@ -28,6 +28,7 @@ use Omnichannel\Addons\Content\Services\ArticleWritingLegacyRewriteAdapter;
 use Omnichannel\Addons\Content\Services\ArticleContentFaqService;
 use Omnichannel\Addons\Content\Services\ArticleProductGalleryDistributeService;
 use Omnichannel\Addons\Content\Services\SeoFaqPersistenceService;
+use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\Content\Support\ArticleGenerationSourceResult;
 use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordFocusAttach;
@@ -2732,10 +2733,11 @@ final class TaskWorkflowTestRunner
             ? now(config('app.timezone'))->addDay()->startOfDay()
             : null;
 
+        $classification = ArticleContentClassification::fromTaskPostType($postType);
+
         $article = SeoArticle::query()->create([
             'site_id' => $siteId,
             'user_id' => auth()->id(),
-            'type' => $postType,
             'title' => $title,
             'slug' => $slug !== '' ? $slug : null,
             'status' => $scheduleAt !== null ? 'scheduled' : 'draft',
@@ -2744,7 +2746,15 @@ final class TaskWorkflowTestRunner
             'language' => 'vi',
         ]);
 
+        // Local draft has no WordPress counterpart yet — canonical classification only,
+        // never a raw platform wp_post_type slug.
         $article->articleMetas()->where('meta_key', 'wp_post_type')->delete();
+
+        ArticleContentClassification::persist($article, [
+            'content_type' => $classification['content_type'],
+            'wp_is_term' => $classification['wp_is_term'],
+            'parent_id' => $classification['parent_id'],
+        ]);
 
         $this->persistProductPromptMeta($article, $variables);
 

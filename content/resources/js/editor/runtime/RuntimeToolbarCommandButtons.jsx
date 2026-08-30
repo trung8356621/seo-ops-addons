@@ -80,17 +80,18 @@ export function RuntimeToolbarCommandButtons({
     editor,
     groups = ['history', 'inline', 'lists', 'align'],
     variant = 'format',
+    runtime: runtimeProp = null,
 }) {
     const items = useMemo(() => {
-        const runtime = getDefaultArticleEditorRuntime();
+        const runtime = runtimeProp || getDefaultArticleEditorRuntime();
         const all = runtime.getToolbarItems();
         const wanted = new Set(groups);
         return all.filter((item) => wanted.has(String(item.group || '')));
-    }, [groups]);
+    }, [groups, runtimeProp]);
 
     if (!editor || !items.length) return null;
 
-    const runtime = getDefaultArticleEditorRuntime();
+    const runtime = runtimeProp || getDefaultArticleEditorRuntime();
     const runtimeContext = runtime?.getContext?.() ?? null;
     const mutationLocked = !editor.isEditable
         || !canMutateEditor()

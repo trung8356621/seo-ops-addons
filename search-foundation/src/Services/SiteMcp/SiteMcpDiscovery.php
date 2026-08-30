@@ -4,7 +4,9 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchFoundation\Services\SiteMcp;
 
+use Omnichannel\Addons\Content\Enums\ContentType;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\SiteSync\Models\SeoSiteSyncRun;
 use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
 use Omnichannel\Addons\SiteSync\Services\Capability\SiteCapabilityResolver;
@@ -25,8 +27,10 @@ final class SiteMcpDiscovery
         'wp_permalink',
         'wp_taxonomy',
         'wp_parent_id',
-        'wp_entity',
         'wp_term_count',
+        ArticleContentClassification::META_CONTENT_TYPE,
+        ArticleContentClassification::META_WP_IS_TERM,
+        ArticleContentClassification::META_WP_POST_TYPE,
     ];
 
     public function __construct(
@@ -187,7 +191,7 @@ final class SiteMcpDiscovery
                 ])
                 ->orderBy('id')
                 ->limit(2000)
-                ->get(['id', 'title', 'slug', 'type', 'site_id']);
+                ->get(['id', 'title', 'slug', 'site_id']);
         } catch (Throwable) {
             return $empty;
         }
@@ -207,16 +211,17 @@ final class SiteMcpDiscovery
                 $metas[(string) $meta->meta_key] = (string) $meta->meta_value;
             }
 
-            $type = mb_strtolower(trim((string) ($article->type ?? '')));
+            [$contentType, $isTerm] = $this->classify($metas);
+            $type = $this->derivedTypeLabel($contentType, $isTerm);
             $taxonomy = mb_strtolower(trim((string) ($metas['wp_taxonomy'] ?? '')));
-            $entity = mb_strtolower(trim((string) ($metas['wp_entity'] ?? '')));
+            $nativeType = mb_strtolower(trim((string) ($metas[ArticleContentClassification::META_WP_POST_TYPE] ?? '')));
             $slug = trim((string) ($article->slug ?? ''));
             $permalink = trim((string) ($metas['wp_permalink'] ?? ''));
             if ($permalink === '' && $slug !== '' && $baseUrl !== '') {
                 $permalink = $baseUrl.'/'.ltrim($slug, '/');
             }
 
-            $this->bumpCount($counts, $type, $taxonomy);
+            $this->bumpCount($counts, $type, $taxonomy, $nativeType);
 
             $row = [
                 'article_id' => (int) $article->id,
@@ -239,11 +244,10 @@ final class SiteMcpDiscovery
                 $row['parent_term_id'] = (int) $metas['wp_parent_id'];
             }
 
-            $isProductCat = $taxonomy === 'product_cat'
-                || $type === 'product_category'
-                || $type === 'product_cat';
+            $isProductCat = ($contentType === ContentType::Product && $isTerm)
+                || $taxonomy === 'product_cat';
 
-            if ($isProductCat && ($type === 'product' || $type === 'products')) {
+            if ($isProductCat && $type === 'product') {
                 $products[] = $row;
                 continue;
             }
@@ -267,13 +271,13 @@ final class SiteMcpDiscovery
                     continue;
                 }
 
-                // Prefer taxonomy term rows (wp_entity=term) over page-shaped discovery.
+                // Prefer taxonomy term rows (wp_is_term=1) over page-shaped discovery.
                 $verified['article_id'] = $row['article_id'];
                 $verified['title'] = $row['title'] !== '' ? $row['title'] : $verified['name'];
                 $verified['seo_title'] = $row['seo_title'];
                 $verified['focus_keyword'] = $row['focus_keyword'];
                 $verified['page_type'] = 'taxonomy';
-                $verified['source'] = $entity === 'term' ? 'taxonomy_sync' : 'taxonomy_staging';
+                $verified['source'] = $isTerm ? 'taxonomy_sync' : 'taxonomy_staging';
                 $verified['verified'] = true;
                 if ($verified['url'] === '' && $permalink !== '') {
                     $verified['url'] = $permalink;
@@ -282,7 +286,7 @@ final class SiteMcpDiscovery
                 continue;
             }
 
-            if ($type === 'product' || $type === 'products') {
+            if ($type === 'product') {
                 $products[] = $row;
                 continue;
             }
@@ -295,7 +299,10 @@ final class SiteMcpDiscovery
                 continue;
             }
 
-            if (in_array($type, ['page', 'post', 'article'], true)) {
+            if (
+                in_array($type, ['page', 'post', 'article'], true)
+                && ! in_array($nativeType, ['attachment', 'media'], true)
+            ) {
                 $newsCandidates[] = $row;
             }
         }
@@ -445,12 +452,60 @@ final class SiteMcpDiscovery
     }
 
     /**
+     * Canonical classification from metas — falls back to wp_post_type/wp_taxonomy for
+     * rows the content_type backfill has not reached yet (never reads articles.type).
+     *
+     * @param  array<string, string>  $metas
+     * @return array{0: ContentType, 1: bool}
+     */
+    private function classify(array $metas): array
+    {
+        $contentType = ContentType::tryFromString($metas[ArticleContentClassification::META_CONTENT_TYPE] ?? null);
+
+        $termFlag = trim((string) ($metas[ArticleContentClassification::META_WP_IS_TERM] ?? ''));
+        $hasTermFlag = $termFlag !== '';
+        $isTerm = in_array(mb_strtolower($termFlag), ['1', 'true', 'yes'], true);
+
+        if ($contentType === null || ! $hasTermFlag) {
+            $legacy = ArticleContentClassification::fromLegacyRow(
+                null,
+                $metas[ArticleContentClassification::META_WP_POST_TYPE] ?? null,
+                null,
+                $metas['wp_taxonomy'] ?? null,
+            );
+
+            $contentType ??= $legacy['content_type'];
+            if (! $hasTermFlag) {
+                $isTerm = $legacy['wp_is_term'];
+            }
+        }
+
+        return [$contentType, $isTerm];
+    }
+
+    private function derivedTypeLabel(ContentType $contentType, bool $isTerm): string
+    {
+        if ($isTerm) {
+            return $contentType === ContentType::Product ? 'product_category' : 'category';
+        }
+
+        return $contentType->value;
+    }
+
+    /**
      * @param  array<string, int>  $counts
      */
-    private function bumpCount(array &$counts, string $type, string $taxonomy): void
+    private function bumpCount(array &$counts, string $type, string $taxonomy, string $nativeType = ''): void
     {
         if ($type === 'product_category' || $type === 'product_cat' || $taxonomy === 'product_cat') {
             // Final product_cat totals come from verified tree; bump only tracks raw sightings.
+            return;
+        }
+
+        // content_type has no attachment value — the raw platform slug still tracks media.
+        if ($nativeType === 'attachment' || $nativeType === 'media') {
+            $counts['attachment']++;
+
             return;
         }
 

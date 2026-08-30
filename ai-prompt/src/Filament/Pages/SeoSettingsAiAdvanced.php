@@ -14,6 +14,7 @@ use Omnichannel\Addons\AiPrompt\Services\AiModelFamilyCatalog;
 use Omnichannel\Addons\AiPrompt\Services\ImageFamilySelectionAdapter;
 use Omnichannel\Addons\AiPrompt\Support\AiUsageMode;
 use Omnichannel\Addons\AiPrompt\Support\VisionValidationModelRouter;
+use App\Help\HelpUi;
 use Filament\Forms;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
@@ -129,7 +130,7 @@ class SeoSettingsAiAdvanced extends Page implements HasForms
                     ]),
 
                 Forms\Components\Section::make(__('seo-content-ai::filament.settings_ai_advanced.validation_section'))
-                    ->description(__('seo-content-ai::filament.settings_ai_advanced.validation_description'))
+                    ->headerActions([HelpUi::fieldHintAction('settings.ai.typography_validation')])
                     ->schema([
                         Forms\Components\Toggle::make(SeoCreateArticleSettingsService::KEY_TYPOGRAPHY_VALIDATION_ENABLED)
                             ->label(__('seo-content-ai::filament.settings_workflows.typography_validation_enabled'))
@@ -141,7 +142,7 @@ class SeoSettingsAiAdvanced extends Page implements HasForms
                             ->inline(),
                         Forms\Components\Select::make(SeoCreateArticleSettingsService::KEY_TYPOGRAPHY_VALIDATION_MODEL)
                             ->label(__('seo-content-ai::filament.settings_ai_advanced.validation_model'))
-                            ->helperText(__('seo-content-ai::filament.settings_ai_advanced.validation_model_hint'))
+                            ->hintAction(HelpUi::fieldHintAction('settings.ai.typography_validation', null, 'model'))
                             ->options(fn (): array => $this->visionValidationModelOptions())
                             ->searchable()
                             ->native(false)
@@ -151,17 +152,17 @@ class SeoSettingsAiAdvanced extends Page implements HasForms
                             ->numeric()
                             ->minValue(1)
                             ->maxValue(3)
-                            ->helperText(__('seo-content-ai::filament.settings_workflows.typography_max_candidates_hint')),
+                            ->hintAction(HelpUi::fieldHintAction('settings.ai.typography_validation', null, 'max_candidates')),
                         Forms\Components\TextInput::make(SeoCreateArticleSettingsService::KEY_TYPOGRAPHY_PASS_THRESHOLD)
                             ->label(__('seo-content-ai::filament.settings_workflows.typography_pass_threshold'))
                             ->numeric()
                             ->minValue(0)
                             ->maxValue(1)
                             ->step(0.01)
-                            ->helperText(__('seo-content-ai::filament.settings_workflows.typography_pass_threshold_hint')),
+                            ->hintAction(HelpUi::fieldHintAction('settings.ai.typography_validation', null, 'pass_threshold')),
                         Forms\Components\Toggle::make(SeoCreateArticleSettingsService::KEY_TYPOGRAPHY_ALLOW_GENERAL_IMAGE_FALLBACK)
                             ->label(__('seo-content-ai::filament.settings_ai_advanced.typography_allow_general_fallback'))
-                            ->helperText(__('seo-content-ai::filament.settings_ai_advanced.typography_allow_general_fallback_hint')),
+                            ->hintAction(HelpUi::fieldHintAction('settings.ai.typography_validation', null, 'fallback')),
                     ])
                     ->collapsible()
                     ->collapsed(),

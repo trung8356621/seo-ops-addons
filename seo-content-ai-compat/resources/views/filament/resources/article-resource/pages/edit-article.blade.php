@@ -964,6 +964,16 @@
                                                             <svg class="seo-assistant-widget__icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.75" d="M12 16V4m0 12-4-4m4 4 4-4M4 20h16"/></svg>
                                                             <span class="seo-assistant-widget__title">Publishing Assistant</span>
                                                         </div>
+                                                        <button
+                                                            type="button"
+                                                            class="seo-context-help-btn"
+                                                            title="Help"
+                                                            aria-label="Help"
+                                                            data-help-context="article_editor.panel.publishing"
+                                                            onclick="event.preventDefault(); event.stopPropagation(); window.dispatchEvent(new CustomEvent('seo-global-help:open', { detail: { contextKey: 'article_editor.panel.publishing', trigger: this } }));"
+                                                        >
+                                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+                                                        </button>
                                                     </header>
                                                     <div class="seo-assistant-widget__body space-y-3">
                                                         @include('seo-content-ai::filament.resources.article-resource.pages.partials.publish-categories')

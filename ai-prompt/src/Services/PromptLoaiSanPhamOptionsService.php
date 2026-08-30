@@ -4,10 +4,13 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Services;
 
+use Omnichannel\Addons\Content\Enums\ContentType;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\Content\Support\Utf8Sanitizer;
 use App\Models\Site;
+use Illuminate\Database\Eloquent\Builder;
 
 final class PromptLoaiSanPhamOptionsService
 {
@@ -33,7 +36,7 @@ final class PromptLoaiSanPhamOptionsService
     }
 
     /**
-     * Danh mục product_cat đã đồng bộ (type = product_category) theo site.
+     * Danh mục product_cat đã đồng bộ (content_type = product + wp_is_term) theo site.
      *
      * @return array<int, string> article_id => label
      */
@@ -43,9 +46,8 @@ final class PromptLoaiSanPhamOptionsService
             return [];
         }
 
-        return SeoArticle::query()
-            ->where('site_id', $siteId)
-            ->where('type', 'product_category')
+        return $this->productCategoryQuery($siteId)
+            ->with('wordpressLink')
             ->orderBy('title')
             ->get()
             ->mapWithKeys(static function (SeoArticle $article): array {
@@ -107,10 +109,8 @@ final class PromptLoaiSanPhamOptionsService
             ];
         }
 
-        $exists = SeoArticle::query()
+        $exists = $this->productCategoryQuery($siteId)
             ->whereKey($categoryArticleId)
-            ->where('site_id', $siteId)
-            ->where('type', 'product_category')
             ->exists();
 
         if (! $exists) {
@@ -121,5 +121,16 @@ final class PromptLoaiSanPhamOptionsService
         }
 
         return ['valid' => true, 'message' => null];
+    }
+
+    /**
+     * @return Builder<SeoArticle>
+     */
+    private function productCategoryQuery(int $siteId): Builder
+    {
+        $query = SeoArticle::query()->where('site_id', $siteId);
+        ArticleContentClassification::scopeContentType($query, ContentType::Product);
+
+        return ArticleContentClassification::scopeIsTerm($query, true);
     }
 }

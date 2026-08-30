@@ -481,15 +481,14 @@ trait InteractsWithNewContentSuggestions
         }
 
         try {
-            return \Omnichannel\Addons\Content\Models\SeoArticle::query()
-                ->where('site_id', $siteId)
-                ->where(static function ($q): void {
-                    $q->where('type', 'product')
-                        ->orWhereHas('articleMetas', static function ($meta): void {
-                            $meta->where('meta_key', 'wp_post_type')->where('meta_value', 'product');
-                        });
-                })
-                ->exists();
+            $query = \Omnichannel\Addons\Content\Models\SeoArticle::query()->where('site_id', $siteId);
+
+            \Omnichannel\Addons\Content\Support\ArticleContentClassification::scopeContentType(
+                $query,
+                \Omnichannel\Addons\Content\Enums\ContentType::Product,
+            );
+
+            return $query->exists();
         } catch (Throwable) {
             return false;
         }

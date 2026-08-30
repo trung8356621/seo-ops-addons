@@ -34,13 +34,16 @@
     </div>
 
     <div class="cp-audit-notes__toolbar">
-        <input
-            type="search"
-            wire:model.live.debounce.450ms="auditNoteSearch"
-            class="cp-audit-notes__search"
-            placeholder="{{ __('seo-content-ai::filament.projects.audit_notes_search_placeholder') }}"
-            @disabled(! $canWrite)
-        >
+        <form wire:submit="applyAuditNoteSearch" class="contents">
+            <input
+                type="search"
+                wire:model="auditNoteSearchInput"
+                class="cp-audit-notes__search"
+                placeholder="{{ __('seo-content-ai::filament.projects.audit_notes_search_placeholder') }}"
+                autocomplete="off"
+                @disabled(! $canWrite)
+            >
+        </form>
         <x-select wire:model.live="auditNoteFilter" wrapClass="cp-ops-select" :disabled="! $canWrite">
             <option value="all">{{ __('seo-content-ai::filament.projects.audit_notes_filter_all') }}</option>
             <option value="mcp_low">{{ __('seo-content-ai::filament.projects.audit_notes_filter_mcp_low') }}</option>
@@ -52,12 +55,12 @@
     <div
         class="cp-audit-notes__list-wrap"
         wire:loading.class="is-loading"
-        wire:target="loadAuditNoteSuggestions,updatedAuditNoteSearch,updatedAuditNoteFilter,gotoAuditNotesPage,auditNoteSearch,auditNoteFilter"
+                        wire:target="loadAuditNoteSuggestions,applyAuditNoteSearch,clearAuditNoteSearch,updatedAuditNoteFilter,gotoAuditNotesPage,auditNoteSearch,auditNoteFilter"
     >
         <div
             class="cp-audit-notes__skeleton"
             wire:loading.delay.200ms
-            wire:target="loadAuditNoteSuggestions,updatedAuditNoteSearch,updatedAuditNoteFilter,gotoAuditNotesPage,auditNoteSearch,auditNoteFilter"
+                        wire:target="loadAuditNoteSuggestions,applyAuditNoteSearch,clearAuditNoteSearch,updatedAuditNoteFilter,gotoAuditNotesPage,auditNoteSearch,auditNoteFilter"
         >
             @for ($i = 0; $i < 5; $i++)
                 <div class="cp-audit-notes__skeleton-row animate-pulse">
@@ -74,7 +77,7 @@
             class="cp-audit-notes__list"
             data-audit-notes-suggestions="1"
             wire:loading.remove.delay.200ms
-            wire:target="loadAuditNoteSuggestions,updatedAuditNoteSearch,updatedAuditNoteFilter,gotoAuditNotesPage,auditNoteSearch,auditNoteFilter"
+                        wire:target="loadAuditNoteSuggestions,applyAuditNoteSearch,clearAuditNoteSearch,updatedAuditNoteFilter,gotoAuditNotesPage,auditNoteSearch,auditNoteFilter"
         >
             @if (! $ready && ! $loading)
                 <li class="cp-audit-notes__empty">{{ __('seo-content-ai::filament.projects.audit_notes_loading') }}</li>

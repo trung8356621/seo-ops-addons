@@ -23,7 +23,9 @@ use Omnichannel\Addons\WordPress\Services\SideEffect\UnauthorizedWordPressSideEf
 use Omnichannel\Addons\WordPress\Services\SideEffect\WordPressExecutionContext;
 use Omnichannel\Addons\WordPress\Services\SideEffect\WordPressGateway;
 use Omnichannel\Addons\WordPress\Services\WordPressSlugFixRequiredException;
-use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
+use Omnichannel\Addons\Content\Enums\ContentType;
+use Omnichannel\Addons\Content\Support\ArticleContentClassification;
+use Omnichannel\Addons\Content\Support\NativeContentTypeMapper;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\ContentProjects\Support\SeoQueueContext;
 use Omnichannel\Addons\WordPress\Support\WordPressRestResponseParser;
@@ -84,8 +86,7 @@ final class WordPressArticleSyncService
             ];
         }
 
-        $type = strtolower(trim((string) ($article->type ?? 'article')));
-        if (in_array($type, ['category', 'product_category'], true)) {
+        if (ArticleContentClassification::for($article)->isTerm()) {
             return [
                 'success' => false,
                 'message' => 'Danh mục phải được tạo bằng luồng taxonomy WordPress, không thể đăng như bài viết.',
@@ -124,8 +125,7 @@ final class WordPressArticleSyncService
             return $linked;
         }
 
-        $resolvedPostType = ArticlePostTypeResolver::resolve($article);
-        $postType = $resolvedPostType === SeoProjectTask::POST_TYPE_PRODUCT ? 'product' : 'post';
+        $postType = $this->resolveWordPressPostTypeForPush($article);
 
         try {
             $requestBody = [
@@ -186,19 +186,15 @@ final class WordPressArticleSyncService
             $article->forceFill(array_filter([
                 'wp_post_id' => $wpPostId,
                 'slug' => $remoteSlug !== '' ? $remoteSlug : null,
-                'type' => $postType === 'product' ? 'product' : 'article',
             ], static fn (mixed $value): bool => $value !== null))->save();
             $article->unsetRelation('wordpressLink');
             $this->timestampService->sync($article, $decoded);
             $article->articleMetas()->where('meta_key', 'wp_slug')->delete();
-            $article->articleMetas()->updateOrCreate(
-                ['meta_key' => 'wp_post_type'],
-                ['meta_value' => $postType],
-            );
-            $article->articleMetas()->updateOrCreate(
-                ['meta_key' => 'wp_entity'],
-                ['meta_value' => 'post'],
-            );
+            ArticleContentClassification::persist($article, [
+                'content_type' => NativeContentTypeMapper::mapForSite($postType, $site),
+                'wp_is_term' => false,
+                'wp_post_type' => $postType,
+            ]);
             if ($permalink !== '') {
                 $article->articleMetas()->updateOrCreate(
                     ['meta_key' => 'wp_permalink'],
@@ -994,21 +990,21 @@ final class WordPressArticleSyncService
         $remotePostType = null;
 
         if ($wpTaxonomy === null) {
-            $requestedPostType = ArticlePostTypeResolver::resolve($article) === SeoProjectTask::POST_TYPE_PRODUCT
-                ? 'product'
-                : 'post';
+            $requestedPostType = $this->resolveWordPressPostTypeForPush($article);
             $remotePostType = strtolower(trim((string) ($decoded['post_type'] ?? $requestedPostType)));
-            if (! in_array($remotePostType, ['post', 'product'], true)) {
+            if ($remotePostType === '') {
                 $remotePostType = $requestedPostType;
             }
 
-            $article->update([
-                'type' => $remotePostType === 'product' ? 'product' : 'article',
+            $article->loadMissing('site');
+            ArticleContentClassification::persist($article, [
+                'content_type' => NativeContentTypeMapper::mapForSite(
+                    $remotePostType,
+                    $article->site instanceof Site ? $article->site : null,
+                ),
+                'wp_is_term' => false,
+                'wp_post_type' => $remotePostType,
             ]);
-            $article->articleMetas()->updateOrCreate(
-                ['meta_key' => 'wp_post_type'],
-                ['meta_value' => $remotePostType],
-            );
         }
         if ($remoteSlug !== '') {
             $article->update(['slug' => $remoteSlug]);
@@ -1467,8 +1463,7 @@ final class WordPressArticleSyncService
                 'parent_id' => $this->resolveTaxonomyParentIdForWordPress($article),
             ];
         } else {
-            $resolvedPostType = ArticlePostTypeResolver::resolve($article);
-            $requestedPostType = $resolvedPostType === SeoProjectTask::POST_TYPE_PRODUCT ? 'product' : 'post';
+            $requestedPostType = $this->resolveWordPressPostTypeForPush($article);
 
             $payload = [
                 'title' => (string) ($article->title ?? ''),
@@ -1692,20 +1687,39 @@ final class WordPressArticleSyncService
     public function buildSkippedEditorSyncDecoded(SeoArticle $article): array
     {
         $article->loadMissing('articleMetas');
+        $classification = ArticleContentClassification::for($article);
 
         return [
             'success' => true,
             'message' => 'editor-sync skipped',
             'slug' => trim((string) ($article->slug ?? '')),
             'permalink' => trim((string) ($article->articleMetas->firstWhere('meta_key', 'wp_permalink')?->meta_value ?? '')),
-            'post_type' => match (strtolower(trim((string) ($article->type ?? '')))) {
-                'product' => 'product',
-                'product_category', 'product_cat' => 'product_cat',
-                'category' => 'category',
-                default => 'post',
-            },
+            'post_type' => $classification->isTerm()
+                ? ($classification->wpPostType()
+                    ?? ($classification->contentType() === ContentType::Product ? 'product_cat' : 'category'))
+                : $this->resolveWordPressPostTypeForPush($article),
             'skipped' => true,
         ];
+    }
+
+    /**
+     * Native WordPress post_type for push. Raw `wp_post_type` meta wins so a page stays a page
+     * and a CPT (vd. `machine`) stays itself; otherwise derive from canonical content_type.
+     */
+    private function resolveWordPressPostTypeForPush(SeoArticle $article): string
+    {
+        $classification = ArticleContentClassification::for($article);
+        $native = strtolower(trim((string) ($classification->wpPostType() ?? '')));
+
+        if ($native !== '' && ! $classification->isTerm()) {
+            return $native;
+        }
+
+        return match ($classification->contentType()) {
+            ContentType::Product => 'product',
+            ContentType::Page => 'page',
+            ContentType::Post => 'post',
+        };
     }
 
     /**

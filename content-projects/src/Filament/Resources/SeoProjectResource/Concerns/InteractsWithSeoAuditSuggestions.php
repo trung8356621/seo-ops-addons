@@ -46,6 +46,8 @@ trait InteractsWithSeoAuditSuggestions
 
     public string $suggestionSearch = '';
 
+    public string $suggestionSearchInput = '';
+
     /** Score preset max: null|'' = All, otherwise <80 / <60 / <40. */
     public string|int|null $suggestionScoreMax = null;
 
@@ -299,8 +301,17 @@ trait InteractsWithSeoAuditSuggestions
         ];
     }
 
-    public function updatedSuggestionSearch(): void
+    public function applySuggestionSearch(): void
     {
+        $this->suggestionSearch = trim($this->suggestionSearchInput);
+        $this->suggestionSearchInput = $this->suggestionSearch;
+        $this->resetSuggestionsPage();
+    }
+
+    public function clearSuggestionSearch(): void
+    {
+        $this->suggestionSearch = '';
+        $this->suggestionSearchInput = '';
         $this->resetSuggestionsPage();
     }
 
@@ -936,6 +947,7 @@ trait InteractsWithSeoAuditSuggestions
     {
         $n = SeoAuditSuggestionFilterSet::normalize($filters);
         $this->suggestionSearch = (string) ($n['search'] ?? '');
+        $this->suggestionSearchInput = $this->suggestionSearch;
         $this->suggestionScoreMax = $n['score_max'];
         $this->suggestionIssueKey = (string) (($n['issue_keys'][0] ?? '') ?: '');
         $this->suggestedAction = (string) ($n['suggested_action'] ?? '');

@@ -9,6 +9,7 @@ use Omnichannel\Addons\Seo\Support\SeoScoringRulesRegistry;
 use Omnichannel\Addons\Content\Enums\ArticleReviewActionType;
 use Omnichannel\Addons\Content\Enums\ArticleReviewStatus;
 use Omnichannel\Addons\Content\Enums\ArticleWritingExecutionMode;
+use Omnichannel\Addons\Content\Enums\ContentType;
 use Omnichannel\Addons\AiPrompt\Enums\ArticleWritingPromptOwnerType;
 use Omnichannel\Addons\Seo\Exceptions\FaqManualExtractException;
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
@@ -82,6 +83,7 @@ use Omnichannel\Addons\WordPress\Services\WordPressAttachmentMetaUpdateService;
 use Omnichannel\Addons\WordPress\Services\WordPressAttachmentRenameService;
 use Omnichannel\Addons\WordPress\Services\WordPressMediaLibraryService;
 use Omnichannel\Addons\AiPrompt\Services\WorkflowParserService;
+use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
 use Omnichannel\Addons\Content\Support\PublishCategoryOptionsAssembler;
 use Omnichannel\Addons\Publishing\Support\PublishingTaxonomySelectionFilter;
@@ -1064,7 +1066,7 @@ class EditArticle extends SeoEditRecord
 
         $resolved = \Omnichannel\Addons\Content\Support\PublishingTaxonomyResolver::resolve(
             $postType ?? ArticlePostTypeResolver::resolve($this->record),
-            (string) ($this->record->type ?? ''),
+            ArticlePostTypeResolver::contentType($this->record)->value,
         );
 
         return $resolved['taxonomy'] ?? 'category';
@@ -1196,18 +1198,12 @@ class EditArticle extends SeoEditRecord
 
     public function isTaxonomyArticle(): bool
     {
-        return app(WordPressArticleContentService::class)->isTaxonomyRecord($this->record);
+        return ArticlePostTypeResolver::isTerm($this->record);
     }
 
     private function isTaxonomyEntityForPublish(): bool
     {
-        if ($this->isTaxonomyArticle()) {
-            return true;
-        }
-
-        $type = SeoProjectTask::normalizePostType(ArticlePostTypeResolver::resolve($this->record));
-
-        return in_array($type, [SeoProjectTask::POST_TYPE_CATEGORY, SeoProjectTask::POST_TYPE_PRODUCT_CATEGORY], true);
+        return ArticlePostTypeResolver::isTerm($this->record);
     }
 
     public function supportsProductGallery(): bool
@@ -3207,7 +3203,8 @@ class EditArticle extends SeoEditRecord
     {
         $article = $this->record->fresh();
         if (! $article instanceof SeoArticle
-            || ArticlePostTypeResolver::resolve($article) !== SeoProjectTask::POST_TYPE_PRODUCT
+            || ! ArticlePostTypeResolver::isProduct($article)
+            || ArticlePostTypeResolver::isTerm($article)
             || $this->getVirtualCommentsCount() > 0
             || ! $this->canGenerateQuickPostReviews()) {
             return;
@@ -6097,33 +6094,43 @@ class EditArticle extends SeoEditRecord
     {
         $normalized = SeoProjectTask::normalizePostType($postType);
 
-        $wpSlug = match ($normalized) {
-            SeoProjectTask::POST_TYPE_PRODUCT => 'product',
-            SeoProjectTask::POST_TYPE_PRODUCT_CATEGORY => 'product_cat',
-            SeoProjectTask::POST_TYPE_CATEGORY => 'category',
-            default => 'post',
-        };
+        $classification = ArticleContentClassification::fromTaskPostType($normalized);
 
-        $this->record->articleMetas()->where('meta_key', 'wp_post_type')->delete();
-
-        if (in_array($wpSlug, ['product_cat', 'category'], true)) {
-            $this->record->articleMetas()->updateOrCreate(
-                ['meta_key' => 'wp_entity'],
-                ['meta_value' => 'term'],
-            );
-            $this->record->articleMetas()->updateOrCreate(
-                ['meta_key' => 'wp_taxonomy'],
-                ['meta_value' => $wpSlug],
-            );
-
-            return;
+        // Task vocabulary has no `page` label — keep content_type=page when the editor
+        // still sends the legacy `article` label for an existing page.
+        if ($normalized === SeoProjectTask::POST_TYPE_ARTICLE
+            && ArticlePostTypeResolver::isPage($this->record)) {
+            $classification['content_type'] = ContentType::Page;
+            $classification['wp_post_type'] = 'page';
         }
 
-        $this->record->articleMetas()->updateOrCreate(
-            ['meta_key' => 'wp_entity'],
-            ['meta_value' => 'post'],
-        );
-        $this->record->articleMetas()->where('meta_key', 'wp_taxonomy')->delete();
+        // Unchanged classification keeps its native slug (CPT machine stays machine);
+        // switching type (article → product) lets the task vocabulary win.
+        $current = ArticleContentClassification::for($this->record);
+        if ($current->wpPostType() !== null
+            && $current->contentType() === $classification['content_type']
+            && $current->isTerm() === $classification['wp_is_term']
+        ) {
+            $classification['wp_post_type'] = $current->wpPostType();
+        }
+
+        // Editor never re-parents a term; keep the resolved hierarchy from sync.
+        if ($classification['wp_is_term'] && $this->record->parent_id !== null) {
+            unset($classification['parent_id']);
+        }
+
+        ArticleContentClassification::persist($this->record, $classification);
+
+        if ($classification['wp_is_term']) {
+            $this->record->articleMetas()->updateOrCreate(
+                ['meta_key' => 'wp_taxonomy'],
+                ['meta_value' => $classification['wp_post_type']],
+            );
+        } else {
+            $this->record->articleMetas()->where('meta_key', 'wp_taxonomy')->delete();
+        }
+
+        $this->record->unsetRelation('articleMetas');
     }
 
     protected function mutateFormDataBeforeSave(array $data): array

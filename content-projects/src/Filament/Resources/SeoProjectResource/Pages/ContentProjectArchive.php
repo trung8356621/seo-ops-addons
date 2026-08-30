@@ -57,6 +57,8 @@ final class ContentProjectArchive extends Page
 
     public string $search = '';
 
+    public string $searchInput = '';
+
     public string $siteFilter = '';
 
     public string $monthFilter = '';
@@ -89,6 +91,7 @@ final class ContentProjectArchive extends Page
         abort_unless(SeoAccessControl::canViewProjectArchives(), 403);
 
         $this->applyTenantArchiveScope();
+        $this->searchInput = $this->search;
     }
 
     private function applyTenantArchiveScope(): void
@@ -127,8 +130,16 @@ final class ContentProjectArchive extends Page
         $this->activeTab = $tab;
     }
 
-    public function updatedSearch(): void
+    public function applySearch(): void
     {
+        $this->search = trim($this->searchInput);
+        $this->resetPage();
+    }
+
+    public function clearSearch(): void
+    {
+        $this->searchInput = '';
+        $this->search = '';
         $this->resetPage();
     }
 

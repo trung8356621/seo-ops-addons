@@ -29,6 +29,23 @@ final class SiteSyncProgressTracker
             'status' => (string) $run->status,
             'started_at' => optional($run->started_at)?->toIso8601String(),
         ]);
+        // force=true + lower current: allow phase-local counters (keywords offset) to replace
+        // a higher watermark left by an earlier phase (catalog fetched_total).
+        if (
+            $force
+            && $previous !== null
+            && array_key_exists('current', $patch)
+            && $previous->current !== null
+            && $patch['current'] !== null
+            && (int) $patch['current'] < (int) $previous->current
+        ) {
+            $reset = $previous->toArray();
+            $reset['current'] = null;
+            if (array_key_exists('total', $patch)) {
+                $reset['total'] = null;
+            }
+            $base = LongRunningProgress::fromArray($reset);
+        }
         $next = $base->merge($patch);
         if (! $force && ! $next->shouldPersist($previous)) {
             return false;

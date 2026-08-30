@@ -92,7 +92,9 @@
             </div>
             <div class="min-w-[10rem] flex-1">
                 <label class="mb-1 block text-xs text-gray-500">{{ __('seo-content-ai::filament.index_health.search') }}</label>
-                <input type="search" wire:model.live.debounce.300ms="search" class="fi-input block w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-800" placeholder="{{ __('seo-content-ai::filament.index_health.search') }}" />
+                <form wire:submit="applySearch" class="contents">
+                    <input type="search" wire:model="searchInput" class="fi-input block w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-800" placeholder="{{ __('seo-content-ai::filament.index_health.search') }}" autocomplete="off" />
+                </form>
             </div>
         </div>
 

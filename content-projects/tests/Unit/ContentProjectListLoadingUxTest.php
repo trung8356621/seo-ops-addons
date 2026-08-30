@@ -32,7 +32,7 @@ final class ContentProjectListLoadingUxTest extends TestCase
         self::assertStringNotContainsString('archiveOne', $this->opsShellTargets($ops));
 
         self::assertStringContainsString('list-table-loading-shell', $archive);
-        self::assertStringContainsString('updatedSearch', $archive);
+        self::assertStringContainsString('applySearch', $archive);
 
         self::assertStringContainsString('list-table-loading-shell', $draft);
         self::assertStringContainsString('setDraftReviewFilter', $draft);

@@ -1,5 +1,6 @@
 ﻿import React from 'react';
 import { t } from '@content-addon/utils/i18n.js';
+import ContextHelpButton from '@content-addon/components/ContextHelpButton.jsx';
 
 export function scoreTone(score) {
     if (score >= 80) {
@@ -54,11 +55,18 @@ function StarRow({ ratingValue }) {
     );
 }
 
-function SerpPreviewLine({ score, device, lineType, children, className = '' }) {
+function SerpPreviewLine({ score, device, lineType, children, className = '', helpContextKey = '' }) {
     return (
         <div className={`google-serp-snippet-line google-serp-snippet-line--${lineType} google-serp-snippet-line--${device} ${className}`.trim()}>
             <SerpScoreBadge score={score} device={device} />
             <div className="google-serp-snippet-line__content">{children}</div>
+            {helpContextKey ? (
+                <ContextHelpButton
+                    contextKey={helpContextKey}
+                    title="Title length Help"
+                    className="google-serp-snippet-line__help"
+                />
+            ) : null}
         </div>
     );
 }
@@ -112,7 +120,12 @@ export default function GoogleSerpSnippetPreview({
 
     return (
         <Wrapper className={snippetClassName} {...wrapperProps}>
-            <SerpPreviewLine score={titleScore} device={device} lineType="title">
+            <SerpPreviewLine
+                score={titleScore}
+                device={device}
+                lineType="title"
+                helpContextKey={scores ? 'article_editor.widget.title_length' : ''}
+            >
                 <p className="google-serp-snippet__title line-clamp-1">{titleText}</p>
             </SerpPreviewLine>
 

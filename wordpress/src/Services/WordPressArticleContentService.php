@@ -5,8 +5,11 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\WordPress\Services;
 
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
+use Omnichannel\Addons\Content\Enums\ContentType;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\Content\Support\ArticleContentSslUrlNormalizer;
+use Omnichannel\Addons\Content\Support\NativeContentTypeMapper;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordFocusAttach;
 use Omnichannel\Addons\WordPress\Support\WordPressPermalinkBuilder;
 use App\Models\Site;
@@ -34,7 +37,6 @@ class WordPressArticleContentService
         }
 
         $cached = trim((string) $this->getMeta($article, 'wp_post_content', ''));
-        $entity = trim((string) $this->getMeta($article, 'wp_entity', ''));
 
         // With no local body, WordPress remains the content source until the next local save.
         if ((int) ($article->wordpressLink?->wp_post_id ?? 0) > 0) {
@@ -57,13 +59,9 @@ class WordPressArticleContentService
             }
         }
 
-        // Danh mục (product_cat / category): chỉ tin cache sau khi đồng bộ đúng entity=term.
+        // Danh mục (product_cat / category): chỉ tin cache của chính term (wp_is_term = 1).
         // Tránh hiển thị nhầm nội dung post WP trùng term_id (vd. JSON font family).
         if ($this->isTaxonomyRecord($article)) {
-            if ($entity === 'term' && $cached !== '') {
-                return $this->normalizeEditorHtmlForSite($cached, $article->site);
-            }
-
             return $this->normalizeEditorHtmlForSite($cached, $article->site);
         }
 
@@ -346,48 +344,39 @@ class WordPressArticleContentService
 
     public function resolveWpTaxonomy(SeoArticle $article): ?string
     {
-        $entity = trim((string) $this->getMeta($article, 'wp_entity', ''));
-        if ($entity === 'term') {
-            $wpTaxonomy = trim((string) $this->getMeta($article, 'wp_taxonomy', ''));
-            if ($wpTaxonomy !== '') {
-                $normalized = $this->normalizeTaxonomySlug($wpTaxonomy);
-                if ($normalized !== null) {
-                    return $normalized;
-                }
-            }
-
-            $type = strtolower(trim((string) ($article->type ?? '')));
-
-            return match ($type) {
-                'product_category' => 'product_cat',
-                'category' => 'category',
-                default => null,
-            };
-        }
-
-        if ($entity === 'post') {
+        $classification = ArticleContentClassification::for($article);
+        if (! $classification->isTerm()) {
             return null;
         }
 
-        $type = strtolower(trim((string) ($article->type ?? '')));
-        if ($type === 'product_category') {
-            return 'product_cat';
-        }
-        if ($type === 'category') {
-            return 'category';
+        $candidates = [
+            (string) $this->getMeta($article, 'wp_taxonomy', ''),
+            (string) ($classification->wpPostType() ?? ''),
+        ];
+
+        foreach ($candidates as $candidate) {
+            $slug = strtolower(trim($candidate));
+            if ($slug === '') {
+                continue;
+            }
+
+            return $this->normalizeTaxonomySlug($slug) ?? $slug;
         }
 
-        return null;
+        return $classification->contentType() === ContentType::Product ? 'product_cat' : 'category';
     }
 
     public function healTaxonomyMetaFromWordPress(SeoArticle $article): bool
     {
-        if ($this->resolveWpTaxonomy($article) !== null) {
+        $classification = ArticleContentClassification::for($article);
+        if (! $classification->isTerm()) {
             return false;
         }
 
-        $entity = trim((string) $this->getMeta($article, 'wp_entity', ''));
-        if ($entity !== 'term') {
+        // Only probe WordPress when no native taxonomy slug is known locally.
+        $knownSlug = trim((string) $this->getMeta($article, 'wp_taxonomy', ''))
+            !== '' || $classification->wpPostType() !== null;
+        if ($knownSlug) {
             return false;
         }
 
@@ -445,18 +434,22 @@ class WordPressArticleContentService
      */
     private function persistTaxonomyIdentityMeta(SeoArticle $article, string $wpTaxonomy, array $post): void
     {
-        $seoType = $wpTaxonomy === 'product_cat' ? 'product_category' : 'category';
+        $article->loadMissing('site');
 
-        $article->update(['type' => $seoType]);
-        $article->articleMetas()->updateOrCreate(
-            ['meta_key' => 'wp_entity'],
-            ['meta_value' => 'term'],
-        );
+        // Canonical classification only: content_type + wp_is_term (+ raw taxonomy slug in wp_post_type).
+        ArticleContentClassification::persist($article, [
+            'content_type' => NativeContentTypeMapper::mapForSite(
+                $wpTaxonomy,
+                $article->site instanceof Site ? $article->site : null,
+            ),
+            'wp_is_term' => true,
+            'wp_post_type' => $wpTaxonomy,
+        ]);
+
         $article->articleMetas()->updateOrCreate(
             ['meta_key' => 'wp_taxonomy'],
             ['meta_value' => $wpTaxonomy],
         );
-        $article->articleMetas()->where('meta_key', 'wp_post_type')->delete();
 
         $hasParent = array_key_exists('parent_term_id', $post) || array_key_exists('parent_id', $post);
         if (! $hasParent) {

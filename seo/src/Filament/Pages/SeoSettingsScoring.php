@@ -8,6 +8,7 @@ use Omnichannel\Addons\Seo\Services\SeoScoringSettingsService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\Seo\Support\SeoScoringRuleMessageResolver;
 use Omnichannel\Addons\Seo\Support\SeoScoringRulesRegistry;
+use App\Help\HelpUi;
 use Filament\Forms;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
@@ -55,7 +56,7 @@ class SeoSettingsScoring extends Page implements HasForms
         return $form
             ->schema([
                 Forms\Components\Section::make(__('seo-content-ai::filament.settings_scoring.section'))
-                    ->description(__('seo-content-ai::filament.settings_scoring.section_description'))
+                    ->headerActions([HelpUi::fieldHintAction('settings.scoring.rules')])
                     ->schema([
                         Forms\Components\Repeater::make('rules')
                             ->label('')

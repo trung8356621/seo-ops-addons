@@ -31,6 +31,8 @@ trait InteractsWithIdeaCandidates
 
     public string $ideaCandidateSearch = '';
 
+    public string $ideaCandidateSearchInput = '';
+
     public string $ideaCandidateSource = IdeaCandidateSource::KEY_VOCABULARY_SUGGEST;
 
     public string $ideaCandidatesLastResult = '';
@@ -47,6 +49,7 @@ trait InteractsWithIdeaCandidates
     {
         $this->selectedIdeaKeywordIds = [];
         $this->ideaCandidateSearch = '';
+        $this->ideaCandidateSearchInput = '';
         $this->ideaCandidateSource = IdeaCandidateSource::KEY_VOCABULARY_SUGGEST;
         $this->ideaCandidatesLastResult = '';
         $this->ideaPendingAction = null;
@@ -71,8 +74,17 @@ trait InteractsWithIdeaCandidates
             : null;
     }
 
-    public function updatedIdeaCandidateSearch(): void
+    public function applyIdeaCandidateSearch(): void
     {
+        $this->ideaCandidateSearch = trim($this->ideaCandidateSearchInput);
+        $this->ideaCandidateSearchInput = $this->ideaCandidateSearch;
+        $this->resetPage('ideaCandidatesPage');
+    }
+
+    public function clearIdeaCandidateSearch(): void
+    {
+        $this->ideaCandidateSearch = '';
+        $this->ideaCandidateSearchInput = '';
         $this->resetPage('ideaCandidatesPage');
     }
 

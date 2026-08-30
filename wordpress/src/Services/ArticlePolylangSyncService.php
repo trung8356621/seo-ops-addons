@@ -6,8 +6,10 @@ namespace Omnichannel\Addons\WordPress\Services;
 
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\Content\Support\ArticleLanguageCode;
 use App\Models\Site;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -153,9 +155,7 @@ final class ArticlePolylangSyncService
             ];
         }
 
-        $existing = SeoArticle::query()
-            ->where('site_id', (int) $site->id)
-            ->where('type', trim((string) ($sourceArticle->type ?? 'article')))
+        $existing = $this->siblingQuery((int) $site->id, $sourceArticle)
             ->whereWpPostId($wpPostId)
             ->first();
 
@@ -175,9 +175,7 @@ final class ArticlePolylangSyncService
 
         app(SyncDomainContentService::class)->importItems($site, [$syncItem]);
 
-        $imported = SeoArticle::query()
-            ->where('site_id', (int) $site->id)
-            ->where('type', trim((string) ($sourceArticle->type ?? 'article')))
+        $imported = $this->siblingQuery((int) $site->id, $sourceArticle)
             ->whereWpPostId($wpPostId)
             ->first();
 
@@ -287,11 +285,7 @@ final class ArticlePolylangSyncService
             return (int) ($article->translation_group_id ?? 0);
         }
 
-        $type = trim((string) ($article->type ?? 'article'));
-
-        $existingGroup = SeoArticle::query()
-            ->where('site_id', (int) $site->id)
-            ->where('type', $type)
+        $existingGroup = $this->siblingQuery((int) $site->id, $article)
             ->whereWpPostIdIn($wpIds)
             ->whereNotNull('translation_group_id')
             ->value('translation_group_id');
@@ -328,12 +322,9 @@ final class ArticlePolylangSyncService
             return;
         }
 
-        $type = trim((string) ($article->type ?? 'article'));
         $wpIds = array_values(array_unique(array_filter(array_map('intval', $translations), static fn (int $id): bool => $id > 0)));
 
-        SeoArticle::query()
-            ->where('site_id', (int) $site->id)
-            ->where('type', $type)
+        $this->siblingQuery((int) $site->id, $article)
             ->where(function ($query) use ($wpIds, $article): void {
                 $query->whereKey((int) $article->id);
                 if ($wpIds !== []) {
@@ -372,12 +363,9 @@ final class ArticlePolylangSyncService
         int $groupId,
     ): ?SeoArticle {
         $siteId = (int) ($article->site_id ?? 0);
-        $type = trim((string) ($article->type ?? 'article'));
 
         if ($groupId > 0) {
-            $fromGroup = SeoArticle::query()
-                ->where('site_id', $siteId)
-                ->where('type', $type)
+            $fromGroup = $this->siblingQuery($siteId, $article)
                 ->where('translation_group_id', $groupId)
                 ->where('language', $lang)
                 ->whereKeyNot((int) $article->id)
@@ -393,11 +381,26 @@ final class ArticlePolylangSyncService
             return null;
         }
 
-        return SeoArticle::query()
-            ->where('site_id', $siteId)
-            ->where('type', $type)
+        return $this->siblingQuery($siteId, $article)
             ->whereWpPostId($wpPostId)
             ->whereKeyNot((int) $article->id)
             ->first();
+    }
+
+    /**
+     * Translations share the reference article's classification — `articles.type` is retired.
+     *
+     * @return Builder<SeoArticle>
+     */
+    private function siblingQuery(int $siteId, SeoArticle $reference): Builder
+    {
+        $classification = ArticleContentClassification::for($reference);
+
+        $query = SeoArticle::query()->where('site_id', $siteId);
+        ArticleContentClassification::scopeContentType($query, $classification->contentType());
+
+        return $classification->isTerm()
+            ? ArticleContentClassification::scopeIsTerm($query, true)
+            : ArticleContentClassification::scopeNonTerm($query);
     }
 }

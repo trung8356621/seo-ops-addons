@@ -43,11 +43,26 @@
                             <li x-text="step"></li>
                         </template>
                     </ol>
+                    <div
+                        class="help-topic-content__html prose prose-sm max-w-none"
+                        x-show="topic.html"
+                        x-html="topic.html"
+                    ></div>
                     <p
                         class="help-topic-content__summary"
-                        x-show="topic.content"
+                        x-show="!topic.html && topic.content"
                         x-text="topic.content"
                     ></p>
+                    <template x-if="topic.video && topic.video.url">
+                        <p class="help-topic-content__video">
+                            <a
+                                x-bind:href="topic.video.url"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                x-text="topic.video.url"
+                            ></a>
+                        </p>
+                    </template>
                     <button
                         type="button"
                         class="help-topic-content__goto"

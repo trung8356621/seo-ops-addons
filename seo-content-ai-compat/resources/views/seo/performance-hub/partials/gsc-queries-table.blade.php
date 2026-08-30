@@ -14,13 +14,16 @@
         <div class="performance-hub-queries-toolbar">
             <div class="performance-hub-toolbar__field performance-hub-toolbar__field--grow">
                 <label for="gsc-query-search">{{ __('seo-content-ai::filament.performance_hub.filter_gsc_query') }}</label>
-                <input
-                    id="gsc-query-search"
-                    type="search"
-                    wire:model.live.debounce.400ms="gscQuerySearch"
-                    placeholder="{{ __('seo-content-ai::filament.performance_hub.filter_gsc_query_placeholder') }}"
-                    class="performance-hub-input"
-                />
+                <form wire:submit="applyGscQuerySearch" class="contents">
+                    <input
+                        id="gsc-query-search"
+                        type="search"
+                        wire:model="gscQuerySearchInput"
+                        placeholder="{{ __('seo-content-ai::filament.performance_hub.filter_gsc_query_placeholder') }}"
+                        class="performance-hub-input"
+                        autocomplete="off"
+                    />
+                </form>
             </div>
 
             @if ($activeBucket !== '')

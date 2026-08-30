@@ -307,7 +307,7 @@
             :active="$active"
             wire-method="applyStateFilter"
             aria-label="Publishing Queue summary"
-            loading-targets="applyStateFilter,clearFilters,search,stateFilter"
+            loading-targets="applyStateFilter,clearFilters,applySearch,clearSearch,search,stateFilter"
         />
         @unless ($invariantOk)
             <div class="rounded-lg border border-danger-300 bg-danger-50 px-3 py-2 text-xs text-danger-800 dark:border-danger-500/40 dark:bg-danger-500/10 dark:text-danger-200" role="alert">

@@ -121,7 +121,8 @@ final class ContentProjectArchiveVaultListTest extends TestCase
         self::assertStringContainsString('where(\'project_year\'', $source);
         self::assertStringContainsString('where(\'owner_id\'', $source);
         self::assertStringContainsString('where(\'archived_by\'', $source);
-        self::assertStringContainsString('updatedSearch', $source);
+        self::assertStringContainsString('applySearch', $source);
+        self::assertStringContainsString('searchInput', $source);
         self::assertStringContainsString('updatedSiteFilter', $source);
         self::assertStringContainsString('updatedMonthFilter', $source);
         self::assertStringContainsString('updatedYearFilter', $source);

@@ -133,6 +133,8 @@ final class ViewSeoProject extends Page
 
     public string $search = '';
 
+    public string $searchInput = '';
+
     public string $typeFilter = '';
 
     public string $generationFilter = '';
@@ -232,6 +234,8 @@ final class ViewSeoProject extends Page
         if ($this->autoStartAt === '') {
             $this->autoStartAt = now()->addHour()->format('Y-m-d\TH:i');
         }
+
+        $this->searchInput = $this->search;
 
         // Content Manager lands on Needs Review (assigned edit queue).
         if (
@@ -789,6 +793,7 @@ final class ViewSeoProject extends Page
     public function clearFilters(bool $resetPage = true): void
     {
         $this->search = '';
+        $this->searchInput = '';
         $this->typeFilter = '';
         $this->generationFilter = '';
         $this->lifecycleFilter = '';
@@ -805,8 +810,18 @@ final class ViewSeoProject extends Page
         }
     }
 
-    public function updatedSearch(): void
+    public function applySearch(): void
     {
+        $this->search = trim($this->searchInput);
+        $this->resetPage();
+        $this->clearSelection();
+        $this->resetClientOptimisticHints();
+    }
+
+    public function clearSearch(): void
+    {
+        $this->searchInput = '';
+        $this->search = '';
         $this->resetPage();
         $this->clearSelection();
         $this->resetClientOptimisticHints();

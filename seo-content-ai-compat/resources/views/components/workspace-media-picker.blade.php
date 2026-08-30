@@ -64,7 +64,7 @@
                     <input
                         type="search"
                         x-model="pickerSearchQuery"
-                        x-on:input="schedulePickerSearch()"
+                        x-on:keydown.enter.prevent="applyPickerSearch()"
                         class="seo-article-media-modal__search"
                         x-bind:placeholder="pickerSearchPlaceholder()"
                         autocomplete="off"
@@ -77,6 +77,16 @@
                         aria-hidden="true"
                     ></span>
                 </div>
+                <button
+                    type="button"
+                    class="seo-article-media-modal__reload"
+                    x-on:click="applyPickerSearch()"
+                    x-bind:disabled="pickerLoading || pickerSearching"
+                    title="Nhấn Enter để tìm"
+                    aria-label="Tìm"
+                >
+                    <x-filament::icon icon="heroicon-m-magnifying-glass" class="h-4 w-4" />
+                </button>
                 <button
                     type="button"
                     class="seo-article-media-modal__reload"

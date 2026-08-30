@@ -53,6 +53,8 @@ class AutomationFlowsPage extends Page
 
     public string $search = '';
 
+    public string $searchInput = '';
+
     /** @var list<array<string, mixed>> */
     public array $workflows = [];
 
@@ -126,6 +128,7 @@ class AutomationFlowsPage extends Page
         }
 
         abort_unless(SeoAccessControl::canViewAutomation(), 403);
+        $this->searchInput = $this->search;
         $this->refreshProjection($projection);
     }
 
@@ -186,9 +189,16 @@ class AutomationFlowsPage extends Page
         $this->refreshProjection();
     }
 
-    public function updatedSearch(): void
+    public function applySearch(): void
     {
-        // Client filter via filteredWorkflows(); no server re-query.
+        $this->search = trim($this->searchInput);
+        $this->searchInput = $this->search;
+    }
+
+    public function clearSearch(): void
+    {
+        $this->search = '';
+        $this->searchInput = '';
     }
 
     /**

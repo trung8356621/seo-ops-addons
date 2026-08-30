@@ -8,6 +8,6 @@
         autocomplete="off"
         placeholder="{{ __('seo-content-ai::filament.help.search_placeholder') }}"
         x-model="$store.help.search"
-        x-on:input="$store.help.ensureSelectionAfterSearch()"
+        x-on:input="$store.help.onSearchInput ? $store.help.onSearchInput() : $store.help.ensureSelectionAfterSearch()"
     />
 </div>

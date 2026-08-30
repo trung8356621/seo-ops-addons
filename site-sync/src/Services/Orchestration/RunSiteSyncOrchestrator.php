@@ -212,6 +212,37 @@ final class RunSiteSyncOrchestrator
             ])->save();
         }
 
+        // After sleep / killed worker a step can stay status=running without deferred.
+        // Mark it deferred so the continuation job reclaims it instead of bouncing off
+        // OwnedByOtherWorker while later pending steps exist.
+        $currentKey = trim((string) ($run->current_step ?? ''));
+        if ($currentKey !== '' && (string) $run->status === 'running') {
+            $runningStep = SeoSiteSyncRunStep::query()
+                ->where('run_id', $runId)
+                ->where('step_key', $currentKey)
+                ->where('status', 'running')
+                ->first();
+            if ($runningStep !== null) {
+                $checkpoint = is_array($runningStep->checkpoint) ? $runningStep->checkpoint : [];
+                if (empty($checkpoint['deferred'])) {
+                    $checkpoint['deferred'] = true;
+                    $checkpoint['deferred_at'] = now()->toIso8601String();
+                    $checkpoint['deferred_until'] = now()->toIso8601String();
+                    $checkpoint['resumed_after_stall'] = true;
+                    $runningStep->forceFill([
+                        'checkpoint' => $checkpoint,
+                        'error_message' => null,
+                    ])->save();
+                }
+            }
+        }
+
+        $run->forceFill([
+            'status' => 'running',
+            'resumable' => true,
+            'error_message' => null,
+        ])->save();
+
         ProcessSiteSyncStepJob::dispatch((int) $run->id, app(SiteSyncRunExecution::class)->readGeneration($run));
 
         return [

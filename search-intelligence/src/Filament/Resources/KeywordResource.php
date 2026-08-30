@@ -219,6 +219,7 @@ class KeywordResource extends SeoPanelResource
     public static function table(Table $table): Table
     {
         return $table
+            ->searchPlaceholder('Nhập keyword rồi nhấn Enter để tìm...')
             ->columns([
                 Tables\Columns\ViewColumn::make('keyword_item')
                     ->label(__('seo-content-ai::filament.keyword.phrase_short'))

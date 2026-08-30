@@ -111,18 +111,101 @@ final class SiteSyncStepRunner
             return;
         }
 
-        $step = SeoSiteSyncRunStep::query()
+        // Deferred continuation of an in-progress step MUST win over later pending steps.
+        // Otherwise request_snapshot_delta defer dispatches a job that steals sync_site_profile
+        // and the large-site force_full run finalizes while snapshot is still incomplete.
+        $deferredRunningStep = null;
+        $runningCandidates = SeoSiteSyncRunStep::query()
+            ->where('run_id', $runId)
+            ->where('status', 'running')
+            ->orderBy('step_order')
+            ->get();
+        foreach ($runningCandidates as $runningCandidate) {
+            $candidateCheckpoint = is_array($runningCandidate->checkpoint) ? $runningCandidate->checkpoint : [];
+            if (! empty($candidateCheckpoint['deferred'])) {
+                $deferredRunningStep = $runningCandidate;
+                break;
+            }
+        }
+
+        $pendingStep = SeoSiteSyncRunStep::query()
             ->where('run_id', $runId)
             ->whereIn('status', ['pending', 'failed'])
             ->orderBy('step_order')
             ->first();
 
-        if ($step === null) {
-            $runningStep = SeoSiteSyncRunStep::query()
-                ->where('run_id', $runId)
-                ->where('status', 'running')
-                ->orderBy('step_order')
-                ->first();
+        $step = null;
+        if ($deferredRunningStep !== null) {
+            $run->refresh();
+            if ($this->execution->isCanceled($run)) {
+                return;
+            }
+
+            $this->persistClaimResult(
+                $run,
+                $deferredRunningStep,
+                SiteSyncStepClaimResult::Claimed,
+                'Reclaiming deferred step continuation',
+            );
+            $step = $deferredRunningStep;
+        } elseif ($pendingStep !== null) {
+            // Never advance to a later pending step while an earlier step is still
+            // in-flight. If that earlier step is deferred OR stale (worker died / sleep),
+            // reclaim it — otherwise wait (true concurrent mid-flight).
+            $earlierInFlight = $runningCandidates->first(
+                static fn (SeoSiteSyncRunStep $candidate): bool => (int) $candidate->step_order < (int) $pendingStep->step_order
+            );
+            if ($earlierInFlight !== null) {
+                $earlierCheckpoint = is_array($earlierInFlight->checkpoint) ? $earlierInFlight->checkpoint : [];
+                $earlierDeferred = ! empty($earlierCheckpoint['deferred']);
+                $earlierTouchedAt = $earlierInFlight->updated_at ?? $earlierInFlight->started_at;
+                $earlierStale = $earlierTouchedAt === null
+                    || ! $earlierTouchedAt->greaterThan(now()->subMinutes(10));
+
+                // #region agent log
+                @file_put_contents(base_path('debug-28696e.log'), json_encode([
+                    'sessionId' => '28696e',
+                    'runId' => 'post-fix',
+                    'hypothesisId' => 'H6',
+                    'location' => 'SiteSyncStepRunner.php:runNext:earlier_inflight',
+                    'message' => $earlierDeferred || $earlierStale ? 'reclaim_stale_or_deferred_earlier' : 'block_fresh_earlier_inflight',
+                    'data' => [
+                        'run_id' => $runId,
+                        'earlier_step' => (string) $earlierInFlight->step_key,
+                        'pending_step' => (string) $pendingStep->step_key,
+                        'earlier_deferred' => $earlierDeferred,
+                        'earlier_stale' => $earlierStale,
+                        'earlier_updated_at' => $earlierTouchedAt?->toIso8601String(),
+                    ],
+                    'timestamp' => (int) round(microtime(true) * 1000),
+                ], JSON_UNESCAPED_UNICODE)."\n", FILE_APPEND);
+                // #endregion
+
+                if (! $earlierDeferred && ! $earlierStale) {
+                    $this->persistClaimResult(
+                        $run,
+                        $earlierInFlight,
+                        SiteSyncStepClaimResult::OwnedByOtherWorker,
+                        'Earlier step still in flight — not claiming later pending',
+                    );
+
+                    return;
+                }
+
+                $this->persistClaimResult(
+                    $run,
+                    $earlierInFlight,
+                    $earlierDeferred ? SiteSyncStepClaimResult::Claimed : SiteSyncStepClaimResult::StaleLock,
+                    $earlierDeferred
+                        ? 'Reclaiming deferred step continuation'
+                        : 'Reclaiming stale earlier running step before later pending',
+                );
+                $step = $earlierInFlight;
+            } else {
+                $step = $pendingStep;
+            }
+        } else {
+            $runningStep = $runningCandidates->first();
 
             if ($runningStep !== null) {
                 $run->refresh();
@@ -131,12 +214,9 @@ final class SiteSyncStepRunner
                 }
 
                 $checkpoint = is_array($runningStep->checkpoint) ? $runningStep->checkpoint : [];
-                // Deferred poll (score_missing_articles) intentionally leaves status=running and
-                // re-dispatches ProcessSiteSyncStepJob. That continuation MUST reclaim immediately —
-                // treating a fresh updated_at as OwnedByOtherWorker drops the queue and sticks the run.
                 $isDeferredContinuation = ! empty($checkpoint['deferred']);
                 $lastTouchedAt = $runningStep->updated_at ?? $runningStep->started_at;
-                if (!$isDeferredContinuation && $lastTouchedAt !== null && $lastTouchedAt->greaterThan(now()->subMinutes(10))) {
+                if (! $isDeferredContinuation && $lastTouchedAt !== null && $lastTouchedAt->greaterThan(now()->subMinutes(10))) {
                     $this->persistClaimResult($run, $runningStep, SiteSyncStepClaimResult::OwnedByOtherWorker);
 
                     return;
@@ -234,9 +314,45 @@ final class SiteSyncStepRunner
                 return;
             }
 
-            if (! empty($metrics['__defer_step'])) {
+            $shouldDefer = ! empty($metrics['__defer_step']);
+            if (! $shouldDefer && (string) $step->step_key === 'request_snapshot_delta') {
+                $run->refresh();
+                $guardMeta = is_array($run->meta) ? $run->meta : [];
+                $incompleteSnapshot = ! empty($metrics['has_more'])
+                    || ! empty($guardMeta['has_more_batches'])
+                    || empty($guardMeta['snapshot_exhausted']);
+                if ($incompleteSnapshot) {
+                    RuntimeLogger::warning('site_sync.snapshot_complete_invariant_blocked', [
+                        'run_id' => $runId,
+                        'metrics_has_more' => (bool) ($metrics['has_more'] ?? false),
+                        'meta_has_more_batches' => (bool) ($guardMeta['has_more_batches'] ?? false),
+                        'snapshot_exhausted' => $guardMeta['snapshot_exhausted'] ?? null,
+                        'fetched' => (int) ((is_array($run->counters) ? $run->counters : [])['fetched'] ?? 0),
+                        'total_to_check' => (int) ((is_array($run->counters) ? $run->counters : [])['total_to_check'] ?? 0),
+                        'cursor' => $run->cursor,
+                    ]);
+                    $guardMeta['has_more_batches'] = true;
+                    $guardMeta['pending_cursor'] = $run->cursor;
+                    unset($guardMeta['snapshot_exhausted']);
+                    $run->meta = $guardMeta;
+                    $run->save();
+                    $metrics['has_more'] = true;
+                    $shouldDefer = true;
+                }
+            }
+
+            if ($shouldDefer) {
                 unset($metrics['__defer_step']);
+                // Refresh so producer-persisted checkpoint keys (e.g. catalog_applied_offset)
+                // are not wiped by a stale in-memory step row.
+                $step->refresh();
                 $checkpoint = is_array($step->checkpoint) ? $step->checkpoint : [];
+                if (isset($metrics['catalog_applied_offset'])) {
+                    $checkpoint['catalog_applied_offset'] = (int) $metrics['catalog_applied_offset'];
+                }
+                if (isset($metrics['keyword_batch_offset'])) {
+                    $checkpoint['keyword_batch_offset'] = (int) $metrics['keyword_batch_offset'];
+                }
                 $checkpoint['deferred'] = true;
                 $checkpoint['deferred_at'] = now()->toIso8601String();
                 $checkpoint['deferred_until'] = now()
@@ -249,11 +365,24 @@ final class SiteSyncStepRunner
                     'error_message' => null,
                 ])->save();
 
+                $run->refresh();
                 $counters = is_array($run->counters) ? $run->counters : [];
+                // Preserve cumulative inventory counters already saved by the step producer.
+                // Still allow scoring_*/catalog_pending_batches/etc. progress fields through.
+                $preserveOnDefer = [
+                    'fetched', 'reconciled', 'checked', 'total_to_check',
+                    'created', 'updated', 'unchanged', 'failed',
+                    'urls_synced', 'scores', 'provider_keywords', 'articles',
+                    'batches_staged', 'articles_in_batch',
+                ];
                 foreach ($metrics as $key => $value) {
-                    if (is_int($value) || is_float($value)) {
-                        $counters[$key] = (int) $value;
+                    if (! is_int($value) && ! is_float($value)) {
+                        continue;
                     }
+                    if (in_array((string) $key, $preserveOnDefer, true)) {
+                        continue;
+                    }
+                    $counters[$key] = (int) $value;
                 }
                 $meta = is_array($run->meta) ? $run->meta : [];
                 $meta['last_progress_at'] = now()->toIso8601String();
@@ -266,8 +395,9 @@ final class SiteSyncStepRunner
                 ])->save();
 
                 $delaySeconds = max(5, (int) ($metrics['defer_seconds'] ?? 20));
+                $continuationDispatched = false;
                 if ($dispatchContinue) {
-                    $this->execution->dispatchContinuation(
+                    $continuationDispatched = $this->execution->dispatchContinuation(
                         $runId,
                         $jobGeneration > 0 ? $jobGeneration : $this->execution->readGeneration($run),
                         $delaySeconds,
@@ -275,6 +405,22 @@ final class SiteSyncStepRunner
                         'defer_step',
                     );
                 }
+
+                RuntimeLogger::warning('site_sync.continuation_dispatched', [
+                    'run_id' => $runId,
+                    'step' => (string) $step->step_key,
+                    'generation' => $jobGeneration > 0 ? $jobGeneration : $this->execution->readGeneration($run),
+                    'cursor' => $run->cursor,
+                    'has_more' => (bool) ($metrics['has_more'] ?? false),
+                    'fetched_total' => (int) ($counters['fetched'] ?? 0),
+                    'reconciled_total' => (int) ($counters['reconciled'] ?? 0),
+                    'total_to_check' => (int) ($counters['total_to_check'] ?? 0),
+                    'catalog_applied_offset' => $checkpoint['catalog_applied_offset'] ?? null,
+                    'catalog_pending_batches' => $counters['catalog_pending_batches'] ?? null,
+                    'delay_seconds' => $delaySeconds,
+                    'continuation_dispatched' => $continuationDispatched,
+                    'dispatch_continue_flag' => $dispatchContinue,
+                ]);
 
                 return;
             }
@@ -892,6 +1038,8 @@ final class SiteSyncStepRunner
             return array_merge($totals, [
                 '__defer_step' => true,
                 'defer_seconds' => 0,
+                'has_more' => true,
+                'catalog_applied_offset' => $appliedOffset,
                 'catalog_pending_batches' => $batchCount - $appliedOffset,
             ]);
         }
@@ -996,36 +1144,130 @@ final class SiteSyncStepRunner
     {
         $meta = is_array($run->meta) ? $run->meta : [];
         $batchIds = is_array($meta['batch_ids'] ?? null) ? $meta['batch_ids'] : [];
+        $stepRow = SeoSiteSyncRunStep::query()
+            ->where('run_id', (int) $run->id)
+            ->where('step_key', 'sync_provider_keywords')
+            ->first();
+        $checkpoint = is_array($stepRow?->checkpoint) ? $stepRow->checkpoint : [];
+        $appliedOffset = (int) ($checkpoint['keyword_batch_offset'] ?? 0);
+        $batchCount = count($batchIds);
         $updated = 0;
         $skipped = 0;
+        $processed = 0;
         $keywordReconciler = app(ProviderKeywordReconciler::class);
+        $chunkStarted = microtime(true);
 
-        foreach ($batchIds as $batchIndex => $batchId) {
-            if ($batchIndex > 0 && $batchIndex % 10 === 0 && $this->execution->isRunStopped((int) $run->id)) {
+        RuntimeLogger::warning('site_sync.chunk_started', [
+            'run_id' => (int) $run->id,
+            'step' => 'sync_provider_keywords',
+            'keyword_batch_offset' => $appliedOffset,
+            'batch_total' => $batchCount,
+        ]);
+
+        for ($index = $appliedOffset; $index < $batchCount && $processed < SiteSyncSchema::KEYWORD_BATCHES_PER_JOB; $index++) {
+            if ($this->execution->isRunStopped((int) $run->id)) {
+                $checkpoint['keyword_batch_offset'] = $appliedOffset;
+                $stepRow?->forceFill(['checkpoint' => $checkpoint])->save();
+
                 return $this->execution->chunkStoppedPayload((int) $run->id, 'sync_provider_keywords', 'keyword_batch', $run->cursor);
             }
 
-            $batch = SeoSiteSyncBatch::query()->find((int) $batchId);
-            if ($batch === null) {
-                continue;
+            $batchId = (int) $batchIds[$index];
+            $batch = SeoSiteSyncBatch::query()->find($batchId);
+            $appliedOffset = $index + 1;
+            $processed++;
+            if ($batch !== null) {
+                $data = SiteSyncBatchData::fromArray($batch->decodedPayload());
+                if ($data->providerKeywords !== []) {
+                    $result = $keywordReconciler->reconcile($site, $data->providerKeywords);
+                    $updated += $result['provider_updated'];
+                    $skipped += $result['skipped_manual'];
+                }
             }
-            $data = SiteSyncBatchData::fromArray($batch->decodedPayload());
-            if ($data->providerKeywords === []) {
-                continue;
+
+            // Heartbeat each batch so sleep/resume + UI stuck detectors see activity.
+            $checkpoint['keyword_batch_offset'] = $appliedOffset;
+            $stepRow?->forceFill(['checkpoint' => $checkpoint])->save();
+            $run->refresh();
+            $meta = is_array($run->meta) ? $run->meta : [];
+            $meta['last_progress_at'] = now()->toIso8601String();
+            $run->meta = $meta;
+            $run->save();
+            $this->checkpointProgress($run, 'sync_provider_keywords', [
+                'status' => 'running',
+                'current' => $appliedOffset,
+                'total' => $batchCount,
+                'message' => "keywords {$appliedOffset}/{$batchCount}",
+            ], true);
+
+            // #region agent log
+            if ($processed === 1 || $processed === SiteSyncSchema::KEYWORD_BATCHES_PER_JOB || $appliedOffset >= $batchCount) {
+                @file_put_contents(base_path('debug-28696e.log'), json_encode([
+                    'sessionId' => '28696e',
+                    'runId' => 'post-fix',
+                    'hypothesisId' => 'H7',
+                    'location' => 'SiteSyncStepRunner.php:syncProviderKeywords',
+                    'message' => 'keyword_batch_heartbeat',
+                    'data' => [
+                        'run_id' => (int) $run->id,
+                        'offset' => $appliedOffset,
+                        'batch_total' => $batchCount,
+                        'updated' => $updated,
+                    ],
+                    'timestamp' => (int) round(microtime(true) * 1000),
+                ], JSON_UNESCAPED_UNICODE)."\n", FILE_APPEND);
             }
-            $result = $keywordReconciler->reconcile($site, $data->providerKeywords);
-            $updated += $result['provider_updated'];
-            $skipped += $result['skipped_manual'];
+            // #endregion
         }
+
+        $checkpoint['keyword_batch_offset'] = $appliedOffset;
+        $stepRow?->forceFill(['checkpoint' => $checkpoint])->save();
 
         if ($updated > 0) {
             app(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordIntelligenceScheduler::class)
                 ->onImportBatch((int) $site->id, $updated);
         }
 
+        if ($appliedOffset < $batchCount) {
+            RuntimeLogger::warning('site_sync.chunk_completed', [
+                'run_id' => (int) $run->id,
+                'step' => 'sync_provider_keywords',
+                'keyword_batch_offset' => $appliedOffset,
+                'batch_total' => $batchCount,
+                'provider_keywords' => $updated,
+                'has_more' => true,
+                'duration_ms' => (int) round((microtime(true) - $chunkStarted) * 1000),
+                'continuation_dispatched' => true,
+            ]);
+
+            return [
+                '__defer_step' => true,
+                'defer_seconds' => 0,
+                'has_more' => true,
+                'keyword_batch_offset' => $appliedOffset,
+                'provider_keywords' => $updated,
+                'skipped_manual_keywords' => $skipped,
+            ];
+        }
+
+        unset($checkpoint['keyword_batch_offset']);
+        $stepRow?->forceFill(['checkpoint' => $checkpoint])->save();
+
+        RuntimeLogger::warning('site_sync.chunk_completed', [
+            'run_id' => (int) $run->id,
+            'step' => 'sync_provider_keywords',
+            'keyword_batch_offset' => $appliedOffset,
+            'batch_total' => $batchCount,
+            'provider_keywords' => $updated,
+            'has_more' => false,
+            'duration_ms' => (int) round((microtime(true) - $chunkStarted) * 1000),
+            'continuation_dispatched' => false,
+        ]);
+
         return [
             'provider_keywords' => $updated,
             'skipped_manual_keywords' => $skipped,
+            'has_more' => false,
         ];
     }
 

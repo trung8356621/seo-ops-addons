@@ -8,6 +8,8 @@ namespace Omnichannel\Addons\Content\Filament\Pages;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoPanelPage;
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Support\ArticleContentClassification;
+use Omnichannel\Addons\Content\Enums\ContentType;
 use Omnichannel\Addons\ContentProjects\Filament\Pages\ContentProjectSeoAuditPlanner;
 use Omnichannel\Addons\Seo\Services\SeoAuditKeywordFlagService;
 use Omnichannel\Addons\Seo\Services\SeoAuditScanService;
@@ -182,9 +184,9 @@ final class ArticlesOptimal extends SeoPanelPage
      */
     public function getLanguageOptions(): array
     {
-        $languages = SeoArticle::query()
-            ->whereNotIn('type', ['category', 'product_category'])
-            ->where('status', '!=', 'trash')
+        $languages = ArticleContentClassification::scopeNonTerm(
+            SeoArticle::query()->where('status', '!=', 'trash'),
+        )
             ->select('language')
             ->distinct()
             ->orderBy('language')
@@ -211,11 +213,9 @@ final class ArticlesOptimal extends SeoPanelPage
      */
     public function getPostTypeOptions(): array
     {
-        $query = SeoArticle::query()
-            ->whereNotIn('type', ['category', 'product_category'])
-            ->where('status', '!=', 'trash')
-            ->whereNotNull('type')
-            ->where('type', '!=', '');
+        $query = ArticleContentClassification::scopeNonTerm(
+            SeoArticle::query()->where('status', '!=', 'trash'),
+        );
 
         $siteId = $this->validatedFilterSiteId(throw: false);
 
@@ -229,13 +229,16 @@ final class ArticlesOptimal extends SeoPanelPage
         }
 
         $types = $query
-            ->select('type')
-            ->distinct()
-            ->orderBy('type')
-            ->pluck('type')
-            ->map(static fn (mixed $type): string => trim((string) $type))
-            ->filter(static fn (string $type): bool => $type !== '')
+            ->whereHas('articleMetas', static function (Builder $meta): void {
+                $meta->where('meta_key', ArticleContentClassification::META_CONTENT_TYPE)
+                    ->whereIn('meta_value', ContentType::values());
+            })
+            ->with(['articleMetas' => static fn ($q) => $q->where('meta_key', ArticleContentClassification::META_CONTENT_TYPE)])
+            ->limit(500)
+            ->get()
+            ->map(static fn (SeoArticle $article): string => ArticleContentClassification::for($article)->contentType()->value)
             ->unique()
+            ->sort()
             ->values()
             ->all();
 
@@ -570,11 +573,12 @@ final class ArticlesOptimal extends SeoPanelPage
     {
         $siteId = $this->validatedFilterSiteId();
 
-        $query = SeoArticle::query()
-            ->countsTowardSeoScore()
-            ->whereNotIn('type', ['category', 'product_category'])
-            ->where('status', '!=', 'trash')
-            ->orderByDesc('updated_at');
+        $query = ArticleContentClassification::scopeNonTerm(
+            SeoArticle::query()
+                ->countsTowardSeoScore()
+                ->where('status', '!=', 'trash')
+                ->orderByDesc('updated_at'),
+        );
 
         ArticleResource::applySeoAuditCandidateScope($query);
 
@@ -586,7 +590,13 @@ final class ArticlesOptimal extends SeoPanelPage
 
         $postType = trim((string) ($this->filterPostType ?? ''));
         if ($postType !== '') {
-            $query->where('type', $postType);
+            $mapped = match ($postType) {
+                'article' => ContentType::Post,
+                default => ContentType::tryFromString($postType),
+            };
+            if ($mapped !== null) {
+                ArticleContentClassification::scopeContentType($query, $mapped);
+            }
         }
 
         return $query;

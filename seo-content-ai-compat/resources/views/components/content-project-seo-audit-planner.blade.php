@@ -164,14 +164,17 @@
     {{-- Row 1: search · score · language · issue · plan · state --}}
     <div class="cp-ops-toolbar space-y-2" data-seo-audit-filter-rows="2">
         <div class="cp-ops-toolbar__row flex flex-wrap items-center gap-2" data-seo-audit-filter-row="1">
-            <input
-                type="search"
-                wire:model.live.debounce.300ms="suggestionSearch"
-                placeholder="{{ __('seo-content-ai::filament.projects.suggestions_filter_search') }}"
-                class="fi-input cp-ops-toolbar__search"
-                aria-label="{{ __('seo-content-ai::filament.projects.suggestions_filter_search') }}"
-                data-filter="search"
-            />
+            <form wire:submit="applySuggestionSearch" class="contents">
+                <input
+                    type="search"
+                    wire:model="suggestionSearchInput"
+                    placeholder="{{ __('seo-content-ai::filament.projects.suggestions_filter_search') }}"
+                    class="fi-input cp-ops-toolbar__search"
+                    aria-label="{{ __('seo-content-ai::filament.projects.suggestions_filter_search') }}"
+                    data-filter="search"
+                    autocomplete="off"
+                />
+            </form>
 
             <div class="inline-flex items-center gap-0.5 rounded-lg border border-gray-200 bg-white p-0.5 dark:border-white/10 dark:bg-gray-900" role="group" data-filter="score">
                 @foreach (['all' => __('seo-content-ai::filament.projects.seo_audit_score_all'), '80' => '<80', '60' => '<60', '40' => '<40'] as $presetKey => $presetLabel)

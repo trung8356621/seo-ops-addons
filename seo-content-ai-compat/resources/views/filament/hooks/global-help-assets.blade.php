@@ -1,9 +1,18 @@
 @php
+    use App\Help\HelpRuntimePayloadBuilder;
     use Omnichannel\Addons\Seo\Support\SeoHelpRegistry;
 
     $helpCssPath = base_path('addons/content/resources/css/global-help.css');
     $helpCss = is_file($helpCssPath) ? (string) file_get_contents($helpCssPath) : '';
-    $helpPayload = SeoHelpRegistry::clientPayload();
+    try {
+        $helpPayload = app(HelpRuntimePayloadBuilder::class)->clientPayload(attemptSync: true);
+    } catch (\Throwable) {
+        $helpPayload = SeoHelpRegistry::clientPayload();
+        $helpPayload['topic_by_key'] = [];
+        $helpPayload['context_keys'] = [];
+        $helpPayload['help_version'] = null;
+        $helpPayload['source'] = 'legacy-fallback';
+    }
 @endphp
 
 @once
@@ -114,12 +123,30 @@
         }
 
         function topicMatchesQuery(topic, q) {
-            const hay = [topic.title, topic.summary, topic.content]
+            const hay = [topic.title, topic.summary, topic.content, topic.html]
                 .concat(Array.isArray(topic.steps) ? topic.steps : [])
+                .concat(Array.isArray(topic.keywords) ? topic.keywords : [])
                 .filter(Boolean)
                 .join(' ')
                 .toLowerCase();
             return hay.includes(q);
+        }
+
+        function resolveTopicByContextKey(contextKey) {
+            const key = String(contextKey || '').trim();
+            if (!key) return null;
+            const mapped = (payload().topic_by_key || {})[key];
+            if (!mapped || !mapped.groupId) return null;
+            const groupId = String(mapped.groupId);
+            const topicId = String(mapped.topicId || key);
+            const topic = findTopic(groupId, topicId)
+                || findTopic(groupId, key)
+                || ((findGroup(groupId) && findGroup(groupId).topics) || []).find(function (row) {
+                    return row && (row.id === topicId || row.id === key || row.key === key);
+                })
+                || null;
+            if (!topic) return null;
+            return { groupId: groupId, topic: topic };
         }
 
         function navigateHelpTarget(target) {
@@ -168,6 +195,7 @@
             try {
                 const existingStore = Alpine.store('help');
                 if (existingStore) {
+                    patchInlineHelpStore(existingStore);
                     return;
                 }
             } catch (e) {}
@@ -178,6 +206,7 @@
                 activeContext: null,
                 activeGroupId: null,
                 activeTopicId: null,
+                contextTopicKey: null,
                 search: '',
                 mobileView: 'groups',
                 triggerEl: null,
@@ -195,6 +224,13 @@
                     return groupsForContext(this.context);
                 },
                 get filteredGroups() {
+                    const locked = this.resolveLockedTopic();
+                    if (locked) {
+                        return this.groups.map(function (group) {
+                            if (group.id !== locked.groupId) return group;
+                            return Object.assign({}, group, { topics: [locked.topic] });
+                        });
+                    }
                     const q = String(this.search || '').trim().toLowerCase();
                     if (!q) return this.groups;
                     return this.groups.map(function (group) {
@@ -212,6 +248,10 @@
                     return findGroup(this.activeGroupId) || this.filteredGroups[0] || this.groups[0] || null;
                 },
                 get activeTopics() {
+                    const locked = this.resolveLockedTopic();
+                    if (locked && this.activeGroupId === locked.groupId) {
+                        return [locked.topic];
+                    }
                     const group = this.activeGroup;
                     if (!group) return [];
                     const q = String(this.search || '').trim().toLowerCase();
@@ -228,6 +268,20 @@
                         || null;
                 },
 
+                resolveLockedTopic() {
+                    const key = String(this.contextTopicKey || '').trim();
+                    if (!key) return null;
+                    return resolveTopicByContextKey(key);
+                },
+                clearContextualLock() {
+                    this.contextTopicKey = null;
+                },
+                onSearchInput() {
+                    if (this.contextTopicKey) {
+                        this.contextTopicKey = null;
+                    }
+                    this.ensureSelectionAfterSearch();
+                },
                 syncContextFromLocation() {
                     this.activeContext = resolveHelpContext();
                     const preferred = (this.activeContext && this.activeContext.defaultGroupId) || 'overview';
@@ -242,7 +296,23 @@
                     if (detail.trigger instanceof Element) this.triggerEl = detail.trigger;
                     else if (document.activeElement instanceof Element) this.triggerEl = document.activeElement;
 
+                    this.contextTopicKey = null;
+                    this.search = '';
                     this.syncContextFromLocation();
+
+                    const contextKey = String(detail.contextKey || detail.topicKey || '').trim();
+                    if (contextKey) {
+                        const locked = resolveTopicByContextKey(contextKey);
+                        if (locked) {
+                            this.contextTopicKey = contextKey;
+                            this.selectGroup(String(locked.groupId), { resetTopic: false });
+                            this.selectTopic(String(locked.topic.id));
+                            this.search = String(locked.topic.title || '').trim();
+                        } else if (window.__SEO_HELP_DEV__) {
+                            console.warn('[Help] Missing topic for context key:', contextKey);
+                        }
+                    }
+
                     if (detail.groupId) this.selectGroup(String(detail.groupId), { resetTopic: !detail.topicId });
                     if (detail.topicId) this.selectTopic(String(detail.topicId));
                     if (detail.topic && typeof detail.topic === 'string') this.openLegacyTopicKey(detail.topic);
@@ -266,6 +336,7 @@
                 close() {
                     this.isOpen = false;
                     this.search = '';
+                    this.contextTopicKey = null;
                     this.mobileView = 'groups';
                     this.unlockBody();
                     const trigger = this.triggerEl;
@@ -332,6 +403,112 @@
                 },
             });
 
+            function patchInlineHelpStore(store) {
+                if (!store || store.__seoHelpContextualPatched) return;
+                store.__seoHelpContextualPatched = true;
+                store.contextTopicKey = store.contextTopicKey || null;
+                const blueprint = {
+                    resolveLockedTopic: function () {
+                        const key = String(this.contextTopicKey || '').trim();
+                        if (!key) return null;
+                        return resolveTopicByContextKey(key);
+                    },
+                    onSearchInput: function () {
+                        if (this.contextTopicKey) this.contextTopicKey = null;
+                        this.ensureSelectionAfterSearch();
+                    },
+                    clearContextualLock: function () {
+                        this.contextTopicKey = null;
+                    },
+                };
+                store.resolveLockedTopic = blueprint.resolveLockedTopic;
+                store.onSearchInput = blueprint.onSearchInput;
+                store.clearContextualLock = blueprint.clearContextualLock;
+
+                store.open = function (options) {
+                    const detail = options && typeof options === 'object' ? options : {};
+                    if (detail.trigger instanceof Element) this.triggerEl = detail.trigger;
+                    else if (document.activeElement instanceof Element) this.triggerEl = document.activeElement;
+
+                    this.contextTopicKey = null;
+                    this.search = '';
+                    this.syncContextFromLocation();
+
+                    const contextKey = String(detail.contextKey || detail.topicKey || '').trim();
+                    if (contextKey) {
+                        const locked = resolveTopicByContextKey(contextKey);
+                        if (locked) {
+                            this.contextTopicKey = contextKey;
+                            this.selectGroup(String(locked.groupId), { resetTopic: false });
+                            this.selectTopic(String(locked.topic.id));
+                            this.search = String(locked.topic.title || '').trim();
+                        }
+                    }
+
+                    if (detail.groupId) this.selectGroup(String(detail.groupId), { resetTopic: !detail.topicId });
+                    if (detail.topicId) this.selectTopic(String(detail.topicId));
+                    if (detail.topic && typeof detail.topic === 'string') this.openLegacyTopicKey(detail.topic);
+
+                    this.isOpen = true;
+                    this.lockBody();
+                };
+
+                store.close = function () {
+                    this.contextTopicKey = null;
+                    this.isOpen = false;
+                    this.search = '';
+                    this.mobileView = 'groups';
+                    this.unlockBody();
+                    const trigger = this.triggerEl;
+                    this.triggerEl = null;
+                    if (trigger instanceof HTMLElement) {
+                        window.requestAnimationFrame(function () { trigger.focus && trigger.focus(); });
+                    }
+                };
+
+                Object.defineProperty(store, 'activeTopics', {
+                    configurable: true,
+                    enumerable: true,
+                    get: function () {
+                        const locked = this.resolveLockedTopic();
+                        if (locked && this.activeGroupId === locked.groupId) {
+                            return [locked.topic];
+                        }
+                        const group = this.activeGroup;
+                        if (!group) return [];
+                        const q = String(this.search || '').trim().toLowerCase();
+                        if (!q) return group.topics || [];
+                        const filtered = this.filteredGroups.find((g) => g.id === group.id);
+                        return (filtered && filtered.topics) || group.topics || [];
+                    },
+                });
+
+                Object.defineProperty(store, 'filteredGroups', {
+                    configurable: true,
+                    enumerable: true,
+                    get: function () {
+                        const locked = this.resolveLockedTopic();
+                        if (locked) {
+                            return this.groups.map(function (group) {
+                                if (group.id !== locked.groupId) return group;
+                                return Object.assign({}, group, { topics: [locked.topic] });
+                            });
+                        }
+                        const q = String(this.search || '').trim().toLowerCase();
+                        if (!q) return this.groups;
+                        return this.groups.map(function (group) {
+                            const groupHit = String(group.title || '').toLowerCase().includes(q);
+                            const topics = (group.topics || []).filter(function (topic) {
+                                return topicMatchesQuery(topic, q);
+                            });
+                            if (groupHit || topics.length) {
+                                return Object.assign({}, group, { topics: groupHit ? group.topics : topics });
+                            }
+                            return null;
+                        }).filter(Boolean);
+                    },
+                });
+            }
             const store = Alpine.store('help');
             store.syncContextFromLocation();
 

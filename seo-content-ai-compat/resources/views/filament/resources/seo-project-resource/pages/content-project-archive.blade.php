@@ -52,14 +52,16 @@
                 <div class="flex w-full flex-col gap-3 sm:flex-row sm:items-center">
                     <div class="min-w-0 flex-1">
                         <label class="sr-only" for="archive-project-search">{{ __('seo-content-ai::filament.projects.archive_search_placeholder') }}</label>
-                        <input
-                            id="archive-project-search"
-                            type="search"
-                            wire:model.live.debounce.300ms="search"
-                            class="block w-full rounded-lg border-gray-300 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-900 dark:text-white"
-                            placeholder="{{ __('seo-content-ai::filament.projects.archive_search_placeholder') }}"
-                            autocomplete="off"
-                        >
+                        <form wire:submit="applySearch" class="w-full">
+                            <input
+                                id="archive-project-search"
+                                type="search"
+                                wire:model="searchInput"
+                                class="block w-full rounded-lg border-gray-300 text-sm shadow-sm focus:border-primary-500 focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-900 dark:text-white"
+                                placeholder="{{ __('seo-content-ai::filament.projects.archive_search_placeholder') }}"
+                                autocomplete="off"
+                            >
+                        </form>
                     </div>
 
                     <button
@@ -171,7 +173,7 @@
 
                 <x-seo-content-ai::list-table-loading-shell
                     preset="livewire-page"
-                    targets="search,siteFilter,monthFilter,yearFilter,ownerFilter,archivedByFilter,clearFilters,updatedSearch,setActiveTab"
+                    targets="search,applySearch,clearSearch,siteFilter,monthFilter,yearFilter,ownerFilter,archivedByFilter,clearFilters,setActiveTab"
                 >
                 <div class="w-full overflow-x-auto rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
                     <table class="w-full min-w-full table-fixed divide-y divide-gray-200 text-sm dark:divide-gray-700">

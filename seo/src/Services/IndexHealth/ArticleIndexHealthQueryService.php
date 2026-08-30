@@ -8,7 +8,9 @@ use Carbon\Carbon;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Schema;
+use Omnichannel\Addons\Content\Enums\ContentType;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\Content\Support\SystemDateTime;
 use Omnichannel\Addons\Seo\Enums\ArticleIndexHealthStatus;
 use Omnichannel\Addons\Seo\Models\SeoArticleIndexCheck;
@@ -219,7 +221,7 @@ final class ArticleIndexHealthQueryService
     {
         $query = SeoArticle::query()
             ->select('articles.*')
-            ->with(['wordpressLink', 'site:id,domain', 'indexHealth']);
+            ->with(['wordpressLink', 'site:id,domain', 'indexHealth', 'articleMetas']);
 
         SeoAccessControl::applyAccessibleSiteScope($query, 'articles.site_id');
 
@@ -239,12 +241,18 @@ final class ArticleIndexHealthQueryService
             });
         }
 
-        $postType = trim((string) ($filters['post_type'] ?? ''));
+        $postType = strtolower(trim((string) ($filters['post_type'] ?? '')));
         if ($postType !== '') {
-            if (Schema::connection('omi_seo_ai')->hasColumn('articles', 'type')) {
-                $query->where('articles.type', $postType);
-            } elseif (Schema::connection('omi_seo_ai')->hasColumn('articles', 'post_type')) {
-                $query->where('articles.post_type', $postType);
+            // `article` is the retired label for a plain post.
+            $contentType = ContentType::tryFromString($postType === 'article' ? 'post' : $postType);
+
+            if ($contentType !== null) {
+                ArticleContentClassification::scopeContentType($query, $contentType);
+            } else {
+                $query->whereHas('articleMetas', static function (Builder $meta) use ($postType): void {
+                    $meta->where('meta_key', ArticleContentClassification::META_WP_POST_TYPE)
+                        ->where('meta_value', $postType);
+                });
             }
         }
 
@@ -339,7 +347,7 @@ final class ArticleIndexHealthQueryService
         return [
             'article_id' => (int) $article->getKey(),
             'title' => (string) ($article->title ?? ''),
-            'post_type' => (string) ($article->type ?? $article->post_type ?? 'post'),
+            'post_type' => $this->postTypeLabel($article),
             'domain' => (string) ($article->site?->domain ?? ''),
             'site_id' => (int) ($article->site_id ?? 0),
             'canonical_url' => $url,
@@ -372,6 +380,17 @@ final class ArticleIndexHealthQueryService
                 : '—',
             'skip_seo_audit' => (bool) ($article->skip_seo_audit ?? false),
         ];
+    }
+
+    private function postTypeLabel(SeoArticle $article): string
+    {
+        $classification = ArticleContentClassification::for($article);
+
+        if ($classification->isTerm()) {
+            return $classification->equals(ContentType::Product) ? 'product_category' : 'category';
+        }
+
+        return $classification->contentType()->value;
     }
 
     private function tablesReady(): bool

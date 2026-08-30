@@ -75,6 +75,7 @@ import {
 } from '../utils/articleLinkSuggestionFilter';
 import { articleShortcutActionFromEvent } from '../utils/articleEditorShortcuts';
 import ArticleAssistantWidget from '@ai-prompt-addon/components/ArticleAssistantWidget.jsx';
+import ContextHelpButton from './ContextHelpButton';
 import ArticleGoogleSerpPreview from '@seo-addon/components/ArticleGoogleSerpPreview.jsx';
 import ArticleOutlineTab from './ArticleOutlineTab';
 import { callEditArticleLivewire } from '../utils/articleEditorLivewire';
@@ -1557,6 +1558,7 @@ export default function SeoArticleEditor({
                 badge={syncRequired ? null : (analyzing ? '…' : (liveSeoScore ?? null))}
                 defaultCollapsed={false}
                 className="seo-assistant-widget--seo"
+                helpContextKey="article_editor.panel.seo"
             >
                 {children}
             </ArticleAssistantWidget>
@@ -1569,6 +1571,7 @@ export default function SeoArticleEditor({
                 badge={imageTabCount > 0 ? imageTabCount : null}
                 defaultCollapsed={false}
                 className="seo-assistant-widget--images"
+                helpContextKey="article_editor.panel.images"
             >
                 {children}
             </ArticleAssistantWidget>
@@ -1760,6 +1763,7 @@ export default function SeoArticleEditor({
                                 >
                                     <ListCollapse size={15} />
                                 </button>
+                                <ContextHelpButton contextKey="article_editor.widget.section_blocks" title="Section blocks Help" />
                                 <div className="seo-editor-search-group">
                                     <input
                                         type="text"
@@ -1801,6 +1805,7 @@ export default function SeoArticleEditor({
                                     >
                                         <Search size={15} />
                                     </button>
+                                    <ContextHelpButton contextKey="article_editor.widget.find_replace" title="Find & Replace Help" />
                                 </div>
                                 <input
                                     type="text"

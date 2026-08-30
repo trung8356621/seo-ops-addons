@@ -7,6 +7,7 @@ import { useEditorMediaPicker } from '../../host/hooks/useEditorMediaPicker';
 import { useEditorNotifications } from '@content-addon/editor/host/hooks/useEditorNotifications.js';
 import { normalizeFeaturedMediaItem } from '@content-addon/utils/articleEditorMediaSnapshot.js';
 import { t } from '@content-addon/utils/i18n.js';
+import ContextHelpButton from '@content-addon/components/ContextHelpButton.jsx';
 
 const GallerySidebarPanel = lazy(() => import('../gallery/GallerySidebarPanel.jsx').then((mod) => ({
     default: mod.GallerySidebarPanel,
@@ -105,6 +106,7 @@ function FeaturedImagePanel({ articleId = null, active = false }) {
                     <div className="seo-assistant-widget__toggle seo-assistant-widget__toggle--static">
                         <span className="seo-assistant-widget__title">{t('editor_featured_title')}</span>
                     </div>
+                    <ContextHelpButton contextKey="article_editor.panel.featured" title="Featured panel Help" />
                 </header>
                 <div className="seo-assistant-widget__body text-center">
                     <div

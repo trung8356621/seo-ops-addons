@@ -177,7 +177,11 @@ final class SiteSyncStatusPresenter
         $startedAt = optional($run->started_at)?->toIso8601String() ?? $taskProgress->startedAt;
         $elapsedLabel = SiteSyncProgressCopy::elapsedLabel($startedAt);
         $lastActivityLabel = SiteSyncProgressCopy::lastActivityLabel($lastProgressAt);
-        $retryLabel = SiteSyncProgressCopy::retryLabel($attempt, 3);
+        // attempt_count also ticks on chunk reclaim — only show retry copy when there is an error.
+        $stepError = $activeStep !== null ? trim((string) ($activeStep->error_message ?? '')) : '';
+        $retryLabel = ($errorMessage !== '' || $stepError !== '')
+            ? SiteSyncProgressCopy::retryLabel($attempt, 3)
+            : null;
         $stepTimeline = SiteSyncStepCatalog::timeline($steps);
         $headline = $stuck
             ? 'Tác vụ có vẻ không có tiến triển'

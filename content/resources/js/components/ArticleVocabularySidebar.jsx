@@ -748,6 +748,7 @@ export default function ArticleVocabularySidebar({
             badge={itemCount > 0 ? itemCount : null}
             defaultCollapsed={false}
             className="seo-assistant-widget--vocabulary"
+            helpContextKey="article_editor.panel.vocabulary"
         >
             <div className="wp-article-vocabulary">
                 {loading ? (

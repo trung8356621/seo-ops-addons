@@ -4,10 +4,12 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\SeoAudit;
 
+use Omnichannel\Addons\Content\Enums\ContentType;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\Content\Services\ArticleSeoAuditSkipService;
 use Omnichannel\Addons\Content\Services\ContentLanguageLegacyRepair;
+use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\Content\Support\ArticleLanguageCode;
 use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectSuggestionDecision;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
@@ -136,7 +138,6 @@ final class SeoAuditExistingContentSuggestionService
             'articles.site_id',
             'articles.title',
             'articles.slug',
-            'articles.type',
             'articles.updated_at',
             'audit_sap.seo_score as seo_score',
         ])->with([
@@ -146,7 +147,11 @@ final class SeoAuditExistingContentSuggestionService
                     SeoScoringRulesRegistry::META_KEY_VIOLATIONS,
                     'wp_permalink',
                     'seo_focus_keyword',
-                    'wp_post_type',
+                    // Classification keys are read from the loaded relation — omitting
+                    // them would silently mis-resolve the suggestion post type.
+                    ArticleContentClassification::META_CONTENT_TYPE,
+                    ArticleContentClassification::META_WP_IS_TERM,
+                    ArticleContentClassification::META_WP_POST_TYPE,
                     ArticleSeoAuditSkipService::META_KEY,
                 ]);
             },
@@ -519,13 +524,7 @@ final class SeoAuditExistingContentSuggestionService
     private function applyEntityAndPostTypeScopes(Builder $base, array $filters): void
     {
         if ((bool) ($filters['exclude_taxonomy_archives'] ?? true)) {
-            $base->where(function (Builder $scopeQuery): void {
-                $scopeQuery
-                    ->whereIn('articles.type', ['article', 'product'])
-                    ->orWhere(function (Builder $sub): void {
-                        $sub->whereNull('articles.type')->orWhere('articles.type', '');
-                    });
-            });
+            ArticleContentClassification::scopeNonTerm($base);
         }
 
         $mode = (string) ($filters['post_type_mode'] ?? SeoAuditSuggestionFilterSet::POST_TYPE_MODE_ALL_EXCEPT_PAGE);
@@ -541,17 +540,10 @@ final class SeoAuditExistingContentSuggestionService
             return;
         }
 
-        // Default: all except page.
-        $base->where(function (Builder $scopeQuery): void {
-            $scopeQuery
-                ->whereDoesntHave('articleMetas', static function (Builder $metaQ): void {
-                    $metaQ->where('meta_key', 'wp_post_type')->where('meta_value', 'page');
-                })
-                ->where(function (Builder $typeQ): void {
-                    $typeQ->whereNull('articles.type')
-                        ->orWhere('articles.type', '')
-                        ->orWhereNotIn('articles.type', ['page']);
-                });
+        // Default: all except page (business classification, not raw CPT slug).
+        $base->whereDoesntHave('articleMetas', static function (Builder $metaQ): void {
+            $metaQ->where('meta_key', ArticleContentClassification::META_CONTENT_TYPE)
+                ->where('meta_value', ContentType::Page->value);
         });
     }
 
@@ -651,23 +643,13 @@ final class SeoAuditExistingContentSuggestionService
 
     private function resolvePostTypeSlug(SeoArticle $article): string
     {
-        if ($article->relationLoaded('articleMetas')) {
-            $meta = $article->articleMetas->firstWhere('meta_key', 'wp_post_type');
-            $slug = strtolower(trim((string) ($meta?->meta_value ?? '')));
-            if ($slug !== '') {
-                return $slug;
-            }
+        $classification = ArticleContentClassification::for($article);
+
+        if ($classification->isTerm()) {
+            return $classification->equals(ContentType::Product) ? 'product_category' : 'category';
         }
 
-        $type = strtolower(trim((string) ($article->type ?? '')));
-
-        return match ($type) {
-            'product' => 'product',
-            'category' => 'category',
-            'product_category', 'product_cat' => 'product_category',
-            'page' => 'page',
-            default => 'post',
-        };
+        return $classification->contentType()->value;
     }
 
     /**

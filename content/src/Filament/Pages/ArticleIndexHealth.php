@@ -48,6 +48,8 @@ final class ArticleIndexHealth extends SeoPanelPage
     #[Url(as: 'q')]
     public string $search = '';
 
+    public string $searchInput = '';
+
     #[Url(as: 'post_type')]
     public ?string $filterPostType = null;
 
@@ -90,6 +92,7 @@ final class ArticleIndexHealth extends SeoPanelPage
             $global = SeoAccessControl::globalSiteId();
             $this->filterSiteId = ($global !== null && $global > 0) ? $global : null;
         }
+        $this->searchInput = $this->search;
         $this->refreshActiveRun();
     }
 
@@ -99,8 +102,17 @@ final class ArticleIndexHealth extends SeoPanelPage
         $this->selectedArticleIds = [];
     }
 
-    public function updatedSearch(): void
+    public function applySearch(): void
     {
+        $this->search = trim($this->searchInput);
+        $this->searchInput = $this->search;
+        $this->resetPage();
+    }
+
+    public function clearSearch(): void
+    {
+        $this->search = '';
+        $this->searchInput = '';
         $this->resetPage();
     }
 

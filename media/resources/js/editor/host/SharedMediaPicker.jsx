@@ -29,7 +29,6 @@ import {
 
 export const MEDIA_PICKER_CACHE_TTL_MS = 4 * 60 * 1000;
 const MEDIA_PICKER_CACHE_MAX_ENTRIES = 30;
-const MEDIA_PICKER_SEARCH_DEBOUNCE_MS = 300;
 
 const mediaPickerResultCache = new Map();
 const mediaPickerInFlight = new Map();
@@ -177,6 +176,7 @@ function emptyTabState() {
         page: 1,
         totalPages: 1,
         search: '',
+        searchInput: '',
         loading: false,
         error: '',
         loadedAt: 0,
@@ -228,7 +228,6 @@ export function SharedMediaPicker({
     const customTabsRef = useRef([]);
     const tabRef = useRef(tab);
     const gridRef = useRef(null);
-    const searchDebounceRef = useRef(null);
     const fileInputRef = useRef(null);
     const ingestBusyRef = useRef(false);
 
@@ -268,6 +267,7 @@ export function SharedMediaPicker({
             page: entry.page,
             totalPages: entry.totalPages,
             search: entry.search,
+            searchInput: entry.search ?? '',
             error: '',
             loadedAt: entry.loadedAt,
             loading: false,
@@ -367,6 +367,7 @@ export function SharedMediaPicker({
                         page: entry.page,
                         totalPages: entry.totalPages,
                         search: entry.search,
+                        searchInput: entry.search,
                         loadedAt: entry.loadedAt,
                         loading: false,
                         error: '',
@@ -581,12 +582,13 @@ export function SharedMediaPicker({
         ? customTabs.find((row) => `custom:${row.id}` === tab)
         : null;
 
-    const setActiveSearch = (value) => {
-        patchTabState(tab, { search: value });
+    const setActiveSearchInput = (value) => {
+        patchTabState(tab, { searchInput: value });
     };
 
     const runSearch = () => {
-        const search = String(active.search || '');
+        const search = String(active.searchInput || '').trim();
+        patchTabState(tab, { search, searchInput: search });
         loadTab(tab, 1, search, { skipCache: true });
     };
 
@@ -594,14 +596,7 @@ export function SharedMediaPicker({
         loadTab(tab, active.page || 1, active.search || '', { skipCache: true });
     };
 
-    useEffect(() => {
-        if (!picker?.open || tab === 'article') return undefined;
-        window.clearTimeout(searchDebounceRef.current);
-        searchDebounceRef.current = window.setTimeout(() => {
-            loadTab(tab, 1, active.search || '', { skipCache: false });
-        }, MEDIA_PICKER_SEARCH_DEBOUNCE_MS);
-        return () => window.clearTimeout(searchDebounceRef.current);
-    }, [active.search, loadTab, picker?.open, tab]);
+    // Search commits only via Enter / Search button — no debounce fetch while typing.
 
     const scrollKey = cacheKey(id, tab, active.page || 1, active.search || '');
 
@@ -926,10 +921,10 @@ export function SharedMediaPicker({
                         <input
                             type="search"
                             className="seo-shared-media-picker__search"
-                            placeholder={t('media_picker_search')}
-                            value={active.search || ''}
+                            placeholder={t('media_picker_search_enter') || 'Nhập từ khóa rồi nhấn Enter để tìm...'}
+                            value={active.searchInput ?? active.search ?? ''}
                             disabled={tab === 'article'}
-                            onChange={(event) => setActiveSearch(event.target.value)}
+                            onChange={(event) => setActiveSearchInput(event.target.value)}
                             onKeyDown={(event) => {
                                 if (event.key === 'Enter') {
                                     event.preventDefault();

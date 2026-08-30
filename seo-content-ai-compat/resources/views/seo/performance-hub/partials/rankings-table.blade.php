@@ -26,12 +26,15 @@
 <section class="performance-hub-panel">
     <div class="performance-hub-panel__head performance-hub-panel__head--toolbar">
         <h2>{{ __('seo-content-ai::filament.performance_hub.tab_rankings') }}</h2>
-        <input
-            type="search"
-            wire:model.live.debounce.400ms="keywordSearch"
-            placeholder="{{ __('seo-content-ai::filament.performance_hub.filter_keyword') }}"
-            class="performance-hub-input"
-        />
+        <form wire:submit="applyKeywordSearch" class="contents">
+            <input
+                type="search"
+                wire:model="keywordSearchInput"
+                placeholder="{{ __('seo-content-ai::filament.performance_hub.filter_keyword') }}"
+                class="performance-hub-input"
+                autocomplete="off"
+            />
+        </form>
     </div>
 
     <div class="performance-hub-table-wrap performance-hub-table-wrap--rankings">

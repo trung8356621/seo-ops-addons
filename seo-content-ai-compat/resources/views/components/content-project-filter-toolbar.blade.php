@@ -12,13 +12,16 @@
     x-data="{ filtersOpen: false }"
 >
     <div class="cp-ops-toolbar__row">
-        <input
-            type="search"
-            wire:model.live.debounce.300ms="search"
-            placeholder="{{ __('seo-content-ai::filament.projects.queue_search') }}"
-            class="fi-input cp-ops-toolbar__search"
-            aria-label="{{ __('seo-content-ai::filament.projects.queue_search') }}"
-        />
+        <form wire:submit="applySearch" class="cp-ops-toolbar__search-form contents">
+            <input
+                type="search"
+                wire:model="searchInput"
+                placeholder="{{ __('seo-content-ai::filament.projects.queue_search') }}"
+                class="fi-input cp-ops-toolbar__search"
+                aria-label="{{ __('seo-content-ai::filament.projects.queue_search') }}"
+                autocomplete="off"
+            />
+        </form>
 
         <div class="cp-ops-toolbar__filters">
             @if ($isPublishingQueue)

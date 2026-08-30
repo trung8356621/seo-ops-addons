@@ -5,6 +5,7 @@ import { useEditorMedia } from '../../host/hooks/useEditorMedia';
 import { useEditorMediaPicker } from '../../host/hooks/useEditorMediaPicker';
 import { useEditorNotifications } from '@content-addon/editor/host/hooks/useEditorNotifications.js';
 import { t } from '@content-addon/utils/i18n.js';
+import ContextHelpButton from '@content-addon/components/ContextHelpButton.jsx';
 
 function stableId(item, index) {
     return String(item?.asset_key || item?.id || item?.stable_id || `idx-${index}`);
@@ -152,6 +153,7 @@ export function GallerySidebarPanel({ articleId = null, active = false }) {
                     <div className="seo-assistant-widget__toggle seo-assistant-widget__toggle--static">
                         <span className="seo-assistant-widget__title">{t('editor_product_album_title')}</span>
                     </div>
+                    <ContextHelpButton contextKey="article_editor.panel.featured" title="Featured panel Help" />
                 </header>
                 <div className="seo-assistant-widget__body">
                     {items.length > 0 ? (

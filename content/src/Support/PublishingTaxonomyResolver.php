@@ -5,10 +5,11 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Content\Support;
 
 /**
- * Post-type-aware category taxonomy for Publishing readiness.
+ * Content-type-aware category taxonomy for Publishing readiness.
  *
- * Does NOT blindly require WordPress `category` for every post type.
- * Laravel-only articles are evaluated from type + staged category IDs — no wp_post_id required.
+ * Business branching uses canonical content_type (post|page|product).
+ * Raw CPT slugs should already be mapped before this resolver runs.
+ * Taxonomy terms (wp_is_term) do not require post categories.
  */
 final class PublishingTaxonomyResolver
 {
@@ -35,7 +36,7 @@ final class PublishingTaxonomyResolver
             $candidates = [''];
         }
 
-        // Prefer the most specific identity when Livewire normalizes page → article.
+        // Prefer the most specific identity when Livewire still passes legacy labels.
         foreach (['page', 'product', 'e-commerce', 'product_category', 'product_cat', 'category'] as $specific) {
             if (in_array($specific, $candidates, true)) {
                 return self::resolveRaw($specific);
@@ -82,6 +83,7 @@ final class PublishingTaxonomyResolver
             ];
         }
 
+        // Canonical content_type + legacy article alias.
         if (in_array($raw, ['article', 'post', ''], true)) {
             return [
                 'taxonomy' => self::TAXONOMY_CATEGORY,
@@ -91,6 +93,8 @@ final class PublishingTaxonomyResolver
             ];
         }
 
+        // Unmapped raw CPT must not invent blog-category requirements.
+        // After connector mapping, callers pass content_type (post|page|product) instead.
         return [
             'taxonomy' => null,
             'wp_taxonomy' => null,

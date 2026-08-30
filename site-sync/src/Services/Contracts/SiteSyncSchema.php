@@ -82,6 +82,9 @@ final class SiteSyncSchema
     /** Max staged batches reconciled per ProcessSiteSyncStepJob tick. */
     public const CATALOG_BATCHES_PER_JOB = 4;
 
+    /** Max staged batches for provider-keyword reconcile per job tick. */
+    public const KEYWORD_BATCHES_PER_JOB = 5;
+
     /** @var list<string> */
     public const ORCHESTRATOR_STEPS = [
         'detect_capability',

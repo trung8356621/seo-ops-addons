@@ -78,6 +78,8 @@ final class SeoPerformanceHub extends SeoPanelPage
     #[Url(as: 'q')]
     public string $keywordSearch = '';
 
+    public string $keywordSearchInput = '';
+
     #[Url(as: 'position_bucket')]
     public string $positionBucket = '';
 
@@ -89,6 +91,8 @@ final class SeoPerformanceHub extends SeoPanelPage
 
     #[Url(as: 'gsc_q')]
     public string $gscQuerySearch = '';
+
+    public string $gscQuerySearchInput = '';
 
     #[Url(as: 'gsc_metric')]
     public string $gscChartMetric = 'clicks';
@@ -338,6 +342,8 @@ final class SeoPerformanceHub extends SeoPanelPage
         $this->normalizeActiveTab();
         $this->ensureRankGroupSelected();
         $this->reconcileStaleRankRuns();
+        $this->keywordSearchInput = $this->keywordSearch;
+        $this->gscQuerySearchInput = $this->gscQuerySearch;
     }
 
     private function reconcileStaleRankRuns(): void
@@ -966,9 +972,30 @@ final class SeoPerformanceHub extends SeoPanelPage
         $this->dispatchGscChartRefresh();
     }
 
-    public function updatedGscQuerySearch(): void
+    public function applyGscQuerySearch(): void
     {
+        $this->gscQuerySearch = trim($this->gscQuerySearchInput);
+        $this->gscQuerySearchInput = $this->gscQuerySearch;
         $this->gscPage = 1;
+    }
+
+    public function clearGscQuerySearch(): void
+    {
+        $this->gscQuerySearch = '';
+        $this->gscQuerySearchInput = '';
+        $this->gscPage = 1;
+    }
+
+    public function applyKeywordSearch(): void
+    {
+        $this->keywordSearch = trim($this->keywordSearchInput);
+        $this->keywordSearchInput = $this->keywordSearch;
+    }
+
+    public function clearKeywordSearch(): void
+    {
+        $this->keywordSearch = '';
+        $this->keywordSearchInput = '';
     }
 
     public function updatedGscMonth(): void
@@ -1379,6 +1406,7 @@ final class SeoPerformanceHub extends SeoPanelPage
         $this->gscPage = 1;
         $this->positionBucket = '';
         $this->gscQuerySearch = '';
+        $this->gscQuerySearchInput = '';
     }
 
     private function normalizeGscChartMetric(string $metric): string
