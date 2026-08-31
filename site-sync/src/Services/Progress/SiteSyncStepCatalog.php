@@ -5,9 +5,11 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SiteSync\Services\Progress;
 
 use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncSchema;
+use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncV3Schema;
 
 /**
- * Human labels for the frozen 7-step Site Sync orchestrator.
+ * Human labels for the frozen 7-step Site Sync orchestrator (V2)
+ * and V3 phase machine labels.
  */
 final class SiteSyncStepCatalog
 {
@@ -19,14 +21,41 @@ final class SiteSyncStepCatalog
         return SiteSyncSchema::ORCHESTRATOR_STEPS;
     }
 
+    /**
+     * @return list<string>
+     */
+    public static function v3Keys(): array
+    {
+        return [
+            SiteSyncV3Schema::PHASE_DISCOVER,
+            SiteSyncV3Schema::PHASE_IMPORT,
+            SiteSyncV3Schema::PHASE_RECONCILE_STALE,
+            SiteSyncV3Schema::PHASE_CATCH_UP,
+            SiteSyncV3Schema::PHASE_VERIFY,
+            SiteSyncV3Schema::PHASE_COMPLETE,
+        ];
+    }
+
     public static function totalSteps(): int
     {
         return count(self::keys());
     }
 
+    public static function v3TotalSteps(): int
+    {
+        return count(self::v3Keys());
+    }
+
     public static function order(string $stepKey): int
     {
         $index = array_search($stepKey, self::keys(), true);
+
+        return $index === false ? 0 : $index + 1;
+    }
+
+    public static function v3Order(string $phase): int
+    {
+        $index = array_search($phase, self::v3Keys(), true);
 
         return $index === false ? 0 : $index + 1;
     }
@@ -43,8 +72,61 @@ final class SiteSyncStepCatalog
             'finalize' => 'Hoàn tất dữ liệu SEO',
             'validate_changed_links' => 'Kiểm tra liên kết thay đổi',
             'score_missing_articles' => 'Chấm điểm SEO',
+            // V3 phases (also resolved via v3Label)
+            SiteSyncV3Schema::PHASE_DISCOVER => 'Đang chuẩn bị đồng bộ',
+            SiteSyncV3Schema::PHASE_IMPORT => 'Đang đồng bộ dữ liệu',
+            SiteSyncV3Schema::PHASE_RECONCILE_STALE => 'Đang đối soát dữ liệu cũ',
+            SiteSyncV3Schema::PHASE_CATCH_UP => 'Đang kiểm tra thay đổi mới',
+            SiteSyncV3Schema::PHASE_VERIFY => 'Đang xác minh dữ liệu',
+            SiteSyncV3Schema::PHASE_COMPLETE => 'Hoàn tất',
+            SiteSyncV3Schema::PHASE_NEEDS_ATTENTION => 'Cần xử lý',
             default => $stepKey !== '' ? $stepKey : '—',
         };
+    }
+
+    public static function v3Label(string $phase): string
+    {
+        return self::label($phase);
+    }
+
+    /**
+     * @return list<array{key: string, label: string, status: string, order: int}>
+     */
+    public static function v3Timeline(string $currentPhase, string $runStatus): array
+    {
+        $keys = self::v3Keys();
+        $currentOrder = self::v3Order($currentPhase);
+        $isNeedsAttention = $runStatus === 'needs_attention'
+            || $currentPhase === SiteSyncV3Schema::PHASE_NEEDS_ATTENTION;
+        if ($isNeedsAttention && $currentOrder === 0) {
+            $currentOrder = self::v3Order(SiteSyncV3Schema::PHASE_VERIFY);
+        }
+        $isComplete = in_array($runStatus, ['completed', 'completed_with_warnings'], true);
+
+        $out = [];
+        foreach ($keys as $i => $key) {
+            $order = $i + 1;
+            if ($isComplete || ($currentPhase === SiteSyncV3Schema::PHASE_COMPLETE && $key === SiteSyncV3Schema::PHASE_COMPLETE)) {
+                $status = 'completed';
+            } elseif ($isNeedsAttention && $order === $currentOrder) {
+                $status = 'failed';
+            } elseif ($order < $currentOrder) {
+                $status = 'completed';
+            } elseif ($order === $currentOrder) {
+                $status = in_array($runStatus, ['pending', 'running'], true) ? 'running' : $runStatus;
+            } else {
+                $status = 'pending';
+            }
+
+            $out[] = [
+                'key' => $key,
+                'label' => self::v3Label($key),
+                'status' => $status,
+                'order' => $order,
+            ];
+        }
+
+        return $out;
     }
 
     /**

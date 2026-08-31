@@ -38,7 +38,12 @@ use Omnichannel\Addons\SiteSync\Services\Bootstrap\SiteSyncBootstrapService;
 use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncSchema;
 use Omnichannel\Addons\SiteSync\Services\Diagnostics\SiteSyncDiagnosticService;
 use Omnichannel\Addons\SiteSync\Services\Handshake\SiteSyncHandshakeService;
+use Omnichannel\Addons\SiteSync\Models\SeoSiteSyncRun;
+use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncV3Schema;
 use Omnichannel\Addons\SiteSync\Services\Orchestration\RunSiteSyncOrchestrator;
+use Omnichannel\Addons\SiteSync\Services\Orchestration\RunSiteSyncV3Orchestrator;
+use Omnichannel\Addons\SiteSync\Services\Orchestration\SiteSyncFeatureFlags;
+use Omnichannel\Addons\SiteSync\Services\Orchestration\SiteSyncProtocolRouter;
 use Omnichannel\Addons\SiteSync\Services\Profile\SiteProfileSuggestionService;
 use Omnichannel\Addons\SiteSync\Services\Reconciliation\SiteSyncReconciliationService;
 use App\Models\Site;
@@ -50,6 +55,26 @@ final class SiteSyncCommandHandler implements ContentProjectCommandHandler
     private function orchestrator(): RunSiteSyncOrchestrator
     {
         return app(RunSiteSyncOrchestrator::class);
+    }
+
+    private function orchestratorV3(): RunSiteSyncV3Orchestrator
+    {
+        return app(RunSiteSyncV3Orchestrator::class);
+    }
+
+    private function flags(): SiteSyncFeatureFlags
+    {
+        return app(SiteSyncFeatureFlags::class);
+    }
+
+    private function isV3Run(int $runId): bool
+    {
+        $run = SeoSiteSyncRun::query()->find($runId);
+        if ($run === null) {
+            return false;
+        }
+
+        return (int) ($run->protocol_version ?? 2) === SiteSyncV3Schema::PROTOCOL;
     }
 
     private function reconciliation(): SiteSyncReconciliationService
@@ -127,13 +152,19 @@ final class SiteSyncCommandHandler implements ContentProjectCommandHandler
                 'triggered_by' => $actor->actorId,
             ]),
             $command instanceof ResumeSiteSyncCommand => $this->mapOrchestrator(
-                $this->orchestrator()->resume($command->runId)
+                $this->isV3Run($command->runId)
+                    ? $this->orchestratorV3()->resume($command->runId)
+                    : $this->orchestrator()->resume($command->runId)
             ),
             $command instanceof RetrySiteSyncStepCommand => $this->mapOrchestrator(
-                $this->orchestrator()->retryStep($command->runId, $command->stepKey)
+                $this->isV3Run($command->runId)
+                    ? $this->orchestratorV3()->resume($command->runId)
+                    : $this->orchestrator()->retryStep($command->runId, $command->stepKey)
             ),
             $command instanceof CancelSiteSyncCommand => $this->mapOrchestrator(
-                $this->orchestrator()->cancel($command->runId)
+                $this->isV3Run($command->runId)
+                    ? $this->orchestratorV3()->cancel($command->runId)
+                    : $this->orchestrator()->cancel($command->runId)
             ),
             $command instanceof ReconcileSiteSyncCommand => $this->reconcile($command),
             $command instanceof RequeueSiteSyncInboundEventCommand => $this->requeue($command),
@@ -390,6 +421,10 @@ final class SiteSyncCommandHandler implements ContentProjectCommandHandler
         $site = Site::query()->find($siteId);
         if ($site === null) {
             return ContentProjectActionResult::fail('site.not_found', 'Site not found.');
+        }
+
+        if ($this->flags()->protocolV3Enabled()) {
+            return $this->mapOrchestrator(app(SiteSyncProtocolRouter::class)->start($site, $options));
         }
 
         return $this->mapOrchestrator($this->orchestrator()->start($site, $options));

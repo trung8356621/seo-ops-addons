@@ -27,6 +27,7 @@ use Omnichannel\Addons\SiteSync\Services\Application\Commands\RetryFailedSeoScor
 use Omnichannel\Addons\SiteSync\Services\Application\Commands\RunSiteSyncCommand;
 use Omnichannel\Addons\SiteSync\Services\Bootstrap\SiteSyncBootstrapService;
 use Omnichannel\Addons\SiteSync\Services\Orchestration\SiteSyncFeatureFlags;
+use Omnichannel\Addons\SiteSync\Services\Preflight\SiteSyncPreflightService;
 use Omnichannel\Addons\SiteSync\Services\Presentation\SiteSyncSourceLabelPresenter;
 use Omnichannel\Addons\SiteSync\Services\Presentation\SiteSyncStatusPresenter;
 use Omnichannel\Addons\WordPress\Services\SyncDomainContentService;
@@ -164,6 +165,13 @@ class GeneralDomain extends Page
     public ?array $siteSyncBootstrapPreview = null;
 
     public bool $siteSyncNeedsBootstrap = false;
+
+    /** @var array<string, mixed>|null */
+    public ?array $siteSyncPreflight = null;
+
+    public bool $siteSyncPreflightOpen = false;
+
+    public bool $siteSyncPreflightLoading = false;
 
     public string $wpPluginPhase = 'idle';
 
@@ -303,6 +311,46 @@ class GeneralDomain extends Page
             $this->siteSyncV2StatusMessage = 'Site Sync V2 lỗi: '.$e->getMessage();
             $this->siteSyncV2Warnings = ['status_refresh_failed'];
         }
+    }
+
+    public function openSiteSyncPreflight(): void
+    {
+        @set_time_limit(60);
+        $this->siteSyncPreflightLoading = true;
+        $this->siteSyncPreflight = null;
+
+        try {
+            $this->siteSyncPreflight = app(SiteSyncPreflightService::class)
+                ->evaluate($this->getRecord());
+            $this->siteSyncPreflightOpen = true;
+        } catch (\Throwable $e) {
+            \App\Support\RuntimeLogger::report($e, [
+                'endpoint' => 'domain.site_sync_preflight',
+                'site_id' => (int) $this->getRecord()->getKey(),
+            ]);
+            $this->notifySiteSyncResult('Site Health / Sync preflight lỗi', $e->getMessage(), false);
+        } finally {
+            $this->siteSyncPreflightLoading = false;
+        }
+    }
+
+    public function closeSiteSyncPreflight(): void
+    {
+        $this->siteSyncPreflightOpen = false;
+    }
+
+    public function confirmSiteSyncPreflightNormal(): void
+    {
+        $this->siteSyncForceFull = false;
+        $this->siteSyncPreflightOpen = false;
+        $this->runSiteSyncV2Action();
+    }
+
+    public function confirmSiteSyncPreflightFull(): void
+    {
+        $this->siteSyncForceFull = true;
+        $this->siteSyncPreflightOpen = false;
+        $this->runForceFullSiteSyncAction();
     }
 
     public function runSiteSyncV2Action(): void

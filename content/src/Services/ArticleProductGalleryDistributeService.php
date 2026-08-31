@@ -41,10 +41,6 @@ final class ArticleProductGalleryDistributeService
         } catch (\Throwable) {
             // best-effort
         }
-        $article->articleMetas()->updateOrCreate(
-            ['meta_key' => 'wp_post_content'],
-            ['meta_value' => $result['html']],
-        );
 
         return $result['inserted'];
     }

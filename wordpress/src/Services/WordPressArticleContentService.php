@@ -27,49 +27,83 @@ class WordPressArticleContentService
         private readonly ArticleContentSslUrlNormalizer $sslUrlNormalizer,
     ) {}
 
-    public function resolveEditorHtml(SeoArticle $article): string
+    /**
+     * Resolve HTML for Article Editor.
+     *
+     * body non-null → local unsynced content (canonical for edit).
+     * body null + WP-backed → temporary WP cache (TTL) or fresh WP fetch into cache.
+     * Never materializes WP HTML into articles.body on open/view.
+     *
+     * @return array{html: string, source: 'body'|'wp_cache'|'wp_fetch'|'empty', fetched: bool}
+     */
+    public function resolveEditorHtmlDetailed(SeoArticle $article): array
     {
-        $article->loadMissing('site');
+        $article->loadMissing(['site', 'wordpressLink']);
 
         $body = trim((string) ($article->body ?? ''));
         if ($body !== '') {
-            return $this->normalizeEditorHtmlForSite($body, $article->site);
+            return [
+                'html' => $this->normalizeEditorHtmlForSite($body, $article->site),
+                'source' => 'body',
+                'fetched' => false,
+            ];
         }
 
-        $cached = trim((string) $this->getMeta($article, 'wp_post_content', ''));
+        if ((int) ($article->wordpressLink?->wp_post_id ?? 0) <= 0) {
+            return ['html' => '', 'source' => 'empty', 'fetched' => false];
+        }
 
-        // With no local body, WordPress remains the content source until the next local save.
-        if ((int) ($article->wordpressLink?->wp_post_id ?? 0) > 0) {
-            $remote = $this->fetchFromWordPress($article, importFaqs: false);
-            $scoring = is_array($remote['scoring'] ?? null) ? $remote['scoring'] : [];
-            $prepared = app(ArticlePostImagesService::class)->prepareEditorHtmlFromWordPressSources(
-                $article,
-                trim((string) ($remote['post_content'] ?? '')),
-                trim((string) ($scoring['body'] ?? '')),
-                is_array($remote['post_images'] ?? null) ? $remote['post_images'] : [],
-            );
-            if ($prepared !== '') {
-                $article->articleMetas()->updateOrCreate(
-                    ['meta_key' => 'wp_post_content'],
-                    ['meta_value' => $prepared],
-                );
-                app(ArticleFaqWordPressRestoreService::class)->persistWordPressSourceSnapshot($article, $prepared);
-
-                return $this->normalizeEditorHtmlForSite($prepared, $article->site);
+        $cache = app(ArticleWpContentCacheService::class);
+        $cached = $cache->findValid($article);
+        if ($cached !== null) {
+            $html = trim((string) $cached->rendered_html);
+            if ($html !== '') {
+                return [
+                    'html' => $this->normalizeEditorHtmlForSite($html, $article->site),
+                    'source' => 'wp_cache',
+                    'fetched' => false,
+                ];
             }
         }
 
-        // Danh mục (product_cat / category): chỉ tin cache của chính term (wp_is_term = 1).
-        // Tránh hiển thị nhầm nội dung post WP trùng term_id (vd. JSON font family).
-        if ($this->isTaxonomyRecord($article)) {
-            return $this->normalizeEditorHtmlForSite($cached, $article->site);
+        $remote = $this->fetchFromWordPress($article, importFaqs: false);
+        $scoring = is_array($remote['scoring'] ?? null) ? $remote['scoring'] : [];
+        $prepared = app(ArticlePostImagesService::class)->prepareEditorHtmlFromWordPressSources(
+            $article,
+            trim((string) ($remote['post_content'] ?? '')),
+            trim((string) ($scoring['body'] ?? '')),
+            is_array($remote['post_images'] ?? null) ? $remote['post_images'] : [],
+        );
+        if ($prepared === '') {
+            return ['html' => '', 'source' => 'empty', 'fetched' => true];
         }
 
-        if ($cached !== '') {
-            return $this->normalizeEditorHtmlForSite($cached, $article->site);
-        }
+        $modified = trim((string) ($remote['post_modified'] ?? $remote['modified_gmt'] ?? ''));
+        $revisionId = isset($remote['revision_id']) ? (int) $remote['revision_id'] : null;
+        $cache->put(
+            $article,
+            $prepared,
+            [
+                'post_content' => $remote['post_content'] ?? null,
+                'scoring_body' => $scoring['body'] ?? null,
+                'permalink' => $remote['permalink'] ?? null,
+                'slug' => $remote['slug'] ?? null,
+                'status' => $remote['status'] ?? null,
+            ],
+            $modified !== '' ? $modified : null,
+            $revisionId > 0 ? $revisionId : null,
+        );
 
-        return '';
+        return [
+            'html' => $this->normalizeEditorHtmlForSite($prepared, $article->site),
+            'source' => 'wp_fetch',
+            'fetched' => true,
+        ];
+    }
+
+    public function resolveEditorHtml(SeoArticle $article): string
+    {
+        return $this->resolveEditorHtmlDetailed($article)['html'];
     }
 
     private function normalizeEditorHtmlForSite(string $html, mixed $site): string
@@ -519,19 +553,6 @@ class WordPressArticleContentService
             if ($updates !== []) {
                 $article->update($updates);
             }
-        }
-
-        if (array_key_exists('post_content', $post)) {
-            $rawContent = (string) $post['post_content'];
-            // Prefer typed body when empty; keep wp_post_content cache for COMPAT readers one release.
-            if (trim((string) ($article->body ?? '')) === '' && trim($rawContent) !== '') {
-                $article->articleMetas()->updateOrCreate(
-                    ['meta_key' => 'wp_post_content'],
-                    ['meta_value' => $rawContent],
-                );
-            }
-
-            app(ArticleFaqWordPressRestoreService::class)->persistWordPressSourceSnapshot($article, $rawContent);
         }
 
         if (filled($post['slug'] ?? null)) {

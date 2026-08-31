@@ -232,12 +232,20 @@ final class ArticleMetaKeyCatalog
 
             // Content / sync
             'wp_post_content' => [
-                'purpose' => 'Cached WP/HTML body when articles.body empty (COMPAT one release)',
-                'class' => self::CLASS_CACHE,
-                'cleanup' => false,
+                'purpose' => 'DELETED — legacy WP/HTML body cache; canonical is articles.body',
+                'class' => self::CLASS_LEGACY,
+                'cleanup' => true,
                 'canonical_replacement' => 'articles.body',
-                'writers' => ['WordPressArticleContentService', 'SyncDomainContentService'],
-                'readers' => ['SeoAnalyzerService', 'ArticleEditorPersistService', 'WordPressArticleContentService'],
+                'writers' => [],
+                'readers' => [],
+            ],
+            'wp_post_content_source' => [
+                'purpose' => 'DELETED — legacy FAQ restore snapshot; use WP fetch / articles.body',
+                'class' => self::CLASS_LEGACY,
+                'cleanup' => true,
+                'canonical_replacement' => 'articles.body',
+                'writers' => [],
+                'readers' => [],
             ],
             'content_type' => [
                 'purpose' => 'Canonical Article classification: post|page|product only',

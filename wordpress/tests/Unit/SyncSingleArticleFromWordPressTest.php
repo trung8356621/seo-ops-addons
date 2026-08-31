@@ -119,12 +119,9 @@ final class SyncSingleArticleFromWordPressTest extends TestCase
         $this->assertFalse($flags->hasLocalEditPending($article));
         $this->assertFalse($flags->hasDataOutOfSync($article));
 
-        $contentMeta = $article->articleMetas()->where('meta_key', 'wp_post_content')->value('meta_value');
-        $this->assertStringContainsString('Fresh from WordPress', (string) $contentMeta);
-        $this->assertStringContainsString('<img', (string) $contentMeta);
-        $this->assertStringContainsString('example-sync.test/a.jpg', (string) $contentMeta);
-        $this->assertStringNotContainsString('font-claude-response-body', (string) $contentMeta);
-        $this->assertStringNotContainsString('&#x1EA3;', (string) $contentMeta);
+        $this->assertNull(
+            $article->articleMetas()->where('meta_key', 'wp_post_content')->value('meta_value'),
+        );
         $this->assertNull($article->body);
 
         $auditRaw = $article->articleMetas()

@@ -1465,18 +1465,7 @@ class SyncDomainContentService
         }
 
         if ($forceOverwrite) {
-            // FAQ import có thể ghi body; giữ body null — editor đọc wp_post_content đã chuẩn hóa.
-            $preparedMeta = trim((string) (
-                $article->articleMetas()->where('meta_key', 'wp_post_content')->value('meta_value') ?? ''
-            ));
-            if ($preparedMeta === '' && filled($item['post_content'] ?? null)) {
-                $preparedMeta = trim((string) $item['post_content']);
-                $article->articleMetas()->updateOrCreate(
-                    ['meta_key' => 'wp_post_content'],
-                    ['meta_value' => $preparedMeta],
-                );
-            }
-
+            // Body null is valid for WP-synced articles until editor opens (explicit WP fetch).
             $article->update([
                 'body' => null,
                 'blocks' => null,
@@ -1549,17 +1538,17 @@ class SyncDomainContentService
         bool $forceOverwrite = false,
     ): void {
         $content = $this->resolveSyncItemContent($item);
-        $shouldPersistBody = $forceOverwrite || $isTaxonomy;
+        $shouldExtractToc = ($forceOverwrite || $isTaxonomy) && $content !== '';
 
-        if ($shouldPersistBody && ($forceOverwrite || $isTaxonomy || $content !== '')) {
-            $article->articleMetas()->updateOrCreate(
-                ['meta_key' => 'wp_post_content'],
-                ['meta_value' => $content],
-            );
-
-            app(ArticleFaqWordPressRestoreService::class)->persistWordPressSourceSnapshot($article, $content);
-            if ($content !== '') {
-                $this->extractTocAfterWordPressContentSync($article);
+        if ($shouldExtractToc) {
+            // Pass sync HTML directly — body may stay null; do not cache in article_meta.
+            try {
+                $this->tocExtraction->extractAndStore((int) $article->id, $content);
+            } catch (Throwable $e) {
+                Log::warning('TOC extraction failed after WordPress content sync', [
+                    'article_id' => $article->id,
+                    'error' => $e->getMessage(),
+                ]);
             }
         }
 
@@ -1804,18 +1793,6 @@ class SyncDomainContentService
                 ['meta_key' => $metaKey],
                 ['meta_value' => $metaValue],
             );
-        }
-    }
-
-    private function extractTocAfterWordPressContentSync(SeoArticle $article): void
-    {
-        try {
-            $this->tocExtraction->extractForArticle($article);
-        } catch (Throwable $e) {
-            Log::warning('TOC extraction failed after WordPress content sync', [
-                'article_id' => $article->id,
-                'error' => $e->getMessage(),
-            ]);
         }
     }
 

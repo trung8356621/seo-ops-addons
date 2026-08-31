@@ -4,7 +4,7 @@
     $stuck = (bool) ($siteSyncV2Stuck ?? false);
     $retryLabel = $siteSyncV2RetryLabel ?? null;
     $retrying = filled($retryLabel);
-    $failed = $status === 'failed';
+    $failed = in_array($status, ['failed', 'needs_attention'], true);
     $completed = in_array($status, ['completed', 'completed_with_warnings'], true);
     $canceled = in_array($status, ['canceled', 'cancelled'], true);
     $stopping = (bool) ($siteSyncV2Stopping ?? false);

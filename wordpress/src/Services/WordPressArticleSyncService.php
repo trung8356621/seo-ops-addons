@@ -974,6 +974,8 @@ final class WordPressArticleSyncService
         $deferFinalizeMedia = (bool) ($syncOptions['defer_finalize_media'] ?? false);
         $skipFeaturedMediaPush = (bool) ($syncOptions['skip_featured_media_push'] ?? false);
         $postContent = (string) ($prepared['post_content'] ?? '');
+        $hadLocalUnsyncedBody = trim((string) ($article->body ?? '')) !== '';
+        $editorSyncSkipped = (bool) ($prepared['skip_editor_sync'] ?? false);
         $faqs = is_array($prepared['faqs'] ?? null) ? $prepared['faqs'] : [];
         $faqExtractDebug = $prepared['faq_extract_debug'] ?? null;
         $wpTaxonomy = $prepared['wp_taxonomy'] ?? null;
@@ -1018,7 +1020,6 @@ final class WordPressArticleSyncService
             app(ArticlePendingInternalLinkService::class)->resolveForMainArticle($article->fresh());
         }
 
-        $this->storeWpPostContentMeta($article, $postContent);
         if ($postContent !== '' && trim((string) ($article->body ?? '')) !== $postContent) {
             try {
                 app(\Omnichannel\Addons\Content\Services\ArticleEditor\Document\ArticleEditorDocumentWriter::class)
@@ -1089,7 +1090,6 @@ final class WordPressArticleSyncService
                         $articleFresh->update(['body' => $updatedBody]);
                     }
                     $postContent = $localMediaSync->replaceUrlsInHtml($postContent, $webpUrlMap);
-                    $this->storeWpPostContentMeta($articleFresh, $postContent);
                 }
 
                 app(ArticleMediaLocalService::class)->applyWordPressUrlMap($articleFresh, $webpUrlMap);
@@ -1161,14 +1161,26 @@ final class WordPressArticleSyncService
             $stepDetails[] = 'media_synced='.count($syncedLocalMediaIds);
         }
 
-        if ($wpTaxonomy === null) {
+        if ($wpTaxonomy === null && ! $editorSyncSkipped && ($hadLocalUnsyncedBody || trim($postContent) !== '')) {
+            // Remember hash of pushed content BEFORE clearing body.
+            $publishedHash = hash('sha256', trim($postContent !== '' ? $postContent : (string) ($article->body ?? '')));
             $article->update(['body' => null]);
+            app(ArticleWpContentCacheService::class)->forget($article);
+            app(ArticleWordPressSyncFlagService::class)->clearAll($article);
+            app(ArticleWordPressSyncFlagService::class)->rememberPublishedContentHash(
+                $article->fresh() ?? $article,
+                $publishedHash,
+            );
+        } elseif ($wpTaxonomy === null) {
+            // No local unsynced body / editor-sync skipped — keep temporary WP cache for editor reopen.
+            app(ArticleWordPressSyncFlagService::class)->clearAll($article);
+        } else {
+            app(ArticleWordPressSyncFlagService::class)->clearAll($article);
+            app(ArticleWordPressSyncFlagService::class)->rememberPublishedContentHash(
+                $article->fresh() ?? $article,
+                hash('sha256', trim((string) (($article->fresh() ?? $article)->body ?? $postContent ?? ''))),
+            );
         }
-        app(ArticleWordPressSyncFlagService::class)->clearAll($article);
-        app(ArticleWordPressSyncFlagService::class)->rememberPublishedContentHash(
-            $article->fresh() ?? $article,
-            hash('sha256', trim((string) (($article->fresh() ?? $article)->body ?? $postContent ?? ''))),
-        );
         app(WordPressFieldConflictService::class)->rememberSuccessfulSync(
             $article->fresh() ?? $article,
             $decoded,
@@ -1299,11 +1311,6 @@ final class WordPressArticleSyncService
     private function hydratePostImagesCatalogAfterSync(SeoArticle $article, string $postContent): void
     {
         $html = trim($postContent);
-        if ($html === '') {
-            $article->loadMissing('articleMetas');
-            $html = trim((string) ($article->articleMetas
-                ->firstWhere('meta_key', 'wp_post_content')?->meta_value ?? ''));
-        }
         if ($html === '') {
             $html = trim((string) ($article->body ?? ''));
         }
@@ -1526,6 +1533,17 @@ final class WordPressArticleSyncService
             ? ['skip' => false, 'reason' => 'force_editor_sync']
             : $this->shouldSkipEditorSyncRequest($article, $prepared);
 
+        // Even force paths must not push empty content when Laravel has no local unsynced body.
+        $article->loadMissing('wordpressLink');
+        if (
+            ! $skipCheck['skip']
+            && (int) ($article->wordpressLink?->wp_post_id ?? 0) > 0
+            && trim((string) ($article->body ?? '')) === ''
+            && ! (bool) ($syncOptions['force_content_push'] ?? false)
+        ) {
+            $skipCheck = ['skip' => true, 'reason' => 'no_local_unsynced_body'];
+        }
+
         return [
             ...$prepared,
             'skip_editor_sync' => $skipCheck['skip'],
@@ -1634,13 +1652,19 @@ final class WordPressArticleSyncService
             return ['skip' => false, 'reason' => 'missing_wp_post_id'];
         }
 
+        // WP-backed + no local unsynced body → do not push empty/cache content back to WP.
+        $localBody = trim((string) ($article->body ?? ''));
+        if ($localBody === '' && ! (bool) ($prepared['force_content_push'] ?? false)) {
+            return ['skip' => true, 'reason' => 'no_local_unsynced_body'];
+        }
+
         $payloadStatus = strtolower(trim((string) (
             is_array($prepared['request_payload'] ?? null)
                 ? ($prepared['request_payload']['status'] ?? '')
                 : ''
         )));
         // Luôn đẩy publish/private lên WP — đè draft cũ, không skip theo fingerprint.
-        if (in_array($payloadStatus, ['publish', 'private'], true)) {
+        if (in_array($payloadStatus, ['publish', 'private'], true) && $localBody !== '') {
             return ['skip' => false, 'reason' => 'force_status_override'];
         }
 
@@ -1666,16 +1690,15 @@ final class WordPressArticleSyncService
             return ['skip' => true, 'reason' => 'fingerprint_match'];
         }
 
-        $cachedContent = trim((string) ($article->articleMetas
-            ->firstWhere('meta_key', 'wp_post_content')?->meta_value ?? ''));
+        $bodyContent = trim((string) ($article->body ?? ''));
         $preparedContent = trim((string) ($prepared['post_content'] ?? ''));
 
         if (
             $storedFingerprint === ''
-            && $cachedContent !== ''
-            && $this->normalizeEditorSyncContent($cachedContent) === $this->normalizeEditorSyncContent($preparedContent)
+            && $bodyContent !== ''
+            && $this->normalizeEditorSyncContent($bodyContent) === $this->normalizeEditorSyncContent($preparedContent)
         ) {
-            return ['skip' => true, 'reason' => 'wp_post_content_match'];
+            return ['skip' => true, 'reason' => 'body_content_match'];
         }
 
         return ['skip' => false, 'reason' => 'payload_changed'];
@@ -1990,18 +2013,6 @@ final class WordPressArticleSyncService
             ->copy()
             ->timezone(\Omnichannel\Addons\Seo\Support\SeoDisplayTimezone::name())
             ->format('Y-m-d H:i:s');
-    }
-
-    private function storeWpPostContentMeta(SeoArticle $article, string $html): void
-    {
-        if ($html === '') {
-            return;
-        }
-
-        $article->articleMetas()->updateOrCreate(
-            ['meta_key' => 'wp_post_content'],
-            ['meta_value' => $html],
-        );
     }
 
     /**

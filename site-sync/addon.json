@@ -8,6 +8,7 @@
     "legacy":  false,
     "provides":  [
                      "site-sync.v2",
+                     "site-sync.v3",
                      "site-sync.link-catalog"
                  ],
     "requires":  [

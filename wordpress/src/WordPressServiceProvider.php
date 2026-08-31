@@ -25,7 +25,11 @@ final class WordPressServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        // Routes/migrations attach as extraction progresses.
+        if ($this->app->runningInConsole()) {
+            $this->commands([
+                \Omnichannel\Addons\WordPress\Console\PurgeExpiredArticleWpContentCacheCommand::class,
+            ]);
+        }
     }
 
     private function registerCapabilities(): void

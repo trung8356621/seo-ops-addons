@@ -220,15 +220,6 @@ final class KeywordDomainResyncService
 
     private function resolveArticleContent(SeoArticle $article): string
     {
-        $body = trim((string) ($article->body ?? ''));
-        if ($body !== '') {
-            return $body;
-        }
-
-        $meta = $article->articleMetas()
-            ->where('meta_key', 'wp_post_content')
-            ->value('meta_value');
-
-        return is_string($meta) ? trim($meta) : '';
+        return trim((string) ($article->body ?? ''));
     }
 }

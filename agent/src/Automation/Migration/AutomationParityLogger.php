@@ -12,7 +12,7 @@ final class AutomationParityLogger
 {
     /** @var list<string> */
     private const STRIP_KEYS = [
-        'body', 'content', 'html', 'article_body', 'wp_post_content',
+        'body', 'content', 'html', 'article_body',
         'password', 'token', 'api_token', 'authorization', 'secret',
         'rewrite_notes', 'prompt', 'raw_payload',
     ];

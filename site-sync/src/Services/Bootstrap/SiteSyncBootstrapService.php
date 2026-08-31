@@ -9,7 +9,9 @@ use Omnichannel\Addons\SiteSync\Models\SeoSiteSyncRun;
 use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncSchema;
 use Omnichannel\Addons\SiteSync\Services\Inbound\WordPressSiteSyncClient;
 use Omnichannel\Addons\SiteSync\Services\Orchestration\RunSiteSyncOrchestrator;
+use Omnichannel\Addons\SiteSync\Services\Orchestration\RunSiteSyncV3Orchestrator;
 use Omnichannel\Addons\SiteSync\Services\Orchestration\SiteSyncFeatureFlags;
+use Omnichannel\Addons\SiteSync\Services\Orchestration\SiteSyncProtocolRouter;
 use Omnichannel\Addons\SiteSync\Services\Presentation\SiteSyncSourceLabelPresenter;
 use Omnichannel\Addons\SiteSync\Services\Support\SiteSyncInfrastructure;
 use Omnichannel\Addons\SiteSync\Services\Support\SiteSyncSiteMeta;
@@ -150,8 +152,8 @@ final class SiteSyncBootstrapService
      */
     public function start(Site $site, array $options = []): array
     {
-        if (! $this->flags->orchestratorEnabled()) {
-            return ['success' => false, 'message' => 'Site Sync V2 disabled.'];
+        if (! $this->flags->orchestratorEnabled() && ! $this->flags->protocolV3Enabled()) {
+            return ['success' => false, 'message' => 'Site Sync disabled.'];
         }
 
         $preview = $this->preview($site);
@@ -163,21 +165,39 @@ final class SiteSyncBootstrapService
             ];
         }
 
-        $result = app(RunSiteSyncOrchestrator::class)->start($site, [
-            'mode' => SiteSyncSchema::MODE_SNAPSHOT,
-            'force_snapshot' => true,
-            'trigger_source' => (string) ($options['trigger_source'] ?? 'bootstrap'),
-            'triggered_by' => $options['triggered_by'] ?? null,
-            'sync' => (bool) ($options['sync'] ?? false),
-            'meta' => [
-                'bootstrap' => true,
-                'preview' => [
-                    'articles_remote' => $preview['articles_remote'],
-                    'estimated_batches' => $preview['estimated_batches'],
-                    'provider' => $preview['provider'],
+        if ($this->flags->protocolV3Enabled() && app(SiteSyncProtocolRouter::class)->shouldUseV3($site)) {
+            $result = app(RunSiteSyncV3Orchestrator::class)->start($site, [
+                'mode' => SiteSyncSchema::MODE_FORCE_FULL,
+                'force_full' => true,
+                'trigger_source' => (string) ($options['trigger_source'] ?? 'bootstrap'),
+                'triggered_by' => $options['triggered_by'] ?? null,
+                'sync' => (bool) ($options['sync'] ?? false),
+                'meta' => [
+                    'bootstrap' => true,
+                    'preview' => [
+                        'articles_remote' => $preview['articles_remote'],
+                        'estimated_batches' => $preview['estimated_batches'],
+                        'provider' => $preview['provider'],
+                    ],
                 ],
-            ],
-        ]);
+            ]);
+        } else {
+            $result = app(RunSiteSyncOrchestrator::class)->start($site, [
+                'mode' => SiteSyncSchema::MODE_SNAPSHOT,
+                'force_snapshot' => true,
+                'trigger_source' => (string) ($options['trigger_source'] ?? 'bootstrap'),
+                'triggered_by' => $options['triggered_by'] ?? null,
+                'sync' => (bool) ($options['sync'] ?? false),
+                'meta' => [
+                    'bootstrap' => true,
+                    'preview' => [
+                        'articles_remote' => $preview['articles_remote'],
+                        'estimated_batches' => $preview['estimated_batches'],
+                        'provider' => $preview['provider'],
+                    ],
+                ],
+            ]);
+        }
 
         if ($result['success'] ?? false) {
             // Stamp empty until finalize succeeds — needsBootstrap still true until markBootstrapped.

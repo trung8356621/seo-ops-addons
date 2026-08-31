@@ -35,11 +35,16 @@
         @foreach ($sections as $sectionKey => $section)
             @php
                 $ok = (bool) ($section['ok'] ?? false);
+                $dataSeverity = $sectionKey === 'seo_ops_data'
+                    ? (string) (($section['payload']['severity'] ?? ($ok ? 'green' : 'yellow')))
+                    : '';
                 $tone = match (true) {
                     $sectionKey === 'site_sync' && $syncFailed => 'failed',
                     $sectionKey === 'site_sync' && $syncStuck => 'stale',
                     $sectionKey === 'site_sync' && $syncRunning => 'running',
                     $sectionKey === 'wordpress' && ! $ok => 'failed',
+                    $sectionKey === 'seo_ops_data' && $dataSeverity === 'red' => 'failed',
+                    $sectionKey === 'seo_ops_data' && $dataSeverity === 'yellow' => 'stale',
                     $ok => 'healthy',
                     default => 'stale',
                 };

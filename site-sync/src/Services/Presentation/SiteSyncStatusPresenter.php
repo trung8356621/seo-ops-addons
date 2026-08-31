@@ -13,6 +13,7 @@ use Omnichannel\Addons\SiteSync\Models\SeoSiteSyncInboundEvent;
 use Omnichannel\Addons\SiteSync\Models\SeoSiteSyncRun;
 use Omnichannel\Addons\SiteSync\Services\Capability\SiteCapabilityResolver;
 use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncSchema;
+use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncV3Schema;
 use Omnichannel\Addons\SiteSync\Services\Orchestration\SiteSyncCutoverReadinessService;
 use Omnichannel\Addons\SiteSync\Services\Orchestration\SiteSyncFeatureFlags;
 use Omnichannel\Addons\SiteSync\Services\Orchestration\SiteSyncRunExecution;
@@ -113,6 +114,18 @@ final class SiteSyncStatusPresenter
                 'cutover' => $this->safeCutover($site),
                 'last_synced_at' => null,
             ];
+        }
+
+        if ((int) ($run->protocol_version ?? 2) === SiteSyncV3Schema::PROTOCOL) {
+            return $this->buildForV3Run(
+                $site,
+                $run,
+                $articleCount,
+                $wpLinks,
+                $manualLinks,
+                $sources,
+                $deadLetters,
+            );
         }
 
         $steps = $run->steps()->orderBy('step_order')->get();
@@ -239,6 +252,183 @@ final class SiteSyncStatusPresenter
             'last_synced_at' => SystemDateTime::formatDateTime($run->finished_at ?? $run->updated_at),
             'stopping' => $this->isStoppingAfterCancel($runStatus, $meta),
         ];
+    }
+
+    /**
+     * V3 protocol progress — phase labels, no 7-step V2 timeline.
+     *
+     * @param  array<string, mixed>  $sources
+     * @return array<string, mixed>
+     */
+    private function buildForV3Run(
+        Site $site,
+        SeoSiteSyncRun $run,
+        int $articleCount,
+        int $wpLinks,
+        int $manualLinks,
+        array $sources,
+        int $deadLetters,
+    ): array {
+        $counters = is_array($run->counters) ? $run->counters : [];
+        $warnings = is_array($run->warnings) ? $run->warnings : [];
+        if ($deadLetters > 0) {
+            $warnings[] = "{$deadLetters} sự kiện callback lỗi cần xử lý";
+        }
+
+        $meta = is_array($run->meta) ? $run->meta : [];
+        $runStatus = (string) $run->status;
+        $currentStep = (string) ($run->current_step ?? SiteSyncV3Schema::PHASE_DISCOVER);
+        $forceFull = (string) $run->mode === SiteSyncV3Schema::MODE_FORCE_FULL
+            || (bool) ($meta['force_full'] ?? false);
+        $errorMessage = trim((string) ($run->error_message ?? ''));
+        $lastProgressAt = (string) ($meta['last_progress_at'] ?? optional($run->updated_at)?->toIso8601String() ?? '');
+        $fetched = (int) ($counters['fetched'] ?? 0);
+        $expectedTotal = (int) ($meta['initial_expected_total'] ?? 0);
+        $jobNumber = (int) ($meta['job_number'] ?? 0);
+        $retryCount = (int) ($meta['retry_count'] ?? 0);
+
+        $phaseLabel = SiteSyncStepCatalog::v3Label($currentStep);
+        if ($jobNumber > 0 && in_array($runStatus, ['pending', 'running'], true)) {
+            $phaseLabel .= ' · Đợt '.$jobNumber;
+        }
+
+        $stuck = $this->isRunStuck($runStatus, $lastProgressAt, $meta);
+        if ($stuck) {
+            $warnings[] = 'Tác vụ có vẻ không có tiến triển';
+        }
+
+        $isTerminal = in_array($runStatus, ['completed', 'completed_with_warnings', 'canceled', 'cancelled'], true);
+        $isActive = in_array($runStatus, ['pending', 'running'], true);
+        $startedAt = optional($run->started_at)?->toIso8601String();
+        $elapsedLabel = SiteSyncProgressCopy::elapsedLabel($startedAt);
+        $lastActivityLabel = SiteSyncProgressCopy::lastActivityLabel($lastProgressAt);
+        $retryLabel = $retryCount > 0
+            ? SiteSyncProgressCopy::retryLabel($retryCount + 1, 3)
+            : null;
+
+        $stepTimeline = SiteSyncStepCatalog::v3Timeline($currentStep, $runStatus);
+        $progress = $fetched;
+        $progressTotal = $expectedTotal > 0 ? $expectedTotal : max(1, SiteSyncStepCatalog::v3TotalSteps());
+        $percentage = $expectedTotal > 0
+            ? (int) min(100, max(0, (int) round(($fetched / $expectedTotal) * 100)))
+            : null;
+
+        $scoringProgress = $this->safeScoringProgress((int) $site->id);
+        $scoringContext = $this->scoringContextMessage(
+            $runStatus,
+            $currentStep,
+            $scoringProgress,
+            $counters,
+            $stuck,
+        );
+
+        $headline = $stuck
+            ? 'Tác vụ có vẻ không có tiến triển'
+            : $this->buildV3Message($runStatus, $phaseLabel, $fetched, $expectedTotal, $errorMessage, $elapsedLabel, $warnings);
+
+        return [
+            'running' => $isActive && ! $stuck,
+            'stuck' => $stuck,
+            'resumable' => ($runStatus === 'needs_attention' && (bool) $run->resumable)
+                || ($runStatus === 'failed' && (bool) $run->resumable)
+                || $stuck,
+            'cancellable' => ! $isTerminal && in_array($runStatus, ['pending', 'running', 'failed', 'needs_attention'], true),
+            'status' => $stuck ? 'stuck' : $runStatus,
+            'protocol_version' => SiteSyncV3Schema::PROTOCOL,
+            'mode' => (string) $run->mode,
+            'mode_label' => $forceFull ? 'Đồng bộ lại toàn bộ website' : null,
+            'error_message' => $errorMessage !== '' ? $errorMessage : null,
+            'message' => $headline,
+            'scoring_context' => $scoringContext,
+            'scoring_progress' => $scoringProgress,
+            'progress' => $progress,
+            'total' => $progressTotal,
+            'percentage' => $percentage,
+            'phase' => $currentStep,
+            'phase_label' => $phaseLabel,
+            'public_ref' => (string) $run->public_ref,
+            'run_id' => (int) $run->id,
+            'last_progress_at' => $lastProgressAt !== ''
+                ? (SystemDateTime::formatDateTime($lastProgressAt) ?? $lastProgressAt)
+                : null,
+            'last_activity_label' => $lastActivityLabel,
+            'elapsed_label' => $elapsedLabel,
+            'retry_label' => $retryLabel,
+            'started_at' => $startedAt,
+            'last_activity_at' => $lastProgressAt !== '' ? $lastProgressAt : null,
+            'task_progress' => [
+                'current' => $fetched,
+                'total' => $expectedTotal > 0 ? $expectedTotal : null,
+                'phase' => $currentStep,
+                'step' => SiteSyncStepCatalog::v3Order($currentStep),
+                'total_steps' => SiteSyncStepCatalog::v3TotalSteps(),
+                'status' => $runStatus,
+            ],
+            // V3 phase timeline only — never the frozen 7 V2 steps.
+            'steps' => $stepTimeline,
+            'substeps' => [],
+            'counters' => array_merge($counters, [
+                'checked' => $fetched,
+                'total_to_check' => $expectedTotal,
+                'job_number' => $jobNumber,
+            ]),
+            'warnings' => array_values(array_unique($warnings)),
+            'capability_sources' => $sources,
+            'summary_cards' => [
+                'articles' => $articleCount,
+                'wordpress_links' => $wpLinks,
+                'manual_links' => $manualLinks,
+            ],
+            'cutover' => $this->safeCutover($site),
+            'last_synced_at' => SystemDateTime::formatDateTime($run->finished_at ?? $run->updated_at),
+            'stopping' => $this->isStoppingAfterCancel($runStatus, $meta),
+        ];
+    }
+
+    /**
+     * @param  list<string>  $warnings
+     */
+    private function buildV3Message(
+        string $status,
+        string $phaseLabel,
+        int $fetched,
+        int $expectedTotal,
+        string $errorMessage,
+        ?string $elapsedLabel,
+        array $warnings,
+    ): string {
+        if ($status === 'needs_attention' || $status === 'failed') {
+            $detail = $errorMessage !== '' ? $errorMessage : 'Cần xử lý.';
+
+            return 'Đồng bộ cần xử lý · '.$phaseLabel.'. Lý do: '.$detail;
+        }
+
+        if ($status === 'running' || $status === 'pending') {
+            $counts = $expectedTotal > 0
+                ? number_format($fetched).' / '.number_format($expectedTotal)
+                : ($fetched > 0 ? number_format($fetched).' bản ghi' : '');
+
+            return trim('Đang đồng bộ website · '.$phaseLabel.($counts !== '' ? ' · '.$counts : ''));
+        }
+
+        if ($status === 'canceled' || $status === 'cancelled') {
+            return 'Đã hủy';
+        }
+
+        $msg = $status === 'completed_with_warnings'
+            ? 'Đồng bộ hoàn tất (có cảnh báo).'
+            : 'Đồng bộ hoàn tất.';
+        if ($fetched > 0) {
+            $msg .= ' · Đã tải: '.number_format($fetched);
+        }
+        if ($elapsedLabel !== null) {
+            $msg .= ' · '.$elapsedLabel;
+        }
+        if ($warnings !== []) {
+            $msg .= ' · '.count($warnings).' cảnh báo';
+        }
+
+        return $msg;
     }
 
     /**

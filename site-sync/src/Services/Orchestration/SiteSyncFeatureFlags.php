@@ -165,4 +165,20 @@ final class SiteSyncFeatureFlags
     {
         return (bool) $this->cfg('repair_enabled', true);
     }
+
+    /**
+     * Site Sync V3 protocol gate.
+     * Config: seo-content-ai.seo_architecture.site_sync_v3.enabled (default true).
+     */
+    public function protocolV3Enabled(): bool
+    {
+        if ($this->emergencyRollback()) {
+            return false;
+        }
+
+        return (bool) config(
+            'seo-content-ai.seo_architecture.site_sync_v3.enabled',
+            true,
+        );
+    }
 }

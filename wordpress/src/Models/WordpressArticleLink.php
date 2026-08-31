@@ -20,6 +20,7 @@ final class WordpressArticleLink extends Model
         'wp_post_id' => 'integer',
         'sync_job_id' => 'integer',
         'site_id' => 'integer',
+        'last_seen_sync_generation' => 'integer',
         'last_synced_at' => 'datetime',
         'external_modified_at' => 'datetime',
         'observed_modified_at' => 'datetime',

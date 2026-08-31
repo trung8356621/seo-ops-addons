@@ -52,15 +52,7 @@ final class ArticleKeywordLinkReconcileService
 
     public function resolveArticleContent(SeoArticle $article): string
     {
-        $body = trim((string) ($article->body ?? ''));
-        if ($body !== '') {
-            return $body;
-        }
-
-        $article->loadMissing('articleMetas');
-        $metaContent = trim((string) ($article->articleMetas->firstWhere('meta_key', 'wp_post_content')?->meta_value ?? ''));
-
-        return $metaContent;
+        return trim((string) ($article->body ?? ''));
     }
 
     private function refreshMainKeywordDestinationLink(SeoArticle $article): void

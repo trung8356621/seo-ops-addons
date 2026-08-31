@@ -92,11 +92,6 @@ final class ArticleEditorContentLifecycle
             return true;
         }
 
-        $metaMap = ArticleMetaMap::for($article);
-        if ($this->htmlHasMeaningfulContent((string) ($metaMap->get('wp_post_content', '') ?? ''))) {
-            return true;
-        }
-
         $document = $article->editor_document;
         if (is_array($document) && $document !== []) {
             if (app(ArticleEditorDocumentWriter::class)->isUsableBootstrapDocument(

@@ -17,6 +17,7 @@ class SeoSiteSyncRun extends Model
         'site_id',
         'public_ref',
         'mode',
+        'protocol_version',
         'status',
         'current_step',
         'cursor',

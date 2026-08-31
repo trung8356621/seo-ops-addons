@@ -118,10 +118,6 @@ final class ContentProjectPostImageService
             } catch (\Throwable) {
                 // best-effort
             }
-            $article->articleMetas()->updateOrCreate(
-                ['meta_key' => 'wp_post_content'],
-                ['meta_value' => $html],
-            );
         }
 
         return $stats;

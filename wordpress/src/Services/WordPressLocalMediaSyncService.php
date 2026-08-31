@@ -308,9 +308,6 @@ final class WordPressLocalMediaSyncService
         $urlMap = [];
 
         $html = trim((string) ($article->body ?? ''));
-        if ($html === '') {
-            $html = trim((string) ($article->articleMetas->firstWhere('meta_key', 'wp_post_content')?->meta_value ?? ''));
-        }
         $mediaIdsFromHtml = $this->extractSeoMediaIdsFromHtml($html);
 
         $rows = SeoMedia::query()

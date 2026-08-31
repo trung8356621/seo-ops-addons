@@ -459,7 +459,7 @@ final class TaskTestInputResolver
                 if ($markdown === '') {
                     throw new \InvalidArgumentException(
                         $html === ''
-                            ? 'Bài viết không có nội dung HTML để chuyển sang Markdown (kiểm tra body local, wp_post_content hoặc đồng bộ từ WordPress).'
+                            ? 'Bài viết không có nội dung HTML để chuyển sang Markdown (kiểm tra body local hoặc đồng bộ từ WordPress).'
                             : 'Bài viết không có nội dung Markdown sau khi chuyển đổi (có thể chỉ còn shortcode hoặc khối không có chữ).',
                     );
                 }

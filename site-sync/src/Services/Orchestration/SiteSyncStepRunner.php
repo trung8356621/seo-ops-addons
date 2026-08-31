@@ -162,25 +162,6 @@ final class SiteSyncStepRunner
                 $earlierStale = $earlierTouchedAt === null
                     || ! $earlierTouchedAt->greaterThan(now()->subMinutes(10));
 
-                // #region agent log
-                @file_put_contents(base_path('debug-28696e.log'), json_encode([
-                    'sessionId' => '28696e',
-                    'runId' => 'post-fix',
-                    'hypothesisId' => 'H6',
-                    'location' => 'SiteSyncStepRunner.php:runNext:earlier_inflight',
-                    'message' => $earlierDeferred || $earlierStale ? 'reclaim_stale_or_deferred_earlier' : 'block_fresh_earlier_inflight',
-                    'data' => [
-                        'run_id' => $runId,
-                        'earlier_step' => (string) $earlierInFlight->step_key,
-                        'pending_step' => (string) $pendingStep->step_key,
-                        'earlier_deferred' => $earlierDeferred,
-                        'earlier_stale' => $earlierStale,
-                        'earlier_updated_at' => $earlierTouchedAt?->toIso8601String(),
-                    ],
-                    'timestamp' => (int) round(microtime(true) * 1000),
-                ], JSON_UNESCAPED_UNICODE)."\n", FILE_APPEND);
-                // #endregion
-
                 if (! $earlierDeferred && ! $earlierStale) {
                     $this->persistClaimResult(
                         $run,
@@ -1199,25 +1180,6 @@ final class SiteSyncStepRunner
                 'total' => $batchCount,
                 'message' => "keywords {$appliedOffset}/{$batchCount}",
             ], true);
-
-            // #region agent log
-            if ($processed === 1 || $processed === SiteSyncSchema::KEYWORD_BATCHES_PER_JOB || $appliedOffset >= $batchCount) {
-                @file_put_contents(base_path('debug-28696e.log'), json_encode([
-                    'sessionId' => '28696e',
-                    'runId' => 'post-fix',
-                    'hypothesisId' => 'H7',
-                    'location' => 'SiteSyncStepRunner.php:syncProviderKeywords',
-                    'message' => 'keyword_batch_heartbeat',
-                    'data' => [
-                        'run_id' => (int) $run->id,
-                        'offset' => $appliedOffset,
-                        'batch_total' => $batchCount,
-                        'updated' => $updated,
-                    ],
-                    'timestamp' => (int) round(microtime(true) * 1000),
-                ], JSON_UNESCAPED_UNICODE)."\n", FILE_APPEND);
-            }
-            // #endregion
         }
 
         $checkpoint['keyword_batch_offset'] = $appliedOffset;

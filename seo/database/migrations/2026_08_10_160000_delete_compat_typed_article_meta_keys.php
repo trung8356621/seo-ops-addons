@@ -13,7 +13,7 @@ use Illuminate\Support\Facades\Schema;
  * Idempotent: re-run deletes 0 rows after first pass.
  *
  * Deleted: seo_scoring_details, seo_title, wp_slug, wp_post_type
- * Retained: wp_post_content (active body-cache readers/writers remain)
+ * Note: wp_post_content retained at time of this migration; later deleted separately.
  */
 return new class extends Migration
 {

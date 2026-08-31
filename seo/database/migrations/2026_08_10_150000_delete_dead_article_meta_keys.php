@@ -13,7 +13,8 @@ use Illuminate\Support\Facades\Schema;
  * Deleted keys: seo_rank_math_score, seo_extracted_links, seo_outline_json,
  * seo_semantic_keywords, create_article_task_run, wp_post_title.
  *
- * Retained (active readers): seo_scoring_details, seo_title, wp_post_content, wp_slug, wp_post_type.
+ * Retained (active readers at time of this migration): seo_scoring_details, seo_title, wp_slug, wp_post_type.
+ * Note: wp_post_content was also retained then; later deleted separately.
  */
 return new class extends Migration
 {

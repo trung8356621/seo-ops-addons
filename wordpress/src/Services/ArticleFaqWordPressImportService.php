@@ -275,11 +275,6 @@ final class ArticleFaqWordPressImportService
             $push((string) ($scoring['body'] ?? ''));
         }
 
-        $article->loadMissing('articleMetas');
-        foreach (['wp_post_content_source', 'wp_post_content'] as $metaKey) {
-            $push((string) ($article->articleMetas->firstWhere('meta_key', $metaKey)?->meta_value ?? ''));
-        }
-
         return array_map(
             fn (string $candidate): string => $this->workflowParser->preprocessHtmlForFaqExtraction($candidate),
             $candidates,
@@ -304,7 +299,7 @@ final class ArticleFaqWordPressImportService
 
     /**
      * Ưu tiên HTML mới nhất kéo về từ WordPress khi import/sync.
-     * Chỉ fallback sang snapshot/meta cũ nếu payload WP trả rỗng hoàn toàn.
+     * Fallback sang articles.body nếu payload WP trả rỗng hoàn toàn.
      *
      * @param  array<string, mixed>|null  $syncItem
      */
@@ -385,14 +380,7 @@ final class ArticleFaqWordPressImportService
 
     private function resolveContentHtml(SeoArticle $article): string
     {
-        $body = trim((string) ($article->body ?? ''));
-        if ($body !== '') {
-            return $body;
-        }
-
-        $article->loadMissing('articleMetas');
-
-        return trim((string) ($article->articleMetas->firstWhere('meta_key', 'wp_post_content')?->meta_value ?? ''));
+        return trim((string) ($article->body ?? ''));
     }
 
     /**

@@ -285,11 +285,6 @@ final class ArticlePendingInternalLinkService
                 // best-effort
             }
 
-            $sourceArticle->articleMetas()->updateOrCreate(
-                ['meta_key' => 'wp_post_content'],
-                ['meta_value' => $updatedHtml],
-            );
-
             $pending->update([
                 'status' => SeoPendingInternalLink::STATUS_RESOLVED,
                 'resolved_target_url' => $targetUrl,

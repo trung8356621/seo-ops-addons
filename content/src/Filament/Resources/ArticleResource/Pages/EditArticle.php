@@ -293,7 +293,8 @@ class EditArticle extends SeoEditRecord
             return;
         }
 
-        // Phase 1 perf: no remote WordPress HTTP on editor open — explicit Sync-from-WP flows use private sync* methods.
+        // Local body preferred. WP-linked empty body: restoreArticleBodyFromWordPressCacheIfMissing
+        // may fetch via resolveEditorHtml (explicit, no meta cache). Featured/album stay local-only.
         $perf = app(ArticleEditorPerfDebug::class);
         $perf->start('edit_article_mount');
         $this->hydrateArticleState();
@@ -882,13 +883,14 @@ class EditArticle extends SeoEditRecord
         // Phase 2: album stays out of Livewire snapshot until Images/gallery actions load it.
         $this->productGallery = [];
 
-        // Phase 2: editor HTML from local body/meta only — no remote WP HTML fallback on mount.
-        $localBody = trim((string) ($this->record->body ?? ''));
-        if ($localBody === '') {
-            $localBody = trim((string) $metaMap->get('wp_post_content', ''));
+        // Editor HTML: body (local unsynced) OR temporary WP cache OR WP fetch.
+        // View-only open must NOT materialize WP content into articles.body.
+        $editorHtml = trim((string) ($this->record->body ?? ''));
+        if ($editorHtml === '') {
+            $editorHtml = trim((string) ($this->wpEditorBootstrapHtml ?? ''));
         }
         $this->bootstrapEditorHtml = app(ArticleCtaPlaceholderService::class)->highlightBlankPlaceholdersInHtml(
-            $localBody,
+            $editorHtml,
             (int) ($this->record->site_id ?? 0) > 0 ? (int) $this->record->site_id : null,
         );
         $this->hydrateSeoMetaState();
@@ -946,15 +948,22 @@ class EditArticle extends SeoEditRecord
             ->send();
     }
 
+    /**
+     * Load editor bootstrap HTML for WP-backed articles without writing articles.body.
+     * Uses temporary WP content cache (TTL 7d) or fetches WP content JSON once.
+     */
+    private string $wpEditorBootstrapHtml = '';
+
     private function restoreArticleBodyFromWordPressCacheIfMissing(): void
     {
+        $this->wpEditorBootstrapHtml = '';
+
         if (trim((string) ($this->record->body ?? '')) !== '') {
             return;
         }
 
-        $cached = trim((string) (ArticleMetaMap::for($this->record)->get('wp_post_content', '')));
-
-        if ($cached === '') {
+        $this->record->loadMissing('wordpressLink');
+        if ((int) ($this->record->wordpressLink?->wp_post_id ?? 0) <= 0) {
             return;
         }
 
@@ -963,19 +972,14 @@ class EditArticle extends SeoEditRecord
             return;
         }
 
-        $this->record->update(['body' => $cached]);
-        $this->record->refresh();
+        $resolved = app(WordPressArticleContentService::class)->resolveEditorHtmlDetailed($this->record);
+        $this->wpEditorBootstrapHtml = trim((string) ($resolved['html'] ?? ''));
+        // Intentionally do NOT persist into articles.body on open/view.
     }
 
     private function articleHadSubstantialContent(): bool
     {
         if (trim((string) ($this->record->body ?? '')) !== '') {
-            return true;
-        }
-
-        $cached = trim((string) (ArticleMetaMap::for($this->record)->get('wp_post_content', '')));
-
-        if (strlen($cached) >= 200) {
             return true;
         }
 
@@ -992,12 +996,6 @@ class EditArticle extends SeoEditRecord
         $existingBody = trim((string) ($this->record->body ?? ''));
         if (strlen($existingBody) >= 200) {
             return $existingBody;
-        }
-
-        $wpCached = trim((string) (ArticleMetaMap::for($this->record)->get('wp_post_content', '')));
-
-        if (strlen($wpCached) >= 200) {
-            return $wpCached;
         }
 
         return $html;
@@ -3256,7 +3254,7 @@ class EditArticle extends SeoEditRecord
     }
 
     /**
-     * Cập nhật editor + meta ảnh sau khi body/wp_post_content đã có URL WordPress.
+     * Cập nhật editor + meta ảnh sau khi body đã có URL WordPress.
      */
     private function refreshEditorAfterWordPressSync(): void
     {
@@ -3264,10 +3262,6 @@ class EditArticle extends SeoEditRecord
         $this->record->loadMissing('articleMetas');
 
         $syncedHtml = trim((string) ($this->record->body ?? ''));
-        if ($syncedHtml === '') {
-            $syncedHtml = trim((string) ($this->record->articleMetas
-                ->firstWhere('meta_key', 'wp_post_content')?->meta_value ?? ''));
-        }
         if ($syncedHtml === '') {
             $syncedHtml = trim(app(WordPressArticleContentService::class)->resolveEditorHtml($this->record));
         }

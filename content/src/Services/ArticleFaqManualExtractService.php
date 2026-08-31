@@ -102,12 +102,6 @@ final class ArticleFaqManualExtractService
             ? $articleHtml
             : trim((string) ($article->body ?? ''));
 
-        if ($baseHtml === '') {
-            $baseHtml = trim((string) $article->articleMetas()
-                ->where('meta_key', 'wp_post_content')
-                ->value('meta_value'));
-        }
-
         $newHtml = $baseHtml !== ''
             ? $this->contentFaq->replaceFaqFragmentInArticleHtml($baseHtml, $fragment, $strippedFragment)
             : $strippedFragment;

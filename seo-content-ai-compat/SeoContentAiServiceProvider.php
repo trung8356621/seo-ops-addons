@@ -856,6 +856,17 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
                     ->withoutOverlapping(25);
             }
 
+            $wpContentCacheName = 'seo-content-ai:purge-article-wp-content-cache';
+            $wpContentCacheRegistered = collect($schedule->events())
+                ->contains(static fn ($event): bool => $event->description === $wpContentCacheName);
+            if (! $wpContentCacheRegistered) {
+                $schedule
+                    ->command(\Omnichannel\Addons\WordPress\Console\PurgeExpiredArticleWpContentCacheCommand::class)
+                    ->dailyAt('03:20')
+                    ->name($wpContentCacheName)
+                    ->withoutOverlapping();
+            }
+
             // Three automation owners — distinct tables, must not claim same occurrence:
             // 1) automation:dispatch-scheduled → automation_rules (Business Hook)
             // 2) agent:automations:dispatch-due → seo_agent_automations (Agent Workspace)

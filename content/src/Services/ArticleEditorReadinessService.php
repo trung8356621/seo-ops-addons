@@ -111,17 +111,12 @@ final class ArticleEditorReadinessService
         );
     }
 
+    /**
+     * Legacy no-op: wp_post_content meta removed — canonical content is articles.body.
+     */
     public function syncWpPostContentFromBody(SeoArticle $article): void
     {
-        $body = trim((string) ($article->body ?? ''));
-        if ($body === '') {
-            return;
-        }
-
-        $article->articleMetas()->updateOrCreate(
-            ['meta_key' => 'wp_post_content'],
-            ['meta_value' => $body],
-        );
+        // Intentionally empty.
     }
 
     public function bodyHash(SeoArticle $article): string

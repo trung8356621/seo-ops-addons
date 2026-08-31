@@ -120,7 +120,7 @@ final class ArticleEditorLinksPayloadService
     }
 
     /**
-     * Content thật cho suggestion: submitted editor HTML → articles.body → wp_post_content.
+     * Content thật cho suggestion: submitted editor HTML → articles.body.
      */
     public function resolveSuggestionContent(SeoArticle $article, ?string $submittedContent): string
     {
@@ -140,12 +140,6 @@ final class ArticleEditorLinksPayloadService
 
         if (trim((string) ($article->body ?? '')) !== '') {
             return 'articles.body';
-        }
-
-        $article->loadMissing('articleMetas');
-        $meta = $article->articleMetas->firstWhere('meta_key', 'wp_post_content');
-        if ($meta && trim((string) ($meta->meta_value ?? '')) !== '') {
-            return 'article_meta.wp_post_content';
         }
 
         return mb_strlen($resolved) > 0 ? 'resolved_non_empty' : 'empty';

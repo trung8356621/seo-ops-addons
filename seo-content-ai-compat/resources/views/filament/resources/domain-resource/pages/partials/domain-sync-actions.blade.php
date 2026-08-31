@@ -9,10 +9,6 @@
     $sources = $siteSyncV2Sources ?? [];
     $forceFull = (bool) ($siteSyncForceFull ?? false);
     $useResume = ! $forceFull && ($siteSyncV2Resumable ?? false) && ! ($siteSyncV2Running ?? false);
-    $primaryClick = $forceFull
-        ? 'runForceFullSiteSyncAction'
-        : ($useResume ? 'resumeSiteSyncV2Action' : 'runSiteSyncV2Action');
-    $forceFullConfirm = 'Đồng bộ lại toàn bộ website? Hệ thống sẽ tải và xử lý lại toàn bộ bài viết, trang và sản phẩm từ WordPress, kể cả các dữ liệu đã đồng bộ và không thay đổi. Quá trình có thể mất nhiều thời gian nhưng không xóa dữ liệu thủ công.';
 @endphp
 
 <div class="seo-sync-actions divide-y divide-gray-200 dark:divide-white/10">
@@ -40,22 +36,21 @@
                         color="success"
                         icon="heroicon-o-arrow-path"
                         class="w-full justify-center"
-                        wire:click="runForceFullSiteSyncAction"
-                        wire:confirm="{{ $forceFullConfirm }}"
+                        wire:click="openSiteSyncPreflight"
                         wire:loading.attr="disabled"
-                        wire:target="runForceFullSiteSyncAction,cancelSiteSyncV2Action"
+                        wire:target="openSiteSyncPreflight,runForceFullSiteSyncAction,cancelSiteSyncV2Action"
                         :disabled="$syncDisabled"
                     >
-                        <span wire:loading.remove wire:target="runForceFullSiteSyncAction">
+                        <span wire:loading.remove wire:target="openSiteSyncPreflight">
                             @if ($siteSyncV2Running ?? false)
                                 {{ __('seo-content-ai::filament.domain.site_sync_running_button') }}
                             @else
-                                Đồng bộ lại toàn bộ website
+                                Kiểm tra & đồng bộ toàn bộ…
                             @endif
                         </span>
-                        <span wire:loading wire:target="runForceFullSiteSyncAction" class="inline-flex items-center gap-2">
+                        <span wire:loading wire:target="openSiteSyncPreflight" class="inline-flex items-center gap-2">
                             <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
-                            Đang xếp hàng…
+                            Đang kiểm tra…
                         </span>
                     </x-filament::button>
                 @else
@@ -64,12 +59,12 @@
                         color="success"
                         icon="heroicon-o-arrow-path"
                         class="w-full justify-center"
-                        wire:click="{{ $primaryClick }}"
+                        wire:click="{{ $useResume ? 'resumeSiteSyncV2Action' : 'openSiteSyncPreflight' }}"
                         wire:loading.attr="disabled"
-                        wire:target="runSiteSyncV2Action,resumeSiteSyncV2Action,cancelSiteSyncV2Action"
+                        wire:target="openSiteSyncPreflight,runSiteSyncV2Action,resumeSiteSyncV2Action,cancelSiteSyncV2Action"
                         :disabled="$syncDisabled && ! $useResume"
                     >
-                        <span wire:loading.remove wire:target="runSiteSyncV2Action,resumeSiteSyncV2Action">
+                        <span wire:loading.remove wire:target="openSiteSyncPreflight,runSiteSyncV2Action,resumeSiteSyncV2Action">
                             @if ($siteSyncV2Running ?? false)
                                 {{ __('seo-content-ai::filament.domain.site_sync_running_button') }}
                             @elseif ($useResume)
@@ -78,12 +73,13 @@
                                 Đồng bộ & kiểm tra website
                             @endif
                         </span>
-                        <span wire:loading wire:target="runSiteSyncV2Action,resumeSiteSyncV2Action" class="inline-flex items-center gap-2">
+                        <span wire:loading wire:target="openSiteSyncPreflight,runSiteSyncV2Action,resumeSiteSyncV2Action" class="inline-flex items-center gap-2">
                             <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
-                            Đang xếp hàng…
+                            Đang kiểm tra…
                         </span>
                     </x-filament::button>
                 @endif
+                @include('seo-content-ai::filament.resources.domain-resource.pages.partials.site-sync-preflight-modal')
                 @if (($siteSyncV2Running ?? false) || ($siteSyncV2Cancellable ?? false))
                     <x-filament::button
                         type="button"

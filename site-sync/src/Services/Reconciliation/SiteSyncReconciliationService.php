@@ -11,6 +11,7 @@ use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncSchema;
 use Omnichannel\Addons\SiteSync\Services\Inbound\WordPressSiteSyncClient;
 use Omnichannel\Addons\SiteSync\Services\Orchestration\RunSiteSyncOrchestrator;
 use Omnichannel\Addons\SiteSync\Services\Orchestration\SiteSyncFeatureFlags;
+use Omnichannel\Addons\SiteSync\Services\Orchestration\SiteSyncProtocolRouter;
 use Omnichannel\Addons\SiteSync\Services\Orchestration\SiteSyncLockService;
 use App\Models\Site;
 use App\Support\RuntimeLogger;
@@ -37,6 +38,15 @@ final class SiteSyncReconciliationService
     }
 
     /**
+     * @param  array<string, mixed>  $options
+     * @return array{success: bool, message: string, run_id?: int, public_ref?: string, protocol?: int}
+     */
+    private function startSync(Site $site, array $options): array
+    {
+        return app(SiteSyncProtocolRouter::class)->start($site, $options);
+    }
+
+    /**
      * @return array{success: bool, message: string, drift?: array<string, mixed>, run_id?: int}
      */
     public function reconcile(Site $site, string $mode = self::MODE_STANDARD): array
@@ -56,9 +66,10 @@ final class SiteSyncReconciliationService
 
         try {
             if ($mode === self::MODE_FULL_REBUILD) {
-                $result = $this->orchestrator()->start($site, [
+                $result = $this->startSync($site, [
+                    'force_full' => true,
                     'force_snapshot' => true,
-                    'mode' => SiteSyncSchema::MODE_SNAPSHOT,
+                    'mode' => SiteSyncSchema::MODE_FORCE_FULL,
                     'trigger_source' => 'reconcile',
                 ]);
 
@@ -79,7 +90,7 @@ final class SiteSyncReconciliationService
             $drift = $this->detectDrift($site, $entries, $mode);
 
             if ($drift['changed_ids'] !== []) {
-                $this->orchestrator()->start($site, [
+                $this->startSync($site, [
                     'mode' => SiteSyncSchema::MODE_DELTA,
                     'trigger_source' => 'reconcile',
                     'steps' => [
@@ -95,7 +106,7 @@ final class SiteSyncReconciliationService
             }
 
             $cap = $this->capabilities->forSite($site);
-            if ($cap === null) {
+            if ($cap === null && ! $this->flags->protocolV3Enabled()) {
                 $this->orchestrator()->start($site, [
                     'steps' => ['detect_capability', 'finalize'],
                     'trigger_source' => 'reconcile_capability',

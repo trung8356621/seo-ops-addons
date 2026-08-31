@@ -184,12 +184,23 @@ final class ArticleEditorPersistService
         $publishAt = $context->resolvePublishAtForSave();
         $postType = SeoProjectTask::normalizePostType($context->postType);
 
+        $existingBody = trim((string) ($article->body ?? ''));
+        $wpCache = app(\Omnichannel\Addons\WordPress\Services\ArticleWpContentCacheService::class);
+        $article->loadMissing('wordpressLink');
+        $wpBacked = (int) ($article->wordpressLink?->wp_post_id ?? 0) > 0;
+
+        // No-change save: WP-backed + body null + editor HTML matches temporary WP cache hash
+        // → keep body null (do not materialize a local unsynced copy).
+        $keepBodyNull = $wpBacked
+            && $existingBody === ''
+            && $wpCache->matchesIncomingHtml($article, $html);
+
         $payload = [
             'title' => trim($context->title),
             'slug' => $slug !== '' ? $slug : null,
             'status' => $context->status,
             'published_at' => $publishAt,
-            'body' => $html,
+            'body' => $keepBodyNull ? null : $html,
             'user_id' => auth()->id(),
         ];
 
@@ -204,6 +215,11 @@ final class ArticleEditorPersistService
         }
 
         $article->update($payload);
+
+        if (! $keepBodyNull) {
+            // Local unsynced content is now body — WP cache is no longer the working source.
+            $wpCache->forget($article);
+        }
 
         // Prefer explicit page content_type from editor context when present.
         $classification = ArticleContentClassification::fromTaskPostType($postType);
@@ -222,6 +238,9 @@ final class ArticleEditorPersistService
                 'published_at' => $publishAt,
             ]);
         }
+
+        // Stash flag for side effects: skip markLocalEditPending when no body materialize.
+        $article->setAttribute('_content_lifecycle_keep_body_null', $keepBodyNull);
 
         return $html;
     }
@@ -259,7 +278,10 @@ final class ArticleEditorPersistService
             );
             $article->refresh();
 
-            $this->syncFlags->markLocalEditPending($article);
+            $keepBodyNull = (bool) $article->getAttribute('_content_lifecycle_keep_body_null');
+            if (! $keepBodyNull && trim((string) ($article->body ?? '')) !== '') {
+                $this->syncFlags->markLocalEditPending($article);
+            }
 
             LocalArticleSaveTimer::measure(
                 $articleId,
@@ -303,14 +325,6 @@ final class ArticleEditorPersistService
             return $existingBody;
         }
 
-        $article->loadMissing('articleMetas');
-        $wpCached = trim((string) ($article->articleMetas
-            ->firstWhere('meta_key', 'wp_post_content')?->meta_value ?? ''));
-
-        if (strlen($wpCached) >= 200) {
-            return $wpCached;
-        }
-
         return $html;
     }
 
@@ -322,15 +336,6 @@ final class ArticleEditorPersistService
     private function articleHadSubstantialContent(SeoArticle $article): bool
     {
         if (trim((string) ($article->body ?? '')) !== '') {
-            return true;
-        }
-
-        $article->loadMissing('articleMetas');
-        $cached = trim((string) ($article->articleMetas
-            ->where('meta_key', 'wp_post_content')
-            ->value('meta_value') ?? ''));
-
-        if (strlen($cached) >= 200) {
             return true;
         }
 

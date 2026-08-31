@@ -251,11 +251,6 @@ final class ArticleContentFaqService
         } catch (\Throwable) {
             // JSON invalidation best-effort.
         }
-
-        $article->articleMetas()->updateOrCreate(
-            ['meta_key' => 'wp_post_content'],
-            ['meta_value' => $html],
-        );
     }
 
     public function normalizeHtmlForWordPress(string $html): string
@@ -319,7 +314,7 @@ final class ArticleContentFaqService
     }
 
     /**
-     * Lưu nội dung đã cắt FAQ vào body + meta wp_post_content (chỉ Laravel; đồng bộ WP qua nút «Đồng bộ»).
+     * Lưu nội dung đã cắt FAQ vào articles.body (chỉ Laravel; đồng bộ WP qua nút «Đồng bộ»).
      */
     public function applyStrippedContentToArticle(SeoArticle $article, string $markdown): void
     {

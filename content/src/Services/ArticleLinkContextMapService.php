@@ -44,9 +44,14 @@ final class ArticleLinkContextMapService
             return 0;
         }
 
-        $article->loadMissing('site');
+        $article->loadMissing(['site', 'wordpressLink']);
         $content = $contentOverride ?? $this->resolveArticleContent($article);
         if (trim($content) === '') {
+            // WP-backed + body null = WP is canonical; do not wipe existing link maps.
+            if ($contentOverride === null && (int) ($article->wordpressLink?->wp_post_id ?? 0) > 0) {
+                return 0;
+            }
+
             SeoLinkMap::query()->where('source_article_id', $article->id)->delete();
 
             return 0;
@@ -186,16 +191,7 @@ final class ArticleLinkContextMapService
 
     private function resolveArticleContent(SeoArticle $article): string
     {
-        $body = trim((string) ($article->body ?? ''));
-        if ($body !== '') {
-            return $body;
-        }
-
-        $meta = $article->articleMetas()
-            ->where('meta_key', 'wp_post_content')
-            ->value('meta_value');
-
-        return is_string($meta) ? trim($meta) : '';
+        return trim((string) ($article->body ?? ''));
     }
 
     /**

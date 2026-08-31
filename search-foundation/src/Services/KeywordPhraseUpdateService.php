@@ -91,11 +91,6 @@ final class KeywordPhraseUpdateService
                 ->all();
 
             $body = trim((string) ($article->body ?? ''));
-            if ($body === '') {
-                $body = trim((string) $article->articleMetas()
-                    ->where('meta_key', 'wp_post_content')
-                    ->value('meta_value'));
-            }
 
             $updatedBody = $this->replaceAnchorsInHtml($body, $urls, $previousPhrase, $newPhrase);
             if ($updatedBody !== $body && $updatedBody !== '') {
@@ -109,10 +104,6 @@ final class KeywordPhraseUpdateService
                 } catch (\Throwable) {
                     // best-effort
                 }
-                $article->articleMetas()->updateOrCreate(
-                    ['meta_key' => 'wp_post_content'],
-                    ['meta_value' => $updatedBody],
-                );
                 $this->syncFlags->markLocalEditPending($article);
             }
         }

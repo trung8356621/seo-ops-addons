@@ -24,7 +24,8 @@ final class SiteSyncServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        // Routes/migrations attach as extraction progresses.
+        // Jobs (ProcessSiteSyncV3Job) resolve via container; no explicit bind required.
+        // Migrations discovered via client addon_migration_ownership (site-sync).
     }
 
     private function registerCapabilities(): void

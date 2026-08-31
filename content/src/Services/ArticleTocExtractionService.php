@@ -27,6 +27,13 @@ class ArticleTocExtractionService
     public function extractForArticle(SeoArticle $article): int
     {
         $content = $this->resolveArticleContent($article);
+        if (trim($content) === '') {
+            $article->loadMissing('wordpressLink');
+            // WP-backed + body null: keep existing TOC until local body or Site Sync analysis JSON exists.
+            if ((int) ($article->wordpressLink?->wp_post_id ?? 0) > 0) {
+                return 0;
+            }
+        }
 
         return $this->extractAndStore((int) $article->id, $content);
     }
@@ -70,20 +77,11 @@ class ArticleTocExtractionService
     }
 
     /**
-     * Nội dung ưu tiên `body`; bài đã đồng bộ WP fallback meta `wp_post_content`.
+     * Nội dung canonical: `articles.body` only.
      */
     public function resolveArticleContent(SeoArticle $article): string
     {
-        $body = trim((string) ($article->body ?? ''));
-        if ($body !== '') {
-            return $body;
-        }
-
-        return trim((string) (
-            $article->articleMetas()
-                ->where('meta_key', 'wp_post_content')
-                ->value('meta_value') ?? ''
-        ));
+        return trim((string) ($article->body ?? ''));
     }
 
     /**

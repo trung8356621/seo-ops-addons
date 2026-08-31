@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\Operations;
 
 use Omnichannel\Addons\Content\Support\SystemDateTime;
 use Omnichannel\Addons\SiteSync\Services\Heartbeat\WordPressHeartbeatPollService;
+use Omnichannel\Addons\SiteSync\Services\Preflight\SiteSyncPreflightService;
 use Omnichannel\Addons\SiteSync\Services\Presentation\SiteSyncStatusPresenter;
 use App\Models\Site;
 
@@ -113,16 +114,76 @@ final class SiteHealthCardPresenter
             ],
         ];
 
+        $dataHealth = $this->dataHealthSection($site);
+        if ($dataHealth !== null) {
+            $sections['seo_ops_data'] = $dataHealth;
+        }
+
         return [
             'domain' => (string) ($raw['name'] ?? $site->domain ?? ''),
             'health' => $raw['health'] ?? 'unknown',
             'sections' => $sections,
+            'data_health' => $dataHealth['payload'] ?? null,
             'link_opportunities' => (int) ($linkAnalysis['opportunities'] ?? 0),
             'orphan_pages' => (int) ($linkAnalysis['orphan_pages'] ?? 0),
             'broken_links' => (int) ($linkAnalysis['broken_links'] ?? $raw['link_health_broken_candidates'] ?? 0),
             'internal_links' => (int) ($linkAnalysis['internal_links'] ?? 0),
             'dictionary_version' => $dictionary['version'] ?? null,
             'raw' => $raw,
+        ];
+    }
+
+    /**
+     * Local-only SEO Ops required-field audit (no live WP crawl).
+     *
+     * @return array{label: string, ok: bool, lines: list<string>, payload?: array<string, mixed>}|null
+     */
+    private function dataHealthSection(Site $site): ?array
+    {
+        try {
+            $preflight = app(SiteSyncPreflightService::class)->evaluateLocalOnly($site);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        $fields = is_array($preflight['data_health']['fields'] ?? null)
+            ? $preflight['data_health']['fields']
+            : [];
+        $lines = [];
+        foreach ($fields as $field) {
+            if (! is_array($field)) {
+                continue;
+            }
+            $missing = (int) ($field['missing'] ?? 0);
+            $present = (int) ($field['present'] ?? 0);
+            $total = (int) ($field['total'] ?? 0);
+            $mark = match ((string) ($field['severity'] ?? 'green')) {
+                'red' => '🔴',
+                'yellow' => '⚠',
+                default => '✓',
+            };
+            $line = sprintf(
+                '%s %s  %s / %s',
+                $mark,
+                (string) ($field['label'] ?? $field['key'] ?? ''),
+                number_format($present),
+                number_format($total),
+            );
+            if ($missing > 0) {
+                $line .= '  Missing '.number_format($missing);
+            }
+            $lines[] = $line;
+        }
+
+        $lines[] = 'Khuyến nghị: '.(string) ($preflight['recommendation_label'] ?? 'NORMAL SYNC');
+
+        $severity = (string) ($preflight['severity'] ?? 'green');
+
+        return [
+            'label' => 'SEO Ops data health',
+            'ok' => $severity === 'green',
+            'lines' => $lines,
+            'payload' => $preflight,
         ];
     }
 

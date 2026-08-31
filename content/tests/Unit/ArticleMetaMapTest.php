@@ -19,13 +19,13 @@ final class ArticleMetaMapTest extends TestCase
     public function test_get_reads_from_already_loaded_relation_without_query(): void
     {
         $article = $this->articleWithMetas([
-            'wp_post_content' => '<p>Cached body</p>',
+            'example_cache' => '<p>Cached body</p>',
             'loai_san_pham' => 'Điện tử',
         ]);
 
         $map = ArticleMetaMap::for($article);
 
-        self::assertSame('<p>Cached body</p>', $map->get('wp_post_content'));
+        self::assertSame('<p>Cached body</p>', $map->get('example_cache'));
         self::assertSame('Điện tử', $map->get('loai_san_pham'));
         self::assertNull($map->get('missing_key'));
         self::assertSame('fallback', $map->get('missing_key', 'fallback'));

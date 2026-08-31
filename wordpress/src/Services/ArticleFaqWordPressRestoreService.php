@@ -50,7 +50,6 @@ final class ArticleFaqWordPressRestoreService
         }
 
         $this->contentFaq->persistArticleBodyHtml($article, $html);
-        $this->persistFreshWordPressContentMeta($article, $post, $html);
         $this->extractDebug->clear($article);
 
         return [
@@ -122,44 +121,12 @@ final class ArticleFaqWordPressRestoreService
         ];
     }
 
+    /**
+     * Legacy no-op: wp_post_content_source removed — canonical content is articles.body / WP fetch.
+     */
     public function persistWordPressSourceSnapshot(SeoArticle $article, string $html): void
     {
-        $html = trim($html);
-        if ($html === '') {
-            return;
-        }
-
-        if (
-            str_contains($html, WorkflowParserService::FAQ_SHORTCODE_PLACEHOLDER)
-            && $this->workflowParser->parseFaqsFromContent($html) === []
-        ) {
-            return;
-        }
-
-        $article->articleMetas()->updateOrCreate(
-            ['meta_key' => 'wp_post_content_source'],
-            ['meta_value' => $html],
-        );
-    }
-
-    /**
-     * @param  array<string, mixed>  $post
-     */
-    private function persistFreshWordPressContentMeta(SeoArticle $article, array $post, string $editorHtml): void
-    {
-        $storedContent = trim($editorHtml);
-        if ($storedContent === '') {
-            $storedContent = trim((string) ($post['post_content'] ?? ''));
-        }
-
-        if ($storedContent !== '') {
-            $article->articleMetas()->updateOrCreate(
-                ['meta_key' => 'wp_post_content'],
-                ['meta_value' => $storedContent],
-            );
-        }
-
-        $this->persistWordPressSourceSnapshot($article, $storedContent);
+        // Intentionally empty.
     }
 
     /**
@@ -180,44 +147,34 @@ final class ArticleFaqWordPressRestoreService
             $content = trim((string) ($scoring['body'] ?? ''));
         }
 
-        $snapshot = trim((string) (
-            $article->articleMetas->firstWhere('meta_key', 'wp_post_content_source')?->meta_value ?? ''
-        ));
+        $localBody = trim((string) ($article->body ?? ''));
 
         if ($content === '') {
-            return $snapshot;
+            return $localBody;
         }
 
         $wpFaqs = $this->normalizeWordPressFaqRows($post['faqs'] ?? null);
         $content = $this->workflowParser->stripFaqShortcodeArtifacts($content);
 
         if ($this->workflowParser->parseFaqsFromContent($content) !== []) {
-            $content = $this->injectRestoredPostImages($article, $content, $post);
-            $this->persistWordPressSourceSnapshot($article, $content);
-
-            return $content;
+            return $this->injectRestoredPostImages($article, $content, $post);
         }
 
         if ($wpFaqs !== []) {
-            $headingSource = ($preferFreshRemote || $snapshot === '') ? $content : $snapshot;
+            $headingSource = ($preferFreshRemote || $localBody === '') ? $content : $localBody;
             $foundHeading = $this->workflowParser->findFaqSectionHeadingInContent($headingSource);
             $heading = is_array($foundHeading) ? (string) ($foundHeading['text'] ?? 'FAQ') : 'FAQ';
             $faqBlock = $this->workflowParser->buildFaqSectionHtmlForEditor($wpFaqs, $heading);
             $rebuilt = trim($content).($content !== '' ? "\n\n" : '').$faqBlock;
-            $rebuilt = $this->injectRestoredPostImages($article, $rebuilt, $post);
-            $this->persistWordPressSourceSnapshot($article, $rebuilt);
 
-            return $rebuilt;
+            return $this->injectRestoredPostImages($article, $rebuilt, $post);
         }
 
-        if (! $preferFreshRemote && $snapshot !== '') {
-            return $this->injectRestoredPostImages($article, $snapshot, $post);
+        if (! $preferFreshRemote && $localBody !== '') {
+            return $this->injectRestoredPostImages($article, $localBody, $post);
         }
 
-        $content = $this->injectRestoredPostImages($article, $content, $post);
-        $this->persistWordPressSourceSnapshot($article, $content);
-
-        return $content;
+        return $this->injectRestoredPostImages($article, $content, $post);
     }
 
     private function pickRestoredContentSource(string $rawContent, string $renderedBody): string

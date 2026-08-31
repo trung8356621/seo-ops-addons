@@ -729,19 +729,9 @@ class SeoAnalyzerService
 
     public function resolveScoringContentForArticle(SeoArticle $article): string
     {
-        $body = trim((string) ($article->body ?? ''));
-        if ($body !== '') {
-            return $body;
-        }
-
-        $article->loadMissing('articleMetas');
-        $wpContent = $article->articleMetas->firstWhere('meta_key', 'wp_post_content');
-
-        if ($wpContent && is_string($wpContent->meta_value) && trim($wpContent->meta_value) !== '') {
-            return trim($wpContent->meta_value);
-        }
-
-        return '';
+        // Local unsynced body only. WP-backed body=null is valid (WP canonical) —
+        // bulk scoring must not treat that as empty-content wipe; Site Sync V3 analysis JSON later.
+        return trim((string) ($article->body ?? ''));
     }
 
     private function resolveFocusKeyword(SeoArticle $article): ?string
