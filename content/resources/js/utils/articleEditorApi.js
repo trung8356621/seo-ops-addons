@@ -380,7 +380,7 @@ export async function saveArticleViaApi(articleId, payload) {
         || lifecycleState === 'CONTENT_LOADING'
         || lifecycleState === 'ERROR'
     ) {
-        const error = new Error('Nội dung chưa được đồng bộ từ WordPress — không lưu được.');
+        const error = new Error('Nội dung WordPress chưa sẵn sàng — không lưu được.');
         error.code = 'local_content_sync_required';
         throw error;
     }

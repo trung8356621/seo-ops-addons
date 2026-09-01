@@ -135,11 +135,13 @@ final class ArticleEditorSeoPayloadService
                 static fn ($meta): bool => (string) $meta->meta_key === 'wp_permalink',
             )?->meta_value ?? ''
         ));
-        $localPermalink = app(WordPressPermalinkBuilder::class)->resolve(
-            $article,
-            $cachedPermalink,
-            $wpContent->resolveSlug($article),
-        );
+        $localPermalink = $cachedPermalink !== ''
+            ? $cachedPermalink
+            : app(WordPressPermalinkBuilder::class)->resolve(
+                $article,
+                $cachedPermalink,
+                trim((string) ($article->slug ?? '')),
+            );
 
         $googleSerpPreview = app(ArticleGoogleSerpPreviewService::class)->buildForArticle(
             $article,
@@ -218,11 +220,13 @@ final class ArticleEditorSeoPayloadService
 
         $wpContent = app(WordPressArticleContentService::class);
         $cachedPermalink = trim((string) $metaMap->get('wp_permalink', ''));
-        $localPermalink = app(WordPressPermalinkBuilder::class)->resolve(
-            $article,
-            $cachedPermalink,
-            $wpContent->resolveSlug($article),
-        );
+        $localPermalink = $cachedPermalink !== ''
+            ? $cachedPermalink
+            : app(WordPressPermalinkBuilder::class)->resolve(
+                $article,
+                $cachedPermalink,
+                trim((string) ($article->slug ?? '')),
+            );
 
         return [
             'score' => $skipSeoScore ? null : $score,

@@ -6,8 +6,10 @@ namespace Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResour
 
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectMonthlyWorkloadService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectStaffAvailabilityService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectListBucket;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthChartPresenter;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Filament\Actions;
@@ -20,12 +22,14 @@ class ListSeoProjects extends ListRecords
 
     protected static string $view = 'seo-content-ai::filament.resources.seo-project-resource.pages.list-seo-projects';
 
-    /** Month context YYYY-MM — sync toolbar + table filter. */
+    /** Month context YYYY-MM — SINGLE SOURCE OF TRUTH for table + charts. */
     public string $planningMonth = '';
 
     /** High-level list bucket: all|draft|project|archived */
     public string $projectType = ContentProjectListBucket::ALL;
 
+    /** @var array<string, mixed>|null Request-local cache for forMonth() (domain + writer share one query set). */
+    private ?array $monthWorkloadCache = null;
     public function mount(): void
     {
         parent::mount();
@@ -54,12 +58,92 @@ class ListSeoProjects extends ListRecords
     }
 
     /**
+     * Queue health is secondary — rendered compact in the page view, not as header cards.
+     *
      * @return array<class-string>
      */
     protected function getHeaderWidgets(): array
     {
+        return [];
+    }
+
+    /**
+     * Compact domain chart — item.site_id aggregate via MonthlyWorkloadService.
+     *
+     * @return array<string, mixed>
+     */
+    public function getDomainWorkloadChart(): array
+    {
+        return app(ContentProjectMonthChartPresenter::class)
+            ->presentDomain($this->monthWorkload());
+    }
+
+    /**
+     * Compact writer chart — project assignee aggregate + team capacity progress.
+     *
+     * @return array<string, mixed>
+     */
+    public function getWriterWorkloadChart(): array
+    {
+        return app(ContentProjectMonthChartPresenter::class)
+            ->presentWriter($this->monthWorkload());
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function monthWorkload(): array
+    {
+        return $this->monthWorkloadCache ??= app(ContentProjectMonthlyWorkloadService::class)
+            ->forMonth($this->planningMonth ?: null);
+    }
+    /**
+     * Compact secondary queue status for managers.
+     *
+     * @return array{healthy: bool, label: string, detail: string|null}
+     */
+    public function getCompactQueueStatus(): array
+    {
+        $siteIds = SeoAccessControl::accessibleSiteIds();
+        $connectionId = null;
+        $current = \Omnichannel\Addons\Seo\Support\SeoConnectionContext::current();
+        if ($current instanceof \App\Models\SeoDatabaseConnection) {
+            $connectionId = (int) $current->getKey();
+        }
+
+        $health = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectQueueHealthService::class)
+            ->snapshot($siteIds !== [] ? $siteIds : null, $connectionId);
+
+        $failed = (int) ($health['failed'] ?? 0);
+        $retrying = (int) ($health['retrying'] ?? 0);
+        $healthy = $failed === 0 && $retrying === 0 && (bool) ($health['runner_healthy'] ?? true);
+
+        $formatter = new \Omnichannel\Addons\ContentProjects\Support\ContentProject\OperationalStatusFormatter();
+        $worker = $formatter->formatWorker($health['last_worker_run'] ?? null);
+        $workerText = ! empty($worker['empty']) ? null : (string) ($worker['text'] ?? '');
+
+        if ($healthy) {
+            return [
+                'healthy' => true,
+                'label' => (string) __('seo-content-ai::filament.projects.queue_healthy'),
+                'detail' => $workerText !== null && $workerText !== ''
+                    ? (string) __('seo-content-ai::filament.projects.queue_last_worker', ['at' => $workerText])
+                    : null,
+            ];
+        }
+
+        $parts = [];
+        if ($failed > 0) {
+            $parts[] = (string) __('seo-content-ai::filament.projects.queue_failed_compact', ['count' => $failed]);
+        }
+        if ($retrying > 0) {
+            $parts[] = (string) __('seo-content-ai::filament.projects.queue_retrying_compact', ['count' => $retrying]);
+        }
+
         return [
-            \Omnichannel\Addons\ContentProjects\Filament\Widgets\ContentProjectQueueHealthWidget::class,
+            'healthy' => false,
+            'label' => implode(' · ', $parts) !== '' ? implode(' · ', $parts) : (string) __('seo-content-ai::filament.projects.queue_unhealthy'),
+            'detail' => $workerText,
         ];
     }
 

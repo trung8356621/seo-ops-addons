@@ -180,6 +180,7 @@ final class ContentProjectArchiveVaultListTest extends TestCase
         self::assertStringContainsString('getActiveFilterCount', $source);
         self::assertStringContainsString('restoreArchive', $source);
         self::assertStringContainsString('exportArchive', $source);
+        self::assertStringContainsString('exportMonth', $source);
 
         $viewPath = LegacyAddonPath::resolve('resources/views/filament/resources/seo-project-resource/pages/content-project-archive.blade.php');
         $view = (string) file_get_contents($viewPath);
@@ -191,6 +192,9 @@ final class ContentProjectArchiveVaultListTest extends TestCase
         self::assertStringContainsString('indexSummary', $view);
         self::assertStringContainsString('clearFilters', $view);
         self::assertStringContainsString('restoreArchive', $view);
+        self::assertStringContainsString('exportMonth', $view);
+        self::assertStringContainsString('archive_export_month', $view);
+        self::assertStringNotContainsString('$archive->site?->domain', $view);
         self::assertStringNotContainsString('archive_col_completed', $view);
         self::assertStringNotContainsString('archive_col_approved', $view);
         self::assertStringNotContainsString('archive_col_synced', $view);
@@ -217,5 +221,6 @@ final class ContentProjectArchiveVaultListTest extends TestCase
         );
         self::assertStringContainsString("'indexed_at' => 'Index gần nhất'", $exportSource);
         self::assertStringContainsString("'previous_indexed_at' => 'Index lần trước'", $exportSource);
+        self::assertStringContainsString("'domain' => 'Domain'", $exportSource);
     }
 }

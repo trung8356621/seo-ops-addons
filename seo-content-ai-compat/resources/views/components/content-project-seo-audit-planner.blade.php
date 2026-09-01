@@ -38,9 +38,9 @@
             <div class="flex flex-wrap items-end gap-3">
                 <div class="min-w-[12rem]">
                     <label class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
-                        {{ __('seo-content-ai::filament.projects.seo_audit_site_label') }}
+                        {{ __('seo-content-ai::filament.projects.content_planning_working_site') }}
                     </label>
-                    <x-select wire:model.live="filterSiteId" wrapClass="cp-ops-select" aria-label="{{ __('seo-content-ai::filament.projects.seo_audit_site_label') }}">
+                    <x-select wire:model.live="filterSiteId" wrapClass="cp-ops-select" aria-label="{{ __('seo-content-ai::filament.projects.content_planning_working_site') }}">
                         <option value="">{{ __('seo-content-ai::filament.projects.seo_audit_site_all') }}</option>
                         @foreach ($siteOptions as $id => $domain)
                             <option value="{{ $id }}">{{ $domain }}</option>
@@ -49,31 +49,13 @@
                 </div>
                 <div class="min-w-[16rem] flex-1">
                     <label class="mb-1 block text-xs font-medium text-gray-500 dark:text-gray-400">
-                        {{ __('seo-content-ai::filament.projects.seo_audit_draft_selector_label') }}
+                        {{ __('seo-content-ai::filament.projects.content_planning_draft_label') }}
                     </label>
-                    <x-select wire:model.live="projectId" wrapClass="cp-ops-select" aria-label="{{ __('seo-content-ai::filament.projects.seo_audit_draft_selector_label') }}">
-                        <option value="">{{ __('seo-content-ai::filament.projects.seo_audit_draft_selector_placeholder') }}</option>
-                        @foreach ($draftOptions as $opt)
-                            <option value="{{ $opt['id'] }}">
-                                {{ $opt['name'] }}@if (($opt['domain'] ?? '') !== '') — {{ $opt['domain'] }}@endif
-                            </option>
-                        @endforeach
-                    </x-select>
+                    <div class="text-sm text-gray-700 dark:text-gray-200" data-shared-planning-draft="1">
+                        {{ __('seo-content-ai::filament.projects.content_planning_shared_draft_name') }}
+                    </div>
                 </div>
-                <button
-                    type="button"
-                    wire:click="createDraftForPlanner"
-                    wire:loading.attr="disabled"
-                    class="fi-btn fi-btn-color-primary fi-size-sm inline-flex items-center gap-1"
-                >
-                    {{ __('seo-content-ai::filament.projects.seo_audit_create_draft') }}
-                </button>
             </div>
-            @if (! $hasProject)
-                <p class="mt-3 text-sm text-gray-500 dark:text-gray-400">
-                    {{ __('seo-content-ai::filament.projects.seo_audit_draft_empty') }}
-                </p>
-            @endif
         </div>
     @endif
 

@@ -45,7 +45,6 @@ class SeoSettingsDateTime extends Page implements HasForms
                     ->schema([
                         Forms\Components\Select::make(SeoDateTimeSettingsService::KEY_TIMEZONE)
                             ->label(__('seo-content-ai::filament.settings_datetime.timezone'))
-                            ->hintAction(HelpUi::fieldHintAction('settings.general.datetime', null, 'timezone'))
                             ->options(fn (): array => SystemDateTime::timezoneSelectOptions())
                             ->searchable()
                             ->required()
@@ -59,7 +58,6 @@ class SeoSettingsDateTime extends Page implements HasForms
                             ]),
                         Forms\Components\Radio::make(SeoDateTimeSettingsService::KEY_PRESET)
                             ->label(__('seo-content-ai::filament.settings_datetime.preset'))
-                            ->hintAction(HelpUi::fieldHintAction('settings.general.datetime', null, 'preset'))
                             ->options([
                                 SeoDateTimeSettingsService::PRESET_VI => __('seo-content-ai::filament.settings_datetime.preset_vi'),
                                 SeoDateTimeSettingsService::PRESET_EN => __('seo-content-ai::filament.settings_datetime.preset_en'),

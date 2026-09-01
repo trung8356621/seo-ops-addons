@@ -24,8 +24,10 @@ final class SeoSettingsGeneralNavTest extends TestCase
         $this->assertStringContainsString('settings_general.nav', $menu);
         $this->assertStringNotContainsString("'id' => 'overview'", $menu);
         $this->assertStringNotContainsString("'id' => 'date-time'", $menu);
+        $this->assertStringNotContainsString("'id' => 'recommendations'", $menu);
         $this->assertStringNotContainsString('SeoSettingsOverview::getUrl()', $menu);
         $this->assertStringNotContainsString('SeoSettingsDateTime::getUrl()', $menu);
+        $this->assertStringNotContainsString('SeoSettingsRecommendations::getUrl()', $menu);
     }
 
     public function test_settings_hub_and_legacy_pages_redirect_to_general(): void
@@ -68,12 +70,30 @@ final class SeoSettingsGeneralNavTest extends TestCase
         $this->assertStringContainsString('section_regional', $view);
         $this->assertStringContainsString('section_workspace', $view);
         $this->assertStringContainsString('saveTeamChatSettings', $view);
-        $this->assertStringContainsString('overview_teaser', $view);
+        $this->assertStringNotContainsString('overview_teaser', $view);
+        $this->assertStringNotContainsString('SeoSettingsRecommendations', $view);
 
         $en = (string) file_get_contents(
             ProjectRoot::addonsPath().'/seo-content-ai-compat/lang/en/filament.php',
         );
         $this->assertStringContainsString("'default_content_language' =>", $en);
         $this->assertStringContainsString('Not the application UI language', $en);
+    }
+
+    public function test_recommendations_redirects_to_ai_center_and_is_not_in_menu(): void
+    {
+        $menu = (string) file_get_contents((new \ReflectionClass(SeoSettingsMenu::class))->getFileName());
+        $this->assertStringNotContainsString("'id' => 'recommendations'", $menu);
+
+        $page = (string) file_get_contents(
+            (new \ReflectionClass(\Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsRecommendations::class))->getFileName(),
+        );
+        $this->assertStringContainsString("protected static ?string \$slug = 'settings/recommendations'", $page);
+        $this->assertStringContainsString('SeoSettingsAiCenter::getUrl()', $page);
+        $this->assertStringContainsString('redirect', $page);
+        $this->assertStringNotContainsString('SeoSettingsRecommendationsContent', $page);
+        $this->assertFileDoesNotExist(
+            ProjectRoot::addonsPath().'/seo/src/Support/SeoSettingsRecommendationsContent.php',
+        );
     }
 }

@@ -172,6 +172,9 @@ final class KeywordMetaRepository
         return is_array($decoded) ? $decoded : null;
     }
 
+    /**
+     * Legacy global main_article_id (not site-safe). Prefer {@see getMainArticleIdForSite()}.
+     */
     public function getMainArticleId(int $keywordId): ?int
     {
         $value = $this->get($keywordId, KeywordMetaKey::MainArticleId->value);
@@ -179,6 +182,40 @@ final class KeywordMetaRepository
         return is_numeric($value) && (int) $value > 0 ? (int) $value : null;
     }
 
+    /**
+     * Resolve focus article for a keyword on a specific site.
+     * Prefers site.{siteId}.main_article_id; falls back to legacy global only when
+     * that article belongs to the same site.
+     */
+    public function getMainArticleIdForSite(int $keywordId, int $siteId): ?int
+    {
+        if ($keywordId <= 0 || $siteId <= 0) {
+            return null;
+        }
+
+        $scoped = $this->get($keywordId, KeywordMetaKey::siteMainArticleId($siteId));
+        if (is_numeric($scoped) && (int) $scoped > 0) {
+            return (int) $scoped;
+        }
+
+        $legacy = $this->getMainArticleId($keywordId);
+        if ($legacy === null) {
+            return null;
+        }
+
+        $articleSiteId = DB::connection('omi_seo_ai')
+            ->table('articles')
+            ->where('id', $legacy)
+            ->value('site_id');
+
+        return is_numeric($articleSiteId) && (int) $articleSiteId === $siteId
+            ? $legacy
+            : null;
+    }
+
+    /**
+     * @deprecated Prefer {@see setMainArticleIdForSite()} — global key causes cross-site contamination.
+     */
     public function setMainArticleId(int $keywordId, ?int $articleId): void
     {
         $this->set(
@@ -186,6 +223,52 @@ final class KeywordMetaRepository
             KeywordMetaKey::MainArticleId->value,
             $articleId !== null && $articleId > 0 ? (string) $articleId : null,
         );
+    }
+
+    /**
+     * Persist site-scoped focus article. Rejects when article.site_id !== $siteId.
+     *
+     * @return bool false when rejected (mismatch / invalid)
+     */
+    public function setMainArticleIdForSite(int $keywordId, int $siteId, ?int $articleId): bool
+    {
+        if ($keywordId <= 0 || $siteId <= 0) {
+            return false;
+        }
+
+        if ($articleId === null || $articleId <= 0) {
+            $this->set($keywordId, KeywordMetaKey::siteMainArticleId($siteId), null);
+
+            return true;
+        }
+
+        $articleSiteId = DB::connection('omi_seo_ai')
+            ->table('articles')
+            ->where('id', $articleId)
+            ->value('site_id');
+
+        if (! is_numeric($articleSiteId) || (int) $articleSiteId !== $siteId) {
+            return false;
+        }
+
+        $this->set($keywordId, KeywordMetaKey::siteMainArticleId($siteId), (string) $articleId);
+
+        // Keep legacy global in sync only when empty or already pointing at same-site article.
+        $legacy = $this->getMainArticleId($keywordId);
+        if ($legacy === null) {
+            $this->setMainArticleId($keywordId, $articleId);
+        } elseif ($legacy !== $articleId) {
+            $legacySiteId = DB::connection('omi_seo_ai')
+                ->table('articles')
+                ->where('id', $legacy)
+                ->value('site_id');
+            if (! is_numeric($legacySiteId) || (int) $legacySiteId === $siteId) {
+                $this->setMainArticleId($keywordId, $articleId);
+            }
+            // Else: legacy points at another site — leave it; site-scoped SoT wins for readers.
+        }
+
+        return true;
     }
 
     /**

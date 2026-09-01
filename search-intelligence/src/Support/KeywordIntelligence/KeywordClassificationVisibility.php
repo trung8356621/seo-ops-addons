@@ -450,7 +450,6 @@ final class KeywordClassificationVisibility
 
         $classified = $classifiedRows->count();
         $unclassified = max(0, $total - $classified);
-        $primary = (new KeywordTagResolver())->countPrimaryTags($classifiedRows, $unclassified);
         $seoExcludedManual = Keyword::query()
             ->whereIn('id', $ids)
             ->whereHas(
@@ -463,6 +462,12 @@ final class KeywordClassificationVisibility
             )
             ->count();
 
+        // Focus chip = keywords with main article / provider focus relation — not unclassified default.
+        $focusWithMainArticle = Keyword::query()
+            ->whereIn('id', $ids)
+            ->whereHas('mainArticles')
+            ->count();
+
         return [
             'table_ready' => true,
             'total_raw' => $total,
@@ -470,7 +475,7 @@ final class KeywordClassificationVisibility
             'unclassified' => $unclassified,
             'seo_usable' => $seoUsable,
             'excluded' => max(0, $classified - $seoUsable),
-            'focus' => $primary[KeywordTag::FOCUS],
+            'focus' => $focusWithMainArticle,
             'error' => Keyword::query()
                 ->whereIn('id', $ids)
                 ->whereIn('review_status', ['danger', 'warning'])

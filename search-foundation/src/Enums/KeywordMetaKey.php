@@ -15,6 +15,14 @@ enum KeywordMetaKey: string
     /** Soft-skip: still SEO-eligible, excluded from Site MCP payload / share / tokens. */
     case McpExcluded = 'mcp_keyword_excluded';
 
+    /**
+     * Site-scoped focus article (SoT). Legacy global {@see MainArticleId} is read fallback only.
+     */
+    public static function siteMainArticleId(int $siteId): string
+    {
+        return "site.{$siteId}.main_article_id";
+    }
+
     public static function siteTargetUrl(int $siteId): string
     {
         return "site.{$siteId}.target_url";

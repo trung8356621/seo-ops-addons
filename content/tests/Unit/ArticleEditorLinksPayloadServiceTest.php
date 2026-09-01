@@ -36,6 +36,7 @@ final class ArticleEditorLinksPayloadServiceTest extends TestCase
         self::assertStringContainsString('DomainCtaEditorService', $body);
         self::assertStringContainsString("'suggested_internal_links' => []", $body);
         self::assertStringContainsString("'suggested_external_links' => []", $body);
+        self::assertStringContainsString("'suggested_orphan_links' => []", $body);
 
         self::assertStringNotContainsString('suggestionService', $body);
         self::assertStringNotContainsString('suggestBundle', $body);
@@ -46,6 +47,7 @@ final class ArticleEditorLinksPayloadServiceTest extends TestCase
         $body = $this->methodBody(ArticleEditorLinksPayloadService::class, 'withSuggestions');
 
         self::assertSame(1, substr_count($body, 'suggestBundle('));
+        self::assertStringContainsString('withOrphanSuggestions($payload, $article)', $body);
         self::assertStringNotContainsString('->suggest(', $body);
         self::assertStringNotContainsString('->suggestCatalog(', $body);
         self::assertStringNotContainsString('->suggestExternal(', $body);

@@ -48,6 +48,7 @@ final class ArticleEditorLinksPayloadService
                 'internal' => count($extractedLinks['internal'] ?? []),
                 'external' => count($extractedLinks['external'] ?? []),
             ],
+            'suggested_orphan_links' => [],
         ];
     }
 
@@ -77,7 +78,7 @@ final class ArticleEditorLinksPayloadService
             $payload['suggestion_debug'] = $bundle['debug'];
         }
 
-        return $payload;
+        return $this->withOrphanSuggestions($payload, $article);
     }
 
     /**
@@ -115,6 +116,22 @@ final class ArticleEditorLinksPayloadService
         if (isset($bundle['debug']) && is_array($bundle['debug'])) {
             $payload['suggestion_debug'] = $bundle['debug'];
         }
+
+        return $this->withOrphanSuggestions($payload, $article);
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function withOrphanSuggestions(array $payload, SeoArticle $article): array
+    {
+        $internal = array_merge(
+            is_array($payload['suggested_internal_links'] ?? null) ? $payload['suggested_internal_links'] : [],
+            is_array($payload['suggested_internal_links_catalog'] ?? null) ? $payload['suggested_internal_links_catalog'] : [],
+        );
+        $payload['suggested_orphan_links'] = app(ArticleInboundLinkGraphService::class)
+            ->pickOrphanSuggestions($internal, (int) $article->id);
 
         return $payload;
     }

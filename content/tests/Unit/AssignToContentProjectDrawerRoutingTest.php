@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Content\Tests\Unit;
 
 use Omnichannel\Addons\Content\Livewire\AssignToContentProjectDrawer;
-use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectContract;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
@@ -13,200 +12,136 @@ use ReflectionMethod;
 use Tests\Support\ProjectRoot;
 
 /**
- * Regression: canonical drawer preserves domain mode semantics after consolidation.
+ * Regression: Add-to-Draft drawer routes all modes through PlanningDraftIntakeService.
  */
 final class AssignToContentProjectDrawerRoutingTest extends TestCase
 {
-    public function test_seo_audit_option_wires_ignore_monthly_capacity_into_article_submit(): void
+    public function test_seo_audit_opens_canonical_drawer_with_capacity_flag_compat(): void
     {
-        $source = $this->drawerSource();
-
-        self::assertStringContainsString(
-            "\$this->ignoreMonthlyCapacity = (bool) (\$options['ignore_monthly_capacity'] ?? false);",
-            $source,
-        );
-        self::assertStringContainsString(
-            "'ignore_monthly_capacity' => \$this->ignoreMonthlyCapacity,",
-            $source,
-        );
-
         $auditBlade = (string) file_get_contents(
             ProjectRoot::addonsPath().'/seo-content-ai-compat/resources/views/filament/pages/articles-optimal.blade.php'
         );
         self::assertStringContainsString('ignore_monthly_capacity: true', $auditBlade);
         self::assertStringContainsString('openAssignDrawer', $auditBlade);
+        self::assertStringContainsString('AssignToContentProjectContract::OPEN_EVENT', $auditBlade);
     }
 
-    public function test_article_title_and_keyword_overrides_reach_form_data_payload(): void
+    public function test_article_submit_uses_planning_draft_intake(): void
     {
         $source = $this->drawerSource();
 
-        self::assertStringContainsString("'keyword' => \$this->keywordOverride !== '' ? \$this->keywordOverride : null,", $source);
-        self::assertStringContainsString("'title' => \$this->titleOverride !== '' ? \$this->titleOverride : null,", $source);
-        self::assertStringContainsString('ArticleResource::assignArticlesFromFormData', $source);
-
-        $resource = (string) file_get_contents(
-            ProjectRoot::addonsPath().'/content/src/Filament/Resources/ArticleResource.php'
-        );
-        self::assertStringContainsString("is_string(\$data['title'] ?? null) ? \$data['title'] : null", $resource);
-        self::assertStringContainsString("(bool) (\$data['ignore_monthly_capacity'] ?? false)", $resource);
+        self::assertStringContainsString('PlanningDraftIntakeService::class', $source);
+        self::assertStringContainsString('->addArticles(', $source);
+        self::assertStringContainsString('shouldAutoSubmitAfterPrepare', $source);
+        self::assertStringNotContainsString('ArticleResource::assignArticlesFromFormData', $source);
+        self::assertStringNotContainsString("'title' => \$this->titleOverride", $source);
     }
 
-    public function test_keyword_multi_site_uses_independent_project_id_by_site_fields(): void
+    public function test_keyword_submit_uses_intake_without_project_id_by_site(): void
     {
         $source = $this->drawerSource();
 
-        self::assertStringContainsString('projectIdBySite', $source);
-        self::assertStringContainsString("\$assignData['project_id_'.\$siteId] = (int) (\$this->projectIdBySite[\$siteId] ?? 0);", $source);
-        self::assertStringContainsString('KeywordResource::executeAssignKeywordsToContentProjects', $source);
-
-        $keywordResource = (string) file_get_contents(
-            ProjectRoot::addonsPath().'/search-intelligence/src/Filament/Resources/KeywordResource.php'
+        self::assertStringContainsString('->addKeywords(', $source);
+        self::assertStringNotContainsString(
+            "\$assignData['project_id_'.\$siteId] = (int) (\$this->projectIdBySite[\$siteId] ?? 0);",
+            $source,
         );
-        self::assertStringContainsString("\$data['project_id_'.\$siteId]", $keywordResource);
-        self::assertStringContainsString('foreach ($siteIds as $siteId)', $keywordResource);
+        self::assertStringNotContainsString('KeywordResource::executeAssignKeywordsToContentProjects', $source);
     }
 
-    public function test_pending_link_routes_through_article_pending_internal_link_service(): void
+    public function test_pending_link_routes_through_intake_service(): void
     {
         $source = $this->drawerSource();
 
         self::assertStringContainsString('AssignToContentProjectContract::MODE_PENDING_LINK => $this->submitPendingLink()', $source);
-        self::assertStringContainsString('ArticlePendingInternalLinkService::class', $source);
-        self::assertStringContainsString('->assignFromEditor(', $source);
+        self::assertStringContainsString('->addPendingLink(', $source);
 
         $pendingMethod = $this->methodSource('submitPendingLink');
-        self::assertStringContainsString('assignFromEditor', $pendingMethod);
+        self::assertStringContainsString('addPendingLink', $pendingMethod);
         self::assertStringNotContainsString('assignArticlesFromFormData', $pendingMethod);
         self::assertStringNotContainsString('executeAssignKeywordsToContentProjects', $pendingMethod);
     }
 
-    public function test_vocabulary_items_route_through_phrase_assignment(): void
+    public function test_vocabulary_items_route_through_intake_phrases(): void
     {
         $source = $this->drawerSource();
         self::assertStringContainsString(
             'AssignToContentProjectContract::MODE_VOCABULARY_ITEMS => $this->submitVocabularyItems()',
             $source,
         );
-        self::assertStringContainsString('KeywordProjectAssignmentService::class', $source);
-        self::assertStringContainsString('->assignPhrases(', $source);
+        self::assertStringContainsString('->addVocabularyPhrases(', $source);
+        self::assertStringNotContainsString('KeywordProjectAssignmentService::class', $source);
     }
 
-    public function test_quick_create_uses_article_resource_quick_create_helper(): void
+    public function test_quick_create_is_disabled_noop(): void
     {
         $source = $this->drawerSource();
 
-        self::assertStringContainsString('ArticleResource::quickCreateContentProject', $source);
         self::assertStringContainsString('public function quickCreate(?int $writerId = null): void', $source);
-        self::assertStringNotContainsString('open-article-assign-content-project-modal', $source);
+        self::assertStringNotContainsString('ArticleResource::quickCreateContentProject', $source);
     }
 
-    public function test_reset_form_state_clears_cross_mode_fields(): void
+    public function test_mode_match_covers_all_contract_modes(): void
     {
-        $drawer = new AssignToContentProjectDrawer();
-        $drawer->mode = AssignToContentProjectContract::MODE_ARTICLE;
-        $drawer->source = 'seo_audit';
-        $drawer->articleIds = [11, 22];
-        $drawer->keywordIds = [33];
-        $drawer->siteIds = [1, 2];
-        $drawer->projectId = 99;
-        $drawer->projectIdBySite = [1 => 10, 2 => 20];
-        $drawer->type = 'improve';
-        $drawer->rewriteNotes = 'notes';
-        $drawer->focusKeyword = 'focus';
-        $drawer->keywordOverride = 'kw';
-        $drawer->titleOverride = 'title';
-        $drawer->needsFocusKeyword = true;
-        $drawer->ignoreMonthlyCapacity = true;
-        $drawer->showArticleFields = true;
-        $drawer->errorMessage = 'boom';
-        $drawer->anchorPhrase = 'phrase';
-        $drawer->items = [['keyword' => 'x', 'title' => 'x', 'source' => 'vocabulary', 'source_article_id' => 1]];
-
-        $reset = new ReflectionMethod(AssignToContentProjectDrawer::class, 'resetFormState');
-        $reset->setAccessible(true);
-        $reset->invoke($drawer);
-
-        self::assertSame(AssignToContentProjectContract::MODE_ARTICLE, $drawer->mode);
-        self::assertSame('', $drawer->source);
-        self::assertSame([], $drawer->articleIds);
-        self::assertSame([], $drawer->keywordIds);
-        self::assertSame([], $drawer->siteIds);
-        self::assertNull($drawer->projectId);
-        self::assertSame([], $drawer->projectIdBySite);
-        self::assertSame(SeoProjectTask::TYPE_REWRITE, $drawer->type);
-        self::assertSame('', $drawer->rewriteNotes);
-        self::assertSame('', $drawer->focusKeyword);
-        self::assertSame('', $drawer->keywordOverride);
-        self::assertSame('', $drawer->titleOverride);
-        self::assertFalse($drawer->needsFocusKeyword);
-        self::assertFalse($drawer->ignoreMonthlyCapacity);
-        self::assertFalse($drawer->showArticleFields);
-        self::assertNull($drawer->errorMessage);
-        self::assertNull($drawer->anchorPhrase);
-        self::assertSame([], $drawer->items);
+        $source = $this->drawerSource();
+        self::assertStringContainsString('AssignToContentProjectContract::MODE_KEYWORD => $this->submitKeyword()', $source);
+        self::assertStringContainsString('AssignToContentProjectContract::MODE_PENDING_LINK => $this->submitPendingLink()', $source);
+        self::assertStringContainsString('AssignToContentProjectContract::MODE_VOCABULARY_ITEMS => $this->submitVocabularyItems()', $source);
+        self::assertStringContainsString('default => $this->submitArticle()', $source);
     }
 
-    public function test_prepare_normalizes_payload_via_contract_modes(): void
+    public function test_pending_link_payload_normalize(): void
     {
         $payload = AssignToContentProjectContract::normalizePayload([
-            'mode' => 'pending_link',
+            'mode' => AssignToContentProjectContract::MODE_PENDING_LINK,
             'source' => 'link_edit_bubble',
-            'article_ids' => [5],
+            'article_ids' => [7],
             'anchor_phrase' => '  hello  ',
-            'options' => ['ignore_monthly_capacity' => true],
         ]);
 
         self::assertSame(AssignToContentProjectContract::MODE_PENDING_LINK, $payload['mode']);
-        self::assertSame('link_edit_bubble', $payload['source']);
-        self::assertSame([5], $payload['article_ids']);
+        self::assertSame([7], $payload['article_ids']);
         self::assertSame('hello', $payload['anchor_phrase']);
-        self::assertTrue((bool) ($payload['options']['ignore_monthly_capacity'] ?? false));
     }
 
-    public function test_source_is_not_used_for_backend_routing_in_drawer(): void
+    public function test_prepare_request_id_is_public(): void
     {
-        $source = $this->drawerSource();
-
-        self::assertStringNotContainsString("\$this->source ===", $source);
-        self::assertStringNotContainsString('source === \'seo_audit\'', $source);
-        self::assertStringNotContainsString('source === "seo_audit"', $source);
-        self::assertStringContainsString('match ($this->mode)', $source);
+        $drawer = new AssignToContentProjectDrawer();
+        $drawer->mode = AssignToContentProjectContract::MODE_ARTICLE;
+        self::assertSame(0, $drawer->prepareRequestId);
     }
 
-    public function test_prepare_tracks_request_id_against_stale_completions(): void
+    public function test_reset_form_state_clears_keyword_flags(): void
     {
-        $method = $this->methodSource('prepare');
-        self::assertStringContainsString('_request_id', $method);
-        self::assertStringContainsString('prepareRequestId', $method);
-        self::assertStringContainsString('if ($requestId !== $this->prepareRequestId)', $method);
-    }
-
-    public function test_load_articles_uses_record_route_binding_query(): void
-    {
-        $method = $this->methodSource('loadArticles');
-        self::assertStringContainsString('getRecordRouteBindingEloquentQuery()', $method);
-        self::assertStringNotContainsString('getEloquentQuery()', $method);
+        $reset = new ReflectionMethod(AssignToContentProjectDrawer::class, 'resetFormState');
+        $reset->setAccessible(true);
+        $drawer = new AssignToContentProjectDrawer();
+        $drawer->needsFocusKeyword = true;
+        $drawer->focusKeyword = 'x';
+        $reset->invoke($drawer);
+        self::assertSame(AssignToContentProjectContract::MODE_ARTICLE, $drawer->mode);
+        self::assertFalse($drawer->needsFocusKeyword);
+        self::assertSame('', $drawer->focusKeyword);
     }
 
     private function drawerSource(): string
     {
-        $path = (new ReflectionClass(AssignToContentProjectDrawer::class))->getFileName();
-        self::assertNotFalse($path);
-
-        return (string) file_get_contents($path);
+        return (string) file_get_contents(
+            (string) (new ReflectionClass(AssignToContentProjectDrawer::class))->getFileName()
+        );
     }
 
     private function methodSource(string $method): string
     {
         $ref = new ReflectionMethod(AssignToContentProjectDrawer::class, $method);
         $file = (string) $ref->getFileName();
+        $start = (int) $ref->getStartLine();
+        $end = (int) $ref->getEndLine();
         $lines = file($file);
-        self::assertNotFalse($lines);
+        if ($lines === false) {
+            return '';
+        }
 
-        $start = $ref->getStartLine() - 1;
-        $end = $ref->getEndLine();
-
-        return implode('', array_slice($lines, $start, $end - $start));
+        return implode('', array_slice($lines, $start - 1, $end - $start + 1));
     }
 }

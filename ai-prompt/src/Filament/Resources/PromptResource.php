@@ -644,7 +644,7 @@ class PromptResource extends SeoPanelResource
             'site_short_description' => 'Website short description (domain)',
             'site_cta' => 'Website CTA / contact (domain) — includes [phone], [website], … placeholders for AI',
             'site_links' => 'Link list (deprecated — luôn rỗng; dùng đồng bộ keyword + gợi ý editor)',
-            'tone' => 'Giọng văn (domain override, fallback SEO → Tùy chỉnh → Prompt)',
+            'tone' => 'Giọng văn đã resolve (Content Project Item / Automatic variety; không còn inherit domain)',
             'article_length' => 'Độ dài bài theo post_type hiện tại (số chữ, settings)',
             'article_length_product' => 'Độ dài bài — product (mặc định 1000)',
             'article_length_default' => 'Độ dài bài — các loại khác (mặc định 2000)',

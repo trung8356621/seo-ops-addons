@@ -146,15 +146,29 @@ final class SeoIssueProjectTaskAssignmentService
                     continue;
                 }
 
-                $articleSiteId = $this->resolveArticleSiteId($record) ?? 0;
-                if ($projectSiteId > 0 && $articleSiteId !== $projectSiteId) {
+                $articleSiteId = (int) ($record->site_id ?? 0);
+                // Shared Draft (isDraftPlanning): never reject by project.site_id —
+                // items own site_id from the article, including cross-site cards.
+                if (
+                    ! $project->isDraftPlanning()
+                    && $projectSiteId > 0
+                    && $articleSiteId > 0
+                    && $articleSiteId !== $projectSiteId
+                ) {
                     $domainMismatch++;
 
                     continue;
                 }
 
+                if ($project->isDraftPlanning() && $articleSiteId <= 0) {
+                    // Caller (Draft intake) must resolve site first — skip silently here.
+                    continue;
+                }
+
                 $sourceContent = $this->resolveAssignSourceContent($record, $normalizedTaskType);
-                $siteId = $projectSiteId > 0 ? $projectSiteId : $articleSiteId;
+                $siteId = $articleSiteId > 0
+                    ? $articleSiteId
+                    : ($project->isDraftPlanning() ? 0 : $projectSiteId);
                 $key = $siteId.'|'.$normalizedTaskType.'|'.mb_strtolower($sourceContent);
                 if (isset($existingMap[$key])) {
                     $duplicate++;

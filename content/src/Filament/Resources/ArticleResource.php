@@ -478,6 +478,34 @@ class ArticleResource extends SeoPanelResource
                     ->native(false)
                     ->placeholder(__('seo-content-ai::filament.article_list.all_scores'))
                     ->indicator(__('seo-content-ai::filament.article_list.seo_score')),
+                SelectFilter::make('focus_keyword_status')
+                    ->label(__('seo-content-ai::filament.article_list.focus_keyword_status'))
+                    ->options([
+                        'missing' => __('seo-content-ai::filament.article_list.focus_keyword_missing'),
+                        'present' => __('seo-content-ai::filament.article_list.focus_keyword_present'),
+                    ])
+                    ->query(function (Builder $query, array $data): void {
+                        $value = $data['value'] ?? null;
+                        if (! is_string($value) || $value === '') {
+                            return;
+                        }
+
+                        $coverageQuery = app(\Omnichannel\Addons\Seo\Services\FocusKeywordCoverageQuery::class);
+                        $coverageQuery->applySeoInventoryScope($query);
+
+                        if ($value === 'missing') {
+                            $coverageQuery->applyMissingFocusScope($query);
+
+                            return;
+                        }
+
+                        if ($value === 'present') {
+                            $coverageQuery->applyHasEffectiveFocusScope($query);
+                        }
+                    })
+                    ->native(false)
+                    ->placeholder(__('seo-content-ai::filament.article_list.focus_keyword_any'))
+                    ->indicator(__('seo-content-ai::filament.article_list.focus_keyword_status')),
                 Filter::make('seo_link')
                     ->label(__('seo-content-ai::filament.article_list.links_in_article'))
                     ->form([

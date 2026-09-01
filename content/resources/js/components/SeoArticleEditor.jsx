@@ -362,12 +362,13 @@ import {
 import SectionHeaderTitle from './SectionHeaderTitle';
 import BlockEditor from './BlockEditor';
 import ArticleContentSyncRequiredBlocker from './ArticleContentSyncRequiredBlocker';
+import useWpEditorContentAutoLoad from '../hooks/useWpEditorContentAutoLoad';
 import {
     CONTENT_LIFECYCLE,
     emitContentLifecycle,
-    isContentSyncRequired,
     normalizeContentLifecyclePayload,
 } from '../utils/articleEditorContentLifecycle';
+
 export default function SeoArticleEditor({
     articleId,
     siteId = null,
@@ -401,13 +402,14 @@ export default function SeoArticleEditor({
     perfDebug = false,
 }) {
     const [supportsProductGallery, setSupportsProductGallery] = useState(() => Boolean(supportsProductGalleryProp));
-    const contentLifecycle = normalizeContentLifecyclePayload(
+    const [contentLifecycle, setContentLifecycle] = useState(() => normalizeContentLifecyclePayload(
         contentLifecycleProp
         ?? window.__SEO_EDITOR_CONTENT_LIFECYCLE__
         ?? { state: CONTENT_LIFECYCLE.CONTENT_LOADING },
-    );
-    const syncRequired = isContentSyncRequired(contentLifecycle.state);
+    ));
     const contentLoading = contentLifecycle.state === CONTENT_LIFECYCLE.CONTENT_LOADING;
+    const contentFetchError = contentLifecycle.state === CONTENT_LIFECYCLE.ERROR;
+    const syncRequired = contentLoading || contentFetchError;
     const isCanaryProduct = Boolean(isCanaryProductProp);
     const parentChildAllowed = Boolean(parentChildAllowedProp);
     const parentChildReason = String(parentChildReasonProp ?? '').trim();
@@ -1379,6 +1381,18 @@ export default function SeoArticleEditor({
 
         const { applyDraftRestore, discardDraftRestore, draftChoiceModalOpen, draftRestoreOffer, keepServerOverDraft, reconcileImagesTabWithBlocks } = useArticleEditorBootstrap({ analyzedBlocksRef, articleId, bootstrapBodyPlainRef, canRedo, canUndo, cancelLocalDraftSave, clearTempMerge, connectionHashRef, dismissedEditorImageMediaIdsRef, draftScope, expectedContentHash, expectedUpdatedAt, hasHydratedSeoFromServerRef, initialEditorDocument, initialEditorDocumentHash, initialHtml, initialPostImages, initialSeo, loadedArticleIdRef, markSeoAnalysisReady, postImagesRef, redo, requestAnalyze, sessionReadOnly, setActiveBlockId, setAnalyzing, setBlocks, setExtractedLinks, setGlobalEditor, setImagesReloadKey, setSeoStale, setSuggestedExternalLinks, setSuggestedInternalLinks, siteDomainRef, skipNextAutosave, suggestionExternalCatalogRef, undo, whitespaceCorruptionLockedRef, withDraftSite });
 
+        const { retry: retryWpContentLoad } = useWpEditorContentAutoLoad({
+            contentLifecycle,
+            setContentLifecycle,
+            setBlocks,
+            skipNextAutosave,
+            bootstrapBodyPlainRef,
+            allowFetch: Boolean(
+                contentLifecycle.allow_fetch_from_wordpress
+                && editorSettings?.allow_wp_sync !== false,
+            ),
+        });
+
         const { commitActiveBlock, registerBlockEditor, registerBlockFlush, updateBlockContent } = useArticleEditorBlockContentCommands({ activeBlockIdRef, articleId, blockEditorsRef, blockFlushRef, documentVersion, editorHostActionsRef, editorSettings, globalEditorRef, initialEditorDocumentHash, initialPostType, perfDebug, reconcileImagesTabWithBlocks, markSeoStaleRef, scheduleAutosaveRef, sessionReadOnly, setBlocks, setRuntimeContextRevision, structureMutationRef, tempMergeRef });
 
         const { applySlugRenameFinished, armBlockOutsideClickGuard, assertNoLocalSlugFixBeforeWpSync, handleImageAltTitleChange, patchImageInBlocks, persistEditorContentImmediately, quickFixAltTitleAllImages, quickFixAltTitleSingleImage, quickFixSlugAllImages, quickFixSlugSingleImage, selectPlainTextInBlock } = useArticleEditorImageSlugRename({ articleId, articleTitle, blockEditorsRef, blockFlushRef, blockOutsideClickGuardUntilRef, blocksRef, cancelLocalDraftSave, commitActiveBlock, connectionHashRef, draftScope, focusKeyword, getExportHtml, pendingLocalRenameQueueRef, pendingLocalRenameResultsRef, pendingQuickFixKeywordRef, pendingWpRenameRequestRef, publishEditorImagesCatalogRef, quickFixSlugAllBusy, requestAnalyze: markSeoStale, scheduleAutosave, setActiveBlockId, setBlocks, setGlobalEditor, setImagesReloadKey, setMediaHealthTick, setQuickFixSlugAllBusy, setSaveStatus, siteId, siteIdRef, skipNextAutosave, slugRenameManagedByBatchRef, supplementalImages, supplementalImagesRef, supportsProductGallery, tempMergeRef, unifiedImageRows, unifiedImagesInventory, updateBlocksWithoutHistory, withDraftSite });
@@ -1422,7 +1436,7 @@ export default function SeoArticleEditor({
             savedScore: syncRequired ? null : savedSeoScore,
             scoreSource: syncRequired ? 'unavailable' : seoScoreSource,
             syncRequired,
-            unavailableMessage: syncRequired ? t('content_sync_required_seo') : null,
+            unavailableMessage: syncRequired ? t('content_wp_loading') : null,
             onRetry: () => {
                 if (syncRequired) {
                     return;
@@ -1749,8 +1763,10 @@ export default function SeoArticleEditor({
                     <div className="max-w-none space-y-3">
                         <div className="flex flex-wrap items-center justify-between gap-3">
                             <div className="text-xs font-medium text-gray-500 dark:text-gray-300">
-                                {syncRequired
-                                    ? t('content_sync_required_title')
+                                {contentLoading && contentLifecycle.wordpress_linked
+                                    ? t('content_wp_loading')
+                                    : syncRequired
+                                    ? t('content_wp_loading')
                                     : `${t('editor_total_words')}: ${totalWordCount}`}
                             </div>
                             <div className="ml-auto flex flex-wrap items-center justify-end gap-2">
@@ -1825,13 +1841,17 @@ export default function SeoArticleEditor({
 
                         {contentLoading ? (
                             <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-10 text-center text-sm text-slate-600 animate-pulse dark:border-slate-700 dark:bg-slate-900/40 dark:text-slate-300">
-                                {t('editor_loading_content')}
+                                {contentLifecycle.wordpress_linked
+                                    ? t('content_wp_loading')
+                                    : t('editor_loading_content')}
                             </div>
-                        ) : syncRequired ? (
+                        ) : contentFetchError ? (
                             <ArticleContentSyncRequiredBlocker
+                                status="error"
                                 allowFetch={contentLifecycle.allow_fetch_from_wordpress
                                     && Boolean(editorSettings?.allow_wp_sync !== false)}
                                 observedPermalink={contentLifecycle.observed_permalink}
+                                onRetry={retryWpContentLoad}
                             />
                         ) : blocks.length === 0 ? (
                             <p className="text-gray-400 text-center py-10 italic text-sm">

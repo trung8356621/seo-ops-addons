@@ -146,17 +146,20 @@ final class SiteSyncV2ForceFullFreezeTest extends TestCase
         self::assertStringContainsString('ForceFullSiteSyncCommand::class', $src);
     }
 
-    public function test_domain_ui_always_exposes_force_full_checkbox(): void
+    public function test_domain_ui_force_full_is_preflight_only_not_checkbox(): void
     {
         $blade = LegacyAddonPath::resolve('resources/views/filament/resources/domain-resource/pages/partials/domain-sync-actions.blade.php');
         self::assertFileExists($blade);
         $src = (string) file_get_contents($blade);
-        self::assertStringContainsString('wire:model.live="siteSyncForceFull"', $src);
-        self::assertStringContainsString('Đồng bộ lại toàn bộ website', $src);
-        self::assertStringContainsString('runForceFullSiteSyncAction', $src);
-        self::assertStringContainsString('Tải và kiểm tra lại toàn bộ bài viết', $src);
-        // Must not gate checkbox on resumable/failed only.
-        self::assertStringNotContainsString('@if ($siteSyncV2Resumable', $src);
+        self::assertStringNotContainsString('wire:model.live="siteSyncForceFull"', $src);
+        self::assertStringNotContainsString('Đồng bộ lại toàn bộ website', $src);
+        self::assertStringContainsString('openSiteSyncPreflight', $src);
+        self::assertStringContainsString('Đồng bộ & kiểm tra website', $src);
+
+        $modal = LegacyAddonPath::resolve('resources/views/filament/resources/domain-resource/pages/partials/site-sync-preflight-modal.blade.php');
+        $modalSrc = (string) file_get_contents($modal);
+        self::assertStringContainsString('confirmSiteSyncPreflightFull', $modalSrc);
+        self::assertStringContainsString('Đồng bộ toàn bộ', $modalSrc);
     }
 
     public function test_domain_ui_dispatches_force_full_via_command_bus(): void

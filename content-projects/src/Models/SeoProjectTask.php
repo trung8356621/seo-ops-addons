@@ -34,6 +34,9 @@ class SeoProjectTask extends Model
 
     public const REWRITE_MODE_CONTENT = 'content';
 
+    public const POST_TYPE_POST = 'post';
+
+    /** @deprecated Legacy DB value — always load/save via {@see normalizePostType()}. */
     public const POST_TYPE_ARTICLE = 'article';
 
     public const POST_TYPE_PRODUCT = 'product';
@@ -426,20 +429,28 @@ class SeoProjectTask extends Model
     public static function postTypeKeys(): array
     {
         return [
-            self::POST_TYPE_ARTICLE,
+            self::POST_TYPE_POST,
             self::POST_TYPE_PRODUCT,
             self::POST_TYPE_CATEGORY,
             self::POST_TYPE_PRODUCT_CATEGORY,
         ];
     }
 
+    /**
+     * Single normalization path for Content Project item post_type.
+     * Legacy `article` → canonical `post`. Unknown → `post`.
+     */
     public static function normalizePostType(mixed $value): string
     {
-        $normalized = trim((string) $value);
+        $normalized = strtolower(trim((string) $value));
+
+        if ($normalized === '' || $normalized === self::POST_TYPE_ARTICLE || $normalized === self::POST_TYPE_POST) {
+            return self::POST_TYPE_POST;
+        }
 
         return in_array($normalized, self::postTypeKeys(), true)
             ? $normalized
-            : self::POST_TYPE_ARTICLE;
+            : self::POST_TYPE_POST;
     }
 
     /**

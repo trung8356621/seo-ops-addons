@@ -81,7 +81,6 @@ class SeoSettingsGeneral extends Page implements HasForms
                     ->schema([
                         Forms\Components\Select::make(SeoDateTimeSettingsService::KEY_TIMEZONE)
                             ->label(__('seo-content-ai::filament.settings_datetime.timezone'))
-                            ->hintAction(HelpUi::fieldHintAction('settings.general.datetime', null, 'timezone'))
                             ->options(fn (): array => SystemDateTime::timezoneSelectOptions())
                             ->searchable()
                             ->required()
@@ -95,7 +94,6 @@ class SeoSettingsGeneral extends Page implements HasForms
                             ]),
                         Forms\Components\Radio::make(SeoDateTimeSettingsService::KEY_PRESET)
                             ->label(__('seo-content-ai::filament.settings_datetime.preset'))
-                            ->hintAction(HelpUi::fieldHintAction('settings.general.datetime', null, 'preset'))
                             ->options([
                                 SeoDateTimeSettingsService::PRESET_VI => __('seo-content-ai::filament.settings_datetime.preset_vi'),
                                 SeoDateTimeSettingsService::PRESET_EN => __('seo-content-ai::filament.settings_datetime.preset_en'),
@@ -133,7 +131,6 @@ class SeoSettingsGeneral extends Page implements HasForms
                     ->schema([
                         Forms\Components\Select::make(SeoContentLanguageSettingsService::KEY_DEFAULT_CONTENT_LANGUAGE)
                             ->label(__('seo-content-ai::filament.settings_general.default_content_language'))
-                            ->hintAction(HelpUi::fieldHintAction('settings.general.content_language', null, 'field'))
                             ->options(fn (): array => ContentLanguageRegistry::selectOptions())
                             ->required()
                             ->native(false)
@@ -155,16 +152,14 @@ class SeoSettingsGeneral extends Page implements HasForms
                             ->label(__('seo-content-ai::filament.settings_overview.team_chat_extensions_label'))
                             ->rows(6)
                             ->required()
-                            ->columnSpanFull()
-                            ->hintAction(HelpUi::fieldHintAction('settings.general.team_chat', null, 'extensions')),
+                            ->columnSpanFull(),
                         Forms\Components\TextInput::make(SeoOverviewSettingsService::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB)
                             ->label(__('seo-content-ai::filament.settings_overview.team_chat_max_size_label'))
                             ->numeric()
                             ->minValue(1)
                             ->maxValue(100)
                             ->required()
-                            ->suffix('MB')
-                            ->hintAction(HelpUi::fieldHintAction('settings.general.team_chat', null, 'max_size')),
+                            ->suffix('MB'),
                     ])
                     ->columns(2),
             ])

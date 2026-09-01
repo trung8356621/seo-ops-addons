@@ -12,12 +12,16 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Support\ProjectTaskSourceKeyGenerator;
 use Omnichannel\Addons\ContentProjects\Support\SeoProjectTaskCanonicalCandidateResolver;
 use Omnichannel\Addons\ContentProjects\Support\SeoProjectTaskSyncData;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemModelOverrideMode;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemTitleProtection;
 use Omnichannel\Addons\ContentProjects\Support\SeoProjectTaskSyncDataNormalizer;
 use Omnichannel\Addons\ContentProjects\Support\SeoProjectTaskSyncResult;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 /**
  * Diff/upsert sync — giữ stable task ID (Phase 3C2).
@@ -40,7 +44,32 @@ final class SeoProjectTaskSyncService
         'description',
         'loai_san_pham',
         'target_date',
+        'tone_override',
+        'content_length_override',
+        'content_length_target_words',
+        'generation_mode_override',
+        'model_override_id',
+        'model_override_mode',
+        'title_protection',
     ];
+
+    /**
+     * Columns added by the item generation policy migration. Skipped wholesale on
+     * databases where that migration has not run yet.
+     *
+     * @var list<string>
+     */
+    private const GENERATION_POLICY_FIELDS = [
+        'tone_override',
+        'content_length_override',
+        'content_length_target_words',
+        'generation_mode_override',
+        'model_override_id',
+        'model_override_mode',
+        'title_protection',
+    ];
+
+    private ?bool $policyColumnsAvailable = null;
 
     public function __construct(
         private readonly SeoProjectTaskSyncDataNormalizer $normalizer,
@@ -477,10 +506,12 @@ final class SeoProjectTaskSyncService
             'description' => $row->description,
             'loai_san_pham' => $row->loaiSanPham,
             'target_date' => $targetDate,
+            ...$row->generationPolicyColumns(),
+            'title_protection' => $this->resolveTitleProtection($row, $task),
         ];
 
         $changedFields = [];
-        foreach (self::EDITABLE_FIELDS as $field) {
+        foreach ($this->editableFields() as $field) {
             $new = $payload[$field] ?? null;
             $old = $task->{$field};
             if ($field === 'target_date') {
@@ -491,6 +522,13 @@ final class SeoProjectTaskSyncService
             }
             $changedFields[] = $field;
             $task->{$field} = $new;
+        }
+
+        // A different (or cleared) tone override invalidates the stickied automatic tone
+        // so the next run re-resolves. Every other edit leaves resolved_tone alone.
+        if (in_array('tone_override', $changedFields, true)) {
+            $changedFields[] = 'resolved_tone';
+            $task->resolved_tone = null;
         }
 
         if ($changedFields === []) {
@@ -557,6 +595,13 @@ final class SeoProjectTaskSyncService
             $articleId = $this->resolveArticleIdByTitle($row->sourceContent, $row->siteId);
         }
 
+        $policy = $this->policyColumnsAvailable()
+            ? [
+                ...$row->generationPolicyColumns(),
+                'title_protection' => $this->resolveTitleProtection($row, null),
+            ]
+            : [];
+
         $task = $this->uniqueWriter->createStrict([
             'project_id' => (int) $project->id,
             'site_id' => $row->siteId,
@@ -580,6 +625,7 @@ final class SeoProjectTaskSyncService
             'status' => SeoProjectTask::STATUS_PENDING,
             'connected_at' => $articleId !== null ? now() : null,
             'completed_at' => null,
+            ...$policy,
         ]);
 
         $this->eventRecorder->record(
@@ -663,6 +709,54 @@ final class SeoProjectTaskSyncService
             'cancelled' => $cancelled,
             'warnings' => $warnings,
         ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function editableFields(): array
+    {
+        if ($this->policyColumnsAvailable()) {
+            return self::EDITABLE_FIELDS;
+        }
+
+        return array_values(array_diff(self::EDITABLE_FIELDS, self::GENERATION_POLICY_FIELDS));
+    }
+
+    private function policyColumnsAvailable(): bool
+    {
+        if ($this->policyColumnsAvailable !== null) {
+            return $this->policyColumnsAvailable;
+        }
+
+        $task = new SeoProjectTask;
+
+        try {
+            $this->policyColumnsAvailable = Schema::connection($task->getConnectionName())
+                ->hasColumn($task->getTable(), 'tone_override');
+        } catch (Throwable) {
+            $this->policyColumnsAvailable = false;
+        }
+
+        return $this->policyColumnsAvailable;
+    }
+
+    /**
+     * Title provenance follows the form: a title typed by the operator becomes
+     * user-owned, clearing the title releases protection. An already stored
+     * provenance (reviewed / generated) is never downgraded.
+     */
+    private function resolveTitleProtection(SeoProjectTaskSyncData $row, ?SeoProjectTask $task): ?string
+    {
+        if ($row->title === null) {
+            return null;
+        }
+
+        $stored = $task === null
+            ? null
+            : ItemTitleProtection::tryFromMixed($task->getAttributes()['title_protection'] ?? null);
+
+        return ($row->titleProtection ?? $stored ?? ItemTitleProtection::User)->value;
     }
 
     private function scalarEquals(mixed $old, mixed $new): bool
@@ -750,6 +844,40 @@ final class SeoProjectTaskSyncService
     }
 
     /**
+     * Advanced generation overrides as the repeater expects them. Read from the raw
+     * attribute bag so tasks loaded before the policy migration hydrate as defaults.
+     *
+     * @return array<string, mixed>
+     */
+    private static function generationPolicyFormState(SeoProjectTask $task): array
+    {
+        $attributes = $task->getAttributes();
+        $raw = static function (string $key) use ($attributes): ?string {
+            $value = $attributes[$key] ?? null;
+            if (! is_string($value) && ! is_int($value)) {
+                return null;
+            }
+
+            $normalized = trim((string) $value);
+
+            return $normalized === '' ? null : $normalized;
+        };
+
+        $modelOverrideId = (int) ($raw('model_override_id') ?? 0);
+        $modelOverrideMode = ItemModelOverrideMode::tryFromMixed($raw('model_override_mode'));
+
+        return [
+            'tone_override' => $raw('tone_override'),
+            'content_length_override' => $raw('content_length_override'),
+            'content_length_target_words' => $raw('content_length_target_words'),
+            'generation_mode_override' => $raw('generation_mode_override'),
+            'model_override_id' => $modelOverrideId > 0 ? $modelOverrideId : null,
+            'model_fallback_enabled' => $modelOverrideMode !== ItemModelOverrideMode::Required,
+            'title_protection' => $raw('title_protection'),
+        ];
+    }
+
+    /**
      * @return list<array<string, mixed>>
      */
     public function tasksDataFromProject(SeoProject $project): array
@@ -795,6 +923,7 @@ final class SeoProjectTaskSyncService
                 ], true) ? $task->rewrite_notes : null,
                 'connected_at' => $task->connected_at?->format('Y-m-d H:i:s'),
                 'completed_at' => $task->completed_at?->format('Y-m-d H:i:s'),
+                ...self::generationPolicyFormState($task),
             ])
             ->all();
     }

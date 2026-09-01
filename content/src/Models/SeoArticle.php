@@ -323,6 +323,11 @@ class SeoArticle extends Model
         return $this->hasMany(SeoLinkMap::class, 'source_article_id');
     }
 
+    public function inboundLinkMaps(): HasMany
+    {
+        return $this->hasMany(SeoLinkMap::class, 'target_article_id');
+    }
+
     public function headings(): HasMany
     {
         return $this->hasMany(SeoArticleHeading::class, 'article_id')->orderBy('sort_order');

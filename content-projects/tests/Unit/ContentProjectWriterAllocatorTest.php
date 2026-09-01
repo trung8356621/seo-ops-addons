@@ -107,9 +107,10 @@ final class ContentProjectWriterAllocatorTest extends TestCase
         self::assertStringContainsString('STATUS_DRAFT', $src);
         self::assertStringContainsString('KIND_MONTHLY', $src);
         self::assertStringContainsString('SeoOpsSystemUser::isSystemUserId', $src);
-        self::assertStringContainsString("whereNull('p.archived_at')", $src);
+        self::assertStringContainsString('Include archived projects', $src);
         self::assertStringContainsString('COUNT(t.id)', $src);
-        self::assertStringNotContainsString('remainingByUserId', $src);
+        self::assertStringContainsString('remainingByUserId', $src);
+        self::assertStringNotContainsString("->whereNull('p.archived_at')", $src);
         self::assertStringNotContainsString("'full'", $src);
         self::assertStringNotContainsString('auth()->id()', $src);
     }

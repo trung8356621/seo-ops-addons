@@ -142,17 +142,12 @@ final class ContentProjectDraftPlanningItemsReadModel
         if ($title === '' && $hasArticle) {
             $title = trim((string) ($article->title ?? ''));
         }
-        if ($title === '') {
+        // Create ideas may intentionally have blank title (e.g. Clone idea) — do not invent.
+        if ($title === '' && ! SeoProjectTask::isNewArticleType($type)) {
             $title = '#'.$taskId;
         }
 
-        $postTypeRaw = trim((string) ($task->post_type ?? ''));
-        if ($postTypeRaw === '') {
-            $postTypeRaw = SeoProjectTask::POST_TYPE_ARTICLE;
-        }
-        if ($postTypeRaw === 'post') {
-            $postTypeRaw = SeoProjectTask::POST_TYPE_ARTICLE;
-        }
+        $postTypeRaw = SeoProjectTask::normalizePostType($task->post_type ?? null);
         $isProductPostType = $postTypeRaw === SeoProjectTask::POST_TYPE_PRODUCT;
 
         // Global planning brief: secondary_description (Create/AI).
@@ -200,11 +195,16 @@ final class ContentProjectDraftPlanningItemsReadModel
             $addedAt = $task->created_at;
         }
 
+        $resolvedSiteId = (int) ($task->site_id ?? 0);
+        if ($resolvedSiteId <= 0) {
+            $resolvedSiteId = $this->recoverMissingItemSiteId($task);
+        }
+
         return [
             'id' => $taskId,
             'title' => $title,
+            'site_id' => $resolvedSiteId > 0 ? $resolvedSiteId : null,
             'domain' => $this->resolveItemDomain($task),
-            'site_id' => (int) ($task->site_id ?? 0) ?: null,
             'description' => $description !== '' ? $description : null,
             'product_description' => $productDescription,
             'keyword' => $keyword !== '' ? $keyword : null,
@@ -243,6 +243,7 @@ final class ContentProjectDraftPlanningItemsReadModel
             'can_edit_article' => $editUrl !== null && ! $isAiCreate,
             'can_skip_seo_audit' => $hasArticle
                 && $sourceType === SeoContentProjectItemOrigin::SOURCE_SEO_AUDIT,
+            'can_clone_idea' => $type === SeoProjectTask::TYPE_CREATE,
             'planner_run_id' => $plannerRunId,
             'planning_reviewed' => $planningReviewed,
             'planning_reviewed_at' => $planningReviewed
@@ -259,7 +260,7 @@ final class ContentProjectDraftPlanningItemsReadModel
         $key = strtolower(trim($postType));
 
         return match ($key) {
-            SeoProjectTask::POST_TYPE_ARTICLE, 'post' => (string) __('seo-content-ai::filament.article_list.post_type_post'),
+            SeoProjectTask::POST_TYPE_POST, SeoProjectTask::POST_TYPE_ARTICLE => (string) __('seo-content-ai::filament.article_list.post_type_post'),
             SeoProjectTask::POST_TYPE_PRODUCT => (string) __('seo-content-ai::filament.article_list.post_type_product'),
             'page' => (string) __('seo-content-ai::filament.article_list.post_type_page'),
             SeoProjectTask::POST_TYPE_CATEGORY => (string) __('seo-content-ai::filament.article_list.post_type_category'),
@@ -273,11 +274,16 @@ final class ContentProjectDraftPlanningItemsReadModel
         $site = $task->relationLoaded('site') ? $task->site : null;
         if ($site instanceof \App\Models\Site) {
             $domain = trim((string) ($site->domain ?? ''));
-
-            return $domain !== '' ? $domain : '—';
+            if ($domain !== '') {
+                return $domain;
+            }
         }
 
         $siteId = (int) ($task->site_id ?? 0);
+        if ($siteId <= 0) {
+            $siteId = $this->recoverMissingItemSiteId($task);
+        }
+
         if ($siteId <= 0) {
             return '—';
         }
@@ -285,6 +291,15 @@ final class ContentProjectDraftPlanningItemsReadModel
         $domain = trim((string) (\App\Models\Site::query()->whereKey($siteId)->value('domain') ?? ''));
 
         return $domain !== '' ? $domain : '—';
+    }
+
+    /**
+     * Safe recovery when migrated item lacks site_id — never invent a site.
+     */
+    private function recoverMissingItemSiteId(SeoProjectTask $task): int
+    {
+        return app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\DraftItemDomainRepairService::class)
+            ->recoverSiteId($task, null);
     }
 
     private function resolveArticlePublicUrl(?SeoArticle $article): ?string

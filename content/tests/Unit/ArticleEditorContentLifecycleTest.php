@@ -21,7 +21,7 @@ final class ArticleEditorContentLifecycleTest extends TestCase
         );
 
         self::assertSame(
-            ArticleEditorContentLifecycle::SYNC_REQUIRED,
+            ArticleEditorContentLifecycle::CONTENT_LOADING,
             $lifecycle->resolveFromFacts([
                 'load_completed' => true,
                 'wordpress_linked' => true,
@@ -107,16 +107,19 @@ final class ArticleEditorContentLifecycleTest extends TestCase
         $blocker = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content/resources/js/components/ArticleContentSyncRequiredBlocker.jsx',
         );
-        self::assertStringContainsString('syncArticleFromWordPress', $blocker);
-        self::assertStringContainsString('content_sync_required_action', $blocker);
-        self::assertStringContainsString('content_sync_required_syncing', $blocker);
-        self::assertStringContainsString('content_sync_required_retry', $blocker);
+        self::assertStringContainsString('content_wp_loading', $blocker);
+        self::assertStringContainsString('content_wp_load_failed', $blocker);
+        self::assertStringContainsString('content_wp_load_retry', $blocker);
+        self::assertStringNotContainsString('syncArticleFromWordPress', $blocker);
 
         $editor = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content/resources/js/components/SeoArticleEditor.jsx',
         );
         self::assertStringContainsString('ArticleContentSyncRequiredBlocker', $editor);
-        self::assertStringContainsString('syncRequired', $editor);
+        self::assertStringContainsString('useWpEditorContentAutoLoad', $editor);
+        self::assertStringContainsString('loadWpEditorHtmlFromWordPress', (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/hooks/useWpEditorContentAutoLoad.js',
+        ));
 
         $api = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content/resources/js/utils/articleEditorApi.js',
@@ -142,13 +145,15 @@ final class ArticleEditorContentLifecycleTest extends TestCase
             ProjectRoot::addonsPath().'/content/resources/js/components/ArticleOutlineTab.jsx',
         );
         self::assertStringContainsString('syncRequired', $outline);
-        self::assertStringContainsString('content_sync_required_outline', $outline);
+        self::assertStringContainsString('content_wp_loading', $outline);
+        self::assertStringNotContainsString('content_sync_required_outline', $outline);
 
         $seo = (string) file_get_contents(
             ProjectRoot::addonsPath().'/seo/resources/js/components/SeoScorePanel.jsx',
         );
         self::assertStringContainsString('syncRequired', $seo);
-        self::assertStringContainsString('content_sync_required_seo', $seo);
+        self::assertStringContainsString('content_wp_loading', $seo);
+        self::assertStringNotContainsString('content_sync_required_seo', $seo);
     }
 
     public function test_edit_article_livewire_save_guards_unhydrated_empty(): void

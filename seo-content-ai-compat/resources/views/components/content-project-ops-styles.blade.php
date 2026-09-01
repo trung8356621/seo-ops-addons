@@ -1332,9 +1332,42 @@
             width: 100%;
             max-width: none;
         }
+        .cp-plan-draft-section {
+            width: 100%;
+            max-width: none;
+        }
+        .cp-plan-draft-table {
+            width: 100%;
+            table-layout: auto;
+        }
         .cp-plan-draft-table-wrap {
             width: 100%;
+            max-width: none;
             overflow-x: auto;
+        }
+        .cp-plan-draft__filters-row {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            gap: 0.75rem 1.25rem;
+            padding: 0.5rem 0 0.75rem;
+        }
+        .cp-plan-draft__domain-filter {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        .cp-plan-inline-select--domain,
+        .cp-plan-inline-select--domain-filter {
+            max-width: 14rem;
+            min-width: 9rem;
+        }
+        .cp-plan-draft-table__col-domain {
+            min-width: 8rem;
+            white-space: nowrap;
+        }
+        .cp-plan-draft-table__col-actions {
+            min-width: 7rem;
         }
         .cp-plan-inline-input,
         .cp-plan-inline-textarea {
@@ -1395,10 +1428,13 @@
         .dark .cp-plan-badge--improve { background: rgb(245 158 11 / 0.15); color: #fcd34d; }
         .dark .cp-plan-badge--create { background: rgb(37 99 235 / 0.2); color: #93c5fd; }
         .cp-plan-row-actions {
-            display: inline-flex;
-            flex-wrap: wrap;
-            align-items: center;
-            gap: 0.25rem;
+            display: flex;
+            flex-direction: column;
+            flex-wrap: nowrap;
+            align-items: flex-start;
+            gap: 0.2rem;
+            font-size: 0.75rem;
+            line-height: 1.35;
         }
         .cp-plan-row-actions--under {
             display: flex;

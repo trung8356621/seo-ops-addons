@@ -18,8 +18,10 @@ use Omnichannel\Addons\SiteSync\Models\SeoSiteSyncRun;
 use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncSchema;
 use Omnichannel\Addons\SiteSync\Services\Contracts\SiteSyncV3Schema;
 use Omnichannel\Addons\SiteSync\Services\Reconciliation\ArticleScoreSourceReconciler;
+use Omnichannel\Addons\SiteSync\Services\Reconciliation\CanonicalKeywordReconciler;
 use Omnichannel\Addons\SiteSync\Services\Reconciliation\ProviderKeywordReconciler;
 use Omnichannel\Addons\SiteSync\Services\Reconciliation\SiteLinkCatalogReconciler;
+use Omnichannel\Addons\SiteSync\Services\Reconciliation\SiteSyncKeywordCandidateEvaluator;
 use Omnichannel\Addons\WordPress\Models\WordpressArticleLink;
 use Omnichannel\Addons\WordPress\Services\WordpressArticleLinkWriter;
 use Throwable;
@@ -39,6 +41,7 @@ final class SiteSyncV3BulkImporter
         private readonly ArticleScoreSourceReconciler $scores,
         private readonly WordpressArticleLinkWriter $linkWriter,
         private readonly ArticleLastSavedTimestampService $lastSaved,
+        private readonly CanonicalKeywordReconciler $canonicalKeywords = new CanonicalKeywordReconciler(),
     ) {}
 
     /**
@@ -239,7 +242,7 @@ final class SiteSyncV3BulkImporter
             }
         }
 
-        $analysisLinkCount = $this->reconcileAnalysisLinks($site, $analysisLinkJobs);
+        $analysisLinkCount = $this->reconcileAnalysisLinks($site, $run, $analysisLinkJobs);
 
         $linkCounts = $linkRows === []
             ? ['upserted' => 0]
@@ -263,28 +266,16 @@ final class SiteSyncV3BulkImporter
 
     /**
      * Persist analysis links into seo_link_maps for source articles.
-     * Preloads existing sync-marker maps; delete+reinsert per article when `links` key present.
+     * Link href stays on the map (target_external_url / context_after).
+     * Keyword rows only from eligible anchor_text — never from href.
      *
      * @param  list<array{article: SeoArticle, links: list<array<string, mixed>>}>  $jobs
      */
-    private function reconcileAnalysisLinks(Site $site, array $jobs): int
+    private function reconcileAnalysisLinks(Site $site, SeoSiteSyncRun $run, array $jobs): int
     {
         if ($jobs === [] || ! Schema::connection('omi_seo_ai')->hasTable('seo_link_maps')) {
             return 0;
         }
-
-        $articleIds = [];
-        foreach ($jobs as $job) {
-            $articleIds[(int) $job['article']->id] = true;
-        }
-        $articleIdList = array_keys($articleIds);
-
-        // Preload existing sync-sourced maps by source_article_id (chunk scope).
-        SeoLinkMap::query()
-            ->whereIn('source_article_id', $articleIdList)
-            ->where('context_before', self::LINK_SYNC_MARKER)
-            ->get()
-            ->groupBy('source_article_id');
 
         $targetWpIds = [];
         foreach ($jobs as $job) {
@@ -310,6 +301,12 @@ final class SiteSyncV3BulkImporter
                 }
             }
         }
+
+        $ctxBase = [
+            'site_id' => (int) $site->id,
+            'run_id' => (int) $run->id,
+            'user_id' => (int) $site->user_id,
+        ];
 
         $saved = 0;
         foreach ($jobs as $job) {
@@ -339,35 +336,72 @@ final class SiteSyncV3BulkImporter
                 $isInternal = str_starts_with($kind, 'internal');
                 $linkType = $isInternal ? SeoLinkMapType::Internal : SeoLinkMapType::External;
 
-                $anchor = Keyword::preparePhraseForStorage((string) ($link['anchor_text'] ?? ''));
-                if ($anchor === '') {
-                    $anchor = Keyword::preparePhraseForStorage(mb_substr($href, 0, 120));
-                }
-                if ($anchor === '') {
-                    continue;
-                }
+                $rawAnchor = trim((string) ($link['anchor_text'] ?? ''));
+                $keywordId = null;
+                $anchorForStorage = $rawAnchor;
 
-                $keyword = Keyword::query()
-                    ->whereRaw('LOWER(phrase) = ?', [mb_strtolower($anchor)])
-                    ->first();
-                if (! $keyword instanceof Keyword) {
-                    $keyword = Keyword::query()->create([
-                        'phrase' => $anchor,
-                        'type' => Keyword::TYPE_NORMAL,
-                        'parent_id' => null,
+                // Persist every valid href. Keyword attach is optional.
+                if ($rawAnchor === '') {
+                    RuntimeLogger::warning('site_sync.keyword_candidate_skipped', [
+                        ...$ctxBase,
+                        'source' => SiteSyncSchema::SOURCE_PROVIDER,
+                        'candidate_type' => SiteSyncKeywordCandidateEvaluator::CANDIDATE_HREF,
+                        'raw_value' => '',
+                        'normalized_value' => '',
+                        'phrase_kind' => 'url_domain',
+                        'reason' => 'empty_anchor_href_not_promoted',
+                        'href' => mb_substr($href, 0, 200),
                     ]);
+                } else {
+                    $evaluator = new SiteSyncKeywordCandidateEvaluator();
+                    if ($evaluator->looksLikeUrlOrDomain($rawAnchor)) {
+                        RuntimeLogger::warning('site_sync.keyword_candidate_skipped', [
+                            ...$ctxBase,
+                            'source' => SiteSyncSchema::SOURCE_PROVIDER,
+                            'candidate_type' => SiteSyncKeywordCandidateEvaluator::CANDIDATE_ANCHOR,
+                            'raw_value' => mb_substr($rawAnchor, 0, 200),
+                            'normalized_value' => mb_substr(Keyword::preparePhraseForStorage($rawAnchor), 0, 200),
+                            'phrase_kind' => 'url_domain',
+                            'reason' => 'url_shaped_anchor_not_promoted',
+                            'href' => mb_substr($href, 0, 200),
+                        ]);
+                    } else {
+                        $keyword = $this->canonicalKeywords->findOrAttachEligible(
+                            $rawAnchor,
+                            SiteSyncKeywordCandidateEvaluator::CANDIDATE_ANCHOR,
+                            SiteSyncSchema::SOURCE_PROVIDER,
+                            [...$ctxBase, 'href' => $href, 'raw_value' => $rawAnchor],
+                        );
+                        if ($keyword instanceof Keyword) {
+                            $keywordId = (int) $keyword->id;
+                            $prepared = Keyword::preparePhraseForStorage($rawAnchor);
+                            $anchorForStorage = $prepared !== '' ? $prepared : $rawAnchor;
+                        }
+                    }
                 }
 
                 $targetWpId = (int) ($link['target_wp_id'] ?? $link['target_post_id'] ?? 0);
                 $targetArticleId = $targetWpId > 0 ? ($targetArticleByWpId[$targetWpId] ?? null) : null;
-                $targetExternalUrl = $isInternal && $targetArticleId !== null ? null : $href;
+
+                // Never trust WP "internal" alone — same-site target only.
+                if ($targetArticleId !== null) {
+                    $linkType = SeoLinkMapType::Internal;
+                } elseif ($isInternal) {
+                    // WP claimed internal but no same-site article — keep URL as external/unresolved.
+                    $linkType = SeoLinkMapType::External;
+                    $targetArticleId = null;
+                }
+
+                $targetExternalUrl = $linkType === SeoLinkMapType::Internal && $targetArticleId !== null
+                    ? null
+                    : $href;
 
                 SeoLinkMap::query()->create([
-                    'keyword_id' => (int) $keyword->id,
+                    'keyword_id' => $keywordId,
                     'source_article_id' => $sourceId,
                     'target_article_id' => $targetArticleId,
                     'target_external_url' => $targetExternalUrl,
-                    'anchor_text' => $anchor,
+                    'anchor_text' => $anchorForStorage !== '' ? $anchorForStorage : '',
                     'context_before' => self::LINK_SYNC_MARKER,
                     'context_after' => $hrefHash,
                     'link_type' => $linkType,
@@ -467,10 +501,15 @@ final class SiteSyncV3BulkImporter
 
         // Identity fields always upserted (even if content_hash unchanged).
         // body MUST stay null for WP-backed — never set from payload.
+        $slugFromWp = isset($item['slug']) ? trim((string) $item['slug']) : '';
         $attrs = [
             'title' => $title !== '' ? $title : ($existing?->title ?: 'Untitled'),
             'status' => $status,
         ];
+        // Persist WP slug when present; never invent when WP returns blank (draft).
+        if ($slugFromWp !== '') {
+            $attrs['slug'] = $slugFromWp;
+        }
 
         if ($existing instanceof SeoArticle) {
             // Do not touch body/blocks/excerpt on update.
@@ -483,7 +522,7 @@ final class SiteSyncV3BulkImporter
                     'body' => null,
                     'blocks' => null,
                     'excerpt' => null,
-                    'slug' => null,
+                    'slug' => $slugFromWp !== '' ? $slugFromWp : null,
                 ],
                 $attrs,
             ));
@@ -507,6 +546,14 @@ final class SiteSyncV3BulkImporter
             );
         }
 
+        $permalink = trim((string) ($item['url'] ?? $item['permalink'] ?? ''));
+        if ($permalink !== '') {
+            $article->articleMetas()->updateOrCreate(
+                ['meta_key' => 'wp_permalink'],
+                ['meta_value' => $permalink],
+            );
+        }
+
         // Explicitly refuse content-body meta keys.
         $article->articleMetas()->whereIn('meta_key', [
             'wp_post_content',
@@ -523,6 +570,7 @@ final class SiteSyncV3BulkImporter
             $linkAttrs['last_seen_sync_generation'] = $generation;
         }
         $this->linkWriter->upsert($article, $linkAttrs);
+        $article->unsetRelation('wordpressLink');
         $this->lastSaved->touchSynced($article);
 
         return $article->fresh(['articleMetas', 'wordpressLink']);

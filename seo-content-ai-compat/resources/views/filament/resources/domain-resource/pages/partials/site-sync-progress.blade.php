@@ -9,29 +9,30 @@
     $canceled = in_array($status, ['canceled', 'cancelled'], true);
     $stopping = (bool) ($siteSyncV2Stopping ?? false);
     $steps = $siteSyncV2Steps ?? [];
-    $stepTotal = count($steps);
-    $phaseLabel = $siteSyncV2PhaseLabel ?? null;
+    $macroSteps = $siteSyncV3MacroSteps ?? [];
+    // Always prefer 3 user macros; never render raw 7/6 step list in default UI.
+    $userSteps = $macroSteps !== [] ? $macroSteps : [];
+    $stepTotal = count($userSteps);
     $activeStep = null;
-    foreach ($steps as $row) {
+    foreach ($userSteps as $row) {
         $st = (string) ($row['status'] ?? 'pending');
-        $isActiveStep = $st === 'running'
-            || (
-                ($siteSyncV2Phase ?? '') === ($row['key'] ?? '')
-                && ! in_array($st, ['completed', 'skipped', 'failed'], true)
-            );
-        if ($isActiveStep) {
+        if ($st === 'running' || $st === 'failed') {
             $activeStep = $row;
             break;
         }
     }
     $activeOrder = (int) ($activeStep['order'] ?? 0);
+    $activeUserLabel = $activeStep['label'] ?? null;
     $counters = $siteSyncV2Counters ?? [];
     $checked = (int) ($counters['checked'] ?? $siteSyncV2Progress ?? 0);
     $toCheck = (int) ($counters['total_to_check'] ?? $siteSyncV2Total ?? 0);
     $pct = $siteSyncV2Percentage;
-    $showCounts = $toCheck > 0 && ($running || $stuck || $failed || $completed);
-    $showPanel = $running || $stuck || $failed || $completed || $canceled || $retrying || ! empty($steps);
+    $jobNumber = (int) ($counters['job_number'] ?? 0);
+    $showCounts = $toCheck > 0 && ($running || $stuck || $failed);
+    $showPanel = $running || $stuck || $failed || $completed || $canceled || $retrying || $userSteps !== [];
     $idleHint = __('seo-content-ai::filament.domain.site_sync_idle_hint');
+    $lastSyncedLabel = $siteSyncV2LastActivityLabel
+        ?? (filled($siteSyncV2LastProgressAt ?? null) ? (string) $siteSyncV2LastProgressAt : null);
 
     $title = match (true) {
         $stuck => __('seo-content-ai::filament.domain.site_sync_stuck_title'),
@@ -39,6 +40,7 @@
         $failed => __('seo-content-ai::filament.domain.site_sync_failed_title'),
         $completed => __('seo-content-ai::filament.domain.site_sync_completed_title'),
         $canceled => __('seo-content-ai::filament.domain.site_sync_canceled_title'),
+        $running && filled($activeUserLabel) => $activeUserLabel,
         $running => __('seo-content-ai::filament.domain.site_sync_running_title'),
         default => null,
     };
@@ -63,7 +65,7 @@
                     <span aria-hidden="true">✓</span>
                 @elseif ($failed)
                     <span aria-hidden="true">✕</span>
-                @elseif ($retrying)
+                @elseif ($retrying || $running)
                     <span aria-hidden="true">↻</span>
                 @elseif ($stuck)
                     <span aria-hidden="true">⚠</span>
@@ -71,22 +73,25 @@
                 {{ $title }}
             </p>
 
+            @if ($completed)
+                <div class="mt-1 space-y-0.5 text-[13px] text-gray-600 dark:text-gray-300">
+                    <p>
+                        Đồng bộ hoàn tất
+                        @if ($checked > 0)
+                            · {{ number_format($checked) }} records
+                        @endif
+                    </p>
+                    @if (filled($lastSyncedLabel))
+                        <p>Lần cuối: {{ $lastSyncedLabel }}</p>
+                    @elseif (!empty($siteSyncV2ElapsedLabel))
+                        <p>{{ $siteSyncV2ElapsedLabel }}</p>
+                    @endif
+                </div>
+            @endif
+
             @if ($canceled && $stopping)
                 <p class="mt-1 text-[13px] text-gray-600 dark:text-gray-400">
                     {{ __('seo-content-ai::filament.domain.site_sync_stopping_chunk') }}
-                </p>
-            @endif
-
-            @if (($running || $stuck || $failed) && ($phaseLabel || $activeOrder > 0))
-                <p class="mt-1 text-[14px] font-semibold leading-snug text-primary-700 dark:text-primary-300">
-                    @if ($activeOrder > 0 && $stepTotal > 0)
-                        {{ __('seo-content-ai::filament.domain.site_sync_step_of', ['current' => $activeOrder, 'total' => $stepTotal]) }}
-                        @if ($phaseLabel)
-                            · {{ $phaseLabel }}
-                        @endif
-                    @elseif ($phaseLabel)
-                        {{ $phaseLabel }}
-                    @endif
                 </p>
             @endif
 
@@ -105,32 +110,29 @@
         @endif
 
         @if ($showCounts)
-            <div>
-                <div class="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-[13px] font-semibold tabular-nums">
-                    <span>
-                        {{ __('seo-content-ai::filament.domain.site_sync_step_progress', [
-                            'current' => number_format($checked),
-                            'total' => number_format($toCheck),
-                        ]) }}
-                    </span>
-                    @if ($pct !== null)
-                        <span>{{ $pct }}%</span>
-                    @endif
-                </div>
-                @if ($pct !== null)
-                    <div class="mt-1.5 h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-white/10" aria-hidden="true">
-                        <div
-                            class="h-2 rounded-full {{ $completed ? 'bg-success-500' : ($failed ? 'bg-danger-500' : 'bg-primary-600') }}"
-                            style="width: {{ max(0, min(100, (int) $pct)) }}%"
-                        ></div>
-                    </div>
+            <div class="text-[13px] font-semibold tabular-nums text-gray-700 dark:text-gray-200">
+                @if ($jobNumber > 0)
+                    <span>Đợt {{ $jobNumber }}</span>
+                    <span class="mx-1 text-gray-400">·</span>
                 @endif
-                @if ($completed)
-                    <p class="mt-1 text-[13px] text-gray-600 dark:text-gray-300">
-                        {{ __('seo-content-ai::filament.domain.site_sync_records_checked', ['count' => number_format($checked)]) }}
-                    </p>
+                <span>
+                    {{ number_format($checked) }}
+                    @if ($toCheck > 0)
+                        / {{ number_format($toCheck) }}
+                    @endif
+                </span>
+                @if ($pct !== null)
+                    <span class="ml-2 text-gray-500">{{ $pct }}%</span>
                 @endif
             </div>
+            @if ($pct !== null)
+                <div class="h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-white/10" aria-hidden="true">
+                    <div
+                        class="h-2 rounded-full {{ $failed ? 'bg-danger-500' : 'bg-primary-600' }}"
+                        style="width: {{ max(0, min(100, (int) $pct)) }}%"
+                    ></div>
+                </div>
+            @endif
         @endif
 
         @if ($failed && filled($siteSyncV2StatusMessage))
@@ -140,113 +142,40 @@
             </div>
         @endif
 
-        @if (! empty($steps) && ($running || $stuck || $failed || $completed))
-            <details class="site-sync-progress__steps" @if (! $completed) open @endif>
-                <summary class="cursor-pointer text-[13px] font-semibold text-gray-800 dark:text-gray-100">
-                    {{ __('seo-content-ai::filament.domain.site_sync_steps_heading') }}
-                </summary>
-                <ol class="mt-2 space-y-1.5">
-                    @foreach ($steps as $stepRow)
-                        @php
-                            $st = (string) ($stepRow['status'] ?? 'pending');
-                            $active = $st === 'running'
-                                || (
-                                    ($siteSyncV2Phase ?? '') === ($stepRow['key'] ?? '')
-                                    && ! in_array($st, ['completed', 'skipped', 'failed'], true)
-                                );
-                            $visual = $st === 'failed'
-                                ? 'failed'
-                                : (($active && $retrying) ? 'retrying' : ($active ? 'active' : (in_array($st, ['completed', 'skipped'], true) ? 'completed' : 'pending')));
-                            $mark = match ($visual) {
-                                'failed' => '✕',
-                                'completed' => '✓',
-                                'retrying' => '↻',
-                                'active' => '→',
-                                default => '○',
-                            };
-                            $stateLabel = match ($visual) {
-                                'failed' => __('seo-content-ai::filament.domain.site_sync_failed'),
-                                'completed' => __('seo-content-ai::filament.domain.site_sync_completed'),
-                                'retrying' => __('seo-content-ai::filament.domain.site_sync_retrying'),
-                                'active' => __('seo-content-ai::filament.domain.site_sync_running_title'),
-                                default => __('seo-content-ai::filament.domain.site_sync_pending'),
-                            };
-                        @endphp
-                        <li
-                            class="site-sync-step rounded-md px-2 py-1.5 leading-relaxed {{ $visual === 'active' ? 'border-l-4 border-primary-600 bg-primary-100 dark:border-primary-400 dark:bg-primary-500/20' : '' }} {{ $visual === 'retrying' ? 'border-l-4 border-warning-500 bg-warning-50 dark:border-warning-400 dark:bg-warning-500/15' : '' }}"
-                            data-state="{{ $visual }}"
-                        >
-                            <span class="inline-flex items-start gap-2 text-[13px] {{ $visual === 'active' ? 'font-semibold text-primary-800 dark:text-primary-200' : '' }} {{ $visual === 'completed' ? 'font-medium text-success-800 dark:text-success-400' : '' }} {{ $visual === 'failed' ? 'font-medium text-danger-700 dark:text-danger-400' : '' }} {{ $visual === 'pending' ? 'text-gray-400 dark:text-gray-500' : '' }} {{ $visual === 'retrying' ? 'font-semibold text-warning-800 dark:text-warning-200' : '' }}">
-                                <span @class([
-                                    'mt-0.5 w-4 shrink-0 text-center',
-                                    'text-success-600 dark:text-success-400' => $visual === 'completed',
-                                    'text-primary-700 dark:text-primary-300' => $visual === 'active',
-                                    'text-danger-600 dark:text-danger-400' => $visual === 'failed',
-                                    'text-warning-600 dark:text-warning-400' => $visual === 'retrying',
-                                    'text-gray-400 dark:text-gray-500' => $visual === 'pending',
-                                ]) aria-hidden="true">{{ $mark }}</span>
-                                <span>
-                                    <span class="sr-only">{{ $stateLabel }}: </span>
-                                    {{ __('seo-content-ai::filament.domain.site_sync_step_of', ['current' => $stepRow['order'] ?? '', 'total' => $stepTotal]) }}
-                                    · {{ $stepRow['label'] ?? '' }}
-                                </span>
-                            </span>
-                        </li>
-                    @endforeach
-                </ol>
-            </details>
-        @endif
-
-        @if ($showCounts)
-            <div class="flex flex-wrap gap-2 text-[13px] leading-relaxed">
-                <span class="inline-flex items-center gap-1 rounded-md bg-primary-50 px-2 py-1 font-medium text-primary-800 dark:bg-primary-500/15 dark:text-primary-200">
-                    {{ __('seo-content-ai::filament.domain.site_sync_changed') }}
-                    <span class="tabular-nums font-semibold">{{ number_format((int) ($counters['updated'] ?? 0)) }}</span>
-                </span>
-                <span class="inline-flex items-center gap-1 rounded-md bg-gray-100 px-2 py-1 font-medium text-gray-700 dark:bg-white/10 dark:text-gray-200">
-                    {{ __('seo-content-ai::filament.domain.site_sync_unchanged') }}
-                    <span class="tabular-nums font-semibold">{{ number_format((int) ($counters['unchanged'] ?? 0)) }}</span>
-                </span>
-                <span @class([
-                    'inline-flex items-center gap-1 rounded-md px-2 py-1 font-medium',
-                    'bg-danger-50 text-danger-800 dark:bg-danger-500/15 dark:text-danger-200' => (int) ($counters['failed'] ?? 0) > 0,
-                    'bg-gray-100 text-gray-700 dark:bg-white/10 dark:text-gray-200' => (int) ($counters['failed'] ?? 0) === 0,
-                ])>
-                    {{ __('seo-content-ai::filament.domain.site_sync_failed_items') }}
-                    <span class="tabular-nums font-semibold">{{ number_format((int) ($counters['failed'] ?? 0)) }}</span>
-                </span>
-            </div>
-        @endif
-
-        <div class="space-y-0.5 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
-            @if (!empty($siteSyncV2LastActivityLabel) && ($running || $stuck))
-                <p>{{ $siteSyncV2LastActivityLabel }}</p>
-            @elseif (!empty($siteSyncV2LastProgressAt) && ($running || $stuck))
-                <p>{{ __('seo-content-ai::filament.domain.site_sync_last_activity') }} · {{ $siteSyncV2LastProgressAt }}</p>
-            @endif
-            @if (!empty($siteSyncV2ElapsedLabel) && ($running || $stuck || $completed))
-                <p>{{ $siteSyncV2ElapsedLabel }}</p>
-            @endif
-        </div>
-
-        @if (!empty($siteSyncV2Substeps) && ($running || $stuck))
-            <details class="text-xs text-gray-500 dark:text-gray-400">
-                <summary class="cursor-pointer font-medium">{{ __('seo-content-ai::filament.domain.site_sync_substeps') }}</summary>
-                <ul class="mt-1 space-y-1">
-                    @foreach ($siteSyncV2Substeps as $sub)
-                        @php
-                            $ss = (string) ($sub['status'] ?? 'pending');
-                            $sm = $ss === 'completed' ? '✓' : ($ss === 'active' || $ss === 'running' ? '→' : '○');
-                        @endphp
-                        <li>
-                            {{ $sm }} {{ $sub['label'] ?? '' }}
-                            @if (isset($sub['current']))
-                                {{ number_format((int) $sub['current']) }}@if(isset($sub['total']) && $sub['total']) / {{ number_format((int) $sub['total']) }}@endif
-                            @endif
-                        </li>
-                    @endforeach
-                </ul>
-            </details>
+        @if ($userSteps !== [] && ($running || $stuck || $failed || $completed))
+            <ol class="site-sync-progress__macro space-y-1" data-macro-count="{{ $stepTotal }}">
+                @foreach ($userSteps as $stepRow)
+                    @php
+                        $st = (string) ($stepRow['status'] ?? 'pending');
+                        $active = $st === 'running';
+                        $visual = $st === 'failed'
+                            ? 'failed'
+                            : (($active && $retrying) ? 'retrying' : ($active ? 'active' : (in_array($st, ['completed', 'skipped'], true) ? 'completed' : 'pending')));
+                        $mark = match ($visual) {
+                            'failed' => '✕',
+                            'completed' => '✓',
+                            'retrying', 'active' => '↻',
+                            default => '○',
+                        };
+                    @endphp
+                    <li
+                        class="site-sync-step text-[13px] leading-snug"
+                        data-state="{{ $visual }}"
+                        data-macro-key="{{ $stepRow['key'] ?? '' }}"
+                    >
+                        <span @class([
+                            'inline-flex items-center gap-2',
+                            'font-semibold text-primary-800 dark:text-primary-200' => $visual === 'active' || $visual === 'retrying',
+                            'font-medium text-success-800 dark:text-success-400' => $visual === 'completed',
+                            'font-medium text-danger-700 dark:text-danger-400' => $visual === 'failed',
+                            'text-gray-400 dark:text-gray-500' => $visual === 'pending',
+                        ])>
+                            <span aria-hidden="true">{{ $mark }}</span>
+                            <span>{{ $stepRow['order'] ?? '' }}. {{ $stepRow['label'] ?? '' }}</span>
+                        </span>
+                    </li>
+                @endforeach
+            </ol>
         @endif
 
         @if ($running || $stuck || $failed)
@@ -264,7 +193,7 @@
     @endif
 
     @if ($siteSyncNeedsBootstrap ?? false)
-        <div class="text-[13px] text-amber-700 dark:text-amber-300">Site chưa bootstrap Site Sync V2 — lần bấm đầu sẽ xem preview rồi xác nhận.</div>
+        <div class="text-[13px] text-amber-700 dark:text-amber-300">Site chưa bootstrap Site Sync — lần bấm đầu sẽ xem preview rồi xác nhận.</div>
     @endif
     @if (!empty($siteSyncBootstrapPreview))
         <div
@@ -299,8 +228,29 @@
     <details class="site-sync-progress__tech text-xs text-gray-500 dark:text-gray-400">
         <summary class="cursor-pointer font-medium">{{ __('seo-content-ai::filament.domain.site_sync_technical_details') }}</summary>
         <div class="mt-1.5 space-y-1 leading-relaxed">
-            @if (!empty($siteSyncV2ModeLabel) && ($running || $stuck))
+            @if (!empty($siteSyncV2RunId))
+                <p class="font-mono">run_id: {{ $siteSyncV2RunId }}</p>
+            @endif
+            @if (!empty($siteSyncV2Phase))
+                <p class="font-mono">phase: {{ $siteSyncV2Phase }}</p>
+            @endif
+            @if (!empty($siteSyncV2Status))
+                <p class="font-mono">status: {{ $siteSyncV2Status }}</p>
+            @endif
+            @if (!empty($siteSyncV2ModeLabel))
                 <p>{{ $siteSyncV2ModeLabel }}</p>
+            @endif
+            @if (! empty($steps))
+                <p class="font-semibold text-gray-600 dark:text-gray-300">{{ __('seo-content-ai::filament.domain.site_sync_phases_technical') }}</p>
+                <ol class="space-y-0.5 font-mono">
+                    @foreach ($steps as $techStep)
+                        <li data-phase-key="{{ $techStep['key'] ?? '' }}">
+                            {{ $techStep['order'] ?? '' }}. {{ $techStep['key'] ?? '' }}
+                            · {{ $techStep['status'] ?? 'pending' }}
+                            · {{ $techStep['label'] ?? '' }}
+                        </li>
+                    @endforeach
+                </ol>
             @endif
             @if (!empty($siteSyncV2SourceChips ?? []))
                 <p>
@@ -310,6 +260,14 @@
                 </p>
             @elseif (!empty($siteSyncV2Sources['provider'] ?? null))
                 <p>Provider: {{ $siteSyncV2Sources['provider'] }}</p>
+            @endif
+            @if (!empty($siteSyncV2Substeps) && ($running || $stuck))
+                <p class="font-semibold">Substeps</p>
+                <ul class="space-y-0.5">
+                    @foreach ($siteSyncV2Substeps as $sub)
+                        <li>{{ $sub['label'] ?? '' }} · {{ $sub['status'] ?? '' }}</li>
+                    @endforeach
+                </ul>
             @endif
             <p>Điểm SEO giữa các plugin dùng công thức khác nhau và không thể so sánh trực tiếp.</p>
         </div>

@@ -4,89 +4,45 @@
 
 @php
     $v2Ui = method_exists($this, 'siteSyncV2UiEnabled') ? $this->siteSyncV2UiEnabled() : true;
-    $legacyVisible = method_exists($this, 'siteSyncV2LegacyVisible') ? $this->siteSyncV2LegacyVisible() : true;
+    $legacyVisible = method_exists($this, 'siteSyncV2LegacyVisible') ? $this->siteSyncV2LegacyVisible() : false;
     $syncDisabled = $incrementalSyncRunning || $metadataSyncRunning || $keywordResyncRunning || ($siteSyncV2Running ?? false);
-    $sources = $siteSyncV2Sources ?? [];
-    $forceFull = (bool) ($siteSyncForceFull ?? false);
-    $useResume = ! $forceFull && ($siteSyncV2Resumable ?? false) && ! ($siteSyncV2Running ?? false);
+    $useResume = ($siteSyncV2Resumable ?? false) && ! ($siteSyncV2Running ?? false);
 @endphp
 
-<div class="seo-sync-actions divide-y divide-gray-200 dark:divide-white/10">
+<div class="seo-sync-actions">
     @if ($v2Ui)
-        <div class="grid grid-cols-1 gap-2 py-3 sm:grid-cols-2 sm:items-start sm:gap-4">
-            <div class="space-y-2">
-                <label class="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-200">
-                    <input
-                        type="checkbox"
-                        class="mt-0.5 rounded border-gray-300 text-primary-600 shadow-sm focus:ring-primary-500 dark:border-gray-600 dark:bg-gray-900"
-                        wire:model.live="siteSyncForceFull"
-                        @disabled($siteSyncV2Running ?? false)
-                    />
-                    <span>
-                        <span class="font-medium">Đồng bộ lại toàn bộ website</span>
-                        <span class="mt-0.5 block text-xs text-gray-500 dark:text-gray-400">
-                            Tải và kiểm tra lại toàn bộ bài viết, trang và sản phẩm từ WordPress, bất kể dữ liệu hiện có.
-                        </span>
+        <div class="seo-sync-actions__primary space-y-3">
+            <div class="flex flex-wrap items-center gap-2">
+                <x-filament::button
+                    type="button"
+                    color="success"
+                    icon="heroicon-o-arrow-path"
+                    wire:click="{{ $useResume ? 'resumeSiteSyncV2Action' : 'openSiteSyncPreflight' }}"
+                    wire:loading.attr="disabled"
+                    wire:target="openSiteSyncPreflight,runSiteSyncV2Action,resumeSiteSyncV2Action,cancelSiteSyncV2Action"
+                    :disabled="$syncDisabled && ! $useResume"
+                >
+                    <span wire:loading.remove wire:target="openSiteSyncPreflight,runSiteSyncV2Action,resumeSiteSyncV2Action">
+                        @if ($siteSyncV2Running ?? false)
+                            {{ __('seo-content-ai::filament.domain.site_sync_running_button') }}
+                        @elseif ($useResume)
+                            Tiếp tục đồng bộ & kiểm tra
+                        @else
+                            Đồng bộ & kiểm tra website
+                        @endif
                     </span>
-                </label>
+                    <span wire:loading wire:target="openSiteSyncPreflight,runSiteSyncV2Action,resumeSiteSyncV2Action" class="inline-flex items-center gap-2">
+                        <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
+                        Đang kiểm tra…
+                    </span>
+                </x-filament::button>
 
-                @if ($forceFull)
-                    <x-filament::button
-                        type="button"
-                        color="success"
-                        icon="heroicon-o-arrow-path"
-                        class="w-full justify-center"
-                        wire:click="openSiteSyncPreflight"
-                        wire:loading.attr="disabled"
-                        wire:target="openSiteSyncPreflight,runForceFullSiteSyncAction,cancelSiteSyncV2Action"
-                        :disabled="$syncDisabled"
-                    >
-                        <span wire:loading.remove wire:target="openSiteSyncPreflight">
-                            @if ($siteSyncV2Running ?? false)
-                                {{ __('seo-content-ai::filament.domain.site_sync_running_button') }}
-                            @else
-                                Kiểm tra & đồng bộ toàn bộ…
-                            @endif
-                        </span>
-                        <span wire:loading wire:target="openSiteSyncPreflight" class="inline-flex items-center gap-2">
-                            <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
-                            Đang kiểm tra…
-                        </span>
-                    </x-filament::button>
-                @else
-                    <x-filament::button
-                        type="button"
-                        color="success"
-                        icon="heroicon-o-arrow-path"
-                        class="w-full justify-center"
-                        wire:click="{{ $useResume ? 'resumeSiteSyncV2Action' : 'openSiteSyncPreflight' }}"
-                        wire:loading.attr="disabled"
-                        wire:target="openSiteSyncPreflight,runSiteSyncV2Action,resumeSiteSyncV2Action,cancelSiteSyncV2Action"
-                        :disabled="$syncDisabled && ! $useResume"
-                    >
-                        <span wire:loading.remove wire:target="openSiteSyncPreflight,runSiteSyncV2Action,resumeSiteSyncV2Action">
-                            @if ($siteSyncV2Running ?? false)
-                                {{ __('seo-content-ai::filament.domain.site_sync_running_button') }}
-                            @elseif ($useResume)
-                                Tiếp tục đồng bộ & kiểm tra
-                            @else
-                                Đồng bộ & kiểm tra website
-                            @endif
-                        </span>
-                        <span wire:loading wire:target="openSiteSyncPreflight,runSiteSyncV2Action,resumeSiteSyncV2Action" class="inline-flex items-center gap-2">
-                            <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
-                            Đang kiểm tra…
-                        </span>
-                    </x-filament::button>
-                @endif
-                @include('seo-content-ai::filament.resources.domain-resource.pages.partials.site-sync-preflight-modal')
                 @if (($siteSyncV2Running ?? false) || ($siteSyncV2Cancellable ?? false))
                     <x-filament::button
                         type="button"
                         color="danger"
                         outlined
                         size="sm"
-                        class="w-full justify-center"
                         wire:click="cancelSiteSyncV2Action"
                         wire:loading.attr="disabled"
                         wire:target="cancelSiteSyncV2Action"
@@ -97,14 +53,16 @@
                     </x-filament::button>
                 @endif
             </div>
+
+            @include('seo-content-ai::filament.resources.domain-resource.pages.partials.site-sync-preflight-modal')
             @include('seo-content-ai::filament.resources.domain-resource.pages.partials.site-sync-progress')
         </div>
     @endif
 
     @if ($legacyVisible)
-    <div class="py-2 text-xs font-medium uppercase tracking-wide text-gray-400">
-        Legacy sync (cutover / dual-run)
-    </div>
+    <details class="seo-sync-actions__legacy mt-4 text-[12px] text-gray-500 dark:text-gray-400">
+        <summary class="cursor-pointer font-medium text-gray-700 dark:text-gray-200">Legacy sync (cutover / dual-run)</summary>
+        <div class="mt-2 space-y-3 divide-y divide-gray-200 dark:divide-white/10">
     {{-- Đồng bộ bổ sung --}}
     <div class="grid grid-cols-1 gap-2 py-3 sm:grid-cols-2 sm:items-center sm:gap-4">
         <div>
@@ -246,76 +204,7 @@
             ])
         </div>
     </div>
-    @endif
-
-    @if ($showTest)
-        {{-- Advanced: re-score all — admin only, confirmation required --}}
-        <div class="grid grid-cols-1 gap-2 border-t border-gray-200 py-3 dark:border-gray-700 sm:grid-cols-2 sm:items-center sm:gap-4">
-            <div class="space-y-1">
-                <div class="text-xs font-medium uppercase tracking-wide text-gray-400">Advanced</div>
-                <x-filament::button
-                    type="button"
-                    color="gray"
-                    icon="heroicon-o-arrow-path-rounded-square"
-                    class="w-full justify-center"
-                    wire:click="runRequeueAllSeoScoringAction"
-                    wire:confirm="Chấm lại toàn bộ bài viết? Hệ thống sẽ rebuild Workspace score cho mọi bài đủ điều kiện — không ghi đè provider score. Quá trình có thể lâu."
-                    wire:loading.attr="disabled"
-                    wire:target="runRequeueAllSeoScoringAction"
-                    :disabled="$syncDisabled"
-                >
-                    <span wire:loading.remove wire:target="runRequeueAllSeoScoringAction">
-                        Chấm lại toàn bộ bài viết
-                    </span>
-                    <span wire:loading wire:target="runRequeueAllSeoScoringAction">
-                        {{ __('seo-content-ai::filament.articles_optimal.processing') }}
-                    </span>
-                </x-filament::button>
-                @if (($this->getSeoScoringProgress()['failed'] ?? 0) > 0)
-                    <x-filament::button
-                        type="button"
-                        color="warning"
-                        icon="heroicon-o-arrow-path"
-                        class="w-full justify-center"
-                        wire:click="runRetryFailedSeoScoringAction"
-                        wire:loading.attr="disabled"
-                        wire:target="runRetryFailedSeoScoringAction"
-                        :disabled="$syncDisabled"
-                    >
-                        <span wire:loading.remove wire:target="runRetryFailedSeoScoringAction">
-                            {{ __('seo-content-ai::filament.domain.seo_scoring_retry_failed') }}
-                        </span>
-                        <span wire:loading wire:target="runRetryFailedSeoScoringAction">
-                            {{ __('seo-content-ai::filament.articles_optimal.processing') }}
-                        </span>
-                    </x-filament::button>
-                @endif
-            </div>
-            <div class="text-xs text-gray-500 dark:text-gray-400">
-                Chấm SEO missing/stale đã gắn vào «Đồng bộ & kiểm tra website». Advanced chỉ dùng khi cần rebuild toàn bộ Workspace score.
-            </div>
         </div>
-    @endif
-
-    @if ($showTest)
-        <div class="grid grid-cols-1 gap-2 py-3 sm:grid-cols-2 sm:items-center sm:gap-4">
-            <div>
-                <x-filament::button
-                    type="button"
-                    color="gray"
-                    icon="heroicon-o-bug-ant"
-                    class="w-full justify-center"
-                    wire:click="mountAction('test_sync_data')"
-                    wire:loading.attr="disabled"
-                    wire:target="runIncrementalSyncAction, runMetadataResyncAction, mountAction('test_sync_data')"
-                    :disabled="$incrementalSyncRunning || $metadataSyncRunning"
-                >
-                    {{ __('seo-content-ai::filament.domain.test_sync_debug') }}
-                </x-filament::button>
-            </div>
-            <div class="min-h-[2.75rem] flex items-center sm:justify-end text-sm text-gray-500 dark:text-gray-400 sm:text-right">
-                {{ __('seo-content-ai::filament.domain.sync_action_status_ready') }}
-            </div>
-        </div>
+    </details>
     @endif
 </div>

@@ -33,18 +33,20 @@ final class ContentPlanningUxContractTest extends TestCase
         self::assertStringNotContainsString("return __('seo-content-ai::filament.projects.seo_audit_title');", $page);
     }
 
-    public function test_context_header_and_contextual_publish_create_draft(): void
+    public function test_context_header_and_shared_draft_without_create_draft(): void
     {
         $blade = LegacyAddonPath::read('resources/views/filament/pages/content-project-seo-audit-planner.blade.php');
 
         self::assertStringContainsString('data-content-planning-context="1"', $blade);
         self::assertStringContainsString('content_planning_draft_label', $blade);
-        self::assertStringContainsString('seo_audit_site_label', $blade);
+        self::assertStringContainsString('content_planning_working_site', $blade);
         self::assertStringContainsString('data-content-planning-action="publish"', $blade);
-        self::assertStringContainsString('data-content-planning-action="create-draft"', $blade);
+        self::assertStringContainsString('data-shared-planning-draft', $blade);
         self::assertStringContainsString('openPublishFromPlanner', $blade);
-        self::assertStringContainsString('createDraftForPlanner', $blade);
         self::assertStringContainsString('data-planning-draft-display', $blade);
+        self::assertStringNotContainsString('data-content-planning-action="create-draft"', $blade);
+        self::assertStringNotContainsString('content_planning_no_draft_yet', $blade);
+        self::assertStringNotContainsString('seo_audit_create_draft', $blade);
         self::assertStringNotContainsString('<h1', $blade);
     }
 
@@ -114,7 +116,9 @@ final class ContentPlanningUxContractTest extends TestCase
         self::assertStringContainsString('planning_col_added', $items);
         self::assertStringContainsString('suggestions_col_plan', $items);
         self::assertStringContainsString('planning_col_keywords', $items);
-        self::assertStringContainsString('cp-plan-row-actions--under', $items);
+        self::assertStringContainsString('cp-plan-row-actions', $items);
+        self::assertStringContainsString('planning_col_actions', $items);
+        self::assertStringContainsString('planning_col_domain', $items);
         self::assertStringContainsString('cp-plan-article-icon', $items);
         self::assertStringContainsString('item_action_remove_from_draft', $items);
         self::assertStringContainsString('item_action_edit_article', $items);

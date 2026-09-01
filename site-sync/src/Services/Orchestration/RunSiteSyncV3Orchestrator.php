@@ -130,6 +130,8 @@ final class RunSiteSyncV3Orchestrator
             'trigger_source' => (string) ($options['trigger_source'] ?? 'ui'),
             'counters' => [
                 'fetched' => 0,
+                'full_fetched' => 0,
+                'catch_up_fetched' => 0,
                 'upserted' => 0,
                 'deleted' => 0,
                 'failed' => 0,
@@ -187,8 +189,17 @@ final class RunSiteSyncV3Orchestrator
             return;
         }
 
-        $run->forceFill(['status' => 'running'])->save();
         $phase = trim((string) ($run->current_step ?? SiteSyncV3Schema::PHASE_DISCOVER));
+        $status = (string) $run->status;
+
+        // Terminal / attention: never flip status back to running.
+        if (in_array($status, ['completed', 'completed_with_warnings', 'canceled', 'cancelled', 'needs_attention', 'failed'], true)
+            || $phase === SiteSyncV3Schema::PHASE_NEEDS_ATTENTION
+        ) {
+            return;
+        }
+
+        $run->forceFill(['status' => 'running'])->save();
 
         try {
             $continue = match ($phase) {
@@ -432,7 +443,9 @@ final class RunSiteSyncV3Orchestrator
         ]);
 
         $counters = is_array($run->counters) ? $run->counters : [];
-        $counters['fetched'] = (int) ($counters['fetched'] ?? 0) + count($items);
+        $itemCount = count($items);
+        $counters['fetched'] = (int) ($counters['fetched'] ?? 0) + $itemCount;
+        $counters['full_fetched'] = (int) ($counters['full_fetched'] ?? 0) + $itemCount;
         $counters['upserted'] = (int) ($counters['upserted'] ?? 0) + (int) ($counts['upsert_count'] ?? 0);
         $counters['deleted'] = (int) ($counters['deleted'] ?? 0) + (int) ($counts['delete_count'] ?? 0);
         $counters['failed'] = (int) ($counters['failed'] ?? 0) + (int) ($counts['failed'] ?? 0);
@@ -513,12 +526,29 @@ final class RunSiteSyncV3Orchestrator
                 ->whereNotNull('wp_post_id')
                 ->where('wp_post_id', '>', 0);
 
-            // Leave last_seen null alone (pre-V3 or never seen).
-            // Soft-mark stale; do not delete AI drafts (wp_post_id null already excluded).
+            // Soft-delete stale WP-backed *content* (not taxonomy terms) not seen in this FULL generation.
+            $staleLinks = (clone $query)->get(['id', 'article_id', 'wp_post_id']);
             if (Schema::connection('omi_seo_ai')->hasColumn('wordpress_article_links', 'reconcile_status')) {
-                $staleMarked = (clone $query)->update(['reconcile_status' => 'stale']);
-            } else {
-                $staleMarked = (clone $query)->count();
+                (clone $query)->update(['reconcile_status' => 'stale']);
+            }
+            foreach ($staleLinks as $link) {
+                $articleId = (int) ($link->article_id ?? 0);
+                if ($articleId <= 0) {
+                    continue;
+                }
+                $article = SeoArticle::query()->find($articleId);
+                if ($article === null || $article->trashed()) {
+                    continue;
+                }
+                $isTerm = $article->articleMetas()
+                    ->where('meta_key', ArticleContentClassification::META_WP_IS_TERM)
+                    ->where('meta_value', '1')
+                    ->exists();
+                if ($isTerm) {
+                    continue;
+                }
+                $article->delete();
+                $staleMarked++;
             }
         }
 
@@ -551,7 +581,14 @@ final class RunSiteSyncV3Orchestrator
 
         $meta = is_array($run->meta) ? $run->meta : [];
         $round = (int) ($meta['catch_up_round'] ?? 0);
-        $since = (string) ($meta['catch_up_boundary_at'] ?? $meta['snapshot_at'] ?? now()->toIso8601String());
+        // Freeze round lower bound: never advance `since` mid-round to "now".
+        $since = (string) ($meta['catch_up_since']
+            ?? $meta['catch_up_boundary_at']
+            ?? $meta['snapshot_at']
+            ?? now()->toIso8601String());
+        if (! isset($meta['catch_up_since'])) {
+            $meta['catch_up_since'] = $since;
+        }
         $generation = (int) ($meta['sync_generation'] ?? $run->id);
         $budget = SiteSyncV3Schema::RECORDS_PER_JOB * 2;
         $jobNumber = (int) ($meta['job_number'] ?? 0);
@@ -656,7 +693,8 @@ final class RunSiteSyncV3Orchestrator
                     $budget -= $itemCount;
                 }
 
-                $counters['fetched'] = (int) ($counters['fetched'] ?? 0) + $itemCount;
+                // Catch-up events are diagnostics — do NOT inflate FULL progress numerator.
+                $counters['catch_up_fetched'] = (int) ($counters['catch_up_fetched'] ?? 0) + $itemCount;
                 $counters['upserted'] = (int) ($counters['upserted'] ?? 0) + (int) ($counts['upsert_count'] ?? 0);
                 $counters['deleted'] = (int) ($counters['deleted'] ?? 0) + (int) ($counts['delete_count'] ?? 0);
                 $counters['failed'] = (int) ($counters['failed'] ?? 0) + (int) ($counts['failed'] ?? 0);
@@ -685,6 +723,7 @@ final class RunSiteSyncV3Orchestrator
         }
 
         $meta['job_number'] = $jobNumber;
+        // Round end boundary only — next round's since advances from catch_up_since → this stamp.
         $meta['catch_up_boundary_at'] = now()->toIso8601String();
         $meta['continuation'] = ((int) ($meta['continuation'] ?? 0)) + 1;
 
@@ -727,6 +766,8 @@ final class RunSiteSyncV3Orchestrator
             );
         }
 
+        // Advance frozen since for the next catch-up round only after this round exhausted.
+        $meta['catch_up_since'] = (string) $meta['catch_up_boundary_at'];
         $meta['catch_up_round'] = $nextRound;
         $run->forceFill([
             'meta' => $meta,
@@ -762,13 +803,56 @@ final class RunSiteSyncV3Orchestrator
         foreach (['post', 'page', 'product'] as $key) {
             $contentExpected += (int) ($expectedByType[$key] ?? 0);
         }
-        // final_expected_total from discover includes terms; compare content types primarily.
+
+        $wpInventory = $this->enumerateWpContentInventory($site, $discover);
+        if ($wpInventory === null) {
+            return $this->failRun(
+                $run,
+                'verify_inventory_failed',
+                'Unable to enumerate WordPress content IDs for membership verify.',
+            );
+        }
+
+        /** @var array<int, string> $wpIdsByType */
+        $wpIdsByType = $wpInventory['by_id'];
+        $wpIdSet = array_fill_keys(array_keys($wpIdsByType), true);
+
+        // Soft-delete local WP-backed non-term rows absent from fresh WP inventory.
+        $extraRemoved = $this->softDeleteExtraLocalContent($site, $wpIdSet);
+
         $localByType = $this->countWpBackedByContentType((int) $site->id);
         $localTotal = array_sum($localByType);
+        $localIdsByType = $this->localWpContentIdsByType((int) $site->id);
+
+        $missingIds = [];
+        $extraIds = [];
+        $typeMismatch = [];
+
+        foreach ($wpIdsByType as $wpId => $wpType) {
+            if (! isset($localIdsByType[$wpId])) {
+                $missingIds[] = $wpId;
+                continue;
+            }
+            $localType = $localIdsByType[$wpId];
+            if (in_array($wpType, ['post', 'page', 'product'], true)
+                && in_array($localType, ['post', 'page', 'product'], true)
+                && $wpType !== $localType
+            ) {
+                $typeMismatch[] = [
+                    'wp_id' => $wpId,
+                    'wp_type' => $wpType,
+                    'local_type' => $localType,
+                ];
+            }
+        }
+        foreach ($localIdsByType as $wpId => $_type) {
+            if (! isset($wpIdSet[$wpId])) {
+                $extraIds[] = $wpId;
+            }
+        }
 
         $missing = [];
         $extra = [];
-        $typeMismatch = [];
         foreach (['post', 'page', 'product'] as $type) {
             $exp = (int) ($expectedByType[$type] ?? 0);
             $got = (int) ($localByType[$type] ?? 0);
@@ -778,9 +862,6 @@ final class RunSiteSyncV3Orchestrator
                 $extra[$type] = $got - $exp;
             }
         }
-
-        $sampleMissing = $this->sampleMissingWpIds($site, $expectedByType, 10);
-        $sampleExtra = $this->sampleExtraLocalWpIds($site, 10);
 
         $meta = is_array($run->meta) ? $run->meta : [];
         $meta['final_expected_total'] = $expectedTotal;
@@ -793,25 +874,32 @@ final class RunSiteSyncV3Orchestrator
             'local_by_type' => $localByType,
             'local_total' => $localTotal,
             'content_expected' => $contentExpected,
+            'wp_content_enumerated' => count($wpIdsByType),
             'missing' => $missing,
             'extra' => $extra,
             'type_mismatch' => $typeMismatch,
-            'sample_missing_wp_ids' => $sampleMissing,
-            'sample_extra_wp_ids' => $sampleExtra,
+            'sample_missing_wp_ids' => array_slice($missingIds, 0, 20),
+            'sample_extra_wp_ids' => array_slice($extraIds, 0, 20),
+            'extra_removed' => $extraRemoved,
             'at' => now()->toIso8601String(),
         ];
         $meta['continuation'] = ((int) ($meta['continuation'] ?? 0)) + 1;
 
-        $hasMismatch = $missing !== [] || $extra !== [];
+        $hasMismatch = $missingIds !== [] || $extraIds !== [] || $typeMismatch !== [];
+        // Count deltas are diagnostic only when membership lists are empty (discover timing skew).
         if ($hasMismatch) {
             $run->forceFill(['meta' => $meta])->save();
 
             return $this->failRun(
                 $run,
                 'verify_count_mismatch',
-                'Verify mismatch vs WP discover counts.',
+                'Verify membership mismatch vs fresh WordPress inventory.',
             );
         }
+
+        // Clear count-only noise when identity membership matched.
+        $meta['verify']['missing'] = [];
+        $meta['verify']['extra'] = [];
 
         $run->forceFill([
             'meta' => $meta,
@@ -828,9 +916,10 @@ final class RunSiteSyncV3Orchestrator
         $forceFull = (string) $run->mode === SiteSyncV3Schema::MODE_FORCE_FULL
             || (bool) ($meta['force_full'] ?? false);
         $verify = is_array($meta['verify'] ?? null) ? $meta['verify'] : [];
-        $cleanVerify = ($verify['missing'] ?? null) === []
-            && ($verify['extra'] ?? null) === []
-            && ($verify['type_mismatch'] ?? null) === [];
+        $cleanVerify = ($verify['sample_missing_wp_ids'] ?? null) === []
+            && ($verify['sample_extra_wp_ids'] ?? null) === []
+            && ($verify['type_mismatch'] ?? null) === []
+            && (int) ($verify['wp_content_enumerated'] ?? 0) > 0;
 
         if ($forceFull && $cleanVerify) {
             $site = Site::query()->find((int) $run->site_id);
@@ -931,6 +1020,117 @@ final class RunSiteSyncV3Orchestrator
     }
 
     /**
+     * @param  array<string, mixed>  $discover
+     * @return array{by_id: array<int, string>}|null
+     */
+    private function enumerateWpContentInventory(Site $site, array $discover): ?array
+    {
+        $snapshotAt = (string) ($discover['snapshot_at'] ?? $discover['generated_at'] ?? '');
+        $bounds = is_array($discover['snapshot_bounds'] ?? null) ? $discover['snapshot_bounds'] : [];
+        if ($snapshotAt === '' || (int) ($bounds['content_max_id'] ?? 0) <= 0) {
+            return null;
+        }
+
+        $byId = [];
+        $cursor = null;
+        for ($page = 0; $page < 200; $page++) {
+            $fetched = $this->client->records($site, [
+                'schema' => SiteSyncV3Schema::VERSION,
+                'resource' => SiteSyncV3Schema::RESOURCE_CONTENT,
+                'mode' => 'full',
+                'limit' => SiteSyncV3Schema::RECORDS_PER_JOB,
+                'cursor' => $cursor,
+                'snapshot_at' => $snapshotAt,
+                'snapshot_bounds' => [
+                    'content_max_id' => (int) ($bounds['content_max_id'] ?? 0),
+                    'term_max_id' => (int) ($bounds['term_max_id'] ?? 0),
+                ],
+                'sync_generation' => 0,
+            ]);
+            if (! ($fetched['success'] ?? false)) {
+                return null;
+            }
+            $records = is_array($fetched['records'] ?? null) ? $fetched['records'] : [];
+            $items = is_array($records['items'] ?? null) ? $records['items'] : [];
+            foreach ($items as $item) {
+                if (! is_array($item)) {
+                    continue;
+                }
+                $wpId = (int) ($item['wp_id'] ?? $item['wordpress_id'] ?? 0);
+                if ($wpId <= 0) {
+                    continue;
+                }
+                $type = (string) ($item['content_type'] ?? $item['type'] ?? $item['wp_post_type'] ?? 'other');
+                if (! in_array($type, ['post', 'page', 'product'], true)) {
+                    $type = 'other';
+                }
+                $byId[$wpId] = $type;
+            }
+            $hasMore = (bool) ($records['has_more'] ?? false);
+            $cursor = is_array($records['cursor'] ?? null)
+                ? $records['cursor']
+                : (is_array($records['next_cursor'] ?? null) ? $records['next_cursor'] : null);
+            if (! $hasMore || $cursor === null) {
+                break;
+            }
+        }
+
+        return ['by_id' => $byId];
+    }
+
+    /**
+     * @param  array<int, true>  $wpIdSet
+     */
+    private function softDeleteExtraLocalContent(Site $site, array $wpIdSet): int
+    {
+        $removed = 0;
+        $local = $this->localWpContentIdsByType((int) $site->id);
+        foreach ($local as $wpId => $_type) {
+            if (isset($wpIdSet[$wpId])) {
+                continue;
+            }
+            $article = SeoArticle::query()
+                ->where('site_id', (int) $site->id)
+                ->whereWpPostId($wpId)
+                ->first();
+            if ($article === null || $article->trashed()) {
+                continue;
+            }
+            $article->delete();
+            $removed++;
+        }
+
+        return $removed;
+    }
+
+    /**
+     * Non-term WP-backed content only.
+     *
+     * @return array<int, string> wp_post_id => content_type
+     */
+    private function localWpContentIdsByType(int $siteId): array
+    {
+        $articles = ArticleContentClassification::scopeNonTerm(
+            SeoArticle::query()->where('site_id', $siteId)->hasWpPostId()
+        )->with(['wordpressLink', 'articleMetas'])->get();
+
+        $out = [];
+        foreach ($articles as $article) {
+            $wpId = (int) ($article->wordpressLink?->wp_post_id ?? 0);
+            if ($wpId <= 0) {
+                continue;
+            }
+            $type = (string) ($article->articleMetas->firstWhere('meta_key', ArticleContentClassification::META_CONTENT_TYPE)?->meta_value ?? 'other');
+            if (! in_array($type, ['post', 'page', 'product'], true)) {
+                $type = 'other';
+            }
+            $out[$wpId] = $type;
+        }
+
+        return $out;
+    }
+
+    /**
      * @return array{post: int, page: int, product: int, other: int}
      */
     private function countWpBackedByContentType(int $siteId): array
@@ -948,7 +1148,7 @@ final class RunSiteSyncV3Orchestrator
         $product = ArticleContentClassification::scopeNonTerm(
             ArticleContentClassification::scopeContentType(clone $base, ContentType::Product),
         )->count();
-        $total = (clone $base)->count();
+        $total = ArticleContentClassification::scopeNonTerm(clone $base)->count();
 
         return [
             'post' => $post,
@@ -956,33 +1156,5 @@ final class RunSiteSyncV3Orchestrator
             'product' => $product,
             'other' => max(0, $total - $post - $page - $product),
         ];
-    }
-
-    /**
-     * @param  array<string, mixed>  $expectedByType
-     * @return list<int>
-     */
-    private function sampleMissingWpIds(Site $site, array $expectedByType, int $limit): array
-    {
-        // Without WP ID inventory list in discover, sample is empty; diagnostics live in counts.
-        unset($site, $expectedByType, $limit);
-
-        return [];
-    }
-
-    /**
-     * @return list<int>
-     */
-    private function sampleExtraLocalWpIds(Site $site, int $limit): array
-    {
-        return WordpressArticleLink::query()
-            ->where('site_id', (int) $site->id)
-            ->whereNotNull('wp_post_id')
-            ->where('wp_post_id', '>', 0)
-            ->orderByDesc('id')
-            ->limit($limit)
-            ->pluck('wp_post_id')
-            ->map(static fn (mixed $id): int => (int) $id)
-            ->all();
     }
 }

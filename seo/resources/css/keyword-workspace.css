@@ -12,6 +12,57 @@
     --ws-sky-600: 2 132 199;
 }
 
+/* Shared Keywords module chrome (header + tabs) */
+.keyword-module-chrome {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+}
+
+.keyword-module-header__title {
+    margin: 0;
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: 0.5rem 0.625rem;
+    font-size: 1.25rem;
+    font-weight: 700;
+    line-height: 1.3;
+    color: rgb(17 24 39);
+}
+
+.keyword-module-header__heading {
+    min-width: 0;
+}
+
+.keyword-module-header__total-badge {
+    display: inline-flex;
+    align-items: center;
+    flex: 0 0 auto;
+    max-width: 100%;
+    padding: 0.125rem 0.5rem;
+    border-radius: 9999px;
+    border: 1px solid rgb(209 213 219);
+    background: rgb(249 250 251);
+    color: rgb(75 85 99);
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.25;
+    white-space: nowrap;
+    cursor: help;
+    vertical-align: middle;
+}
+
+.dark .keyword-module-header__title {
+    color: rgb(243 244 246);
+}
+
+.dark .keyword-module-header__total-badge {
+    border-color: rgb(255 255 255 / 0.14);
+    background: rgb(255 255 255 / 0.06);
+    color: rgb(209 213 219);
+}
+
 /* Shared workspace tabs (x-seo-content-ai::workspace-tabs) */
 .keyword-workspace-tabs-bar {
     display: flex;
@@ -111,6 +162,43 @@
     color: rgb(107 114 128);
     text-decoration: none;
     transition: color 0.2s ease, background-color 0.2s ease;
+}
+
+.workspace-tabs__label-row {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    min-height: 1.25rem;
+}
+
+.workspace-tabs__count {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.25rem;
+    padding: 0.0625rem 0.4375rem;
+    border-radius: 9999px;
+    background: rgb(243 244 246);
+    font-size: 0.6875rem;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.25;
+    color: rgb(75 85 99);
+}
+
+.dark .workspace-tabs__count {
+    background: rgb(255 255 255 / 0.08);
+    color: rgb(209 213 219);
+}
+
+.workspace-tabs__item.is-active .workspace-tabs__count {
+    background: rgb(var(--ws-violet-600) / 0.14);
+    color: rgb(var(--ws-violet-700));
+}
+
+.dark .workspace-tabs__item.is-active .workspace-tabs__count {
+    background: rgb(var(--ws-violet-600) / 0.28);
+    color: rgb(196 181 253);
 }
 
 .dark .workspace-tabs__item {
@@ -289,14 +377,8 @@ body:has(.keyword-workspace-page) .fi-page-content {
 
 .keyword-dictionary-stats {
     display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
+    grid-template-columns: repeat(2, minmax(0, 12rem));
     gap: 1rem;
-}
-
-@media (max-width: 1023px) {
-    .keyword-dictionary-stats {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
 }
 
 @media (max-width: 639px) {
@@ -1059,6 +1141,13 @@ body.assign-drawer-open .keyword-detail-drawer.is-visible {
     max-width: 42%;
 }
 
+.keyword-dictionary-drawer__card-actions {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 0.25rem;
+}
+
 .keyword-dictionary-drawer__list-badge {
     flex-shrink: 0;
     max-width: 100%;
@@ -1074,6 +1163,23 @@ body.assign-drawer-open .keyword-detail-drawer.is-visible {
     border: 1px solid transparent;
     transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
     cursor: pointer;
+}
+
+.keyword-dictionary-drawer__project-icon--edit {
+    border-color: rgb(209 213 219);
+    background: rgb(249 250 251);
+    color: rgb(55 65 81);
+}
+
+.keyword-dictionary-drawer__project-icon--edit:hover {
+    background: rgb(243 244 246);
+    border-color: rgb(156 163 175);
+}
+
+.dark .keyword-dictionary-drawer__project-icon--edit {
+    border-color: rgb(75 85 99 / 0.5);
+    background: rgb(31 41 55 / 0.6);
+    color: rgb(209 213 219);
 }
 
 .keyword-dictionary-drawer__project-icon--assign {
@@ -1821,93 +1927,60 @@ body.keyword-drawer-open {
     display: none;
 }
 
-.topic-index-page-heading {
+.topic-index-section-heading {
     display: flex;
     flex-direction: column;
     gap: 0.25rem;
 }
 
-.topic-index-page-heading__title {
+.topic-index-section-heading__title {
     margin: 0;
-    font-size: 1.25rem;
-    font-weight: 700;
-    line-height: 1.3;
-    color: rgb(17 24 39);
-}
-
-.dark .topic-index-page-heading__title {
-    color: rgb(243 244 246);
-}
-
-.topic-index-page-heading__subtitle {
-    margin: 0;
-    font-size: 0.8125rem;
-    line-height: 1.4;
-    color: rgb(107 114 128);
-}
-
-.dark .topic-index-page-heading__subtitle {
-    color: rgb(156 163 175);
-}
-
-.topic-index-stats {
-    display: grid;
-    grid-template-columns: repeat(4, minmax(0, 1fr));
-    gap: 0.75rem;
-    margin: 0;
-}
-
-@media (max-width: 1023px) {
-    .topic-index-stats {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
-}
-
-@media (max-width: 639px) {
-    .topic-index-stats {
-        grid-template-columns: minmax(0, 1fr);
-    }
-}
-
-.topic-index-stat {
-    display: block;
-    border: 1px solid rgb(229 231 235);
-    border-radius: 0.75rem;
-    background: rgb(255 255 255);
-    padding: 1rem 1.15rem;
-    text-decoration: none;
-    color: inherit;
-}
-
-.dark .topic-index-stat {
-    border-color: rgb(255 255 255 / 0.1);
-    background: rgb(17 24 39 / 0.45);
-}
-
-a.topic-index-stat:hover {
-    border-color: rgb(167 139 250);
-}
-
-.topic-index-stat__label {
-    font-size: 0.75rem;
-    font-weight: 600;
-    color: rgb(107 114 128);
-}
-
-.topic-index-stat__value {
-    margin-top: 0.45rem;
-    font-size: 1.25rem;
-    font-weight: 700;
+    font-size: 1.75rem;
+    font-weight: 800;
     line-height: 1.2;
     color: rgb(17 24 39);
 }
 
-.dark .topic-index-stat__value {
-    color: rgb(243 244 246);
+.dark .topic-index-section-heading__title {
+    color: rgb(255 255 255);
 }
 
-.topic-index-stat__value.is-accent {
+.topic-index-section-heading__subtitle {
+    margin: 0;
+    max-width: 42rem;
+    font-size: 0.9375rem;
+    line-height: 1.4;
+    color: rgb(107 114 128);
+}
+
+.dark .topic-index-section-heading__subtitle {
+    color: rgb(156 163 175);
+}
+
+.topic-index-compact-stats {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.375rem 0.5rem;
+    margin: 0.375rem 0 0;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+    line-height: 1.4;
+    color: rgb(75 85 99);
+}
+
+.dark .topic-index-compact-stats {
+    color: rgb(156 163 175);
+}
+
+.topic-index-compact-stats__link {
     color: rgb(5 150 105);
+    text-decoration: none;
+}
+
+.topic-index-compact-stats__link:hover {
+    text-decoration: underline;
 }
 
 .topic-index-tabs {

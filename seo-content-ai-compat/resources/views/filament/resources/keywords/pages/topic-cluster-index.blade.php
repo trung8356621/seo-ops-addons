@@ -23,18 +23,9 @@
     @endif
 
     @php
-        $workspaceSiteId = $this->resolveKeywordWorkspaceSiteId();
-        $siteOptions = $this->getKeywordWorkspaceSiteFilterOptions();
-        $domainLabel = '';
-        if ($workspaceSiteId !== null && $workspaceSiteId > 0) {
-            $domainLabel = trim((string) ($siteOptions[$workspaceSiteId] ?? $siteOptions[(string) $workspaceSiteId] ?? ''));
-        }
         $clusterStateDirty = $this->clusterStateIsDirty();
         $inventoryUnclassified = (int) ($summary['unclassified_keywords'] ?? 0);
         $inventoryMetrics = [
-            __('seo-content-ai::filament.keyword.topic_inventory_metric_total', [
-                'count' => number_format((int) ($summary['total_keywords'] ?? 0)),
-            ]),
             __('seo-content-ai::filament.keyword.topic_inventory_metric_seo_eligible', [
                 'count' => number_format((int) ($summary['seo_eligible_keywords'] ?? 0)),
             ]),
@@ -56,58 +47,48 @@
     @endphp
 
     <div class="keyword-workspace-shell max-w-full space-y-4" {!! $reclusterPollAttr !!}>
-        <header class="topic-index-page-heading">
-            <h1 class="topic-index-page-heading__title">
-                @if ($domainLabel !== '')
-                    {{ __('seo-content-ai::filament.keyword.topic_page_heading', ['domain' => $domainLabel]) }}
-                @else
-                    {{ __('seo-content-ai::filament.keyword.topic_cluster_title') }}
-                @endif
-            </h1>
-            <p class="topic-index-page-heading__subtitle">
-                {{ __('seo-content-ai::filament.keyword.topic_page_subtitle', [
-                    'seo' => number_format((int) ($summary['seo_eligible_keywords'] ?? 0)),
-                    'clustered' => number_format((int) ($summary['clustered'] ?? 0)),
-                    'unclustered' => number_format((int) ($summary['unclustered'] ?? 0)),
-                ]) }}
-            </p>
-        </header>
-
         @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-workspace-nav', [
             'activeKey' => $this->getActiveKeywordWorkspaceKey(),
             'navItems' => $this->getKeywordWorkspaceNavItems(),
         ])
+
+        <header class="topic-index-section-heading">
+            <h2 class="topic-index-section-heading__title">
+                {{ __('seo-content-ai::filament.keyword.topic_cluster_title') }}
+            </h2>
+            <p class="topic-index-section-heading__subtitle">
+                {{ __('seo-content-ai::filament.keyword.topic_section_subtitle') }}
+            </p>
+            <p
+                class="topic-index-compact-stats"
+                wire:key="topic-index-compact-stats-{{ $this->clusterDataEpoch }}"
+                title="{{ __('seo-content-ai::filament.keyword.topic_summary_seo_eligible_hint') }} · {{ __('seo-content-ai::filament.keyword.topic_summary_unclustered_hint') }}"
+            >
+                <span>{{ __('seo-content-ai::filament.keyword.topic_compact_stats_seo', [
+                    'count' => number_format((int) ($summary['seo_eligible_keywords'] ?? 0)),
+                ]) }}</span>
+                <span aria-hidden="true">·</span>
+                <span>{{ __('seo-content-ai::filament.keyword.topic_compact_stats_assigned', [
+                    'count' => number_format((int) ($summary['clustered'] ?? 0)),
+                ]) }}</span>
+                <span aria-hidden="true">·</span>
+                <a href="{{ $this->unclusteredUrl() }}" class="topic-index-compact-stats__link">
+                    {{ __('seo-content-ai::filament.keyword.topic_compact_stats_unassigned', [
+                        'count' => number_format((int) ($summary['unclustered'] ?? 0)),
+                    ]) }}
+                </a>
+                <span aria-hidden="true">·</span>
+                <span>{{ __('seo-content-ai::filament.keyword.topic_compact_stats_mcp', [
+                    'count' => number_format((int) ($mcpPreview['total_topics'] ?? 0)),
+                ]) }}</span>
+            </p>
+        </header>
 
         <x-seo-content-ai::list-table-loading-shell
             class="space-y-4"
             preset="livewire-page"
             targets="clusterSearch,coverageFilter,clusterSort,clusterProjection,hasArticles,keywordLanguageFilter,updatedKeywordLanguageFilter,keywordWorkspaceSiteId,onKeywordWorkspaceSiteFilterChanged"
         >
-        <div class="topic-index-stats" wire:key="topic-index-stats-{{ $this->clusterDataEpoch }}">
-            <div class="topic-index-stat">
-                <div class="topic-index-stat__label">{{ __('seo-content-ai::filament.keyword.topic_summary_clusters') }}</div>
-                <div class="topic-index-stat__value">{{ number_format((int) $summary['topic_clusters']) }}</div>
-            </div>
-            <div class="topic-index-stat">
-                <div class="topic-index-stat__label">{{ __('seo-content-ai::filament.keyword.topic_summary_mcp_topics') }}</div>
-                <div class="topic-index-stat__value">{{ number_format((int) ($mcpPreview['total_topics'] ?? 0)) }}</div>
-            </div>
-            <div class="topic-index-stat">
-                <div class="topic-index-stat__label">{{ __('seo-content-ai::filament.keyword.topic_summary_seo_eligible') }}</div>
-                <div class="topic-index-stat__value">{{ number_format((int) ($summary['seo_eligible_keywords'] ?? 0)) }}</div>
-                <div class="topic-index-stat__meta">{{ __('seo-content-ai::filament.keyword.topic_summary_seo_eligible_hint') }}</div>
-            </div>
-            <div class="topic-index-stat">
-                <div class="topic-index-stat__label">{{ __('seo-content-ai::filament.keyword.topic_summary_clustered') }}</div>
-                <div class="topic-index-stat__value">{{ number_format((int) $summary['clustered']) }}</div>
-            </div>
-            <a href="{{ $this->unclusteredUrl() }}" class="topic-index-stat">
-                <div class="topic-index-stat__label">{{ __('seo-content-ai::filament.keyword.topic_summary_unclustered') }}</div>
-                <div class="topic-index-stat__value is-accent">{{ number_format((int) $summary['unclustered']) }}</div>
-                <div class="topic-index-stat__meta">{{ __('seo-content-ai::filament.keyword.topic_summary_unclustered_hint') }}</div>
-            </a>
-        </div>
-
         <div class="topic-index-context" wire:key="topic-index-context-{{ $this->clusterDataEpoch }}">
             <div class="topic-index-context-card">
                 <div class="cluster-mcp-preview topic-index-context-card__row">
@@ -332,6 +313,7 @@
                                 expanded: false,
                                 value: @js($rowLabel),
                                 original: @js($rowLabel),
+                                renameSeq: 0,
                                 startEdit() {
                                     if (this.recalculating) return;
                                     this.editing = true;
@@ -347,19 +329,33 @@
                                         this.cancel();
                                         return;
                                     }
+                                    const seq = ++this.renameSeq;
+                                    const previousTitle = this.original;
+                                    this.value = next;
                                     this.recalculating = true;
                                     this.editing = false;
                                     try {
                                         const result = await $wire.saveMcpGroupMaskFromIndex(@js($rowKey), next);
-                                        if (result && result.ok) {
-                                            await $wire.$refresh();
+                                        if (seq !== this.renameSeq) {
                                             return;
                                         }
-                                        this.value = this.original;
+                                        if (result && result.ok) {
+                                            this.value = next;
+                                            this.original = next;
+                                            return;
+                                        }
+                                        this.value = previousTitle;
+                                        this.original = previousTitle;
                                     } catch (e) {
-                                        this.value = this.original;
+                                        if (seq !== this.renameSeq) {
+                                            return;
+                                        }
+                                        this.value = previousTitle;
+                                        this.original = previousTitle;
                                     } finally {
-                                        this.recalculating = false;
+                                        if (seq === this.renameSeq) {
+                                            this.recalculating = false;
+                                        }
                                     }
                                 }
                             }"
@@ -380,6 +376,11 @@
                                 coverage: @js((string) ($row['coverage'] ?? 'unknown')),
                                 canonicalSource: @js((string) ($row['canonical_source'] ?? 'auto')),
                                 state: @js((string) ($row['state'] ?? 'active')),
+                                renameSeq: 0,
+                                coverageTagTemplate: @js(__('seo-content-ai::filament.keyword.topic_tag_coverage', ['level' => '__LEVEL__'])),
+                                plannedLabel: @js(__('seo-content-ai::filament.keyword.topic_tag_planned')),
+                                manualLabel: @js(__('seo-content-ai::filament.keyword.topic_tag_manual')),
+                                autoLabel: @js(__('seo-content-ai::filament.keyword.topic_tag_auto')),
                                 startEdit() {
                                     if (this.recalculating) return;
                                     this.editing = true;
@@ -389,25 +390,70 @@
                                     this.value = this.original;
                                     this.editing = false;
                                 },
+                                formatToken(value) {
+                                    const raw = String(value || '').trim();
+                                    if (raw === '') return '';
+                                    return raw.charAt(0).toUpperCase() + raw.slice(1);
+                                },
+                                coverageTagText() {
+                                    const level = this.formatToken(this.coverage);
+                                    if (level === '') return '';
+                                    return String(this.coverageTagTemplate || '').replace('__LEVEL__', level);
+                                },
+                                formatShare(share) {
+                                    const num = Number(share);
+                                    if (! Number.isFinite(num)) return '0';
+                                    return String(num.toFixed(1)).replace(/\.0$/, '').replace(/(\.\d)0$/, '$1');
+                                },
+                                applyRowPatch(result) {
+                                    if (! result || typeof result !== 'object') return;
+                                    if (result.keyword_count !== undefined) this.keywordCount = Number(result.keyword_count) || 0;
+                                    if (result.article_count !== undefined) this.articleCount = Number(result.article_count) || 0;
+                                    if (result.internal_link_count !== undefined) this.internalLinkCount = Number(result.internal_link_count) || 0;
+                                    if (result.intent !== undefined) this.intent = String(result.intent || '');
+                                    if (result.coverage !== undefined) this.coverage = String(result.coverage || 'unknown');
+                                    if (result.canonical_source !== undefined) this.canonicalSource = String(result.canonical_source || 'manual');
+                                    if (result.state !== undefined) this.state = String(result.state || 'active');
+                                    if (result.topical_share !== undefined) this.topicalShare = this.formatShare(result.topical_share);
+                                },
                                 async save() {
                                     const next = (this.value || '').trim().replace(/\s+/g, ' ');
                                     if (next === '' || next === this.original) {
                                         this.cancel();
                                         return;
                                     }
+                                    const seq = ++this.renameSeq;
+                                    const previousTitle = this.original;
+                                    this.value = next;
                                     this.recalculating = true;
                                     this.editing = false;
                                     try {
                                         const result = await $wire.saveClusterCanonicalFromIndex(@js($rowKey), next);
-                                        if (result && result.ok) {
-                                            await $wire.$refresh();
+                                        if (seq !== this.renameSeq) {
                                             return;
                                         }
-                                        this.value = this.original;
+                                        if (result && result.ok) {
+                                            if (result.removed) {
+                                                this.$el.remove();
+                                                return;
+                                            }
+                                            this.applyRowPatch(result);
+                                            this.value = next;
+                                            this.original = next;
+                                            return;
+                                        }
+                                        this.value = previousTitle;
+                                        this.original = previousTitle;
                                     } catch (e) {
-                                        this.value = this.original;
+                                        if (seq !== this.renameSeq) {
+                                            return;
+                                        }
+                                        this.value = previousTitle;
+                                        this.original = previousTitle;
                                     } finally {
-                                        this.recalculating = false;
+                                        if (seq === this.renameSeq) {
+                                            this.recalculating = false;
+                                        }
                                     }
                                 }
                             }"
@@ -470,13 +516,48 @@
                                 @endif
 
                                 @unless ($isMcpGroup)
-                                    @include('seo-content-ai::filament.resources.keywords.pages.partials.cluster-intent-coverage-tags', [
-                                        'intent' => $row['intent'] ?? '',
-                                        'coverage' => $row['coverage'] ?? 'unknown',
-                                        'canonicalSource' => $row['canonical_source'] ?? 'auto',
-                                        'state' => $row['state'] ?? 'active',
-                                        'keywordCount' => $row['keyword_count'] ?? 0,
-                                    ])
+                                    @if ($canEditCanonical)
+                                        <div class="cluster-tag-row">
+                                            <span
+                                                class="cluster-tag cluster-tag--intent"
+                                                x-show="intent"
+                                                x-cloak
+                                                x-text="formatToken(intent)"
+                                            ></span>
+                                            <span
+                                                class="cluster-tag cluster-tag--coverage"
+                                                x-show="coverage && coverage !== 'unknown'"
+                                                x-cloak
+                                                x-text="coverageTagText()"
+                                            ></span>
+                                            <span
+                                                class="cluster-tag cluster-tag--planned"
+                                                x-show="state === 'planned' || (Number(keywordCount) === 0 && canonicalSource === 'manual')"
+                                                x-cloak
+                                                x-text="plannedLabel"
+                                            ></span>
+                                            <span
+                                                class="cluster-tag cluster-tag--manual"
+                                                x-show="canonicalSource === 'manual'"
+                                                x-cloak
+                                                x-text="manualLabel"
+                                            ></span>
+                                            <span
+                                                class="cluster-tag cluster-tag--auto"
+                                                x-show="canonicalSource === 'auto' && state !== 'planned'"
+                                                x-cloak
+                                                x-text="autoLabel"
+                                            ></span>
+                                        </div>
+                                    @else
+                                        @include('seo-content-ai::filament.resources.keywords.pages.partials.cluster-intent-coverage-tags', [
+                                            'intent' => $row['intent'] ?? '',
+                                            'coverage' => $row['coverage'] ?? 'unknown',
+                                            'canonicalSource' => $row['canonical_source'] ?? 'auto',
+                                            'state' => $row['state'] ?? 'active',
+                                            'keywordCount' => $row['keyword_count'] ?? 0,
+                                        ])
+                                    @endif
                                 @endunless
                                 @if ($seoExcluded)
                                     <span class="keyword-item-tag keyword-item-tag--planning">{{ __('seo-content-ai::filament.keyword.keyword_item_tag_seo_excluded') }}</span>

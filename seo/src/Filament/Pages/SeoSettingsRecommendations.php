@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Seo\Filament\Pages;
 
+use Omnichannel\Addons\AiPrompt\Filament\Pages\SeoSettingsAiCenter;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
-use Omnichannel\Addons\Seo\Support\SeoSettingsRecommendationsContent;
 use Filament\Pages\Page;
 
 /**
- * Admin best-practices docs (hard-coded). Does not affect runtime routing.
+ * Legacy slug — best-practice docs moved to Global Help topics.
+ * Redirects to AI Center (model routing / typography settings).
  */
 class SeoSettingsRecommendations extends Page
 {
@@ -21,20 +22,9 @@ class SeoSettingsRecommendations extends Page
 
     protected static string $view = 'seo-content-ai::filament.pages.seo-settings-recommendations';
 
-    /**
-     * @return array{general_image: string, typography: string, video: string}
-     */
-    public function currentBadge(): array
+    public function mount(): void
     {
-        return SeoSettingsRecommendationsContent::currentBadge();
-    }
-
-    /**
-     * @return list<array<string, mixed>>
-     */
-    public function recommendationCards(): array
-    {
-        return SeoSettingsRecommendationsContent::cards();
+        $this->redirect(SeoSettingsAiCenter::getUrl(), navigate: false);
     }
 
     public static function canAccess(): bool

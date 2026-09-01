@@ -45,10 +45,11 @@ final class ArticlesOptimalAssignDrawerRoutingTest extends TestCase
     public function test_drawer_allows_shared_keyword_override_for_multiple_missing(): void
     {
         $src = $this->source(AssignToContentProjectDrawer::class);
-        self::assertStringContainsString('$this->needsFocusKeyword = $missing->count() >= 1', $src);
-        self::assertStringNotContainsString('$missing->count() === 1', $src);
+        self::assertStringContainsString('anyArticleNeedsKeyword', $src);
+        self::assertStringContainsString('needsFocusKeyword', $src);
         self::assertStringNotContainsString("assign_missing_keyword_bulk", $src);
-        self::assertStringContainsString('KeywordFocusAttach::syncMainKeyword', $src);
+        self::assertStringContainsString('PlanningDraftIntakeService', $src);
+        self::assertStringContainsString('->addArticles(', $src);
     }
 
     public function test_notify_method_remains_but_is_not_the_assign_gate(): void

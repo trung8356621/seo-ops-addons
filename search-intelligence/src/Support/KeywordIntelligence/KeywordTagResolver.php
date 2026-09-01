@@ -205,7 +205,7 @@ final class KeywordTagResolver
     public function countPrimaryTags(iterable $rows, int $unclassified = 0): array
     {
         $counts = [
-            KeywordTag::FOCUS => max(0, $unclassified),
+            KeywordTag::FOCUS => 0,
             KeywordTag::SEO_EXCLUDED => 0,
         ];
         foreach ($rows as $row) {

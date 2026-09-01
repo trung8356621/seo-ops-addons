@@ -33,30 +33,65 @@
             const payload = detail && typeof detail === 'object' ? detail : {};
             this.requestId += 1;
             const rid = this.requestId;
-            this.selectedHint = this.countSelected(payload);
-            this.shellOpen = true;
-            this.clientPreparing = true;
-            document.body.classList.add('assign-drawer-open');
-            window.dispatchEvent(new CustomEvent(this.shellOpenEvent, {
-                detail: Object.assign({}, payload, { request_id: rid }),
-            }));
+
+            // Preflight BEFORE showing shell: single article with keyword → direct intake.
+            const articleIds = Array.isArray(payload.article_ids) ? payload.article_ids : [];
+            const mode = String(payload.mode || 'article');
+            const tryPreflight = mode === 'article' && articleIds.length === 1;
+
+            const runPrepare = () => {
+                this.selectedHint = this.countSelected(payload);
+                this.shellOpen = true;
+                this.clientPreparing = true;
+                document.body.classList.add('assign-drawer-open');
+                window.dispatchEvent(new CustomEvent(this.shellOpenEvent, {
+                    detail: Object.assign({}, payload, { request_id: rid }),
+                }));
+
+                try {
+                    $wire.prepare(Object.assign({}, payload, { _request_id: rid }))
+                        .then(() => {
+                            if (rid !== this.requestId) {
+                                return;
+                            }
+                            this.clientPreparing = false;
+                        })
+                        .catch(() => {
+                            if (rid !== this.requestId) {
+                                return;
+                            }
+                            this.clientPreparing = false;
+                        });
+                } catch (e) {
+                    this.clientPreparing = false;
+                }
+            };
+
+            if (! tryPreflight) {
+                runPrepare();
+                return;
+            }
 
             try {
-                $wire.prepare(Object.assign({}, payload, { _request_id: rid }))
-                    .then(() => {
+                $wire.preflightOpen(payload)
+                    .then((result) => {
                         if (rid !== this.requestId) {
                             return;
                         }
-                        this.clientPreparing = false;
+                        if (result && result.handled) {
+                            // Direct success/fail — never open shell.
+                            return;
+                        }
+                        runPrepare();
                     })
                     .catch(() => {
                         if (rid !== this.requestId) {
                             return;
                         }
-                        this.clientPreparing = false;
+                        runPrepare();
                     });
             } catch (e) {
-                this.clientPreparing = false;
+                runPrepare();
             }
         },
         hideShellLocal() {
@@ -123,7 +158,6 @@
                             {{ AssignToContentProjectContract::label() }}
                         </h3>
                         <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                            {{-- Use Alpine clientPreparing only — $wire.preparing throws after Livewire morph/reset. --}}
                             <span x-show="clientPreparing" x-text="selectedHint"></span>
                             <span x-show="! clientPreparing">{{ $this->uiState['selected_count'] }}</span>
                             {{ __('seo-content-ai::filament.articles_optimal.bulk_selected_suffix') }}
@@ -143,8 +177,6 @@
                         <div class="space-y-3 animate-pulse">
                             <div class="h-10 rounded-lg bg-gray-200 dark:bg-gray-800"></div>
                             <div class="h-10 rounded-lg bg-gray-200 dark:bg-gray-800"></div>
-                            <div class="h-10 rounded-lg bg-gray-200 dark:bg-gray-800"></div>
-                            <div class="h-24 rounded-lg bg-gray-200 dark:bg-gray-800"></div>
                         </div>
                         <p class="inline-flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
                             <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
@@ -218,115 +250,6 @@
                                     {{ __('seo-content-ai::filament.keyword.assign_to_content_project_sites_hint') }}
                                 </p>
                             </div>
-
-                            @foreach ($siteIds as $siteId)
-                                @php $siteId = (int) $siteId; @endphp
-                                <div wire:key="assign-kw-project-{{ $siteId }}">
-                                    <label class="text-sm font-medium text-gray-700 dark:text-gray-200">
-                                        {{ __('seo-content-ai::filament.article_list.content_project') }}
-                                        — {{ $siteOptions[$siteId] ?? ('#'.$siteId) }}
-                                    </label>
-                                    <x-select
-                                        wire:model.live="projectIdBySite.{{ $siteId }}"
-                                        class="mt-1 block w-full rounded-lg border-gray-300 text-sm shadow-sm dark:border-white/10 dark:bg-gray-950"
-                                    >
-                                        <option value="">{{ __('seo-content-ai::filament.articles_optimal.sidebar_select_project') }}</option>
-                                        @foreach (($projectOptionsBySite[$siteId] ?? []) as $projectOptionId => $projectLabel)
-                                            <option value="{{ $projectOptionId }}">{{ $projectLabel }}</option>
-                                        @endforeach
-                                    </x-select>
-                                </div>
-                            @endforeach
-                        @else
-                            <div class="flex items-end gap-2">
-                                <div class="min-w-0 flex-1">
-                                    <label class="text-sm font-medium text-gray-700 dark:text-gray-200">
-                                        {{ __('seo-content-ai::filament.articles_optimal.sidebar_project_label') }}
-                                    </label>
-                                    <x-select
-                                        wire:model.live="projectId"
-                                        class="mt-1 block w-full rounded-lg border-gray-300 text-sm shadow-sm dark:border-white/10 dark:bg-gray-950"
-                                    >
-                                        <option value="">{{ __('seo-content-ai::filament.articles_optimal.sidebar_select_project') }}</option>
-                                        @foreach ($projectOptions as $projectOptionId => $projectLabel)
-                                            <option value="{{ $projectOptionId }}">{{ $projectLabel }}</option>
-                                        @endforeach
-                                    </x-select>
-                                </div>
-                                @if ($showQuickCreate)
-                                    <x-filament::icon-button
-                                        type="button"
-                                        icon="heroicon-o-plus"
-                                        color="gray"
-                                        wire:click="$set('quickCreateOpen', true)"
-                                        tooltip="{{ __('seo-content-ai::filament.article_list.quick_create_content_project') }}"
-                                    />
-                                @endif
-                            </div>
-                        @endif
-
-                        @if ($showArticleFields)
-                            <div>
-                                <label class="text-sm font-medium text-gray-700 dark:text-gray-200">
-                                    {{ __('seo-content-ai::filament.projects.article_type') }}
-                                </label>
-                                <x-select
-                                    wire:model.live="type"
-                                    class="mt-1 block w-full rounded-lg border-gray-300 text-sm dark:border-white/10 dark:bg-gray-950"
-                                >
-                                    @foreach ($typeOptions as $value => $label)
-                                        <option value="{{ $value }}">{{ $label }}</option>
-                                    @endforeach
-                                </x-select>
-                            </div>
-
-                            @if ($type === \Omnichannel\Addons\ContentProjects\Models\SeoProjectTask::TYPE_IMPROVE)
-                                <div>
-                                    <label class="text-sm font-medium text-gray-700 dark:text-gray-200">
-                                        {{ __('seo-content-ai::filament.projects.improve_instruction') }}
-                                    </label>
-                                    <textarea
-                                        wire:model="rewriteNotes"
-                                        rows="3"
-                                        class="mt-1 block w-full rounded-lg border-gray-300 text-sm dark:border-white/10 dark:bg-gray-950"
-                                        placeholder="{{ __('seo-content-ai::filament.projects.improve_instruction_placeholder') }}"
-                                    ></textarea>
-                                </div>
-                            @endif
-
-                            @if ($showKeywordOverride && in_array($type, [
-                                \Omnichannel\Addons\ContentProjects\Models\SeoProjectTask::TYPE_CREATE,
-                                \Omnichannel\Addons\ContentProjects\Models\SeoProjectTask::TYPE_REWRITE,
-                            ], true))
-                                <div>
-                                    <label class="text-sm font-medium text-gray-700 dark:text-gray-200">
-                                        {{ __('seo-content-ai::filament.projects.keyword') }}
-                                    </label>
-                                    <input
-                                        type="text"
-                                        wire:model="keywordOverride"
-                                        class="mt-1 block w-full rounded-lg border-gray-300 text-sm shadow-sm dark:border-white/10 dark:bg-gray-950"
-                                        placeholder="{{ __('seo-content-ai::filament.projects.keyword_placeholder') }}"
-                                    />
-                                </div>
-                            @endif
-
-                            @if ($showTitleOverride && in_array($type, [
-                                \Omnichannel\Addons\ContentProjects\Models\SeoProjectTask::TYPE_CREATE,
-                                \Omnichannel\Addons\ContentProjects\Models\SeoProjectTask::TYPE_REWRITE,
-                            ], true))
-                                <div>
-                                    <label class="text-sm font-medium text-gray-700 dark:text-gray-200">
-                                        {{ __('seo-content-ai::filament.projects.title_field') }}
-                                    </label>
-                                    <input
-                                        type="text"
-                                        wire:model="titleOverride"
-                                        class="mt-1 block w-full rounded-lg border-gray-300 text-sm shadow-sm dark:border-white/10 dark:bg-gray-950"
-                                        placeholder="{{ __('seo-content-ai::filament.projects.title_field_placeholder') }}"
-                                    />
-                                </div>
-                            @endif
                         @endif
 
                         @if ($showFocusKeyword || $needsFocusKeyword)
@@ -346,42 +269,6 @@
                                 </p>
                             </div>
                         @endif
-
-                        @if ($quickCreateOpen)
-                            <div class="rounded-lg border border-gray-200 p-3 dark:border-white/10">
-                                <h4 class="text-sm font-semibold text-gray-900 dark:text-gray-100">
-                                    {{ __('seo-content-ai::filament.article_list.quick_create_content_project') }}
-                                </h4>
-                                <div class="mt-3">
-                                    <label class="text-sm font-medium text-gray-700 dark:text-gray-200">
-                                        {{ __('seo-content-ai::filament.projects.assign_writer') }}
-                                    </label>
-                                    <x-select
-                                        wire:model="quickWriterId"
-                                        class="mt-1 block w-full rounded-lg border-gray-300 text-sm dark:border-white/10 dark:bg-gray-950"
-                                    >
-                                        <option value="">{{ __('seo-content-ai::filament.projects.assign_writer') }}</option>
-                                        @foreach ($this->uiState['writer_options'] as $writerId => $writerLabel)
-                                            <option value="{{ $writerId }}">{{ $writerLabel }}</option>
-                                        @endforeach
-                                    </x-select>
-                                </div>
-                                <div class="mt-3 flex gap-2">
-                                    <x-filament::button type="button" color="gray" wire:click="$set('quickCreateOpen', false)">
-                                        {{ __('filament-actions::modal.actions.cancel.label') }}
-                                    </x-filament::button>
-                                    <x-filament::button
-                                        type="button"
-                                        color="warning"
-                                        wire:click="quickCreate"
-                                        wire:loading.attr="disabled"
-                                        wire:target="quickCreate"
-                                    >
-                                        {{ __('seo-content-ai::filament.article_list.quick_create_content_project') }}
-                                    </x-filament::button>
-                                </div>
-                            </div>
-                        @endif
                     </div>
                 </div>
 
@@ -392,7 +279,7 @@
                 >
                     <x-filament::button
                         type="button"
-                        color="info"
+                        color="warning"
                         class="w-full"
                         wire:click="submit"
                         wire:loading.attr="disabled"
@@ -400,14 +287,14 @@
                         :disabled="! $this->uiState['can_submit']"
                     >
                         <span wire:loading.remove wire:target="submit">
-                            {{ __('seo-content-ai::filament.article_list.assign') }}
+                            {{ AssignToContentProjectContract::label() }}
                         </span>
                         <span wire:loading wire:target="submit" class="inline-flex items-center gap-2">
                             <svg class="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
                                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path>
                             </svg>
-                            {{ __('seo-content-ai::filament.article_list.assign') }}
+                            {{ AssignToContentProjectContract::label() }}
                         </span>
                     </x-filament::button>
                 </div>

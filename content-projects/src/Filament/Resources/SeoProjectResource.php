@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\ContentProjects\Filament\Resources;
 
 
 use Omnichannel\Addons\Seo\Filament\Resources\SeoPanelResource;
+use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Forms\ContentProjectItemAdvancedForm;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Pages;
 use Omnichannel\Addons\Publishing\Filament\Pages\PublishingQueueHub;
 use Omnichannel\Addons\Content\Models\SeoArticle;
@@ -32,6 +33,8 @@ use Omnichannel\Addons\ContentProjects\Services\SeoProjectTaskMoveService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectTaskSyncService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectRunConsolidationService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectWorkflowRunService;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemContentLengthDefaults;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemHeaderLabel;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemIdentity;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectListBucket;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
@@ -274,6 +277,37 @@ class SeoProjectResource extends SeoPanelResource
                         ->label(__('seo-content-ai::filament.projects.archive_project_badge'))
                         ->content(__('seo-content-ai::filament.projects.archive_project_banner'))
                         ->visible(fn (?SeoProject $record): bool => $record instanceof SeoProject && $record->isArchive())
+                        ->columnSpanFull(),
+
+                    Forms\Components\Placeholder::make('planning_draft_domain_summary')
+                        ->label(__('seo-content-ai::filament.projects.planning_draft_summary_heading'))
+                        ->content(function (?SeoProject $record): \Illuminate\Support\HtmlString|string {
+                            if (! $record instanceof SeoProject || ! $record->isDraftPlanning()) {
+                                return '';
+                            }
+                            $summary = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftDomainSummary::class)
+                                ->forDraft($record);
+                            $lines = [
+                                e((string) __('seo-content-ai::filament.projects.planning_draft_summary_items', [
+                                    'count' => $summary['total_items'],
+                                ])),
+                            ];
+                            if (! $summary['empty']) {
+                                $lines[] = '<div class="mt-2 text-xs font-medium text-gray-500">'
+                                    .e((string) __('seo-content-ai::filament.projects.planning_draft_summary_by_domain'))
+                                    .'</div>';
+                                $lines[] = '<ul class="mt-1 space-y-0.5 text-sm">';
+                                foreach ($summary['rows'] as $row) {
+                                    $lines[] = '<li class="flex justify-between gap-4"><span>'
+                                        .e((string) $row['domain']).'</span><span class="tabular-nums">'
+                                        .(int) $row['count'].'</span></li>';
+                                }
+                                $lines[] = '</ul>';
+                            }
+
+                            return new \Illuminate\Support\HtmlString(implode('', $lines));
+                        })
+                        ->visible(fn (?SeoProject $record): bool => $record instanceof SeoProject && $record->isDraftPlanning())
                         ->columnSpanFull(),
 
                     Forms\Components\Placeholder::make('project_name_preview')
@@ -534,6 +568,9 @@ class SeoProjectResource extends SeoPanelResource
                         ->schema([
                             Forms\Components\Hidden::make('id'),
 
+                            // Title provenance round-trips silently; the sync service owns it.
+                            Forms\Components\Hidden::make('title_protection'),
+
                             Forms\Components\Placeholder::make('connected_at_display')
                                 ->label(__('seo-content-ai::filament.projects.connected_at'))
                                 ->content(fn (Get $get): string => static::formatTaskTimestamp($get('connected_at')))
@@ -544,13 +581,49 @@ class SeoProjectResource extends SeoPanelResource
                                 ->content(fn (Get $get): string => static::formatTaskTimestamp($get('completed_at')))
                                 ->visible(fn (?SeoProject $record): bool => $record instanceof SeoProject && $record->isArchive()),
 
-                            Forms\Components\Select::make('type')
-                                ->label(__('seo-content-ai::filament.projects.article_type'))
-                                ->options(SeoProjectTask::typeOptions())
-                                ->default(SeoProjectTask::TYPE_CREATE)
-                                ->required()
-                                ->native(false)
-                                ->live(),
+                            Forms\Components\Grid::make(2)->schema([
+                                Forms\Components\Select::make('type')
+                                    ->label(__('seo-content-ai::filament.projects.article_type'))
+                                    ->options(SeoProjectTask::typeOptions())
+                                    ->default(SeoProjectTask::TYPE_CREATE)
+                                    ->required()
+                                    ->native(false)
+                                    ->live(),
+
+                                Forms\Components\TextInput::make('keyword')
+                                    ->label(__('seo-content-ai::filament.projects.keyword'))
+                                    ->placeholder(__('seo-content-ai::filament.projects.keyword_placeholder'))
+                                    ->maxLength(500)
+                                    ->live(onBlur: true)
+                                    ->rules([
+                                        fn (Get $get): \Closure => function (string $attribute, mixed $value, \Closure $fail) use ($get): void {
+                                            $type = SeoProjectTask::normalizeType($get('type'));
+                                            if (! in_array(
+                                                $type,
+                                                [SeoProjectTask::TYPE_CREATE, SeoProjectTask::TYPE_REWRITE],
+                                                true,
+                                            )) {
+                                                return;
+                                            }
+
+                                            $titleSide = $type === SeoProjectTask::TYPE_REWRITE
+                                                ? (string) ($get('source_content') ?? '')
+                                                : (string) ($get('title') ?? '');
+
+                                            if (! ContentProjectItemIdentity::isValid(
+                                                is_string($value) ? $value : (string) ($value ?? ''),
+                                                $titleSide,
+                                            )) {
+                                                $fail(ContentProjectItemIdentity::failureMessage());
+                                            }
+                                        },
+                                    ])
+                                    ->visible(fn (Get $get): bool => in_array(
+                                        SeoProjectTask::normalizeType($get('type')),
+                                        [SeoProjectTask::TYPE_CREATE, SeoProjectTask::TYPE_REWRITE],
+                                        true,
+                                    )),
+                            ])->columnSpanFull(),
 
                             Forms\Components\Select::make('source_content')
                                 ->label(fn (Get $get): string => SeoProjectTask::normalizeType($get('type')) === SeoProjectTask::TYPE_IMPROVE
@@ -601,47 +674,18 @@ class SeoProjectResource extends SeoPanelResource
                                                 ->url($permalink, shouldOpenInNewTab: true),
                                         );
                                     }
-                                }),
-
-                            Forms\Components\TextInput::make('keyword')
-                                ->label(__('seo-content-ai::filament.projects.keyword'))
-                                ->placeholder(__('seo-content-ai::filament.projects.keyword_placeholder'))
-                                ->maxLength(500)
-                                ->rules([
-                                    fn (Get $get): \Closure => function (string $attribute, mixed $value, \Closure $fail) use ($get): void {
-                                        if (! in_array(
-                                            SeoProjectTask::normalizeType($get('type')),
-                                            [SeoProjectTask::TYPE_CREATE, SeoProjectTask::TYPE_REWRITE],
-                                            true,
-                                        )) {
-                                            return;
-                                        }
-
-                                        if (! ContentProjectItemIdentity::isValid(
-                                            is_string($value) ? $value : (string) ($value ?? ''),
-                                            (string) ($get('title') ?? ''),
-                                        )) {
-                                            $fail(ContentProjectItemIdentity::failureMessage());
-                                        }
-                                    },
-                                ])
-                                ->visible(fn (Get $get): bool => in_array(
-                                    SeoProjectTask::normalizeType($get('type')),
-                                    [SeoProjectTask::TYPE_CREATE, SeoProjectTask::TYPE_REWRITE],
-                                    true,
-                                )),
+                                })
+                                ->columnSpanFull(),
 
                             Forms\Components\TextInput::make('title')
                                 ->label(__('seo-content-ai::filament.projects.title_field'))
                                 ->placeholder(__('seo-content-ai::filament.projects.title_field_placeholder'))
                                 ->maxLength(500)
+                                ->live(onBlur: true)
                                 ->rules([
                                     fn (Get $get): \Closure => function (string $attribute, mixed $value, \Closure $fail) use ($get): void {
-                                        if (! in_array(
-                                            SeoProjectTask::normalizeType($get('type')),
-                                            [SeoProjectTask::TYPE_CREATE, SeoProjectTask::TYPE_REWRITE],
-                                            true,
-                                        )) {
+                                        // Create Post only — Rewrite uses source_content as original title.
+                                        if (SeoProjectTask::normalizeType($get('type')) !== SeoProjectTask::TYPE_CREATE) {
                                             return;
                                         }
 
@@ -653,16 +697,14 @@ class SeoProjectResource extends SeoPanelResource
                                         }
                                     },
                                 ])
-                                ->visible(fn (Get $get): bool => in_array(
-                                    SeoProjectTask::normalizeType($get('type')),
-                                    [SeoProjectTask::TYPE_CREATE, SeoProjectTask::TYPE_REWRITE],
-                                    true,
-                                )),
+                                ->visible(fn (Get $get): bool => SeoProjectTask::normalizeType($get('type')) === SeoProjectTask::TYPE_CREATE)
+                                ->columnSpanFull(),
 
                             Forms\Components\Textarea::make('secondary_description')
                                 ->label(__('seo-content-ai::filament.projects.secondary_description'))
                                 ->placeholder(__('seo-content-ai::filament.projects.secondary_description_placeholder'))
-                                ->rows(3)
+                                ->rows(2)
+                                ->autosize()
                                 ->visible(fn (Get $get): bool => in_array(
                                     SeoProjectTask::normalizeType($get('type')),
                                     [SeoProjectTask::TYPE_CREATE, SeoProjectTask::TYPE_REWRITE],
@@ -678,21 +720,54 @@ class SeoProjectResource extends SeoPanelResource
                                 ->visible(fn (Get $get): bool => SeoProjectTask::normalizeType($get('type')) === SeoProjectTask::TYPE_IMPROVE)
                                 ->columnSpanFull(),
 
-                            Forms\Components\Select::make('post_type')
-                                ->label(__('seo-content-ai::filament.article_list.post_type'))
-                                ->options(static::postTypeSelectOptions())
-                                ->default(SeoProjectTask::POST_TYPE_ARTICLE)
-                                ->required()
-                                ->native(false)
-                                ->live()
-                                ->visible(fn (Get $get): bool => SeoProjectTask::isNewArticleType($get('type'))),
+                            Forms\Components\Grid::make(2)->schema([
+                                Forms\Components\Select::make('post_type')
+                                    ->label(__('seo-content-ai::filament.article_list.post_type'))
+                                    ->options(static::postTypeSelectOptions())
+                                    ->default(SeoProjectTask::POST_TYPE_POST)
+                                    ->required()
+                                    ->native(false)
+                                    ->live()
+                                    ->afterStateHydrated(function (Forms\Components\Select $component, mixed $state): void {
+                                        $component->state(SeoProjectTask::normalizePostType($state));
+                                    })
+                                    ->dehydrateStateUsing(fn (mixed $state): string => SeoProjectTask::normalizePostType($state))
+                                    ->afterStateUpdated(function (mixed $state, mixed $old, Forms\Set $set, Get $get): void {
+                                        $words = (int) ($get('content_length_target_words') ?? 0);
+                                        if (! ContentProjectItemContentLengthDefaults::isDefaultValue(
+                                            $words > 0 ? $words : null,
+                                            $old,
+                                        )) {
+                                            return;
+                                        }
+                                        $set(
+                                            'content_length_target_words',
+                                            ContentProjectItemContentLengthDefaults::forPostType($state),
+                                        );
+                                    })
+                                    ->visible(fn (Get $get): bool => SeoProjectTask::isNewArticleType($get('type'))),
+
+                                Forms\Components\TextInput::make('content_length_target_words')
+                                    ->label(__('seo-content-ai::filament.projects.item_content_length'))
+                                    ->numeric()
+                                    ->integer()
+                                    ->suffix('words')
+                                    ->minValue(ContentProjectItemContentLengthDefaults::MIN_WORDS)
+                                    ->maxValue(ContentProjectItemContentLengthDefaults::MAX_WORDS)
+                                    ->default(fn (Get $get): int => ContentProjectItemContentLengthDefaults::forPostType($get('post_type')))
+                                    ->required()
+                                    ->live(onBlur: true)
+                                    ->visible(fn (Get $get): bool => SeoProjectTask::isNewArticleType($get('type'))),
+                            ])->columnSpanFull(),
+
+                            ...ContentProjectItemAdvancedForm::schema(),
 
                             Forms\Components\TextInput::make('loai_san_pham')
                                 ->label(__('seo-content-ai::filament.projects.loai_san_pham'))
                                 ->placeholder(__('seo-content-ai::filament.projects.loai_san_pham_placeholder'))
                                 ->maxLength(500)
                                 ->visible(fn (Get $get): bool => SeoProjectTask::isNewArticleType($get('type'))
-                                    && $get('post_type') === SeoProjectTask::POST_TYPE_PRODUCT)
+                                    && SeoProjectTask::normalizePostType($get('post_type')) === SeoProjectTask::POST_TYPE_PRODUCT)
                                 ->columnSpanFull(),
 
                             Forms\Components\Textarea::make('description')
@@ -700,7 +775,7 @@ class SeoProjectResource extends SeoPanelResource
                                 ->placeholder(__('seo-content-ai::filament.projects.gallery_description_placeholder'))
                                 ->rows(3)
                                 ->visible(fn (Get $get): bool => SeoProjectTask::isNewArticleType($get('type'))
-                                    && $get('post_type') === SeoProjectTask::POST_TYPE_PRODUCT)
+                                    && SeoProjectTask::normalizePostType($get('post_type')) === SeoProjectTask::POST_TYPE_PRODUCT)
                                 ->columnSpanFull(),
                         ])
                         ->columns(2)
@@ -796,30 +871,10 @@ class SeoProjectResource extends SeoPanelResource
                                 }),
                         ])
                         ->itemLabel(function (array $state, ?SeoProject $record): ?string {
-                            $type = SeoProjectTask::normalizeType($state['type'] ?? SeoProjectTask::TYPE_CREATE);
-                            $keyword = trim((string) ($state['keyword'] ?? ''));
-                            $title = trim((string) ($state['title'] ?? ''));
-                            $content = trim((string) ($state['source_content'] ?? ''));
-                            if ($content === '') {
-                                $content = $keyword !== '' ? $keyword : $title;
+                            $label = ContentProjectItemHeaderLabel::fromState($state);
+                            if ($label === '') {
+                                $label = (string) __('seo-content-ai::filament.projects.article_items');
                             }
-
-                            if ($type === SeoProjectTask::TYPE_IMPROVE) {
-                                $prefix = '[Improve]';
-                            } elseif ($type === SeoProjectTask::TYPE_REWRITE) {
-                                $prefix = '[Rewrite]';
-                            } else {
-                                $postTypeLabels = [
-                                    SeoProjectTask::POST_TYPE_ARTICLE => 'Article',
-                                    SeoProjectTask::POST_TYPE_PRODUCT => 'Product',
-                                    SeoProjectTask::POST_TYPE_CATEGORY => 'Category',
-                                    SeoProjectTask::POST_TYPE_PRODUCT_CATEGORY => 'Product Category',
-                                ];
-                                $postType = SeoProjectTask::normalizePostType($state['post_type'] ?? null);
-                                $prefix = '['.($postTypeLabels[$postType] ?? 'Create').']';
-                            }
-
-                            $label = $content !== '' ? "{$prefix} {$content}" : __('seo-content-ai::filament.projects.article_items');
 
                             if ($record instanceof SeoProject && $record->isArchive()) {
                                 $connected = static::formatTaskTimestamp($state['connected_at'] ?? null);
@@ -2002,7 +2057,7 @@ class SeoProjectResource extends SeoPanelResource
     public static function postTypeSelectOptions(): array
     {
         return [
-            SeoProjectTask::POST_TYPE_ARTICLE => __('seo-content-ai::filament.article_list.post_type_article'),
+            SeoProjectTask::POST_TYPE_POST => __('seo-content-ai::filament.article_list.post_type_post'),
             SeoProjectTask::POST_TYPE_PRODUCT => __('seo-content-ai::filament.article_list.post_type_product'),
             SeoProjectTask::POST_TYPE_CATEGORY => __('seo-content-ai::filament.article_list.post_type_category'),
             SeoProjectTask::POST_TYPE_PRODUCT_CATEGORY => __('seo-content-ai::filament.article_list.post_type_product_category'),

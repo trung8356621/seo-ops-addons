@@ -16,6 +16,7 @@ use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGenerationKeyword;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectFreshKeywordRestart;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemIdentity;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ContentProjectItemGenerationPolicyApplier;
 use Omnichannel\Addons\ContentProjects\Support\ProjectTaskOriginVariables;
 use Omnichannel\Addons\ContentProjects\Support\TaskTestContext;
 use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
@@ -578,12 +579,14 @@ final class TaskTestInputResolver
 
     private function stampProjectTaskOrigin(TaskTestContext $context, SeoProjectTask $task): TaskTestContext
     {
-        return $context->withVariables(
+        $stamped = $context->withVariables(
             ProjectTaskOriginVariables::stamp(
                 $context->variables,
                 (int) $task->id,
             ),
         );
+
+        return app(ContentProjectItemGenerationPolicyApplier::class)->apply($stamped, $task);
     }
 
     /**

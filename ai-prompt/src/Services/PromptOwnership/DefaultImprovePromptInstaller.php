@@ -65,7 +65,7 @@ MD;
                 'variables' => [
                     ['name' => 'input', 'description' => 'Current article body'],
                     ['name' => 'instruction', 'description' => 'Improve instruction'],
-                    ['name' => 'tone', 'description' => 'Site tone'],
+                    ['name' => 'tone', 'description' => 'Resolved article tone'],
                 ],
                 'ai_connection_id' => $this->defaultAiConnectionId(),
                 'tools' => 'default',

@@ -142,8 +142,12 @@ export default function useArticleEditorBootstrap({ analyzedBlocksRef, articleId
             postImagesRef.current,
         );
         const lifecycleState = String(getContentLifecycle()?.state || '');
-        if (lifecycleState === CONTENT_LIFECYCLE.SYNC_REQUIRED) {
-            // Missing local snapshot — never auto-apply hollow draft / empty blocks as editable.
+        if (
+            lifecycleState === CONTENT_LIFECYCLE.CONTENT_LOADING
+            || lifecycleState === CONTENT_LIFECYCLE.ERROR
+            || lifecycleState === CONTENT_LIFECYCLE.SYNC_REQUIRED
+        ) {
+            // WP auto-load pending / failed — never auto-apply hollow draft as editable.
             setBlocks([]);
             markSeoAnalysisReady?.(false);
             setSeoStale(false);

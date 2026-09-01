@@ -78,14 +78,14 @@ final class SiteSyncV2ScorePipelineFreezeTest extends TestCase
         self::assertSame('site.score_retry_failed', (new RetryFailedSeoScoresCommand(1))->name());
     }
 
-    public function test_main_ui_hides_score_missing_button(): void
+    public function test_main_ui_hides_score_requeue_and_missing_buttons(): void
     {
         $blade = LegacyAddonPath::resolve('resources/views/filament/resources/domain-resource/pages/partials/domain-sync-actions.blade.php');
         $src = (string) file_get_contents($blade);
         self::assertStringNotContainsString('runQueueMissingSeoScoringAction', $src);
-        self::assertStringContainsString('Chấm lại toàn bộ bài viết', $src);
-        self::assertStringContainsString('@if ($showTest)', $src);
-        self::assertStringContainsString('runRequeueAllSeoScoringAction', $src);
+        self::assertStringNotContainsString('Chấm lại toàn bộ bài viết', $src);
+        self::assertStringNotContainsString('runRequeueAllSeoScoringAction', $src);
+        self::assertStringNotContainsString('@if ($showTest)', $src);
     }
 
     public function test_domain_ui_scoring_actions_use_command_bus(): void

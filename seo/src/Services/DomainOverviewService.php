@@ -118,6 +118,18 @@ final class DomainOverviewService
         ]);
     }
 
+    /**
+     * Posts list: SEO-eligible inventory missing effective focus keyword
+     * (same set as Domain General Focus Keyword Coverage card).
+     */
+    public function buildArticlesFilterUrlForMissingFocusKeyword(int $siteId): string
+    {
+        return $this->appendArticlesTableFilters(ArticleResource::panelUrl('index'), [
+            'site_id' => ['value' => (string) $siteId],
+            'focus_keyword_status' => ['value' => 'missing'],
+        ]);
+    }
+
     public function buildArticlesFilterUrlForLink(int $siteId, string $url, string $type): string
     {
         return $this->appendArticlesTableFilters(ArticleResource::panelUrl('index'), [

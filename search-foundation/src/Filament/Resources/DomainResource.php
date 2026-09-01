@@ -9,8 +9,8 @@ namespace Omnichannel\Addons\SearchFoundation\Filament\Resources;
 use Omnichannel\Addons\Seo\Filament\Resources\SeoPanelResource;
 use Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource\Forms\DomainTechnicalSeoForm;
 use Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource\Pages;
+use Omnichannel\Addons\SearchFoundation\Support\DomainListPresentation;
 use Omnichannel\Addons\Seo\Services\SeoMainDomainService;
-use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\WordPress\Services\SitePrimaryLanguageService;
 use App\Help\HelpUi;
@@ -97,11 +97,7 @@ class DomainResource extends SeoPanelResource
                     ->hintAction(HelpUi::fieldHintAction('domain.platform')),
                 Forms\Components\Select::make('seo_domain_type')
                     ->label(__('seo-content-ai::filament.domain.website_type'))
-                    ->options([
-                        'news' => 'News',
-                        'production' => 'Production',
-                        'e-commerce' => 'E-commerce',
-                    ])
+                    ->options(DomainListPresentation::websiteTypeFormOptions())
                     ->required()
                     ->native(false)
                     ->hintAction(HelpUi::fieldHintAction('domain.website_type')),
@@ -194,61 +190,89 @@ class DomainResource extends SeoPanelResource
                         return $query->where('domain', 'like', '%'.$search.'%');
                     })
                     ->sortable(),
-                Tables\Columns\TextColumn::make('domain_tone')
-                    ->label(__('seo-content-ai::filament.domain.domain_tone'))
-                    ->getStateUsing(function (Site $record): string {
-                        $tone = app(SiteDomainPromptContextService::class)
-                            ->tableSummaryForSite($record)['tone'];
-
-                        return $tone !== '' ? $tone : '—';
-                    })
-                    ->wrap()
+                Tables\Columns\TextColumn::make('seo_platform')
+                    ->label(__('seo-content-ai::filament.domain.platform'))
+                    ->getStateUsing(fn (Site $record): string => DomainListPresentation::platformLabel(
+                        (string) ($record->getMeta('seo_platform') ?? '')
+                    ))
                     ->toggleable(),
-                Tables\Columns\TextColumn::make('domain_cta')
-                    ->label(__('seo-content-ai::filament.domain.list_cta'))
+                Tables\Columns\TextColumn::make('seo_domain_type')
+                    ->label(__('seo-content-ai::filament.domain.website_type'))
+                    ->getStateUsing(fn (Site $record): string => DomainListPresentation::websiteTypeLabel(
+                        (string) ($record->getMeta('seo_domain_type') ?? '')
+                    ))
+                    ->toggleable(),
+                Tables\Columns\ViewColumn::make('bridge_version')
+                    ->label(__('seo-content-ai::filament.domain.bridge_version'))
+                    ->view('seo-content-ai::filament.tables.columns.domain-bridge-version')
+                    ->toggleable(),
+                Tables\Columns\TextColumn::make('sync_status')
+                    ->label(__('seo-content-ai::filament.domain.sync_status'))
                     ->getStateUsing(function (Site $record): string {
-                        $shortcodes = app(SiteDomainPromptContextService::class)
-                            ->tableSummaryForSite($record)['cta_shortcodes'];
-
-                        return $shortcodes !== [] ? implode(', ', $shortcodes) : '—';
+                        return DomainListPresentation::syncSummary($record)['label'];
                     })
-                    ->fontFamily('mono')
-                    ->size('sm')
-                    ->wrap()
+                    ->badge()
+                    ->color(function (Site $record): string {
+                        return match (DomainListPresentation::syncSummary($record)['key']) {
+                            'healthy' => 'success',
+                            'syncing' => 'info',
+                            'failed' => 'danger',
+                            'attention' => 'warning',
+                            'never' => 'gray',
+                            default => 'gray',
+                        };
+                    })
+                    ->toggleable(),
+                Tables\Columns\TextColumn::make('last_sync')
+                    ->label(__('seo-content-ai::filament.domain.last_sync'))
+                    ->getStateUsing(function (Site $record): string {
+                        return DomainListPresentation::syncSummary($record)['last_label'];
+                    })
+                    ->tooltip(function (Site $record): ?string {
+                        return DomainListPresentation::syncSummary($record)['last_title'];
+                    })
                     ->toggleable(),
                 Tables\Columns\ViewColumn::make('is_main')
-                    ->label(__('seo-content-ai::filament.domain.main_domain'))
+                    ->label(__('seo-content-ai::filament.domain.main_short'))
                     ->view('seo-content-ai::filament.tables.columns.domain-main-star'),
             ])
             ->defaultSort('domain')
+            ->recordUrl(fn (Site $record): string => static::getUrl('general', ['record' => $record]))
             ->actions([
-                Tables\Actions\Action::make('set_as_main')
-                    ->label(__('seo-content-ai::filament.domain.set_as_main'))
-                    ->icon('heroicon-o-star')
-                    ->color('warning')
-                    ->visible(fn (Site $record): bool => static::allowsSeoPanelMutation()
-                        && ! app(SeoMainDomainService::class)->isMain($record))
-                    ->requiresConfirmation()
-                    ->modalDescription(__('seo-content-ai::filament.domain.set_as_main_confirm'))
-                    ->action(function (Site $record): void {
-                        app(SeoMainDomainService::class)->setAsMain($record);
+                Tables\Actions\ActionGroup::make([
+                    Tables\Actions\Action::make('overview')
+                        ->label(__('seo-content-ai::filament.domain.overview'))
+                        ->icon('heroicon-o-chart-bar')
+                        ->color('info')
+                        ->url(fn (Site $record): string => static::getUrl('general', ['record' => $record])),
+                    Tables\Actions\Action::make('set_as_main')
+                        ->label(__('seo-content-ai::filament.domain.set_as_main'))
+                        ->icon('heroicon-o-star')
+                        ->color('warning')
+                        ->visible(fn (Site $record): bool => static::allowsSeoPanelMutation()
+                            && ! app(SeoMainDomainService::class)->isMain($record))
+                        ->requiresConfirmation()
+                        ->modalDescription(__('seo-content-ai::filament.domain.set_as_main_confirm'))
+                        ->action(function (Site $record): void {
+                            app(SeoMainDomainService::class)->setAsMain($record);
 
-                        Notification::make()
-                            ->title(__('seo-content-ai::filament.domain.set_as_main_success'))
-                            ->body(__('seo-content-ai::filament.domain.set_as_main_success_body', [
-                                'domain' => $record->domain,
-                            ]))
-                            ->success()
-                            ->send();
-                    }),
-                Tables\Actions\Action::make('overview')
-                    ->label(__('seo-content-ai::filament.domain.overview'))
-                    ->icon('heroicon-o-chart-bar')
-                    ->color('info')
-                    ->url(fn (Site $record): string => DomainResource::getUrl('general', ['record' => $record])),
-                Tables\Actions\DeleteAction::make()
-                    ->label('Xóa')
-                    ->icon('heroicon-o-trash'),
+                            Notification::make()
+                                ->title(__('seo-content-ai::filament.domain.set_as_main_success'))
+                                ->body(__('seo-content-ai::filament.domain.set_as_main_success_body', [
+                                    'domain' => $record->domain,
+                                ]))
+                                ->success()
+                                ->send();
+                        }),
+                    Tables\Actions\DeleteAction::make()
+                        ->label('Xóa')
+                        ->icon('heroicon-o-trash'),
+                ])
+                    ->label(__('seo-content-ai::filament.domain.actions'))
+                    ->icon('heroicon-m-ellipsis-vertical')
+                    ->color('gray')
+                    ->button()
+                    ->size('sm'),
             ])
             ->bulkActions([]);
     }

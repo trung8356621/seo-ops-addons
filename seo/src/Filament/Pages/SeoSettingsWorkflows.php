@@ -149,7 +149,6 @@ class SeoSettingsWorkflows extends Page implements HasForms
                     ->live()
                     ->placeholder(__('seo-content-ai::filament.settings_workflows.choose_prompt'))
                     ->hintActions([
-                        HelpUi::fieldHintAction('settings.workflow.prompt_selector', null, $encodedKey),
                         Forms\Components\Actions\Action::make('open_prompts_'.$encodedKey)
                             ->label(__('seo-content-ai::filament.settings_workflows.open_prompt_management'))
                             ->url(PromptResource::getUrl('index', [
@@ -164,7 +163,6 @@ class SeoSettingsWorkflows extends Page implements HasForms
                 $sectionSchema[] = Forms\Components\Section::make(
                     __('seo-content-ai::filament.settings_workflows.hook_view_default_guidance')
                 )
-                    ->headerActions([HelpUi::fieldHintAction('settings.workflow.default_guidance', null, $encodedKey)])
                     ->schema([
                         Forms\Components\Placeholder::make('hook_guidance_'.$encodedKey)
                             ->label('')
@@ -181,7 +179,6 @@ class SeoSettingsWorkflows extends Page implements HasForms
                     $hookKey,
                 )
             )
-                ->headerActions([HelpUi::fieldHintAction('settings.workflow.prompt_binding', null, $encodedKey)])
                 ->schema($sectionSchema)
                 ->collapsible()
                 ->collapsed(false)
@@ -208,7 +205,6 @@ class SeoSettingsWorkflows extends Page implements HasForms
                     SeoCreateArticleSettingsService::SOURCE_PROMPT => __('seo-content-ai::filament.settings_workflows.source_prompt'),
                     SeoCreateArticleSettingsService::SOURCE_WORKFLOW => __('seo-content-ai::filament.settings_workflows.source_workflow'),
                 ])
-                ->hintAction(HelpUi::fieldHintAction('settings.workflow.product_gallery'))
                 ->inline()
                 ->live(),
             Forms\Components\Placeholder::make('product_gallery_prompt_status')
@@ -281,8 +277,7 @@ class SeoSettingsWorkflows extends Page implements HasForms
             ->native(false)
             ->position('auto')
             ->live()
-            ->placeholder(__('seo-content-ai::filament.settings_workflows.choose_workflow'))
-            ->hintAction(HelpUi::fieldHintAction('settings.workflow.task_workflows', null, $field));
+            ->placeholder(__('seo-content-ai::filament.settings_workflows.choose_workflow'));
     }
 
     private function workflowHealthHtml(
@@ -338,7 +333,6 @@ class SeoSettingsWorkflows extends Page implements HasForms
                 SeoCreateArticleSettingsService::SOURCE_PROMPT => __('seo-content-ai::filament.settings_workflows.source_prompt'),
                 SeoCreateArticleSettingsService::SOURCE_WORKFLOW => __('seo-content-ai::filament.settings_workflows.source_workflow'),
             ])
-            ->hintAction(HelpUi::fieldHintAction('settings.workflow.editor_media', null, $sourceKey))
             ->inline()
             ->live();
 
@@ -365,7 +359,6 @@ class SeoSettingsWorkflows extends Page implements HasForms
                 ->placeholder($isVideo
                     ? __('seo-content-ai::filament.settings_workflows.choose_video_prompt')
                     : __('seo-content-ai::filament.settings_workflows.choose_image_prompt'))
-                ->hintAction(HelpUi::fieldHintAction('settings.workflow.prompt_selector', null, $promptKey))
                 ->visible(fn (Get $get): bool => ($get($sourceKey) ?? SeoCreateArticleSettingsService::SOURCE_PROMPT)
                     === SeoCreateArticleSettingsService::SOURCE_PROMPT),
             Forms\Components\Select::make($taskKey)
@@ -380,7 +373,6 @@ class SeoSettingsWorkflows extends Page implements HasForms
                 ->native(false)
                 ->position('auto')
                 ->placeholder(__('seo-content-ai::filament.settings_workflows.choose_workflow'))
-                ->hintAction(HelpUi::fieldHintAction('settings.workflow.workflow_extract', null, $taskKey))
                 ->visible(fn (Get $get): bool => ($get($sourceKey) ?? '')
                     === SeoCreateArticleSettingsService::SOURCE_WORKFLOW),
         ];

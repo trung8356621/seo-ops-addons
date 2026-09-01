@@ -14,11 +14,11 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ActorContext;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ArchiveProjectItemsCommand;
-use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\CreateContentProjectCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SkipSeoAuditArticlesCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\UpdateContentProjectItemCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectCommandBus;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectDraftPlanningItemsReadModel;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftIntakeService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftResolver;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoPanelPage;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
@@ -107,7 +107,7 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
 
         $this->workspaceTab = 'suggestions';
         $this->resolveSelectedProject();
-        $this->autoSelectSiteDraftIfNeeded();
+        $this->autoSelectSharedDraftIfNeeded();
         $this->mountInteractsWithSeoAuditSuggestions();
         $this->mountInteractsWithNewContentSuggestions();
         $this->mountInteractsWithAuditNotes();
@@ -146,13 +146,15 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
 
     public function updatedFilterSiteId(): void
     {
-        $this->projectId = null;
-        $this->project = null;
+        // Working site is data context only — Shared Draft id must stay the same.
         $this->selectedTaskIds = [];
         $this->clearSuggestionSelection();
         $this->resetPage('suggestionsPage');
 
-        $this->autoSelectSiteDraftIfNeeded();
+        if (! $this->project instanceof SeoProject || ! $this->project->isDraftPlanning()) {
+            $this->autoSelectSharedDraftIfNeeded();
+        }
+
         $this->mountInteractsWithSeoAuditSuggestions();
         $this->mountInteractsWithNewContentSuggestions();
         $this->mountInteractsWithAuditNotes();
@@ -161,19 +163,14 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
     }
 
     /**
-     * @return array{id: int, name: string, site_id: int, domain: string}|null
+     * @return array{id: int, name: string, site_id: int|null, domain: string, item_count: int}|null
      */
     public function getCanonicalPlanningDraftProperty(): ?array
     {
-        $siteId = (int) ($this->filterSiteId ?? 0);
-        if ($siteId <= 0 && $this->project instanceof SeoProject) {
-            $siteId = (int) ($this->project->site_id ?? 0);
-        }
-        if ($siteId <= 0) {
-            return null;
-        }
+        $draft = $this->project instanceof SeoProject && $this->project->isDraftPlanning()
+            ? $this->project
+            : app(PlanningDraftResolver::class)->findCanonicalSharedDraft();
 
-        $draft = app(PlanningDraftResolver::class)->findPlanningDraftForSite($siteId);
         if (! $draft instanceof SeoProject) {
             return null;
         }
@@ -181,8 +178,11 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         return [
             'id' => (int) $draft->getKey(),
             'name' => (string) $draft->name,
-            'site_id' => (int) ($draft->site_id ?? 0),
-            'domain' => (string) ($draft->site?->domain ?? ''),
+            'site_id' => $draft->site_id !== null ? (int) $draft->site_id : null,
+            'domain' => '',
+            'item_count' => method_exists($draft, 'registeredTaskCount')
+                ? (int) $draft->registeredTaskCount()
+                : (int) ($draft->total_tasks ?? 0),
         ];
     }
 
@@ -234,6 +234,9 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
                 'counts' => ['all' => 0, 'unreviewed' => 0, 'reviewed' => 0],
             ];
         }
+
+        app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\DraftItemDomainRepairService::class)
+            ->repairProject($this->project, persist: true);
 
         return app(ContentProjectDraftPlanningItemsReadModel::class)->forProject($this->project, [
             'review' => $this->draftReviewFilter,
@@ -306,6 +309,14 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         }
 
         if ($reviewed) {
+            if ((int) ($task->site_id ?? 0) <= 0) {
+                Notification::make()
+                    ->title(__('seo-content-ai::filament.projects.planning_domain_required_before_review'))
+                    ->danger()
+                    ->send();
+
+                throw new Halt;
+            }
             $task->planning_reviewed_at = now();
             $task->planning_reviewed_by = auth()->id() !== null ? (int) auth()->id() : null;
         } else {
@@ -313,6 +324,58 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
             $task->planning_reviewed_by = null;
         }
         $task->save();
+    }
+
+    /**
+     * One-click Clone idea (Create plan only). Returns payload for Alpine row insert.
+     *
+     * @return array<string, mixed>
+     */
+    public function cloneDraftIdea(int $taskId): array
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+
+        $project = $this->requireProject();
+
+        try {
+            $result = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\CloneDraftCreateIdeaService::class)
+                ->clone(
+                    $project,
+                    $taskId,
+                    auth()->id() !== null ? (int) auth()->id() : null,
+                );
+        } catch (\InvalidArgumentException $e) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.planning_clone_failed'))
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+
+            throw new Halt;
+        }
+
+        $cloneId = (int) ($result['clone_id'] ?? 0);
+        $payload = app(ContentProjectDraftPlanningItemsReadModel::class)
+            ->forProject($project->fresh() ?? $project, [
+                'review' => 'all',
+                'type' => 'all',
+            ]);
+
+        $row = null;
+        foreach ($payload['rows'] as $candidate) {
+            if ((int) ($candidate['id'] ?? 0) === $cloneId) {
+                $row = $candidate;
+                break;
+            }
+        }
+
+        // Alpine inserts the returned row locally — avoid full table remount.
+        return [
+            'clone_id' => $cloneId,
+            'source_id' => (int) ($result['source_id'] ?? 0),
+            'row' => $row,
+            'counts' => $payload['counts'],
+        ];
     }
 
     /**
@@ -330,7 +393,7 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
             return;
         }
 
-        if (! in_array($field, ['title', 'keyword', 'description'], true)) {
+        if (! in_array($field, ['title', 'keyword', 'description', 'site_id'], true)) {
             return;
         }
 
@@ -344,10 +407,26 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
             return;
         }
 
+        if ($field === 'site_id') {
+            $siteId = (int) trim($value);
+            if ($siteId > 0 && ! SeoAccessControl::canAccessSite($siteId)) {
+                Notification::make()
+                    ->title(__('seo-content-ai::filament.projects.planning_domain_save_failed'))
+                    ->danger()
+                    ->send();
+
+                throw new Halt;
+            }
+            $task->site_id = $siteId > 0 ? $siteId : null;
+            $task->save();
+
+            return;
+        }
+
         $trimmed = trim($value);
 
         match ($field) {
-            'title' => $task->title = $trimmed !== '' ? $trimmed : $task->title,
+            'title' => $task->title = $trimmed !== '' ? $trimmed : null,
             'keyword' => $this->applyPlanningKeyword($task, $trimmed),
             'description' => $this->applyPlanningDescription($task, $trimmed),
         };
@@ -534,80 +613,12 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         $task->description = $value;
     }
 
+    /**
+     * @deprecated Per-site Create Draft removed — Shared Draft is system-managed via ensureSharedDraft().
+     */
     public function createDraftForPlanner(): void
     {
-        $siteId = (int) ($this->filterSiteId ?? 0);
-        if ($siteId <= 0 || ! SeoAccessControl::canAccessSite($siteId)) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.projects.seo_audit_draft_site_required'))
-                ->warning()
-                ->send();
-
-            return;
-        }
-
-        $existing = app(PlanningDraftResolver::class)->findPlanningDraftForSite($siteId);
-        if ($existing instanceof SeoProject) {
-            $this->redirect(static::getUrl([
-                'project' => (int) $existing->getKey(),
-                'site' => $siteId,
-            ]));
-
-            return;
-        }
-
-        $domain = (string) (Site::query()->whereKey($siteId)->value('domain') ?? '');
-
-        try {
-            $result = app(ContentProjectCommandBus::class)->dispatch(
-                new CreateContentProjectCommand([
-                    'name' => SeoProject::defaultDraftName($domain !== '' ? $domain : null),
-                    'site_id' => $siteId,
-                    'status' => SeoProject::STATUS_DRAFT,
-                    'user_id' => auth()->id() !== null ? (int) auth()->id() : null,
-                    'month' => SeoProject::draftCompatibilityMonth(),
-                ]),
-                ActorContext::user(
-                    auth()->id() !== null ? (int) auth()->id() : null,
-                    $siteId,
-                ),
-            );
-        } catch (Throwable $e) {
-            RuntimeLogger::report($e, [
-                'endpoint' => 'content_project.content_planning.create_draft',
-                'site_id' => $siteId,
-            ]);
-            Notification::make()
-                ->title(__('seo-content-ai::filament.projects.suggestions_create_draft_failed'))
-                ->body($e->getMessage())
-                ->danger()
-                ->send();
-
-            return;
-        }
-
-        if (! $result->success || $result->projectId === null || $result->projectId <= 0) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.projects.suggestions_create_draft_failed'))
-                ->body($result->message)
-                ->danger()
-                ->send();
-
-            return;
-        }
-
-        $reused = (bool) ($result->metadata['reused_existing_draft'] ?? false);
-        Notification::make()
-            ->title($reused
-                ? __('seo-content-ai::filament.projects.suggestions_draft_reused')
-                : __('seo-content-ai::filament.projects.suggestions_draft_created'))
-            ->success()
-            ->send();
-
-        $this->redirect(static::getUrl([
-            'project' => $result->projectId,
-            'site' => $siteId,
-        ]));
+        $this->autoSelectSharedDraftIfNeeded(showErrors: true);
     }
 
     public function openPublishFromPlanner(): void
@@ -656,14 +667,50 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         return $this->project instanceof SeoProject ? $this->project : null;
     }
 
-    private function autoSelectSiteDraftIfNeeded(): void
+    private function autoSelectSharedDraftIfNeeded(bool $showErrors = false): void
     {
-        $siteId = (int) ($this->filterSiteId ?? 0);
-        if ($siteId <= 0) {
-            return;
+        $resolver = app(PlanningDraftResolver::class);
+        $draft = $resolver->findCanonicalSharedDraft();
+
+        if (! $draft instanceof SeoProject) {
+            $bootstrap = (int) ($this->filterSiteId ?? 0);
+            if ($bootstrap <= 0) {
+                $bootstrap = (int) (array_key_first($this->siteFilterOptions) ?? 0);
+            }
+
+            if ($bootstrap <= 0) {
+                if ($showErrors) {
+                    Notification::make()
+                        ->title(__('seo-content-ai::filament.projects.seo_audit_draft_site_required'))
+                        ->warning()
+                        ->send();
+                }
+
+                return;
+            }
+
+            try {
+                $draft = app(PlanningDraftIntakeService::class)->ensureSharedDraft(
+                    auth()->id() !== null ? (int) auth()->id() : null,
+                    $bootstrap,
+                );
+            } catch (Throwable $e) {
+                RuntimeLogger::report($e, [
+                    'endpoint' => 'content_project.content_planning.ensure_shared_draft',
+                    'bootstrap_site_id' => $bootstrap,
+                ]);
+                if ($showErrors) {
+                    Notification::make()
+                        ->title(__('seo-content-ai::filament.projects.suggestions_create_draft_failed'))
+                        ->body($e->getMessage())
+                        ->danger()
+                        ->send();
+                }
+
+                return;
+            }
         }
 
-        $draft = app(PlanningDraftResolver::class)->findPlanningDraftForSite($siteId);
         if (! $draft instanceof SeoProject) {
             return;
         }
@@ -681,26 +728,30 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
             return;
         }
 
-        $project = SeoProjectResource::getRecordRouteBindingEloquentQuery()
+        // Prefer unscoped model lookup — Shared Draft has site_id NULL and must not fail canAccessSite(0).
+        $project = SeoProject::query()
             ->with('site:id,domain')
             ->find($this->projectId);
 
-        if (! $project instanceof SeoProject || ! SeoAccessControl::canAccessSite((int) ($project->site_id ?? 0))) {
+        if (! $project instanceof SeoProject) {
+            $this->projectId = null;
+
+            return;
+        }
+
+        $projectSiteId = (int) ($project->site_id ?? 0);
+        $isSharedDraft = $project->isDraftPlanning() && $projectSiteId <= 0;
+        if (! $isSharedDraft && $projectSiteId > 0 && ! SeoAccessControl::canAccessSite($projectSiteId)) {
             $this->projectId = null;
 
             return;
         }
 
         if (! $project->isDraftPlanning()) {
-            // Prefer canonical planning draft for the site instead of execution project.
-            $siteId = (int) ($project->site_id ?? 0);
-            $canonical = $siteId > 0
-                ? app(PlanningDraftResolver::class)->findPlanningDraftForSite($siteId)
-                : null;
+            $canonical = app(PlanningDraftResolver::class)->findCanonicalSharedDraft();
             if ($canonical instanceof SeoProject) {
                 $this->projectId = (int) $canonical->getKey();
                 $this->project = $canonical;
-                $this->filterSiteId = $siteId ?: $this->filterSiteId;
 
                 return;
             }
@@ -710,10 +761,6 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         }
 
         $this->project = $project;
-
-        if ($this->filterSiteId === null || $this->filterSiteId <= 0) {
-            $this->filterSiteId = (int) ($project->site_id ?? 0) ?: null;
-        }
     }
 
     private function shouldRedirectLegacyAdvancedParam(): bool

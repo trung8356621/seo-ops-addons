@@ -7,12 +7,12 @@
     $description = (string) ($summary['short_description'] ?? '');
 @endphp
 
-<div class="min-w-0 py-1">
-    <div class="truncate font-medium text-gray-950 dark:text-white" style="font-size: 1rem">
+<div class="seo-domain-table-cell min-w-0 py-1">
+    <div class="seo-domain-table-cell__name truncate font-semibold text-gray-950 dark:text-white">
         {{ $record->domain }}
     </div>
     @if($description !== '')
-        <div class="mt-0.5 max-w-xs whitespace-normal break-words text-sm text-gray-500 dark:text-gray-400">
+        <div class="mt-0.5 max-w-xs truncate text-sm text-gray-500 dark:text-gray-400" title="{{ $description }}">
             {{ $description }}
         </div>
     @endif

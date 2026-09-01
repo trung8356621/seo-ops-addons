@@ -71,7 +71,7 @@ export default function ContextHelpButton({
                 event.stopPropagation();
             }}
         >
-            <CircleHelp size={14} strokeWidth={1.75} aria-hidden />
+            <CircleHelp size={16} strokeWidth={1.75} aria-hidden />
         </button>
     );
 }

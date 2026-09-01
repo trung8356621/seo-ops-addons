@@ -42,7 +42,7 @@ final class SeoSettingsBundleService
         $this->assertManager();
         $settings = [];
         $excluded = [
-            'recommendations' => 'Hard-coded operator docs, not stored configuration.',
+            'recommendations' => 'Operator best-practice docs live in Global Help topics (not stored settings).',
             'workflow_task_ids' => 'Task/workflow numeric IDs are installation-local.',
         ];
         foreach ($this->registry()->all() as $section) {

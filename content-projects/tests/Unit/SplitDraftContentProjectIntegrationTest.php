@@ -1018,6 +1018,150 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function test_selected_previous_month_creates_and_reuses_july_projects(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-08-15 12:00:00'));
+
+        $julyBase = SeoProject::defaultNameFromMonth('2026-07-01');
+        $existingJuly = SeoProject::query()->create([
+            'name' => $julyBase,
+            'user_id' => 88801,
+            'site_id' => null,
+            'month' => '2026-07-01',
+            'status' => SeoProject::STATUS_PENDING,
+            'kind' => SeoProject::KIND_MONTHLY,
+            'total_tasks' => 0,
+        ]);
+        for ($i = 0; $i < 5; $i++) {
+            $this->createTask($existingJuly, 'july-existing-'.$i, reviewed: true);
+        }
+        $existingJuly->syncTotalTasksCounter();
+
+        $augNoise = SeoProject::query()->create([
+            'name' => SeoProject::defaultNameFromMonth('2026-08-01'),
+            'user_id' => 88801,
+            'site_id' => null,
+            'month' => '2026-08-01',
+            'status' => SeoProject::STATUS_PENDING,
+            'kind' => SeoProject::KIND_MONTHLY,
+            'total_tasks' => 0,
+        ]);
+        for ($i = 0; $i < 20; $i++) {
+            $this->createTask($augNoise, 'aug-noise-'.$i, reviewed: true);
+        }
+        $augNoise->syncTotalTasksCounter();
+
+        $capacity = app(\Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterMonthlyCapacityService::class);
+        $julyCounts = $capacity->itemCountsByUserId([88801], '2026-07');
+        $augCounts = $capacity->itemCountsByUserId([88801], '2026-08');
+        self::assertSame(5, $julyCounts[88801]);
+        self::assertSame(20, $augCounts[88801]);
+
+        $draft = $this->createDraft(93801, 94801);
+        for ($i = 0; $i < 3; $i++) {
+            $this->createTask($draft, 'to-july-'.$i, reviewed: true);
+        }
+
+        $result = app(SplitDraftContentProjectService::class)->split(
+            $draft,
+            SplitDraftContentProjectCommand::MODE_ALL,
+            null,
+            [],
+            null,
+            [88801],
+            '2026-07',
+        );
+
+        self::assertSame(3, $result['moved_count']);
+        self::assertSame('2026-07-01', $result['month']);
+        self::assertSame('2026-07', $result['redirect_month'] ?? null);
+        self::assertContains((int) $existingJuly->id, array_map('intval', $result['execution_project_ids']));
+
+        $execution = SeoProject::query()->find($result['execution_project_ids'][0] ?? 0);
+        self::assertInstanceOf(SeoProject::class, $execution);
+        self::assertSame('2026-07-01', Carbon::parse((string) $execution->month)->format('Y-m-d'));
+        self::assertSame(8, $execution->registeredTaskCount());
+        self::assertSame(20, $augNoise->fresh()?->registeredTaskCount());
+
+        $julyAfter = $capacity->itemCountsByUserId([88801], '2026-07');
+        self::assertSame(8, $julyAfter[88801]);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_null_target_month_keeps_current_month_behavior(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-08-15 12:00:00'));
+
+        $draft = $this->createDraft(93802, 94802);
+        for ($i = 0; $i < 2; $i++) {
+            $this->createTask($draft, 'cur-'.$i, reviewed: true);
+        }
+
+        $result = app(SplitDraftContentProjectService::class)->split(
+            $draft,
+            SplitDraftContentProjectCommand::MODE_ALL,
+            null,
+            [],
+            null,
+            [88802],
+            null,
+        );
+
+        self::assertSame('2026-08-01', $result['month']);
+        $execution = SeoProject::query()->find($result['execution_project_ids'][0] ?? 0);
+        self::assertInstanceOf(SeoProject::class, $execution);
+        self::assertSame('2026-08-01', Carbon::parse((string) $execution->month)->format('Y-m-d'));
+        self::assertMatchesRegularExpression('/^project 8\/2026(-\d+)?$/', (string) $execution->name);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_archived_execution_counts_toward_selected_month_capacity(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-08-15 12:00:00'));
+
+        $archived = SeoProject::query()->create([
+            'name' => SeoProject::defaultNameFromMonth('2026-07-01').'-arch',
+            'user_id' => 88803,
+            'site_id' => null,
+            'month' => '2026-07-01',
+            'status' => SeoProject::STATUS_PENDING,
+            'kind' => SeoProject::KIND_MONTHLY,
+            'total_tasks' => 0,
+            'archived_at' => now()->subDay(),
+        ]);
+        for ($i = 0; $i < 8; $i++) {
+            $this->createTask($archived, 'arch-july-'.$i, reviewed: true);
+        }
+        $archived->syncTotalTasksCounter();
+
+        $active = SeoProject::query()->create([
+            'name' => SeoProject::defaultNameFromMonth('2026-07-01'),
+            'user_id' => 88803,
+            'site_id' => null,
+            'month' => '2026-07-01',
+            'status' => SeoProject::STATUS_PENDING,
+            'kind' => SeoProject::KIND_MONTHLY,
+            'total_tasks' => 0,
+        ]);
+        for ($i = 0; $i < 12; $i++) {
+            $this->createTask($active, 'act-july-'.$i, reviewed: true);
+        }
+        $active->syncTotalTasksCounter();
+
+        $capacity = app(\Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterMonthlyCapacityService::class);
+        $breakdown = $capacity->itemBreakdownByUserId([88803], '2026-07');
+        self::assertSame(12, $breakdown[88803]['active']);
+        self::assertSame(8, $breakdown[88803]['archived']);
+        self::assertSame(20, $breakdown[88803]['total']);
+
+        $remaining = $capacity->remainingByUserId([88803], '2026-07');
+        self::assertSame(10, $remaining[88803]);
+
+        Carbon::setTestNow();
+    }
+
     private function createDraft(int $userId, int $siteId): SeoProject
     {
         return SeoProject::query()->create([

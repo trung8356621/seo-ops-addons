@@ -80,11 +80,16 @@ final class SeoAuditMissingFocusKeywordAuditFilterTest extends TestCase
         $src = (string) file_get_contents(
             ProjectRoot::addonsPath().'/seo/src/Services/SeoAuditScanService.php',
         );
+        $coverageSrc = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/seo/src/Services/FocusKeywordCoverageQuery.php',
+        );
 
         self::assertStringContainsString('applyMissingFocusKeywordScope', $src);
         self::assertStringContainsString('hasCanonicalFocusKeyword', $src);
-        self::assertStringContainsString('seo_focus_keyword', $src);
-        self::assertStringContainsString('KeywordMetaKey::MainArticleId', $src);
+        self::assertStringContainsString('FocusKeywordCoverageQuery', $src);
+        self::assertStringContainsString('applyMissingFocusScope', $src);
+        self::assertStringContainsString('seo_focus_keyword', $coverageSrc);
+        self::assertStringContainsString('KeywordMetaKey::MainArticleId', $coverageSrc);
     }
 
     public function test_canonical_meta_keyword_present_is_not_missing(): void

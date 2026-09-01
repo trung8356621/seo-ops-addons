@@ -56,6 +56,16 @@ final class SiteSyncPreflightContractTest extends TestCase
         self::assertStringContainsString('Site sync preflight', $modalSrc);
         self::assertStringContainsString('confirmSiteSyncPreflightNormal', $modalSrc);
         self::assertStringContainsString('confirmSiteSyncPreflightFull', $modalSrc);
+        self::assertStringContainsString('site-sync-preflight__shell', $modalSrc);
+        self::assertStringContainsString('max-height: calc(100dvh - 24px)', $modalSrc);
+        self::assertStringContainsString('site-sync-preflight__body', $modalSrc);
+        self::assertStringContainsString('site-sync-preflight__footer-actions', $modalSrc);
+        self::assertStringContainsString('justify-content: flex-end', $modalSrc);
+        self::assertStringContainsString('overscroll-behavior: contain', $modalSrc);
+        self::assertStringNotContainsString('max-h-[85vh]', $modalSrc);
+        self::assertStringNotContainsString(">Hủy</", $modalSrc);
+        self::assertStringNotContainsString('>Hủy</x-filament::button>', $modalSrc);
+        self::assertDoesNotMatchRegularExpression('/wire:click="closeSiteSyncPreflight"[\s\S]{0,120}>Hủy</', $modalSrc);
         self::assertStringContainsString('function openSiteSyncPreflight', $domainSrc);
 
         $serviceSrc = (string) file_get_contents(
@@ -78,5 +88,15 @@ final class SiteSyncPreflightContractTest extends TestCase
         self::assertStringContainsString('seo_ops_data', $src);
         self::assertStringContainsString('evaluateLocalOnly', $src);
         self::assertStringContainsString('SEO Ops data health', $src);
+        self::assertStringContainsString('DomainLinkInventoryReadModel', $src);
+        self::assertStringContainsString('ArticleSeoInventoryPolicy', (string) file_get_contents(
+            dirname(__DIR__, 2).'/src/Services/LinkAnalysis/DomainLinkInventoryReadModel.php',
+        ));
+        self::assertStringContainsString('not_applicable', (string) file_get_contents(
+            dirname(__DIR__, 3).'/content/src/Services/Health/ArticleRequiredDataHealthAuditor.php',
+        ));
+        self::assertStringContainsString('source_absent', (string) file_get_contents(
+            dirname(__DIR__, 3).'/seo-content-ai-compat/resources/views/filament/resources/domain-resource/pages/partials/site-health-card.blade.php',
+        ));
     }
 }

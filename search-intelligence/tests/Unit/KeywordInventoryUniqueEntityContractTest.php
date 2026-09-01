@@ -22,7 +22,7 @@ final class KeywordInventoryUniqueEntityContractTest extends TestCase
         $chunk = substr($list, $statsPos, 1200);
         $this->assertStringContainsString("->count()", $chunk);
         $this->assertStringNotContainsString('seo_link_maps', $chunk);
-        $this->assertStringContainsString('buildDictionaryListingQuery', $chunk);
+        $this->assertStringContainsString('buildDictionaryFilteredQuery', $chunk);
     }
 
     public function test_cluster_inventory_plucks_keyword_ids(): void

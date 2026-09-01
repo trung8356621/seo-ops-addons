@@ -107,6 +107,7 @@ final class ArticleEditorRuntimeRegressionLinksCtaPickerTest extends TestCase
         self::assertStringContainsString('actions.insertSuggestedLink(detail)', $links);
         self::assertStringContainsString('actions.insertCtaLink(detail)', $cta);
         self::assertStringContainsString("executeEditorCommand('insert_link'", $this->readAddon('resources/js/hooks/useArticleEditorLinksAndSnippets.js'));
+        self::assertStringContainsString("executeEditorCommand('create_link'", $this->readAddon('resources/js/hooks/useArticleEditorLinksAndSnippets.js'));
         self::assertStringContainsString("executeEditorCommand(commandName", $this->readAddon('resources/js/hooks/useArticleEditorLinksAndSnippets.js'));
     }
 }

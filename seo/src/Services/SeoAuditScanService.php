@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Seo\Services;
 
-use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\Content\Models\SeoArticle;
@@ -274,25 +273,8 @@ final class SeoAuditScanService
      */
     public function applyMissingFocusKeywordScope(Builder $query): void
     {
-        $query->whereNot(function (Builder $hasKeyword): void {
-            $hasKeyword
-                ->whereHas('articleMetas', static function (Builder $meta): void {
-                    $meta->where('meta_key', 'seo_focus_keyword')
-                        ->whereNotNull('meta_value')
-                        ->where('meta_value', '!=', '')
-                        ->whereRaw("TRIM(meta_value) <> ''");
-                })
-                ->orWhereExists(static function ($sub): void {
-                    $sub->selectRaw('1')
-                        ->from('keyword_meta')
-                        ->join('keywords', 'keywords.id', '=', 'keyword_meta.keyword_id')
-                        ->whereColumn('keyword_meta.meta_value', 'articles.id')
-                        ->where('keyword_meta.meta_key', KeywordMetaKey::MainArticleId->value)
-                        ->whereNotNull('keywords.phrase')
-                        ->where('keywords.phrase', '!=', '')
-                        ->whereRaw("TRIM(keywords.phrase) <> ''");
-                });
-        });
+        // Shared with Domain Focus Keyword Coverage / Posts filter.
+        app(FocusKeywordCoverageQuery::class)->applyMissingFocusScope($query);
     }
 
     /**

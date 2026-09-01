@@ -24,9 +24,14 @@ final class ArticleWpContentLifecycleContractTest extends TestCase
         $src = (string) file_get_contents($path);
 
         self::assertStringContainsString('resolveEditorHtmlDetailed', $src);
+        self::assertStringContainsString('resolveEditorHtmlLocalOnly', $src);
         self::assertStringContainsString('ArticleWpContentCacheService', $src);
         self::assertStringContainsString("'source' => 'wp_cache'", $src);
         self::assertStringContainsString("'source' => 'wp_fetch'", $src);
+        self::assertStringContainsString("'source' => 'wp_fetch_failed'", $src);
+        self::assertStringContainsString('persistMeta: false', $src);
+        self::assertStringContainsString('persistMeta = true', $src);
+        self::assertStringContainsString('SearchFoundation\\Services\\ArticleKeywordLinkReconcileService', $src);
         self::assertStringNotContainsString("meta_key' => 'wp_post_content'", $src);
         self::assertStringNotContainsString('wp_post_content_source', $src);
     }
@@ -37,7 +42,8 @@ final class ArticleWpContentLifecycleContractTest extends TestCase
             .'/content/src/Filament/Resources/ArticleResource/Pages/EditArticle.php';
         $src = (string) file_get_contents($path);
 
-        self::assertStringContainsString('resolveEditorHtmlDetailed', $src);
+        self::assertStringContainsString('resolveEditorHtmlLocalOnly', $src);
+        self::assertStringContainsString('loadWpEditorHtmlFromWordPress', $src);
         self::assertStringContainsString('wpEditorBootstrapHtml', $src);
         self::assertStringContainsString('Intentionally do NOT persist into articles.body', $src);
         self::assertStringNotContainsString("update(['body' => \$html])", $src);
@@ -104,8 +110,15 @@ final class ArticleWpContentLifecycleContractTest extends TestCase
         $modal = dirname(__DIR__, 3)
             .'/seo-content-ai-compat/resources/views/filament/resources/domain-resource/pages/partials/site-sync-preflight-modal.blade.php';
         $src = (string) file_get_contents($modal);
-        self::assertStringContainsString('max-h-[85vh]', $src);
-        self::assertStringContainsString('overflow-y-auto', $src);
-        self::assertStringContainsString('shrink-0 border-t', $src);
+        self::assertStringContainsString('site-sync-preflight__shell', $src);
+        self::assertStringContainsString('site-sync-preflight__body', $src);
+        self::assertStringContainsString('site-sync-preflight__header', $src);
+        self::assertStringContainsString('site-sync-preflight__footer', $src);
+        self::assertStringContainsString('max-height: calc(100dvh - 24px)', $src);
+        self::assertStringContainsString('overflow-y: auto', $src);
+        self::assertStringContainsString('overscroll-behavior: contain', $src);
+        self::assertStringContainsString('flex-shrink: 0', $src);
+        self::assertStringContainsString('min-height: 0', $src);
+        self::assertStringNotContainsString('max-h-[85vh]', $src);
     }
 }

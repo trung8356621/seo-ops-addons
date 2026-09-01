@@ -8,6 +8,7 @@
     'hideSectionTitle' => false,
     'refreshNonce' => 0,
     'supportsProduct' => false,
+    'siteOptions' => [],
 ])
 
 @php
@@ -19,20 +20,28 @@
     $labelPost = (string) __('seo-content-ai::filament.article_list.post_type_post');
     $labelProduct = (string) __('seo-content-ai::filament.article_list.post_type_product');
     $postTypeOptions = [
-        ['value' => 'article', 'label' => $labelPost],
+        ['value' => 'post', 'label' => $labelPost],
     ];
     if ($supportsProduct) {
         $postTypeOptions[] = ['value' => 'product', 'label' => $labelProduct];
     }
+    $siteOptionsList = [];
+    foreach ((array) $siteOptions as $id => $domain) {
+        $siteOptionsList[] = [
+            'value' => (int) $id,
+            'label' => (string) $domain,
+        ];
+    }
     $rows = array_map(static function (array $row) use ($labelPost, $labelProduct): array {
         $postType = (string) ($row['post_type'] ?? '');
-        if ($postType === '' || $postType === 'post') {
-            $postType = 'article';
+        if ($postType === '' || $postType === 'article') {
+            $postType = 'post';
         }
         $canEditPostType = ! empty($row['can_edit_post_type']);
-        // Product→Post always; Post→Product only when site supports Product (options list).
-        if ($canEditPostType && $postType === 'product') {
-            // keep editable even when Product capability later disabled
+        $siteId = isset($row['site_id']) ? (int) $row['site_id'] : 0;
+        $domain = trim((string) ($row['domain'] ?? ''));
+        if ($domain === '') {
+            $domain = '—';
         }
 
         return [
@@ -41,6 +50,8 @@
             'description' => (string) ($row['description'] ?? ''),
             'product_description' => (string) ($row['product_description'] ?? ''),
             'keyword' => (string) ($row['keyword'] ?? ''),
+            'site_id' => $siteId > 0 ? $siteId : null,
+            'domain' => $domain,
             'planning_reviewed' => ! empty($row['planning_reviewed']),
             'type' => (string) ($row['type'] ?? ''),
             'icon_kind' => (string) ($row['icon_kind'] ?? 'manual'),
@@ -49,6 +60,7 @@
             'post_type' => $postType,
             'post_type_label' => (string) ($row['post_type_label'] ?? ($postType === 'product' ? $labelProduct : $labelPost)),
             'can_edit_post_type' => $canEditPostType,
+            'can_clone_idea' => ! empty($row['can_clone_idea']) || ((string) ($row['type'] ?? '') === 'create'),
             'added_label' => (string) ($row['added_label'] ?? '—'),
             'added_at' => (string) ($row['added_at'] ?? ''),
             'title_href' => (string) ($row['title_href'] ?? ''),
@@ -62,12 +74,15 @@
             'can_skip_seo_audit' => ! empty($row['can_skip_seo_audit']),
             'visible' => true,
             'saving_post_type' => false,
+            'saving_domain' => false,
+            'cloning' => false,
         ];
     }, $items);
 
     $boot = [
         'tab' => (string) $reviewFilter,
         'type' => (string) $typeFilter,
+        'domainFilter' => 'all',
         'counts' => [
             'all' => $allCount,
             'unreviewed' => $unreviewedCount,
@@ -75,12 +90,14 @@
         ],
         'rows' => $rows,
         'selected' => $selectedIds,
+        'siteOptions' => $siteOptionsList,
         'postTypeOptions' => $postTypeOptions,
         'labelPost' => $labelPost,
         'labelProduct' => $labelProduct,
         'descriptionHint' => (string) __('seo-content-ai::filament.projects.planning_description_hint'),
         'productDescriptionLabel' => (string) __('seo-content-ai::filament.projects.planning_product_description_label'),
         'postTypeEditHint' => (string) __('seo-content-ai::filament.projects.planning_post_type_edit_hint'),
+        'domainEditHint' => (string) __('seo-content-ai::filament.projects.planning_domain_edit_hint'),
         'confirmSkip' => (string) __('seo-content-ai::filament.projects.seo_audit_skip_confirm'),
         'confirmArchive' => (string) __('seo-content-ai::filament.projects.item_action_remove_from_draft_confirm'),
         'labelReviewed' => (string) __('seo-content-ai::filament.projects.planning_reviewed'),
@@ -92,6 +109,9 @@
         'labelCheckIndex' => (string) __('seo-content-ai::filament.projects.suggestions_check_index'),
         'labelSkipSeoAudit' => (string) __('seo-content-ai::filament.projects.item_action_skip_seo_audit'),
         'labelRemove' => (string) __('seo-content-ai::filament.projects.item_action_remove_from_draft'),
+        'labelCloneIdea' => (string) __('seo-content-ai::filament.projects.planning_clone_idea'),
+        'domainBlank' => (string) __('seo-content-ai::filament.projects.planning_domain_blank'),
+        'domainRequired' => (string) __('seo-content-ai::filament.projects.planning_domain_required_before_review'),
         'seoPrefix' => 'SEO',
     ];
 @endphp
@@ -108,12 +128,15 @@
             return {
                 tab: cfg.tab || 'all',
                 type: cfg.type || 'all',
+                domainFilter: cfg.domainFilter || 'all',
                 counts: cfg.counts || { all: 0, unreviewed: 0, reviewed: 0 },
                 rows,
                 selected: Array.isArray(cfg.selected) ? cfg.selected.slice() : [],
+                siteOptions: Array.isArray(cfg.siteOptions) ? cfg.siteOptions : [],
                 descriptionHint: cfg.descriptionHint || '',
                 productDescriptionLabel: cfg.productDescriptionLabel || 'Product description:',
                 postTypeEditHint: cfg.postTypeEditHint || 'Double click to change post type',
+                domainEditHint: cfg.domainEditHint || 'Double-click to change Domain',
                 confirmSkip: cfg.confirmSkip || '',
                 confirmArchive: cfg.confirmArchive || '',
                 markReviewed: cfg.markReviewed || '',
@@ -125,23 +148,99 @@
                 labelCheckIndex: cfg.labelCheckIndex || 'Check index',
                 labelSkipSeoAudit: cfg.labelSkipSeoAudit || 'Skip SEO Audit',
                 labelRemove: cfg.labelRemove || 'Remove',
+                labelCloneIdea: cfg.labelCloneIdea || 'Clone idea',
+                domainBlank: cfg.domainBlank || '—',
+                domainRequired: cfg.domainRequired || 'Domain is required before review.',
                 seoPrefix: cfg.seoPrefix || 'SEO',
                 postTypeOptions: Array.isArray(cfg.postTypeOptions) ? cfg.postTypeOptions : [],
                 labelPost: cfg.labelPost || 'Post',
                 labelProduct: cfg.labelProduct || 'Product',
                 editing: null,
                 editingPostTypeId: null,
+                editingDomainId: null,
                 draft: '',
                 blurGuardUntil: 0,
                 alpineReady: false,
 
+                /** Livewire morph-safe root — never assume $root exists. */
+                rootEl() {
+                    if (this.$el && typeof this.$el.querySelector === 'function') {
+                        return this.$el.closest('[data-content-planning-draft-items]') || this.$el;
+                    }
+                    if (this.$root && typeof this.$root.querySelector === 'function') {
+                        return this.$root;
+                    }
+
+                    return null;
+                },
+
+                qs(selector) {
+                    const root = this.rootEl();
+                    if (! root || typeof root.querySelector !== 'function') {
+                        return null;
+                    }
+
+                    return root.querySelector(selector);
+                },
+
+                qsa(selector) {
+                    const root = this.rootEl();
+                    if (! root || typeof root.querySelectorAll !== 'function') {
+                        return [];
+                    }
+
+                    return Array.from(root.querySelectorAll(selector));
+                },
+
                 init() {
                     this.alpineReady = true;
-                    this.$root.querySelectorAll('[data-draft-ssr-row]').forEach((el) => el.remove());
+                    this.qsa('[data-draft-ssr-row]').forEach((el) => el.remove());
+                    this.applyVisibility();
+                },
+
+                domainLabelFor(siteId) {
+                    const id = Number(siteId || 0);
+                    if (id <= 0) {
+                        return this.domainBlank;
+                    }
+                    const hit = this.siteOptions.find((o) => Number(o.value) === id);
+
+                    return hit && hit.label ? hit.label : ('#' + id);
+                },
+
+                applyVisibility() {
+                    const domainFilter = this.domainFilter;
+                    this.rows.forEach((row) => {
+                        let ok = true;
+                        if (this.tab === 'unreviewed' && row.planning_reviewed) {
+                            ok = false;
+                        }
+                        if (this.tab === 'reviewed' && ! row.planning_reviewed) {
+                            ok = false;
+                        }
+                        if (this.type !== 'all' && row.type !== this.type) {
+                            ok = false;
+                        }
+                        if (domainFilter !== 'all') {
+                            const want = Number(domainFilter);
+                            const have = Number(row.site_id || 0);
+                            if (want === 0) {
+                                ok = ok && have <= 0;
+                            } else {
+                                ok = ok && have === want;
+                            }
+                        }
+                        row.visible = ok;
+                    });
+                },
+
+                setDomainFilter(next) {
+                    this.domainFilter = String(next);
+                    this.applyVisibility();
                 },
 
                 postTypeLabelFor(value) {
-                    const key = value === 'product' ? 'product' : 'article';
+                    const key = value === 'product' ? 'product' : 'post';
                     const hit = this.postTypeOptions.find((o) => o.value === key);
                     if (hit && hit.label) {
                         return hit.label;
@@ -162,7 +261,7 @@
                         return;
                     }
                     const next = String(event.target.value || '');
-                    const prev = row.post_type === 'product' ? 'product' : 'article';
+                    const prev = row.post_type === 'product' ? 'product' : 'post';
                     const prevLabel = row.post_type_label;
                     const wasReviewed = !!row.planning_reviewed;
                     if (next === prev) {
@@ -179,10 +278,8 @@
                             row.planning_reviewed = false;
                             this.counts.reviewed = Math.max(0, this.counts.reviewed - 1);
                             this.counts.unreviewed += 1;
-                            if (this.tab === 'reviewed') {
-                                row.visible = false;
-                            }
                         }
+                        this.applyVisibility();
                     } catch (e) {
                         row.post_type = prev;
                         row.post_type_label = prevLabel;
@@ -200,8 +297,8 @@
                     this.editingPostTypeId = row.id;
                     this.blurGuardUntil = Date.now() + 350;
                     this.$nextTick(() => {
-                        const el = this.$root.querySelector('[data-post-type-edit="' + String(row.id) + '"]');
-                        if (el) {
+                        const el = this.qs('[data-post-type-edit="' + String(row.id) + '"]');
+                        if (el && typeof el.focus === 'function') {
                             el.focus({ preventScroll: true });
                         }
                     });
@@ -217,8 +314,8 @@
                     }
                     if (Date.now() < this.blurGuardUntil) {
                         this.$nextTick(() => {
-                            const el = this.$root.querySelector('[data-post-type-edit="' + String(row.id) + '"]');
-                            if (el && this.editingPostTypeId === row.id) {
+                            const el = this.qs('[data-post-type-edit="' + String(row.id) + '"]');
+                            if (el && this.editingPostTypeId === row.id && typeof el.focus === 'function') {
                                 el.focus({ preventScroll: true });
                             }
                         });
@@ -226,6 +323,70 @@
                         return;
                     }
                     this.editingPostTypeId = null;
+                },
+
+                startDomainEdit(row) {
+                    if (row.saving_domain) {
+                        return;
+                    }
+                    this.editingDomainId = row.id;
+                    this.blurGuardUntil = Date.now() + 350;
+                    this.$nextTick(() => {
+                        const el = this.qs('[data-domain-edit="' + String(row.id) + '"]');
+                        if (el && typeof el.focus === 'function') {
+                            el.focus({ preventScroll: true });
+                        }
+                    });
+                },
+
+                cancelDomainEdit() {
+                    this.editingDomainId = null;
+                },
+
+                onDomainBlur(row) {
+                    if (this.editingDomainId !== row.id || row.saving_domain) {
+                        return;
+                    }
+                    if (Date.now() < this.blurGuardUntil) {
+                        this.$nextTick(() => {
+                            const el = this.qs('[data-domain-edit="' + String(row.id) + '"]');
+                            if (el && this.editingDomainId === row.id && typeof el.focus === 'function') {
+                                el.focus({ preventScroll: true });
+                            }
+                        });
+
+                        return;
+                    }
+                    this.editingDomainId = null;
+                },
+
+                async changeDomain(row, event) {
+                    if (row.saving_domain) {
+                        return;
+                    }
+                    const raw = String(event.target.value || '');
+                    const next = raw === '' ? null : Number(raw);
+                    const prev = row.site_id ? Number(row.site_id) : null;
+                    const prevDomain = row.domain;
+                    if ((next || null) === (prev || null)) {
+                        this.editingDomainId = null;
+
+                        return;
+                    }
+                    row.site_id = next && next > 0 ? next : null;
+                    row.domain = this.domainLabelFor(row.site_id);
+                    row.saving_domain = true;
+                    try {
+                        await this.$wire.updatePlanningField(row.id, 'site_id', row.site_id ? String(row.site_id) : '0');
+                        this.applyVisibility();
+                    } catch (e) {
+                        row.site_id = prev;
+                        row.domain = prevDomain;
+                        event.target.value = prev ? String(prev) : '';
+                    } finally {
+                        row.saving_domain = false;
+                        this.editingDomainId = null;
+                    }
                 },
 
                 showProductDescription(row) {
@@ -236,12 +397,14 @@
                     this.tab = next;
                     this.selected = [];
                     this.$wire.setDraftReviewFilter(next);
+                    this.applyVisibility();
                 },
 
                 setType(next) {
                     this.type = next;
                     this.selected = [];
                     this.$wire.setDraftTypeFilter(next);
+                    this.applyVisibility();
                 },
 
                 toggleSelect(id) {
@@ -257,6 +420,11 @@
 
                 toggleReview(row) {
                     const was = !!row.planning_reviewed;
+                    if (! was && (! row.site_id || Number(row.site_id) <= 0)) {
+                        window.alert(this.domainRequired);
+
+                        return;
+                    }
                     row.planning_reviewed = !was;
                     if (was) {
                         this.counts.reviewed = Math.max(0, this.counts.reviewed - 1);
@@ -265,12 +433,7 @@
                         this.counts.unreviewed = Math.max(0, this.counts.unreviewed - 1);
                         this.counts.reviewed += 1;
                     }
-                    if (this.tab === 'unreviewed' && row.planning_reviewed) {
-                        row.visible = false;
-                    }
-                    if (this.tab === 'reviewed' && !row.planning_reviewed) {
-                        row.visible = false;
-                    }
+                    this.applyVisibility();
                     this.$wire.setPlanningReviewed(row.id, row.planning_reviewed).catch(() => {
                         row.planning_reviewed = was;
                         if (was) {
@@ -281,6 +444,7 @@
                             this.counts.reviewed = Math.max(0, this.counts.reviewed - 1);
                         }
                         row.visible = true;
+                        this.applyVisibility();
                     });
                 },
 
@@ -289,12 +453,11 @@
                     this.draft = field === 'title'
                         ? row.title
                         : (field === 'keyword' ? row.keyword : row.description);
-                    // Dblclick's mouseup can blur a freshly focused control — ignore blur briefly.
                     this.blurGuardUntil = Date.now() + 350;
                     this.$nextTick(() => {
                         const key = String(row.id) + '-' + field;
-                        const el = this.$root.querySelector('[data-inline-edit="' + key + '"]');
-                        if (el) {
+                        const el = this.qs('[data-inline-edit="' + key + '"]');
+                        if (el && typeof el.focus === 'function') {
                             el.focus({ preventScroll: true });
                             if (field !== 'description' && typeof el.select === 'function') {
                                 el.select();
@@ -316,8 +479,8 @@
                     if (Date.now() < this.blurGuardUntil) {
                         this.$nextTick(() => {
                             const key = String(row.id) + '-' + field;
-                            const el = this.$root.querySelector('[data-inline-edit="' + key + '"]');
-                            if (el && this.editing === row.id + ':' + field) {
+                            const el = this.qs('[data-inline-edit="' + key + '"]');
+                            if (el && this.editing === row.id + ':' + field && typeof el.focus === 'function') {
                                 el.focus({ preventScroll: true });
                             }
                         });
@@ -335,7 +498,7 @@
                     const prev = field === 'title'
                         ? row.title
                         : (field === 'keyword' ? row.keyword : row.description);
-                    if (field === 'title' && value !== '') {
+                    if (field === 'title') {
                         row.title = value;
                     }
                     if (field === 'keyword') {
@@ -347,7 +510,7 @@
                     this.blurGuardUntil = 0;
                     this.editing = null;
                     this.draft = '';
-                    if (value === prev || (field === 'title' && value === '')) {
+                    if (value === prev) {
                         return;
                     }
                     this.$wire.updatePlanningField(row.id, field, value).catch(() => {
@@ -361,6 +524,74 @@
                             row.description = prev;
                         }
                     });
+                },
+
+                normalizeBootRow(raw) {
+                    if (! raw || typeof raw !== 'object') {
+                        return null;
+                    }
+                    const postType = (raw.post_type === 'product') ? 'product' : 'post';
+                    const siteId = raw.site_id ? Number(raw.site_id) : null;
+
+                    return {
+                        id: Number(raw.id || 0),
+                        title: String(raw.title || ''),
+                        description: String(raw.description || ''),
+                        product_description: String(raw.product_description || ''),
+                        keyword: String(raw.keyword || ''),
+                        site_id: siteId && siteId > 0 ? siteId : null,
+                        domain: String(raw.domain || this.domainBlank),
+                        planning_reviewed: !!raw.planning_reviewed,
+                        type: String(raw.type || 'create'),
+                        icon_kind: String(raw.icon_kind || 'create'),
+                        seo_score_label: String(raw.seo_score_label || '—'),
+                        plan_label: String(raw.plan_label || 'Create'),
+                        post_type: postType,
+                        post_type_label: String(raw.post_type_label || this.postTypeLabelFor(postType)),
+                        can_edit_post_type: !!raw.can_edit_post_type,
+                        can_clone_idea: !!raw.can_clone_idea || String(raw.type || '') === 'create',
+                        added_label: String(raw.added_label || '—'),
+                        added_at: String(raw.added_at || ''),
+                        title_href: String(raw.title_href || ''),
+                        title_external: !!raw.title_external,
+                        article_public_url: String(raw.article_public_url || ''),
+                        article_edit_url: String(raw.article_edit_url || ''),
+                        check_index_url: String(raw.check_index_url || ''),
+                        can_check_index: !!raw.can_check_index,
+                        can_open_public: !!raw.can_open_public,
+                        can_edit_article: !!raw.can_edit_article,
+                        can_skip_seo_audit: !!raw.can_skip_seo_audit,
+                        visible: true,
+                        saving_post_type: false,
+                        saving_domain: false,
+                        cloning: false,
+                    };
+                },
+
+                async cloneIdea(row) {
+                    if (! row.can_clone_idea || row.cloning) {
+                        return;
+                    }
+                    row.cloning = true;
+                    try {
+                        const result = await this.$wire.cloneDraftIdea(row.id);
+                        if (result && result.counts) {
+                            this.counts = {
+                                all: Number(result.counts.all || this.counts.all),
+                                unreviewed: Number(result.counts.unreviewed || this.counts.unreviewed),
+                                reviewed: Number(result.counts.reviewed || this.counts.reviewed),
+                            };
+                        }
+                        const normalized = this.normalizeBootRow(result && result.row ? result.row : null);
+                        if (normalized && normalized.id > 0) {
+                            this.rows.unshift(normalized);
+                            this.applyVisibility();
+                        }
+                    } catch (e) {
+                        // Livewire Halt / notification
+                    } finally {
+                        row.cloning = false;
+                    }
                 },
 
                 removeLocal(rowId) {
@@ -438,16 +669,33 @@
             </button>
         </div>
 
-        <div class="cp-plan-draft__type-filter" data-draft-type-filter="1">
-            <span class="cp-plan-chips__label">{{ __('seo-content-ai::filament.projects.planning_type_filter') }}</span>
-            @foreach (['all' => __('seo-content-ai::filament.projects.planning_type_all'), 'rewrite' => 'Rewrite', 'improve' => 'Improve', 'create' => 'Create'] as $typeKey => $typeLabel)
-                <button
-                    type="button"
-                    @click="setType('{{ $typeKey }}')"
-                    :class="type === '{{ $typeKey }}' ? 'cp-plan-chip is-active' : 'cp-plan-chip'"
-                    data-draft-type="{{ $typeKey }}"
-                >{{ $typeLabel }}</button>
-            @endforeach
+        <div class="cp-plan-draft__filters-row">
+            <div class="cp-plan-draft__type-filter" data-draft-type-filter="1">
+                <span class="cp-plan-chips__label">{{ __('seo-content-ai::filament.projects.planning_type_filter') }}</span>
+                @foreach (['all' => __('seo-content-ai::filament.projects.planning_type_all'), 'rewrite' => 'Rewrite', 'improve' => 'Improve', 'create' => 'Create'] as $typeKey => $typeLabel)
+                    <button
+                        type="button"
+                        @click="setType('{{ $typeKey }}')"
+                        :class="type === '{{ $typeKey }}' ? 'cp-plan-chip is-active' : 'cp-plan-chip'"
+                        data-draft-type="{{ $typeKey }}"
+                    >{{ $typeLabel }}</button>
+                @endforeach
+            </div>
+            <div class="cp-plan-draft__domain-filter" data-draft-domain-filter="1">
+                <span class="cp-plan-chips__label">{{ __('seo-content-ai::filament.projects.planning_domain_filter') }}</span>
+                <select
+                    class="cp-plan-inline-select cp-plan-inline-select--domain-filter"
+                    x-model="domainFilter"
+                    @change="setDomainFilter($event.target.value)"
+                    aria-label="{{ __('seo-content-ai::filament.projects.planning_domain_filter') }}"
+                >
+                    <option value="all">{{ __('seo-content-ai::filament.projects.planning_domain_filter_all') }}</option>
+                    <option value="0">{{ __('seo-content-ai::filament.projects.planning_domain_blank') }}</option>
+                    <template x-for="opt in siteOptions" :key="opt.value">
+                        <option :value="String(opt.value)" x-text="opt.label"></option>
+                    </template>
+                </select>
+            </div>
         </div>
     @endif
 
@@ -493,12 +741,13 @@
                         <tr>
                             <th class="w-10 px-4 py-2.5"></th>
                             <th class="px-3 py-2.5">{{ __('seo-content-ai::filament.projects.suggestions_col_article') }}</th>
-                            <th class="px-3 py-2.5">{{ __('seo-content-ai::filament.projects.planning_col_domain') }}</th>
+                            <th class="px-3 py-2.5 cp-plan-draft-table__col-domain">{{ __('seo-content-ai::filament.projects.planning_col_domain') }}</th>
                             <th class="px-3 py-2.5">{{ __('seo-content-ai::filament.projects.planning_col_keywords') }}</th>
                             <th class="px-3 py-2.5 cp-plan-draft-table__col-post-type">{{ __('seo-content-ai::filament.projects.planning_col_post_type') }}</th>
                             <th class="px-3 py-2.5">{{ __('seo-content-ai::filament.projects.suggestions_col_plan') }}</th>
                             <th class="px-3 py-2.5 w-20">{{ __('seo-content-ai::filament.projects.planning_col_review') }}</th>
                             <th class="px-3 py-2.5 cp-plan-draft-table__col-added">{{ __('seo-content-ai::filament.projects.planning_col_added') }}</th>
+                            <th class="px-3 py-2.5 cp-plan-draft-table__col-actions">{{ __('seo-content-ai::filament.projects.planning_col_actions') }}</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-100 dark:divide-white/5">
@@ -509,7 +758,7 @@
                                     <div class="cp-plan-article-cell">
                                         <div class="min-w-0 flex-1">
                                             <div class="font-medium text-gray-900 dark:text-gray-100">
-                                                {{ $ssrRow['title'] }}
+                                                {{ trim((string) ($ssrRow['title'] ?? '')) !== '' ? $ssrRow['title'] : '—' }}
                                                 <span class="cp-plan-seo-inline"> · SEO {{ $ssrRow['seo_score_label'] }}</span>
                                             </div>
                                             @if (($ssrRow['description'] ?? '') !== '')
@@ -524,7 +773,7 @@
                                         </div>
                                     </div>
                                 </td>
-                                <td class="px-3 py-3 align-top text-xs text-gray-600 dark:text-gray-300">
+                                <td class="px-3 py-3 align-top text-xs text-gray-600 dark:text-gray-300 cp-plan-draft-table__col-domain">
                                     {{ $ssrRow['domain'] ?? '—' }}
                                 </td>
                                 <td class="px-3 py-3 align-top text-sm text-gray-700 dark:text-gray-200">{{ $ssrRow['keyword'] }}</td>
@@ -534,10 +783,11 @@
                                 </td>
                                 <td class="px-3 py-3 align-top text-xs text-gray-500">{{ ! empty($ssrRow['planning_reviewed']) ? ($boot['labelReviewed'] ?? 'Reviewed') : ($boot['labelUnreviewed'] ?? 'Unreviewed') }}</td>
                                 <td class="px-3 py-3 align-top text-xs text-gray-500 cp-plan-draft-table__col-added" @if (($ssrRow['added_at'] ?? '') !== '') title="{{ $ssrRow['added_at'] }}" @endif>{{ $ssrRow['added_label'] }}</td>
+                                <td class="px-3 py-3 align-top cp-plan-draft-table__col-actions"></td>
                             </tr>
                         @endforeach
                         <template x-for="row in rows" :key="row.id">
-                            <tr x-show="!alpineReady || row.visible">
+                            <tr x-show="!alpineReady || row.visible" class="cp-plan-draft-table__row" :data-draft-plan="row.type">
                                 <td class="px-4 py-3 align-top">
                                     <input
                                         type="checkbox"
@@ -573,13 +823,13 @@
                                             </template>
                                             <template x-if="editing !== row.id + ':title'">
                                                 <div class="cp-plan-title-line">
-                                                    <template x-if="row.title_href">
+                                                    <template x-if="row.title_href && row.title">
                                                         <a :href="row.title_href" :target="row.title_external ? '_blank' : null" :rel="row.title_external ? 'noopener' : null" class="font-medium text-primary-600 hover:underline dark:text-primary-400" @dblclick.prevent="startEdit(row, 'title')" x-text="row.title"></a>
                                                     </template>
-                                                    <template x-if="!row.title_href">
-                                                        <span class="font-medium text-gray-900 dark:text-gray-100" @dblclick.prevent="startEdit(row, 'title')" x-text="row.title"></span>
+                                                    <template x-if="!row.title_href || !row.title">
+                                                        <span class="font-medium text-gray-900 dark:text-gray-100" @dblclick.prevent="startEdit(row, 'title')" x-text="row.title && String(row.title).trim() !== '' ? row.title : domainBlank"></span>
                                                     </template>
-                                                    <span class="cp-plan-seo-inline" x-text="' · ' + seoPrefix + ' ' + row.seo_score_label"></span>
+                                                    <span class="cp-plan-seo-inline" x-show="row.type !== 'create' || (row.seo_score_label && row.seo_score_label !== '—')" x-text="' · ' + seoPrefix + ' ' + row.seo_score_label"></span>
                                                 </div>
                                             </template>
 
@@ -608,24 +858,36 @@
                                                     <span x-text="' ' + row.product_description"></span>
                                                 </p>
                                             </template>
-
-                                            <div class="cp-plan-row-actions cp-plan-row-actions--under">
-                                                <template x-if="row.can_edit_article && row.article_edit_url">
-                                                    <a :href="row.article_edit_url" target="_blank" rel="noopener" class="cp-plan-row-action" x-text="labelEditArticle"></a>
-                                                </template>
-                                                <template x-if="row.can_open_public && row.article_public_url">
-                                                    <a :href="row.article_public_url" target="_blank" rel="noopener" class="cp-plan-row-action" x-text="labelOpenPublic"></a>
-                                                </template>
-                                                <template x-if="row.can_check_index && row.check_index_url">
-                                                    <a :href="row.check_index_url" target="_blank" rel="noopener" class="cp-plan-row-action" x-text="labelCheckIndex"></a>
-                                                </template>
-                                                <template x-if="row.can_skip_seo_audit">
-                                                    <button type="button" class="cp-plan-row-action cp-plan-row-action--warn" @click="skipRow(row)" x-text="labelSkipSeoAudit"></button>
-                                                </template>
-                                                <button type="button" class="cp-plan-row-action cp-plan-row-action--danger" @click="archiveRow(row)" x-text="labelRemove"></button>
-                                            </div>
                                         </div>
                                     </div>
+                                </td>
+                                <td class="px-3 py-3 align-top text-xs text-gray-700 dark:text-gray-200 cp-plan-draft-table__col-domain">
+                                    <template x-if="editingDomainId === row.id">
+                                        <select
+                                            class="cp-plan-inline-select cp-plan-inline-select--domain"
+                                            :data-domain-edit="row.id"
+                                            :value="row.site_id ? String(row.site_id) : ''"
+                                            :disabled="row.saving_domain"
+                                            :class="{ 'opacity-50 pointer-events-none': row.saving_domain }"
+                                            @change="changeDomain(row, $event)"
+                                            @keydown.escape.prevent="cancelDomainEdit()"
+                                            @blur="onDomainBlur(row)"
+                                            :aria-label="'{{ __('seo-content-ai::filament.projects.planning_col_domain') }}'"
+                                        >
+                                            <option value="">{{ __('seo-content-ai::filament.projects.planning_domain_blank') }}</option>
+                                            <template x-for="opt in siteOptions" :key="'d-' + opt.value">
+                                                <option :value="String(opt.value)" :selected="Number(row.site_id || 0) === Number(opt.value)" x-text="opt.label"></option>
+                                            </template>
+                                        </select>
+                                    </template>
+                                    <template x-if="editingDomainId !== row.id">
+                                        <span
+                                            class="cursor-default"
+                                            :title="domainEditHint"
+                                            @dblclick.prevent="startDomainEdit(row)"
+                                            x-text="row.domain || domainBlank"
+                                        ></span>
+                                    </template>
                                 </td>
                                 <td class="px-3 py-3 align-top text-xs text-gray-700 dark:text-gray-200">
                                     <template x-if="editing === row.id + ':keyword'">
@@ -648,7 +910,7 @@
                                         <select
                                             class="cp-plan-inline-select"
                                             :data-post-type-edit="row.id"
-                                            :value="row.post_type === 'product' ? 'product' : 'article'"
+                                            :value="row.post_type === 'product' ? 'product' : 'post'"
                                             :disabled="row.saving_post_type"
                                             :class="{ 'opacity-50 pointer-events-none': row.saving_post_type }"
                                             @change="changePostType(row, $event)"
@@ -657,7 +919,7 @@
                                             :aria-label="'{{ __('seo-content-ai::filament.projects.planning_col_post_type') }}'"
                                         >
                                             <template x-for="opt in postTypeSelectOptions(row)" :key="opt.value">
-                                                <option :value="opt.value" :selected="(row.post_type === 'product' ? 'product' : 'article') === opt.value" x-text="opt.label"></option>
+                                                <option :value="opt.value" :selected="(row.post_type === 'product' ? 'product' : 'post') === opt.value" x-text="opt.label"></option>
                                             </template>
                                         </select>
                                     </template>
@@ -693,6 +955,33 @@
                                     </button>
                                 </td>
                                 <td class="px-3 py-3 align-top text-xs text-gray-500 dark:text-gray-400 cp-plan-draft-table__col-added" :title="row.added_at || null" x-text="row.added_label"></td>
+                                <td class="px-3 py-3 align-top cp-plan-draft-table__col-actions">
+                                    <div class="cp-plan-row-actions">
+                                        <template x-if="row.can_clone_idea">
+                                            <button
+                                                type="button"
+                                                class="cp-plan-row-action"
+                                                :class="{ 'opacity-50 pointer-events-none': row.cloning }"
+                                                :disabled="row.cloning"
+                                                @click="cloneIdea(row)"
+                                                x-text="labelCloneIdea"
+                                            ></button>
+                                        </template>
+                                        <template x-if="row.can_edit_article && row.article_edit_url">
+                                            <a :href="row.article_edit_url" target="_blank" rel="noopener" class="cp-plan-row-action" x-text="labelEditArticle"></a>
+                                        </template>
+                                        <template x-if="row.can_open_public && row.article_public_url">
+                                            <a :href="row.article_public_url" target="_blank" rel="noopener" class="cp-plan-row-action" x-text="labelOpenPublic"></a>
+                                        </template>
+                                        <template x-if="row.can_check_index && row.check_index_url">
+                                            <a :href="row.check_index_url" target="_blank" rel="noopener" class="cp-plan-row-action" x-text="labelCheckIndex"></a>
+                                        </template>
+                                        <template x-if="row.can_skip_seo_audit">
+                                            <button type="button" class="cp-plan-row-action cp-plan-row-action--warn" @click="skipRow(row)" x-text="labelSkipSeoAudit"></button>
+                                        </template>
+                                        <button type="button" class="cp-plan-row-action cp-plan-row-action--danger" @click="archiveRow(row)" x-text="labelRemove"></button>
+                                    </div>
+                                </td>
                             </tr>
                         </template>
                     </tbody>

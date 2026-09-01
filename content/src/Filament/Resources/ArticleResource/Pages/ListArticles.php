@@ -323,7 +323,11 @@ class ListArticles extends ListRecords
                         return ArticleResource::applyOnlySkipSeoAuditScope($query);
                     }
 
-                    ArticleResource::applyExcludeSkipSeoAuditScope($query);
+                    // Posts = full WP inventory (include skip_seo_audit + approved/archived).
+                    // Skipped / Reviewed remain specialized work queues; Categories / Queue stay lean.
+                    if ($this->contentTab !== self::TAB_POSTS) {
+                        ArticleResource::applyExcludeSkipSeoAuditScope($query);
+                    }
 
                     if ($this->contentTab === self::TAB_CATEGORIES) {
                         return ArticleResource::appendArticlesInCategoryCountSelect($query);
@@ -337,7 +341,7 @@ class ListArticles extends ListRecords
                         return ArticleResource::applyApprovedReviewScope($query)->whereNotNull('articles.reviewed_at');
                     }
 
-                    if (in_array($this->contentTab, [self::TAB_POSTS, self::TAB_CATEGORIES, self::TAB_QUEUE], true)) {
+                    if (in_array($this->contentTab, [self::TAB_CATEGORIES, self::TAB_QUEUE], true)) {
                         ArticleResource::applyWpSyncQueueUnreviewedScope($query);
                     }
 

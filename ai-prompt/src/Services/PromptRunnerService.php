@@ -75,7 +75,7 @@ class PromptRunnerService
         $imageTool = ImageToolType::fromMixed($toolType);
         $profile = $this->profileResolver->resolve($prompt, (string) ($prompt->hook_key ?? ''), $toolType);
 
-        $routingContext = $this->routingContextForPrompt($prompt, $connection, $imageTool->isImagePipeline());
+        $routingContext = $this->routingContextForPrompt($prompt, $connection, $imageTool->isImagePipeline(), $variables);
         $candidate = $this->aiModelRouter->resolve($profile->value, $routingContext);
         $connection = $candidate->connection;
 
@@ -331,6 +331,7 @@ class PromptRunnerService
             $prompt,
             $connection,
             ImageToolType::fromMixed($toolType)->isImagePipeline(),
+            $variables,
         );
         $candidate = $this->aiModelRouter->resolve($profile->value, $routingContext);
         $connection = $candidate->connection;
@@ -428,6 +429,7 @@ class PromptRunnerService
             $prompt,
             $connection,
             ImageToolType::fromMixed($toolType)->isImagePipeline(),
+            $variables,
         );
 
         if (ImageToolType::fromMixed($toolType)->isImagePipeline()) {
@@ -1312,12 +1314,23 @@ class PromptRunnerService
         return $this->geminiClient->generate($connection, $prompt, $model);
     }
 
-    private function routingContextForPrompt(SeoPrompt $prompt, ?ApiConnection $connection, bool $isImagePipeline): AiRoutingContext
-    {
+    /**
+     * @param  array<string, mixed>  $variables
+     */
+    private function routingContextForPrompt(
+        SeoPrompt $prompt,
+        ?ApiConnection $connection,
+        bool $isImagePipeline,
+        array $variables = [],
+    ): AiRoutingContext {
         unset($isImagePipeline);
         // Modern hooks: AI Center model order is SSOT. Prompt-level
         // routing_family_key / usage_mode must not filter or reorder candidates.
         // legacyConnection remains last-resort only when resolveAll has no targets.
+        $preferredModelId = (int) ($variables['_item_model_override_id'] ?? 0);
+        $modelMode = strtolower(trim((string) ($variables['_item_model_override_mode'] ?? '')));
+        $generationMode = trim((string) ($variables['_item_generation_mode'] ?? ''));
+
         return new AiRoutingContext(
             userId: app(AiRoutingOwnerResolver::class)->resolve(
                 explicitUserId: null,
@@ -1329,6 +1342,9 @@ class PromptRunnerService
             usageModeOverride: null,
             allowedFamilyKeys: null,
             costPolicy: AiCostPolicyScope::current(),
+            preferredModelId: $preferredModelId > 0 ? $preferredModelId : null,
+            requirePreferredModel: $preferredModelId > 0 && $modelMode === 'required',
+            itemGenerationMode: $generationMode !== '' ? $generationMode : null,
         );
     }
 

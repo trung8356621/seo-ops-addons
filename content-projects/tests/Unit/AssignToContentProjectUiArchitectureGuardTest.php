@@ -29,6 +29,10 @@ final class AssignToContentProjectUiArchitectureGuardTest extends TestCase
         self::assertSame('heroicon-o-folder-plus', AssignToContentProjectContract::ICON);
         self::assertSame('warning', AssignToContentProjectContract::COLOR);
         self::assertSame('vocabulary_items', AssignToContentProjectContract::MODE_VOCABULARY_ITEMS);
+        self::assertSame(
+            'seo-content-ai::filament.article_list.add_to_draft',
+            AssignToContentProjectContract::LABEL_KEY,
+        );
     }
 
     public function test_canonical_drawer_view_owned_by_content_addon(): void
@@ -71,6 +75,13 @@ final class AssignToContentProjectUiArchitectureGuardTest extends TestCase
         self::assertStringNotContainsString('x-show="$wire.open"', $drawerBlade);
         self::assertStringNotContainsString('inset-y-0 left-0', $drawerBlade);
         self::assertStringNotContainsString('items-center justify-center p-4 sm:p-6', $drawerBlade);
+        // Add-to-Draft: no execution project picker / article type / quick-create.
+        self::assertStringNotContainsString('sidebar_project_label', $drawerBlade);
+        self::assertStringNotContainsString('wire:model.live="projectId"', $drawerBlade);
+        self::assertStringNotContainsString('projectIdBySite', $drawerBlade);
+        self::assertStringNotContainsString('wire:click="quickCreate"', $drawerBlade);
+        self::assertStringNotContainsString('quickCreateOpen', $drawerBlade);
+        self::assertStringNotContainsString('article_type', $drawerBlade);
     }
 
     public function test_trigger_merges_extra_click_without_duplicate_alpine_attribute(): void
@@ -261,16 +272,39 @@ final class AssignToContentProjectUiArchitectureGuardTest extends TestCase
         self::assertSame('Beta Title', $payload['items'][1]['title']);
     }
 
-    public function test_vocabulary_sidebar_assigns_inline_without_canonical_drawer(): void
+    public function test_vocabulary_sidebar_adds_to_draft_without_project_picker(): void
     {
         $source = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content/resources/js/components/ArticleVocabularySidebar.jsx'
         );
-        self::assertStringContainsString('assignVocabularyItemsToContentProject', $source);
-        self::assertStringContainsString('wp-article-vocabulary-project-select', $source);
+        self::assertStringContainsString('addVocabularyItemsToDraft', $source);
+        self::assertStringContainsString('vocabulary_add_to_draft', $source);
+        self::assertStringNotContainsString('wp-article-vocabulary-project-select', $source);
         self::assertStringNotContainsString('openAssignToContentProject', $source);
         self::assertStringNotContainsString('openAssignToContentProjectDrawer', $source);
         self::assertStringNotContainsString('MODE_VOCABULARY_ITEMS', $source);
+
+        $editArticle = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/src/Filament/Resources/ArticleResource/Pages/EditArticle.php'
+        );
+        self::assertStringContainsString('function addVocabularyItemsToDraft', $editArticle);
+        self::assertStringContainsString('PlanningDraftIntakeService', $editArticle);
+    }
+
+    public function test_drawer_routes_through_planning_draft_intake_service(): void
+    {
+        $drawer = (string) file_get_contents(
+            (new ReflectionClass(AssignToContentProjectDrawer::class))->getFileName()
+        );
+        self::assertStringContainsString('PlanningDraftIntakeService', $drawer);
+        self::assertStringContainsString('->addArticles(', $drawer);
+        self::assertStringContainsString('->addKeywords(', $drawer);
+        self::assertStringContainsString('->addPendingLink(', $drawer);
+        self::assertStringContainsString('->addVocabularyPhrases(', $drawer);
+        self::assertStringContainsString('shouldAutoSubmitAfterPrepare', $drawer);
+        self::assertStringContainsString('preflightOpen', $drawer);
+        self::assertStringNotContainsString('ArticleResource::assignArticlesFromFormData', $drawer);
+        self::assertStringNotContainsString('executeAssignKeywordsToContentProjects', $drawer);
     }
 
     public function test_keyword_detail_opens_assign_via_window_event_not_mount_action(): void
@@ -282,6 +316,8 @@ final class AssignToContentProjectUiArchitectureGuardTest extends TestCase
         self::assertStringContainsString("source: 'keyword_detail'", $source);
         self::assertStringContainsString('assign-content-project:shell-open', $source);
         self::assertStringContainsString('assign-content-project:shell-close', $source);
+        self::assertStringContainsString('dataset.articleSiteId', $source);
+        self::assertStringNotContainsString('data-keyword-detail-footer-edit', $source);
         self::assertStringNotContainsString("mountAction', 'assignToContentProject'", $source);
         self::assertStringNotContainsString("mountAction', 'assignArticleToContentProject'", $source);
     }

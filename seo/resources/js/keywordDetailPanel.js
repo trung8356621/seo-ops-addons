@@ -154,7 +154,6 @@ function createKeywordDetailPanel(root, config) {
     const contentEl = root.querySelector('[data-keyword-detail-content]');
     const quickActionsEl = root.querySelector('[data-keyword-detail-quick-actions]');
     const footerEl = root.querySelector('[data-keyword-detail-footer]');
-    const footerEditBtn = root.querySelector('[data-keyword-detail-footer-edit]');
     const editBtn = root.querySelector('[data-keyword-detail-edit]');
     const analyzeBtn = root.querySelector('[data-keyword-detail-analyze]');
     const deleteBtn = root.querySelector('[data-keyword-detail-delete]');
@@ -175,10 +174,9 @@ function createKeywordDetailPanel(root, config) {
         const hasAnalyze = analyzeBtn && !analyzeBtn.classList.contains('hidden');
         const hasEdit = editBtn && !editBtn.classList.contains('hidden');
         const hasDelete = deleteBtn && !deleteBtn.classList.contains('hidden');
-        const hasFooterEdit = footerEditBtn && !footerEditBtn.classList.contains('hidden');
 
         quickActionsEl?.classList.toggle('hidden', !(hasEdit || hasDelete));
-        footerEl?.classList.toggle('hidden', !(hasFooterEdit || hasAnalyze));
+        footerEl?.classList.toggle('hidden', !hasAnalyze);
     }
 
     function setAnalyzeButton(contentAnalysisUrl) {
@@ -209,9 +207,6 @@ function createKeywordDetailPanel(root, config) {
     function setActionsVisibility({ canEdit, canDelete }) {
         if (editBtn) {
             editBtn.classList.toggle('hidden', !canEdit);
-        }
-        if (footerEditBtn) {
-            footerEditBtn.classList.toggle('hidden', !canEdit);
         }
         if (deleteBtn) {
             deleteBtn.classList.toggle('hidden', !canDelete);
@@ -409,10 +404,6 @@ function createKeywordDetailPanel(root, config) {
     });
 
     // Plain button — avoid Filament Alpine/wire:loading rewriting class every Livewire tick.
-    footerEditBtn?.addEventListener('click', () => {
-        resolveLivewireComponent(config)?.call('editSelectedKeyword');
-    });
-
     analyzeBtn?.addEventListener('click', (event) => {
         if (analyzeBtn.classList.contains('is-disabled') || analyzeBtn.getAttribute('aria-disabled') === 'true') {
             event.preventDefault();
@@ -431,20 +422,21 @@ function createKeywordDetailPanel(root, config) {
             event.preventDefault();
 
             const articleId = Number(assignArticleButton.dataset.assignArticle);
+            const siteId = Number(assignArticleButton.dataset.articleSiteId || 0);
             if (!Number.isFinite(articleId) || articleId <= 0) {
                 return;
             }
 
-            // Client-side open — avoid Filament mountAction morph resetting this panel.
+            // Pass exact article identity — never current topic/global site.
             openAssignFromDetail({
                 mode: 'article',
                 source: 'keyword_detail',
                 article_ids: [articleId],
+                site_ids: Number.isFinite(siteId) && siteId > 0 ? [siteId] : [],
                 options: {
-                    show_quick_create: true,
-                    show_article_fields: true,
-                    show_keyword_override: true,
-                    show_title_override: true,
+                    detect_missing_focus_keyword: true,
+                    show_quick_create: false,
+                    show_article_fields: false,
                 },
             });
 
@@ -506,9 +498,31 @@ function bindLivewireEventsOnce() {
         panelController?.restoreLayoutOpenClass?.();
     });
 
-    window.addEventListener('assign-content-project:success', () => {
-        // Keep Keyword Detail mounted; optional badge refresh can be added later.
+    window.addEventListener('assign-content-project:success', (event) => {
+        // Keep Keyword Detail mounted; update targeted card state without full refresh.
         panelController?.restoreLayoutOpenClass?.();
+
+        const detail = event?.detail && typeof event.detail === 'object' ? event.detail : {};
+        const articleIds = Array.isArray(detail.article_ids)
+            ? detail.article_ids.map((id) => Number(id)).filter((id) => Number.isFinite(id) && id > 0)
+            : [];
+        if (articleIds.length === 0) {
+            return;
+        }
+
+        const panel = document.querySelector('[data-keyword-detail-panel]');
+        if (!panel) {
+            return;
+        }
+
+        const inDraftLabel = 'In Draft';
+        articleIds.forEach((articleId) => {
+            panel.querySelectorAll(`[data-assign-article="${articleId}"]`).forEach((btn) => {
+                btn.setAttribute('title', inDraftLabel);
+                btn.setAttribute('aria-label', inDraftLabel);
+                btn.dataset.inDraft = '1';
+            });
+        });
     });
 }
 

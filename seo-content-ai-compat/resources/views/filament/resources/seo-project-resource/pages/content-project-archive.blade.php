@@ -48,6 +48,35 @@
         </div>
 
         @if ($activeTab === 'projects')
+            @php
+                $monthOptions = $this->getPlanningMonthOptions();
+                $domainChart = $this->getArchivedDomainChart();
+                $writerChart = $this->getArchivedWriterChart();
+            @endphp
+
+            <div class="mb-2 flex flex-wrap items-center gap-2">
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-200" for="archive-planning-month">
+                    {{ __('seo-content-ai::filament.projects.planning_month') }}:
+                </label>
+                <x-select
+                    id="archive-planning-month"
+                    wire:model.live="planningMonth"
+                    size="inline"
+                    class="min-w-[8.5rem] text-sm"
+                >
+                    @foreach ($monthOptions as $option)
+                        <option value="{{ $option['value'] }}">{{ $option['label'] }}</option>
+                    @endforeach
+                </x-select>
+            </div>
+
+            <x-seo-content-ai::content-project-month-charts
+                :domain-chart="$domainChart"
+                :writer-chart="$writerChart"
+                domain-empty-key="seo-content-ai::filament.projects.chart_archived_domain_empty"
+                writer-empty-key="seo-content-ai::filament.projects.chart_archived_writer_empty"
+            />
+
             <div class="w-full space-y-4" x-data="{ filtersOpen: false }">
                 <div class="flex w-full flex-col gap-3 sm:flex-row sm:items-center">
                     <div class="min-w-0 flex-1">
@@ -64,24 +93,38 @@
                         </form>
                     </div>
 
-                    <button
-                        type="button"
-                        class="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50 dark:text-gray-200 dark:ring-gray-600 dark:hover:bg-gray-800"
-                        @click="filtersOpen = !filtersOpen"
-                        :aria-expanded="filtersOpen.toString()"
-                    >
-                        <x-filament::icon icon="heroicon-o-funnel" class="h-4 w-4" />
-                        @if ($activeFilterCount > 0)
-                            {{ __('seo-content-ai::filament.projects.archive_filters_with_count', ['count' => $activeFilterCount]) }}
-                        @else
-                            {{ __('seo-content-ai::filament.projects.archive_filters') }}
-                        @endif
-                        <x-filament::icon
-                            icon="heroicon-m-chevron-down"
-                            class="h-4 w-4 transition-transform"
-                            x-bind:class="filtersOpen ? 'rotate-180' : ''"
-                        />
-                    </button>
+                    <div class="flex shrink-0 flex-wrap items-center justify-end gap-2">
+                        <button
+                            type="button"
+                            wire:click="exportMonth"
+                            wire:loading.attr="disabled"
+                            wire:target="exportMonth"
+                            class="inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-primary-700 ring-1 ring-primary-300 hover:bg-primary-50 disabled:opacity-50 dark:text-primary-300 dark:ring-primary-500/40 dark:hover:bg-primary-500/10"
+                        >
+                            <x-filament::loading-indicator class="h-4 w-4" wire:loading wire:target="exportMonth" />
+                            <span wire:loading.remove wire:target="exportMonth">{{ __('seo-content-ai::filament.projects.archive_export_month') }}</span>
+                            <span wire:loading wire:target="exportMonth">{{ __('seo-content-ai::filament.projects.archive_export_month_running') }}</span>
+                        </button>
+
+                        <button
+                            type="button"
+                            class="inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50 dark:text-gray-200 dark:ring-gray-600 dark:hover:bg-gray-800"
+                            @click="filtersOpen = !filtersOpen"
+                            :aria-expanded="filtersOpen.toString()"
+                        >
+                            <x-filament::icon icon="heroicon-o-funnel" class="h-4 w-4" />
+                            @if ($activeFilterCount > 0)
+                                {{ __('seo-content-ai::filament.projects.archive_filters_with_count', ['count' => $activeFilterCount]) }}
+                            @else
+                                {{ __('seo-content-ai::filament.projects.archive_filters') }}
+                            @endif
+                            <x-filament::icon
+                                icon="heroicon-m-chevron-down"
+                                class="h-4 w-4 transition-transform"
+                                x-bind:class="filtersOpen ? 'rotate-180' : ''"
+                            />
+                        </button>
+                    </div>
                 </div>
 
                 <div
@@ -173,18 +216,17 @@
 
                 <x-seo-content-ai::list-table-loading-shell
                     preset="livewire-page"
-                    targets="search,applySearch,clearSearch,siteFilter,monthFilter,yearFilter,ownerFilter,archivedByFilter,clearFilters,setActiveTab"
+                    targets="search,applySearch,clearSearch,siteFilter,monthFilter,yearFilter,ownerFilter,archivedByFilter,clearFilters,setActiveTab,exportMonth"
                 >
                 <div class="w-full overflow-x-auto rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
                     <table class="w-full min-w-full table-fixed divide-y divide-gray-200 text-sm dark:divide-gray-700">
                         <thead class="bg-gray-50 dark:bg-gray-800/60">
                             <tr>
-                                <th class="w-[22%] px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">{{ __('seo-content-ai::filament.projects.name') }}</th>
-                                <th class="w-[12%] px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">{{ __('seo-content-ai::filament.projects.owner') }}</th>
-                                <th class="w-[14%] px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">{{ __('seo-content-ai::filament.article_list.domain') }}</th>
+                                <th class="w-[26%] px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">{{ __('seo-content-ai::filament.projects.name') }}</th>
+                                <th class="w-[14%] px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">{{ __('seo-content-ai::filament.projects.owner') }}</th>
                                 <th class="w-[8%] px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">{{ __('seo-content-ai::filament.projects.month') }}</th>
                                 <th class="w-[6%] px-3 py-2 text-right font-medium text-gray-600 dark:text-gray-300">{{ __('seo-content-ai::filament.projects.archive_col_total') }}</th>
-                                <th class="w-[12%] px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">{{ __('seo-content-ai::filament.projects.archive_col_index') }}</th>
+                                <th class="w-[14%] px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">{{ __('seo-content-ai::filament.projects.archive_col_index') }}</th>
                                 <th class="w-[10%] px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">{{ __('seo-content-ai::filament.projects.archive_col_archived_at') }}</th>
                                 <th class="w-[10%] px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">{{ __('seo-content-ai::filament.projects.archive_col_archived_by') }}</th>
                                 <th class="w-[16%] px-3 py-2 text-right font-medium text-gray-600 dark:text-gray-300"></th>
@@ -195,7 +237,6 @@
                                 @php
                                     $ownerName = trim((string) ($archive->owner?->name ?? ''));
                                     $archivedByName = trim((string) ($archive->archivedByUser?->name ?? ''));
-                                    $domain = trim((string) ($archive->site?->domain ?? ''));
                                     $month = (int) ($archive->project_month ?? 0);
                                     $year = (int) ($archive->project_year ?? 0);
                                     $period = ($month > 0 && $year > 0) ? sprintf('%02d/%d', $month, $year) : '—';
@@ -205,7 +246,6 @@
                                 <tr wire:key="archive-row-{{ $archive->id }}">
                                     <td class="truncate px-3 py-2 font-semibold text-gray-950 dark:text-white" title="{{ $archive->project_name ?: '' }}">{{ $archive->project_name ?: '—' }}</td>
                                     <td class="truncate px-3 py-2 text-gray-700 dark:text-gray-200" title="{{ $ownerName }}">{{ $ownerName !== '' ? $ownerName : '—' }}</td>
-                                    <td class="truncate px-3 py-2 text-gray-700 dark:text-gray-200" title="{{ $domain }}">{{ $domain !== '' ? $domain : '—' }}</td>
                                     <td class="px-3 py-2 text-gray-700 dark:text-gray-200">{{ $period }}</td>
                                     <td class="px-3 py-2 text-right tabular-nums text-gray-700 dark:text-gray-200">{{ $listTotal }}</td>
                                     <td class="px-3 py-2 text-gray-700 dark:text-gray-200">
@@ -269,7 +309,7 @@
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="9" class="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                                    <td colspan="8" class="px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
                                         {{ __('seo-content-ai::filament.projects.archive_projects_empty') }}
                                     </td>
                                 </tr>

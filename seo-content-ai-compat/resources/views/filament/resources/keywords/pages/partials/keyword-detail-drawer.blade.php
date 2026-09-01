@@ -81,15 +81,6 @@
             </div>
 
             <footer data-keyword-detail-footer class="keyword-detail-drawer__footer hidden">
-                <button
-                    type="button"
-                    data-keyword-detail-footer-edit
-                    class="keyword-detail-drawer__footer-btn keyword-detail-drawer__footer-btn--edit hidden"
-                >
-                    <x-filament::icon icon="heroicon-m-pencil-square" class="h-5 w-5" />
-                    {{ __('seo-content-ai::filament.keyword.drawer_edit_article') }}
-                </button>
-
                 <a
                     data-keyword-detail-analyze
                     href="#"

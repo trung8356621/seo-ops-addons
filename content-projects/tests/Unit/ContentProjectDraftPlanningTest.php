@@ -90,12 +90,14 @@ final class ContentProjectDraftPlanningTest extends TestCase
         self::assertSame([], $decision->eligibleTaskIds);
     }
 
-    public function test_default_draft_name_has_no_month(): void
+    public function test_default_draft_name_is_shared_not_per_domain(): void
     {
         $name = SeoProject::defaultDraftName('example.com');
-        self::assertStringContainsString('example.com', $name);
+        self::assertSame('Planning Draft', $name);
+        self::assertStringNotContainsString('example.com', $name);
         self::assertStringNotContainsString('2026', $name);
         self::assertDoesNotMatchRegularExpression('/\d{1,2}\/\d{4}/', $name);
+        self::assertSame(SeoProject::defaultDraftName(), SeoProject::defaultDraftName('other.com'));
     }
 
     public function test_check_index_url_encoding(): void

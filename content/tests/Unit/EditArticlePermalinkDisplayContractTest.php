@@ -19,6 +19,7 @@ final class EditArticlePermalinkDisplayContractTest extends TestCase
         self::assertStringContainsString('function permalinksAreEquivalent(string $left, string $right): bool', $source);
         self::assertStringContainsString('function normalizePermalinkForCompare(string $url): string', $source);
         self::assertStringContainsString("'wordpress_permalink' => trim(\$this->getObservedWordPressPermalink())", $source);
+        self::assertStringContainsString("'wordpressPermalink' => trim(\$this->getObservedWordPressPermalink())", $source);
         self::assertStringContainsString("meta_key', 'wp_permalink'", $source);
     }
 

@@ -48,7 +48,8 @@ trait PersistsDomainPromptContext
         $ctx = is_array($formState['promptContext'] ?? null) ? $formState['promptContext'] : [];
 
         $this->pendingPromptContext = [
-            'tone' => trim((string) ($ctx['tone'] ?? '')),
+            // Domain tone UI removed — preserve legacy meta; generation ignores it.
+            'tone' => null,
             'company_short_identity' => trim((string) ($ctx['company_short_identity'] ?? '')),
             'short_description' => (string) ($ctx['short_description'] ?? ''),
             'cta_intro' => (string) ($ctx['cta_intro'] ?? ''),
@@ -68,7 +69,13 @@ trait PersistsDomainPromptContext
         }
 
         try {
-            app(SiteDomainPromptContextService::class)->saveForSite($site, $this->pendingPromptContext);
+            $existing = app(SiteDomainPromptContextService::class)->getRawPayloadForSite($site);
+            $payload = $this->pendingPromptContext;
+            // Never wipe legacy domain tone from a form that no longer edits it.
+            if (($payload['tone'] ?? null) === null) {
+                $payload['tone'] = trim((string) ($existing['tone'] ?? ''));
+            }
+            app(SiteDomainPromptContextService::class)->saveForSite($site, $payload);
             // Save-fast: persist manual links to SiteLinkCatalog only — NEVER keyword sync / parse / crawl.
             app(\Omnichannel\Addons\SiteSync\Services\Reconciliation\SiteLinkCatalogReconciler::class)
                 ->syncManualLinksFromSettings($site, $this->pendingPromptContext['links'] ?? []);

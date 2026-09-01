@@ -20,8 +20,9 @@ final class KeywordLinkDetailPanelPresenter
     /**
      * @return list<array<string, mixed>>
      */
-    public function buildItems(Keyword $keyword): array
+    public function buildItems(Keyword $keyword, ?int $siteId = null): array
     {
+        $siteId = $this->resolveViewSiteId($keyword, $siteId);
         $domainMap = KeywordResource::siteSelectOptions();
         $maps = $keyword->relationLoaded('linkMaps')
             ? $keyword->linkMaps
@@ -41,10 +42,14 @@ final class KeywordLinkDetailPanelPresenter
             }
 
             $sourceArticle = $map->sourceArticle;
-            $siteId = (int) ($sourceArticle?->site_id ?? 0);
-            $domain = trim((string) ($domainMap[$siteId] ?? ''));
-            if ($domain === '' && $siteId > 0) {
-                $domain = '#'.$siteId;
+            $sourceSiteId = (int) ($sourceArticle?->site_id ?? 0);
+            if ($siteId > 0 && $sourceSiteId > 0 && $sourceSiteId !== $siteId) {
+                continue;
+            }
+
+            $domain = trim((string) ($domainMap[$sourceSiteId] ?? ''));
+            if ($domain === '' && $sourceSiteId > 0) {
+                $domain = '#'.$sourceSiteId;
             }
 
             $targetUrl = $this->resolveTargetUrl($map);
@@ -52,6 +57,25 @@ final class KeywordLinkDetailPanelPresenter
             $network = SeoLinkMapNetworkStatusPresenter::present($httpStatus, $map->status);
             $linkType = $map->link_type instanceof SeoLinkMapType ? $map->link_type : SeoLinkMapType::Internal;
             $weakContext = $this->hasWeakContext($map);
+            $targetArticle = $map->relationLoaded('targetArticle') ? $map->targetArticle : null;
+
+            // Cross-site targets must not appear as internal resolved articles for this keyword site.
+            if (
+                $targetArticle instanceof SeoArticle
+                && $siteId > 0
+                && (int) ($targetArticle->site_id ?? 0) !== $siteId
+            ) {
+                if ($linkType === SeoLinkMapType::Internal) {
+                    $linkType = SeoLinkMapType::External;
+                }
+                $targetArticle = null;
+            }
+
+            $resolvedArticle = $targetArticle instanceof SeoArticle ? $targetArticle : null;
+            $resolvedArticleId = $resolvedArticle instanceof SeoArticle ? (int) $resolvedArticle->id : 0;
+            $canAddResolved = $resolvedArticle instanceof SeoArticle
+                && SeoAccessControl::canMutateInSeoPanel()
+                && ! ArticleResource::articleIsContentArchived($resolvedArticle);
 
             $items[] = [
                 'id' => (int) $map->id,
@@ -61,6 +85,16 @@ final class KeywordLinkDetailPanelPresenter
                 'source_edit_url' => $sourceArticle instanceof SeoArticle
                     ? ArticleResource::getUrl('edit', ['record' => $sourceArticle->id])
                     : null,
+                'source_article_id' => $sourceArticle instanceof SeoArticle ? (int) $sourceArticle->id : null,
+                'source_site_id' => $sourceArticle instanceof SeoArticle ? (int) ($sourceArticle->site_id ?? 0) : 0,
+                'target_article_id' => $targetArticle instanceof SeoArticle ? (int) $targetArticle->id : null,
+                'target_site_id' => $targetArticle instanceof SeoArticle ? (int) ($targetArticle->site_id ?? 0) : 0,
+                'resolved_article_id' => $resolvedArticleId > 0 ? $resolvedArticleId : null,
+                'resolved_site_id' => $resolvedArticle instanceof SeoArticle ? (int) ($resolvedArticle->site_id ?? 0) : 0,
+                'resolved_edit_url' => $resolvedArticleId > 0
+                    ? ArticleResource::getUrl('edit', ['record' => $resolvedArticleId])
+                    : null,
+                'can_add_to_draft' => $canAddResolved && $resolvedArticleId > 0,
                 'target_url' => $targetUrl,
                 'target_label' => KeywordResource::formatLinkShorthand($targetUrl),
                 'anchor_text' => (string) $map->anchor_text,
@@ -90,8 +124,9 @@ final class KeywordLinkDetailPanelPresenter
      *     content_project_url: string|null
      * }>
      */
-    public function buildLinkedSourceArticles(Keyword $keyword): array
+    public function buildLinkedSourceArticles(Keyword $keyword, ?int $siteId = null): array
     {
+        $siteId = $this->resolveViewSiteId($keyword, $siteId);
         $resolver = app(KeywordLinkTargetResolver::class);
         $maps = $keyword->relationLoaded('linkMaps')
             ? $keyword->linkMaps
@@ -102,9 +137,18 @@ final class KeywordLinkDetailPanelPresenter
                 ])
                 ->get();
 
-        $focusArticleIds = $keyword->relationLoaded('mainArticles')
-            ? $keyword->mainArticles->pluck('id')->map(static fn (mixed $id): int => (int) $id)
-            : collect($keyword->mainArticleId() !== null ? [$keyword->mainArticleId()] : []);
+        $focusArticles = $siteId > 0
+            ? $keyword->mainArticlesForSite($siteId)
+            : ($keyword->relationLoaded('mainArticles')
+                ? $keyword->mainArticles
+                : collect($keyword->mainArticleId() !== null
+                    ? SeoArticle::query()->whereKey($keyword->mainArticleId())->get()
+                    : []));
+
+        $focusArticleIds = $focusArticles
+            ->map(static fn (mixed $row): int => $row instanceof SeoArticle ? (int) $row->id : 0)
+            ->filter(static fn (int $id): bool => $id > 0)
+            ->values();
 
         $items = [];
         $seen = [];
@@ -116,6 +160,10 @@ final class KeywordLinkDetailPanelPresenter
 
             $sourceArticle = $map->sourceArticle;
             if (! $sourceArticle instanceof SeoArticle) {
+                continue;
+            }
+
+            if ($siteId > 0 && (int) ($sourceArticle->site_id ?? 0) !== $siteId) {
                 continue;
             }
 
@@ -137,29 +185,31 @@ final class KeywordLinkDetailPanelPresenter
             );
         }
 
-        if ($keyword->relationLoaded('mainArticles')) {
-            foreach ($keyword->mainArticles as $focusArticle) {
-                if (! $focusArticle instanceof SeoArticle) {
-                    continue;
-                }
-
-                $articleId = (int) $focusArticle->id;
-                if (isset($seen[$articleId])) {
-                    continue;
-                }
-
-                $seen[$articleId] = true;
-                $title = trim((string) ($focusArticle->title ?? ''))
-                    ?: KeywordResource::resolveLinkMapSourceLabel($focusArticle);
-
-                $items[] = $this->presentLinkedSourceArticle(
-                    $focusArticle,
-                    $articleId,
-                    $title,
-                    $resolver,
-                    true,
-                );
+        foreach ($focusArticles as $focusArticle) {
+            if (! $focusArticle instanceof SeoArticle) {
+                continue;
             }
+
+            if ($siteId > 0 && (int) ($focusArticle->site_id ?? 0) !== $siteId) {
+                continue;
+            }
+
+            $articleId = (int) $focusArticle->id;
+            if (isset($seen[$articleId])) {
+                continue;
+            }
+
+            $seen[$articleId] = true;
+            $title = trim((string) ($focusArticle->title ?? ''))
+                ?: KeywordResource::resolveLinkMapSourceLabel($focusArticle);
+
+            $items[] = $this->presentLinkedSourceArticle(
+                $focusArticle,
+                $articleId,
+                $title,
+                $resolver,
+                true,
+            );
         }
 
         return $items;
@@ -171,8 +221,10 @@ final class KeywordLinkDetailPanelPresenter
      *     title: string,
      *     wp_url: string|null,
      *     edit_url: string|null,
+     *     site_id: int,
      *     is_focus: bool,
      *     can_assign_content_project: bool,
+     *     in_draft: bool,
      *     content_project_url: string|null
      * }
      */
@@ -184,14 +236,17 @@ final class KeywordLinkDetailPanelPresenter
         bool $isFocus,
     ): array {
         $canAssign = $this->canAssignLinkedArticleToContentProject($article);
+        $inProject = ArticleResource::articleIsInContentProject($article);
 
         return [
             'id' => $articleId,
             'title' => $title,
             'wp_url' => $resolver->resolveArticlePublicUrl($article),
             'edit_url' => ArticleResource::getUrl('edit', ['record' => $articleId]),
+            'site_id' => (int) ($article->site_id ?? 0),
             'is_focus' => $isFocus,
-            'can_assign_content_project' => $canAssign,
+            'can_assign_content_project' => $canAssign || $inProject,
+            'in_draft' => $inProject,
             'content_project_url' => $canAssign ? null : ArticleResource::articleContentProjectUrl($article),
         ];
     }
@@ -273,5 +328,14 @@ final class KeywordLinkDetailPanelPresenter
         $parts = array_values(array_filter(explode('.', $domain)));
 
         return strtoupper(substr($parts[0] ?? $domain, 0, 2));
+    }
+
+    private function resolveViewSiteId(Keyword $keyword, ?int $siteId): int
+    {
+        if ($siteId !== null && $siteId > 0) {
+            return $siteId;
+        }
+
+        return (int) (KeywordResource::resolveKeywordSiteId($keyword) ?? 0);
     }
 }

@@ -342,6 +342,23 @@
                     </div>
 
                     <div class="cp-ops-dialog__scroll">
+                        <div class="mb-4">
+                            <label class="mb-1 block text-sm font-medium text-gray-700 dark:text-gray-200" for="draft-split-target-month">
+                                {{ __('seo-content-ai::filament.projects.draft_split_target_month') }}
+                            </label>
+                            <x-select
+                                id="draft-split-target-month"
+                                wire:model.live="draftSplitTargetMonth"
+                                size="inline"
+                                class="min-w-[10rem] text-sm"
+                                data-split-field="target_month"
+                            >
+                                @foreach ($this->getDraftSplitTargetMonthOptions() as $option)
+                                    <option value="{{ $option['value'] }}">{{ $option['label'] }}</option>
+                                @endforeach
+                            </x-select>
+                        </div>
+
                         <div class="cp-draft-split-layout">
                             <fieldset class="cp-draft-split-pane space-y-2" data-split-pane="items">
                                 <legend class="text-sm font-medium text-gray-700 dark:text-gray-200">
@@ -392,7 +409,7 @@
 
                                 <div
                                     wire:loading.flex
-                                    wire:target="draftSplitQuantity,draftSplitMode,excludeDraftSplitWriter,includeDraftSplitWriter"
+                                    wire:target="draftSplitQuantity,draftSplitMode,draftSplitTargetMonth,excludeDraftSplitWriter,includeDraftSplitWriter"
                                     class="cp-draft-split-writers min-h-[12rem] flex-col justify-center gap-1.5"
                                     data-split-writers-loading="1"
                                     aria-live="polite"
@@ -405,7 +422,7 @@
 
                                 <div
                                     wire:loading.remove
-                                    wire:target="draftSplitQuantity,draftSplitMode,excludeDraftSplitWriter,includeDraftSplitWriter"
+                                    wire:target="draftSplitQuantity,draftSplitMode,draftSplitTargetMonth,excludeDraftSplitWriter,includeDraftSplitWriter"
                                     class="cp-draft-split-writers min-h-[12rem]"
                                     data-split-writers="1"
                                 >

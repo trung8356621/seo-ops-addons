@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource\Forms;
 
-use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
 use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
 use Omnichannel\Addons\SearchFoundation\Services\SiteMcp\SiteMcpContactDiscovery;
 use Omnichannel\Addons\SearchFoundation\Services\SiteMcp\SiteMcpDraft;
@@ -48,15 +47,8 @@ final class DomainTechnicalSeoForm
         return Forms\Components\Section::make(__('seo-content-ai::filament.domain.domain_settings'))
             ->description(__('seo-content-ai::filament.domain.domain_settings_description'))
             ->schema([
-                Forms\Components\Select::make('tone')
-                    ->label(__('seo-content-ai::filament.domain.domain_tone'))
-                    ->helperText(__('seo-content-ai::filament.domain.domain_tone_hint'))
-                    ->options(fn (Get $get): array => app(SeoPromptSettingsService::class)
-                        ->toneOfVoiceSelectOptions((string) $get('tone')))
-                    ->searchable()
-                    ->native(false)
-                    ->placeholder(__('seo-content-ai::filament.domain.domain_tone_placeholder'))
-                    ->columnSpanFull(),
+                // Domain default tone removed — article generation uses Content Project Item
+                // Automatic variety / tone_override. Legacy meta tone is ignored at runtime.
                 Forms\Components\Textarea::make('cta_intro')
                     ->label(__('seo-content-ai::filament.domain.cta_instructions'))
                     ->helperText(__('seo-content-ai::filament.domain.cta_instructions_hint'))

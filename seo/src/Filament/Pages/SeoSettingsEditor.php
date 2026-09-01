@@ -58,7 +58,6 @@ class SeoSettingsEditor extends Page implements HasForms
                     ->schema([
                         Forms\Components\TextInput::make('history_step')
                             ->label(__('seo-content-ai::filament.settings_editor.history_step'))
-                            ->hintAction(HelpUi::fieldHintAction('settings.editor.history_autosave', null, 'history_step'))
                             ->numeric()
                             ->minValue(1)
                             ->maxValue(100)
@@ -66,7 +65,6 @@ class SeoSettingsEditor extends Page implements HasForms
                             ->default(ArticleEditorHistoryService::DEFAULT_HISTORY_STEP),
                         Forms\Components\TextInput::make('autosave_interval_seconds')
                             ->label(__('seo-content-ai::filament.settings_editor.autosave_interval'))
-                            ->hintAction(HelpUi::fieldHintAction('settings.editor.history_autosave', null, 'autosave'))
                             ->numeric()
                             ->minValue(0)
                             ->maxValue(30)
@@ -80,7 +78,6 @@ class SeoSettingsEditor extends Page implements HasForms
                     ->schema([
                         Forms\Components\Textarea::make('wiki_trust_domains_text')
                             ->label(__('seo-content-ai::filament.settings_editor.wiki_trust_domains'))
-                            ->hintAction(HelpUi::fieldHintAction('settings.editor.wiki_trust', null, 'domains'))
                             ->rows(8)
                             ->required()
                             ->columnSpanFull(),
@@ -92,8 +89,7 @@ class SeoSettingsEditor extends Page implements HasForms
                             ->label(__('seo-content-ai::filament.settings_overview.faq_keywords_label'))
                             ->rows(10)
                             ->required()
-                            ->columnSpanFull()
-                            ->hintAction(HelpUi::fieldHintAction('settings.editor.faq_catch', null, 'keywords')),
+                            ->columnSpanFull(),
                     ]),
             ])
             ->statePath('editorSettingsData');

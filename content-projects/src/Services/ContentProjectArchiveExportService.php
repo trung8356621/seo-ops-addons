@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\ContentProjects\Services;
 
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectArchive;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectArchiveItem;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemDomainResolver;
 use Omnichannel\Addons\Seo\Support\ExcelFormulaEscaper;
 use App\Support\RuntimeLogger;
 use Illuminate\Support\Carbon;
@@ -53,6 +54,7 @@ final class ContentProjectArchiveExportService
     /** @var array<string, string> */
     private const ARTICLE_LIST_COLUMNS = [
         'position' => 'STT',
+        'domain' => 'Domain',
         'title' => 'Tiêu đề',
         'slug' => 'Slug',
         'primary_keyword' => 'Từ khóa chính',
@@ -69,6 +71,10 @@ final class ContentProjectArchiveExportService
         'completed_at' => 'Ngày hoàn thành',
         'last_saved_at' => 'Lần cuối lưu',
     ];
+
+    public function __construct(
+        private readonly ContentProjectItemDomainResolver $domainResolver,
+    ) {}
 
     public function download(SeoProjectArchive $archive): StreamedResponse|Response
     {
@@ -110,12 +116,15 @@ final class ContentProjectArchiveExportService
 
     private function writeWorkbookToOutput(SeoProjectArchive $archive): void
     {
+        [$domainBySiteId, $unresolvedCount] = $this->domainResolver->preloadDomains($archive->items);
+
         RuntimeLogger::info('content_project_archive_exported', [
             'project_id' => (int) ($archive->project_id ?? 0),
             'archive_id' => (int) $archive->getKey(),
             'user_id' => auth()->id(),
             'total_articles' => (int) ($archive->total_articles ?? $archive->articles_count ?? 0),
             'domain_id' => (int) ($archive->site_id ?? 0),
+            'unresolved_item_site_id_count' => $unresolvedCount,
         ]);
 
         $options = new Options();
@@ -126,15 +135,23 @@ final class ContentProjectArchiveExportService
 
         $headerStyle = (new Style())->setFontBold();
 
-        $this->writeOverviewSheet($writer, $archive, $headerStyle);
-        $this->writeArticleListSheet($writer, $archive, $headerStyle);
+        $this->writeOverviewSheet($writer, $archive, $headerStyle, $domainBySiteId);
+        $this->writeArticleListSheet($writer, $archive, $headerStyle, $domainBySiteId);
         $this->writeSeoAuditSheet($writer, $archive, $headerStyle);
         $this->writeWordPressSyncSheet($writer, $archive, $headerStyle);
 
         $writer->close();
     }
 
-    private function writeOverviewSheet(Writer $writer, SeoProjectArchive $archive, Style $headerStyle): void
+    /**
+     * @param  array<int, string>  $domainBySiteId
+     */
+    private function writeOverviewSheet(
+        Writer $writer,
+        SeoProjectArchive $archive,
+        Style $headerStyle,
+        array $domainBySiteId,
+    ): void
     {
         $sheet = $writer->getCurrentSheet();
         $sheet->setName('Tổng quan');
@@ -145,14 +162,22 @@ final class ContentProjectArchiveExportService
             $headerStyle,
         ));
 
-        foreach ($this->buildOverviewRows($archive) as [$label, $value]) {
+        foreach ($this->buildOverviewRows($archive, $domainBySiteId) as [$label, $value]) {
             $writer->addRow(Row::fromValues(
                 ExcelFormulaEscaper::escapeRow([$label, $this->stringifyCellValue($value)]),
             ));
         }
     }
 
-    private function writeArticleListSheet(Writer $writer, SeoProjectArchive $archive, Style $headerStyle): void
+    /**
+     * @param  array<int, string>  $domainBySiteId
+     */
+    private function writeArticleListSheet(
+        Writer $writer,
+        SeoProjectArchive $archive,
+        Style $headerStyle,
+        array $domainBySiteId,
+    ): void
     {
         $sheet = $writer->addNewSheetAndMakeItCurrent();
         $sheet->setName('Danh sách bài viết');
@@ -175,6 +200,12 @@ final class ContentProjectArchiveExportService
             $row = [];
 
             foreach (array_keys(self::ARTICLE_LIST_COLUMNS) as $column) {
+                if ($column === 'domain') {
+                    $row[] = $this->domainResolver->labelForItem($item, $domainBySiteId);
+
+                    continue;
+                }
+
                 $row[] = $this->stringifyCellValue($this->articleField($data, $item, $column));
             }
 
@@ -267,9 +298,10 @@ final class ContentProjectArchiveExportService
     }
 
     /**
+     * @param  array<int, string>  $domainBySiteId
      * @return list<array{0: string, 1: mixed}>
      */
-    private function buildOverviewRows(SeoProjectArchive $archive): array
+    private function buildOverviewRows(SeoProjectArchive $archive, array $domainBySiteId): array
     {
         $summary = is_array($archive->summary_snapshot) ? $archive->summary_snapshot : [];
         $usedKeys = [];
@@ -279,7 +311,8 @@ final class ContentProjectArchiveExportService
                 $archive->project_name,
                 $summary['project_name'] ?? null,
             ])],
-            ['Domain', $this->resolveDomain($archive)],
+            // Domain list from items only — never a single project.site_id.
+            ['Domain', $this->resolveItemDomainsOverview($archive, $domainBySiteId)],
             ['Tháng', $this->firstNonEmpty([
                 $archive->project_month,
                 $summary['month'] ?? null,
@@ -438,16 +471,40 @@ final class ContentProjectArchiveExportService
 
     private function resolveDomain(SeoProjectArchive $archive): string
     {
+        // Filename fallback only — never treat archive/project site_id as item Domain SoT.
         $summary = is_array($archive->summary_snapshot) ? $archive->summary_snapshot : [];
 
         $domain = $this->firstNonEmpty([
             $summary['domain_name'] ?? null,
             $summary['domain'] ?? null,
             $summary['site_domain'] ?? null,
-            $archive->site?->domain,
+            $archive->project_name,
         ]);
 
         return is_string($domain) ? trim($domain) : '';
+    }
+
+    /**
+     * Unique domains from archive items (task.site_id). No project.site_id fallback.
+     *
+     * @param  array<int, string>  $domainBySiteId
+     */
+    private function resolveItemDomainsOverview(SeoProjectArchive $archive, array $domainBySiteId): string
+    {
+        $labels = [];
+        foreach ($archive->items as $item) {
+            if (! $item instanceof SeoProjectArchiveItem) {
+                continue;
+            }
+
+            $label = $this->domainResolver->labelForItem($item, $domainBySiteId);
+            if ($label === '' || $label === ContentProjectItemDomainResolver::UNKNOWN) {
+                continue;
+            }
+            $labels[$label] = $label;
+        }
+
+        return implode(', ', array_values($labels));
     }
 
     /**

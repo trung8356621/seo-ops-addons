@@ -51,12 +51,16 @@ final class ContentProjectPostRunAutomationTest extends TestCase
             (new \ReflectionClass(ContentProjectPostRunPipeline::class))->getFileName() ?: '',
         );
 
-        self::assertStringContainsString('POST_TYPE_ARTICLE', $source);
+        self::assertStringContainsString('POST_TYPE_POST', $source);
         self::assertStringContainsString('isNewArticleType', $source);
 
         self::assertTrue($this->matchesPostTask(new SeoProjectTask([
             'type' => SeoProjectTask::TYPE_NEW_KEYWORD,
             'post_type' => SeoProjectTask::POST_TYPE_ARTICLE,
+        ])));
+        self::assertTrue($this->matchesPostTask(new SeoProjectTask([
+            'type' => SeoProjectTask::TYPE_NEW_KEYWORD,
+            'post_type' => SeoProjectTask::POST_TYPE_POST,
         ])));
         self::assertFalse($this->matchesPostTask(new SeoProjectTask([
             'type' => SeoProjectTask::TYPE_NEW_KEYWORD,
@@ -67,7 +71,7 @@ final class ContentProjectPostRunAutomationTest extends TestCase
     private function matchesPostTask(SeoProjectTask $task): bool
     {
         return SeoProjectTask::isNewArticleType($task->type)
-            && SeoProjectTask::normalizePostType($task->post_type) === SeoProjectTask::POST_TYPE_ARTICLE;
+            && SeoProjectTask::normalizePostType($task->post_type) === SeoProjectTask::POST_TYPE_POST;
     }
 
     public function test_section_analyzer_caps_at_three_sections(): void

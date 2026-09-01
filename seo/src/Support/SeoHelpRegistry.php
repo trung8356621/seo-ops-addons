@@ -111,10 +111,10 @@ final class SeoHelpRegistry
                         'title' => 'Các tab (Posts / Categories / Queue / Reviewed)',
                         'summary' => 'List Articles có nhiều tab nghiệp vụ.',
                         'steps' => [
-                            'Posts: danh sách bài chính.',
+                            'Posts: full WP inventory (gồm cả skipped / reviewed / archived).',
                             'Categories: quản lý danh mục WordPress đã sync.',
                             'Queue: theo dõi hàng đợi đồng bộ.',
-                            'Reviewed / Skipped: bài đã review SEO hoặc bỏ qua.',
+                            'Reviewed / Skipped: hàng đợi làm việc riêng — không cắt denominator tab Posts.',
                         ],
                     ],
                     [

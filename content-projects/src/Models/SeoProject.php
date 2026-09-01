@@ -142,13 +142,27 @@ class SeoProject extends Model
         return Carbon::now()->startOfMonth()->format('Y-m-d');
     }
 
+    /**
+     * Canonical Shared Planning Draft display name.
+     * Domain must NOT be bound into the Draft project name — items own site_id.
+     *
+     * @param  string|null  $domain  Ignored (legacy signature kept for callers).
+     */
     public static function defaultDraftName(?string $domain = null): string
     {
-        $domain = trim((string) $domain);
+        try {
+            $label = (string) __('seo-content-ai::filament.projects.content_planning_draft_label');
+            if (
+                $label !== ''
+                && $label !== 'seo-content-ai::filament.projects.content_planning_draft_label'
+            ) {
+                return $label;
+            }
+        } catch (\Throwable) {
+            // Pure PHPUnit / no translator.
+        }
 
-        return $domain !== ''
-            ? 'Content plan — '.$domain
-            : 'Content plan';
+        return 'Planning Draft';
     }
 
     /**

@@ -91,9 +91,7 @@ final class PromptTestPublishService
         }
 
         $h1Title = trim((string) ($import['h1_title'] ?? ''));
-        $title = $h1Title !== ''
-            ? $h1Title
-            : $this->resolveTitle($variables, $markdown, $article);
+        $title = $this->resolvePublishTitle($article, $variables, $markdown, $h1Title);
 
         $this->persistMetaDescription($article, $import['meta_description']);
 
@@ -356,6 +354,86 @@ final class PromptTestPublishService
         $slug = Str::slug($source);
 
         return $slug !== '' ? $slug : null;
+    }
+
+    /**
+     * Title lifecycle for Content Project items:
+     * - user / reviewed / generated (already set) → do not overwrite from AI H1
+     * - otherwise first successful AI title may land, then sticky as generated
+     *
+     * @param  array<string, mixed>  $variables
+     */
+    private function resolvePublishTitle(
+        SeoArticle $article,
+        array $variables,
+        string $markdown,
+        string $h1Title,
+    ): string {
+        $existingTitle = trim((string) ($article->title ?? ''));
+        $protect = (string) ($variables['_protect_article_title'] ?? '') === '1'
+            || in_array(
+                strtolower(trim((string) ($variables['_item_title_protection'] ?? ''))),
+                ['user', 'reviewed', 'generated'],
+                true,
+            );
+
+        if ($protect) {
+            $userTitle = trim((string) ($variables['post_title'] ?? ''));
+            $protection = strtolower(trim((string) ($variables['_item_title_protection'] ?? '')));
+            if (in_array($protection, ['user', 'reviewed'], true) && $userTitle !== '') {
+                return $userTitle;
+            }
+            if ($existingTitle !== '') {
+                return $existingTitle;
+            }
+        }
+
+        $title = $h1Title !== ''
+            ? $h1Title
+            : $this->resolveTitle($variables, $markdown, $article);
+
+        $this->persistGeneratedTitleProtection($variables, $title);
+
+        return $title;
+    }
+
+    /**
+     * @param  array<string, mixed>  $variables
+     */
+    private function persistGeneratedTitleProtection(array $variables, string $title): void
+    {
+        if ($title === '') {
+            return;
+        }
+
+        if ((string) ($variables['_protect_article_title'] ?? '') === '1') {
+            return;
+        }
+
+        $taskId = \Omnichannel\Addons\ContentProjects\Support\ProjectTaskOriginVariables::read($variables);
+        if ($taskId === null) {
+            return;
+        }
+
+        try {
+            $task = \Omnichannel\Addons\ContentProjects\Models\SeoProjectTask::query()->find($taskId);
+            if (! $task instanceof \Omnichannel\Addons\ContentProjects\Models\SeoProjectTask) {
+                return;
+            }
+            if (! \Illuminate\Support\Facades\Schema::connection($task->getConnectionName())
+                ->hasColumn($task->getTable(), 'title_protection')) {
+                return;
+            }
+            $current = trim((string) ($task->title_protection ?? ''));
+            if ($current !== '') {
+                return;
+            }
+            $task->forceFill([
+                'title_protection' => \Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemTitleProtection::Generated->value,
+            ])->saveQuietly();
+        } catch (\Throwable) {
+            // Title protection sticky is best-effort.
+        }
     }
 
     /**

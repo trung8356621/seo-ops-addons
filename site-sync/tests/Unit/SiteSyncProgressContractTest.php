@@ -49,6 +49,7 @@ final class SiteSyncProgressContractTest extends TestCase
         $src = (string) file_get_contents((new ReflectionClass(SiteSyncStatusPresenter::class))->getFileName());
         self::assertStringContainsString("'task_progress'", $src);
         self::assertStringContainsString("'steps'", $src);
+        self::assertStringContainsString("'macro_steps'", $src);
         self::assertStringContainsString("'elapsed_label'", $src);
         self::assertStringContainsString("'last_activity_label'", $src);
         self::assertStringContainsString('SiteSyncStepCatalog', $src);

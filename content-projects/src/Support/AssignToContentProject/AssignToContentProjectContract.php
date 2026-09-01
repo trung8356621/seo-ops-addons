@@ -37,7 +37,7 @@ final class AssignToContentProjectContract
     /** Batch planning phrases (Vocabulary → Lập kế hoạch). Creates TYPE_CREATE items only. */
     public const MODE_VOCABULARY_ITEMS = 'vocabulary_items';
 
-    public const LABEL_KEY = 'seo-content-ai::filament.article_list.assign_to_content_project';
+    public const LABEL_KEY = 'seo-content-ai::filament.article_list.add_to_draft';
 
     public static function label(): string
     {

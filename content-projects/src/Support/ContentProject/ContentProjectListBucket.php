@@ -94,24 +94,29 @@ final class ContentProjectListBucket
     }
 
     /**
+     * All Projects = active Shared Draft + active execution for selected month.
+     * Archived rows (including legacy Content plan — {domain}) belong only in Archived vault.
+     *
      * @param  Builder<SeoProject>  $query
      * @return Builder<SeoProject>
      */
     private static function applyAllBucket(Builder $query, ?string $monthDate): Builder
     {
+        // Never list archived shells in All — migration leftovers must not reappear here.
+        $query->whereNull('archived_at');
+
         if ($monthDate === null) {
             return $query;
         }
 
-        // Draft (shared pool) + any project/archived row for the selected execution month.
         return $query->where(function (Builder $builder) use ($monthDate): void {
             $builder
-                ->where(function (Builder $draft): void {
-                    $draft
-                        ->where('status', SeoProject::STATUS_DRAFT)
-                        ->whereNull('archived_at');
-                })
-                ->orWhereDate('month', $monthDate);
+                ->where('status', SeoProject::STATUS_DRAFT)
+                ->orWhere(function (Builder $exec) use ($monthDate): void {
+                    $exec
+                        ->where('status', '!=', SeoProject::STATUS_DRAFT)
+                        ->whereDate('month', $monthDate);
+                });
         });
     }
 

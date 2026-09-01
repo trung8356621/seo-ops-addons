@@ -55,16 +55,14 @@ class SeoSettingsOverview extends Page implements HasForms
                             ->label(__('seo-content-ai::filament.settings_overview.team_chat_extensions_label'))
                             ->rows(6)
                             ->required()
-                            ->columnSpanFull()
-                            ->hintAction(HelpUi::fieldHintAction('settings.general.team_chat', null, 'extensions')),
+                            ->columnSpanFull(),
                         Forms\Components\TextInput::make(SeoOverviewSettingsService::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB)
                             ->label(__('seo-content-ai::filament.settings_overview.team_chat_max_size_label'))
                             ->numeric()
                             ->minValue(1)
                             ->maxValue(100)
                             ->required()
-                            ->suffix('MB')
-                            ->hintAction(HelpUi::fieldHintAction('settings.general.team_chat', null, 'max_size')),
+                            ->suffix('MB'),
                     ])
                     ->columns(2),
             ])

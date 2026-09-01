@@ -93,7 +93,7 @@ export default function SeoScorePanel({
         return (
             <div className="seo-score-panel seo-assistant-score seo-assistant-score--unanalyzed">
                 <p className="seo-assistant-score__hint">
-                    {unavailableMessage || t('content_sync_required_seo')}
+                    {unavailableMessage || t('content_wp_loading')}
                 </p>
             </div>
         );

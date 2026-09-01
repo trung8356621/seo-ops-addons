@@ -229,13 +229,7 @@ final class UpdateContentProjectItemHandler extends AbstractPublishingHandler
             );
         }
 
-        $previous = trim((string) ($task->post_type ?? ''));
-        if ($previous === '') {
-            $previous = SeoProjectTask::POST_TYPE_ARTICLE;
-        }
-        if ($previous === 'post') {
-            $previous = SeoProjectTask::POST_TYPE_ARTICLE;
-        }
+        $previous = SeoProjectTask::normalizePostType($task->post_type ?? null);
 
         if ($previous === $normalized) {
             return ContentProjectActionResult::ok(
@@ -259,15 +253,15 @@ final class UpdateContentProjectItemHandler extends AbstractPublishingHandler
     }
 
     /**
-     * Strict planner editable post_type: article|post→article|product. Null = reject.
-     * Does NOT use {@see SeoProjectTask::normalizePostType()} (that silently maps unknowns to article).
+     * Strict planner editable post_type: article|post → post, product. Null = reject.
+     * Persists canonical {@see SeoProjectTask::POST_TYPE_POST} (never legacy `article`).
      */
     public static function normalizeEditablePlannerPostType(string $raw): ?string
     {
         $key = strtolower(trim($raw));
 
         return match ($key) {
-            SeoProjectTask::POST_TYPE_ARTICLE, 'post' => SeoProjectTask::POST_TYPE_ARTICLE,
+            SeoProjectTask::POST_TYPE_ARTICLE, SeoProjectTask::POST_TYPE_POST => SeoProjectTask::POST_TYPE_POST,
             SeoProjectTask::POST_TYPE_PRODUCT => SeoProjectTask::POST_TYPE_PRODUCT,
             default => null,
         };

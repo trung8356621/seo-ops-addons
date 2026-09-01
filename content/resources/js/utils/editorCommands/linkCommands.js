@@ -35,11 +35,15 @@ export function createLinkCommand(context, payload = {}) {
             historyPolicy: 'add',
             successCode: EDITOR_COMMAND_CODES.UPDATED,
             build: (ed) => {
+                const { from, to, empty } = ed.state.selection;
                 const chain = ed.chain().focus();
-                if (payload.extendMarkRange !== false && ed.isActive('link')) {
-                    chain.extendMarkRange('link');
+                if (empty) {
+                    if (payload.extendMarkRange !== false && ed.isActive('link')) {
+                        chain.extendMarkRange('link');
+                    }
+                    return chain.setLink(attrs).run();
                 }
-                return chain.setLink(attrs).run();
+                return chain.setTextSelection({ from, to }).unsetLink().setLink(attrs).run();
             },
         });
     });

@@ -33,14 +33,63 @@
     @endif
 
     @if ($open && is_array($preflight))
+    <style>
+        .site-sync-preflight__overlay {
+            position: fixed;
+            inset: 0;
+            z-index: 50;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgb(0 0 0 / 0.4);
+            padding: max(0.75rem, env(safe-area-inset-top, 0px))
+                max(0.75rem, env(safe-area-inset-right, 0px))
+                max(0.75rem, env(safe-area-inset-bottom, 0px))
+                max(0.75rem, env(safe-area-inset-left, 0px));
+            box-sizing: border-box;
+        }
+        .site-sync-preflight__shell {
+            display: flex;
+            flex-direction: column;
+            width: min(100%, 48rem);
+            max-height: calc(100vh - 24px);
+            max-height: calc(100dvh - 24px);
+            overflow: hidden;
+            border-radius: 0.75rem;
+            border: 1px solid rgb(229 231 235);
+            background: #fff;
+            box-shadow: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+        }
+        .dark .site-sync-preflight__shell {
+            border-color: rgb(55 65 81);
+            background: rgb(17 24 39);
+        }
+        .site-sync-preflight__header,
+        .site-sync-preflight__footer {
+            flex-shrink: 0;
+        }
+        .site-sync-preflight__footer-actions {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            gap: 0.5rem;
+        }
+        .site-sync-preflight__body {
+            flex: 1 1 auto;
+            min-height: 0;
+            overflow-y: auto;
+            overscroll-behavior: contain;
+            -webkit-overflow-scrolling: touch;
+        }
+    </style>
     <div
-        class="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+        class="site-sync-preflight__overlay"
         role="dialog"
         aria-modal="true"
         aria-labelledby="site-sync-preflight-title"
     >
-        <div class="flex max-h-[85vh] w-full max-w-2xl flex-col overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-gray-700 dark:bg-gray-900">
-            <div class="shrink-0 border-b border-gray-100 px-4 py-3 sm:px-5 dark:border-gray-800">
+        <div class="site-sync-preflight__shell">
+            <div class="site-sync-preflight__header border-b border-gray-100 px-4 py-3 sm:px-5 dark:border-gray-800">
             <div class="flex items-start justify-between gap-3">
                 <div>
                     <h3 id="site-sync-preflight-title" class="text-[15px] font-semibold text-gray-900 dark:text-gray-100">
@@ -60,7 +109,7 @@
             </div>
             </div>
 
-            <div class="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-5">
+            <div class="site-sync-preflight__body px-4 py-3 sm:px-5">
             <div class="mb-4 rounded-lg border border-gray-200 p-3 dark:border-gray-700">
                 <p class="mb-2 text-[13px] font-semibold text-gray-800 dark:text-gray-100">WordPress vs SEO Ops</p>
                 @if (! ($wp['available'] ?? false) && filled($wp['message'] ?? null))
@@ -170,8 +219,11 @@
                         <thead>
                             <tr class="border-b border-gray-200 text-left dark:border-gray-700">
                                 <th class="py-1.5 pr-3 font-semibold text-gray-500 dark:text-gray-400">Field</th>
-                                <th class="py-1.5 px-2 text-right font-semibold text-gray-500 dark:text-gray-400">Coverage</th>
-                                <th class="py-1.5 pl-2 text-right font-semibold text-gray-500 dark:text-gray-400">Missing</th>
+                                <th class="py-1.5 px-2 text-right font-semibold text-gray-500 dark:text-gray-400">Applicable</th>
+                                <th class="py-1.5 px-2 text-right font-semibold text-gray-500 dark:text-gray-400">Present</th>
+                                <th class="py-1.5 px-2 text-right font-semibold text-gray-500 dark:text-gray-400">Missing</th>
+                                <th class="py-1.5 px-2 text-right font-semibold text-gray-500 dark:text-gray-400">N/A</th>
+                                <th class="py-1.5 pl-2 text-right font-semibold text-gray-500 dark:text-gray-400">Source absent</th>
                             </tr>
                         </thead>
                         <tbody>
@@ -179,8 +231,10 @@
                                 @php
                                     $sev = (string) ($field['severity'] ?? 'green');
                                     $missing = (int) ($field['missing'] ?? 0);
-                                    $present = (int) ($field['present'] ?? 0);
-                                    $total = (int) ($field['total'] ?? 0);
+                                    $present = (int) ($field['raw_present'] ?? $field['present'] ?? 0);
+                                    $applicable = (int) ($field['applicable'] ?? $field['total'] ?? 0);
+                                    $na = (int) ($field['not_applicable'] ?? 0);
+                                    $sourceAbsent = (int) ($field['source_absent'] ?? 0);
                                     $dotClass = match ($sev) {
                                         'red' => 'bg-danger-500',
                                         'yellow' => 'bg-amber-500',
@@ -194,17 +248,18 @@
                                             {{ $field['label'] ?? $field['key'] ?? '' }}
                                         </span>
                                     </td>
-                                    <td class="py-1.5 px-2 text-right">
-                                        {{ number_format($present) }} / {{ number_format($total) }}
-                                    </td>
+                                    <td class="py-1.5 px-2 text-right">{{ number_format($applicable) }}</td>
+                                    <td class="py-1.5 px-2 text-right">{{ number_format($present) }}</td>
                                     <td @class([
-                                        'py-1.5 pl-2 text-right font-medium',
+                                        'py-1.5 px-2 text-right font-medium',
                                         'text-danger-700 dark:text-danger-300' => $sev === 'red' && $missing > 0,
                                         'text-amber-700 dark:text-amber-300' => $sev === 'yellow' && $missing > 0,
                                         'text-gray-500 dark:text-gray-400' => $missing === 0,
                                     ])>
                                         {{ number_format($missing) }}
                                     </td>
+                                    <td class="py-1.5 px-2 text-right text-gray-500 dark:text-gray-400">{{ number_format($na) }}</td>
+                                    <td class="py-1.5 pl-2 text-right text-gray-500 dark:text-gray-400">{{ number_format($sourceAbsent) }}</td>
                                 </tr>
                             @endforeach
                         </tbody>
@@ -288,19 +343,9 @@
             </details>
             </div>
 
-            <div class="shrink-0 border-t border-gray-100 px-4 py-3 sm:px-5 dark:border-gray-800">
-            <div class="flex flex-wrap gap-2">
+            <div class="site-sync-preflight__footer border-t border-gray-100 px-4 py-3 sm:px-5 dark:border-gray-800">
+            <div class="site-sync-preflight__footer-actions flex flex-wrap justify-end gap-2">
                 @if ($recommendFull)
-                    <x-filament::button
-                        type="button"
-                        color="warning"
-                        wire:click="confirmSiteSyncPreflightFull"
-                        wire:loading.attr="disabled"
-                        wire:target="confirmSiteSyncPreflightNormal,confirmSiteSyncPreflightFull"
-                    >
-                        <span wire:loading.remove wire:target="confirmSiteSyncPreflightFull">Đồng bộ toàn bộ</span>
-                        <span wire:loading wire:target="confirmSiteSyncPreflightFull">Đang xếp hàng…</span>
-                    </x-filament::button>
                     <x-filament::button
                         type="button"
                         color="gray"
@@ -310,6 +355,16 @@
                     >
                         <span wire:loading.remove wire:target="confirmSiteSyncPreflightNormal">Đồng bộ thay đổi</span>
                         <span wire:loading wire:target="confirmSiteSyncPreflightNormal">Đang xếp hàng…</span>
+                    </x-filament::button>
+                    <x-filament::button
+                        type="button"
+                        color="warning"
+                        wire:click="confirmSiteSyncPreflightFull"
+                        wire:loading.attr="disabled"
+                        wire:target="confirmSiteSyncPreflightNormal,confirmSiteSyncPreflightFull"
+                    >
+                        <span wire:loading.remove wire:target="confirmSiteSyncPreflightFull">Đồng bộ toàn bộ</span>
+                        <span wire:loading wire:target="confirmSiteSyncPreflightFull">Đang xếp hàng…</span>
                     </x-filament::button>
                 @else
                     <x-filament::button
@@ -333,14 +388,6 @@
                         <span wire:loading wire:target="confirmSiteSyncPreflightFull">Đang xếp hàng…</span>
                     </x-filament::button>
                 @endif
-                <x-filament::button
-                    type="button"
-                    color="gray"
-                    outlined
-                    wire:click="closeSiteSyncPreflight"
-                >
-                    Hủy
-                </x-filament::button>
             </div>
             </div>
         </div>

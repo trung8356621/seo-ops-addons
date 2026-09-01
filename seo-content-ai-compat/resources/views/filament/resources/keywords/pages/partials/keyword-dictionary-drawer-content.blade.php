@@ -1,20 +1,27 @@
 @php
     /** @var \Omnichannel\Addons\SearchFoundation\Models\Keyword $record */
     use Omnichannel\Addons\SearchFoundation\Support\KeywordLinkDetailPanelPresenter;
+    use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
     use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordClassificationVisibility;
     use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordTagResolver;
 
     $presenter = app(KeywordLinkDetailPanelPresenter::class);
     $resolver = app(KeywordTagResolver::class);
-    $linkItems = $presenter->buildItems($record);
-    $linkedArticles = collect($presenter->buildLinkedSourceArticles($record));
-    $internalLinks = collect($linkItems)->values();
+    $viewSiteId = (int) (KeywordResource::resolveKeywordSiteId($record) ?? 0);
+    $linkItems = $presenter->buildItems($record, $viewSiteId > 0 ? $viewSiteId : null);
+    $linkedArticles = collect($presenter->buildLinkedSourceArticles($record, $viewSiteId > 0 ? $viewSiteId : null));
+    $internalLinks = collect($linkItems)
+        ->filter(static fn (array $item): bool => ($item['link_type'] ?? '') === 'internal')
+        ->values();
     $clusterLabel = $resolver->clusterLabel($record);
     $classification = $record->seoClassification;
     $kind = KeywordClassificationVisibility::resolveKind($classification);
-    $siteDomain = $record->linkMaps->first()?->sourceArticle?->site?->domain
-        ?? $record->mainArticles->first()?->site?->domain
-        ?? '—';
+    $siteDomainOption = $viewSiteId > 0 ? (KeywordResource::siteSelectOptions()[$viewSiteId] ?? null) : null;
+    $siteDomain = is_string($siteDomainOption) && $siteDomainOption !== ''
+        ? $siteDomainOption
+        : ($record->linkMaps->first(fn ($m) => (int) ($m->sourceArticle?->site_id ?? 0) === $viewSiteId)?->sourceArticle?->site?->domain
+            ?? $record->mainArticlesForSite($viewSiteId)->first()?->site?->domain
+            ?? '—');
 @endphp
 
 <div class="keyword-dictionary-drawer">
@@ -137,28 +144,31 @@
                                 </span>
                             @endif
 
-                            @if ($article['can_assign_content_project'] ?? false)
-                                <button
-                                    type="button"
-                                    data-assign-article="{{ (int) ($article['id'] ?? 0) }}"
-                                    class="keyword-dictionary-drawer__project-icon keyword-dictionary-drawer__project-icon--assign"
-                                    title="{{ __('seo-content-ai::filament.article_list.assign_to_content_project') }}"
-                                    aria-label="{{ __('seo-content-ai::filament.article_list.assign_to_content_project') }}"
-                                >
-                                    <x-filament::icon icon="heroicon-m-folder-plus" class="h-4 w-4" />
-                                </button>
-                            @elseif (! empty($article['content_project_url']))
-                                <a
-                                    href="{{ $article['content_project_url'] }}"
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    class="keyword-dictionary-drawer__project-icon keyword-dictionary-drawer__project-icon--open"
-                                    title="{{ __('seo-content-ai::filament.article_edit.open_content_project') }}"
-                                    aria-label="{{ __('seo-content-ai::filament.article_edit.open_content_project') }}"
-                                >
-                                    <x-filament::icon icon="heroicon-m-folder-open" class="h-4 w-4" />
-                                </a>
-                            @endif
+                            <div class="keyword-dictionary-drawer__card-actions">
+                                @if (! empty($article['edit_url']))
+                                    <a
+                                        href="{{ $article['edit_url'] }}"
+                                        class="keyword-dictionary-drawer__project-icon keyword-dictionary-drawer__project-icon--edit"
+                                        title="{{ __('seo-content-ai::filament.keyword.drawer_edit_article') }}"
+                                        aria-label="{{ __('seo-content-ai::filament.keyword.drawer_edit_article') }}"
+                                    >
+                                        <x-filament::icon icon="heroicon-m-pencil-square" class="h-4 w-4" />
+                                    </a>
+                                @endif
+
+                                @if ($article['can_assign_content_project'] ?? false)
+                                    <button
+                                        type="button"
+                                        data-assign-article="{{ (int) ($article['id'] ?? 0) }}"
+                                        data-article-site-id="{{ (int) ($article['site_id'] ?? 0) }}"
+                                        class="keyword-dictionary-drawer__project-icon keyword-dictionary-drawer__project-icon--assign"
+                                        title="{{ ! empty($article['in_draft']) ? __('seo-content-ai::filament.article_list.already_in_draft') : __('seo-content-ai::filament.article_list.add_to_draft') }}"
+                                        aria-label="{{ __('seo-content-ai::filament.article_list.add_to_draft') }}"
+                                    >
+                                        <x-filament::icon icon="heroicon-o-folder-plus" class="h-4 w-4" />
+                                    </button>
+                                @endif
+                            </div>
                         </div>
                     </li>
                 @endforeach
@@ -193,10 +203,36 @@
                                 <p class="keyword-dictionary-drawer__list-meta">—</p>
                             @endif
                         </div>
-                        <span class="keyword-dictionary-drawer__list-badge ws-badge ws-badge--success ws-badge--status">
-                            <x-filament::icon icon="heroicon-m-check-circle" class="h-3 w-3" />
-                            {{ __('seo-content-ai::filament.keyword.link_status_active') }}
-                        </span>
+                        <div class="keyword-dictionary-drawer__list-aside">
+                            <span class="keyword-dictionary-drawer__list-badge ws-badge ws-badge--success ws-badge--status">
+                                <x-filament::icon icon="heroicon-m-check-circle" class="h-3 w-3" />
+                                {{ __('seo-content-ai::filament.keyword.link_status_active') }}
+                            </span>
+                            <div class="keyword-dictionary-drawer__card-actions">
+                                @if (! empty($item['resolved_edit_url']))
+                                    <a
+                                        href="{{ $item['resolved_edit_url'] }}"
+                                        class="keyword-dictionary-drawer__project-icon keyword-dictionary-drawer__project-icon--edit"
+                                        title="{{ __('seo-content-ai::filament.keyword.drawer_edit_article') }}"
+                                        aria-label="{{ __('seo-content-ai::filament.keyword.drawer_edit_article') }}"
+                                    >
+                                        <x-filament::icon icon="heroicon-m-pencil-square" class="h-4 w-4" />
+                                    </a>
+                                @endif
+                                @if ($item['can_add_to_draft'] ?? false)
+                                    <button
+                                        type="button"
+                                        data-assign-article="{{ (int) ($item['resolved_article_id'] ?? 0) }}"
+                                        data-article-site-id="{{ (int) ($item['resolved_site_id'] ?? 0) }}"
+                                        class="keyword-dictionary-drawer__project-icon keyword-dictionary-drawer__project-icon--assign"
+                                        title="{{ __('seo-content-ai::filament.article_list.add_to_draft') }}"
+                                        aria-label="{{ __('seo-content-ai::filament.article_list.add_to_draft') }}"
+                                    >
+                                        <x-filament::icon icon="heroicon-o-folder-plus" class="h-4 w-4" />
+                                    </button>
+                                @endif
+                            </div>
+                        </div>
                     </li>
                 @endforeach
             </ul>

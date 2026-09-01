@@ -40,7 +40,7 @@ final class KeywordWorkspaceLanguageStatsConsistencyTest extends TestCase
         $page = (string) file_get_contents(dirname(__DIR__, 2)
             .'/src/Filament/Resources/KeywordResource/Pages/KeywordTopicClusters.php');
 
-        $this->assertStringContainsString('topic_summary_seo_eligible', $blade);
+        $this->assertStringContainsString('topic_compact_stats_seo', $blade);
         $this->assertStringContainsString('topic_inventory_bar_label', $blade);
         $this->assertStringContainsString('seo_eligible_keywords', $blade);
         $this->assertStringContainsString('resolveKeywordLanguageFilterVariants', $page);

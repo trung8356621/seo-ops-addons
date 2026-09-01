@@ -4,6 +4,182 @@ body.global-help-modal-open {
     overflow: hidden;
 }
 
+/*
+ * Contextual Help affordance (React ContextHelpButton + Filament HelpUi).
+ * Secondary only — never compete with Save / primary actions.
+ */
+.seo-context-help-btn,
+button.seo-context-help-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 1.75rem; /* 28px hit area */
+    height: 1.75rem;
+    min-width: 1.75rem;
+    min-height: 1.75rem;
+    padding: 0;
+    margin: 0;
+    border-radius: 999px;
+    border: 1px solid transparent;
+    background: transparent !important;
+    box-shadow: none !important;
+    color: #94a3b8 !important;
+    cursor: pointer;
+    line-height: 1;
+    --c-400: 148, 163, 184;
+    --c-500: 148, 163, 184;
+    --c-600: 100, 116, 139;
+}
+
+.seo-context-help-btn svg,
+button.seo-context-help-btn svg {
+    width: 1rem; /* 16px */
+    height: 1rem;
+}
+
+.seo-context-help-btn:hover,
+.seo-context-help-btn:focus-visible,
+button.seo-context-help-btn:hover,
+button.seo-context-help-btn:focus-visible {
+    color: #059669 !important; /* brand green */
+    background: rgb(16 185 129 / 12%) !important;
+    border-color: rgb(16 185 129 / 28%);
+    outline: none;
+}
+
+.seo-context-help-btn:focus-visible,
+button.seo-context-help-btn:focus-visible {
+    outline: 2px solid rgb(16 185 129 / 45%);
+    outline-offset: 1px;
+}
+
+.dark .seo-context-help-btn,
+.dark button.seo-context-help-btn {
+    color: #64748b !important;
+}
+
+.dark .seo-context-help-btn:hover,
+.dark .seo-context-help-btn:focus-visible,
+.dark button.seo-context-help-btn:hover,
+.dark button.seo-context-help-btn:focus-visible {
+    color: #34d399 !important;
+    background: rgb(16 185 129 / 16%) !important;
+    border-color: rgb(16 185 129 / 35%);
+}
+
+/* Inline / field-level: slightly tighter, still icon-only */
+.seo-context-help-btn--field {
+    width: 1.5rem;
+    height: 1.5rem;
+    min-width: 1.5rem;
+    min-height: 1.5rem;
+}
+
+.seo-context-help-btn--field svg {
+    width: 0.875rem;
+    height: 0.875rem;
+}
+
+
+/*
+ * Contextual Help affordance (React ContextHelpButton + Filament HelpUi).
+ * Secondary: ghost/neutral by default; brand green only on hover/focus.
+ */
+.seo-context-help-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    width: 1.75rem;
+    height: 1.75rem;
+    padding: 0;
+    margin: 0;
+    border: 1px solid transparent;
+    border-radius: 999px;
+    background: transparent !important;
+    box-shadow: none !important;
+    color: #94a3b8;
+    cursor: pointer;
+    line-height: 1;
+    transition: color 0.12s ease, background-color 0.12s ease, border-color 0.12s ease;
+}
+
+.seo-context-help-btn svg {
+    width: 0.95rem;
+    height: 0.95rem;
+}
+
+.seo-context-help-btn:hover,
+.seo-context-help-btn:focus-visible {
+    color: #059669;
+    background: rgb(16 185 129 / 10%) !important;
+    border-color: rgb(16 185 129 / 28%);
+    outline: none;
+}
+
+.seo-context-help-btn:focus-visible {
+    outline: 2px solid rgb(16 185 129 / 45%);
+    outline-offset: 1px;
+}
+
+.dark .seo-context-help-btn {
+    color: #64748b;
+}
+
+.dark .seo-context-help-btn:hover,
+.dark .seo-context-help-btn:focus-visible {
+    color: #34d399;
+    background: rgb(16 185 129 / 14%) !important;
+    border-color: rgb(52 211 153 / 30%);
+}
+
+/* Inline / field-level — slightly tighter than card header */
+.seo-context-help-btn--field {
+    width: 1.35rem;
+    height: 1.35rem;
+}
+
+.seo-context-help-btn--field svg {
+    width: 0.875rem;
+    height: 0.875rem;
+}
+
+/* Filament iconButton inherits primary fill — force ghost */
+.fi-ac-action.seo-context-help-btn,
+.fi-icon-btn.seo-context-help-btn,
+button.seo-context-help-btn.fi-icon-btn {
+    --tw-ring-color: transparent;
+    background-color: transparent !important;
+    color: #94a3b8 !important;
+}
+
+.fi-ac-action.seo-context-help-btn:hover,
+.fi-icon-btn.seo-context-help-btn:hover,
+button.seo-context-help-btn.fi-icon-btn:hover,
+.fi-ac-action.seo-context-help-btn:focus-visible,
+.fi-icon-btn.seo-context-help-btn:focus-visible,
+button.seo-context-help-btn.fi-icon-btn:focus-visible {
+    color: #059669 !important;
+    background-color: rgb(16 185 129 / 10%) !important;
+}
+
+.dark .fi-ac-action.seo-context-help-btn,
+.dark .fi-icon-btn.seo-context-help-btn,
+.dark button.seo-context-help-btn.fi-icon-btn {
+    color: #64748b !important;
+}
+
+.dark .fi-ac-action.seo-context-help-btn:hover,
+.dark .fi-icon-btn.seo-context-help-btn:hover,
+.dark button.seo-context-help-btn.fi-icon-btn:hover,
+.dark .fi-ac-action.seo-context-help-btn:focus-visible,
+.dark .fi-icon-btn.seo-context-help-btn:focus-visible,
+.dark button.seo-context-help-btn.fi-icon-btn:focus-visible {
+    color: #34d399 !important;
+    background-color: rgb(16 185 129 / 14%) !important;
+}
+
 .global-help-topbar-host {
     display: inline-flex;
     align-items: center;

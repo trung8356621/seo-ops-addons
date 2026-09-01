@@ -12,14 +12,14 @@ import {
 } from '../utils/articleEditorContentLifecycle.js';
 
 describe('articleEditorContentLifecycle', () => {
-    it('A — WP linked + local missing → SYNC_REQUIRED', () => {
+    it('A — WP linked + local missing → CONTENT_LOADING (auto-fetch)', () => {
         const state = resolveContentLifecycleFromFacts({
             loadCompleted: true,
             wordpressLinked: true,
             localContentPresent: false,
         });
-        assert.equal(state, CONTENT_LIFECYCLE.SYNC_REQUIRED);
-        assert.equal(isContentSyncRequired(state), true);
+        assert.equal(state, CONTENT_LIFECYCLE.CONTENT_LOADING);
+        assert.equal(isContentSyncRequired(state), false);
         assert.equal(isContentLifecycleEditable(state), false);
     });
 
@@ -65,7 +65,7 @@ describe('articleEditorContentLifecycle', () => {
         assert.equal(isContentLifecycleEditable(state), false);
     });
 
-    it('normalizes bootstrap camelCase / snake_case', () => {
+    it('normalizes bootstrap camelCase / snake_case and maps SYNC_REQUIRED to CONTENT_LOADING', () => {
         const payload = normalizeContentLifecyclePayload({
             state: 'SYNC_REQUIRED',
             wordpressLinked: true,
@@ -74,7 +74,7 @@ describe('articleEditorContentLifecycle', () => {
             observedPermalink: 'https://example.com/post',
             allowFetchFromWordPress: true,
         });
-        assert.equal(payload.state, 'SYNC_REQUIRED');
+        assert.equal(payload.state, 'CONTENT_LOADING');
         assert.equal(payload.wordpress_linked, true);
         assert.equal(payload.wp_post_id, 99);
         assert.equal(payload.observed_permalink, 'https://example.com/post');

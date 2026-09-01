@@ -58,7 +58,7 @@
     <x-filament-panels::page>
     <div class="seo-domain-overview">
         {{-- API Key --}}
-        <x-filament::section>
+        <x-filament::section class="seo-domain-overview__section">
             <x-slot name="heading">{{ __('API Key') }}</x-slot>
             <x-slot name="description">
                 {{ __('Read token & Migration token. Bấm icon mắt để hiển thị; focus ô input để tự copy.') }}
@@ -78,31 +78,21 @@
             @if(($api['platform'] ?? '') !== 'wordpress')
                 <p class="text-sm text-gray-500">{{ __('Nền tảng không dùng token WordPress.') }}</p>
             @else
-                <div class="seo-api-key-layout">
-                    <div class="seo-api-key-layout__tokens space-y-4">
-                        @include('seo-content-ai::filament.resources.domain-resource.pages.partials.api-token-field', [
-                            'label' => __('Read token'),
-                            'plain' => ($this->tokensUnlocked && $this->readTokenVisible) ? $plainTokens['read_token'] : '',
-                            'visible' => $this->readTokenVisible,
-                            'unlocked' => $this->tokensUnlocked,
-                            'field' => 'read',
-                        ])
-                        @include('seo-content-ai::filament.resources.domain-resource.pages.partials.api-token-field', [
-                            'label' => __('Migration token'),
-                            'plain' => ($this->tokensUnlocked && $this->migrationTokenVisible) ? $plainTokens['migration_token'] : '',
-                            'visible' => $this->migrationTokenVisible,
-                            'unlocked' => $this->tokensUnlocked,
-                            'field' => 'migration',
-                        ])
-                    </div>
-
-                    <div class="seo-api-key-layout__aside items-start content-start">
-                        @include('seo-content-ai::filament.resources.domain-resource.pages.partials.wp-plugin-bridge-status', [
-                            'status' => $wpPluginStatus,
-                            'site' => $site,
-                        ])
-                        @include('seo-content-ai::filament.resources.domain-resource.pages.partials.site-health-card')
-                    </div>
+                <div class="seo-api-key-layout__tokens space-y-4">
+                    @include('seo-content-ai::filament.resources.domain-resource.pages.partials.api-token-field', [
+                        'label' => __('Read token'),
+                        'plain' => ($this->tokensUnlocked && $this->readTokenVisible) ? $plainTokens['read_token'] : '',
+                        'visible' => $this->readTokenVisible,
+                        'unlocked' => $this->tokensUnlocked,
+                        'field' => 'read',
+                    ])
+                    @include('seo-content-ai::filament.resources.domain-resource.pages.partials.api-token-field', [
+                        'label' => __('Migration token'),
+                        'plain' => ($this->tokensUnlocked && $this->migrationTokenVisible) ? $plainTokens['migration_token'] : '',
+                        'visible' => $this->migrationTokenVisible,
+                        'unlocked' => $this->tokensUnlocked,
+                        'field' => 'migration',
+                    ])
                 </div>
 
                 @if($this->showPasswordPrompt)
@@ -144,21 +134,35 @@
             @endif
         </x-filament::section>
 
+        @if(($api['platform'] ?? '') === 'wordpress')
+            <x-filament::section class="seo-domain-overview__section">
+                <x-slot name="heading">Connection</x-slot>
+                <x-slot name="description">Platform, bridge version, and connection health.</x-slot>
+                @include('seo-content-ai::filament.resources.domain-resource.pages.partials.wp-plugin-bridge-status', [
+                    'status' => $wpPluginStatus,
+                    'site' => $site,
+                ])
+            </x-filament::section>
+
+            <x-filament::section class="seo-domain-overview__section">
+                <x-slot name="heading">Website operations</x-slot>
+                <x-slot name="description">Publishing, Site Sync, SEO data, and links at a glance.</x-slot>
+                @include('seo-content-ai::filament.resources.domain-resource.pages.partials.site-health-card')
+            </x-filament::section>
+        @endif
+
         @if(! $synced)
-            <x-filament::section class="border-amber-200 dark:border-amber-500/40">
+            <x-filament::section class="seo-domain-overview__section border-amber-200 dark:border-amber-500/40">
                 <x-slot name="heading">{{ __('Đồng bộ') }}</x-slot>
                 <x-slot name="description">
                     {{ __('Website chưa có dữ liệu trong kho SEO. Chạy đồng bộ từ WordPress.') }}
                 </x-slot>
-                @include('seo-content-ai::filament.resources.domain-resource.pages.partials.domain-sync-actions', [
-                    'showTest' => \Omnichannel\Addons\Seo\Support\SeoAccessControl::canAccessManagerFeatures()
-                        && \Omnichannel\Addons\Seo\Support\SeoAccessControl::canMutateInSeoPanel(),
-                ])
+                @include('seo-content-ai::filament.resources.domain-resource.pages.partials.domain-sync-actions')
             </x-filament::section>
         @else
             <div class="seo-domain-overview__grid seo-domain-overview__grid--2">
                 {{-- Chấm điểm SEO --}}
-                <x-filament::section>
+                <x-filament::section class="seo-domain-overview__section">
                     <x-slot name="heading">{{ __('Chấm điểm SEO') }}</x-slot>
                     <x-slot name="description">
                         {{ __('Phân bố điểm sau đồng bộ (Rank Math / Yoast + rule nội bộ).') }}
@@ -178,7 +182,7 @@
                 </x-filament::section>
 
                 {{-- Thống kê đồng bộ + nút --}}
-                <x-filament::section>
+                <x-filament::section class="seo-domain-overview__section">
                     <x-slot name="heading">{{ __('Thống kê đồng bộ') }}</x-slot>
                     <x-slot name="description">{{ __('Số lượng theo type trên kho nội dung SEO.') }}</x-slot>
 
@@ -250,15 +254,12 @@
                         @endif
                     </div>
 
-                    @include('seo-content-ai::filament.resources.domain-resource.pages.partials.domain-sync-actions', [
-                        'showTest' => \Omnichannel\Addons\Seo\Support\SeoAccessControl::canAccessManagerFeatures()
-                            && \Omnichannel\Addons\Seo\Support\SeoAccessControl::canMutateInSeoPanel(),
-                    ])
+                    @include('seo-content-ai::filament.resources.domain-resource.pages.partials.domain-sync-actions')
                 </x-filament::section>
             </div>
 
             {{-- Internal link --}}
-            <x-filament::section>
+            <x-filament::section class="seo-domain-overview__section">
                 <x-slot name="heading">{{ __('Internal link') }}</x-slot>
                 <x-slot name="description">{{ __('Từ khóa và URL được trích xuất từ nội dung bài viết đã chấm SEO.') }}</x-slot>
 
@@ -332,7 +333,7 @@
             </x-filament::section>
 
             {{-- Official Site MCP summary — draft generator lives on Edit Domain --}}
-            <x-filament::section>
+            <x-filament::section class="seo-domain-overview__section">
                 <x-slot name="heading">{{ __('Site MCP — Knowledge Profile') }}</x-slot>
                 <x-slot name="description">
                     {{ __('Official Knowledge Profile (tone, mô tả, CTA, links). Generate draft + so sánh nằm ở trang Edit Domain.') }}

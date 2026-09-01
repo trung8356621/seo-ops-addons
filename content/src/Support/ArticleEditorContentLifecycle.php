@@ -9,7 +9,10 @@ use Omnichannel\Addons\Content\Services\ArticleEditor\Document\ArticleEditorDocu
 
 /**
  * Content lifecycle for Article Editor — distinguishes missing local snapshot
- * from a legitimately empty new article. Does not auto-fetch WordPress.
+ * from a legitimately empty new article.
+ *
+ * WP-backed + no body/cache → CONTENT_LOADING (client auto-fetches WP JSON).
+ * SYNC_REQUIRED is retired from the happy path (legacy alias only).
  */
 final class ArticleEditorContentLifecycle
 {
@@ -49,7 +52,7 @@ final class ArticleEditorContentLifecycle
         $localPresent = ($facts['local_content_present'] ?? false) === true;
 
         if ($wordpressLinked && ! $localPresent) {
-            return self::SYNC_REQUIRED;
+            return self::CONTENT_LOADING;
         }
 
         if (! $wordpressLinked && ! $localPresent) {
@@ -142,7 +145,7 @@ final class ArticleEditorContentLifecycle
             'local_content_present' => $localPresent,
             'wp_post_id' => (int) ($article->wordpressLink?->wp_post_id ?? 0),
             'observed_permalink' => $observedPermalink !== '' ? $observedPermalink : null,
-            'allow_fetch_from_wordpress' => $allowFetchFromWordPress && $wordpressLinked && $state === self::SYNC_REQUIRED,
+            'allow_fetch_from_wordpress' => $allowFetchFromWordPress && $wordpressLinked && ! $localPresent,
         ];
     }
 

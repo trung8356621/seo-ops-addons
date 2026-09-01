@@ -54,30 +54,14 @@ final class ArticleEditorVocabularyPayloadService
         $article->loadMissing('articleMetas');
         $groups = $this->resolveGroups($article);
         $siteId = (int) (ArticleResource::resolveArticleSiteId($article) ?? $article->site_id ?? 0);
-        $selectedProjectId = ArticleResource::articleAssignedContentProjectId($article);
-        $projectOptions = ArticleResource::contentProjectOptionsForVocabularyPlanning(
-            $siteId > 0 ? $siteId : null,
-        );
-
-        if (
-            $selectedProjectId !== null
-            && $selectedProjectId > 0
-            && ! array_key_exists($selectedProjectId, $projectOptions)
-        ) {
-            // Soft-full / edge cases still keep the article's project selectable.
-            $projectOptions = ArticleResource::contentProjectOptionsForVocabularyPlanning(
-                $siteId > 0 ? $siteId : null,
-                includeSelectedProjectId: $selectedProjectId,
-            );
-        }
 
         return [
             'groups' => $groups,
             'group_count' => count($groups),
             'item_count' => (int) array_sum(array_map(static fn (array $items): int => count($items), $groups)),
             'planning' => [
-                'project_options' => $projectOptions,
-                'selected_project_id' => $selectedProjectId,
+                'project_options' => [],
+                'selected_project_id' => null,
                 'site_id' => $siteId,
             ],
         ];

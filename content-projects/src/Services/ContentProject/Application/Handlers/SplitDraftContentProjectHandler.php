@@ -47,6 +47,7 @@ final class SplitDraftContentProjectHandler extends AbstractPublishingHandler
 
             $itemIds = $this->resolveItemIds($command->itemRefs);
             $assigneeIds = $command->assigneeIds;
+            $targetMonth = $command->targetMonth;
 
             try {
                 $preview = $this->splitter->preview(
@@ -55,6 +56,7 @@ final class SplitDraftContentProjectHandler extends AbstractPublishingHandler
                     $command->quantity,
                     $itemIds,
                     $assigneeIds,
+                    $targetMonth,
                 );
             } catch (InvalidArgumentException $e) {
                 return ContentProjectActionResult::fail(
@@ -94,7 +96,7 @@ final class SplitDraftContentProjectHandler extends AbstractPublishingHandler
             try {
                 $result = $this->businessLock->withLock(
                     $this->businessLock->projectArchive($projectId),
-                    function () use ($draft, $command, $itemIds, $assigneeIds, $actor): array {
+                    function () use ($draft, $command, $itemIds, $assigneeIds, $actor, $targetMonth): array {
                         return $this->splitter->split(
                             $draft,
                             $command->selectionMode,
@@ -102,6 +104,7 @@ final class SplitDraftContentProjectHandler extends AbstractPublishingHandler
                             $itemIds,
                             $actor->actorId,
                             $assigneeIds,
+                            $targetMonth,
                         );
                     },
                 );

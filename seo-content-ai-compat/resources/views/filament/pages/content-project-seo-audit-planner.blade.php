@@ -6,6 +6,7 @@
     $siteOptions = $this->siteFilterOptions ?? [];
     $draftItems = $hasDraft ? ($this->draftPlanningItems ?? []) : [];
     $draftCounts = $hasDraft ? ($this->draftPlanningCounts ?? ['all' => 0, 'unreviewed' => 0, 'reviewed' => 0]) : ['all' => 0, 'unreviewed' => 0, 'reviewed' => 0];
+    $draftItemCount = (int) ($canonicalDraft['item_count'] ?? ($draftCounts['all'] ?? 0));
 @endphp
 
 <x-filament-panels::page>
@@ -19,9 +20,9 @@
         <div class="cp-plan-context" data-content-planning-context="1">
             <div class="cp-plan-context__field">
                 <label class="cp-plan-context__label">
-                    {{ __('seo-content-ai::filament.projects.seo_audit_site_label') }}
+                    {{ __('seo-content-ai::filament.projects.content_planning_working_site') }}
                 </label>
-                <x-select wire:model.live="filterSiteId" wrapClass="cp-ops-select" aria-label="{{ __('seo-content-ai::filament.projects.seo_audit_site_label') }}">
+                <x-select wire:model.live="filterSiteId" wrapClass="cp-ops-select" aria-label="{{ __('seo-content-ai::filament.projects.content_planning_working_site') }}">
                     <option value="">{{ __('seo-content-ai::filament.projects.seo_audit_site_all') }}</option>
                     @foreach ($siteOptions as $id => $domain)
                         <option value="{{ $id }}">{{ $domain }}</option>
@@ -33,19 +34,15 @@
                     {{ __('seo-content-ai::filament.projects.content_planning_draft_label') }}
                 </label>
                 @if ($hasDraft && is_array($canonicalDraft))
-                    <div class="cp-plan-draft-name" data-planning-draft-display="1">
-                        {{ $canonicalDraft['name'] }}
-                        @if (($canonicalDraft['domain'] ?? '') !== '')
-                            <span class="text-gray-500">— {{ $canonicalDraft['domain'] }}</span>
-                        @endif
-                    </div>
-                @elseif ((int) ($this->filterSiteId ?? 0) > 0)
-                    <div class="cp-plan-draft-name text-gray-500" data-planning-draft-empty="1">
-                        {{ __('seo-content-ai::filament.projects.content_planning_no_draft_yet') }}
+                    <div class="cp-plan-draft-name" data-planning-draft-display="1" data-shared-planning-draft="1">
+                        {{ __('seo-content-ai::filament.projects.content_planning_shared_draft_summary', [
+                            'name' => $canonicalDraft['name'] ?? __('seo-content-ai::filament.projects.content_planning_shared_draft_name'),
+                            'count' => $draftItemCount,
+                        ]) }}
                     </div>
                 @else
-                    <div class="cp-plan-draft-name text-gray-500">
-                        {{ __('seo-content-ai::filament.projects.content_planning_pick_site') }}
+                    <div class="cp-plan-draft-name text-gray-500" data-planning-draft-loading="1">
+                        {{ __('seo-content-ai::filament.projects.content_planning_shared_draft_ensuring') }}
                     </div>
                 @endif
             </div>
@@ -66,28 +63,6 @@
                         <svg class="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
                     </span>
                 </button>
-            @else
-                <button
-                    type="button"
-                    wire:click="createDraftForPlanner"
-                    wire:loading.attr="disabled"
-                    wire:target="createDraftForPlanner"
-                    class="cp-plan-btn cp-plan-btn--publish"
-                    data-content-planning-action="create-draft"
-                    @disabled((int) ($this->filterSiteId ?? 0) <= 0)
-                >
-                    <span wire:loading.remove wire:target="createDraftForPlanner">
-                        {{ __('seo-content-ai::filament.projects.seo_audit_create_draft') }}
-                    </span>
-                    <span wire:loading wire:target="createDraftForPlanner" class="inline-flex items-center gap-1">
-                        <svg class="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
-                    </span>
-                </button>
-            @endif
-            @if (! $hasDraft)
-                <p class="basis-full text-xs text-gray-500 dark:text-gray-400">
-                    {{ __('seo-content-ai::filament.projects.content_planning_create_draft_first') }}
-                </p>
             @endif
         </div>
 
@@ -103,6 +78,7 @@
                 :selected-ids="$this->selectedTaskIds"
                 :refresh-nonce="$this->draftPlanningRefreshNonce"
                 :supports-product="$hasDraft ? (bool) ($this->draftSupportsProduct ?? false) : false"
+                :site-options="$siteOptions"
             />
         </section>
     </div>

@@ -72,7 +72,7 @@ final class ArticlePendingInternalLinkService
         }
 
         $keywordId = (int) $keyword->id;
-        $mainArticleId = $this->keywordMetaRepository->getMainArticleId($keywordId);
+        $mainArticleId = $this->keywordMetaRepository->getMainArticleIdForSite($keywordId, $siteId);
         if ($mainArticleId !== null && $mainArticleId > 0) {
             $targetUrl = $this->resolveArticleUrl(SeoArticle::query()->find($mainArticleId));
             if ($targetUrl !== '') {
@@ -165,24 +165,10 @@ final class ArticlePendingInternalLinkService
             return 0;
         }
 
-        $mainArticleId = $this->keywordMetaRepository->getMainArticleId($keywordId);
-        if ($mainArticleId === null || $mainArticleId <= 0) {
-            return 0;
-        }
-
-        $targetArticle = SeoArticle::query()->with(['site', 'articleMetas'])->find($mainArticleId);
-        if (! $targetArticle instanceof SeoArticle) {
-            return 0;
-        }
-
-        $targetUrl = $this->resolveArticleUrl($targetArticle);
-        if ($targetUrl === '') {
-            return 0;
-        }
-
         $pendingLinks = SeoPendingInternalLink::query()
             ->where('keyword_id', $keywordId)
             ->where('status', SeoPendingInternalLink::STATUS_PENDING)
+            ->with(['sourceArticle:id,site_id'])
             ->get();
 
         if ($pendingLinks->isEmpty()) {
@@ -190,9 +176,39 @@ final class ArticlePendingInternalLinkService
         }
 
         $resolved = 0;
+        $targetCache = [];
 
         foreach ($pendingLinks as $pending) {
-            if ($this->resolvePendingLink($pending, $targetUrl, (int) $targetArticle->id)) {
+            $siteId = (int) ($pending->sourceArticle?->site_id ?? 0);
+            $cacheKey = $siteId > 0 ? 'site:'.$siteId : 'legacy';
+            if (! array_key_exists($cacheKey, $targetCache)) {
+                $mainArticleId = $siteId > 0
+                    ? $this->keywordMetaRepository->getMainArticleIdForSite($keywordId, $siteId)
+                    : $this->keywordMetaRepository->getMainArticleId($keywordId);
+                if ($mainArticleId === null || $mainArticleId <= 0) {
+                    $targetCache[$cacheKey] = null;
+                } else {
+                    $targetArticle = SeoArticle::query()->with(['site', 'articleMetas'])->find($mainArticleId);
+                    if (
+                        ! $targetArticle instanceof SeoArticle
+                        || ($siteId > 0 && (int) ($targetArticle->site_id ?? 0) !== $siteId)
+                    ) {
+                        $targetCache[$cacheKey] = null;
+                    } else {
+                        $url = $this->resolveArticleUrl($targetArticle);
+                        $targetCache[$cacheKey] = $url !== ''
+                            ? ['id' => (int) $targetArticle->id, 'url' => $url]
+                            : null;
+                    }
+                }
+            }
+
+            $target = $targetCache[$cacheKey];
+            if (! is_array($target)) {
+                continue;
+            }
+
+            if ($this->resolvePendingLink($pending, $target['url'], $target['id'])) {
                 $resolved++;
             }
         }

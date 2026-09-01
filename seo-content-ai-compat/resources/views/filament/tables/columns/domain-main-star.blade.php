@@ -6,7 +6,7 @@
     $isMain = app(SeoMainDomainService::class)->isMain($record);
 @endphp
 
-<div class="flex items-center">
+<div class="flex items-center" @click.stop>
     @if($isMain)
         <x-filament::icon
             icon="heroicon-s-star"
@@ -21,6 +21,7 @@
             wire:target="mountTableAction('set_as_main', '{{ $record->getKey() }}')"
             class="rounded p-0.5 text-gray-400 transition hover:text-warning-500 focus:outline-none focus:ring-2 focus:ring-warning-500/40"
             title="{{ __('seo-content-ai::filament.domain.set_as_main') }}"
+            @click.stop
         >
             <x-filament::icon icon="heroicon-o-star" class="h-5 w-5" />
         </button>

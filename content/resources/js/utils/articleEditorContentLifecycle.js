@@ -1,7 +1,8 @@
 /**
- * Article Editor content lifecycle — missing local snapshot vs empty new article.
- * Server SoT: core bootstrap `contentLifecycle`. Client never infers SYNC_REQUIRED
- * solely from `content === ''` while load is pending.
+ * Article Editor content lifecycle — WP cache / auto-fetch vs empty new article.
+ * Server SoT: core bootstrap `contentLifecycle`.
+ * WP-backed + no body/cache → CONTENT_LOADING (client auto-fetches).
+ * SYNC_REQUIRED is retired from the happy path (normalized to CONTENT_LOADING).
  */
 
 export const CONTENT_LIFECYCLE = Object.freeze({
@@ -13,6 +14,15 @@ export const CONTENT_LIFECYCLE = Object.freeze({
 });
 
 export const ARTICLE_EDITOR_CONTENT_LIFECYCLE_EVENT = 'article-editor-content-lifecycle-changed';
+
+function canonicalizeState(state) {
+    const value = String(state ?? '').trim();
+    if (value === CONTENT_LIFECYCLE.SYNC_REQUIRED) {
+        return CONTENT_LIFECYCLE.CONTENT_LOADING;
+    }
+
+    return value || CONTENT_LIFECYCLE.CONTENT_LOADING;
+}
 
 /**
  * @param {unknown} raw
@@ -27,8 +37,7 @@ export const ARTICLE_EDITOR_CONTENT_LIFECYCLE_EVENT = 'article-editor-content-li
  */
 export function normalizeContentLifecyclePayload(raw) {
     const src = raw && typeof raw === 'object' ? raw : {};
-    const state = String(src.state ?? CONTENT_LIFECYCLE.CONTENT_LOADING).trim()
-        || CONTENT_LIFECYCLE.CONTENT_LOADING;
+    const state = canonicalizeState(src.state);
 
     return {
         state,
@@ -78,16 +87,20 @@ export function getContentLifecycle() {
  * @returns {boolean}
  */
 export function isContentLifecycleEditable(state = getContentLifecycle().state) {
-    return state === CONTENT_LIFECYCLE.EDITABLE
-        || state === CONTENT_LIFECYCLE.NEW_EMPTY_ARTICLE;
+    const canonical = canonicalizeState(state);
+
+    return canonical === CONTENT_LIFECYCLE.EDITABLE
+        || canonical === CONTENT_LIFECYCLE.NEW_EMPTY_ARTICLE;
 }
 
 /**
+ * Retired happy-path blocker. Always false after SYNC_REQUIRED → CONTENT_LOADING map.
+ *
  * @param {string} [state]
  * @returns {boolean}
  */
 export function isContentSyncRequired(state = getContentLifecycle().state) {
-    return state === CONTENT_LIFECYCLE.SYNC_REQUIRED;
+    return canonicalizeState(state) === CONTENT_LIFECYCLE.SYNC_REQUIRED;
 }
 
 /**
@@ -109,7 +122,7 @@ export function resolveContentLifecycleFromFacts(facts = {}) {
         return CONTENT_LIFECYCLE.CONTENT_LOADING;
     }
     if (facts.wordpressLinked === true && facts.localContentPresent !== true) {
-        return CONTENT_LIFECYCLE.SYNC_REQUIRED;
+        return CONTENT_LIFECYCLE.CONTENT_LOADING;
     }
     if (facts.wordpressLinked !== true && facts.localContentPresent !== true) {
         return CONTENT_LIFECYCLE.NEW_EMPTY_ARTICLE;

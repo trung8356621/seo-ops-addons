@@ -239,6 +239,8 @@ final class SiteSyncStatusPresenter
             'last_activity_at' => $lastProgressAt !== '' ? $lastProgressAt : null,
             'task_progress' => $taskProgress->toArray(),
             'steps' => $stepTimeline,
+            // Presentation-only: project V2 7 steps → 3 user macros.
+            'macro_steps' => SiteSyncStepCatalog::v2MacroTimeline($stepTimeline),
             'substeps' => $taskProgress->substeps,
             'counters' => $counters,
             'warnings' => array_values(array_unique($warnings)),
@@ -282,8 +284,11 @@ final class SiteSyncStatusPresenter
             || (bool) ($meta['force_full'] ?? false);
         $errorMessage = trim((string) ($run->error_message ?? ''));
         $lastProgressAt = (string) ($meta['last_progress_at'] ?? optional($run->updated_at)?->toIso8601String() ?? '');
-        $fetched = (int) ($counters['fetched'] ?? 0);
+        // FULL progress numerator — never mix catch-up replay into this bar.
+        $fullFetched = (int) ($counters['full_fetched'] ?? $counters['fetched'] ?? 0);
+        $catchUpFetched = (int) ($counters['catch_up_fetched'] ?? 0);
         $expectedTotal = (int) ($meta['initial_expected_total'] ?? 0);
+        $finalExpected = (int) ($meta['final_expected_total'] ?? 0);
         $jobNumber = (int) ($meta['job_number'] ?? 0);
         $retryCount = (int) ($meta['retry_count'] ?? 0);
 
@@ -291,14 +296,20 @@ final class SiteSyncStatusPresenter
         if ($jobNumber > 0 && in_array($runStatus, ['pending', 'running'], true)) {
             $phaseLabel .= ' · Đợt '.$jobNumber;
         }
+        if (in_array($currentStep, [SiteSyncV3Schema::PHASE_CATCH_UP, SiteSyncV3Schema::PHASE_VERIFY], true)
+            && $catchUpFetched > 0
+            && in_array($runStatus, ['pending', 'running'], true)
+        ) {
+            $phaseLabel .= ' · '.$catchUpFetched.' thay đổi mới';
+        }
 
         $stuck = $this->isRunStuck($runStatus, $lastProgressAt, $meta);
         if ($stuck) {
             $warnings[] = 'Tác vụ có vẻ không có tiến triển';
         }
 
-        $isTerminal = in_array($runStatus, ['completed', 'completed_with_warnings', 'canceled', 'cancelled'], true);
-        $isActive = in_array($runStatus, ['pending', 'running'], true);
+        $isTerminal = in_array($runStatus, ['completed', 'completed_with_warnings', 'canceled', 'cancelled', 'needs_attention', 'failed'], true);
+        $isActive = in_array($runStatus, ['pending', 'running'], true) && ! $isTerminal;
         $startedAt = optional($run->started_at)?->toIso8601String();
         $elapsedLabel = SiteSyncProgressCopy::elapsedLabel($startedAt);
         $lastActivityLabel = SiteSyncProgressCopy::lastActivityLabel($lastProgressAt);
@@ -307,10 +318,17 @@ final class SiteSyncStatusPresenter
             : null;
 
         $stepTimeline = SiteSyncStepCatalog::v3Timeline($currentStep, $runStatus);
-        $progress = $fetched;
-        $progressTotal = $expectedTotal > 0 ? $expectedTotal : max(1, SiteSyncStepCatalog::v3TotalSteps());
-        $percentage = $expectedTotal > 0
-            ? (int) min(100, max(0, (int) round(($fetched / $expectedTotal) * 100)))
+        $progressDenom = $expectedTotal;
+        if (in_array($currentStep, [SiteSyncV3Schema::PHASE_VERIFY, SiteSyncV3Schema::PHASE_COMPLETE], true)
+            && $finalExpected > 0
+        ) {
+            // After fresh discover, show inventory-oriented total when available.
+            $progressDenom = $finalExpected;
+        }
+        $progress = min($fullFetched, max(0, $progressDenom > 0 ? $progressDenom : $fullFetched));
+        $progressTotal = $progressDenom > 0 ? $progressDenom : max(1, SiteSyncStepCatalog::v3TotalSteps());
+        $percentage = $progressDenom > 0
+            ? (int) min(100, max(0, (int) round(($progress / $progressDenom) * 100)))
             : null;
 
         $scoringProgress = $this->safeScoringProgress((int) $site->id);
@@ -324,7 +342,7 @@ final class SiteSyncStatusPresenter
 
         $headline = $stuck
             ? 'Tác vụ có vẻ không có tiến triển'
-            : $this->buildV3Message($runStatus, $phaseLabel, $fetched, $expectedTotal, $errorMessage, $elapsedLabel, $warnings);
+            : $this->buildV3Message($runStatus, $phaseLabel, $progress, $progressDenom, $errorMessage, $elapsedLabel, $warnings);
 
         return [
             'running' => $isActive && ! $stuck,
@@ -332,7 +350,7 @@ final class SiteSyncStatusPresenter
             'resumable' => ($runStatus === 'needs_attention' && (bool) $run->resumable)
                 || ($runStatus === 'failed' && (bool) $run->resumable)
                 || $stuck,
-            'cancellable' => ! $isTerminal && in_array($runStatus, ['pending', 'running', 'failed', 'needs_attention'], true),
+            'cancellable' => $isActive || ($runStatus === 'failed' && (bool) $run->resumable),
             'status' => $stuck ? 'stuck' : $runStatus,
             'protocol_version' => SiteSyncV3Schema::PROTOCOL,
             'mode' => (string) $run->mode,
@@ -357,8 +375,10 @@ final class SiteSyncStatusPresenter
             'started_at' => $startedAt,
             'last_activity_at' => $lastProgressAt !== '' ? $lastProgressAt : null,
             'task_progress' => [
-                'current' => $fetched,
-                'total' => $expectedTotal > 0 ? $expectedTotal : null,
+                'current' => $progress,
+                'total' => $progressDenom > 0 ? $progressDenom : null,
+                'full_fetched' => $fullFetched,
+                'catch_up_fetched' => $catchUpFetched,
                 'phase' => $currentStep,
                 'step' => SiteSyncStepCatalog::v3Order($currentStep),
                 'total_steps' => SiteSyncStepCatalog::v3TotalSteps(),
@@ -366,9 +386,12 @@ final class SiteSyncStatusPresenter
             ],
             // V3 phase timeline only — never the frozen 7 V2 steps.
             'steps' => $stepTimeline,
+            // Presentation-only: 3 user macro steps (orchestrator stays 6 phases).
+            'macro_steps' => SiteSyncStepCatalog::v3MacroTimeline($currentStep, $runStatus),
             'substeps' => [],
             'counters' => array_merge($counters, [
-                'checked' => $fetched,
+                // Presentation alias only — FULL unique progress, never catch-up replay.
+                'checked' => $fullFetched,
                 'total_to_check' => $expectedTotal,
                 'job_number' => $jobNumber,
             ]),
@@ -400,7 +423,7 @@ final class SiteSyncStatusPresenter
         if ($status === 'needs_attention' || $status === 'failed') {
             $detail = $errorMessage !== '' ? $errorMessage : 'Cần xử lý.';
 
-            return 'Đồng bộ cần xử lý · '.$phaseLabel.'. Lý do: '.$detail;
+            return 'Đồng bộ cần kiểm tra · '.$phaseLabel.'. Lý do: '.$detail;
         }
 
         if ($status === 'running' || $status === 'pending') {

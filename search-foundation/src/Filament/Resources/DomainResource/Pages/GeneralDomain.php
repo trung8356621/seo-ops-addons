@@ -150,6 +150,9 @@ class GeneralDomain extends Page
     /** @var list<array{key: string, label: string, status: string, order: int}> */
     public array $siteSyncV2Steps = [];
 
+    /** @var list<array{key: string, label: string, status: string, order: int, phases?: list<string>}> */
+    public array $siteSyncV3MacroSteps = [];
+
     /** @var list<array<string, mixed>> */
     public array $siteSyncV2Substeps = [];
 
@@ -288,6 +291,7 @@ class GeneralDomain extends Page
             $this->siteSyncV2Stuck = (bool) ($status['stuck'] ?? false);
             $this->siteSyncV2Stopping = (bool) ($status['stopping'] ?? false);
             $this->siteSyncV2Steps = is_array($status['steps'] ?? null) ? $status['steps'] : [];
+            $this->siteSyncV3MacroSteps = is_array($status['macro_steps'] ?? null) ? $status['macro_steps'] : [];
             $this->siteSyncV2Substeps = is_array($status['substeps'] ?? null) ? $status['substeps'] : [];
             $this->siteSyncV2Percentage = isset($status['percentage']) && $status['percentage'] !== null
                 ? (int) $status['percentage']
@@ -310,6 +314,7 @@ class GeneralDomain extends Page
             $this->siteSyncV2Status = 'degraded';
             $this->siteSyncV2StatusMessage = 'Site Sync V2 lỗi: '.$e->getMessage();
             $this->siteSyncV2Warnings = ['status_refresh_failed'];
+            $this->siteSyncV3MacroSteps = [];
         }
     }
 

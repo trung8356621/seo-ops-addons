@@ -31,6 +31,7 @@ import {
 import { isCtaPlainTextType } from '../utils/ctaLinkFormat';
 import { applyLinkToPhraseOccurrence, replaceFirstPlainTextWithLink, replaceFirstPlainTextWithText, wrapPlainTextWithLinkInBlocks } from '../utils/articleLinkInsert';
 import { saveDraft } from '../utils/articleEditorStorage';
+import { SEO_LINK_DEFAULT_ATTRS } from '../utils/inlineLinkNormalizer';
 import { t } from '../utils/i18n';
 import { useCallback, useEffect } from 'react';
 
@@ -410,6 +411,71 @@ export default function useArticleEditorLinksAndSnippets({ activeBlockId, active
             }
 
             const insertMode = String(detail?.insert_mode ?? detail?.insertMode ?? 'wrap').toLowerCase();
+            if (insertMode === 'selection') {
+                syncInsertionContextFromLiveEditors({
+                    blockEditors: blockEditorsRef.current,
+                    activeBlockId: activeBlockIdRef.current,
+                    sectionByBlockId,
+                });
+                const insertionCtx = getInsertionContextForCommand();
+                const selection = insertionCtx?.selection ?? null;
+                const hasSelection = Boolean(
+                    selection
+                    && Number.isFinite(selection.from)
+                    && Number.isFinite(selection.to)
+                    && selection.to > selection.from,
+                );
+                if (!hasSelection) {
+                    window.dispatchEvent(
+                        new CustomEvent('seo-article-editor-notify', {
+                            detail: {
+                                title: t('links_insert_link'),
+                                body: t('links_insert_need_selection'),
+                                status: 'warning',
+                            },
+                        }),
+                    );
+                    return;
+                }
+                const preferredBlockId = String(
+                    detail?.target?.blockId
+                    ?? insertionCtx.activeBlockId
+                    ?? activeBlockIdRef.current
+                    ?? '',
+                ).trim();
+                const result = executeEditorCommand('create_link', {
+                    href,
+                    editorId: preferredBlockId || undefined,
+                    target: SEO_LINK_DEFAULT_ATTRS.target,
+                    rel: SEO_LINK_DEFAULT_ATTRS.rel,
+                    className: SEO_LINK_DEFAULT_ATTRS.class,
+                    extendMarkRange: false,
+                }, { notifyOnFailure: true });
+                if (result && result.ok === false && (
+                    result.code === 'editor_read_only'
+                    || result.code === 'editor_session_not_owned'
+                    || result.code === 'content_replace_conflict'
+                    || result.code === 'permission_denied'
+                )) {
+                    return;
+                }
+                if (result?.ok && result.transaction_applied) {
+                    const editor = preferredBlockId
+                        ? blockEditorsRef.current.get(preferredBlockId)
+                        : null;
+                    if (editor && !editor.isDestroyed) {
+                        persistEditorContentImmediately(editor, preferredBlockId);
+                    } else {
+                        scheduleAutosave();
+                    }
+                    window.dispatchEvent(
+                        new CustomEvent('seo-editor-suggested-link-inserted', {
+                            detail: { text, href, blockId: preferredBlockId },
+                        }),
+                    );
+                }
+                return;
+            }
             if (insertMode === 'caret') {
                 syncInsertionContextFromLiveEditors({
                     blockEditors: blockEditorsRef.current,
@@ -640,6 +706,7 @@ export default function useArticleEditorLinksAndSnippets({ activeBlockId, active
             commitActiveBlock,
             persistEditorContentImmediately,
             requestAnalyze,
+            scheduleAutosave,
             sectionByBlockId,
             selectPlainTextInBlock,
         ],

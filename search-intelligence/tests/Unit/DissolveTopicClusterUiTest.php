@@ -57,7 +57,9 @@ final class DissolveTopicClusterUiTest extends TestCase
         self::assertStringContainsString('cluster-index-row__title', $index);
         self::assertStringContainsString('@dblclick.prevent="startEdit()"', $index);
         self::assertStringContainsString('saveClusterCanonicalFromIndex', $index);
-        self::assertStringContainsString('await $wire.$refresh()', $index);
+        self::assertStringContainsString('renameSeq', $index);
+        self::assertStringContainsString('applyRowPatch', $index);
+        self::assertStringNotContainsString('await $wire.$refresh()', $index);
         self::assertStringContainsString('topic_view_cluster', $index);
         self::assertStringContainsString('topic-index-detail-btn', $index);
         self::assertStringNotContainsString('class="topic-index-link"', $index);

@@ -83,6 +83,6 @@ final class ContentProjectPostRunPipeline
             return false;
         }
 
-        return SeoProjectTask::normalizePostType($task->post_type) === SeoProjectTask::POST_TYPE_ARTICLE;
+        return SeoProjectTask::normalizePostType($task->post_type) === SeoProjectTask::POST_TYPE_POST;
     }
 }

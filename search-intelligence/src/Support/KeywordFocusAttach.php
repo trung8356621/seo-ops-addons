@@ -12,6 +12,7 @@ use Omnichannel\Addons\SearchFoundation\Services\KeywordMetaRepository;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordPersistenceService;
 use Omnichannel\Addons\SearchFoundation\Support\KeywordOrphanCleanup;
 use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
+use Illuminate\Support\Facades\Log;
 
 final class KeywordFocusAttach
 {
@@ -42,6 +43,26 @@ final class KeywordFocusAttach
             return null;
         }
 
+        $articleSiteId = (int) ($article->site_id ?? 0);
+        $articleId = (int) $article->id;
+        $wpPostId = (int) ($article->wordpressLink?->wp_post_id ?? $article->wp_post_id ?? 0);
+
+        if ($siteId <= 0 || $articleSiteId <= 0 || $articleSiteId !== $siteId) {
+            Log::warning('seo.cross_site_relation_rejected', [
+                'keyword_id' => null,
+                'keyword_site_id' => $siteId,
+                'article_id' => $articleId,
+                'article_site_id' => $articleSiteId,
+                'wp_post_id' => $wpPostId > 0 ? $wpPostId : null,
+                'source' => 'KeywordFocusAttach::attachMainKeyword',
+                'resolver' => 'site_id_guard',
+                'url' => null,
+                'reason' => 'keyword_site_article_site_mismatch',
+            ]);
+
+            return null;
+        }
+
         $metaRepository = app(KeywordMetaRepository::class);
         $persistence = app(KeywordPersistenceService::class);
         $permalink = trim(app(WordPressArticleContentService::class)->resolvePermalink($article));
@@ -52,7 +73,7 @@ final class KeywordFocusAttach
             Keyword::TYPE_NORMAL,
             $siteId,
             $targetUrl,
-            targetArticleId: (int) $article->id,
+            targetArticleId: $articleId,
         );
 
         if ($keyword === null) {
@@ -62,8 +83,24 @@ final class KeywordFocusAttach
         $keywordId = (int) $keyword->id;
         $persistence->mergeSuffixTruncatedKeywords($keyword, $siteId);
 
-        self::clearMainArticleMetaForArticle((int) $article->id, exceptKeywordId: $keywordId);
-        $metaRepository->setMainArticleId($keywordId, (int) $article->id);
+        self::clearMainArticleMetaForArticle($articleId, exceptKeywordId: $keywordId, exceptSiteId: $siteId);
+
+        $ok = $metaRepository->setMainArticleIdForSite($keywordId, $siteId, $articleId);
+        if (! $ok) {
+            Log::warning('seo.cross_site_relation_rejected', [
+                'keyword_id' => $keywordId,
+                'keyword_site_id' => $siteId,
+                'article_id' => $articleId,
+                'article_site_id' => $articleSiteId,
+                'wp_post_id' => $wpPostId > 0 ? $wpPostId : null,
+                'source' => 'KeywordFocusAttach::attachMainKeyword',
+                'resolver' => 'setMainArticleIdForSite',
+                'url' => $targetUrl,
+                'reason' => 'set_main_article_rejected',
+            ]);
+
+            return null;
+        }
 
         app(\Omnichannel\Addons\Content\Services\ArticlePendingInternalLinkService::class)->resolveForKeyword($keywordId);
 
@@ -114,7 +151,7 @@ final class KeywordFocusAttach
             return false;
         }
 
-        $mainArticleId = app(KeywordMetaRepository::class)->getMainArticleId((int) $keyword->id);
+        $mainArticleId = app(KeywordMetaRepository::class)->getMainArticleIdForSite((int) $keyword->id, $siteId);
         if ($mainArticleId === null) {
             return false;
         }
@@ -144,8 +181,11 @@ final class KeywordFocusAttach
             ->exists();
     }
 
-    private static function clearMainArticleMetaForArticle(int $articleId, ?int $exceptKeywordId = null): void
-    {
+    private static function clearMainArticleMetaForArticle(
+        int $articleId,
+        ?int $exceptKeywordId = null,
+        ?int $exceptSiteId = null,
+    ): void {
         if ($articleId <= 0) {
             return;
         }
@@ -157,10 +197,19 @@ final class KeywordFocusAttach
             $attempts++;
             try {
                 $query = KeywordMeta::query()
-                    ->where('meta_key', KeywordMetaKey::MainArticleId->value)
-                    ->where('meta_value', (string) $articleId);
+                    ->where('meta_value', (string) $articleId)
+                    ->where(function ($q): void {
+                        $q->where('meta_key', KeywordMetaKey::MainArticleId->value)
+                            ->orWhere('meta_key', 'like', 'site.%.main_article_id');
+                    });
 
-                if ($exceptKeywordId !== null && $exceptKeywordId > 0) {
+                if ($exceptKeywordId !== null && $exceptKeywordId > 0 && $exceptSiteId !== null && $exceptSiteId > 0) {
+                    $keepKey = KeywordMetaKey::siteMainArticleId($exceptSiteId);
+                    $query->where(function ($q) use ($exceptKeywordId, $keepKey): void {
+                        $q->where('keyword_id', '!=', $exceptKeywordId)
+                            ->orWhere('meta_key', '!=', $keepKey);
+                    });
+                } elseif ($exceptKeywordId !== null && $exceptKeywordId > 0) {
                     $query->where('keyword_id', '!=', $exceptKeywordId);
                 }
 

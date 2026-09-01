@@ -80,21 +80,30 @@ final class CreateContentProjectHandler extends AbstractPublishingHandler
             $kind = (string) ($attrs['kind'] ?? SeoProject::KIND_MONTHLY);
             $month = $attrs['month'] ?? null;
             if ($status === SeoProject::STATUS_DRAFT) {
+                $requestedSiteId = (int) ($attrs['site_id'] ?? $siteId);
+                if ($requestedSiteId > 0) {
+                    \Illuminate\Support\Facades\Log::warning('content_project.legacy_site_draft_creation_rejected', [
+                        'site_id' => $requestedSiteId,
+                        'actor_id' => $actor->actorId,
+                        'requested_name' => $name,
+                        'context' => 'CreateContentProjectHandler',
+                    ]);
+                }
+
                 if ($month === null || $month === '') {
                     $month = SeoProject::draftCompatibilityMonth();
                 }
                 $kind = SeoProject::KIND_MONTHLY;
 
-                // Shared Planning Draft pool (not per-domain).
-                $existing = $this->planningDrafts->findCanonicalSharedDraft()
-                    ?? ($siteId > 0 ? $this->planningDrafts->findPlanningDraftForSite($siteId) : null);
+                // Shared Planning Draft only (site_id IS NULL). Never reuse legacy per-site drafts.
+                $existing = $this->planningDrafts->findCanonicalSharedDraft();
                 if ($existing instanceof SeoProject) {
                     return ContentProjectActionResult::ok(
                         ContentProjectActionCodes::PROJECT_CREATED,
                         'Planning Draft already exists.',
                         (int) $existing->getKey(),
                         metadata: [
-                            'site_id' => (int) ($existing->site_id ?? 0),
+                            'site_id' => null,
                             'reused_existing_draft' => true,
                             'tasks_synced' => false,
                         ],

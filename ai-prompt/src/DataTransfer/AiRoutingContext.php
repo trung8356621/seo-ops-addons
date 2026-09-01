@@ -20,6 +20,9 @@ final class AiRoutingContext
         public readonly ?AiUsageMode $usageModeOverride = null,
         public readonly ?array $allowedFamilyKeys = null,
         public readonly ?AiCostPolicy $costPolicy = null,
+        public readonly ?int $preferredModelId = null,
+        public readonly bool $requirePreferredModel = false,
+        public readonly ?string $itemGenerationMode = null,
     ) {}
 
     public function costPolicy(): AiCostPolicy

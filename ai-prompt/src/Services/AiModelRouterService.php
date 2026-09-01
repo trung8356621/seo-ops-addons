@@ -74,18 +74,63 @@ final class AiModelRouterService
             }
             $candidates = $targets->eligibleCandidates($userId, $parsed, $context);
             if ($candidates !== []) {
-                return $candidates;
+                return $this->applyItemRoutingPreferences($candidates, $context);
             }
         }
 
         if ($context->allowLegacyFallback && $context->legacyConnection instanceof ApiConnection) {
             $legacy = $this->legacyCompatibleCandidate($parsed, $context->legacyConnection);
             if ($legacy !== null) {
-                return [$legacy];
+                return $this->applyItemRoutingPreferences([$legacy], $context);
             }
         }
 
-        return [];
+        return $this->applyItemRoutingPreferences([], $context);
+    }
+
+    /**
+     * @param  list<RoutedAiCandidate>  $candidates
+     * @return list<RoutedAiCandidate>
+     */
+    private function applyItemRoutingPreferences(array $candidates, AiRoutingContext $context): array
+    {
+        $mode = null;
+        if (class_exists(\Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemGenerationMode::class)) {
+            $mode = \Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemGenerationMode::tryFromMixed(
+                $context->itemGenerationMode,
+            );
+        }
+
+        if (class_exists(\Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemGenerationRoutingPreference::class)) {
+            $candidates = \Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemGenerationRoutingPreference::orderCandidates(
+                $candidates,
+                $mode,
+            );
+            $candidates = \Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemGenerationRoutingPreference::prependPreferred(
+                $candidates,
+                $context->preferredModelId,
+                static fn (RoutedAiCandidate $candidate): ?int => $candidate->seoAiModelId,
+            );
+        }
+
+        $preferredId = $context->preferredModelId;
+        if ($preferredId !== null && $preferredId > 0 && $context->requirePreferredModel) {
+            $found = false;
+            foreach ($candidates as $candidate) {
+                if ((int) ($candidate->seoAiModelId ?? 0) === $preferredId) {
+                    $found = true;
+                    break;
+                }
+            }
+            if (! $found) {
+                throw AiRoutingException::noCandidate(
+                    $context->itemGenerationMode ?? 'required_model',
+                    'model.override.'.$preferredId,
+                );
+            }
+        }
+
+        return $candidates;
     }
 
     /**
@@ -104,6 +149,17 @@ final class AiModelRouterService
         if ($candidates === []) {
             $capability = $parsed?->requiredCapabilityKeys()[0] ?? 'text.generate';
             throw AiRoutingException::noCandidate($profile, $capability);
+        }
+
+        if ($context->requirePreferredModel && $context->preferredModelId !== null && $context->preferredModelId > 0) {
+            $preferredId = $context->preferredModelId;
+            $candidates = array_values(array_filter(
+                $candidates,
+                static fn (RoutedAiCandidate $candidate): bool => (int) ($candidate->seoAiModelId ?? 0) === $preferredId,
+            ));
+            if ($candidates === []) {
+                throw AiRoutingException::noCandidate($profile, 'model.override.'.$preferredId);
+            }
         }
 
         $userId = $context->userId !== null && $context->userId > 0

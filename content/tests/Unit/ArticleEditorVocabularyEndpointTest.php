@@ -77,8 +77,8 @@ final class ArticleEditorVocabularyEndpointTest extends TestCase
         self::assertStringContainsString('insertSuggestedLink', $sidebar);
         self::assertStringContainsString('mergeCandidatesWithCurrentLink', $sidebar);
         self::assertStringContainsString('vocabulary_current_link', $sidebar);
-        self::assertStringContainsString('assignVocabularyItemsToContentProject', $sidebar);
-        self::assertStringContainsString('wp-article-vocabulary-project-select', $sidebar);
+        self::assertStringContainsString('addVocabularyItemsToDraft', $sidebar);
+        self::assertStringNotContainsString('wp-article-vocabulary-project-select', $sidebar);
         self::assertStringNotContainsString('openAssignToContentProject', $sidebar);
         self::assertStringContainsString("callEditArticleLivewire('searchInternalLinkArticles'", $searchHelper);
         self::assertStringContainsString('internalLinkArticleSearchCacheKey', $searchHelper);
@@ -144,15 +144,15 @@ final class ArticleEditorVocabularyEndpointTest extends TestCase
         self::assertSame(['Holonymy' => ['Thời trang']], $groups);
     }
 
-    public function test_edit_article_exposes_vocabulary_plan_assign_method(): void
+    public function test_edit_article_exposes_vocabulary_plan_add_to_draft_method(): void
     {
         $source = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content/src/Filament/Resources/ArticleResource/Pages/EditArticle.php'
         );
+        self::assertStringContainsString('function addVocabularyItemsToDraft', $source);
+        self::assertStringContainsString('PlanningDraftIntakeService', $source);
+        self::assertStringContainsString('->addVocabularyPhrases(', $source);
         self::assertStringContainsString('function assignVocabularyItemsToContentProject', $source);
-        self::assertStringContainsString('KeywordProjectAssignmentService', $source);
-        self::assertStringContainsString('->assignPhrases(', $source);
-        self::assertMatchesRegularExpression('/assignPhrases\([\s\S]*?true\s*\)/s', $source);
     }
 
     public function test_content_project_options_for_vocabulary_include_soft_full(): void

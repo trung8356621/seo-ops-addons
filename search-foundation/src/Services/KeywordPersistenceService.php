@@ -213,9 +213,9 @@ final class KeywordPersistenceService
                     : null),
         );
 
-        $fromMainArticleId = $this->metaRepository->getMainArticleId((int) $from->id);
-        if ($fromMainArticleId !== null && $this->metaRepository->getMainArticleId((int) $to->id) === null) {
-            $this->metaRepository->setMainArticleId((int) $to->id, $fromMainArticleId);
+        $fromMainArticleId = $this->metaRepository->getMainArticleIdForSite((int) $from->id, $siteId);
+        if ($fromMainArticleId !== null && $this->metaRepository->getMainArticleIdForSite((int) $to->id, $siteId) === null) {
+            $this->metaRepository->setMainArticleIdForSite((int) $to->id, $siteId, $fromMainArticleId);
         }
 
         $this->metaRepository->mergeTagIds((int) $to->id, $this->metaRepository->getTagIds((int) $from->id));

@@ -1410,7 +1410,7 @@ export default function ArticleOutlineTab({
                 </div>
             ) : syncRequired ? (
                 <div className="seo-outline-empty">
-                    {t('content_sync_required_outline')}
+                    {t('content_wp_loading')}
                 </div>
             ) : error !== '' ? (
                 <div className="seo-outline-empty seo-outline-empty--error">{error}</div>

@@ -20,11 +20,11 @@ final class DraftPlanningPostTypeAndRefreshTest extends TestCase
     public function test_normalize_editable_planner_post_type_accepts_aliases(): void
     {
         self::assertSame(
-            SeoProjectTask::POST_TYPE_ARTICLE,
+            SeoProjectTask::POST_TYPE_POST,
             UpdateContentProjectItemHandler::normalizeEditablePlannerPostType('article'),
         );
         self::assertSame(
-            SeoProjectTask::POST_TYPE_ARTICLE,
+            SeoProjectTask::POST_TYPE_POST,
             UpdateContentProjectItemHandler::normalizeEditablePlannerPostType('post'),
         );
         self::assertSame(
@@ -108,7 +108,7 @@ final class DraftPlanningPostTypeAndRefreshTest extends TestCase
         self::assertStringContainsString('showProductDescription', $items);
         self::assertStringContainsString('product_description', $items);
         self::assertStringContainsString('productDescriptionLabel', $items);
-        self::assertStringContainsString("'value' => 'article'", $items);
+        self::assertStringContainsString("'value' => 'post'", $items);
         self::assertStringContainsString('refreshNonce', $items);
         self::assertStringContainsString('wire:key="cp-draft-items-', $items);
         self::assertStringContainsString('draftPlanningRefreshNonce', $page);

@@ -97,7 +97,8 @@ final class KeywordProjectAssignmentService
                     continue;
                 }
 
-                if ($projectSiteId > 0 && $targetSiteId !== $projectSiteId) {
+                // Shared Draft accepts any targetSiteId on the item.
+                if (! $project->isDraftPlanning() && $projectSiteId > 0 && $targetSiteId !== $projectSiteId) {
                     $domainMismatch++;
 
                     continue;
@@ -131,7 +132,7 @@ final class KeywordProjectAssignmentService
                             'title' => null,
                             'secondary_description' => null,
                             'description' => null,
-                            'post_type' => SeoProjectTask::POST_TYPE_ARTICLE,
+                            'post_type' => SeoProjectTask::POST_TYPE_POST,
                             'target_date' => $target->monthCarbon()->copy()->addDays($session->occupiedCount($target))->format('Y-m-d'),
                             'status' => SeoProjectTask::STATUS_PENDING,
                         ]);
@@ -277,7 +278,8 @@ final class KeywordProjectAssignmentService
             $otherProjectMap = array_fill_keys($otherProjectNeedles, true);
 
             foreach ($normalized as $key => $sourceContent) {
-                if ($projectSiteId > 0 && $targetSiteId !== $projectSiteId) {
+                // Shared Draft — item.site_id comes from $targetSiteId; never domain-gate.
+                if (! $project->isDraftPlanning() && $projectSiteId > 0 && $targetSiteId !== $projectSiteId) {
                     $domainMismatch++;
 
                     continue;
@@ -328,7 +330,7 @@ final class KeywordProjectAssignmentService
                             'title' => $sourceContent,
                             'secondary_description' => null,
                             'description' => null,
-                            'post_type' => SeoProjectTask::POST_TYPE_ARTICLE,
+                            'post_type' => SeoProjectTask::POST_TYPE_POST,
                             'target_date' => $target->monthCarbon()->copy()->addDays($session->occupiedCount($target))->format('Y-m-d'),
                             'status' => SeoProjectTask::STATUS_PENDING,
                         ]);

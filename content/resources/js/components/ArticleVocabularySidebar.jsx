@@ -21,7 +21,6 @@ import { searchInternalLinkArticlesCached } from '../utils/internalLinkArticleSe
 import { getEditorCommandHost } from '../utils/editorCommands';
 import { callEditArticleLivewire } from '../utils/articleEditorLivewire';
 import { normalizeHrefForCompare } from '../utils/articleLinkSuggestionFilter';
-import SeoSelect from './SeoSelect';
 
 async function fetchEditorVocabulary(articleId, signal) {
     const id = Number(articleId ?? 0);
@@ -55,12 +54,6 @@ async function fetchEditorVocabulary(articleId, signal) {
         groupCount: Number(src?.group_count ?? Object.keys(groups).length),
         itemCount: Number(src?.item_count ?? 0),
         planning: {
-            projectOptions: planning.project_options && typeof planning.project_options === 'object'
-                ? planning.project_options
-                : {},
-            selectedProjectId: planning.selected_project_id != null
-                ? Number(planning.selected_project_id)
-                : null,
             siteId: Number(planning.site_id ?? 0),
         },
     };
@@ -411,8 +404,6 @@ export default function ArticleVocabularySidebar({
     const [blocksTick, setBlocksTick] = useState(0);
     const [articleSuggestionsByPhrase, setArticleSuggestionsByPhrase] = useState(() => new Map());
     const [articleSuggestionsLoading, setArticleSuggestionsLoading] = useState(() => new Set());
-    const [projectOptions, setProjectOptions] = useState({});
-    const [selectedProjectId, setSelectedProjectId] = useState(null);
     const [assigning, setAssigning] = useState(false);
     const [assignFeedback, setAssignFeedback] = useState(null);
     const suggestionsRequestedRef = useRef(new Set());
@@ -441,15 +432,6 @@ export default function ArticleVocabularySidebar({
                 }
                 setGroups(payload.groups);
                 setCollapsedGroups(new Set(Object.keys(payload.groups)));
-                setProjectOptions(payload.planning.projectOptions || {});
-                const preselect = payload.planning.selectedProjectId;
-                setSelectedProjectId(
-                    preselect != null && preselect > 0 && payload.planning.projectOptions?.[preselect]
-                        ? preselect
-                        : (Object.keys(payload.planning.projectOptions || {})[0]
-                            ? Number(Object.keys(payload.planning.projectOptions)[0])
-                            : null),
-                );
                 setLoading(false);
             } catch (fetchError) {
                 if (
@@ -624,7 +606,51 @@ export default function ArticleVocabularySidebar({
         ? flatEntries.length
         : displayGroups.reduce((sum, [, items]) => sum + items.length, 0);
     const selectedCount = selectedKeys.size;
-    const canAssign = selectedCount > 0 && Number(selectedProjectId) > 0 && !assigning;
+    const canAssign = selectedCount > 0 && !assigning;
+
+    const handleAssign = useCallback(async () => {
+        if (selectedCount === 0 || assigning) {
+            return;
+        }
+
+        const selectedEntries = flatEntries.filter(({ key }) => selectedKeys.has(key));
+        const items = selectedEntries.map(({ phrase }) => ({
+            keyword: phrase,
+            title: phrase,
+        }));
+
+        setAssigning(true);
+        setAssignFeedback(null);
+
+        try {
+            const result = await callEditArticleLivewire(
+                'addVocabularyItemsToDraft',
+                items,
+            );
+            const summary = result?.summary && typeof result.summary === 'object' ? result.summary : {};
+            const added = Number(summary.added ?? 0);
+            const already = Number(summary.duplicate ?? 0) + Number(summary.already_in_project ?? 0);
+            if (added > 0 || already > 0 || result?.success) {
+                setSelectedKeys((prev) => {
+                    const next = new Set(prev);
+                    selectedEntries.forEach(({ key }) => next.delete(key));
+                    return next;
+                });
+                setAssignFeedback(
+                    added > 0
+                        ? t('vocabulary_assign_success', { count: added })
+                        : String(result?.message || t('vocabulary_already_in_draft')),
+                );
+            } else {
+                setAssignFeedback(String(result?.message || t('vocabulary_assign_failed')));
+            }
+        } catch {
+            setAssignFeedback(t('vocabulary_assign_failed'));
+        } finally {
+            setAssigning(false);
+        }
+    }, [assigning, flatEntries, selectedCount, selectedKeys]);
+
 
     const toggleGroupCollapsed = useCallback((groupName) => {
         setCollapsedGroups((prev) => {
@@ -692,54 +718,6 @@ export default function ArticleVocabularySidebar({
         });
     }, [activeOccurrenceByPhraseKey, occurrenceMap]);
 
-    const handleAssign = useCallback(async () => {
-        const projectId = Number(selectedProjectId);
-        if (projectId <= 0 || selectedCount === 0 || assigning) {
-            return;
-        }
-
-        const selectedEntries = flatEntries.filter(({ key }) => selectedKeys.has(key));
-        const items = selectedEntries.map(({ phrase }) => ({
-            keyword: phrase,
-            title: phrase,
-        }));
-
-        setAssigning(true);
-        setAssignFeedback(null);
-
-        try {
-            const result = await callEditArticleLivewire(
-                'assignVocabularyItemsToContentProject',
-                projectId,
-                items,
-            );
-            const summary = result?.summary && typeof result.summary === 'object' ? result.summary : {};
-            const added = Number(summary.added ?? 0);
-            if (added > 0) {
-                setSelectedKeys((prev) => {
-                    const next = new Set(prev);
-                    selectedEntries.forEach(({ key }) => next.delete(key));
-                    return next;
-                });
-                setAssignFeedback(t('vocabulary_assign_success', { count: added }));
-            } else {
-                setAssignFeedback(String(result?.message || t('vocabulary_assign_failed')));
-            }
-        } catch {
-            setAssignFeedback(t('vocabulary_assign_failed'));
-        } finally {
-            setAssigning(false);
-        }
-    }, [assigning, flatEntries, selectedCount, selectedKeys, selectedProjectId]);
-
-    const projectSelectOptions = useMemo(
-        () => Object.entries(projectOptions).map(([id, label]) => ({
-            value: String(id),
-            label: String(label),
-        })),
-        [projectOptions],
-    );
-
     return (
         <ArticleAssistantWidget
             widgetId="vocabulary"
@@ -789,27 +767,9 @@ export default function ArticleVocabularySidebar({
                                 </button>
                             </div>
                             {mode === 'planning' ? (
-                                <div className="wp-article-vocabulary-project-select">
-                                    <label className="wp-article-vocabulary-project-label" htmlFor="vocabulary-plan-project">
-                                        {t('vocabulary_content_project_label')}
-                                    </label>
-                                    <SeoSelect
-                                        id="vocabulary-plan-project"
-                                        value={selectedProjectId != null ? String(selectedProjectId) : ''}
-                                        onChange={(event) => {
-                                            const next = Number(event?.target?.value ?? 0);
-                                            setSelectedProjectId(Number.isFinite(next) && next > 0 ? next : null);
-                                        }}
-                                        placeholder={t('vocabulary_content_project_placeholder')}
-                                        options={projectSelectOptions}
-                                        size="compact"
-                                    />
-                                    {projectSelectOptions.length === 0 ? (
-                                        <p className="wp-article-vocabulary-project-hint">
-                                            {t('vocabulary_content_project_empty')}
-                                        </p>
-                                    ) : null}
-                                </div>
+                                <p className="wp-article-vocabulary-project-hint text-xs text-gray-500 dark:text-gray-400 px-1">
+                                    {t('vocabulary_add_to_draft_hint')}
+                                </p>
                             ) : null}
                         </div>
                         <div className="wp-article-vocabulary-scroll">
@@ -855,7 +815,7 @@ export default function ArticleVocabularySidebar({
                                     {assigning ? (
                                         <Loader2 size={14} className="animate-spin inline mr-2" aria-hidden />
                                     ) : null}
-                                    {t('vocabulary_assign_to_project', { count: selectedCount })}
+                                    {t('vocabulary_add_to_draft', { count: selectedCount })}
                                 </button>
                             </div>
                         ) : null}

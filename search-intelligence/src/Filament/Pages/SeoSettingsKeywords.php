@@ -53,8 +53,7 @@ class SeoSettingsKeywords extends Page implements HasForms
                         Forms\Components\TagsInput::make(SeoKeywordSettingsService::KEY_CTA_BLACKLIST)
                             ->label(__('seo-content-ai::filament.settings_keywords.cta_blacklist_label'))
                             ->placeholder(__('seo-content-ai::filament.settings_keywords.cta_blacklist_placeholder'))
-                            ->columnSpanFull()
-                            ->hintAction(HelpUi::fieldHintAction('settings.keywords.cta_blacklist', null, 'tags')),
+                            ->columnSpanFull(),
                     ]),
             ])
             ->statePath('keywordSettingsData');

@@ -9,28 +9,6 @@
                     <p>{{ __('General settings for this SEO workspace.') }}</p>
                 </header>
 
-                <section class="seo-rec-overview-teaser">
-                    <div class="seo-rec-overview-teaser__content">
-                        <h2 class="seo-rec-overview-teaser__title">
-                            <x-filament::icon icon="heroicon-o-book-open" class="seo-rec-overview-teaser__icon" />
-                            {{ __('seo-content-ai::filament.settings_recommendations.overview_teaser_title') }}
-                        </h2>
-                        <p class="seo-rec-overview-teaser__body">
-                            {{ __('seo-content-ai::filament.settings_recommendations.overview_teaser_body') }}
-                        </p>
-                    </div>
-                    <x-filament::button
-                        tag="a"
-                        :href="\Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsRecommendations::getUrl()"
-                        color="gray"
-                        outlined
-                        icon="heroicon-o-arrow-right"
-                        icon-position="after"
-                    >
-                        {{ __('seo-content-ai::filament.settings_recommendations.overview_teaser_link') }}
-                    </x-filament::button>
-                </section>
-
                 <section class="seo-ai-models-panel mt-6">
                     <form wire:submit="saveTeamChatSettings">
                         {{ $this->teamChatForm }}

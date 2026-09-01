@@ -38,12 +38,13 @@ final class DraftPlanningItemsCompactTableTest extends TestCase
         );
 
         self::assertStringContainsString('function postTypeLabel', $src);
-        self::assertStringContainsString("SeoProjectTask::POST_TYPE_ARTICLE, 'post'", $src);
+        self::assertStringContainsString('POST_TYPE_POST, SeoProjectTask::POST_TYPE_ARTICLE', $src);
         self::assertStringContainsString('post_type_post', $src);
         self::assertStringContainsString('POST_TYPE_PRODUCT', $src);
         self::assertStringContainsString('post_type_product', $src);
         self::assertStringContainsString("'page' =>", $src);
         self::assertStringContainsString('post_type_page', $src);
+        self::assertSame('post', SeoProjectTask::POST_TYPE_POST);
         self::assertSame('article', SeoProjectTask::POST_TYPE_ARTICLE);
         self::assertSame('product', SeoProjectTask::POST_TYPE_PRODUCT);
     }
@@ -54,8 +55,10 @@ final class DraftPlanningItemsCompactTableTest extends TestCase
 
         self::assertStringContainsString('planning_col_post_type', $items);
         self::assertStringContainsString('planning_col_added', $items);
+        self::assertStringContainsString('planning_col_domain', $items);
+        self::assertStringContainsString('planning_col_actions', $items);
         self::assertStringContainsString('cp-plan-seo-inline', $items);
-        self::assertStringContainsString('cp-plan-row-actions--under', $items);
+        self::assertStringContainsString('cp-plan-row-actions', $items);
         self::assertStringContainsString('seoPrefix', $items);
         self::assertStringContainsString('labelRemove', $items);
 
@@ -88,8 +91,9 @@ final class DraftPlanningItemsCompactTableTest extends TestCase
 
         self::assertStringContainsString('cp-plan-draft-table__col-added', $styles);
         self::assertStringContainsString('cp-plan-draft-table__col-post-type', $styles);
+        self::assertStringContainsString('cp-plan-draft-table__col-domain', $styles);
         self::assertStringContainsString('cp-plan-seo-inline', $styles);
-        self::assertStringContainsString('cp-plan-row-actions--under', $styles);
+        self::assertStringContainsString('cp-plan-row-actions', $styles);
         self::assertMatchesRegularExpression(
             '/max-width:\s*1100px[\s\S]*col-added[\s\S]*display:\s*none/',
             $styles,

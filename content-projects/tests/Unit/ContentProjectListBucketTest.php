@@ -56,11 +56,28 @@ final class ContentProjectListBucketTest extends TestCase
         self::assertStringContainsString("where('status', '!=', SeoProject::STATUS_DRAFT)", $src);
         self::assertStringContainsString('applyExecutionMonth', $src);
         self::assertStringContainsString('applyAllBucket', $src);
+        self::assertStringContainsString('Never list archived shells in All', $src);
+        self::assertStringNotContainsString("->orWhereDate('month', \$monthDate);", $src);
         // Draft branch must not require month.
         self::assertMatchesRegularExpression(
             '/self::DRAFT\s*=>\s*\$query\s*->where\(\'status\',\s*SeoProject::STATUS_DRAFT\)\s*->whereNull\(\'archived_at\'\)/s',
             $src,
         );
+    }
+
+    public function test_all_bucket_excludes_archived_legacy_drafts(): void
+    {
+        $src = (string) file_get_contents(
+            (string) (new ReflectionClass(ContentProjectListBucket::class))->getFileName(),
+        );
+
+        $start = strpos($src, 'function applyAllBucket');
+        self::assertNotFalse($start);
+        $chunk = substr($src, $start, 900);
+        self::assertStringContainsString("whereNull('archived_at')", $chunk);
+        self::assertStringContainsString("where('status', '!=', SeoProject::STATUS_DRAFT)", $chunk);
+        self::assertStringContainsString("whereDate('month', \$monthDate)", $chunk);
+        self::assertStringNotContainsString('orWhereDate', $chunk);
     }
 
     public function test_list_page_and_resource_no_longer_expose_raw_status_filter(): void

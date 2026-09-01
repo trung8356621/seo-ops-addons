@@ -12,13 +12,15 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Conte
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\SplitDraftContentProjectService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterMonthlyCapacityService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExecutionLimits;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Carbon\Carbon;
 use Filament\Notifications\Actions\Action as NotificationAction;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Str;
 
 /**
- * Draft → execution Split / Activate all (ViewSeoProject).
+ * Draft → execution Split / Activate all (ViewSeoProject / Content Planning).
+ * Target month is chosen in the Create project modal — Draft stays monthless.
  */
 trait InteractsWithDraftSplit
 {
@@ -28,6 +30,9 @@ trait InteractsWithDraftSplit
     public string $draftSplitMode = SplitDraftContentProjectCommand::MODE_FIRST_N;
 
     public int $draftSplitQuantity = ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS;
+
+    /** Target execution month YYYY-MM — defaults to current on modal open. */
+    public string $draftSplitTargetMonth = '';
 
     /**
      * Included writer user ids (exclude-to-remove UX).
@@ -41,6 +46,7 @@ trait InteractsWithDraftSplit
     {
         $this->draftSplitQuantity = ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS;
         $this->draftSplitMode = SplitDraftContentProjectCommand::MODE_FIRST_N;
+        $this->draftSplitTargetMonth = ContentProjectMonthContext::current();
         $this->draftSplitIncludedUserIds = [];
         $this->draftSplitModalOpen = false;
     }
@@ -73,6 +79,7 @@ trait InteractsWithDraftSplit
             ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS,
             $reviewed,
         );
+        $this->draftSplitTargetMonth = ContentProjectMonthContext::current();
         $this->draftSplitIncludedUserIds = $this->defaultEligibleIncludedUserIds();
         $this->draftSplitModalOpen = true;
     }
@@ -90,6 +97,21 @@ trait InteractsWithDraftSplit
     public function updatedDraftSplitMode(): void
     {
         $this->clampDraftSplitInputs();
+    }
+
+    public function updatedDraftSplitTargetMonth(mixed $value): void
+    {
+        $this->draftSplitTargetMonth = ContentProjectMonthContext::normalize(
+            is_string($value) ? $value : null,
+        );
+    }
+
+    /**
+     * @return list<array{value: string, label: string}>
+     */
+    public function getDraftSplitTargetMonthOptions(): array
+    {
+        return ContentProjectMonthContext::selectOptions();
     }
 
     public function excludeDraftSplitWriter(int|string $userId): void
@@ -151,6 +173,7 @@ trait InteractsWithDraftSplit
 
         $this->clampDraftSplitInputs();
         $writerIds = $this->orderedIncludedUserIds();
+        $targetMonth = ContentProjectMonthContext::normalize($this->draftSplitTargetMonth ?: null);
 
         if ($writerIds === []) {
             Notification::make()
@@ -181,6 +204,7 @@ trait InteractsWithDraftSplit
                 itemRefs: [],
                 dryRun: false,
                 assigneeIds: $writerIds,
+                targetMonth: $targetMonth,
             ),
             ActorContext::user(
                 auth()->id() !== null ? (int) auth()->id() : null,
@@ -208,10 +232,11 @@ trait InteractsWithDraftSplit
         $projectCount = (int) ($result->metadata['project_count'] ?? ($createdCount + $reusedCount));
         $redirectMonth = (string) ($result->metadata['redirect_month']
             ?? $result->metadata['month']
-            ?? now()->format('Y-m'));
+            ?? $targetMonth);
         if (preg_match('/^\d{4}-\d{2}-\d{2}$/', $redirectMonth) === 1) {
             $redirectMonth = substr($redirectMonth, 0, 7);
         }
+        $redirectMonth = ContentProjectMonthContext::normalize($redirectMonth);
 
         $body = __('seo-content-ai::filament.projects.draft_split_success_body', [
             'moved' => $moved,
@@ -267,6 +292,8 @@ trait InteractsWithDraftSplit
      *   selected: int,
      *   start_month: string,
      *   start_month_label: string,
+     *   target_month: string,
+     *   target_month_label: string,
      *   writers: list<array<string, mixed>>,
      *   included_writers: list<array<string, mixed>>,
      *   excluded_writers: list<array<string, mixed>>,
@@ -277,20 +304,23 @@ trait InteractsWithDraftSplit
     public function draftSplitUiState(): array
     {
         $project = $this->project;
-        $now = Carbon::now()->startOfMonth();
+        $target = ContentProjectMonthContext::normalize($this->draftSplitTargetMonth ?: null);
+        $targetCarbon = Carbon::parse(ContentProjectMonthContext::toDateString($target))->startOfMonth();
         $selector = $this->draftSplitModalOpen
-            ? $this->currentWriterSelectorPayload($now)
+            ? $this->currentWriterSelectorPayload($targetCarbon)
             : [
                 'writers' => [],
-                'month' => $now->format('Y-m-d'),
-                'month_label' => $now->format('m/Y'),
+                'month' => ContentProjectMonthContext::toDateString($target),
+                'month_label' => ContentProjectMonthContext::display($target),
             ];
         $empty = [
             'count' => 0,
             'reviewed_count' => 0,
             'selected' => 0,
-            'start_month' => $now->format('Y-m-d'),
-            'start_month_label' => $now->format('m/Y'),
+            'start_month' => ContentProjectMonthContext::toDateString($target),
+            'start_month_label' => ContentProjectMonthContext::display($target),
+            'target_month' => $target,
+            'target_month_label' => ContentProjectMonthContext::display($target),
             'writers' => [],
             'included_writers' => [],
             'excluded_writers' => [],
@@ -322,6 +352,7 @@ trait InteractsWithDraftSplit
                     $this->draftSplitMode === SplitDraftContentProjectCommand::MODE_ALL ? null : $selectedCount,
                     [],
                     $writerIds,
+                    $target,
                 );
                 foreach ($preview['allocations'] ?? [] as $row) {
                     if (! is_array($row)) {
@@ -365,6 +396,8 @@ trait InteractsWithDraftSplit
                 'id' => $id,
                 'name' => (string) ($writer['name'] ?? ''),
                 'current' => $current,
+                'active' => (int) ($writer['active'] ?? $current),
+                'archived' => (int) ($writer['archived'] ?? 0),
                 'included' => $included,
                 'new_allocation' => $newAllocation,
                 'resulting' => $current + $newAllocation,
@@ -384,8 +417,10 @@ trait InteractsWithDraftSplit
             'reviewed_count' => $reviewed,
             'total_count' => $total,
             'selected' => $selectedCount,
-            'start_month' => $now->format('Y-m-d'),
-            'start_month_label' => $now->format('m/Y'),
+            'start_month' => ContentProjectMonthContext::toDateString($target),
+            'start_month_label' => ContentProjectMonthContext::display($target),
+            'target_month' => $target,
+            'target_month_label' => ContentProjectMonthContext::display($target),
             'writers' => $allWriters,
             'included_writers' => $includedWriters,
             'excluded_writers' => $excludedWriters,
@@ -403,6 +438,10 @@ trait InteractsWithDraftSplit
         if (! $project instanceof SeoProject) {
             return;
         }
+
+        $this->draftSplitTargetMonth = ContentProjectMonthContext::normalize(
+            $this->draftSplitTargetMonth !== '' ? $this->draftSplitTargetMonth : null,
+        );
 
         $reviewed = app(SplitDraftContentProjectService::class)->currentReviewedDraftItemCount($project);
         if ($reviewed < 1) {
@@ -469,13 +508,20 @@ trait InteractsWithDraftSplit
      *     month: string,
      *     month_label: string,
      *     month_display?: string,
+     *     capacity?: int,
      *     writers: list<array<string, mixed>>
      * }
      */
     protected function currentWriterSelectorPayload(?Carbon $month = null): array
     {
+        $resolved = $month ?? Carbon::parse(
+            ContentProjectMonthContext::toDateString(
+                ContentProjectMonthContext::normalize($this->draftSplitTargetMonth ?: null),
+            ),
+        )->startOfMonth();
+
         return app(ContentProjectWriterMonthlyCapacityService::class)
-            ->writerSelectorPayload($month ?? Carbon::now()->startOfMonth());
+            ->writerSelectorPayload($resolved);
     }
 
     protected function selectedItemCount(int $reviewed): int

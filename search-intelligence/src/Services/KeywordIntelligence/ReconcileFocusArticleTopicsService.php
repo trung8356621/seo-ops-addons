@@ -149,7 +149,7 @@ final class ReconcileFocusArticleTopicsService
     private function upgradeFocusAutoSingletons(int $siteId, array &$inventory): int
     {
         $keywordIds = KeywordClusterSiteScope::keywordIds($siteId);
-        $focusMap = $this->focusArticleIdsByKeyword($keywordIds);
+        $focusMap = $this->focusArticleIdsByKeyword($keywordIds, $siteId);
         if ($focusMap === []) {
             return 0;
         }
@@ -237,7 +237,7 @@ final class ReconcileFocusArticleTopicsService
             return [];
         }
 
-        $focusMap = $this->focusArticleIdsByKeyword($keywordIds);
+        $focusMap = $this->focusArticleIdsByKeyword($keywordIds, $siteId);
         if ($focusMap === []) {
             return [];
         }
@@ -277,7 +277,7 @@ final class ReconcileFocusArticleTopicsService
      * @param  list<int>  $keywordIds
      * @return array<int, list<int>>
      */
-    public function focusArticleIdsByKeyword(array $keywordIds): array
+    public function focusArticleIdsByKeyword(array $keywordIds, ?int $siteId = null): array
     {
         if ($keywordIds === [] || ! Schema::connection('omi_seo_ai')->hasTable('keyword_meta')) {
             return [];
@@ -285,10 +285,18 @@ final class ReconcileFocusArticleTopicsService
 
         $metas = DB::connection('omi_seo_ai')->table('keyword_meta')
             ->whereIn('keyword_id', $keywordIds)
-            ->where('meta_key', KeywordMetaKey::MainArticleId->value)
+            ->where(function ($q) use ($siteId): void {
+                if ($siteId !== null && $siteId > 0) {
+                    $q->where('meta_key', KeywordMetaKey::siteMainArticleId($siteId))
+                        ->orWhere('meta_key', KeywordMetaKey::MainArticleId->value);
+                } else {
+                    $q->where('meta_key', KeywordMetaKey::MainArticleId->value)
+                        ->orWhere('meta_key', 'like', 'site.%.main_article_id');
+                }
+            })
             ->whereNotNull('meta_value')
             ->where('meta_value', '!=', '')
-            ->get(['keyword_id', 'meta_value']);
+            ->get(['keyword_id', 'meta_key', 'meta_value']);
 
         $out = [];
         foreach ($metas as $meta) {
@@ -300,8 +308,31 @@ final class ReconcileFocusArticleTopicsService
             $out[$kid][$aid] = $aid;
         }
 
-        foreach ($out as $kid => $ids) {
-            $out[$kid] = array_values($ids);
+        if ($siteId !== null && $siteId > 0 && $out !== []) {
+            $allowed = DB::connection('omi_seo_ai')->table('articles')
+                ->where('site_id', $siteId)
+                ->whereIn('id', array_values(array_unique(array_merge(...array_map('array_values', $out)))))
+                ->pluck('id')
+                ->map(static fn (mixed $id): int => (int) $id)
+                ->all();
+            $allowedMap = array_fill_keys($allowed, true);
+            foreach ($out as $kid => $ids) {
+                $filtered = [];
+                foreach ($ids as $aid) {
+                    if (isset($allowedMap[$aid])) {
+                        $filtered[$aid] = $aid;
+                    }
+                }
+                if ($filtered === []) {
+                    unset($out[$kid]);
+                } else {
+                    $out[$kid] = array_values($filtered);
+                }
+            }
+        } else {
+            foreach ($out as $kid => $ids) {
+                $out[$kid] = array_values($ids);
+            }
         }
 
         return $out;
@@ -426,7 +457,7 @@ final class ReconcileFocusArticleTopicsService
             ->where('cluster_key', '!=', '')
             ->pluck('cluster_key', 'keyword_id');
 
-        $focusMap = $this->focusArticleIdsByKeyword($keywordIds);
+        $focusMap = $this->focusArticleIdsByKeyword($keywordIds, $siteId);
         $out = [];
         foreach ($focusMap as $kid => $articleIds) {
             $clusterKey = trim((string) ($clusterByKeyword[$kid] ?? ''));

@@ -63,6 +63,7 @@ class SeoSettingsAiAdvanced extends Page implements HasForms
         return $form
             ->schema([
                 Forms\Components\Section::make(__('seo-content-ai::filament.settings_ai_advanced.model_priority_section'))
+                    ->headerActions([HelpUi::fieldHintAction('media.image_routing')])
                     ->schema([
                         Forms\Components\CheckboxList::make('general_image_families')
                             ->label(__('seo-content-ai::filament.settings_ai_advanced.general_image_priority'))
@@ -130,7 +131,7 @@ class SeoSettingsAiAdvanced extends Page implements HasForms
                     ]),
 
                 Forms\Components\Section::make(__('seo-content-ai::filament.settings_ai_advanced.validation_section'))
-                    ->headerActions([HelpUi::fieldHintAction('settings.ai.typography_validation')])
+                    ->headerActions([HelpUi::fieldHintAction('media.typography')])
                     ->schema([
                         Forms\Components\Toggle::make(SeoCreateArticleSettingsService::KEY_TYPOGRAPHY_VALIDATION_ENABLED)
                             ->label(__('seo-content-ai::filament.settings_workflows.typography_validation_enabled'))
@@ -142,7 +143,6 @@ class SeoSettingsAiAdvanced extends Page implements HasForms
                             ->inline(),
                         Forms\Components\Select::make(SeoCreateArticleSettingsService::KEY_TYPOGRAPHY_VALIDATION_MODEL)
                             ->label(__('seo-content-ai::filament.settings_ai_advanced.validation_model'))
-                            ->hintAction(HelpUi::fieldHintAction('settings.ai.typography_validation', null, 'model'))
                             ->options(fn (): array => $this->visionValidationModelOptions())
                             ->searchable()
                             ->native(false)
@@ -151,18 +151,15 @@ class SeoSettingsAiAdvanced extends Page implements HasForms
                             ->label(__('seo-content-ai::filament.settings_workflows.typography_max_candidates'))
                             ->numeric()
                             ->minValue(1)
-                            ->maxValue(3)
-                            ->hintAction(HelpUi::fieldHintAction('settings.ai.typography_validation', null, 'max_candidates')),
+                            ->maxValue(3),
                         Forms\Components\TextInput::make(SeoCreateArticleSettingsService::KEY_TYPOGRAPHY_PASS_THRESHOLD)
                             ->label(__('seo-content-ai::filament.settings_workflows.typography_pass_threshold'))
                             ->numeric()
                             ->minValue(0)
                             ->maxValue(1)
-                            ->step(0.01)
-                            ->hintAction(HelpUi::fieldHintAction('settings.ai.typography_validation', null, 'pass_threshold')),
+                            ->step(0.01),
                         Forms\Components\Toggle::make(SeoCreateArticleSettingsService::KEY_TYPOGRAPHY_ALLOW_GENERAL_IMAGE_FALLBACK)
-                            ->label(__('seo-content-ai::filament.settings_ai_advanced.typography_allow_general_fallback'))
-                            ->hintAction(HelpUi::fieldHintAction('settings.ai.typography_validation', null, 'fallback')),
+                            ->label(__('seo-content-ai::filament.settings_ai_advanced.typography_allow_general_fallback')),
                     ])
                     ->collapsible()
                     ->collapsed(),

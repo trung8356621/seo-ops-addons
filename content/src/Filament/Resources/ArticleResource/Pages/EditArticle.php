@@ -48,6 +48,7 @@ use Omnichannel\Addons\Media\Services\ArticleMediaLocalService;
 use Omnichannel\Addons\Content\Services\ArticlePendingInternalLinkService;
 use Omnichannel\Addons\ContentProjects\Services\ArticlePipelineRerunService;
 use Omnichannel\Addons\ContentProjects\Services\KeywordProjectAssignmentService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftIntakeService;
 use Omnichannel\Addons\Content\Services\ArticleAiHistory\ArticleAiHistoryApplicationService;
 use Omnichannel\Addons\Content\Services\ArticleAiHistory\ArticleAiHistoryPendingDraftStore;
 use Omnichannel\Addons\Content\Services\ArticleWritingExecutionService;
@@ -855,6 +856,41 @@ class EditArticle extends SeoEditRecord
         return true;
     }
 
+    /**
+     * Auto-load WP HTML into the editor cache without materializing articles.body.
+     *
+     * @return array{success: bool, html: string, source: string, fetched: bool, body_unchanged: bool}
+     */
+    public function loadWpEditorHtmlFromWordPress(): array
+    {
+        abort_if(SeoAccessControl::isContentManager(), 403);
+
+        $this->record->refresh();
+        $this->record->loadMissing(['site', 'wordpressLink']);
+
+        $resolved = app(WordPressArticleContentService::class)->resolveEditorHtmlDetailed($this->record);
+        $html = trim((string) ($resolved['html'] ?? ''));
+        $source = (string) ($resolved['source'] ?? '');
+        $failed = $source === 'wp_fetch_failed';
+
+        if ($html !== '') {
+            $html = app(ArticleCtaPlaceholderService::class)->highlightBlankPlaceholdersInHtml(
+                $html,
+                (int) ($this->record->site_id ?? 0) > 0 ? (int) $this->record->site_id : null,
+            );
+            $this->wpEditorBootstrapHtml = $html;
+            $this->bootstrapEditorHtml = $html;
+        }
+
+        return [
+            'success' => ! $failed,
+            'html' => $html,
+            'source' => $source !== '' ? $source : 'empty',
+            'fetched' => (bool) ($resolved['fetched'] ?? false),
+            'body_unchanged' => trim((string) ($this->record->fresh()?->body ?? '')) === '',
+        ];
+    }
+
     public function hasWpDataOutOfSync(): bool
     {
         return app(ArticleWordPressSyncFlagService::class)->hasDataOutOfSync($this->record);
@@ -862,7 +898,6 @@ class EditArticle extends SeoEditRecord
 
     protected function hydrateArticleState(): void
     {
-        $service = app(WordPressArticleContentService::class);
         $this->restoreArticleBodyFromWordPressCacheIfMissing();
         app(ArticleScheduleReconcileService::class)->reconcileForEditor($this->record);
         $this->record->refresh();
@@ -871,7 +906,7 @@ class EditArticle extends SeoEditRecord
         $metaMap = ArticleMetaMap::for($this->record);
 
         $this->articleTitle = $flags->decodeWordPressText((string) ($this->record->title ?? ''));
-        $this->articleSlug = $service->resolveSlug($this->record);
+        $this->articleSlug = trim((string) ($this->record->slug ?? ''));
         $this->articlePostType = SeoProjectTask::normalizePostType(ArticlePostTypeResolver::resolve($this->record));
         $this->articleStatus = (string) ($this->record->status ?? 'draft');
         $this->visibility = $this->articleStatus === 'private' ? 'private' : 'public';
@@ -883,8 +918,8 @@ class EditArticle extends SeoEditRecord
         // Phase 2: album stays out of Livewire snapshot until Images/gallery actions load it.
         $this->productGallery = [];
 
-        // Editor HTML: body (local unsynced) OR temporary WP cache OR WP fetch.
-        // View-only open must NOT materialize WP content into articles.body.
+        // Editor HTML: body (local unsynced) OR temporary WP cache.
+        // Cache miss: client auto-fetches; view-only must NOT materialize articles.body.
         $editorHtml = trim((string) ($this->record->body ?? ''));
         if ($editorHtml === '') {
             $editorHtml = trim((string) ($this->wpEditorBootstrapHtml ?? ''));
@@ -967,14 +1002,10 @@ class EditArticle extends SeoEditRecord
             return;
         }
 
-        $active = app(ArticleEditorSessionService::class)->findActiveSession($this->record);
-        if ($active !== null) {
-            return;
-        }
-
-        $resolved = app(WordPressArticleContentService::class)->resolveEditorHtmlDetailed($this->record);
+        $resolved = app(WordPressArticleContentService::class)->resolveEditorHtmlLocalOnly($this->record);
         $this->wpEditorBootstrapHtml = trim((string) ($resolved['html'] ?? ''));
         // Intentionally do NOT persist into articles.body on open/view.
+        // Cache miss: client auto-fetches via loadWpEditorHtmlFromWordPress().
     }
 
     private function articleHadSubstantialContent(): bool
@@ -2041,11 +2072,16 @@ class EditArticle extends SeoEditRecord
      */
     public function getGoogleSerpPreview(): array
     {
+        $permalink = trim($this->getObservedWordPressPermalink());
+        if ($permalink === '') {
+            $permalink = $this->getDisplayPermalink();
+        }
+
         return app(ArticleGoogleSerpPreviewService::class)->buildForArticle(
             $this->record,
             trim($this->articleTitle),
             trim($this->seoMetaDescription),
-            $this->getDisplayPermalink(),
+            $permalink,
         );
     }
 
@@ -4026,6 +4062,7 @@ class EditArticle extends SeoEditRecord
             'focusKeyword' => trim($this->focusKeyword),
             'permalinkBase' => rtrim($this->getPermalinkBase(), '/'),
             'permalinkSuffix' => $this->getPermalinkSuffix(),
+            'wordpressPermalink' => trim($this->getObservedWordPressPermalink()),
             'siteDomain' => trim((string) ($this->record->site?->domain ?? '')),
             'content' => $this->bootstrapEditorHtml,
             'contentLifecycle' => $contentLifecycle,
@@ -5360,9 +5397,7 @@ class EditArticle extends SeoEditRecord
     }
 
     /**
-     * Vocabulary Plan: assign phrases directly to a Content Project (no Assign drawer).
-     *
-     * Soft-full monthly capacity does not block; archived projects remain blocked.
+     * Vocabulary Plan → Shared Planning Draft (no execution project picker).
      *
      * @param  list<string|array{keyword?: string, title?: string}>  $items
      * @return array{
@@ -5371,25 +5406,9 @@ class EditArticle extends SeoEditRecord
      *     summary: array{added:int, duplicate:int, overflow:int, domain_mismatch:int, already_in_project:int, existing_article:int}
      * }
      */
-    public function assignVocabularyItemsToContentProject(int $projectId, array $items = []): array
+    public function addVocabularyItemsToDraft(array $items = []): array
     {
-        $phrases = [];
-        foreach ($items as $item) {
-            if (is_string($item)) {
-                $phrases[] = $item;
-                continue;
-            }
-            if (! is_array($item)) {
-                continue;
-            }
-            $phrase = trim((string) ($item['keyword'] ?? $item['title'] ?? $item['phrase'] ?? ''));
-            if ($phrase !== '') {
-                $phrases[] = $phrase;
-            }
-        }
-
-        $siteId = (int) (ArticleResource::resolveArticleSiteId($this->record) ?? $this->record->site_id ?? 0);
-        if ($projectId <= 0 || $siteId <= 0 || $phrases === []) {
+        if (! SeoAccessControl::canMutateInSeoPanel()) {
             return [
                 'success' => false,
                 'message' => __('seo-content-ai::filament.articles_optimal.assign_failed'),
@@ -5404,36 +5423,63 @@ class EditArticle extends SeoEditRecord
             ];
         }
 
-        $summary = app(KeywordProjectAssignmentService::class)->assignPhrases(
-            $phrases,
-            $projectId,
-            $siteId,
-            false,
-            true,
-        );
+        $siteId = (int) (ArticleResource::resolveArticleSiteId($this->record) ?? $this->record->site_id ?? 0);
+        $result = app(PlanningDraftIntakeService::class)
+            ->addVocabularyPhrases($items, $siteId, (int) $this->record->getKey());
 
-        $added = (int) ($summary['added'] ?? 0);
-        $body = ArticleResource::buildAssignContentProjectBody($summary);
+        $summary = $result->summary !== []
+            ? $result->summary
+            : [
+                'added' => 0,
+                'duplicate' => 0,
+                'overflow' => 0,
+                'domain_mismatch' => 0,
+                'already_in_project' => 0,
+                'existing_article' => 0,
+            ];
 
-        if ($added > 0) {
+        if ($result->isAlreadyInDraft()) {
             Notification::make()
-                ->title(__('seo-content-ai::filament.keyword.assign_completed'))
-                ->body($body)
+                ->title(__('seo-content-ai::filament.article_list.already_in_draft'))
+                ->body($result->message)
+                ->info()
+                ->send();
+        } elseif ($result->isSuccess()) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.keyword.add_to_draft_completed'))
+                ->body($result->message)
                 ->success()
                 ->send();
         } else {
             Notification::make()
                 ->title(__('seo-content-ai::filament.articles_optimal.assign_failed'))
-                ->body($body !== '' ? $body : __('seo-content-ai::filament.articles_optimal.assign_failed'))
+                ->body($result->message !== '' ? $result->message : __('seo-content-ai::filament.articles_optimal.assign_failed'))
                 ->warning()
                 ->send();
         }
 
         return [
-            'success' => $added > 0,
-            'message' => $body,
+            'success' => $result->isSuccess(),
+            'message' => $result->message,
             'summary' => $summary,
         ];
+    }
+
+    /**
+     * @deprecated Use addVocabularyItemsToDraft.
+     *
+     * @param  list<string|array{keyword?: string, title?: string}>  $items
+     * @return array{
+     *     success: bool,
+     *     message: string,
+     *     summary: array{added:int, duplicate:int, overflow:int, domain_mismatch:int, already_in_project:int, existing_article:int}
+     * }
+     */
+    public function assignVocabularyItemsToContentProject(int $projectId, array $items = []): array
+    {
+        unset($projectId);
+
+        return $this->addVocabularyItemsToDraft($items);
     }
 
     public function generateFeaturedSnippetFromEditor(string $refBlockId, string $position = 'after'): void

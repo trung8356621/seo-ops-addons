@@ -26,7 +26,8 @@ final class SiteHealthCardPresenter
     {
         $raw = $this->health->snapshot([(int) $site->id])[0] ?? [];
         $heartbeat = $this->heartbeat($site);
-        $linkAnalysis = $this->jsonMeta($site, 'seo_link_analysis_snapshot');
+        $linkAnalysis = app(\Omnichannel\Addons\SiteSync\Services\LinkAnalysis\DomainLinkInventoryReadModel::class)
+            ->forSite($site);
         $dictionary = $this->jsonMeta($site, 'seo_keyword_dictionary');
 
         $wpOnline = ($heartbeat['status'] ?? '') === 'ok'
@@ -38,8 +39,16 @@ final class SiteHealthCardPresenter
             && (string) ($raw['health'] ?? '') !== 'unhealthy';
         $syncStatus = (string) ($raw['sync_status'] ?? '');
         $syncCurrent = in_array($syncStatus, ['completed', 'completed_with_warnings', ''], true);
+        $syncRelative = $this->relative($raw['last_sync_at'] ?? null);
         $syncLines = [
-            $syncStatus !== '' ? $this->humanSync($syncStatus) : 'Chưa chạy',
+            match (true) {
+                $syncStatus === 'failed' => 'Failed',
+                $syncStatus === 'needs_attention' => 'Needs attention',
+                in_array($syncStatus, ['running', 'queued', 'pending'], true) => 'Syncing',
+                $syncStatus === '' => 'Never synced',
+                $syncRelative !== null => 'Last success '.$syncRelative,
+                default => 'Healthy',
+            },
         ];
         try {
             $syncUi = app(SiteSyncStatusPresenter::class)->forSite($site);
@@ -56,8 +65,8 @@ final class SiteHealthCardPresenter
             // Health card stays available if Site Sync presenter fails.
         }
 
-        $linkCheckedAt = $linkAnalysis['last_analyzed_at'] ?? $raw['link_health_last_finished_at'] ?? null;
-        $linkStale = $linkCheckedAt !== null && $this->isStale($linkCheckedAt, 48);
+        $linkInventoryReady = (bool) ($linkAnalysis['inventory_available'] ?? false);
+        $remoteChecked = (bool) ($linkAnalysis['remote_health_checked'] ?? false);
         $seoStale = $this->isStale($raw['last_sync_at'] ?? null, 72);
 
         $sections = [
@@ -75,7 +84,6 @@ final class SiteHealthCardPresenter
                 'ok' => $publishingHealthy,
                 'lines' => [
                     $publishingHealthy ? 'Healthy' : 'Needs attention',
-                    'Failed: '.(int) ($raw['publish_failed'] ?? 0),
                 ],
             ],
             'site_sync' => [
@@ -83,18 +91,16 @@ final class SiteHealthCardPresenter
                 'ok' => $syncCurrent && $syncStatus !== 'failed',
                 'lines' => array_values(array_filter([
                     ...$syncLines,
-                    $this->relative($raw['last_sync_at'] ?? null) !== null
-                        ? 'Last sync: '.$this->relative($raw['last_sync_at'] ?? null)
-                        : null,
                 ])),
             ],
             'link_health' => [
-                'label' => 'Link Health',
-                'ok' => ! $linkStale,
+                'label' => 'Links',
+                'ok' => $linkInventoryReady,
                 'lines' => array_values(array_filter([
-                    $linkStale ? 'Phân tích liên kết đã cũ' : $this->humanLinkHealth($raw, $linkAnalysis),
-                    $this->relative($linkCheckedAt) !== null
-                        ? 'Last checked: '.$this->relative($linkCheckedAt)
+                    (string) ($linkAnalysis['inventory_state'] ?? 'Not available'),
+                    'Remote health: '.(string) ($linkAnalysis['remote_health_state'] ?? 'Not checked'),
+                    $remoteChecked && ($linkAnalysis['last_remote_analyzed_at'] ?? null)
+                        ? 'Last checked '.$this->relative($linkAnalysis['last_remote_analyzed_at'])
                         : null,
                 ])),
             ],
@@ -116,7 +122,43 @@ final class SiteHealthCardPresenter
 
         $dataHealth = $this->dataHealthSection($site);
         if ($dataHealth !== null) {
+            $fields = is_array($dataHealth['payload']['data_health']['fields'] ?? null)
+                ? $dataHealth['payload']['data_health']['fields']
+                : [];
+            $present = 0;
+            $total = 0;
+            $missing = 0;
+            $missingParts = [];
+            foreach ($fields as $field) {
+                if (! is_array($field)) {
+                    continue;
+                }
+                $present += (int) ($field['present'] ?? 0);
+                $total += (int) ($field['total'] ?? 0);
+                $fieldMissing = (int) ($field['missing'] ?? 0);
+                $missing += $fieldMissing;
+                if ($fieldMissing > 0) {
+                    $missingParts[] = number_format($fieldMissing).' missing '
+                        .strtolower((string) ($field['label'] ?? $field['key'] ?? 'field'));
+                }
+            }
+            $summary = $total > 0
+                ? number_format($present).' / '.number_format($total).' complete'
+                : ($dataHealth['lines'][0] ?? 'Healthy');
+            $dataHealth['lines'] = array_values(array_filter([
+                $summary,
+                $missing > 0
+                    ? (count($missingParts) <= 3
+                        ? implode('; ', $missingParts)
+                        : number_format($missing).' missing')
+                    : 'Healthy',
+            ]));
             $sections['seo_ops_data'] = $dataHealth;
+        }
+
+        $focusCoverage = $this->focusKeywordCoverageSection($site);
+        if ($focusCoverage !== null) {
+            $sections['focus_keywords'] = $focusCoverage;
         }
 
         return [
@@ -124,12 +166,51 @@ final class SiteHealthCardPresenter
             'health' => $raw['health'] ?? 'unknown',
             'sections' => $sections,
             'data_health' => $dataHealth['payload'] ?? null,
-            'link_opportunities' => (int) ($linkAnalysis['opportunities'] ?? 0),
+            'focus_keyword_coverage' => $focusCoverage['payload'] ?? null,
+            'link_opportunities' => $linkAnalysis['link_opportunities'],
+            'link_opportunities_checked' => (bool) ($linkAnalysis['opportunities_checked'] ?? false),
             'orphan_pages' => (int) ($linkAnalysis['orphan_pages'] ?? 0),
-            'broken_links' => (int) ($linkAnalysis['broken_links'] ?? $raw['link_health_broken_candidates'] ?? 0),
+            'broken_links' => $linkAnalysis['broken_links'],
+            'broken_links_checked' => (bool) ($linkAnalysis['remote_health_checked'] ?? false),
             'internal_links' => (int) ($linkAnalysis['internal_links'] ?? 0),
+            'external_links' => (int) ($linkAnalysis['external_links'] ?? 0),
+            'link_inventory' => $linkAnalysis,
             'dictionary_version' => $dictionary['version'] ?? null,
             'raw' => $raw,
+        ];
+    }
+
+    /**
+     * Article-level Focus Keyword coverage (not Dictionary unique-phrase count).
+     *
+     * @return array{label: string, ok: bool, lines: list<string>, payload?: array<string, mixed>}|null
+     */
+    private function focusKeywordCoverageSection(Site $site): ?array
+    {
+        try {
+            $filterUrl = app(\Omnichannel\Addons\Seo\Services\DomainOverviewService::class)
+                ->buildArticlesFilterUrlForMissingFocusKeyword((int) $site->id);
+            $coverage = app(\Omnichannel\Addons\Seo\Services\FocusKeywordCoverageService::class)
+                ->forSite((int) $site->id, $filterUrl);
+        } catch (\Throwable) {
+            return null;
+        }
+
+        $eligible = (int) ($coverage['eligible_article_count'] ?? 0);
+        $with = (int) ($coverage['articles_with_focus_keyword'] ?? 0);
+        $missing = (int) ($coverage['missing_focus_keyword_articles'] ?? 0);
+        $ok = $missing === 0;
+
+        $lines = [
+            number_format($with).' / '.number_format($eligible).' articles',
+            $ok ? 'Complete' : (number_format($missing).' missing'),
+        ];
+
+        return [
+            'label' => 'Focus Keywords',
+            'ok' => $ok,
+            'lines' => $lines,
+            'payload' => $coverage,
         ];
     }
 
@@ -157,6 +238,8 @@ final class SiteHealthCardPresenter
             $missing = (int) ($field['missing'] ?? 0);
             $present = (int) ($field['present'] ?? 0);
             $total = (int) ($field['total'] ?? 0);
+            $na = (int) ($field['not_applicable'] ?? 0);
+            $sourceAbsent = (int) ($field['source_absent'] ?? 0);
             $mark = match ((string) ($field['severity'] ?? 'green')) {
                 'red' => '🔴',
                 'yellow' => '⚠',
@@ -171,6 +254,9 @@ final class SiteHealthCardPresenter
             );
             if ($missing > 0) {
                 $line .= '  Missing '.number_format($missing);
+            }
+            if ($na > 0 || $sourceAbsent > 0) {
+                $line .= sprintf('  (N/A %s · source absent %s)', number_format($na), number_format($sourceAbsent));
             }
             $lines[] = $line;
         }
@@ -230,34 +316,5 @@ final class SiteHealthCardPresenter
         } catch (\Throwable) {
             return true;
         }
-    }
-
-    private function humanSync(string $status): string
-    {
-        return match ($status) {
-            'completed', 'completed_with_warnings' => 'Completed',
-            'running', 'queued' => 'Đang chạy',
-            'stuck' => 'Không có tiến triển',
-            'canceled', 'cancelled' => 'Đã hủy',
-            'failed' => 'Failed',
-            default => ucfirst(str_replace('_', ' ', $status)),
-        };
-    }
-
-    /**
-     * @param  array<string, mixed>  $raw
-     * @param  array<string, mixed>  $analysis
-     */
-    private function humanLinkHealth(array $raw, array $analysis): string
-    {
-        $links = (int) ($analysis['internal_links'] ?? 0);
-        $broken = (int) ($analysis['broken_links'] ?? $raw['link_health_broken_candidates'] ?? 0);
-        if ($links <= 0 && $broken <= 0) {
-            $status = (string) ($raw['link_health_status'] ?? '');
-
-            return $status !== '' ? ucfirst($status) : 'Chưa phân tích';
-        }
-
-        return $links.' links · '.$broken.' broken';
     }
 }

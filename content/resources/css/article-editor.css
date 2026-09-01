@@ -10690,39 +10690,7 @@ section[data-seo-section-id].is-outline-jump-highlight {
     margin-right: 0.45rem;
 }
 
-.seo-context-help-btn {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    width: 1.35rem;
-    height: 1.35rem;
-    padding: 0;
-    margin: 0;
-    border: none;
-    border-radius: 999px;
-    background: transparent;
-    color: #94a3b8;
-    cursor: pointer;
-    line-height: 1;
-}
-
-.seo-context-help-btn:hover,
-.seo-context-help-btn:focus-visible {
-    color: #0f172a;
-    background: #f1f5f9;
-    outline: none;
-}
-
-.dark .seo-context-help-btn {
-    color: #64748b;
-}
-
-.dark .seo-context-help-btn:hover,
-.dark .seo-context-help-btn:focus-visible {
-    color: #e2e8f0;
-    background: rgb(51 65 85 / 55%);
-}
+/* Base .seo-context-help-btn lives in global-help.css (panel-wide). */
 
 .seo-assistant-widget__toggle {
     display: flex;

@@ -15,9 +15,13 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Actor
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RestoreContentProjectCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectActionResultNotifier;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectCommandBus;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectArchivedMonthExportService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectMonthlyWorkloadService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectArchiveExportService;
 use Omnichannel\Addons\Content\Exceptions\ArticleReviewException;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectArchiveVaultListPresenter;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthChartPresenter;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Models\User;
 use App\Support\RuntimeLogger;
@@ -69,6 +73,12 @@ final class ContentProjectArchive extends Page
 
     public string $archivedByFilter = '';
 
+    /** Execution month SoT for archived charts + list (YYYY-MM). */
+    public string $planningMonth = '';
+
+    /** @var array<string, mixed>|null Request-local cache for archived forMonth(). */
+    private ?array $archivedMonthWorkloadCache = null;
+
     public ?int $reopenSubmittingId = null;
 
     public ?int $restoreSubmittingId = null;
@@ -82,6 +92,7 @@ final class ContentProjectArchive extends Page
         'yearFilter' => ['except' => ''],
         'ownerFilter' => ['except' => ''],
         'archivedByFilter' => ['except' => ''],
+        'planningMonth' => ['except' => ''],
     ];
 
     public function mount(): void
@@ -92,6 +103,83 @@ final class ContentProjectArchive extends Page
 
         $this->applyTenantArchiveScope();
         $this->searchInput = $this->search;
+        $this->planningMonth = $this->resolvePlanningMonth();
+        $this->syncPlanningMonthToLegacyFilters();
+    }
+
+    public function updatedPlanningMonth(mixed $value): void
+    {
+        $this->planningMonth = ContentProjectMonthContext::normalize(is_string($value) ? $value : null);
+        $this->syncPlanningMonthToLegacyFilters();
+        $this->resetPage();
+    }
+
+    /**
+     * @return list<array{value: string, label: string}>
+     */
+    public function getPlanningMonthOptions(): array
+    {
+        return ContentProjectMonthContext::selectOptions();
+    }
+
+    /**
+     * Archived-only domain chart — same UI presenter as Content Projects list.
+     *
+     * @return array<string, mixed>
+     */
+    public function getArchivedDomainChart(): array
+    {
+        return app(ContentProjectMonthChartPresenter::class)
+            ->presentDomain($this->archivedMonthWorkload());
+    }
+
+    /**
+     * Archived-only writer chart — same UI presenter as Content Projects list.
+     *
+     * @return array<string, mixed>
+     */
+    public function getArchivedWriterChart(): array
+    {
+        return app(ContentProjectMonthChartPresenter::class)
+            ->presentWriter($this->archivedMonthWorkload());
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function archivedMonthWorkload(): array
+    {
+        return $this->archivedMonthWorkloadCache ??= app(ContentProjectMonthlyWorkloadService::class)
+            ->forMonth($this->planningMonth ?: null, ContentProjectMonthlyWorkloadService::SCOPE_ARCHIVED);
+    }
+
+    private function resolvePlanningMonth(): string
+    {
+        $fromQuery = ContentProjectMonthContext::parseOrNull(
+            is_string(request()->query('planningMonth')) ? (string) request()->query('planningMonth') : null,
+        );
+        if ($fromQuery !== null) {
+            return $fromQuery;
+        }
+
+        if ($this->yearFilter !== '' && $this->monthFilter !== '') {
+            $y = (int) $this->yearFilter;
+            $m = (int) $this->monthFilter;
+            if ($y > 2000 && $m >= 1 && $m <= 12) {
+                return sprintf('%04d-%02d', $y, $m);
+            }
+        }
+
+        return ContentProjectMonthContext::current();
+    }
+
+    private function syncPlanningMonthToLegacyFilters(): void
+    {
+        $normalized = ContentProjectMonthContext::normalize($this->planningMonth ?: null);
+        $this->planningMonth = $normalized;
+        [$year, $month] = array_map('intval', explode('-', $normalized));
+        $this->yearFilter = (string) $year;
+        $this->monthFilter = (string) $month;
     }
 
     private function applyTenantArchiveScope(): void
@@ -171,10 +259,10 @@ final class ContentProjectArchive extends Page
     public function clearFilters(): void
     {
         $this->siteFilter = '';
-        $this->monthFilter = '';
-        $this->yearFilter = '';
         $this->ownerFilter = '';
         $this->archivedByFilter = '';
+        $this->planningMonth = ContentProjectMonthContext::current();
+        $this->syncPlanningMonthToLegacyFilters();
         $this->resetPage();
     }
 
@@ -197,7 +285,7 @@ final class ContentProjectArchive extends Page
     {
         $query = SeoProjectArchive::query()
             ->current()
-            ->with(['project', 'archivedByUser', 'owner', 'site'])
+            ->with(['project', 'archivedByUser', 'owner'])
             ->where(function (Builder $builder): void {
                 $builder
                     ->whereNotNull('archived_at')
@@ -433,6 +521,30 @@ final class ContentProjectArchive extends Page
         }
     }
 
+    public function exportMonth(): StreamedResponse
+    {
+        abort_unless(SeoAccessControl::canViewProjectArchives(), 403);
+
+        try {
+            $month = ContentProjectMonthContext::normalize($this->planningMonth ?: null);
+
+            return app(ContentProjectArchivedMonthExportService::class)->streamDownload($month);
+        } catch (Throwable $exception) {
+            RuntimeLogger::report($exception, [
+                'endpoint' => 'content_project_archive.export_month',
+                'planning_month' => $this->planningMonth,
+            ]);
+
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.archive_failed'))
+                ->body($exception->getMessage())
+                ->danger()
+                ->send();
+
+            abort(500, $exception->getMessage());
+        }
+    }
+
     public function reopenArticle(int $articleId): void
     {
         abort_unless($this->canReopenArchivedArticles(), 403);
@@ -605,12 +717,14 @@ final class ContentProjectArchive extends Page
         }
 
         $siteId = (int) ($archive->site_id ?? 0);
-        if ($siteId <= 0 || ! SeoAccessControl::canAccessSite($siteId)) {
-            abort(403);
-        }
+        if ($siteId > 0) {
+            if (! SeoAccessControl::canAccessSite($siteId)) {
+                abort(403);
+            }
 
-        if ($this->scopedSiteIds !== [] && ! in_array($siteId, $this->scopedSiteIds, true)) {
-            abort(403);
+            if ($this->scopedSiteIds !== [] && ! in_array($siteId, $this->scopedSiteIds, true)) {
+                abort(403);
+            }
         }
 
         return $archive;

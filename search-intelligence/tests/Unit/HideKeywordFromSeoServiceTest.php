@@ -185,7 +185,7 @@ final class HideKeywordFromSeoServiceTest extends TestCase
         self::assertStringContainsString('clusterDataEpoch', $clusters);
         self::assertStringContainsString('refreshClusterSummaryCounters', $clusters);
         self::assertStringContainsString('cluster-data-updated', $clusters);
-        self::assertStringContainsString('topic-index-stats-{{ $this->clusterDataEpoch }}', $index);
+        self::assertStringContainsString('topic-index-compact-stats-{{ $this->clusterDataEpoch }}', $index);
     }
 
     private function service(): HideKeywordFromSeoService

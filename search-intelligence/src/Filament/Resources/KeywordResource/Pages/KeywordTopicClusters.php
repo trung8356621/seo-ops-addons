@@ -24,6 +24,7 @@ use Omnichannel\Addons\Seo\Support\DomainContextResolver;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Models\Site;
 use Filament\Notifications\Notification;
+use Livewire\Attributes\Renderless;
 use RuntimeException;
 
 final class KeywordTopicClusters extends Page
@@ -55,6 +56,13 @@ final class KeywordTopicClusters extends Page
 
     /** Bumps after cluster topology mutations so summary counters remount. */
     public int $clusterDataEpoch = 0;
+
+    /**
+     * Request-scoped summary cache keyed by site/language/epoch.
+     *
+     * @var array{key: string, value: array<string, mixed>}|null
+     */
+    private ?array $summaryCache = null;
 
     public bool $mcpGroupModalOpen = false;
 
@@ -566,10 +574,18 @@ final class KeywordTopicClusters extends Page
 
     public function getSummary(): array
     {
-        return app(KeywordClusterQuery::class)->summary(
-            $this->resolveKeywordWorkspaceSiteId(),
-            $this->resolveKeywordLanguageFilterVariants(),
-        );
+        $siteId = $this->resolveKeywordWorkspaceSiteId();
+        $languageVariants = $this->resolveKeywordLanguageFilterVariants();
+        $key = ($siteId ?? 0).'|'.implode(',', $languageVariants ?? []).'|'.$this->clusterDataEpoch;
+
+        if ($this->summaryCache !== null && ($this->summaryCache['key'] ?? null) === $key) {
+            return $this->summaryCache['value'];
+        }
+
+        $value = app(KeywordClusterQuery::class)->summary($siteId, $languageVariants);
+        $this->summaryCache = ['key' => $key, 'value' => $value];
+
+        return $value;
     }
 
     public function clusterStateIsDirty(): bool
@@ -633,26 +649,11 @@ final class KeywordTopicClusters extends Page
     }
 
     /**
-     * Inline canonical edit from Cluster Index — no page reload.
-     *
-     * @return array{
-     *     ok: bool,
-     *     label?: string,
-     *     keyword_count?: int,
-     *     dna_branch_count?: int,
-     *     covered_branch_count?: int,
-     *     uncovered_branch_count?: int,
-     *     article_count?: int,
-     *     intent?: string,
-     *     coverage?: string,
-     *     removed?: bool
-     * }
-     */
-    /**
-     * Inline MCP mask rename from grouped Cluster Index — same UX as canonical edit.
+     * Inline MCP mask rename from grouped Cluster Index — item-level, no list refresh.
      *
      * @return array{ok: bool, label?: string}
      */
+    #[Renderless]
     public function saveMcpGroupMaskFromIndex(string $groupRef, string $maskName): array
     {
         if (! $this->canEditClusterCanonical()) {
@@ -694,8 +695,6 @@ final class KeywordTopicClusters extends Page
             return ['ok' => false];
         }
 
-        $this->refreshClusterSummaryCounters();
-
         Notification::make()
             ->title(__('seo-content-ai::filament.keyword.topic_mcp_group_mask_saved'))
             ->success()
@@ -707,6 +706,27 @@ final class KeywordTopicClusters extends Page
         ];
     }
 
+    /**
+     * Inline canonical edit from Cluster Index — item-level patch, no full list refresh.
+     *
+     * @return array{
+     *     ok: bool,
+     *     label?: string,
+     *     keyword_count?: int,
+     *     dna_branch_count?: int,
+     *     covered_branch_count?: int,
+     *     uncovered_branch_count?: int,
+     *     article_count?: int,
+     *     internal_link_count?: int,
+     *     intent?: string,
+     *     coverage?: string,
+     *     topical_share?: float,
+     *     canonical_source?: string,
+     *     state?: string,
+     *     removed?: bool
+     * }
+     */
+    #[Renderless]
     public function saveClusterCanonicalFromIndex(string $clusterKey, string $phrase): array
     {
         if (! $this->canEditClusterCanonical()) {
@@ -745,11 +765,10 @@ final class KeywordTopicClusters extends Page
                 ->success()
                 ->send();
 
-            $this->refreshClusterSummaryCounters();
-
             return [
                 'ok' => true,
                 'removed' => true,
+                'cluster_key' => $clusterKey,
                 'label' => trim($phrase),
                 'keyword_count' => 0,
                 'dna_branch_count' => 0,
@@ -775,11 +794,10 @@ final class KeywordTopicClusters extends Page
             ->success()
             ->send();
 
-        $this->refreshClusterSummaryCounters();
-
         return [
             'ok' => true,
             'removed' => false,
+            'cluster_key' => $clusterKey,
             'label' => KeywordPhrasePresentation::present((string) ($detail['label'] ?? $result['canonical_phrase'])),
             'keyword_count' => (int) ($detail['keyword_count'] ?? 0),
             'article_count' => (int) ($detail['article_count'] ?? 0),

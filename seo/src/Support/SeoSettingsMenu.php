@@ -10,7 +10,6 @@ use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsConfigurationTransfer;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsEditor;
 use Omnichannel\Addons\SearchIntelligence\Filament\Pages\SeoSettingsKeywords;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsGeneral;
-use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsRecommendations;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsScoring;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsWorkflows;
 
@@ -63,12 +62,6 @@ final class SeoSettingsMenu
                 'label' => 'SEO scoring',
                 'icon' => 'heroicon-o-chart-bar',
                 'url' => SeoSettingsScoring::getUrl(),
-            ],
-            [
-                'id' => 'recommendations',
-                'label' => 'Recommendations',
-                'icon' => 'heroicon-o-book-open',
-                'url' => SeoSettingsRecommendations::getUrl(),
             ],
             [
                 'id' => 'import-export',

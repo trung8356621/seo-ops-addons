@@ -3,44 +3,64 @@
     $languageSiteId = $languageSiteId ?? ($this->resolveKeywordWorkspaceSiteId() ?? 0);
     $primaryLanguage = $primaryLanguage ?? ($this->resolveKeywordWorkspacePrimaryLanguage() ?? '');
     $selectedLanguage = $selectedLanguage ?? ($this->keywordLanguageFilter ?? $primaryLanguage);
+    $moduleHeading = $moduleHeading ?? (method_exists($this, 'getKeywordModuleHeading')
+        ? $this->getKeywordModuleHeading()
+        : (string) __('seo-content-ai::filament.keyword.module_heading_fallback'));
+    $totalKeywords = method_exists($this, 'getKeywordWorkspaceTotalKeywords')
+        ? (int) $this->getKeywordWorkspaceTotalKeywords()
+        : null;
 @endphp
 
-<div class="keyword-workspace-tabs-bar">
-    <x-seo-content-ai::workspace-tabs
-        :active-key="$activeKey ?? ''"
-        :items="$navItems ?? []"
-        class="keyword-workspace-tabs"
-    />
+<div class="keyword-module-chrome">
+    <header class="keyword-module-header">
+        <h1 class="keyword-module-header__title">
+            <span class="keyword-module-header__heading">{{ $moduleHeading }}</span>
+            @if ($totalKeywords !== null)
+                <span
+                    class="keyword-module-header__total-badge"
+                    title="{{ __('seo-content-ai::filament.keyword.module_total_tooltip') }}"
+                >{{ __('seo-content-ai::filament.keyword.module_total_badge', ['count' => number_format($totalKeywords)]) }}</span>
+            @endif
+        </h1>
+    </header>
 
-    @if ($languageOptions !== [])
-        <div
-            class="keyword-workspace-tabs-bar__filter"
-            wire:ignore.self
-            x-data="keywordWorkspaceLanguageFilter({
-                siteId: @js((int) $languageSiteId),
-                primaryLanguage: @js($primaryLanguage),
-                optionCodes: @js(array_keys($languageOptions)),
-                storageKeyPrefix: 'keywordWorkspace.language.',
-            })"
-            x-init="init()"
-            @keyword-workspace-language-site-changed.window="onSiteChanged($event.detail)"
-        >
-            <label class="sr-only" for="keyword-workspace-language-filter">
-                {{ __('seo-content-ai::filament.keyword.workspace_language_filter') }}
-            </label>
-            <x-select
-                id="keyword-workspace-language-filter"
-                wire:model.live="keywordLanguageFilter"
-                wrapClass="x-select-wrap x-select-wrap--narrow keyword-workspace-language-select-wrap"
-                class="keyword-workspace-language-select"
-                x-on:change="persist($event.target.value)"
+    <div class="keyword-workspace-tabs-bar">
+        <x-seo-content-ai::workspace-tabs
+            :active-key="$activeKey ?? ''"
+            :items="$navItems ?? []"
+            class="keyword-workspace-tabs"
+        />
+
+        @if ($languageOptions !== [])
+            <div
+                class="keyword-workspace-tabs-bar__filter"
+                wire:ignore.self
+                x-data="keywordWorkspaceLanguageFilter({
+                    siteId: @js((int) $languageSiteId),
+                    primaryLanguage: @js($primaryLanguage),
+                    optionCodes: @js(array_keys($languageOptions)),
+                    storageKeyPrefix: 'keywordWorkspace.language.',
+                })"
+                x-init="init()"
+                @keyword-workspace-language-site-changed.window="onSiteChanged($event.detail)"
             >
-                @foreach ($languageOptions as $code => $label)
-                    <option value="{{ $code }}" @selected($selectedLanguage === $code)>{{ $label }}</option>
-                @endforeach
-            </x-select>
-        </div>
-    @endif
+                <label class="sr-only" for="keyword-workspace-language-filter">
+                    {{ __('seo-content-ai::filament.keyword.workspace_language_filter') }}
+                </label>
+                <x-select
+                    id="keyword-workspace-language-filter"
+                    wire:model.live="keywordLanguageFilter"
+                    wrapClass="x-select-wrap x-select-wrap--narrow keyword-workspace-language-select-wrap"
+                    class="keyword-workspace-language-select"
+                    x-on:change="persist($event.target.value)"
+                >
+                    @foreach ($languageOptions as $code => $label)
+                        <option value="{{ $code }}" @selected($selectedLanguage === $code)>{{ $label }}</option>
+                    @endforeach
+                </x-select>
+            </div>
+        @endif
+    </div>
 </div>
 
 @once

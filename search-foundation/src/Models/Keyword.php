@@ -343,6 +343,11 @@ class Keyword extends Model
         return app(KeywordMetaRepository::class)->getMainArticleId((int) $this->id);
     }
 
+    public function mainArticleIdForSite(int $siteId): ?int
+    {
+        return app(KeywordMetaRepository::class)->getMainArticleIdForSite((int) $this->id, $siteId);
+    }
+
     public function mainArticles(): BelongsToMany
     {
         return $this->belongsToMany(
@@ -353,6 +358,30 @@ class Keyword extends Model
         )
             ->where('keyword_meta.meta_key', KeywordMetaKey::MainArticleId->value)
             ->whereColumn('articles.id', 'keyword_meta.meta_value');
+    }
+
+    /**
+     * Focus articles for a site: site-scoped meta first, legacy global only if same site.
+     *
+     * @return \Illuminate\Support\Collection<int, SeoArticle>
+     */
+    public function mainArticlesForSite(int $siteId)
+    {
+        if ($siteId <= 0) {
+            return collect();
+        }
+
+        $articleId = $this->mainArticleIdForSite($siteId);
+        if ($articleId === null) {
+            return collect();
+        }
+
+        $article = SeoArticle::query()
+            ->whereKey($articleId)
+            ->where('site_id', $siteId)
+            ->first();
+
+        return $article instanceof SeoArticle ? collect([$article]) : collect();
     }
 
     /**
@@ -590,15 +619,9 @@ class Keyword extends Model
             return true;
         }
 
-        $mainArticleId = $this->mainArticleId();
-        if ($mainArticleId !== null) {
-            return SeoArticle::query()
-                ->whereKey($mainArticleId)
-                ->where('site_id', $siteId)
-                ->exists();
-        }
+        $mainForSite = app(KeywordMetaRepository::class)->getMainArticleIdForSite((int) $this->id, $siteId);
 
-        return false;
+        return $mainForSite !== null;
     }
 
     /**
@@ -623,6 +646,13 @@ class Keyword extends Model
                 ->orWhereHas(
                     'metas',
                     static fn (Builder $metaQuery): Builder => $metaQuery->where('meta_key', 'like', "site.{$siteId}.%"),
+                )
+                ->orWhereHas(
+                    'metas',
+                    static fn (Builder $metaQuery): Builder => $metaQuery
+                        ->where('meta_key', KeywordMetaKey::siteMainArticleId($siteId))
+                        ->whereNotNull('meta_value')
+                        ->where('meta_value', '!=', ''),
                 )
                 ->orWhereHas(
                     'metas',

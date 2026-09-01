@@ -6,7 +6,12 @@ namespace Omnichannel\Addons\ContentProjects\Support;
 
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemContentLengthDefaults;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemIdentity;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemContentLengthMode;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemGenerationMode;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemModelOverrideMode;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemTitleProtection;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Illuminate\Validation\ValidationException;
 
@@ -38,13 +43,20 @@ class SeoProjectTaskSyncDataNormalizer
             $secondaryDescription = trim((string) ($row['secondary_description'] ?? ''));
             $existingArticleTitle = trim((string) ($row['source_content'] ?? ''));
 
+            // Rewrite: source_content is the original title; do not persist a second editable title
+            // that could override AI-proposed titles downstream.
+            if ($type === SeoProjectTask::TYPE_REWRITE) {
+                $title = '';
+            }
+
             // Legacy rows: single source_content before keyword/title split.
             if ($keyword === '' && $title === '' && SeoProjectTask::isNewArticleType($type) && $existingArticleTitle !== '') {
                 $keyword = $existingArticleTitle;
             }
 
+            $identityTitle = $type === SeoProjectTask::TYPE_REWRITE ? $existingArticleTitle : $title;
             if (in_array($type, [SeoProjectTask::TYPE_CREATE, SeoProjectTask::TYPE_REWRITE], true)
-                && ! ContentProjectItemIdentity::isValid($keyword, $title)
+                && ! ContentProjectItemIdentity::isValid($keyword, $identityTitle)
             ) {
                 throw ValidationException::withMessages([
                     'tasks_data.'.$index.'.keyword' => ContentProjectItemIdentity::failureMessage(),
@@ -116,6 +128,31 @@ class SeoProjectTaskSyncDataNormalizer
                 ? trim((string) $row['status'])
                 : null;
 
+            $toneOverride = trim((string) ($row['tone_override'] ?? ''));
+
+            $targetWords = (int) ($row['content_length_target_words'] ?? 0);
+            $legacyMode = ItemContentLengthMode::tryFromMixed($row['content_length_override'] ?? null);
+            // Direct numeric length is canonical. Preset modes remain readable for legacy rows.
+            $contentLengthOverride = null;
+            $contentLengthTargetWords = null;
+            if ($targetWords > 0) {
+                $contentLengthOverride = ItemContentLengthMode::Custom;
+                $contentLengthTargetWords = ContentProjectItemContentLengthDefaults::clamp($targetWords);
+            } elseif ($legacyMode !== null) {
+                $contentLengthOverride = $legacyMode;
+                if ($legacyMode === ItemContentLengthMode::Custom) {
+                    $contentLengthTargetWords = null;
+                }
+            } elseif (SeoProjectTask::isNewArticleType($type)) {
+                $contentLengthOverride = ItemContentLengthMode::Custom;
+                $contentLengthTargetWords = ContentProjectItemContentLengthDefaults::forPostType(
+                    $row['post_type'] ?? null,
+                );
+            }
+
+            $modelOverrideIdRaw = (int) ($row['model_override_id'] ?? 0);
+            $modelOverrideId = $modelOverrideIdRaw > 0 ? $modelOverrideIdRaw : null;
+
             $out[] = new SeoProjectTaskSyncData(
                 taskId: $taskId,
                 projectId: $projectId,
@@ -134,10 +171,39 @@ class SeoProjectTaskSyncDataNormalizer
                 targetDate: $targetDate,
                 requestedStatus: $requestedStatus,
                 inputIndex: (int) $index,
+                toneOverride: $toneOverride !== '' ? $toneOverride : null,
+                contentLengthOverride: $contentLengthOverride,
+                contentLengthTargetWords: $contentLengthTargetWords,
+                generationModeOverride: ItemGenerationMode::tryFromMixed($row['generation_mode_override'] ?? null),
+                modelOverrideId: $modelOverrideId,
+                modelOverrideMode: self::modelOverrideMode($row, $modelOverrideId),
+                titleProtection: ItemTitleProtection::tryFromMixed($row['title_protection'] ?? null),
             );
         }
 
         return $out;
+    }
+
+    /**
+     * The repeater exposes a "fallback if unavailable" toggle; the column stores the
+     * binding strength. A mode without a model id is dropped — it would never apply.
+     *
+     * @param  array<mixed>  $row
+     */
+    private static function modelOverrideMode(array $row, ?int $modelOverrideId): ?ItemModelOverrideMode
+    {
+        if ($modelOverrideId === null) {
+            return null;
+        }
+
+        if (array_key_exists('model_fallback_enabled', $row)) {
+            return filter_var($row['model_fallback_enabled'], FILTER_VALIDATE_BOOLEAN)
+                ? ItemModelOverrideMode::Preferred
+                : ItemModelOverrideMode::Required;
+        }
+
+        return ItemModelOverrideMode::tryFromMixed($row['model_override_mode'] ?? null)
+            ?? ItemModelOverrideMode::Preferred;
     }
 
     /**

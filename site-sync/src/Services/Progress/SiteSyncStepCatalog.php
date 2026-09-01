@@ -90,6 +90,177 @@ final class SiteSyncStepCatalog
     }
 
     /**
+     * User-facing V3 macro groups (presentation only — orchestrator stays 6 phases).
+     *
+     * @return list<array{key: string, label: string, phases: list<string>}>
+     */
+    public static function v3MacroGroups(): array
+    {
+        return [
+            [
+                'key' => 'prepare',
+                'label' => 'Chuẩn bị',
+                'phases' => [SiteSyncV3Schema::PHASE_DISCOVER],
+            ],
+            [
+                'key' => 'sync_data',
+                'label' => 'Đồng bộ dữ liệu',
+                'phases' => [
+                    SiteSyncV3Schema::PHASE_IMPORT,
+                    SiteSyncV3Schema::PHASE_RECONCILE_STALE,
+                    SiteSyncV3Schema::PHASE_CATCH_UP,
+                ],
+            ],
+            [
+                'key' => 'verify_finish',
+                'label' => 'Xác minh & hoàn tất',
+                'phases' => [
+                    SiteSyncV3Schema::PHASE_VERIFY,
+                    SiteSyncV3Schema::PHASE_COMPLETE,
+                ],
+            ],
+        ];
+    }
+
+    public static function v3MacroTotalSteps(): int
+    {
+        return count(self::v3MacroGroups());
+    }
+
+    /**
+     * Project frozen V2 7-step timeline into the same 3 user macros (presentation only).
+     *
+     * @return list<array{key: string, label: string, steps: list<string>}>
+     */
+    public static function v2MacroGroups(): array
+    {
+        return [
+            [
+                'key' => 'prepare',
+                'label' => 'Chuẩn bị',
+                'steps' => ['detect_capability', 'request_snapshot_delta'],
+            ],
+            [
+                'key' => 'sync_data',
+                'label' => 'Đồng bộ dữ liệu',
+                'steps' => [
+                    'sync_site_profile',
+                    'sync_url_catalog',
+                    'sync_provider_keywords',
+                    'missing_capability_fallback',
+                ],
+            ],
+            [
+                'key' => 'verify_finish',
+                'label' => 'Xác minh & hoàn tất',
+                'steps' => ['finalize'],
+            ],
+        ];
+    }
+
+    /**
+     * @param  list<array{key: string, label: string, status: string, order: int}>  $stepTimeline
+     * @return list<array{key: string, label: string, status: string, order: int, phases: list<string>}>
+     */
+    public static function v2MacroTimeline(array $stepTimeline): array
+    {
+        $byKey = [];
+        foreach ($stepTimeline as $row) {
+            $byKey[(string) ($row['key'] ?? '')] = $row;
+        }
+
+        $out = [];
+        foreach (self::v2MacroGroups() as $i => $group) {
+            $statuses = [];
+            foreach ($group['steps'] as $stepKey) {
+                $statuses[] = (string) ($byKey[$stepKey]['status'] ?? 'pending');
+            }
+
+            $out[] = [
+                'key' => $group['key'],
+                'label' => $group['label'],
+                'status' => self::aggregateMacroStatus($statuses),
+                'order' => $i + 1,
+                'phases' => $group['steps'],
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * @return list<array{key: string, label: string, status: string, order: int, phases: list<string>}>
+     */
+    public static function v3MacroTimeline(string $currentPhase, string $runStatus): array
+    {
+        $phaseByKey = [];
+        foreach (self::v3Timeline($currentPhase, $runStatus) as $row) {
+            $phaseByKey[$row['key']] = $row;
+        }
+
+        $out = [];
+        foreach (self::v3MacroGroups() as $i => $group) {
+            $statuses = [];
+            foreach ($group['phases'] as $phaseKey) {
+                $statuses[] = (string) ($phaseByKey[$phaseKey]['status'] ?? 'pending');
+            }
+
+            $out[] = [
+                'key' => $group['key'],
+                'label' => $group['label'],
+                'status' => self::aggregateMacroStatus($statuses),
+                'order' => $i + 1,
+                'phases' => $group['phases'],
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  list<string>  $statuses
+     */
+    private static function aggregateMacroStatus(array $statuses): string
+    {
+        if ($statuses === []) {
+            return 'pending';
+        }
+        if (in_array('failed', $statuses, true) || in_array('needs_attention', $statuses, true)) {
+            return 'failed';
+        }
+        if (in_array('running', $statuses, true)) {
+            return 'running';
+        }
+
+        $allDone = true;
+        $allPending = true;
+        $hasDone = false;
+        foreach ($statuses as $status) {
+            $done = in_array($status, ['completed', 'skipped'], true);
+            if (! $done) {
+                $allDone = false;
+            } else {
+                $hasDone = true;
+            }
+            if ($status !== 'pending') {
+                $allPending = false;
+            }
+        }
+        if ($allDone) {
+            return 'completed';
+        }
+        if ($allPending) {
+            return 'pending';
+        }
+        // Partially completed within group without an explicit running marker.
+        if ($hasDone) {
+            return 'running';
+        }
+
+        return 'pending';
+    }
+
+    /**
      * @return list<array{key: string, label: string, status: string, order: int}>
      */
     public static function v3Timeline(string $currentPhase, string $runStatus): array

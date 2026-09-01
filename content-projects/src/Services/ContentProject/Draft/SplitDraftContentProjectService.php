@@ -15,6 +15,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Planner\ContentPr
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterMonthlyCapacityService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectArticleOwnerSyncService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExecutionLimits;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectWriterAllocator;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -23,13 +24,14 @@ use InvalidArgumentException;
 use RuntimeException;
 
 /**
- * Move reviewed Draft planning items into current-month execution Content Projects.
+ * Move reviewed Draft planning items into execution Content Projects for a target month.
  * Step 1: fair-distribute across included writers.
  * Step 2: pack each writer allocation into reusable max-30 Execution Projects
  * ({@see ContentProjectExecutionPackingService}).
  * MOVE same task rows (preserve id / article_id / item site_id / origins).
  * Does not call AI. Does not auto-generate.
  * Every touched project has a real writer user_id — never System User, actor, or draft owner.
+ * Draft itself stays monthless — month is chosen only at Create execution project time.
  */
 final class SplitDraftContentProjectService
 {
@@ -43,6 +45,7 @@ final class SplitDraftContentProjectService
     /**
      * @param  list<int>  $itemIds
      * @param  list<int|string>  $assigneeIds
+     * @param  Carbon|string|null  $targetMonth  Selected execution month; null = current
      * @return array<string, mixed>
      */
     public function preview(
@@ -51,9 +54,10 @@ final class SplitDraftContentProjectService
         ?int $quantity,
         array $itemIds,
         array $assigneeIds = [],
+        Carbon|string|null $targetMonth = null,
     ): array {
         $resolved = $this->resolveItems($draft, $selectionMode, $quantity, $itemIds);
-        $month = $this->currentMonth();
+        $month = $this->resolveTargetMonth($targetMonth);
         $taskIds = $resolved['task_ids'];
         $plan = $this->planAllocations($taskIds, $assigneeIds, $month);
         $remaining = max(0, $this->currentDraftItemCount($draft) - count($taskIds));
@@ -71,6 +75,7 @@ final class SplitDraftContentProjectService
     /**
      * @param  list<int>  $itemIds
      * @param  list<int|string>  $assigneeIds
+     * @param  Carbon|string|null  $targetMonth  Selected execution month; null = current
      * @return array<string, mixed>
      */
     public function split(
@@ -80,6 +85,7 @@ final class SplitDraftContentProjectService
         array $itemIds,
         ?int $actorId = null,
         array $assigneeIds = [],
+        Carbon|string|null $targetMonth = null,
     ): array {
         unset($actorId);
 
@@ -89,7 +95,7 @@ final class SplitDraftContentProjectService
 
         $this->assertNoActivePlannerMaterialization($draft);
 
-        $month = $this->currentMonth();
+        $month = $this->resolveTargetMonth($targetMonth);
 
         return DB::connection('omi_seo_ai')->transaction(function () use (
             $draft,
@@ -609,6 +615,21 @@ final class SplitDraftContentProjectService
         return Carbon::now()->startOfMonth();
     }
 
+    /**
+     * Resolve modal/CLI target month. Null / empty → current month.
+     * Accepts YYYY-MM, Y-m-d, or Carbon.
+     */
+    public function resolveTargetMonth(Carbon|string|null $targetMonth = null): Carbon
+    {
+        if ($targetMonth instanceof Carbon) {
+            return $targetMonth->copy()->startOfMonth();
+        }
+
+        $normalized = ContentProjectMonthContext::normalize($targetMonth);
+
+        return Carbon::parse(ContentProjectMonthContext::toDateString($normalized))->startOfMonth();
+    }
+
     private function executionNameSuffix(string $name, string $base): int
     {
         $name = trim($name);
@@ -646,6 +667,11 @@ final class SplitDraftContentProjectService
         if ($task->planning_reviewed_at === null) {
             throw new InvalidArgumentException(
                 'Item '.$task->id.' is unreviewed and cannot be split.',
+            );
+        }
+        if ((int) ($task->site_id ?? 0) <= 0) {
+            throw new InvalidArgumentException(
+                'Item '.$task->id.' is missing Domain (site_id) and cannot be moved to an execution project.',
             );
         }
     }

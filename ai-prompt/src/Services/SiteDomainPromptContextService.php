@@ -285,15 +285,13 @@ final class SiteDomainPromptContextService
         return $merged;
     }
 
+    /**
+     * Domain/site tone no longer participates in {{tone}} resolution.
+     * Legacy persisted domain tone is ignored; callers must supply item/runtime tone.
+     */
     public function resolveToneForSite(?Site $site, string $globalTone): string
     {
-        if ($site === null) {
-            return $globalTone;
-        }
-
-        $domainTone = trim($this->getForSite($site)['tone'] ?? '');
-
-        return $domainTone !== '' ? $domainTone : $globalTone;
+        return $globalTone;
     }
 
     /**

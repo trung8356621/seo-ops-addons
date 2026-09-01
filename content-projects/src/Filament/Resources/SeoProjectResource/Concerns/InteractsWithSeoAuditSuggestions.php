@@ -812,62 +812,25 @@ trait InteractsWithSeoAuditSuggestions
 
     public function createDraftProjectForSuggestions(): void
     {
-        $project = $this->resolvePlannerProject();
-        if (! $project instanceof SeoProject) {
-            $this->notifyPlannerProjectRequired();
-
-            return;
+        $bootstrap = (int) ($this->filterSiteId ?? 0);
+        if ($bootstrap <= 0) {
+            $project = $this->resolvePlannerProject();
+            $bootstrap = $project instanceof SeoProject ? (int) ($project->site_id ?? 0) : 0;
         }
-        if ($project->isDraftPlanning()) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.projects.suggestions_already_draft'))
-                ->info()
-                ->send();
-
-            return;
+        if ($bootstrap <= 0) {
+            $bootstrap = (int) (array_key_first($this->siteFilterOptions ?? []) ?? 0);
         }
 
-        $siteId = (int) ($project->site_id ?? 0);
-        if ($siteId <= 0) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.projects.suggestions_create_draft_failed'))
-                ->body('Site is required to create a draft project.')
-                ->danger()
-                ->send();
-
-            return;
-        }
-
-        $existing = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftResolver::class)
-            ->findPlanningDraftForSite($siteId);
-        if ($existing instanceof SeoProject) {
-            $this->redirect(SeoProjectResource::getUrl('view', [
-                'record' => (int) $existing->getKey(),
-                'workspace' => 'suggestions',
-            ]));
-
-            return;
-        }
-
-        $domain = (string) ($project->site?->domain ?? '');
         try {
-            $result = app(ContentProjectCommandBus::class)->dispatch(
-                new CreateContentProjectCommand([
-                    'name' => SeoProject::defaultDraftName($domain !== '' ? $domain : null),
-                    'site_id' => $siteId,
-                    'status' => SeoProject::STATUS_DRAFT,
-                    'user_id' => auth()->id() !== null ? (int) auth()->id() : null,
-                    'month' => SeoProject::draftCompatibilityMonth(),
-                ]),
-                ActorContext::user(
+            $draft = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftIntakeService::class)
+                ->ensureSharedDraft(
                     auth()->id() !== null ? (int) auth()->id() : null,
-                    $siteId,
-                ),
-            );
+                    $bootstrap,
+                );
         } catch (Throwable $e) {
             RuntimeLogger::report($e, [
-                'endpoint' => 'content_project.suggestions.create_draft',
-                'project_id' => (int) $project->getKey(),
+                'endpoint' => 'content_project.suggestions.ensure_shared_draft',
+                'bootstrap_site_id' => $bootstrap,
             ]);
             Notification::make()
                 ->title(__('seo-content-ai::filament.projects.suggestions_create_draft_failed'))
@@ -878,25 +841,13 @@ trait InteractsWithSeoAuditSuggestions
             return;
         }
 
-        if (! $result->success || $result->projectId === null || $result->projectId <= 0) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.projects.suggestions_create_draft_failed'))
-                ->body($result->message)
-                ->danger()
-                ->send();
-
-            return;
-        }
-
         Notification::make()
-            ->title(! empty($result->metadata['reused_existing_draft'])
-                ? __('seo-content-ai::filament.projects.suggestions_draft_reused')
-                : __('seo-content-ai::filament.projects.suggestions_draft_created'))
+            ->title(__('seo-content-ai::filament.projects.suggestions_draft_reused'))
             ->success()
             ->send();
 
         $this->redirect(SeoProjectResource::getUrl('view', [
-            'record' => $result->projectId,
+            'record' => (int) $draft->getKey(),
             'workspace' => 'suggestions',
         ]));
     }

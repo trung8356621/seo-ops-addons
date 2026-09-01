@@ -49,24 +49,20 @@ class WordPressArticleContentService
             ];
         }
 
-        if ((int) ($article->wordpressLink?->wp_post_id ?? 0) <= 0) {
+        $wpId = (int) ($article->wordpressLink?->wp_post_id ?? $article->getAttribute('wp_post_id') ?? 0);
+        if ($wpId <= 0) {
             return ['html' => '', 'source' => 'empty', 'fetched' => false];
         }
 
-        $cache = app(ArticleWpContentCacheService::class);
-        $cached = $cache->findValid($article);
-        if ($cached !== null) {
-            $html = trim((string) $cached->rendered_html);
-            if ($html !== '') {
-                return [
-                    'html' => $this->normalizeEditorHtmlForSite($html, $article->site),
-                    'source' => 'wp_cache',
-                    'fetched' => false,
-                ];
-            }
+        $fromCache = $this->resolveEditorHtmlFromWpCache($article);
+        if ($fromCache !== null) {
+            return $fromCache;
         }
 
-        $remote = $this->fetchFromWordPress($article, importFaqs: false);
+        $remote = $this->fetchFromWordPress($article, importFaqs: false, persistMeta: false);
+        if ($remote === []) {
+            return ['html' => '', 'source' => 'wp_fetch_failed', 'fetched' => true];
+        }
         $scoring = is_array($remote['scoring'] ?? null) ? $remote['scoring'] : [];
         $prepared = app(ArticlePostImagesService::class)->prepareEditorHtmlFromWordPressSources(
             $article,
@@ -80,7 +76,7 @@ class WordPressArticleContentService
 
         $modified = trim((string) ($remote['post_modified'] ?? $remote['modified_gmt'] ?? ''));
         $revisionId = isset($remote['revision_id']) ? (int) $remote['revision_id'] : null;
-        $cache->put(
+        app(ArticleWpContentCacheService::class)->put(
             $article,
             $prepared,
             [
@@ -104,6 +100,61 @@ class WordPressArticleContentService
     public function resolveEditorHtml(SeoArticle $article): string
     {
         return $this->resolveEditorHtmlDetailed($article)['html'];
+    }
+
+    /**
+     * Body or valid WP cache only — never HTTP. Used on editor shell open
+     * so title/slug/permalink paint before a cache-miss fetch.
+     *
+     * @return array{html: string, source: 'body'|'wp_cache'|'pending_wp_fetch'|'empty', fetched: bool}
+     */
+    public function resolveEditorHtmlLocalOnly(SeoArticle $article): array
+    {
+        $article->loadMissing(['site', 'wordpressLink']);
+
+        $body = trim((string) ($article->body ?? ''));
+        if ($body !== '') {
+            return [
+                'html' => $this->normalizeEditorHtmlForSite($body, $article->site),
+                'source' => 'body',
+                'fetched' => false,
+            ];
+        }
+
+        $wpId = (int) ($article->wordpressLink?->wp_post_id ?? $article->getAttribute('wp_post_id') ?? 0);
+        if ($wpId <= 0) {
+            return ['html' => '', 'source' => 'empty', 'fetched' => false];
+        }
+
+        $fromCache = $this->resolveEditorHtmlFromWpCache($article);
+        if ($fromCache !== null) {
+            return $fromCache;
+        }
+
+        return ['html' => '', 'source' => 'pending_wp_fetch', 'fetched' => false];
+    }
+
+    /**
+     * @return array{html: string, source: 'wp_cache', fetched: bool}|null
+     */
+    private function resolveEditorHtmlFromWpCache(SeoArticle $article): ?array
+    {
+        $cache = app(ArticleWpContentCacheService::class);
+        $cached = $cache->findValid($article);
+        if ($cached === null) {
+            return null;
+        }
+
+        $html = trim((string) $cached->rendered_html);
+        if ($html === '') {
+            return null;
+        }
+
+        return [
+            'html' => $this->normalizeEditorHtmlForSite($html, $article->site),
+            'source' => 'wp_cache',
+            'fetched' => false,
+        ];
     }
 
     private function normalizeEditorHtmlForSite(string $html, mixed $site): string
@@ -283,9 +334,14 @@ class WordPressArticleContentService
     /**
      * @return array<string, mixed>
      */
-    public function fetchFromWordPress(SeoArticle $article, bool $importFaqs = true, bool $forceSeoImport = false): array
-    {
-        $wpId = (int) ($article->wordpressLink?->wp_post_id ?? 0);
+    public function fetchFromWordPress(
+        SeoArticle $article,
+        bool $importFaqs = true,
+        bool $forceSeoImport = false,
+        bool $persistMeta = true,
+    ): array {
+        $article->loadMissing('wordpressLink');
+        $wpId = (int) ($article->wordpressLink?->wp_post_id ?? $article->getAttribute('wp_post_id') ?? 0);
         if ($wpId <= 0) {
             return [];
         }
@@ -335,18 +391,28 @@ class WordPressArticleContentService
 
             $post = is_array($payload['post'] ?? null) ? $payload['post'] : [];
 
-            if ($taxonomy !== null) {
-                $this->persistTaxonomyIdentityMeta(
-                    $article,
-                    $taxonomy,
-                    array_merge($post, [
-                        'parent_id' => (int) ($post['parent_id'] ?? 0),
-                    ]),
-                );
-            }
+            if ($persistMeta) {
+                try {
+                    if ($taxonomy !== null) {
+                        $this->persistTaxonomyIdentityMeta(
+                            $article,
+                            $taxonomy,
+                            array_merge($post, [
+                                'parent_id' => (int) ($post['parent_id'] ?? 0),
+                            ]),
+                        );
+                    }
 
-            $this->persistFetchedMeta($article, $post, $taxonomy !== null, $importFaqs, $forceSeoImport);
-            app(ArticleLastSavedTimestampService::class)->touchSynced($article);
+                    $this->persistFetchedMeta($article, $post, $taxonomy !== null, $importFaqs, $forceSeoImport);
+                    app(ArticleLastSavedTimestampService::class)->touchSynced($article);
+                } catch (Throwable $e) {
+                    Log::warning('WordPress persist after content fetch failed', [
+                        'article_id' => $article->id,
+                        'wp_post_id' => $wpId,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
 
             return $post;
         } catch (Throwable $e) {
@@ -621,7 +687,17 @@ class WordPressArticleContentService
         $this->timestampService->sync($article, $post);
 
         if (! $isTaxonomy) {
-            app(ArticleKeywordLinkReconcileService::class)->reconcileForArticle($article->fresh());
+            $reconcileClass = \Omnichannel\Addons\SearchFoundation\Services\ArticleKeywordLinkReconcileService::class;
+            if (class_exists($reconcileClass)) {
+                try {
+                    app($reconcileClass)->reconcileForArticle($article->fresh());
+                } catch (Throwable $e) {
+                    Log::warning('Keyword link reconcile after WP fetch failed', [
+                        'article_id' => $article->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
         }
     }
 

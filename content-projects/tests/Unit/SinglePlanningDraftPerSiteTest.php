@@ -19,9 +19,10 @@ final class SinglePlanningDraftPerSiteTest extends TestCase
         );
 
         self::assertStringContainsString('findPlanningDraftForSite', $src);
+        self::assertStringContainsString('findCanonicalSharedDraft', $src);
         self::assertStringContainsString('STATUS_DRAFT', $src);
-        self::assertStringContainsString('duplicate_detected', $src);
         self::assertStringContainsString('isDraftPlanning()', $src);
+        self::assertStringContainsString('return $this->findCanonicalSharedDraft()', $src);
     }
 
     public function test_create_handler_reuses_existing_planning_draft(): void
@@ -31,9 +32,11 @@ final class SinglePlanningDraftPerSiteTest extends TestCase
         );
 
         self::assertStringContainsString('PlanningDraftResolver', $src);
-        self::assertStringContainsString('findPlanningDraftForSite', $src);
+        self::assertStringContainsString('findCanonicalSharedDraft', $src);
         self::assertStringContainsString('reused_existing_draft', $src);
         self::assertStringContainsString('STATUS_DRAFT', $src);
+        self::assertStringContainsString('legacy_site_draft_creation_rejected', $src);
+        self::assertStringNotContainsString('findPlanningDraftForSite($siteId)', $src);
     }
 
     public function test_planner_ui_has_no_create_another_draft_when_draft_exists(): void
@@ -44,8 +47,11 @@ final class SinglePlanningDraftPerSiteTest extends TestCase
         );
 
         self::assertStringContainsString('data-planning-draft-display', $page);
+        self::assertStringContainsString('data-shared-planning-draft', $page);
         self::assertStringContainsString('PlanningDraftResolver', $planner);
-        self::assertStringContainsString('autoSelectSiteDraftIfNeeded', $planner);
+        self::assertStringContainsString('autoSelectSharedDraftIfNeeded', $planner);
         self::assertStringNotContainsString('Create another Draft', $page);
+        self::assertStringNotContainsString('content_planning_no_draft_yet', $page);
+        self::assertStringNotContainsString('seo_audit_create_draft', $page);
     }
 }

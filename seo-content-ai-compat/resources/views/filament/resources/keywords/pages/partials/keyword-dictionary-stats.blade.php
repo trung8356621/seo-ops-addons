@@ -5,12 +5,6 @@
 
 <div class="keyword-dictionary-stats" aria-label="{{ __('seo-content-ai::filament.keyword.dictionary_stats_label') }}">
     @foreach ([
-        'total' => [
-            'label' => __('seo-content-ai::filament.keyword.stat_total'),
-            'value' => $stats['total'] ?? 0,
-            'tone' => 'violet',
-            'icon' => 'heroicon-o-squares-plus',
-        ],
         'active' => [
             'label' => __('seo-content-ai::filament.keyword.stat_active'),
             'value' => $stats['active'] ?? 0,

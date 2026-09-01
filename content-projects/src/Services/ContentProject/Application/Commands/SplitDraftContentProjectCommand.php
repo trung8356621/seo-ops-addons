@@ -8,7 +8,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Contr
 
 /**
  * Materialize execution Content Project(s) by moving Draft planning items
- * onto selected real writers (current month, 30 items/user cap).
+ * onto selected real writers for a target execution month (default: current).
  * Does not generate or publish.
  */
 final class SplitDraftContentProjectCommand implements ContentProjectCommand
@@ -22,6 +22,7 @@ final class SplitDraftContentProjectCommand implements ContentProjectCommand
     /**
      * @param  list<int|string>  $itemRefs
      * @param  list<int|string>  $assigneeIds  Real writer user ids in UI order
+     * @param  string|null  $targetMonth  YYYY-MM or Y-m-d; null = current month
      */
     public function __construct(
         public readonly string|int $projectRef,
@@ -30,6 +31,7 @@ final class SplitDraftContentProjectCommand implements ContentProjectCommand
         public readonly array $itemRefs = [],
         public readonly bool $dryRun = false,
         public readonly array $assigneeIds = [],
+        public readonly ?string $targetMonth = null,
     ) {}
 
     public function name(): string

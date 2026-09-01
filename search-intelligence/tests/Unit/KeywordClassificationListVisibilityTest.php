@@ -78,9 +78,10 @@ final class KeywordClassificationListVisibilityTest extends TestCase
         $summary = (string) file_get_contents(LegacyAddonPath::resolve(
             'resources/views/filament/resources/keywords/pages/partials/keyword-classification-summary.blade.php',
         ));
-        self::assertStringContainsString("\$summary['focus']", $summary);
         self::assertStringContainsString("\$summary['error']", $summary);
         self::assertStringContainsString("\$summary['seo_excluded']", $summary);
+        self::assertStringNotContainsString("\$summary['total_raw']", $summary);
+        self::assertStringNotContainsString("\$summary['focus']", $summary);
         self::assertStringNotContainsString("\$summary['needs_review']", $summary);
         self::assertStringNotContainsString("\$summary['seo_usable']", $summary);
     }

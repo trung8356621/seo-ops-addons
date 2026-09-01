@@ -27,9 +27,11 @@ final class ArticleLastSavedTimestampService
     public function touchSynced(SeoArticle $article): void
     {
         $now = now();
+        // Only bump last_synced_at. Never pass wp_post_id here — a stale null
+        // wordpressLink relation (cached before the link row existed) would
+        // overwrite a just-written wp_post_id via updateOrCreate.
         app(\Omnichannel\Addons\WordPress\Services\WordpressArticleLinkWriter::class)->upsert($article, [
             'last_synced_at' => $now,
-            'wp_post_id' => (int) ($article->wordpressLink?->wp_post_id ?? 0) ?: null,
         ]);
         // In-memory only — column dropped; accessor reads wordpress_article_links.
         $article->setAttribute('last_synced_at', $now);

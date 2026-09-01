@@ -85,7 +85,7 @@ final class SettingsTransferContractTest extends TestCase
     {
         $src = (string) file_get_contents((new \ReflectionClass(SeoSettingsBundleService::class))->getFileName());
         $this->assertStringContainsString('recommendations', $src);
-        $this->assertStringContainsString('Hard-coded operator docs', $src);
+        $this->assertStringContainsString('Global Help topics', $src);
         $this->assertStringNotContainsString('ImageRoutingStrategy', $src);
     }
 

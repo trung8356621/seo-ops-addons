@@ -1186,20 +1186,23 @@ function readArticleEditorBootstrap() {
                 const title = String(core?.title ?? '').trim();
                 const slug = String(core?.slug ?? '').trim();
                 const metaDescription = String(core?.metaDescription ?? core?.meta_description ?? '').trim();
+                const wordpressPermalink = String(
+                    core?.wordpressPermalink ?? core?.wordpress_permalink ?? '',
+                ).trim();
                 const permalinkBase = String(core?.permalinkBase ?? core?.permalink_base ?? '').trim();
                 const permalinkSuffix = String(core?.permalinkSuffix ?? core?.permalink_suffix ?? '').trim();
                 const siteDomain = String(core?.siteDomain ?? core?.site_domain ?? '').trim();
                 const path = [slug, permalinkSuffix.replace(/^\//, '')].filter(Boolean).join('/');
-                const url = permalinkBase !== ''
+                const constructedUrl = permalinkBase !== ''
                     ? `${permalinkBase.replace(/\/$/, '')}/${path}`
                     : (siteDomain !== '' ? `https://${siteDomain.replace(/^https?:\/\//i, '')}/${path}` : '#');
+                const url = wordpressPermalink || constructedUrl;
                 let displayHost = siteDomain;
+                let displayPath = path;
                 try {
-                    if (permalinkBase) {
-                        displayHost = new URL(
-                            permalinkBase.includes('://') ? permalinkBase : `https://${permalinkBase}`,
-                        ).hostname;
-                    }
+                    const urlObj = new URL(url.includes('://') ? url : `https://${url}`);
+                    displayHost = urlObj.hostname || siteDomain || permalinkBase;
+                    displayPath = String(urlObj.pathname ?? '').replace(/^\//, '');
                 } catch {
                     displayHost = siteDomain || permalinkBase;
                 }
@@ -1209,13 +1212,14 @@ function readArticleEditorBootstrap() {
                         description: metaDescription,
                         url,
                         display_url: displayHost
-                            ? (path ? `${displayHost} › ${path.replace(/\//g, ' › ')}` : displayHost)
+                            ? (displayPath ? `${displayHost} › ${displayPath.replace(/\//g, ' › ')}` : displayHost)
                             : '#',
                     },
                     article_slug: slug,
                     site_domain: siteDomain,
                     permalink_base: permalinkBase,
                     permalink_suffix: permalinkSuffix,
+                    wordpress_permalink: wordpressPermalink,
                     focus_keyword: core?.focusKeyword ?? core?.focus_keyword ?? null,
                     meta_description: metaDescription,
                     skip_seo_score: false,

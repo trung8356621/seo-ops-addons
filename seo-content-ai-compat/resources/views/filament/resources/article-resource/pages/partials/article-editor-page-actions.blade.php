@@ -124,15 +124,18 @@
                 },
 
                 notifyReadOnly() {
-                    const syncRequired = this.contentLifecycle === 'SYNC_REQUIRED';
+                    const loading = this.contentLifecycle === 'CONTENT_LOADING';
+                    const fetchError = this.contentLifecycle === 'ERROR';
                     window.dispatchEvent(new CustomEvent('seo-article-editor-notify', {
                         detail: {
-                            title: syncRequired ? 'Chưa đồng bộ nội dung' : 'Chỉ đọc',
-                            body: syncRequired
-                                ? 'Đồng bộ từ WordPress trước khi lưu hoặc chỉnh sửa.'
-                                : (this.editorLockReason
-                                    ? ('Phiên không writable: ' + this.editorLockReason)
-                                    : 'Bài viết đang ở chế độ chỉ đọc.'),
+                            title: fetchError ? 'Không tải được nội dung' : (loading ? 'Đang tải nội dung' : 'Chỉ đọc'),
+                            body: fetchError
+                                ? 'Không thể tải nội dung từ WordPress. Thử lại rồi lưu.'
+                                : (loading
+                                    ? 'Đang tải nội dung từ WordPress. Đợi nội dung sẵn sàng rồi lưu.'
+                                    : (this.editorLockReason
+                                        ? ('Phiên không writable: ' + this.editorLockReason)
+                                        : 'Bài viết đang ở chế độ chỉ đọc.')),
                             status: 'warning',
                         },
                     }));

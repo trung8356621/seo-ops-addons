@@ -6,16 +6,13 @@ namespace Omnichannel\Addons\Content\Livewire;
 
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\Content\Models\SeoArticle;
-use Omnichannel\Addons\Content\Services\ArticlePendingInternalLinkService;
-use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
-use Omnichannel\Addons\ContentProjects\Services\KeywordProjectAssignmentService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftIntakeResult;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftIntakeService;
 use Omnichannel\Addons\ContentProjects\Support\AssignToContentProject\AssignToContentProjectContract;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
-use Omnichannel\Addons\SearchIntelligence\Support\KeywordFocusAttach;
-use Omnichannel\Addons\Seo\Services\SeoAnalyzerService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Filament\Notifications\Notification;
 use Illuminate\Support\Collection;
@@ -23,10 +20,10 @@ use Livewire\Component;
 use Throwable;
 
 /**
- * Canonical Assign-to-Content-Project sidebar drawer.
+ * Canonical Add-to-Draft sidebar (legacy Assign-to-Content-Project shell).
  *
- * Modes route to existing domain backends; this component owns UI only.
- * Mount once at the panel shell; all callers open via assign-content-project:open.
+ * Destination is always Shared Planning Draft via PlanningDraftIntakeService.
+ * Mount once at the panel shell; callers open via assign-content-project:open.
  */
 class AssignToContentProjectDrawer extends Component
 {
@@ -85,7 +82,7 @@ class AssignToContentProjectDrawer extends Component
 
     public bool $needsFocusKeyword = false;
 
-    public bool $ignoreMonthlyCapacity = false;
+    public bool $ignoreMonthlyCapacity = true;
 
     public bool $showQuickCreate = false;
 
@@ -140,13 +137,13 @@ class AssignToContentProjectDrawer extends Component
         $defaults = $payload['defaults'];
         $options = $payload['options'];
 
-        $this->ignoreMonthlyCapacity = (bool) ($options['ignore_monthly_capacity'] ?? false);
-        $this->showQuickCreate = (bool) ($options['show_quick_create'] ?? false);
-        $this->showArticleFields = (bool) ($options['show_article_fields'] ?? ($this->mode === AssignToContentProjectContract::MODE_ARTICLE));
-        $this->showMultiSite = (bool) ($options['show_multi_site'] ?? ($this->mode === AssignToContentProjectContract::MODE_KEYWORD));
-        $this->showFocusKeyword = (bool) ($options['show_focus_keyword'] ?? false);
-        $this->showKeywordOverride = (bool) ($options['show_keyword_override'] ?? false);
-        $this->showTitleOverride = (bool) ($options['show_title_override'] ?? false);
+        $this->ignoreMonthlyCapacity = true;
+        $this->showQuickCreate = false;
+        $this->showArticleFields = false;
+        $this->showMultiSite = $this->mode === AssignToContentProjectContract::MODE_KEYWORD;
+        $this->showFocusKeyword = false;
+        $this->showKeywordOverride = false;
+        $this->showTitleOverride = false;
 
         $this->type = SeoProjectTask::normalizeType($defaults['type'] ?? (
             $this->mode === AssignToContentProjectContract::MODE_VOCABULARY_ITEMS
@@ -155,9 +152,9 @@ class AssignToContentProjectDrawer extends Component
         ));
         $this->rewriteNotes = trim((string) ($defaults['rewrite_notes'] ?? ''));
         $this->focusKeyword = trim((string) ($defaults['focus_keyword'] ?? ''));
-        $this->keywordOverride = trim((string) ($defaults['keyword'] ?? ''));
-        $this->titleOverride = trim((string) ($defaults['title'] ?? ''));
-        $this->typeOptions = SeoProjectTask::typeOptions();
+        $this->keywordOverride = '';
+        $this->titleOverride = '';
+        $this->typeOptions = [];
 
         if ($this->mode === AssignToContentProjectContract::MODE_KEYWORD) {
             $this->prepareKeywordContext($defaults);
@@ -173,7 +170,6 @@ class AssignToContentProjectDrawer extends Component
             return;
         }
 
-        // User may have closed the Alpine shell while this request was in flight.
         if (! $this->open) {
             $this->preparing = false;
 
@@ -181,6 +177,60 @@ class AssignToContentProjectDrawer extends Component
         }
 
         $this->preparing = false;
+
+        // Bulk / pending / vocab may still auto-submit after shell is open.
+        // Single-article with keyword must use preflightOpen() — never reach here for that path.
+        if ($this->shouldAutoSubmitAfterPrepare()) {
+            $this->submit();
+        }
+    }
+
+    /**
+     * Preflight for Alpine OPEN_EVENT: handle single-article-with-keyword without opening shell.
+     *
+     * @param  array<string, mixed>  $detail
+     * @return array{handled: bool, needs_keyword: bool, status: string|null}
+     */
+    public function preflightOpen(array $detail): array
+    {
+        $payload = AssignToContentProjectContract::normalizePayload($detail);
+
+        if ($payload['mode'] !== AssignToContentProjectContract::MODE_ARTICLE) {
+            return ['handled' => false, 'needs_keyword' => false, 'status' => null];
+        }
+
+        if (count($payload['article_ids']) !== 1) {
+            return ['handled' => false, 'needs_keyword' => false, 'status' => null];
+        }
+
+        $articles = $this->loadArticles($payload['article_ids']);
+        $article = $articles->first();
+        if (! $article instanceof SeoArticle) {
+            return ['handled' => false, 'needs_keyword' => false, 'status' => null];
+        }
+
+        $intake = app(PlanningDraftIntakeService::class);
+        if ($intake->articleNeedsKeyword($article)) {
+            return ['handled' => false, 'needs_keyword' => true, 'status' => null];
+        }
+
+        $result = $intake->addArticles($articles);
+        $this->notifyIntakeResult($result);
+        $this->emitSuccess([
+            'mode' => AssignToContentProjectContract::MODE_ARTICLE,
+            'source' => $payload['source'],
+            'article_ids' => $payload['article_ids'],
+            'draft_project_id' => $result->draftProjectId,
+            'status' => $result->status,
+            'summary' => $result->summary,
+            'direct' => true,
+        ]);
+
+        return [
+            'handled' => true,
+            'needs_keyword' => false,
+            'status' => $result->status,
+        ];
     }
 
     public function close(): void
@@ -189,7 +239,6 @@ class AssignToContentProjectDrawer extends Component
             return;
         }
 
-        // Invalidate any in-flight prepare() so stale completions cannot reopen state.
         $this->prepareRequestId++;
         $this->open = false;
         $this->preparing = false;
@@ -243,6 +292,7 @@ class AssignToContentProjectDrawer extends Component
 
     public function updatedProjectId(mixed $value): void
     {
+        unset($value);
         if ($this->mode === AssignToContentProjectContract::MODE_VOCABULARY_ITEMS) {
             $this->refreshVocabularyItemStatuses();
         }
@@ -250,53 +300,12 @@ class AssignToContentProjectDrawer extends Component
 
     public function updatedSiteIds(mixed $value): void
     {
-        if ($this->mode !== AssignToContentProjectContract::MODE_KEYWORD) {
-            return;
-        }
-
-        $this->ensureKeywordProjectOptionsForSites(
-            array_values(array_filter(array_map('intval', is_array($value) ? $value : $this->siteIds))),
-        );
+        unset($value);
     }
 
     public function quickCreate(?int $writerId = null): void
     {
-        if ($this->quickCreateSubmitting) {
-            return;
-        }
-
-        $siteId = (int) ($this->siteIds[0] ?? 0);
-        if ($siteId <= 0) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.article_list.quick_create_content_project_failed'))
-                ->body(__('seo-content-ai::filament.article_list.assign_projects_mixed_domains'))
-                ->danger()
-                ->send();
-
-            return;
-        }
-
-        $this->quickCreateSubmitting = true;
-
-        try {
-            $project = ArticleResource::quickCreateContentProject($siteId, $writerId ?? $this->quickWriterId);
-            $this->projectOptions = ArticleResource::contentProjectOptions($siteId);
-            $this->projectId = (int) $project->getKey();
-            $this->quickCreateOpen = false;
-
-            Notification::make()
-                ->title(__('seo-content-ai::filament.article_list.quick_create_content_project_success'))
-                ->success()
-                ->send();
-        } catch (Throwable $exception) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.article_list.quick_create_content_project_failed'))
-                ->body($exception->getMessage())
-                ->danger()
-                ->send();
-        } finally {
-            $this->quickCreateSubmitting = false;
-        }
+        unset($writerId);
     }
 
     /**
@@ -308,7 +317,7 @@ class AssignToContentProjectDrawer extends Component
             'label' => AssignToContentProjectContract::label(),
             'selected_count' => $this->selectedCount(),
             'can_submit' => $this->canSubmit(),
-            'writer_options' => $this->showQuickCreate ? SeoProjectResource::userSelectOptions() : [],
+            'writer_options' => [],
         ];
     }
 
@@ -323,6 +332,7 @@ class AssignToContentProjectDrawer extends Component
      */
     private function prepareArticleContext(array $defaults, array $options): void
     {
+        unset($defaults);
         $articles = $this->loadArticles($this->articleIds);
         if ($articles->isEmpty()) {
             $this->errorMessage = __('seo-content-ai::filament.keyword.workspace_article_not_found');
@@ -337,38 +347,26 @@ class AssignToContentProjectDrawer extends Component
                 ->filter(static fn (?int $id): bool => $id !== null && $id > 0)
                 ->unique()
                 ->values();
-            $siteId = $siteIds->count() === 1 ? (int) $siteIds->first() : 0;
+            $siteId = $siteIds->count() === 1
+                ? (int) $siteIds->first()
+                : (int) ($articles->first()?->site_id ?? 0);
             if ($siteId > 0) {
                 $this->siteIds = [$siteId];
             }
         }
 
-        $this->projectOptions = $siteId > 0 ? ArticleResource::contentProjectOptions($siteId) : [];
-        $directProjectId = $siteId > 0 ? ArticleResource::resolveDirectAssignContentProjectId($siteId) : null;
-        $defaultProjectId = (int) ($defaults['project_id'] ?? 0);
-        $this->projectId = $defaultProjectId > 0
-            ? $defaultProjectId
-            : ($directProjectId !== null && $directProjectId > 0 ? $directProjectId : null);
+        $this->projectId = null;
+        $this->projectOptions = [];
+        $this->showQuickCreate = false;
+        $this->showArticleFields = false;
+        $this->showKeywordOverride = false;
+        $this->showTitleOverride = false;
 
-        $this->showQuickCreate = (bool) ($options['show_quick_create'] ?? true);
-        $this->showArticleFields = (bool) ($options['show_article_fields'] ?? true);
-        $this->showKeywordOverride = (bool) ($options['show_keyword_override'] ?? true);
-        $this->showTitleOverride = (bool) ($options['show_title_override'] ?? true);
-        $this->showFocusKeyword = (bool) ($options['show_focus_keyword'] ?? false);
-
-        if ($this->showFocusKeyword || (bool) ($options['detect_missing_focus_keyword'] ?? false)) {
-            $analyzer = app(SeoAnalyzerService::class);
-            $missing = $articles->filter(static function (SeoArticle $article) use ($analyzer): bool {
-                return trim((string) ($analyzer->resolveFocusKeywordForArticle($article) ?? '')) === '';
-            });
-            // Shared override applies to every selected article missing a focus keyword.
-            $this->needsFocusKeyword = $missing->count() >= 1;
-            $this->showFocusKeyword = $this->needsFocusKeyword;
-        }
-
-        if (SeoAccessControl::isContentManager()) {
-            $this->quickWriterId = (int) (auth()->id() ?? 0) ?: null;
-        }
+        $intake = app(PlanningDraftIntakeService::class);
+        $this->needsFocusKeyword = $intake->anyArticleNeedsKeyword($articles);
+        $this->showFocusKeyword = $this->needsFocusKeyword
+            || (bool) ($options['show_focus_keyword'] ?? false)
+            || (bool) ($options['detect_missing_focus_keyword'] ?? false);
     }
 
     /**
@@ -376,47 +374,21 @@ class AssignToContentProjectDrawer extends Component
      */
     private function prepareKeywordContext(array $defaults): void
     {
+        unset($defaults);
         $this->showArticleFields = false;
         $this->showQuickCreate = false;
         $this->showMultiSite = true;
         $this->siteOptions = KeywordResource::siteSelectOptions();
+        $this->projectOptionsBySite = [];
+        $this->projectIdBySite = [];
+        $this->projectId = null;
 
         if ($this->siteIds === []) {
             $global = SeoAccessControl::globalSiteId();
             if ($global !== null && (int) $global > 0) {
                 $this->siteIds = [(int) $global];
-            }
-        }
-
-        $this->projectOptionsBySite = [];
-        $this->projectIdBySite = [];
-
-        // Only hydrate project selects for sites the user currently has selected —
-        // loading every domain's projects on open was a common slow path.
-        $sitesToLoad = $this->siteIds !== []
-            ? $this->siteIds
-            : (array_keys($this->siteOptions) !== []
-                ? [(int) array_key_first($this->siteOptions)]
-                : []);
-
-        $this->ensureKeywordProjectOptionsForSites($sitesToLoad, $defaults);
-
-        $direct = KeywordResource::resolveKeywordDirectAssignData(
-            $this->siteIds[0] ?? null,
-        );
-        if (is_array($direct)) {
-            foreach ($direct as $key => $value) {
-                if (str_starts_with((string) $key, 'project_id_') && is_numeric($value)) {
-                    $siteId = (int) substr((string) $key, strlen('project_id_'));
-                    if ($siteId > 0) {
-                        $this->ensureKeywordProjectOptionsForSites([$siteId], $defaults);
-                        $this->projectIdBySite[$siteId] = (int) $value;
-                    }
-                }
-            }
-            if (isset($direct['site_ids']) && is_array($direct['site_ids'])) {
-                $this->siteIds = array_values(array_filter(array_map('intval', $direct['site_ids'])));
-                $this->ensureKeywordProjectOptionsForSites($this->siteIds, $defaults);
+            } elseif (array_keys($this->siteOptions) !== []) {
+                $this->siteIds = [(int) array_key_first($this->siteOptions)];
             }
         }
     }
@@ -427,28 +399,7 @@ class AssignToContentProjectDrawer extends Component
      */
     private function ensureKeywordProjectOptionsForSites(array $siteIds, array $defaults = []): void
     {
-        foreach ($siteIds as $siteId) {
-            $siteId = (int) $siteId;
-            if ($siteId <= 0) {
-                continue;
-            }
-
-            if (! isset($this->projectOptionsBySite[$siteId])) {
-                $this->projectOptionsBySite[$siteId] = ArticleResource::contentProjectOptions($siteId);
-            }
-
-            if (array_key_exists($siteId, $this->projectIdBySite) && $this->projectIdBySite[$siteId] !== null) {
-                continue;
-            }
-
-            $defaultKey = 'project_id_'.$siteId;
-            $defaultProject = (int) ($defaults[$defaultKey] ?? 0);
-            if ($defaultProject <= 0) {
-                $direct = ArticleResource::resolveDirectAssignContentProjectId($siteId);
-                $defaultProject = $direct !== null ? (int) $direct : 0;
-            }
-            $this->projectIdBySite[$siteId] = $defaultProject > 0 ? $defaultProject : null;
-        }
+        unset($siteIds, $defaults);
     }
 
     /**
@@ -456,10 +407,13 @@ class AssignToContentProjectDrawer extends Component
      */
     private function preparePendingLinkContext(array $defaults): void
     {
+        unset($defaults);
         $this->showArticleFields = false;
         $this->showMultiSite = false;
         $this->showQuickCreate = false;
         $this->showFocusKeyword = false;
+        $this->projectOptions = [];
+        $this->projectId = null;
 
         $articleId = (int) ($this->articleIds[0] ?? 0);
         $article = $articleId > 0 ? $this->loadArticles([$articleId])->first() : null;
@@ -467,13 +421,6 @@ class AssignToContentProjectDrawer extends Component
         if ($siteId > 0) {
             $this->siteIds = [$siteId];
         }
-
-        $this->projectOptions = $siteId > 0 ? ArticleResource::contentProjectOptions($siteId) : [];
-        $direct = $siteId > 0 ? ArticleResource::resolveDirectAssignContentProjectId($siteId) : null;
-        $defaultProjectId = (int) ($defaults['project_id'] ?? 0);
-        $this->projectId = $defaultProjectId > 0
-            ? $defaultProjectId
-            : ($direct !== null && $direct > 0 ? $direct : null);
 
         if ($this->anchorPhrase === null || trim($this->anchorPhrase) === '') {
             $this->errorMessage = __('seo-content-ai::filament.article_edit.pending_link_empty_phrase');
@@ -486,13 +433,16 @@ class AssignToContentProjectDrawer extends Component
      */
     private function prepareVocabularyItemsContext(array $defaults, array $options): void
     {
+        unset($defaults, $options);
         $this->showArticleFields = false;
         $this->showMultiSite = false;
         $this->showFocusKeyword = false;
         $this->showKeywordOverride = false;
         $this->showTitleOverride = false;
-        $this->showQuickCreate = (bool) ($options['show_quick_create'] ?? true);
+        $this->showQuickCreate = false;
         $this->type = SeoProjectTask::TYPE_CREATE;
+        $this->projectOptions = [];
+        $this->projectId = null;
 
         $siteId = (int) ($this->siteIds[0] ?? 0);
         if ($siteId <= 0 && $this->articleIds !== []) {
@@ -512,78 +462,38 @@ class AssignToContentProjectDrawer extends Component
             return;
         }
 
-        $this->projectOptions = $siteId > 0 ? ArticleResource::contentProjectOptions($siteId) : [];
-        $directProjectId = $siteId > 0 ? ArticleResource::resolveDirectAssignContentProjectId($siteId) : null;
-        $defaultProjectId = (int) ($defaults['project_id'] ?? 0);
-        $this->projectId = $defaultProjectId > 0
-            ? $defaultProjectId
-            : ($directProjectId !== null && $directProjectId > 0 ? $directProjectId : null);
-
         $this->refreshVocabularyItemStatuses();
-
-        if (SeoAccessControl::isContentManager()) {
-            $this->quickWriterId = (int) (auth()->id() ?? 0) ?: null;
-        }
     }
 
     private function refreshVocabularyItemStatuses(): void
     {
-        $projectId = (int) ($this->projectId ?? 0);
         $siteId = (int) ($this->siteIds[0] ?? 0);
         $this->itemStatuses = [];
 
-        if ($projectId <= 0 || $siteId <= 0 || $this->items === []) {
-            foreach ($this->items as $item) {
-                $this->itemStatuses[] = [
-                    'keyword' => $item['keyword'],
-                    'status' => 'new',
-                    'label' => 'New',
-                ];
-            }
-
-            return;
-        }
-
-        $preview = app(KeywordProjectAssignmentService::class)->assignPhrases(
-            array_map(static fn (array $item): string => $item['keyword'], $this->items),
-            $projectId,
-            $siteId,
-            dryRun: true,
-        );
-
-        // Dry-run returns aggregate counts; build per-item statuses via exact lookup.
         foreach ($this->items as $item) {
             $phrase = $item['keyword'];
             $needle = mb_strtolower(preg_replace('/\s+/u', ' ', trim($phrase)) ?? trim($phrase));
-            $inProject = SeoProjectTask::query()
-                ->where('type', SeoProjectTask::TYPE_CREATE)
-                ->where('site_id', $siteId)
-                ->where(function ($query) use ($needle): void {
-                    $query->whereRaw('LOWER(TRIM(keyword)) = ?', [$needle])
-                        ->orWhereRaw('LOWER(TRIM(source_content)) = ?', [$needle])
-                        ->orWhereRaw('LOWER(TRIM(title)) = ?', [$needle]);
-                })
-                ->exists();
-            $hasArticle = SeoArticle::query()
-                ->where('site_id', $siteId)
-                ->where(function ($query) use ($needle): void {
-                    $query->whereRaw('LOWER(TRIM(title)) = ?', [$needle])
-                        ->orWhereHas('articleMetas', static function ($meta) use ($needle): void {
-                            $meta->where('meta_key', 'seo_focus_keyword')
-                                ->whereRaw('LOWER(TRIM(meta_value)) = ?', [$needle]);
-                        });
-                })
-                ->exists();
+            $status = 'new';
+            $label = 'New';
 
-            if ($inProject) {
-                $status = 'already_in_project';
-                $label = 'Already in project';
-            } elseif ($hasArticle) {
-                $status = 'existing_article';
-                $label = 'Existing article';
-            } else {
-                $status = 'new';
-                $label = 'New';
+            if ($siteId > 0 && $needle !== '') {
+                $inDraft = SeoProjectTask::query()
+                    ->where('type', SeoProjectTask::TYPE_CREATE)
+                    ->where('site_id', $siteId)
+                    ->where(function ($query) use ($needle): void {
+                        $query->whereRaw('LOWER(TRIM(keyword)) = ?', [$needle])
+                            ->orWhereRaw('LOWER(TRIM(source_content)) = ?', [$needle])
+                            ->orWhereRaw('LOWER(TRIM(title)) = ?', [$needle]);
+                    })
+                    ->whereHas('project', static function ($q): void {
+                        $q->where('status', SeoProject::STATUS_DRAFT)
+                            ->whereNull('archived_at');
+                    })
+                    ->exists();
+                if ($inDraft) {
+                    $status = 'already_in_project';
+                    $label = 'In Draft';
+                }
             }
 
             $this->itemStatuses[] = [
@@ -592,24 +502,36 @@ class AssignToContentProjectDrawer extends Component
                 'label' => $label,
             ];
         }
+    }
 
-        unset($preview);
+    private function shouldAutoSubmitAfterPrepare(): bool
+    {
+        if ($this->errorMessage !== null && ! $this->needsFocusKeyword) {
+            return false;
+        }
+
+        // Single article with keyword is handled by preflightOpen() — never flash shell.
+        if ($this->mode === AssignToContentProjectContract::MODE_ARTICLE) {
+            if (count($this->articleIds) === 1 && ! $this->needsFocusKeyword) {
+                return false;
+            }
+
+            return ! $this->needsFocusKeyword && $this->articleIds !== [];
+        }
+
+        if ($this->mode === AssignToContentProjectContract::MODE_PENDING_LINK) {
+            return trim((string) ($this->anchorPhrase ?? '')) !== '' && $this->articleIds !== [];
+        }
+
+        if ($this->mode === AssignToContentProjectContract::MODE_VOCABULARY_ITEMS) {
+            return $this->items !== [] && (int) ($this->siteIds[0] ?? 0) > 0;
+        }
+
+        return false;
     }
 
     private function submitArticle(): void
     {
-        $projectId = (int) ($this->projectId ?? 0);
-        if ($projectId <= 0 || ! SeoProject::query()->whereKey($projectId)->exists()) {
-            $this->errorMessage = __('seo-content-ai::filament.articles_optimal.assign_no_project');
-            Notification::make()
-                ->title(__('seo-content-ai::filament.articles_optimal.assign_failed'))
-                ->body($this->errorMessage)
-                ->warning()
-                ->send();
-
-            return;
-        }
-
         $articles = $this->loadArticles($this->articleIds);
         if ($articles->isEmpty()) {
             $this->errorMessage = __('seo-content-ai::filament.keyword.workspace_article_not_found');
@@ -622,74 +544,25 @@ class AssignToContentProjectDrawer extends Component
             return;
         }
 
-        $focusKeywordInput = trim($this->focusKeyword);
-        if ($this->needsFocusKeyword && $focusKeywordInput === '') {
-            $this->errorMessage = __('seo-content-ai::filament.articles_optimal.assign_missing_keyword_required');
-            Notification::make()
-                ->title(__('seo-content-ai::filament.articles_optimal.assign_failed'))
-                ->body($this->errorMessage)
-                ->warning()
-                ->send();
+        $result = app(PlanningDraftIntakeService::class)->addArticles(
+            $articles,
+            trim($this->focusKeyword) !== '' ? trim($this->focusKeyword) : null,
+        );
+
+        $this->notifyIntakeResult($result);
+        if (! $result->isSuccess()) {
+            $this->errorMessage = $result->message;
 
             return;
-        }
-
-        if ($this->needsFocusKeyword && $focusKeywordInput !== '') {
-            $analyzer = app(SeoAnalyzerService::class);
-            $userId = (int) (auth()->id() ?? 0);
-            foreach ($articles as $article) {
-                if (trim((string) ($analyzer->resolveFocusKeywordForArticle($article) ?? '')) !== '') {
-                    continue;
-                }
-                $siteId = (int) ($article->site_id ?? 0);
-                if ($siteId <= 0) {
-                    continue;
-                }
-                KeywordFocusAttach::syncMainKeyword($article, $siteId, $userId, $focusKeywordInput);
-                $article->unsetRelation('articleMetas');
-            }
-        }
-
-        $data = [
-            'type' => $this->type,
-            'rewrite_mode' => SeoProjectTask::REWRITE_MODE_CONTENT,
-            'rewrite_notes' => $this->rewriteNotes,
-            'focus_keyword' => $focusKeywordInput !== '' ? $focusKeywordInput : null,
-            'keyword' => $this->keywordOverride !== '' ? $this->keywordOverride : null,
-            'title' => $this->titleOverride !== '' ? $this->titleOverride : null,
-            'ignore_monthly_capacity' => $this->ignoreMonthlyCapacity,
-        ];
-
-        $summary = ArticleResource::assignArticlesFromFormData($articles, $projectId, $data);
-
-        Notification::make()
-            ->title(__('seo-content-ai::filament.article_list.assign_completed'))
-            ->body(ArticleResource::buildAssignContentProjectBody($summary))
-            ->success()
-            ->send();
-
-        if ($this->ignoreMonthlyCapacity) {
-            $project = SeoProject::query()->find($projectId);
-            $remaining = $project?->remainingTaskCapacity() ?? 0;
-            if ($project instanceof SeoProject && $remaining <= 2) {
-                Notification::make()
-                    ->title($remaining === 0
-                        ? __('seo-content-ai::filament.articles_optimal.project_capacity_full')
-                        : __('seo-content-ai::filament.articles_optimal.project_capacity_near'))
-                    ->body(__('seo-content-ai::filament.articles_optimal.project_capacity_remaining', [
-                        'count' => $remaining,
-                    ]))
-                    ->warning()
-                    ->send();
-            }
         }
 
         $this->emitSuccess([
             'mode' => $this->mode,
             'source' => $this->source,
             'article_ids' => $this->articleIds,
-            'project_id' => $projectId,
-            'summary' => $summary,
+            'draft_project_id' => $result->draftProjectId,
+            'status' => $result->status,
+            'summary' => $result->summary,
         ]);
         $this->open = false;
         $this->resetFormState();
@@ -718,26 +591,19 @@ class AssignToContentProjectDrawer extends Component
             }
         }
 
-        $assignData = [
-            'site_ids' => $this->siteIds,
-        ];
-        foreach ($this->siteIds as $siteId) {
-            $assignData['project_id_'.$siteId] = (int) ($this->projectIdBySite[$siteId] ?? 0);
+        $result = app(PlanningDraftIntakeService::class)->addKeywords($keywords, $this->siteIds);
+        $this->notifyIntakeResult($result);
+        if (! $result->isSuccess()) {
+            return;
         }
-
-        $summary = KeywordResource::executeAssignKeywordsToContentProjects($keywords, $assignData);
-
-        Notification::make()
-            ->title(__('seo-content-ai::filament.keyword.assign_completed'))
-            ->body(ArticleResource::buildAssignContentProjectBody($summary))
-            ->success()
-            ->send();
 
         $this->emitSuccess([
             'mode' => $this->mode,
             'source' => $this->source,
             'keyword_ids' => $this->keywordIds,
-            'summary' => $summary,
+            'draft_project_id' => $result->draftProjectId,
+            'status' => $result->status,
+            'summary' => $result->summary,
         ]);
         $this->open = false;
         $this->resetFormState();
@@ -747,13 +613,8 @@ class AssignToContentProjectDrawer extends Component
     {
         $articleId = (int) ($this->articleIds[0] ?? 0);
         $phrase = trim((string) ($this->anchorPhrase ?? ''));
-        $projectId = (int) ($this->projectId ?? 0);
 
-        $article = $articleId > 0
-            ? $this->loadArticles([$articleId])->first()
-            : null;
-
-        if (! $article instanceof SeoArticle || $phrase === '') {
+        if ($articleId <= 0 || $phrase === '') {
             Notification::make()
                 ->title(__('seo-content-ai::filament.article_edit.pending_link_empty_phrase'))
                 ->warning()
@@ -762,57 +623,22 @@ class AssignToContentProjectDrawer extends Component
             return;
         }
 
-        if ($projectId <= 0) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.article_edit.pending_link_no_content_project'))
-                ->warning()
-                ->send();
-
+        $result = app(PlanningDraftIntakeService::class)->addPendingLink($articleId, $phrase);
+        $this->notifyIntakeResult($result);
+        if (! $result->isSuccess()) {
             return;
-        }
-
-        $result = app(ArticlePendingInternalLinkService::class)->assignFromEditor(
-            $article,
-            $phrase,
-            $projectId,
-        );
-
-        if (! ($result['success'] ?? false)) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.article_list.assign_failed'))
-                ->body((string) ($result['message'] ?? __('seo-content-ai::filament.keyword.workspace_assign_denied')))
-                ->danger()
-                ->send();
-
-            return;
-        }
-
-        if (! ($result['assigned_to_project'] ?? false)) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.article_edit.pending_link_created'))
-                ->body((string) ($result['message'] ?? ''))
-                ->success()
-                ->send();
-        } else {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.keyword.assign_completed'))
-                ->body((string) ($result['message'] ?? ''))
-                ->success()
-                ->send();
         }
 
         $this->dispatch(
             'pending-internal-link-ready',
-            placeholderHref: (string) ($result['placeholder_href'] ?? ''),
-            message: (string) ($result['message'] ?? ''),
+            placeholderHref: '',
+            message: $result->message,
         );
 
         $this->js(
             'window.dispatchEvent(new CustomEvent("pending-internal-link-ready",{detail:'
             .json_encode([
-                'placeholderHref' => (string) ($result['placeholder_href'] ?? ''),
-                'placeholder_href' => (string) ($result['placeholder_href'] ?? ''),
-                'message' => (string) ($result['message'] ?? ''),
+                'message' => $result->message,
             ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
             .'}));'
         );
@@ -821,8 +647,9 @@ class AssignToContentProjectDrawer extends Component
             'mode' => $this->mode,
             'source' => $this->source,
             'article_ids' => $this->articleIds,
-            'project_id' => $projectId,
-            'result' => $result,
+            'draft_project_id' => $result->draftProjectId,
+            'status' => $result->status,
+            'summary' => $result->summary,
         ]);
         $this->open = false;
         $this->resetFormState();
@@ -830,19 +657,7 @@ class AssignToContentProjectDrawer extends Component
 
     private function submitVocabularyItems(): void
     {
-        $projectId = (int) ($this->projectId ?? 0);
         $siteId = (int) ($this->siteIds[0] ?? 0);
-        if ($projectId <= 0 || ! SeoProject::query()->whereKey($projectId)->exists()) {
-            $this->errorMessage = __('seo-content-ai::filament.articles_optimal.assign_no_project');
-            Notification::make()
-                ->title(__('seo-content-ai::filament.articles_optimal.assign_failed'))
-                ->body($this->errorMessage)
-                ->warning()
-                ->send();
-
-            return;
-        }
-
         if ($siteId <= 0 || $this->items === []) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.article_list.assign_failed'))
@@ -852,32 +667,56 @@ class AssignToContentProjectDrawer extends Component
             return;
         }
 
-        $phrases = array_values(array_map(
-            static fn (array $item): string => $item['keyword'],
+        $result = app(PlanningDraftIntakeService::class)->addVocabularyPhrases(
             $this->items,
-        ));
-
-        $summary = app(KeywordProjectAssignmentService::class)->assignPhrases(
-            $phrases,
-            $projectId,
             $siteId,
+            (int) ($this->articleIds[0] ?? 0) ?: null,
         );
 
-        Notification::make()
-            ->title(__('seo-content-ai::filament.keyword.assign_completed'))
-            ->body(ArticleResource::buildAssignContentProjectBody($summary))
-            ->success()
-            ->send();
+        $this->notifyIntakeResult($result);
+        if (! $result->isSuccess()) {
+            return;
+        }
 
         $this->emitSuccess([
             'mode' => $this->mode,
             'source' => $this->source,
             'items' => $this->items,
-            'project_id' => $projectId,
-            'summary' => $summary,
+            'draft_project_id' => $result->draftProjectId,
+            'status' => $result->status,
+            'summary' => $result->summary,
         ]);
         $this->open = false;
         $this->resetFormState();
+    }
+
+    private function notifyIntakeResult(PlanningDraftIntakeResult $result): void
+    {
+        if ($result->isAlreadyInDraft()) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.article_list.already_in_draft'))
+                ->body($result->message)
+                ->info()
+                ->send();
+
+            return;
+        }
+
+        if ($result->isSuccess()) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.article_list.add_to_draft_completed'))
+                ->body($result->message)
+                ->success()
+                ->send();
+
+            return;
+        }
+
+        Notification::make()
+            ->title(__('seo-content-ai::filament.articles_optimal.assign_failed'))
+            ->body($result->message !== '' ? $result->message : __('seo-content-ai::filament.articles_optimal.assign_failed'))
+            ->warning()
+            ->send();
     }
 
     /**
@@ -904,8 +743,6 @@ class AssignToContentProjectDrawer extends Component
             return collect();
         }
 
-        // Explicit IDs must resolve across global-site UI filter (Article Editor can open
-        // articles outside the currently selected domain).
         return ArticleResource::getRecordRouteBindingEloquentQuery()
             ->whereIn('id', $ids)
             ->with(['articleMetas' => static function ($relation): void {
@@ -930,32 +767,20 @@ class AssignToContentProjectDrawer extends Component
         }
 
         if ($this->mode === AssignToContentProjectContract::MODE_KEYWORD) {
-            if ($this->siteIds === [] || $this->keywordIds === []) {
-                return false;
-            }
-
-            foreach ($this->siteIds as $siteId) {
-                if ((int) ($this->projectIdBySite[$siteId] ?? 0) <= 0) {
-                    return false;
-                }
-            }
-
-            return true;
+            return $this->siteIds !== [] && $this->keywordIds !== [];
         }
 
         if ($this->mode === AssignToContentProjectContract::MODE_PENDING_LINK) {
-            return (int) ($this->projectId ?? 0) > 0
-                && trim((string) ($this->anchorPhrase ?? '')) !== '';
+            return trim((string) ($this->anchorPhrase ?? '')) !== '' && $this->articleIds !== [];
         }
 
         if ($this->mode === AssignToContentProjectContract::MODE_VOCABULARY_ITEMS) {
-            return (int) ($this->projectId ?? 0) > 0
-                && $this->items !== []
+            return $this->items !== []
                 && (int) ($this->siteIds[0] ?? 0) > 0
                 && $this->errorMessage === null;
         }
 
-        if ((int) ($this->projectId ?? 0) <= 0 || $this->articleIds === []) {
+        if ($this->articleIds === []) {
             return false;
         }
 
@@ -986,7 +811,7 @@ class AssignToContentProjectDrawer extends Component
         $this->titleOverride = '';
         $this->quickWriterId = null;
         $this->needsFocusKeyword = false;
-        $this->ignoreMonthlyCapacity = false;
+        $this->ignoreMonthlyCapacity = true;
         $this->showQuickCreate = false;
         $this->showArticleFields = false;
         $this->showMultiSite = false;

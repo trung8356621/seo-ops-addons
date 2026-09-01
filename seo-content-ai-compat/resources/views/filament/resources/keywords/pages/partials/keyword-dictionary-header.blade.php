@@ -1,18 +1,10 @@
-@php
-    $stats = $this->getDictionaryStats();
-    $totalCount = (int) ($stats['total'] ?? 0);
-@endphp
-
 <header class="keyword-dictionary-header">
     <div class="keyword-dictionary-header__main">
         <div class="keyword-dictionary-header__copy">
             <div class="keyword-dictionary-header__title-row">
-                <h1 class="keyword-dictionary-header__title">
+                <h2 class="keyword-dictionary-header__title">
                     {{ __('seo-content-ai::filament.keyword.dictionary_heading') }}
-                </h1>
-                <span class="keyword-dictionary-header__count-badge">
-                    {{ number_format($totalCount) }}
-                </span>
+                </h2>
             </div>
             <p class="keyword-dictionary-header__subtitle">
                 {{ __('seo-content-ai::filament.keyword.dictionary_subheading') }}

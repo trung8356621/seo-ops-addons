@@ -57,6 +57,9 @@ final class SplitDraftContentProjectContractTest extends TestCase
         );
         self::assertStringContainsString("'content_project.split_draft' =>", $factory);
         self::assertStringContainsString('assignee_ids', $factory);
+        self::assertStringContainsString('target_month', $factory);
+        self::assertTrue(property_exists($cmd, 'targetMonth'));
+        self::assertNull($cmd->targetMonth);
         self::assertStringNotContainsString('split_months', $factory);
 
         self::assertSame('project.not_draft', ContentProjectActionCodes::PROJECT_NOT_DRAFT);
@@ -97,12 +100,15 @@ final class SplitDraftContentProjectContractTest extends TestCase
         self::assertStringContainsString('auto_generate', $src);
         self::assertStringContainsString('forceFill([', $src);
         self::assertStringContainsString('normalizeUserIds', $src);
+        self::assertStringContainsString('resolveTargetMonth', $src);
+        self::assertStringContainsString('targetMonth', $src);
         self::assertStringNotContainsString('SeoOpsSystemUser::id()', $src);
         self::assertStringNotContainsString('insufficient_slots', $src);
         self::assertStringNotContainsString('remainingByUserId', $src);
         self::assertStringNotContainsString('partitionEvenly', $src);
         self::assertStringNotContainsString('normalizeSplitMonths', $src);
         self::assertStringNotContainsString('splitMonths', $src);
+        self::assertStringNotContainsString('planned_month', $src);
         self::assertStringNotContainsString("'loai_san_pham' =>", $src);
         self::assertStringNotContainsString('GenerateProjectItems', $src);
         self::assertStringNotContainsString('dispatch(new Generate', $src);
@@ -133,6 +139,7 @@ final class SplitDraftContentProjectContractTest extends TestCase
         self::assertStringContainsString('dryRun', $src);
         self::assertStringContainsString('assigneeIds', $src);
         self::assertStringContainsString('draft_split_no_writers', $src);
+        self::assertStringContainsString('targetMonth', $src);
         self::assertStringNotContainsString('insufficient_slots', $src);
         self::assertStringNotContainsString('splitMonths', $src);
     }
@@ -202,7 +209,11 @@ final class SplitDraftContentProjectContractTest extends TestCase
         self::assertStringContainsString('data-split-writer-included', $draftPlanner);
         self::assertStringContainsString('data-split-excluded', $draftPlanner);
         self::assertStringContainsString('cp-draft-split-layout', $draftPlanner);
-        self::assertStringContainsString('wire:target="draftSplitQuantity,draftSplitMode,excludeDraftSplitWriter,includeDraftSplitWriter"', $draftPlanner);
+        self::assertStringContainsString('wire:target="draftSplitQuantity,draftSplitMode,draftSplitTargetMonth,excludeDraftSplitWriter,includeDraftSplitWriter"', $draftPlanner);
+        self::assertStringContainsString('wire:model.live="draftSplitTargetMonth"', $draftPlanner);
+        self::assertStringContainsString('data-split-field="target_month"', $draftPlanner);
+        self::assertStringContainsString('draft_split_target_month', $draftPlanner);
+        self::assertStringContainsString('getDraftSplitTargetMonthOptions', $draftPlanner);
         self::assertStringContainsString('cp-ops-dialog--split', $draftPlanner);
         self::assertStringContainsString("\$writer['new_allocation']", $draftPlanner);
         self::assertStringNotContainsString('draftSplitWriterIds', $draftPlanner);
@@ -212,7 +223,6 @@ final class SplitDraftContentProjectContractTest extends TestCase
         self::assertStringNotContainsString('type="checkbox"', $draftPlanner);
         self::assertStringNotContainsString("\$row['project_name']", $draftPlanner);
         self::assertStringNotContainsString('z-[70]', $draftPlanner);
-        self::assertStringNotContainsString('data-split-field="month"', $draftPlanner);
         self::assertStringNotContainsString('data-split-field="name"', $draftPlanner);
         self::assertStringNotContainsString('data-split-field="months"', $draftPlanner);
         self::assertStringNotContainsString('data-split-months-stepper', $draftPlanner);
@@ -223,6 +233,7 @@ final class SplitDraftContentProjectContractTest extends TestCase
         self::assertStringNotContainsString('draft_split_project_name', $draftPlanner);
         self::assertStringNotContainsString('wire:model="draftSplitMonth"', $draftPlanner);
         self::assertStringNotContainsString('wire:model="draftSplitName"', $draftPlanner);
+        self::assertStringNotContainsString('planned_month', $draftPlanner);
         self::assertStringNotContainsString('max monthly', strtolower($draftPlanner));
 
         $opsStyles = LegacyAddonPath::read('resources/views/components/content-project-ops-styles.blade.php');
@@ -244,6 +255,9 @@ final class SplitDraftContentProjectContractTest extends TestCase
         self::assertStringContainsString('MAX_EXECUTION_PROJECT_ITEMS', $trait);
         self::assertStringContainsString('currentReviewedDraftItemCount', $trait);
         self::assertStringContainsString('assigneeIds:', $trait);
+        self::assertStringContainsString('targetMonth:', $trait);
+        self::assertStringContainsString('draftSplitTargetMonth', $trait);
+        self::assertStringContainsString('ContentProjectMonthContext::current()', $trait);
         self::assertStringContainsString('new_allocation', $trait);
         self::assertStringContainsString('resulting', $trait);
         self::assertStringContainsString('project_count', $trait);
@@ -254,6 +268,7 @@ final class SplitDraftContentProjectContractTest extends TestCase
         self::assertStringNotContainsString('draftSplitMonths', $trait);
         self::assertStringNotContainsString('public string $draftSplitMonth', $trait);
         self::assertStringNotContainsString('public string $draftSplitName', $trait);
+        self::assertStringNotContainsString('planned_month', $trait);
         self::assertStringNotContainsString('auth()->id() fallback', $trait);
         self::assertStringContainsString('MODE_ALL', $trait);
     }

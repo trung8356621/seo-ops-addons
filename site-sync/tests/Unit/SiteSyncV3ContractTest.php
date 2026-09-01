@@ -149,6 +149,46 @@ final class SiteSyncV3ContractTest extends TestCase
         self::assertSame('Đang xác minh dữ liệu', SiteSyncStepCatalog::v3Label('verify'));
         self::assertSame('Hoàn tất', SiteSyncStepCatalog::v3Label('complete'));
         self::assertSame(6, SiteSyncStepCatalog::v3TotalSteps());
+        self::assertSame(6, count(SiteSyncStepCatalog::v3Keys()));
+    }
+
+    public function test_v3_user_macro_progress_is_exactly_three_groups(): void
+    {
+        self::assertSame(3, SiteSyncStepCatalog::v3MacroTotalSteps());
+        $groups = SiteSyncStepCatalog::v3MacroGroups();
+        self::assertCount(3, $groups);
+        self::assertSame(['discover'], $groups[0]['phases']);
+        self::assertSame(['import', 'reconcile_stale', 'catch_up'], $groups[1]['phases']);
+        self::assertSame(['verify', 'complete'], $groups[2]['phases']);
+
+        $timeline = SiteSyncStepCatalog::v3MacroTimeline('reconcile_stale', 'needs_attention');
+        self::assertCount(3, $timeline);
+        self::assertSame('completed', $timeline[0]['status']);
+        self::assertSame('failed', $timeline[1]['status']);
+        self::assertSame('pending', $timeline[2]['status']);
+
+        $technical = SiteSyncStepCatalog::v3Timeline('reconcile_stale', 'needs_attention');
+        self::assertCount(6, $technical);
+        self::assertSame('failed', $technical[2]['status']); // reconcile_stale
+    }
+
+    public function test_v2_seven_steps_project_to_three_macros(): void
+    {
+        $v2 = SiteSyncStepCatalog::timeline([
+            ['step_key' => 'detect_capability', 'status' => 'completed', 'step_order' => 1],
+            ['step_key' => 'request_snapshot_delta', 'status' => 'completed', 'step_order' => 2],
+            ['step_key' => 'sync_site_profile', 'status' => 'running', 'step_order' => 3],
+            ['step_key' => 'sync_url_catalog', 'status' => 'pending', 'step_order' => 4],
+            ['step_key' => 'sync_provider_keywords', 'status' => 'pending', 'step_order' => 5],
+            ['step_key' => 'missing_capability_fallback', 'status' => 'pending', 'step_order' => 6],
+            ['step_key' => 'finalize', 'status' => 'pending', 'step_order' => 7],
+        ]);
+        self::assertCount(7, $v2);
+        $macros = SiteSyncStepCatalog::v2MacroTimeline($v2);
+        self::assertCount(3, $macros);
+        self::assertSame('completed', $macros[0]['status']);
+        self::assertSame('running', $macros[1]['status']);
+        self::assertSame('pending', $macros[2]['status']);
     }
 
     public function test_feature_flag_and_job_exist(): void
