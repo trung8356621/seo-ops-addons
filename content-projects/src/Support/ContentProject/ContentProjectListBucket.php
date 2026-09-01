@@ -21,17 +21,24 @@ final class ContentProjectListBucket
     public const ARCHIVED = 'archived';
 
     /**
+     * List-page bucket values exposed in UI / URL normalization.
+     *
      * @return list<string>
      */
     public static function values(): array
     {
-        return [self::ALL, self::DRAFT, self::PROJECT, self::ARCHIVED];
+        return [self::ALL, self::PROJECT, self::ARCHIVED];
     }
 
     public static function normalize(string $value): string
     {
         $value = strtolower(trim($value));
         if ($value === '' || $value === self::ALL) {
+            return self::ALL;
+        }
+
+        // Legacy list filters — Draft belongs in Project Planner, never on /seo/content-projects.
+        if ($value === self::DRAFT || $value === SeoProject::STATUS_DRAFT) {
             return self::ALL;
         }
 
@@ -57,7 +64,6 @@ final class ContentProjectListBucket
     {
         return [
             ['value' => self::ALL, 'label' => (string) __('seo-content-ai::filament.projects.project_type_all')],
-            ['value' => self::DRAFT, 'label' => (string) __('seo-content-ai::filament.projects.project_type_draft')],
             ['value' => self::PROJECT, 'label' => (string) __('seo-content-ai::filament.projects.project_type_project')],
             ['value' => self::ARCHIVED, 'label' => (string) __('seo-content-ai::filament.projects.project_type_archived')],
         ];
@@ -65,7 +71,7 @@ final class ContentProjectListBucket
 
     /**
      * Apply bucket + optional execution month to a Projects list query.
-     * Draft has no execution month — never require month match for Draft rows.
+     * Shared Planning Draft never appears on this list — use Project Planner instead.
      *
      * @param  Builder<SeoProject>  $query
      * @return Builder<SeoProject>
@@ -76,9 +82,6 @@ final class ContentProjectListBucket
         $monthDate = is_string($monthDate) && $monthDate !== '' ? $monthDate : null;
 
         return match ($bucket) {
-            self::DRAFT => $query
-                ->where('status', SeoProject::STATUS_DRAFT)
-                ->whereNull('archived_at'),
             self::PROJECT => self::applyExecutionMonth(
                 $query
                     ->whereNull('archived_at')
@@ -94,30 +97,16 @@ final class ContentProjectListBucket
     }
 
     /**
-     * All Projects = active Shared Draft + active execution for selected month.
-     * Archived rows (including legacy Content plan — {domain}) belong only in Archived vault.
+     * All = non-draft execution + archived projects for the selected month.
      *
      * @param  Builder<SeoProject>  $query
      * @return Builder<SeoProject>
      */
     private static function applyAllBucket(Builder $query, ?string $monthDate): Builder
     {
-        // Never list archived shells in All — migration leftovers must not reappear here.
-        $query->whereNull('archived_at');
+        $query->where('status', '!=', SeoProject::STATUS_DRAFT);
 
-        if ($monthDate === null) {
-            return $query;
-        }
-
-        return $query->where(function (Builder $builder) use ($monthDate): void {
-            $builder
-                ->where('status', SeoProject::STATUS_DRAFT)
-                ->orWhere(function (Builder $exec) use ($monthDate): void {
-                    $exec
-                        ->where('status', '!=', SeoProject::STATUS_DRAFT)
-                        ->whereDate('month', $monthDate);
-                });
-        });
+        return self::applyExecutionMonth($query, $monthDate);
     }
 
     /**

@@ -10,6 +10,7 @@ use Omnichannel\Addons\Seo\Services\SeoContentLanguageSettingsService;
 use Omnichannel\Addons\Seo\Services\SeoDateTimeSettingsService;
 use Omnichannel\Addons\Seo\Services\SeoOverviewSettingsService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\Social\Services\SocialSupportedDomainService;
 use App\Help\HelpUi;
 use Filament\Forms;
 use Filament\Forms\Concerns\InteractsWithForms;
@@ -38,10 +39,14 @@ class SeoSettingsGeneral extends Page implements HasForms
     /** @var array<string, mixed> */
     public array $teamChatSettingsData = [];
 
+    /** @var array<string, mixed> */
+    public array $socialSettingsData = [];
+
     public function mount(
         SeoDateTimeSettingsService $dateTimeSettings,
         SeoOverviewSettingsService $overviewSettings,
         SeoContentLanguageSettingsService $contentLanguageSettings,
+        SocialSupportedDomainService $socialSupportedDomains,
     ): void {
         abort_unless(static::canAccess(), 403);
 
@@ -59,6 +64,13 @@ class SeoSettingsGeneral extends Page implements HasForms
             SeoOverviewSettingsService::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB => $overview[SeoOverviewSettingsService::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB],
         ];
         $this->teamChatForm->fill($this->teamChatSettingsData);
+
+        $this->socialSettingsData = [
+            SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS => $socialSupportedDomains->domainsToTextarea(
+                $overview[SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS],
+            ),
+        ];
+        $this->socialSettingsForm->fill($this->socialSettingsData);
     }
 
     /**
@@ -69,6 +81,7 @@ class SeoSettingsGeneral extends Page implements HasForms
         return [
             'form',
             'teamChatForm',
+            'socialSettingsForm',
         ];
     }
 
@@ -166,6 +179,25 @@ class SeoSettingsGeneral extends Page implements HasForms
             ->statePath('teamChatSettingsData');
     }
 
+    public function socialSettingsForm(Form $form): Form
+    {
+        return $form
+            ->schema([
+                Forms\Components\Section::make(__('seo-content-ai::filament.settings_general.social_supports_section'))
+                    ->description(__('seo-content-ai::filament.settings_general.social_supports_description'))
+                    ->schema([
+                        Forms\Components\Textarea::make(SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS)
+                            ->label(__('seo-content-ai::filament.settings_general.social_supports_label'))
+                            ->helperText(__('seo-content-ai::filament.settings_general.social_supports_hint'))
+                            ->rows(8)
+                            ->required()
+                            ->columnSpanFull(),
+                    ])
+                    ->columns(1),
+            ])
+            ->statePath('socialSettingsData');
+    }
+
     public function save(
         SeoDateTimeSettingsService $settings,
         SeoContentLanguageSettingsService $contentLanguageSettings,
@@ -210,6 +242,22 @@ class SeoSettingsGeneral extends Page implements HasForms
 
         Notification::make()
             ->title(__('seo-content-ai::filament.settings_overview.team_chat_saved'))
+            ->success()
+            ->send();
+    }
+
+    public function saveSocialSettings(SeoOverviewSettingsService $overviewSettings): void
+    {
+        $data = $this->socialSettingsForm->getState();
+
+        $overviewSettings->saveSocialSupportedDomainsSettings([
+            SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS => (string) (
+                $data[SeoOverviewSettingsService::KEY_SOCIAL_SUPPORTED_DOMAINS] ?? ''
+            ),
+        ]);
+
+        Notification::make()
+            ->title(__('seo-content-ai::filament.settings_general.social_supports_saved'))
             ->success()
             ->send();
     }

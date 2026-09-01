@@ -1385,11 +1385,16 @@
             width: 100%;
             border-radius: 0.375rem;
             border: 1px solid #d1d5db;
-            background: #fff;
+            background-color: #fff;
+            background-image: none !important;
+            background-repeat: no-repeat !important;
             padding: 0.25rem 0.4rem;
             font-size: 0.75rem;
             line-height: 1.25;
             color: #374151;
+            appearance: none !important;
+            -webkit-appearance: none !important;
+            -moz-appearance: none !important;
         }
         .dark .cp-plan-inline-input,
         .dark .cp-plan-inline-textarea {

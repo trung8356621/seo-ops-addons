@@ -7,8 +7,11 @@ namespace Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource\
 use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
 use Omnichannel\Addons\SearchFoundation\Services\SiteMcp\SiteMcpContactDiscovery;
 use Omnichannel\Addons\SearchFoundation\Services\SiteMcp\SiteMcpDraft;
+use App\Models\Site;
 use Filament\Forms;
+use Filament\Forms\Components\Actions\Action as FormInputAction;
 use Filament\Forms\Get;
+use Filament\Forms\Set;
 
 final class DomainTechnicalSeoForm
 {
@@ -77,7 +80,12 @@ final class DomainTechnicalSeoForm
                             'count' => $len,
                             'max' => $max,
                         ]);
-                    }),
+                    })
+                    ->hintAction(self::wordpressSyncSuffixAction(
+                        'sync_company_short_identity_wp',
+                        'syncCompanyShortIdentityFromWordPress',
+                        'syncingCompanyShortIdentityFromWp',
+                    )),
             ])
             ->collapsible();
     }
@@ -100,7 +108,12 @@ final class DomainTechnicalSeoForm
                             'count' => $count,
                             'max' => $maxWords,
                         ]);
-                    }),
+                    })
+                    ->hintAction(self::wordpressSyncSuffixAction(
+                        'sync_short_description_wp',
+                        'syncShortDescriptionFromWordPress',
+                        'syncingShortDescriptionFromWp',
+                    )),
             ])
             ->collapsible();
     }
@@ -177,6 +190,59 @@ final class DomainTechnicalSeoForm
                     ->columnSpanFull(),
             ])
             ->collapsible();
+    }
+
+    private static function wordpressSyncSuffixAction(
+        string $actionName,
+        string $livewireMethod,
+        string $syncingProperty,
+    ): FormInputAction {
+        return FormInputAction::make($actionName)
+            ->label(fn (FormInputAction $action): string => self::wordpressSyncActionLabel($action, $syncingProperty))
+            ->icon('heroicon-o-arrow-path')
+            ->visible(fn (FormInputAction $action): bool => self::isWordPressDomain($action))
+            ->disabled(fn (FormInputAction $action): bool => self::isWordPressSyncBusy($action, $syncingProperty))
+            ->action(function (FormInputAction $action, Set $set) use ($livewireMethod): void {
+                $livewire = $action->getLivewire();
+                if (is_object($livewire) && method_exists($livewire, $livewireMethod)) {
+                    $livewire->{$livewireMethod}($set);
+                }
+            });
+    }
+
+    private static function wordpressSyncActionLabel(FormInputAction $action, string $syncingProperty): string
+    {
+        if (self::isWordPressSyncBusy($action, $syncingProperty)) {
+            return 'Đang đồng bộ...';
+        }
+
+        return 'Đồng bộ WP';
+    }
+
+    private static function isWordPressSyncBusy(FormInputAction $action, string $syncingProperty): bool
+    {
+        $livewire = $action->getLivewire();
+
+        return is_object($livewire)
+            && property_exists($livewire, $syncingProperty)
+            && (bool) $livewire->{$syncingProperty};
+    }
+
+    private static function isWordPressDomain(FormInputAction $action): bool
+    {
+        $livewire = $action->getLivewire();
+        if (! is_object($livewire) || ! method_exists($livewire, 'getRecord')) {
+            return false;
+        }
+
+        $site = $livewire->getRecord();
+        if (! $site instanceof Site) {
+            return false;
+        }
+
+        $site->loadMissing('metas');
+
+        return trim((string) ($site->getMeta('seo_platform') ?? '')) === 'wordpress';
     }
 
     private static function linkListSection(): Forms\Components\Section

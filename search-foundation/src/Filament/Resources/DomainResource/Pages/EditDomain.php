@@ -8,6 +8,7 @@ use Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource;
 use Omnichannel\Addons\AiPrompt\Filament\Resources\DomainResource\Pages\Concerns\PersistsDomainPromptContext;
 use Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource\Pages\Concerns\PersistsSeoDomainMetas;
 use Omnichannel\Addons\Seo\Filament\Resources\Pages\SeoEditRecord;
+use Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource\Pages\Concerns\SyncsDomainPromptContextFromWordPress;
 use Omnichannel\Addons\SearchFoundation\Services\SiteMcp\SiteMcpDraft;
 use Omnichannel\Addons\SearchFoundation\Services\SiteMcp\SiteMcpGenerator;
 use Omnichannel\Addons\SearchFoundation\Services\SiteMcp\SiteMcpPreview;
@@ -22,6 +23,7 @@ class EditDomain extends SeoEditRecord
 {
     use PersistsDomainPromptContext;
     use PersistsSeoDomainMetas;
+    use SyncsDomainPromptContextFromWordPress;
 
     protected static string $resource = DomainResource::class;
 

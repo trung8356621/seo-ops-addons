@@ -10,6 +10,12 @@ use Omnichannel\Addons\AiPrompt\Services\AiCenterModelPresenter;
 use Omnichannel\Addons\AiPrompt\Services\AiModelInventory;
 use Omnichannel\Addons\AiPrompt\Services\AiModelPriorityService;
 use Omnichannel\Addons\AiPrompt\Services\AiRoutingTargetService;
+use Omnichannel\Addons\AiPrompt\Services\Contracts\DomainPromptContextFieldPatcher;
+use Omnichannel\Addons\AiPrompt\Services\Contracts\WordPressFieldSyncAccessChecker;
+use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
+use Omnichannel\Addons\AiPrompt\Services\WordPressFieldSyncAccessGate;
+use Omnichannel\Addons\SiteSync\Services\Profile\Contracts\WordPressSiteProfileSource;
+use Omnichannel\Addons\SiteSync\Services\Profile\WordPressSiteProfileReader;
 
 /**
  * Peer addon skeleton: registers capabilities into Client Core.
@@ -22,6 +28,9 @@ final class AiPromptServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->registerCapabilities();
+        $this->app->bind(WordPressSiteProfileSource::class, WordPressSiteProfileReader::class);
+        $this->app->bind(DomainPromptContextFieldPatcher::class, SiteDomainPromptContextService::class);
+        $this->app->bind(WordPressFieldSyncAccessChecker::class, WordPressFieldSyncAccessGate::class);
         $this->app->scoped(AiModelPriorityService::class);
         $this->app->scoped(AiRoutingTargetService::class);
         $this->app->scoped(\Omnichannel\Addons\AiPrompt\Services\CanonicalAiRouteResolver::class);

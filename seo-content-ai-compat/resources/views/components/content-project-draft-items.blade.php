@@ -122,6 +122,8 @@
             const cfg = boot && typeof boot === 'object' ? boot : {};
             const rows = (Array.isArray(cfg.rows) ? cfg.rows : []).map((row) => ({
                 ...row,
+                site_id: row.site_id != null && Number(row.site_id) > 0 ? Number(row.site_id) : null,
+                domain: String(row.domain ?? cfg.domainBlank ?? '—'),
                 visible: row.visible !== false,
             }));
 
@@ -750,10 +752,18 @@
                             <th class="px-3 py-2.5 cp-plan-draft-table__col-actions">{{ __('seo-content-ai::filament.projects.planning_col_actions') }}</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-gray-100 dark:divide-white/5">
+                    <tbody wire:ignore class="divide-y divide-gray-100 dark:divide-white/5" data-draft-tbody-alpine-owned="1">
                         @foreach ($rows as $ssrRow)
                             <tr data-draft-ssr-row="{{ (int) ($ssrRow['id'] ?? 0) }}">
-                                <td class="px-4 py-3 align-top"></td>
+                                <td class="px-4 py-3 align-top">
+                                    <input
+                                        type="checkbox"
+                                        class="rounded border-gray-300 text-primary-600 opacity-40"
+                                        disabled
+                                        aria-hidden="true"
+                                        tabindex="-1"
+                                    >
+                                </td>
                                 <td class="px-3 py-3 align-top">
                                     <div class="cp-plan-article-cell">
                                         <div class="min-w-0 flex-1">

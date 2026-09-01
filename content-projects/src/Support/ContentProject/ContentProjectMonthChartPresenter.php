@@ -67,9 +67,6 @@ final class ContentProjectMonthChartPresenter
         $rank = 0;
         foreach ($rawRows as $row) {
             $count = max(0, (int) ($row['total_count'] ?? 0));
-            if ($count <= 0) {
-                continue;
-            }
             $rank++;
             $share = self::sharePercent($count, $total);
             $rows[] = [
@@ -86,8 +83,13 @@ final class ContentProjectMonthChartPresenter
             ];
         }
 
-        $visible = array_slice($rows, 0, self::DOMAIN_VISIBLE);
-        $moreCount = max(0, count($rows) - count($visible));
+        $nonZeroRows = array_values(array_filter(
+            $rows,
+            static fn (array $row): bool => (int) ($row['total_count'] ?? 0) > 0,
+        ));
+        $donutRows = array_slice($nonZeroRows, 0, self::DOMAIN_VISIBLE);
+        $visible = $rows;
+        $moreCount = max(0, count($nonZeroRows) - count($donutRows));
 
         return [
             'month' => (string) ($workload['month'] ?? ''),
@@ -95,7 +97,7 @@ final class ContentProjectMonthChartPresenter
             'total' => $total,
             'empty' => (bool) ($workload['domain_empty'] ?? $rows === []),
             'max' => max(1, (int) ($workload['domain_max'] ?? 1)),
-            'donut_gradient' => self::conicGradientFromRows($visible, $total, $moreCount, $rows),
+            'donut_gradient' => self::conicGradientFromRows($donutRows, $total, $moreCount, $nonZeroRows),
             'rows' => $rows,
             'visible_rows' => $visible,
             'more_count' => $moreCount,

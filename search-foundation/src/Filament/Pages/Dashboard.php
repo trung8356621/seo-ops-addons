@@ -7,9 +7,9 @@ namespace Omnichannel\Addons\SearchFoundation\Filament\Pages;
 use Omnichannel\Addons\Seo\Filament\Concerns\InteractsWithSeoAllDomainsDashboard;
 use Omnichannel\Addons\Seo\Filament\Concerns\InteractsWithSeoConnectionRoutes;
 use Omnichannel\Addons\Seo\Filament\Widgets\AllDomainsListWidget;
-use Omnichannel\Addons\ContentProjects\Filament\Widgets\AllDomainsProjectsWidget;
-use Omnichannel\Addons\Seo\Filament\Widgets\AllDomainsTeamWidget;
-use Omnichannel\Addons\Seo\Filament\Widgets\SeoOverviewStats;
+use Omnichannel\Addons\ContentProjects\Filament\Widgets\DashboardDomainArticlesChartWidget;
+use Omnichannel\Addons\ContentProjects\Filament\Widgets\DashboardWriterArticlesChartWidget;
+use Omnichannel\Addons\Seo\Filament\Widgets\KeywordOverviewWidget;
 use Omnichannel\Addons\Seo\Filament\Widgets\SeoScoreChart;
 use Omnichannel\Addons\WordPress\Filament\Widgets\WpPluginReleaseWidget;
 use Omnichannel\Addons\WordPress\Filament\Widgets\WpSyncStatusTable;
@@ -88,15 +88,15 @@ class Dashboard extends BaseDashboard
     {
         if ($this->isAllDomainsDashboard()) {
             return [
-                AllDomainsProjectsWidget::class,
-                AllDomainsTeamWidget::class,
+                DashboardDomainArticlesChartWidget::class,
+                DashboardWriterArticlesChartWidget::class,
                 AllDomainsListWidget::class,
                 WpPluginReleaseWidget::class,
             ];
         }
 
         return [
-            SeoOverviewStats::class,
+            KeywordOverviewWidget::class,
             SeoScoreChart::class,
             WpSyncStatusTable::class,
         ];

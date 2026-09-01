@@ -111,12 +111,13 @@ final class ContentProjectMonthlyWorkloadIncludeArchivedContractTest extends Tes
         self::assertStringContainsString('team_capacity', $charts);
     }
 
-    public function test_domain_aggregate_uses_item_site_id_not_project_site(): void
+    public function test_domain_aggregate_starts_from_accessible_site_inventory(): void
     {
         $src = (string) file_get_contents(
             (string) (new ReflectionClass(ContentProjectMonthlyWorkloadService::class))->getFileName(),
         );
         self::assertStringContainsString('t.site_id', $src);
+        self::assertStringContainsString('accessibleSitesQuery', $src);
         self::assertStringNotContainsString('groupBy(\'p.site_id\')', $src);
         self::assertStringNotContainsString('p.site_id as site_id', $src);
     }

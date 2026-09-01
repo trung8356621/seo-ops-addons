@@ -22,6 +22,8 @@ final class SeoOverviewSettingsService
 
     public const KEY_TEAM_CHAT_MAX_FILE_SIZE_MB = 'team_chat_max_file_size_mb';
 
+    public const KEY_SOCIAL_SUPPORTED_DOMAINS = 'social_supported_domains';
+
     /** @var list<string> */
     private const DEFAULT_TEAM_CHAT_ALLOWED_EXTENSIONS = [
         'jpg',
@@ -100,6 +102,7 @@ final class SeoOverviewSettingsService
      *     outline_skip_words: list<string>,
      *     team_chat_allowed_extensions: list<string>,
      *     team_chat_max_file_size_mb: int,
+     *     social_supported_domains: list<string>,
      * }
      */
     public function getSettings(): array
@@ -131,6 +134,7 @@ final class SeoOverviewSettingsService
             self::KEY_OUTLINE_SKIP_WORDS => $skipWords,
             self::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS => $data[self::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS] ?? null,
             self::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB => $data[self::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB] ?? null,
+            self::KEY_SOCIAL_SUPPORTED_DOMAINS => $data[self::KEY_SOCIAL_SUPPORTED_DOMAINS] ?? null,
         ]);
     }
 
@@ -173,6 +177,14 @@ final class SeoOverviewSettingsService
         return (int) $this->getSettings()[self::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB];
     }
 
+    /**
+     * @return list<string>
+     */
+    public function getSocialSupportedDomains(): array
+    {
+        return $this->getSettings()[self::KEY_SOCIAL_SUPPORTED_DOMAINS];
+    }
+
     public function extensionsToTextarea(array $extensions): string
     {
         return implode("\n", $this->normalizeExtensions($extensions));
@@ -210,6 +222,8 @@ final class SeoOverviewSettingsService
                 ?? self::DEFAULT_TEAM_CHAT_ALLOWED_EXTENSIONS,
             self::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB => $current[self::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB]
                 ?? self::DEFAULT_TEAM_CHAT_MAX_FILE_SIZE_MB,
+            self::KEY_SOCIAL_SUPPORTED_DOMAINS => $current[self::KEY_SOCIAL_SUPPORTED_DOMAINS]
+                ?? \Omnichannel\Addons\Social\Services\SocialSupportedDomainService::DEFAULT_DOMAINS,
         ];
 
         if (array_key_exists(self::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS, $settings)) {
@@ -222,6 +236,12 @@ final class SeoOverviewSettingsService
         if (array_key_exists(self::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB, $settings)) {
             $payload[self::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB] = $this->normalizeMaxFileSizeMb(
                 $settings[self::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB],
+            );
+        }
+
+        if (array_key_exists(self::KEY_SOCIAL_SUPPORTED_DOMAINS, $settings)) {
+            $payload[self::KEY_SOCIAL_SUPPORTED_DOMAINS] = $this->normalizeSocialSupportedDomains(
+                $settings[self::KEY_SOCIAL_SUPPORTED_DOMAINS],
             );
         }
 
@@ -248,6 +268,29 @@ final class SeoOverviewSettingsService
             self::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS => $extensions,
             self::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB => $settings[self::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB]
                 ?? $current[self::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB],
+            self::KEY_SOCIAL_SUPPORTED_DOMAINS => $current[self::KEY_SOCIAL_SUPPORTED_DOMAINS],
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $settings
+     */
+    public function saveSocialSupportedDomainsSettings(array $settings): void
+    {
+        $current = $this->getSettings();
+        $domainsRaw = $settings[self::KEY_SOCIAL_SUPPORTED_DOMAINS] ?? null;
+        $domains = is_string($domainsRaw)
+            ? app(\Omnichannel\Addons\Social\Services\SocialSupportedDomainService::class)->domainsFromTextarea($domainsRaw)
+            : app(\Omnichannel\Addons\Social\Services\SocialSupportedDomainService::class)->normalizeDomains(
+                is_array($domainsRaw) ? $domainsRaw : [],
+            );
+
+        $this->saveSettings([
+            self::KEY_FAQ_CATCH_KEYWORDS => $current[self::KEY_FAQ_CATCH_KEYWORDS],
+            self::KEY_OUTLINE_SKIP_WORDS => $current[self::KEY_OUTLINE_SKIP_WORDS],
+            self::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS => $current[self::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS],
+            self::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB => $current[self::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB],
+            self::KEY_SOCIAL_SUPPORTED_DOMAINS => $domains,
         ]);
     }
 
@@ -272,6 +315,7 @@ final class SeoOverviewSettingsService
      *     outline_skip_words: list<string>,
      *     team_chat_allowed_extensions: list<string>,
      *     team_chat_max_file_size_mb: int,
+     *     social_supported_domains: list<string>,
      * }
      */
     private function defaultSettings(): array
@@ -281,6 +325,7 @@ final class SeoOverviewSettingsService
             self::KEY_OUTLINE_SKIP_WORDS => self::DEFAULT_OUTLINE_SKIP_WORDS,
             self::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS => self::DEFAULT_TEAM_CHAT_ALLOWED_EXTENSIONS,
             self::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB => self::DEFAULT_TEAM_CHAT_MAX_FILE_SIZE_MB,
+            self::KEY_SOCIAL_SUPPORTED_DOMAINS => \Omnichannel\Addons\Social\Services\SocialSupportedDomainService::DEFAULT_DOMAINS,
         ];
     }
 
@@ -291,11 +336,15 @@ final class SeoOverviewSettingsService
      *     outline_skip_words: list<string>,
      *     team_chat_allowed_extensions: list<string>,
      *     team_chat_max_file_size_mb: int,
+     *     social_supported_domains: list<string>,
      * }
      */
     private function mergeTeamChatDefaults(array $settings): array
     {
         $extensions = $this->normalizeExtensions($settings[self::KEY_TEAM_CHAT_ALLOWED_EXTENSIONS] ?? null);
+        $socialDomains = $this->normalizeSocialSupportedDomains(
+            $settings[self::KEY_SOCIAL_SUPPORTED_DOMAINS] ?? null,
+        );
 
         return [
             self::KEY_FAQ_CATCH_KEYWORDS => $settings[self::KEY_FAQ_CATCH_KEYWORDS] ?? self::DEFAULT_FAQ_CATCH_KEYWORDS,
@@ -306,7 +355,32 @@ final class SeoOverviewSettingsService
             self::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB => $this->normalizeMaxFileSizeMb(
                 $settings[self::KEY_TEAM_CHAT_MAX_FILE_SIZE_MB] ?? self::DEFAULT_TEAM_CHAT_MAX_FILE_SIZE_MB,
             ),
+            self::KEY_SOCIAL_SUPPORTED_DOMAINS => $socialDomains !== []
+                ? $socialDomains
+                : \Omnichannel\Addons\Social\Services\SocialSupportedDomainService::DEFAULT_DOMAINS,
         ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function normalizeSocialSupportedDomains(mixed $raw): array
+    {
+        if ($raw === null) {
+            return [];
+        }
+
+        if (is_string($raw)) {
+            return app(\Omnichannel\Addons\Social\Services\SocialSupportedDomainService::class)
+                ->domainsFromTextarea($raw);
+        }
+
+        if (! is_array($raw)) {
+            return [];
+        }
+
+        return app(\Omnichannel\Addons\Social\Services\SocialSupportedDomainService::class)
+            ->normalizeDomains($raw);
     }
 
     /**

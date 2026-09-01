@@ -53,6 +53,7 @@ use Throwable;
  *     article_exists: bool,
  *     can_edit: bool,
  *     edit_url: string|null,
+ *     social_links_count: int,
  * }
  */
 final class ArchivePreviewArticlePresenter
@@ -60,9 +61,10 @@ final class ArchivePreviewArticlePresenter
     /**
      * @param  Collection<int, SeoProjectArchiveItem>  $items
      * @param  Collection<int, SeoArticle>|null  $articlesById  optional preloaded map; null = dùng $item->article
+     * @param  array<int, int>  $socialCountsByArticleId
      * @return list<RowData>
      */
-    public function presentItems(Collection $items, ?Collection $articlesById = null): array
+    public function presentItems(Collection $items, ?Collection $articlesById = null, array $socialCountsByArticleId = []): array
     {
         $rows = [];
 
@@ -71,7 +73,7 @@ final class ArchivePreviewArticlePresenter
                 continue;
             }
 
-            $rows[] = $this->presentItem($item, $articlesById);
+            $rows[] = $this->presentItem($item, $articlesById, $socialCountsByArticleId);
         }
 
         return $rows;
@@ -79,9 +81,10 @@ final class ArchivePreviewArticlePresenter
 
     /**
      * @param  Collection<int, SeoArticle>|null  $articlesById
+     * @param  array<int, int>  $socialCountsByArticleId
      * @return RowData
      */
-    public function presentItem(SeoProjectArchiveItem $item, ?Collection $articlesById = null): array
+    public function presentItem(SeoProjectArchiveItem $item, ?Collection $articlesById = null, array $socialCountsByArticleId = []): array
     {
         $snapshot = is_array($item->article_snapshot) ? $item->article_snapshot : [];
         $articleId = (int) ($item->article_id ?? ($snapshot['article_id'] ?? 0));
@@ -270,6 +273,7 @@ final class ArchivePreviewArticlePresenter
             'article_exists' => $articleExists,
             'can_edit' => $canEdit,
             'edit_url' => $editUrl,
+            'social_links_count' => (int) ($socialCountsByArticleId[$articleId] ?? 0),
         ];
     }
 

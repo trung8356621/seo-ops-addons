@@ -5,9 +5,10 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AiPrompt\Services;
 
 use App\Models\Site;
+use Omnichannel\Addons\AiPrompt\Services\Contracts\DomainPromptContextFieldPatcher;
 use Omnichannel\Addons\Seo\Services\SeoDomainCtaGlobalSettingsService;
 
-final class SiteDomainPromptContextService
+final class SiteDomainPromptContextService implements DomainPromptContextFieldPatcher
 {
     public const META_KEY = 'seo_domain_prompt_context';
 
@@ -503,6 +504,42 @@ final class SiteDomainPromptContextService
      *     links?: list<array{keyword?: string, link?: string}>,
      * }  $payload
      */
+    /**
+     * Patch only allowed scalar prompt-context keys; preserve all other stored fields.
+     *
+     * @param  array{company_short_identity?: string, short_description?: string}  $patch
+     */
+    public function patchForSite(Site|int $site, array $patch): void
+    {
+        $allowedKeys = ['company_short_identity', 'short_description'];
+        $filtered = array_intersect_key($patch, array_flip($allowedKeys));
+        if ($filtered === []) {
+            return;
+        }
+
+        $current = $this->getRawPayloadForSite($site);
+        $merged = $current;
+
+        if (array_key_exists('company_short_identity', $filtered)) {
+            $merged['company_short_identity'] = $this->clampCompanyShortIdentity(
+                (string) $filtered['company_short_identity'],
+            );
+        }
+
+        if (array_key_exists('short_description', $filtered)) {
+            $shortDescription = trim((string) $filtered['short_description']);
+            if ($this->countWords($shortDescription) > self::MAX_SHORT_DESCRIPTION_WORDS) {
+                throw new \InvalidArgumentException(
+                    'Mô tả ngắn tối đa '.self::MAX_SHORT_DESCRIPTION_WORDS.' từ (hiện tại: '
+                    .$this->countWords($shortDescription).').',
+                );
+            }
+            $merged['short_description'] = $shortDescription;
+        }
+
+        $this->saveForSite($site, $merged);
+    }
+
     public function saveForSite(Site|int $site, array $payload): void
     {
         $site = $site instanceof Site ? $site : Site::query()->findOrFail((int) $site);

@@ -3,11 +3,15 @@
     'writerChart' => [],
     'domainEmptyKey' => 'seo-content-ai::filament.projects.chart_domain_empty',
     'writerEmptyKey' => 'seo-content-ai::filament.projects.chart_writer_empty',
+    'variant' => 'both',
 ])
 
 @php
     $domainChart = is_array($domainChart) ? $domainChart : [];
     $writerChart = is_array($writerChart) ? $writerChart : [];
+    $variant = in_array($variant ?? 'both', ['both', 'domain', 'writer'], true) ? $variant : 'both';
+    $showDomain = $variant === 'both' || $variant === 'domain';
+    $showWriter = $variant === 'both' || $variant === 'writer';
     $domainTotal = (int) ($domainChart['total'] ?? 0);
     $writerTotal = (int) ($writerChart['total'] ?? 0);
     $teamCapacity = (int) ($writerChart['team_capacity'] ?? 0);
@@ -28,6 +32,9 @@
         @media (min-width: 1024px) {
             .cp-month-charts {
                 grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+            }
+            .cp-month-charts--single {
+                grid-template-columns: minmax(0, 1fr);
             }
         }
         .cp-month-charts__card {
@@ -280,8 +287,9 @@
     </style>
 @endonce
 
-{{-- Compact month charts: domain + writer, 50/50 desktop — shared by Content Projects + Archived --}}
-<div {{ $attributes->class(['cp-month-charts']) }}>
+{{-- Compact month charts: domain + writer, 50/50 desktop — shared by Content Projects + Archived + Dashboard --}}
+<div {{ $attributes->class(['cp-month-charts', 'cp-month-charts--single' => $variant !== 'both']) }}>
+    @if ($showDomain)
     <section class="cp-month-charts__card">
         <div class="cp-month-charts__head">
             <div class="min-w-0">
@@ -350,7 +358,9 @@
             </div>
         @endif
     </section>
+    @endif
 
+    @if ($showWriter)
     <section class="cp-month-charts__card">
         <div class="cp-month-charts__head">
             <div class="min-w-0">
@@ -441,4 +451,5 @@
             </div>
         @endif
     </section>
+    @endif
 </div>

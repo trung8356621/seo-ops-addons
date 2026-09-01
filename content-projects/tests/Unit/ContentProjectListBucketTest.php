@@ -12,17 +12,17 @@ use Tests\Support\LegacyAddonPath;
 
 final class ContentProjectListBucketTest extends TestCase
 {
-    public function test_dropdown_values_are_high_level_buckets_only(): void
+    public function test_dropdown_values_exclude_draft_but_keep_archived(): void
     {
         self::assertSame(
             [
                 ContentProjectListBucket::ALL,
-                ContentProjectListBucket::DRAFT,
                 ContentProjectListBucket::PROJECT,
                 ContentProjectListBucket::ARCHIVED,
             ],
             ContentProjectListBucket::values(),
         );
+        self::assertNotContains(ContentProjectListBucket::DRAFT, ContentProjectListBucket::values());
         self::assertNotContains(SeoProject::STATUS_PENDING, ContentProjectListBucket::values());
         self::assertNotContains(SeoProject::STATUS_MANUAL, ContentProjectListBucket::values());
         self::assertNotContains(SeoProject::STATUS_RUNNING, ContentProjectListBucket::values());
@@ -39,12 +39,29 @@ final class ContentProjectListBucketTest extends TestCase
         self::assertSame(ContentProjectListBucket::PROJECT, ContentProjectListBucket::normalize('completed'));
         self::assertSame(ContentProjectListBucket::PROJECT, ContentProjectListBucket::normalize('paused'));
         self::assertSame(ContentProjectListBucket::PROJECT, ContentProjectListBucket::normalize('approved'));
-        self::assertSame(ContentProjectListBucket::DRAFT, ContentProjectListBucket::normalize('draft'));
+        self::assertSame(ContentProjectListBucket::ALL, ContentProjectListBucket::normalize('draft'));
+        self::assertSame(ContentProjectListBucket::ALL, ContentProjectListBucket::normalize(SeoProject::STATUS_DRAFT));
         self::assertSame(ContentProjectListBucket::ARCHIVED, ContentProjectListBucket::normalize('archived'));
         self::assertSame(ContentProjectListBucket::ALL, ContentProjectListBucket::normalize('all'));
     }
 
-    public function test_apply_source_defines_draft_project_archived_semantics(): void
+    public function test_select_options_do_not_expose_draft(): void
+    {
+        $src = (string) file_get_contents(
+            (string) (new ReflectionClass(ContentProjectListBucket::class))->getFileName(),
+        );
+
+        $start = strpos($src, 'function selectOptions');
+        self::assertNotFalse($start);
+        $chunk = substr($src, $start, 450);
+
+        self::assertStringNotContainsString('self::DRAFT', $chunk);
+        self::assertStringContainsString('self::ALL', $chunk);
+        self::assertStringContainsString('self::PROJECT', $chunk);
+        self::assertStringContainsString('self::ARCHIVED', $chunk);
+    }
+
+    public function test_apply_source_excludes_draft_from_all_and_keeps_archived_bucket(): void
     {
         $src = (string) file_get_contents(
             (string) (new ReflectionClass(ContentProjectListBucket::class))->getFileName(),
@@ -56,16 +73,11 @@ final class ContentProjectListBucketTest extends TestCase
         self::assertStringContainsString("where('status', '!=', SeoProject::STATUS_DRAFT)", $src);
         self::assertStringContainsString('applyExecutionMonth', $src);
         self::assertStringContainsString('applyAllBucket', $src);
-        self::assertStringContainsString('Never list archived shells in All', $src);
-        self::assertStringNotContainsString("->orWhereDate('month', \$monthDate);", $src);
-        // Draft branch must not require month.
-        self::assertMatchesRegularExpression(
-            '/self::DRAFT\s*=>\s*\$query\s*->where\(\'status\',\s*SeoProject::STATUS_DRAFT\)\s*->whereNull\(\'archived_at\'\)/s',
-            $src,
-        );
+        self::assertStringContainsString('Shared Planning Draft never appears on this list', $src);
+        self::assertStringNotContainsString('self::DRAFT =>', $src);
     }
 
-    public function test_all_bucket_excludes_archived_legacy_drafts(): void
+    public function test_all_bucket_excludes_draft_and_does_not_force_active_only(): void
     {
         $src = (string) file_get_contents(
             (string) (new ReflectionClass(ContentProjectListBucket::class))->getFileName(),
@@ -73,11 +85,11 @@ final class ContentProjectListBucketTest extends TestCase
 
         $start = strpos($src, 'function applyAllBucket');
         self::assertNotFalse($start);
-        $chunk = substr($src, $start, 900);
-        self::assertStringContainsString("whereNull('archived_at')", $chunk);
+        $chunk = substr($src, $start, 500);
         self::assertStringContainsString("where('status', '!=', SeoProject::STATUS_DRAFT)", $chunk);
-        self::assertStringContainsString("whereDate('month', \$monthDate)", $chunk);
-        self::assertStringNotContainsString('orWhereDate', $chunk);
+        self::assertStringContainsString('applyExecutionMonth', $chunk);
+        self::assertStringNotContainsString("where('status', SeoProject::STATUS_DRAFT)", $chunk);
+        self::assertStringNotContainsString("whereNull('archived_at')", $chunk);
     }
 
     public function test_list_page_and_resource_no_longer_expose_raw_status_filter(): void
@@ -98,6 +110,8 @@ final class ContentProjectListBucketTest extends TestCase
         self::assertStringContainsString("Filter::make('project_type')", $resource);
         self::assertStringNotContainsString("SelectFilter::make('status')", $resource);
         self::assertStringNotContainsString('->options(SeoProject::statusOptions())', $resource);
+        self::assertStringNotContainsString('ContentProjectListBucket::DRAFT', $resource);
+        self::assertStringContainsString('ContentProjectListBucket::ARCHIVED', $resource);
         self::assertStringContainsString('hasListOverflowActions', $resource);
 
         $blade = LegacyAddonPath::read('resources/views/filament/resources/seo-project-resource/pages/list-seo-projects.blade.php');

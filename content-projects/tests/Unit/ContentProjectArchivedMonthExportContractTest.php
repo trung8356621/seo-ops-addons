@@ -257,11 +257,11 @@ final class ContentProjectArchivedMonthExportContractTest extends TestCase
             (string) (new ReflectionClass(ContentProjectArchiveExportService::class))->getFileName(),
         );
 
-        self::assertStringContainsString("'domain' => 'Domain'", $src);
         self::assertStringContainsString('ContentProjectItemDomainResolver', $src);
         self::assertStringContainsString('labelForItem', $src);
         self::assertStringContainsString('resolveItemDomainsOverview', $src);
         self::assertStringContainsString('unresolved_item_site_id_count', $src);
+        self::assertStringContainsString('linksGroupedByArticle', $src);
         self::assertStringNotContainsString('$archive->site?->domain', $src);
     }
 
@@ -422,6 +422,7 @@ final class ContentProjectArchivedMonthExportContractTest extends TestCase
      *     writer_name: string,
      *     project_name: string,
      *     site_id: int|null,
+     *     article_id: int,
      *     title: string,
      *     keyword: string,
      *     wordpress_url?: string,
@@ -439,6 +440,7 @@ final class ContentProjectArchivedMonthExportContractTest extends TestCase
             'writer_name' => $writerName,
             'project_name' => $project,
             'site_id' => $siteId,
+            'article_id' => $siteId,
             'title' => 'Article '.$siteId,
             'keyword' => 'kw',
             'wordpress_url' => '',

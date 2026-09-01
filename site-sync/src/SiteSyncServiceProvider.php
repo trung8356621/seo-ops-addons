@@ -8,6 +8,8 @@ use App\Core\Capability\CapabilityRegistry;
 use Illuminate\Support\ServiceProvider;
 use Omnichannel\Addons\SiteSync\Contracts\SiteLinkCatalogCapability;
 use Omnichannel\Addons\SiteSync\Services\Capabilities\SiteLinkCatalogCapabilityService;
+use Omnichannel\Addons\SiteSync\Services\Profile\Contracts\WordPressSiteProfileSource;
+use Omnichannel\Addons\SiteSync\Services\Profile\WordPressSiteProfileReader;
 
 /**
  * Peer addon skeleton: registers capabilities into Client Core.
@@ -19,6 +21,7 @@ final class SiteSyncServiceProvider extends ServiceProvider
 
     public function register(): void
     {
+        $this->app->bind(WordPressSiteProfileSource::class, WordPressSiteProfileReader::class);
         $this->registerCapabilities();
     }
 

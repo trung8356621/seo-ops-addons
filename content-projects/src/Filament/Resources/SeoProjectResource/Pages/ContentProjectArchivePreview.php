@@ -8,6 +8,7 @@ use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectArchive;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectArchiveItem;
 use Omnichannel\Addons\ContentProjects\Services\ArchiveContentProjectService;
+use Omnichannel\Addons\Social\Services\ArticleSocialLinkService;
 use Omnichannel\Addons\AiPrompt\Filament\Resources\AiConnectionResource;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Services\ArticleManualIndexMarkerService;
@@ -22,6 +23,8 @@ use App\Models\User;
 use App\Support\RuntimeLogger;
 use Filament\Actions;
 use Filament\Actions\Action;
+use Filament\Forms;
+use Filament\Forms\Get;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\Page;
 use Filament\Support\Enums\MaxWidth;
@@ -526,6 +529,125 @@ final class ContentProjectArchivePreview extends Page
         $this->rebuildArticleRows();
     }
 
+    public function linkShareAction(): Action
+    {
+        return Action::make('linkShare')
+            ->label(__('seo-content-ai::filament.projects.archive_preview_link_share'))
+            ->modalHeading(__('seo-content-ai::filament.projects.archive_preview_link_share_heading'))
+            ->modalSubmitActionLabel(__('seo-content-ai::filament.projects.archive_preview_link_share_save'))
+            ->modalCancelActionLabel(__('seo-content-ai::filament.projects.archive_preview_close'))
+            ->form([
+                Forms\Components\Placeholder::make('article_title')
+                    ->label(__('seo-content-ai::filament.projects.archive_col_title'))
+                    ->content(fn (Get $get): string => (string) ($get('article_title') ?? '')),
+                Forms\Components\Placeholder::make('social_summary')
+                    ->label(__('seo-content-ai::filament.projects.archive_preview_social_count'))
+                    ->content(fn (Get $get): string => (string) ($get('social_summary') ?? '')),
+                Forms\Components\Textarea::make('urls')
+                    ->label(__('seo-content-ai::filament.projects.archive_preview_link_share_add'))
+                    ->helperText(__('seo-content-ai::filament.projects.archive_preview_link_share_urls_hint'))
+                    ->rows(6)
+                    ->columnSpanFull(),
+            ])
+            ->fillForm(function (array $arguments): array {
+                $articleId = (int) ($arguments['articleId'] ?? 0);
+                $row = $this->findRowByArticleId($articleId);
+                if ($row === []) {
+                    $row = $this->findRow((int) ($arguments['itemId'] ?? 0));
+                    $articleId = (int) ($row['article_id'] ?? 0);
+                }
+
+                $title = trim((string) ($row['title'] ?? ''));
+                $service = app(ArticleSocialLinkService::class);
+                $links = $service->getLinksForArticle($articleId);
+                $count = $service->countForArticle($articleId);
+                $summaryLines = [(string) __('seo-content-ai::filament.projects.archive_preview_social_count_value', ['count' => $count])];
+                foreach ($links as $link) {
+                    $summaryLines[] = '- '.($link['domain'] ?? '').': '.($link['url'] ?? '');
+                }
+
+                return [
+                    'article_title' => $title !== ''
+                        ? $title
+                        : (string) __('seo-content-ai::filament.projects.archive_preview_no_data'),
+                    'social_summary' => implode("\n", $summaryLines),
+                    'urls' => '',
+                ];
+            })
+            ->action(function (array $data, array $arguments): void {
+                abort_unless(SeoAccessControl::canViewProjectArchives(), 403);
+
+                $articleId = (int) ($arguments['articleId'] ?? 0);
+                if ($articleId <= 0) {
+                    $row = $this->findRow((int) ($arguments['itemId'] ?? 0));
+                    $articleId = (int) ($row['article_id'] ?? 0);
+                }
+
+                if ($articleId <= 0) {
+                    Notification::make()
+                        ->title(__('seo-content-ai::filament.projects.archive_social_links_none_saved'))
+                        ->body(__('seo-content-ai::filament.projects.archive_preview_article_missing'))
+                        ->warning()
+                        ->send();
+
+                    return;
+                }
+
+                $service = app(ArticleSocialLinkService::class);
+                $result = $service->savePastedLines(
+                    $articleId,
+                    (string) ($data['urls'] ?? ''),
+                    auth()->id() !== null ? (int) auth()->id() : null,
+                );
+
+                $this->updateRowSocialLinksCount($articleId, (int) ($result['total_count'] ?? 0));
+
+                $notification = $service->buildSaveNotification($result);
+                $toast = Notification::make()->title($notification['title']);
+                if (is_string($notification['body'] ?? null) && $notification['body'] !== '') {
+                    $toast->body($notification['body']);
+                }
+
+                match ($notification['level']) {
+                    'success' => $toast->success(),
+                    default => $toast->warning(),
+                };
+
+                $toast->send();
+            });
+    }
+
+    private function updateRowSocialLinksCount(int $articleId, int $count): void
+    {
+        foreach ($this->articleRows as $index => $row) {
+            if ((int) ($row['article_id'] ?? 0) !== $articleId) {
+                continue;
+            }
+
+            $this->articleRows[$index]['social_links_count'] = max(0, $count);
+
+            return;
+        }
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function findRowByArticleId(int $articleId): array
+    {
+        if ($articleId <= 0) {
+            return [];
+        }
+
+        foreach ($this->articleRows as $row) {
+            if ((int) ($row['article_id'] ?? 0) === $articleId) {
+                return $row;
+            }
+        }
+
+        return [];
+    }
+
     /**
      * When Article is deleted, Index Health cannot store results — persist onto archive snapshot
      * so Index badges still reflect GSC URL Inspection of the WP link.
@@ -824,6 +946,18 @@ final class ContentProjectArchivePreview extends Page
 
         $presenter = app(ArchivePreviewArticlePresenter::class);
         $articlesById = $presenter->loadArticlesById($items);
-        $this->articleRows = $presenter->presentItems($items, $articlesById);
+        $articleIds = [];
+        foreach ($items as $item) {
+            if (! $item instanceof SeoProjectArchiveItem) {
+                continue;
+            }
+            $snapshot = is_array($item->article_snapshot) ? $item->article_snapshot : [];
+            $articleId = (int) ($item->article_id ?? ($snapshot['article_id'] ?? 0));
+            if ($articleId > 0) {
+                $articleIds[$articleId] = $articleId;
+            }
+        }
+        $socialCounts = app(ArticleSocialLinkService::class)->countsForArticles(array_values($articleIds));
+        $this->articleRows = $presenter->presentItems($items, $articlesById, $socialCounts);
     }
 }

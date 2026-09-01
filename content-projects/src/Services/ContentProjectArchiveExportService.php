@@ -7,7 +7,9 @@ namespace Omnichannel\Addons\ContentProjects\Services;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectArchive;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectArchiveItem;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemDomainResolver;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ExcelHyperlinkHelper;
 use Omnichannel\Addons\Seo\Support\ExcelFormulaEscaper;
+use Omnichannel\Addons\Social\Services\ArticleSocialLinkService;
 use App\Support\RuntimeLogger;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
@@ -54,26 +56,17 @@ final class ContentProjectArchiveExportService
     /** @var array<string, string> */
     private const ARTICLE_LIST_COLUMNS = [
         'position' => 'STT',
-        'domain' => 'Domain',
-        'title' => 'Tiêu đề',
-        'slug' => 'Slug',
+        'title' => 'Bài viết',
         'primary_keyword' => 'Từ khóa chính',
-        'status' => 'Trạng thái',
-        'word_count' => 'Số từ',
-        'image_count' => 'Số ảnh',
-        'seo_score' => 'SEO score',
-        'sync_status' => 'Sync status',
-        'wordpress_post_id' => 'WordPress post ID',
-        'wordpress_url' => 'WordPress URL',
-        'indexed_at' => 'Index gần nhất',
-        'previous_indexed_at' => 'Index lần trước',
-        'created_at' => 'Ngày tạo',
-        'completed_at' => 'Ngày hoàn thành',
-        'last_saved_at' => 'Lần cuối lưu',
+        'seo_score' => 'SEO',
+        'index_status' => 'Index',
+        'social_links_count' => 'Social',
+        'completed_at' => 'Hoàn thành',
     ];
 
     public function __construct(
         private readonly ContentProjectItemDomainResolver $domainResolver,
+        private readonly ArticleSocialLinkService $socialLinks,
     ) {}
 
     public function download(SeoProjectArchive $archive): StreamedResponse|Response
@@ -137,8 +130,6 @@ final class ContentProjectArchiveExportService
 
         $this->writeOverviewSheet($writer, $archive, $headerStyle, $domainBySiteId);
         $this->writeArticleListSheet($writer, $archive, $headerStyle, $domainBySiteId);
-        $this->writeSeoAuditSheet($writer, $archive, $headerStyle);
-        $this->writeWordPressSyncSheet($writer, $archive, $headerStyle);
 
         $writer->close();
     }
@@ -184,9 +175,24 @@ final class ContentProjectArchiveExportService
         $this->applySheetFreeze($sheet, 2);
 
         $writer->addRow(Row::fromValues(
-            ExcelFormulaEscaper::escapeRow(array_values(self::ARTICLE_LIST_COLUMNS)),
+            ExcelHyperlinkHelper::escapeRowPreservingFormulas(array_values(self::ARTICLE_LIST_COLUMNS)),
             $headerStyle,
         ));
+
+        $articleIds = [];
+        foreach ($archive->items as $item) {
+            if (! $item instanceof SeoProjectArchiveItem) {
+                continue;
+            }
+            $snapshot = is_array($item->article_snapshot) ? $item->article_snapshot : [];
+            $articleId = (int) ($item->article_id ?? ($snapshot['article_id'] ?? 0));
+            if ($articleId > 0) {
+                $articleIds[$articleId] = $articleId;
+            }
+        }
+
+        $socialCounts = $this->socialLinks->countsForArticles(array_values($articleIds));
+        $socialLinksByArticle = $this->socialLinks->linksGroupedByArticle(array_values($articleIds));
 
         foreach ($archive->items as $item) {
             if (! $item instanceof SeoProjectArchiveItem) {
@@ -197,11 +203,36 @@ final class ContentProjectArchiveExportService
                 $this->resolveArticleData($item),
                 $item,
             );
+            $articleId = (int) ($item->article_id ?? ($data['article_id'] ?? 0));
+            $socialCount = (int) ($socialCounts[$articleId] ?? 0);
             $row = [];
 
             foreach (array_keys(self::ARTICLE_LIST_COLUMNS) as $column) {
-                if ($column === 'domain') {
-                    $row[] = $this->domainResolver->labelForItem($item, $domainBySiteId);
+                if ($column === 'title') {
+                    $title = trim((string) $this->articleField($data, $item, 'title'));
+                    $wpUrl = trim((string) $this->articleField($data, $item, 'wordpress_url'));
+                    $row[] = ($wpUrl !== '' && $title !== '')
+                        ? ExcelHyperlinkHelper::formula($wpUrl, $title)
+                        : $this->stringifyCellValue($title);
+
+                    continue;
+                }
+
+                if ($column === 'index_status') {
+                    $indexedAt = $this->articleField($data, $item, 'indexed_at');
+                    $row[] = ($indexedAt !== null && $indexedAt !== '') ? 'Đã index' : 'Chưa index';
+
+                    continue;
+                }
+
+                if ($column === 'social_links_count') {
+                    $row[] = (string) $socialCount;
+
+                    continue;
+                }
+
+                if ($column === 'completed_at') {
+                    $row[] = $this->formatReportDate($this->articleField($data, $item, 'completed_at'));
 
                     continue;
                 }
@@ -209,91 +240,31 @@ final class ContentProjectArchiveExportService
                 $row[] = $this->stringifyCellValue($this->articleField($data, $item, $column));
             }
 
-            $writer->addRow(Row::fromValues(ExcelFormulaEscaper::escapeRow($row)));
-        }
-    }
+            $writer->addRow(Row::fromValues(ExcelHyperlinkHelper::escapeRowPreservingFormulas($row)));
 
-    private function writeSeoAuditSheet(Writer $writer, SeoProjectArchive $archive, Style $headerStyle): void
-    {
-        $sheet = $writer->addNewSheetAndMakeItCurrent();
-        $sheet->setName('SEO Audit');
-        $this->applySheetFreeze($sheet, 2);
-
-        $writer->addRow(Row::fromValues(
-            ExcelFormulaEscaper::escapeRow(['Tiêu đề', 'Điểm SEO', 'Vi phạm SEO']),
-            $headerStyle,
-        ));
-
-        foreach ($archive->items as $item) {
-            if (! $item instanceof SeoProjectArchiveItem) {
+            if ($articleId <= 0 || $socialCount <= 0) {
                 continue;
             }
 
-            $data = $this->resolveArticleData($item);
-            $title = $this->articleField($data, $item, 'title');
-            $seoScore = $this->articleField($data, $item, 'seo_score');
-            $violations = $this->articleField($data, $item, 'seo_rule_violations');
+            foreach ($socialLinksByArticle[$articleId] ?? [] as $link) {
+                $url = trim((string) ($link['url'] ?? ''));
+                $domain = trim((string) ($link['domain'] ?? ''));
+                if ($url === '') {
+                    continue;
+                }
 
-            if ($title === null && $seoScore === null && $violations === null) {
-                continue;
+                $label = '↳ '.($domain !== '' ? $domain.' — ' : '').$url;
+                $childRow = [
+                    '',
+                    ExcelHyperlinkHelper::formula($url, $label),
+                    '',
+                    '',
+                    '',
+                    '',
+                    (string) ($link['recorded_at'] ?? ''),
+                ];
+                $writer->addRow(Row::fromValues(ExcelHyperlinkHelper::escapeRowPreservingFormulas($childRow)));
             }
-
-            $writer->addRow(Row::fromValues(ExcelFormulaEscaper::escapeRow([
-                $this->stringifyCellValue($title),
-                $this->stringifyCellValue($seoScore),
-                $this->stringifyCellValue($this->formatViolations($violations)),
-            ])));
-        }
-    }
-
-    private function writeWordPressSyncSheet(Writer $writer, SeoProjectArchive $archive, Style $headerStyle): void
-    {
-        $sheet = $writer->addNewSheetAndMakeItCurrent();
-        $sheet->setName('Đồng bộ WordPress');
-        $this->applySheetFreeze($sheet, 2);
-
-        $writer->addRow(Row::fromValues(
-            ExcelFormulaEscaper::escapeRow([
-                'Tiêu đề',
-                'Trạng thái đồng bộ',
-                'WordPress Post ID',
-                'WordPress URL',
-                'Đồng bộ lần cuối',
-                'Lỗi đồng bộ',
-            ]),
-            $headerStyle,
-        ));
-
-        foreach ($archive->items as $item) {
-            if (! $item instanceof SeoProjectArchiveItem) {
-                continue;
-            }
-
-            $data = $this->resolveArticleData($item);
-            $title = $this->articleField($data, $item, 'title');
-            $syncStatus = $this->articleField($data, $item, 'sync_status');
-            $wpPostId = $this->articleField($data, $item, 'wordpress_post_id');
-            $wpUrl = $this->articleField($data, $item, 'wordpress_url');
-            $lastSyncedAt = $this->articleField($data, $item, 'last_synced_at');
-            $syncError = $this->articleField($data, $item, 'wp_sync_error');
-
-            if ($title === null
-                && $syncStatus === null
-                && $wpPostId === null
-                && $wpUrl === null
-                && $lastSyncedAt === null
-                && $syncError === null) {
-                continue;
-            }
-
-            $writer->addRow(Row::fromValues(ExcelFormulaEscaper::escapeRow([
-                $this->stringifyCellValue($title),
-                $this->stringifyCellValue($syncStatus),
-                $this->stringifyCellValue($wpPostId),
-                $this->stringifyCellValue($wpUrl),
-                $this->stringifyCellValue($lastSyncedAt),
-                $this->stringifyCellValue($syncError),
-            ])));
         }
     }
 
@@ -304,27 +275,31 @@ final class ContentProjectArchiveExportService
     private function buildOverviewRows(SeoProjectArchive $archive, array $domainBySiteId): array
     {
         $summary = is_array($archive->summary_snapshot) ? $archive->summary_snapshot : [];
-        $usedKeys = [];
+        [$indexedCount, $notIndexedCount, $totalSocialLinks] = $this->aggregateReportingCounts($archive);
 
-        $rows = [
-            ['Tên dự án', $this->firstNonEmpty([
+        $month = $this->firstNonEmpty([
+            $archive->project_month,
+            $summary['month'] ?? null,
+            $summary['project_month'] ?? null,
+        ]);
+        $year = $this->firstNonEmpty([
+            $archive->project_year,
+            $summary['year'] ?? null,
+            $summary['project_year'] ?? null,
+        ]);
+        $period = ($month !== null && $year !== null && (int) $month > 0 && (int) $year > 0)
+            ? sprintf('%02d/%d', (int) $month, (int) $year)
+            : '';
+
+        return [
+            ['Dự án', $this->firstNonEmpty([
                 $archive->project_name,
                 $summary['project_name'] ?? null,
             ])],
-            // Domain list from items only — never a single project.site_id.
             ['Domain', $this->resolveItemDomainsOverview($archive, $domainBySiteId)],
-            ['Tháng', $this->firstNonEmpty([
-                $archive->project_month,
-                $summary['month'] ?? null,
-                $summary['project_month'] ?? null,
-            ])],
-            ['Năm', $this->firstNonEmpty([
-                $archive->project_year,
-                $summary['year'] ?? null,
-                $summary['project_year'] ?? null,
-            ])],
-            ['Chủ sở hữu', $this->resolveOwnerLabel($archive, $summary)],
-            ['Tổng bài viết', $this->firstNonEmpty([
+            ['Tháng', $period !== '' ? $period : $month],
+            ['Người phụ trách', $this->resolveOwnerLabel($archive, $summary)],
+            ['Tổng bài', $this->firstNonEmpty([
                 $archive->total_articles,
                 $archive->articles_count,
                 $summary['total_articles'] ?? null,
@@ -333,20 +308,14 @@ final class ContentProjectArchiveExportService
                 $archive->completed_articles,
                 $summary['completed_articles'] ?? null,
             ])],
-            ['Đã duyệt', $this->firstNonEmpty([
-                $archive->approved_articles,
-                $summary['approved_articles'] ?? null,
-            ])],
-            ['Đã đồng bộ', $this->firstNonEmpty([
-                $archive->synced_articles,
-                $summary['synced_articles'] ?? null,
-            ])],
             ['SEO trung bình', $this->firstNonEmpty([
                 $archive->average_seo_score,
                 $summary['average_seo_score'] ?? null,
             ])],
-            ['Ngày tạo', $this->formatDateTime($archive->created_at)],
-            ['Ngày lưu trữ', $this->formatDateTime($this->firstNonEmpty([
+            ['Đã index', $indexedCount],
+            ['Chưa index', $notIndexedCount],
+            ['Tổng Social links', $totalSocialLinks],
+            ['Lưu trữ lúc', $this->formatDateTime($this->firstNonEmpty([
                 $archive->archived_at,
                 $summary['archived_at'] ?? null,
             ]))],
@@ -356,32 +325,44 @@ final class ContentProjectArchiveExportService
                 $summary['note'] ?? null,
             ])],
         ];
+    }
 
-        foreach ([
-            ...self::OVERVIEW_METADATA_KEYS,
-            'domain_name',
-            'month',
-            'year',
-            'owner_name',
-            'failed_articles',
-            'incomplete_articles',
-            'unapproved_articles',
-            'unsynced_articles',
-            'project_id',
-            'domain_id',
-        ] as $key) {
-            $usedKeys[$key] = true;
-        }
+    /**
+     * @return array{0: int, 1: int, 2: int}
+     */
+    private function aggregateReportingCounts(SeoProjectArchive $archive): array
+    {
+        $indexedCount = 0;
+        $notIndexedCount = 0;
+        $articleIds = [];
 
-        foreach ($summary as $key => $value) {
-            if (! is_string($key) || isset($usedKeys[$key]) || $this->shouldSkipSnapshotKey($key)) {
+        foreach ($archive->items as $item) {
+            if (! $item instanceof SeoProjectArchiveItem) {
                 continue;
             }
 
-            $rows[] = [$this->humanizeSnapshotKey($key), $value];
+            $data = $this->overlayManualIndexFields(
+                $this->resolveArticleData($item),
+                $item,
+            );
+            $indexedAt = $this->articleField($data, $item, 'indexed_at');
+            if ($indexedAt !== null && $indexedAt !== '') {
+                $indexedCount++;
+            } else {
+                $notIndexedCount++;
+            }
+
+            $snapshot = is_array($item->article_snapshot) ? $item->article_snapshot : [];
+            $articleId = (int) ($item->article_id ?? ($snapshot['article_id'] ?? 0));
+            if ($articleId > 0) {
+                $articleIds[$articleId] = $articleId;
+            }
         }
 
-        return $rows;
+        $socialCounts = $this->socialLinks->countsForArticles(array_values($articleIds));
+        $totalSocialLinks = array_sum($socialCounts);
+
+        return [$indexedCount, $notIndexedCount, $totalSocialLinks];
     }
 
     /**
@@ -615,6 +596,23 @@ final class ContentProjectArchiveExportService
         }
 
         return '';
+    }
+
+    private function formatReportDate(mixed $value): string
+    {
+        if ($value === null || $value === '') {
+            return '';
+        }
+
+        try {
+            if ($value instanceof Carbon) {
+                return $value->format('d/m/Y');
+            }
+
+            return Carbon::parse((string) $value)->format('d/m/Y');
+        } catch (\Throwable) {
+            return is_scalar($value) ? (string) $value : '';
+        }
     }
 
     private function formatDateTime(mixed $value): ?string

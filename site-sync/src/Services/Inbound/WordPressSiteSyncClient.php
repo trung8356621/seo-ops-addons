@@ -219,10 +219,7 @@ final class WordPressSiteSyncClient
         }
 
         try {
-            $response = Http::timeout(30)
-                ->acceptJson()
-                ->withToken($auth['token'])
-                ->get($auth['base'].'/wp-json/omi-seo-ai/v1/sync/v2/profile');
+            $response = $this->getWpRest($auth['base'], $auth['token'], '/omi-seo-ai/v1/sync/v2/profile', 30);
 
             if (! $response->successful()) {
                 return ['success' => false, 'message' => 'profile HTTP '.$response->status()];

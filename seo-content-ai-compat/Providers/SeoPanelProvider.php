@@ -13,6 +13,7 @@ use Omnichannel\Addons\Content\Http\Controllers\ArticleEditorOperationController
 use Omnichannel\Addons\Commerce\Http\Controllers\ArticleProductReviewReconcileController;
 use Omnichannel\Addons\Commerce\Http\Controllers\ArticleProductReviewStatusController;
 use Omnichannel\Addons\Content\Http\Controllers\ArticleReviewActionController;
+use Omnichannel\Addons\Social\Http\Controllers\ArticleSocialLinkController;
 use Omnichannel\Addons\WordPress\Http\Controllers\ArticleWordPressProductReviewsController;
 use Omnichannel\Addons\Media\Http\Controllers\ArticleMediaPickerController;
 use Omnichannel\Addons\Content\Http\Controllers\ArticleOutlineController;
@@ -597,6 +598,12 @@ class SeoPanelProvider extends PanelProvider
                 Route::post('/{article}/review-actions', [ArticleReviewActionController::class, 'store'])
                     ->whereNumber('article')
                     ->name('seo.articles.review-actions.store');
+                Route::get('/{article}/social-links', [ArticleSocialLinkController::class, 'index'])
+                    ->whereNumber('article')
+                    ->name('seo.articles.social-links.index');
+                Route::post('/{article}/social-links', [ArticleSocialLinkController::class, 'store'])
+                    ->whereNumber('article')
+                    ->name('seo.articles.social-links.store');
             });
 
         Route::middleware($seoWebApiMiddleware)

@@ -1008,7 +1008,6 @@ class SeoProjectResource extends SeoPanelResource
                         Forms\Components\Select::make('value')
                             ->label(__('seo-content-ai::filament.projects.project_type'))
                             ->options([
-                                ContentProjectListBucket::DRAFT => (string) __('seo-content-ai::filament.projects.project_type_draft'),
                                 ContentProjectListBucket::PROJECT => (string) __('seo-content-ai::filament.projects.project_type_project'),
                                 ContentProjectListBucket::ARCHIVED => (string) __('seo-content-ai::filament.projects.project_type_archived'),
                             ])

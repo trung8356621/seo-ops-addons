@@ -65,11 +65,32 @@ final class ContentProjectMonthChartPresenterTest extends TestCase
 
         // 7+6+5+4+3+2+1 = 28
         self::assertSame(28, $chart['total']);
-        self::assertSame(ContentProjectMonthChartPresenter::DOMAIN_VISIBLE, count($chart['visible_rows']));
+        self::assertSame(7, count($chart['visible_rows']));
         self::assertSame(2, $chart['more_count']);
         self::assertSame(25.0, $chart['rows'][0]['share_pct']); // 7/28
         self::assertSame('#10b981', $chart['rows'][0]['color']);
         self::assertStringContainsString('#10b981', $chart['donut_gradient']);
+    }
+
+    public function test_present_domain_includes_zero_count_rows(): void
+    {
+        $presenter = new ContentProjectMonthChartPresenter();
+
+        $chart = $presenter->presentDomain([
+            'month' => '2026-08-01',
+            'month_label' => '08/2026',
+            'domain_empty' => false,
+            'domain_max' => 40,
+            'by_domain' => [
+                ['site_id' => 1, 'domain' => 'a.test', 'total_count' => 40, 'active_count' => 40, 'archived_count' => 0],
+                ['site_id' => 2, 'domain' => 'b.test', 'total_count' => 0, 'active_count' => 0, 'archived_count' => 0],
+            ],
+        ]);
+
+        self::assertSame(40, $chart['total']);
+        self::assertCount(2, $chart['rows']);
+        self::assertCount(2, $chart['visible_rows']);
+        self::assertSame(0.0, $chart['rows'][1]['share_pct']);
     }
 
     public function test_percent_helpers(): void

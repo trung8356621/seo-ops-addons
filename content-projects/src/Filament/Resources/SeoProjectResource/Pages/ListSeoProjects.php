@@ -25,7 +25,7 @@ class ListSeoProjects extends ListRecords
     /** Month context YYYY-MM — SINGLE SOURCE OF TRUTH for table + charts. */
     public string $planningMonth = '';
 
-    /** High-level list bucket: all|draft|project|archived */
+    /** High-level list bucket: all|project|archived */
     public string $projectType = ContentProjectListBucket::ALL;
 
     /** @var array<string, mixed>|null Request-local cache for forMonth() (domain + writer share one query set). */

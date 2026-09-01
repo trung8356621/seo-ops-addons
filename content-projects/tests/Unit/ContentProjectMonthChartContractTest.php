@@ -85,13 +85,14 @@ final class ContentProjectMonthChartContractTest extends TestCase
         self::assertSame(30, ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS);
     }
 
-    public function test_list_bucket_draft_ignores_month(): void
+    public function test_list_bucket_draft_is_excluded_from_projects_list(): void
     {
         $src = (string) file_get_contents(
             (string) (new ReflectionClass(ContentProjectListBucket::class))->getFileName(),
         );
-        self::assertStringContainsString('Draft has no execution month', $src);
-        self::assertStringContainsString('STATUS_DRAFT', $src);
+        self::assertStringContainsString('Shared Planning Draft never appears on this list', $src);
+        self::assertStringContainsString("where('status', '!=', SeoProject::STATUS_DRAFT)", $src);
+        self::assertStringNotContainsString('self::DRAFT =>', $src);
     }
 
     public function test_draft_domain_summary_service_exists(): void

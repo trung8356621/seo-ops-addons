@@ -22,7 +22,7 @@ final class SocialServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        // Routes/migrations attach as extraction progresses.
+        $this->loadMigrationsFrom(dirname(__DIR__).'/database/migrations');
     }
 
     private function registerCapabilities(): void

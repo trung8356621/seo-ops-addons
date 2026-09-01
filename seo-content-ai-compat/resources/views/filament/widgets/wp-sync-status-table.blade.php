@@ -17,6 +17,10 @@
         @else
             <dl class="divide-y divide-gray-200 dark:divide-white/10">
                 <div class="flex items-center justify-between gap-3 py-2.5">
+                    <dt class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ __('seo-content-ai::filament.dashboard.sync_total') }}</dt>
+                    <dd class="text-sm font-semibold text-gray-950 dark:text-white">{{ number_format((int) ($sync['total'] ?? 0)) }}</dd>
+                </div>
+                <div class="flex items-center justify-between gap-3 py-2.5">
                     <dt class="text-sm text-gray-600 dark:text-gray-300">{{ __('seo-content-ai::filament.dashboard.sync_posts') }}</dt>
                     <dd class="text-sm font-semibold text-gray-950 dark:text-white">{{ number_format((int) ($sync['articles'] ?? 0)) }}</dd>
                 </div>

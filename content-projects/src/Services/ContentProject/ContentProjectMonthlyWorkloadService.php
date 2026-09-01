@@ -9,8 +9,8 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterMonthlyCapacityService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExecutionLimits;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
-use App\Models\Site;
 use App\Services\Users\SeoOpsSystemUser;
+use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\DB;
@@ -164,7 +164,7 @@ final class ContentProjectMonthlyWorkloadService
      */
     private function aggregateByDomain(string $monthDate, string $scope): array
     {
-        $query = $this->baseItemQuery($monthDate, $scope)
+        $raw = $this->baseItemQuery($monthDate, $scope)
             ->whereNotNull('t.site_id')
             ->where('t.site_id', '>', 0)
             ->groupBy('t.site_id')
@@ -174,36 +174,60 @@ final class ContentProjectMonthlyWorkloadService
                 .'SUM(CASE WHEN p.archived_at IS NOT NULL THEN 1 ELSE 0 END) as archived_count, '
                 .'COUNT(t.id) as total_count'
             )
-            ->orderByDesc('total_count');
+            ->get();
 
-        $raw = $query->get();
-        $siteIds = [];
-        foreach ($raw as $row) {
-            $id = (int) ($row->site_id ?? 0);
-            if ($id > 0) {
-                $siteIds[] = $id;
-            }
-        }
-
-        $domains = $this->domainLabels($siteIds);
-        $rows = [];
+        $countsBySiteId = [];
         foreach ($raw as $row) {
             $siteId = (int) ($row->site_id ?? 0);
-            $active = max(0, (int) ($row->active_count ?? 0));
-            $archived = max(0, (int) ($row->archived_count ?? 0));
-            $total = max(0, (int) ($row->total_count ?? 0));
-            if ($siteId <= 0 || $total <= 0) {
+            if ($siteId <= 0) {
                 continue;
             }
-            $domain = $domains[$siteId] ?? '';
+
+            $countsBySiteId[$siteId] = [
+                'active_count' => max(0, (int) ($row->active_count ?? 0)),
+                'archived_count' => max(0, (int) ($row->archived_count ?? 0)),
+                'total_count' => max(0, (int) ($row->total_count ?? 0)),
+            ];
+        }
+
+        $sites = SeoAccessControl::accessibleSitesQuery()
+            ->orderBy('domain')
+            ->get(['id', 'domain']);
+
+        if ($sites->isEmpty()) {
+            return [];
+        }
+
+        $rows = [];
+        foreach ($sites as $site) {
+            $siteId = (int) $site->getKey();
+            $counts = $countsBySiteId[$siteId] ?? [
+                'active_count' => 0,
+                'archived_count' => 0,
+                'total_count' => 0,
+            ];
+            $domain = trim((string) ($site->domain ?? ''));
+
             $rows[] = [
                 'site_id' => $siteId,
                 'domain' => $domain !== '' ? $domain : '#'.$siteId,
-                'active_count' => $active,
-                'archived_count' => $archived,
-                'total_count' => $total,
+                'active_count' => $counts['active_count'],
+                'archived_count' => $counts['archived_count'],
+                'total_count' => $counts['total_count'],
             ];
         }
+
+        usort(
+            $rows,
+            static function (array $left, array $right): int {
+                $totalCompare = ($right['total_count'] ?? 0) <=> ($left['total_count'] ?? 0);
+                if ($totalCompare !== 0) {
+                    return $totalCompare;
+                }
+
+                return strcmp((string) ($left['domain'] ?? ''), (string) ($right['domain'] ?? ''));
+            },
+        );
 
         return $rows;
     }
@@ -301,24 +325,6 @@ final class ContentProjectMonthlyWorkloadService
         // SCOPE_ALL: intentionally includes both active and archived projects.
 
         return $query;
-    }
-
-    /**
-     * @param  list<int>  $siteIds
-     * @return array<int, string>
-     */
-    private function domainLabels(array $siteIds): array
-    {
-        if ($siteIds === []) {
-            return [];
-        }
-
-        $domains = [];
-        foreach (Site::query()->whereIn('id', $siteIds)->get(['id', 'domain']) as $site) {
-            $domains[(int) $site->getKey()] = trim((string) ($site->domain ?? ''));
-        }
-
-        return $domains;
     }
 
     private function normalizeScope(string $scope): string

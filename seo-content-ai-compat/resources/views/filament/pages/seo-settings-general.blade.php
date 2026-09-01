@@ -40,6 +40,22 @@
                         </div>
                     </form>
                 </section>
+
+                <section class="seo-ai-models-panel mt-6 space-y-2">
+                    <h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+                        {{ __('seo-content-ai::filament.settings_general.section_social_reporting') }}
+                    </h2>
+                    <form wire:submit="saveSocialSettings">
+                        {{ $this->socialSettingsForm }}
+
+                        <div class="mt-4">
+                            <x-seo-content-ai::form-save-button
+                                target="saveSocialSettings"
+                                :label="__('seo-content-ai::filament.settings_general.social_supports_save')"
+                            />
+                        </div>
+                    </form>
+                </section>
             </div>
         </div>
     </x-filament-panels::page>

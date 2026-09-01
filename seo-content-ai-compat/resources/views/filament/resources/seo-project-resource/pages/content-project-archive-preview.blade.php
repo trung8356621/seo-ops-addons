@@ -198,15 +198,22 @@
                                 </div>
                             </td>
                             <td class="px-3 py-2.5">
-                                @if ($hasWpUrl)
-                                    <x-seo-content-ai::social-share-actions
-                                        :title="$title"
-                                        :url="$wpUrl"
-                                        :compact="true"
-                                    />
-                                @else
-                                    <span class="text-[11px] text-gray-400 dark:text-gray-500">—</span>
-                                @endif
+                                @php
+                                    $articleId = (int) ($row['article_id'] ?? 0);
+                                    $socialCount = (int) ($row['social_links_count'] ?? 0);
+                                    $socialLabel = $socialCount > 0
+                                        ? __('seo-content-ai::filament.projects.archive_preview_social_count_value', ['count' => $socialCount])
+                                        : __('seo-content-ai::filament.projects.archive_preview_social_count_zero');
+                                @endphp
+                                <x-filament::button
+                                    color="gray"
+                                    size="sm"
+                                    tag="button"
+                                    type="button"
+                                    wire:click="mountAction('linkShare', { itemId: {{ $itemId }}, articleId: {{ $articleId }} })"
+                                >
+                                    {{ $socialLabel }}
+                                </x-filament::button>
                             </td>
                             <td class="whitespace-nowrap px-3 py-2.5 text-right">
                                 <x-filament::button
