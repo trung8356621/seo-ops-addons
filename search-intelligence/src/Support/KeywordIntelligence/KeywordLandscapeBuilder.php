@@ -105,7 +105,6 @@ final class KeywordLandscapeBuilder
             'cluster_count' => count($summaries),
             'classification' => $kinds,
             'clusters' => $summaries,
-            'keyword_cannibalization' => 'unavailable',
         ];
     }
 

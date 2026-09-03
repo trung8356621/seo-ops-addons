@@ -76,7 +76,7 @@ class KeywordResource extends SeoPanelResource
     protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_KEYWORDS;
 
     /**
-     * Sidebar: Từ khóa → dictionary / focus / clusters / cannibalization / link triage.
+     * Sidebar: Từ khóa → dictionary / focus / clusters / link triage.
      */
     protected static bool $shouldRegisterNavigation = true;
 
@@ -128,9 +128,6 @@ class KeywordResource extends SeoPanelResource
                     \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.keyword.workspace_nav_two'))
                         ->url(static::getUrl('clusters'))
                         ->isActiveWhen(fn (): bool => SeoPanelRoutes::isKeywordsClustersNav()),
-                    \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.keyword.cannibalization_nav'))
-                        ->url(static::getUrl('cannibalization'))
-                        ->isActiveWhen(fn (): bool => SeoPanelRoutes::isKeywordsCannibalizationNav()),
                     \Filament\Navigation\NavigationItem::make(__('seo-content-ai::filament.keyword.workspace_nav_anchor_audit'))
                         ->url(static::getUrl('anchor-audit'))
                         ->isActiveWhen(fn (): bool => SeoPanelRoutes::isKeywordsBrokenLinksNav()),
@@ -1823,7 +1820,6 @@ class KeywordResource extends SeoPanelResource
             'clusters' => Pages\KeywordTopicClusters::route('/clusters'),
             'cluster' => Pages\KeywordTopicClusterDetail::route('/clusters/{clusterKey}'),
             'workspace-2' => Pages\KeywordWorkspaceTwo::route('/workspace-2'),
-            'cannibalization' => Pages\KeywordCannibalizationWorkspace::route('/cannibalization'),
         ];
     }
 }

@@ -138,7 +138,6 @@ final class KeywordWorkspaceTotalBadgeTest extends TestCase
         $pages = [
             'list-keywords.blade.php',
             'topic-cluster-index.blade.php',
-            'keyword-cannibalization-workspace.blade.php',
             'anchor-text-audit-workspace.blade.php',
         ];
 

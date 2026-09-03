@@ -350,6 +350,7 @@ final class CanonicalClusterAndDnaTest extends TestCase
             $table->string('facet_type', 32)->nullable();
             $table->string('confidence', 20)->nullable();
             $table->string('source', 32)->default('deterministic');
+            $table->string('placement', 16)->default('after');
             $table->timestamps();
             $table->unique(['keyword_id', 'normalized_value']);
         });

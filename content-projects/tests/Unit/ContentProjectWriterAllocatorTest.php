@@ -15,9 +15,9 @@ final class ContentProjectWriterAllocatorTest extends TestCase
     public function test_max_execution_project_items_is_centralized_at_30(): void
     {
         self::assertSame(30, ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS);
-        self::assertSame(
-            ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS,
-            ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS,
+        self::assertFalse(
+            (new ReflectionClass(ContentProjectExecutionLimits::class))
+                ->hasConstant('MAX_WRITER_MONTHLY_ITEMS'),
         );
     }
 
@@ -45,12 +45,32 @@ final class ContentProjectWriterAllocatorTest extends TestCase
         self::assertSame([13, 13, 12, 12, 12], array_column($result['allocations'], 'item_count'));
     }
 
+    public function test_capacity_aware_fair_counts_round_robin(): void
+    {
+        self::assertSame(
+            [10, 5, 0],
+            ContentProjectWriterAllocator::capacityAwareFairCounts(15, [1, 2, 3], [1 => 20, 2 => 5, 3 => 0]),
+        );
+        self::assertSame(
+            [7, 3, 0],
+            ContentProjectWriterAllocator::capacityAwareFairCounts(10, [1, 2, 3], [1 => 10, 2 => 3, 3 => 0]),
+        );
+    }
+
     public function test_fair_counts_helper_is_deterministic(): void
     {
         self::assertSame([21, 21, 20], ContentProjectWriterAllocator::fairCounts(62, 3));
         self::assertSame([22, 21, 21], ContentProjectWriterAllocator::fairCounts(64, 3));
         self::assertSame([13, 13, 12, 12, 12], ContentProjectWriterAllocator::fairCounts(62, 5));
         self::assertSame([31, 31], ContentProjectWriterAllocator::fairCounts(62, 2));
+    }
+
+    public function test_unlimited_allocate_still_fair_when_remaining_null(): void
+    {
+        $result = ContentProjectWriterAllocator::allocate(range(1, 62), [11, 22, 33], null);
+
+        self::assertSame(0, $result['unallocated_count']);
+        self::assertSame([21, 21, 20], array_column($result['allocations'], 'item_count'));
     }
 
     public function test_one_user_can_exceed_30_and_is_chunked(): void
@@ -121,10 +141,10 @@ final class ContentProjectWriterAllocatorTest extends TestCase
         $vi = LegacyAddonPath::read('lang/vi/filament.php');
 
         self::assertStringContainsString("'draft_split_existing' => ':count existing'", $en);
-        self::assertStringContainsString("'draft_split_result' => '→ :count this month'", $en);
+        self::assertStringContainsString("'draft_split_result_capacity' => 'Result: :result / :capacity'", $en);
         self::assertStringContainsString("'draft_split_projects_hint'", $en);
         self::assertStringContainsString("'draft_split_existing' => ':count hiện có'", $vi);
-        self::assertStringContainsString("'draft_split_result' => '→ :count tháng này'", $vi);
+        self::assertStringContainsString("'draft_split_result_capacity' => 'Result: :result / :capacity'", $vi);
         self::assertStringContainsString("'draft_split_projects_hint'", $vi);
     }
 }

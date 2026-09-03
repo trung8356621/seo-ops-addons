@@ -126,6 +126,34 @@ final class AuditNoteClusterSuggestionQuery
     }
 
     /**
+     * Exact normalized cluster-name match for Planner plan clone (no fuzzy).
+     *
+     * @return list<array{cluster_ref: string, cluster_name: string, mcp_share: float}>
+     */
+    public function findExactNormalizedNameMatches(int $siteId, string $normalizedName): array
+    {
+        $needle = AuditNoteDnaNormalizer::normalizeKey($normalizedName);
+        if ($siteId <= 0 || $needle === '') {
+            return [];
+        }
+
+        $out = [];
+        foreach ($this->buildSuggestionItems($siteId) as $item) {
+            $nameKey = AuditNoteDnaNormalizer::normalizeKey((string) ($item['cluster_name'] ?? ''));
+            if ($nameKey === '' || $nameKey !== $needle) {
+                continue;
+            }
+            $out[] = [
+                'cluster_ref' => (string) $item['cluster_ref'],
+                'cluster_name' => (string) $item['cluster_name'],
+                'mcp_share' => (float) $item['mcp_share'],
+            ];
+        }
+
+        return $out;
+    }
+
+    /**
      * Lightweight list rows — DNA count only (batched), no phrase hydrate.
      *
      * @return list<array{

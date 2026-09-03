@@ -50,7 +50,6 @@ final class ContentProjectAgentGateway
         'keyword_intelligence.list_map_versions',
         'keyword_intelligence.compare_map_versions',
         'keyword_intelligence.get_conversion',
-        'keyword_intelligence.get_cannibalization',
         'keyword_intelligence.get_analysis_operation',
 
         // SERP Intelligence — additive read surface.
@@ -90,7 +89,6 @@ final class ContentProjectAgentGateway
         'domain.keyword_cluster_detail',
         'domain.keyword_generation_context',
         'domain.keyword_opportunities',
-        'domain.keyword_cannibalization',
         'domain.keyword_near_top',
         'domain.rewrite_candidates',
         'domain.content_opportunities',
@@ -373,7 +371,6 @@ final class ContentProjectAgentGateway
             'keyword_intelligence.list_map_versions' => $this->keywordReads->listMapVersions($context, $input),
             'keyword_intelligence.compare_map_versions' => $this->keywordReads->compareMapVersions($context, $input),
             'keyword_intelligence.get_conversion' => $this->keywordReads->getConversion($context, $input),
-            'keyword_intelligence.get_cannibalization' => $this->keywordReads->getCannibalization($context, $input),
             'keyword_intelligence.get_analysis_operation' => $this->keywordReads->getAnalysisOperation($context, $input),
 
             // SERP Intelligence — additive read surface.

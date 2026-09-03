@@ -35,7 +35,11 @@ final class ContentProjectMonthlyWorkloadIncludeArchivedContractTest extends Tes
         // SCOPE_ALL must not force active-only; SCOPE_ACTIVE may still filter.
         self::assertStringContainsString('SCOPE_ACTIVE', $src);
         self::assertStringContainsString('SCOPE_ARCHIVED', $src);
-        self::assertSame(30, ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS);
+        self::assertSame(30, ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS);
+        self::assertFalse(
+            (new ReflectionClass(ContentProjectExecutionLimits::class))
+                ->hasConstant('MAX_WRITER_MONTHLY_ITEMS'),
+        );
     }
 
     public function test_capacity_service_includes_archived_and_exposes_remaining(): void
@@ -47,8 +51,10 @@ final class ContentProjectMonthlyWorkloadIncludeArchivedContractTest extends Tes
         self::assertStringContainsString('Include archived projects', $src);
         self::assertStringContainsString('itemBreakdownByUserId', $src);
         self::assertStringContainsString('remainingByUserId', $src);
-        self::assertStringContainsString('MAX_WRITER_MONTHLY_ITEMS', $src);
+        self::assertStringContainsString('capacityByUserId', $src);
+        self::assertStringContainsString('ContentProjectWriterCapacitySettingsService', $src);
         self::assertStringContainsString('STATUS_DRAFT', $src);
+        self::assertStringNotContainsString('MAX_WRITER_MONTHLY_ITEMS', $src);
         self::assertStringNotContainsString("->whereNull('p.archived_at')", $src);
     }
 

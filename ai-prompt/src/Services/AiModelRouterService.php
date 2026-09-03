@@ -14,6 +14,7 @@ use Omnichannel\Addons\AiPrompt\Models\SeoAiModel;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\Services\Ai\DeepSeekChatClient;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
+use Omnichannel\Addons\AiPrompt\Support\AiFailureClass;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
 use Omnichannel\Addons\Seo\Support\AiModelCategory;
 use Omnichannel\Addons\Seo\Support\GeminiModelVersionPolicy;
@@ -229,6 +230,26 @@ final class AiModelRouterService
                 $lastException = $exception;
                 $decision = $classifier->classify($exception);
 
+                $isCapabilitySkip = $exception instanceof \Omnichannel\Addons\AiPrompt\Exceptions\AiRouteCapabilitySkipException
+                    || ($exception instanceof PromptRunException && ($exception->context['capability_skip'] ?? false) === true);
+
+                if ($isCapabilitySkip) {
+                    // Pre-execution filter — not a provider attempt failure.
+                    $actualAttempts = max(0, $actualAttempts - 1);
+                    if ($candidate->isFree) {
+                        $freeAttempts = max(0, $freeAttempts - 1);
+                    }
+                    $routingAttempts[] = $this->attemptLog(
+                        $candidate,
+                        $attemptNumber,
+                        'skipped',
+                        'capability_mismatch',
+                        null,
+                        $decision->toAttemptDiagnostics(),
+                    );
+                    continue;
+                }
+
                 if (! $decision->shouldContinueRouting()) {
                     throw $exception instanceof PromptRunException
                         ? $exception
@@ -247,7 +268,10 @@ final class AiModelRouterService
                     'failed',
                     $decision->category->value,
                     $decision->httpStatus,
-                    $this->qualityAttemptMeta($exception),
+                    array_merge(
+                        $this->qualityAttemptMeta($exception),
+                        $decision->toAttemptDiagnostics(),
+                    ),
                 );
 
                 logger()->warning('AI routing infrastructure fallback', array_merge(
@@ -256,7 +280,9 @@ final class AiModelRouterService
                         'failure_class' => $decision->category->value,
                         'http_status' => $decision->httpStatus,
                         'error' => $decision->safeMessage,
-                        'next' => isset($candidates[$index + 1]),
+                        'fallback_allowed' => $decision->fallbackAllowed(),
+                        'failure_stage' => $decision->failureStage,
+                        'next' => $decision->fallbackAllowed() && isset($candidates[$index + 1]),
                     ],
                     $this->qualityAttemptMeta($exception),
                 ));
@@ -351,21 +377,9 @@ final class AiModelRouterService
     /** @deprecated Use AiProviderFailureClassifier via executeWithProfile resilience loop. */
     public function isInfrastructureFailure(string $message): bool
     {
-        $lower = strtolower($message);
+        $decision = $this->failureClassifier()->classify(new PromptRunException($message));
 
-        return $this->isQuotaOrRateLimitError($message)
-            || GeminiModelVersionPolicy::isProviderUnavailableError($message)
-            || str_contains($message, '429')
-            || str_contains($message, '500')
-            || str_contains($message, '502')
-            || str_contains($message, '503')
-            || str_contains($message, '504')
-            || str_contains($lower, 'timeout')
-            || str_contains($lower, 'timed out')
-            || str_contains($lower, 'connection')
-            || str_contains($lower, 'temporarily')
-            || str_contains($lower, 'unavailable')
-            || str_contains($lower, 'overloaded');
+        return $decision->fallbackAllowed();
     }
 
     private function legacyCompatibleCandidate(AiExecutionProfile $profile, ApiConnection $connection): ?RoutedAiCandidate
@@ -731,26 +745,31 @@ final class AiModelRouterService
 
                 return [$output, $usage, $rawName, $modelId];
             } catch (Throwable $exception) {
-                if ($this->isQuotaOrRateLimitError($exception->getMessage())
-                    || GeminiModelVersionPolicy::isProviderUnavailableError($exception->getMessage())
-                ) {
-                    if (GeminiModelVersionPolicy::isProviderUnavailableError($exception->getMessage())) {
-                        $this->markModelUnavailableForAutoRouting($modelId, $exception->getMessage());
-                    } else {
-                        $this->handleModelExhausted($modelId, $exception->getMessage());
-                    }
-
-                    logger()->warning('Planner model failed, failover next', [
-                        'planner_model' => $rawName,
-                        'error' => $exception->getMessage(),
-                    ]);
-
-                    return $this->executeWithFailover($connection, $category, $executor, $attempt + 1, $modelId);
+                $decision = $this->failureClassifier()->classify($exception);
+                if (! $decision->shouldContinueRouting()) {
+                    throw $exception instanceof PromptRunException
+                        ? $exception
+                        : new PromptRunException($exception->getMessage(), (int) $exception->getCode(), $exception);
                 }
 
-                throw $exception instanceof PromptRunException
-                    ? $exception
-                    : new PromptRunException($exception->getMessage(), (int) $exception->getCode(), $exception);
+                if ($decision->markModelUnavailable || $decision->category === AiFailureClass::ModelNotFound) {
+                    $this->markModelUnavailableForAutoRouting($modelId, $exception->getMessage());
+                } elseif (
+                    $decision->category === AiFailureClass::BillingExhausted
+                    || $decision->category === AiFailureClass::InsufficientBudgetForRequest
+                    || $decision->category === AiFailureClass::RateLimited
+                ) {
+                    $this->handleModelExhausted($modelId, $exception->getMessage());
+                }
+
+                logger()->warning('Planner model failed, failover next', [
+                    'planner_model' => $rawName,
+                    'failure_class' => $decision->category->value,
+                    'fallback_allowed' => $decision->fallbackAllowed(),
+                    'error' => $exception->getMessage(),
+                ]);
+
+                return $this->executeWithFailover($connection, $category, $executor, $attempt + 1, $modelId);
             }
         }
 

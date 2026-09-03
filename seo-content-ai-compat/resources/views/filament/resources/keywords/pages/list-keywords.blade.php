@@ -21,6 +21,8 @@
         <style>{!! file_get_contents($workspaceCss) !!}</style>
     @endif
 
+    @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-view-mode-script')
+
     <div class="keyword-workspace-shell max-w-full space-y-6">
         @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-workspace-nav', [
             'activeKey' => $this->getActiveKeywordWorkspaceKey(),
@@ -49,10 +51,64 @@
                 @endif
             @endif
 
-            <div class="keyword-detail-layout">
+            <div
+                id="keyword-detail-layout"
+                class="keyword-detail-layout"
+                data-keyword-view-mode="detail"
+                x-data="keywordDictionaryViewMode(@js($this->getId()))"
+                x-bind:data-keyword-view-mode="mode"
+                x-bind:class="mode === 'quick' ? 'is-quick-mode' : 'is-detail-mode'"
+            >
+                <script>
+                    (() => {
+                        const el = document.getElementById('keyword-detail-layout');
+                        if (!el) {
+                            return;
+                        }
+                        let mode = 'detail';
+                        try {
+                            const stored = localStorage.getItem('seo_ops_keyword_view_mode');
+                            if (stored === 'quick' || stored === 'detail') {
+                                mode = stored;
+                            }
+                        } catch (_error) {
+                            // ignore storage failures
+                        }
+                        el.setAttribute('data-keyword-view-mode', mode);
+                        el.classList.toggle('is-quick-mode', mode === 'quick');
+                        el.classList.toggle('is-detail-mode', mode === 'detail');
+                    })();
+                </script>
+
                 <div class="keyword-table-shell min-w-0">
                     @if ($showDictionaryChrome)
                         <div class="keyword-dictionary-toolbar">
+                            <div
+                                class="keyword-view-mode-toggle"
+                                role="group"
+                                aria-label="{{ __('seo-content-ai::filament.keyword.view_mode_label') }}"
+                            >
+                                <button
+                                    type="button"
+                                    class="keyword-view-mode-toggle__btn"
+                                    x-bind:class="{ 'is-active': mode === 'quick' }"
+                                    x-bind:aria-pressed="mode === 'quick' ? 'true' : 'false'"
+                                    title="{{ __('seo-content-ai::filament.keyword.view_mode_quick_hint') }}"
+                                    @click="setMode('quick')"
+                                >
+                                    {{ __('seo-content-ai::filament.keyword.view_mode_quick') }}
+                                </button>
+                                <button
+                                    type="button"
+                                    class="keyword-view-mode-toggle__btn"
+                                    x-bind:class="{ 'is-active': mode === 'detail' }"
+                                    x-bind:aria-pressed="mode === 'detail' ? 'true' : 'false'"
+                                    title="{{ __('seo-content-ai::filament.keyword.view_mode_detail_hint') }}"
+                                    @click="setMode('detail')"
+                                >
+                                    {{ __('seo-content-ai::filament.keyword.view_mode_detail') }}
+                                </button>
+                            </div>
                             <div class="keyword-dictionary-toolbar__actions">
                                 <button
                                     type="button"
@@ -74,14 +130,20 @@
                         </div>
                     @endif
 
-                    <div class="keyword-dictionary-table-card">
+                    <div
+                        class="keyword-dictionary-table-card"
+                        data-keyword-quick-select-root
+                        @mouseup="onResultsMouseUp($event)"
+                    >
                         {{ $this->table }}
                     </div>
                 </div>
 
-                @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-detail-drawer', [
-                    'keywordDetailPanelConfig' => $keywordDetailPanelConfig,
-                ])
+                <div class="keyword-detail-drawer-slot">
+                    @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-detail-drawer', [
+                        'keywordDetailPanelConfig' => $keywordDetailPanelConfig,
+                    ])
+                </div>
             </div>
         </x-seo-content-ai::list-table-loading-shell>
     </div>

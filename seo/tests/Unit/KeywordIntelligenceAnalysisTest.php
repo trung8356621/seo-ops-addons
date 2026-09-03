@@ -101,7 +101,6 @@ final class KeywordIntelligenceAnalysisTest extends TestCase
     {
         self::assertSame('keyword.analysis_already_processing', KeywordIntelligenceActionCodes::ANALYSIS_ALREADY_PROCESSING);
         self::assertSame('keyword.merge_preview', KeywordIntelligenceActionCodes::MERGE_PREVIEW);
-        self::assertSame('keyword.cannibalization_reviewed', KeywordIntelligenceActionCodes::CANNIBALIZATION_REVIEWED);
     }
 
     public function test_candidate_bucketer_truncates_large_bucket(): void

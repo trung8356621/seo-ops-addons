@@ -4,11 +4,13 @@
     'counts' => ['all' => 0, 'unreviewed' => 0, 'reviewed' => 0],
     'reviewFilter' => 'all',
     'typeFilter' => 'all',
+    'draftDomainFilter' => 'all',
     'selectedIds' => [],
     'hideSectionTitle' => false,
     'refreshNonce' => 0,
     'supportsProduct' => false,
     'siteOptions' => [],
+    'showPublishInHeader' => false,
 ])
 
 @php
@@ -82,7 +84,7 @@
     $boot = [
         'tab' => (string) $reviewFilter,
         'type' => (string) $typeFilter,
-        'domainFilter' => 'all',
+        'domainFilter' => (string) $draftDomainFilter,
         'counts' => [
             'all' => $allCount,
             'unreviewed' => $unreviewedCount,
@@ -198,6 +200,18 @@
                     this.alpineReady = true;
                     this.qsa('[data-draft-ssr-row]').forEach((el) => el.remove());
                     this.applyVisibility();
+                    this.$nextTick(() => this.syncDomainFilterSelect());
+                },
+
+                syncDomainFilterSelect() {
+                    const sel = this.qs('[data-draft-domain-filter="1"] select');
+                    if (! sel) {
+                        return;
+                    }
+                    const want = String(this.domainFilter || 'all');
+                    if (sel.value !== want) {
+                        sel.value = want;
+                    }
                 },
 
                 domainLabelFor(siteId) {
@@ -236,9 +250,46 @@
                     });
                 },
 
+                /** 1-based display index among currently visible rows (not DB id). */
+                displayStt(row) {
+                    let n = 0;
+                    for (let i = 0; i < this.rows.length; i++) {
+                        const r = this.rows[i];
+                        if (! r.visible) {
+                            continue;
+                        }
+                        n += 1;
+                        if (r.id === row.id) {
+                            return n;
+                        }
+                    }
+
+                    return '';
+                },
+
+                rowMatchesDomainProjection(row) {
+                    const domainFilter = String(this.domainFilter || 'all');
+                    if (domainFilter === 'all') {
+                        return true;
+                    }
+                    const want = Number(domainFilter);
+                    const have = Number(row.site_id || 0);
+                    if (want === 0) {
+                        return have <= 0;
+                    }
+
+                    return have === want;
+                },
+
                 setDomainFilter(next) {
-                    this.domainFilter = String(next);
-                    this.applyVisibility();
+                    const value = String(next || 'all');
+                    const prev = String(this.domainFilter || 'all');
+                    if (value === prev) {
+                        return;
+                    }
+                    this.domainFilter = value;
+                    // Server remounts domain-scoped rows + counts (do not client-filter a global payload).
+                    this.$wire.setDraftDomainFilter(value);
                 },
 
                 postTypeLabelFor(value) {
@@ -380,7 +431,11 @@
                     row.saving_domain = true;
                     try {
                         await this.$wire.updatePlanningField(row.id, 'site_id', row.site_id ? String(row.site_id) : '0');
-                        this.applyVisibility();
+                        if (! this.rowMatchesDomainProjection(row)) {
+                            this.removeLocal(row.id);
+                        } else {
+                            this.applyVisibility();
+                        }
                     } catch (e) {
                         row.site_id = prev;
                         row.domain = prevDomain;
@@ -599,7 +654,7 @@
                 removeLocal(rowId) {
                     const idx = this.rows.findIndex((r) => r.id === rowId);
                     if (idx < 0) {
-                        return;
+                        return null;
                     }
                     const row = this.rows[idx];
                     this.counts.all = Math.max(0, this.counts.all - 1);
@@ -610,17 +665,42 @@
                     }
                     this.selected = this.selected.filter((id) => id !== rowId);
                     this.rows.splice(idx, 1);
+
+                    return { row, index: idx };
+                },
+
+                restoreLocal(snapshot) {
+                    if (! snapshot || ! snapshot.row) {
+                        return;
+                    }
+                    const row = snapshot.row;
+                    const id = Number(row.id || 0);
+                    if (id > 0 && this.rows.some((r) => r.id === id)) {
+                        return;
+                    }
+                    const at = Math.min(Math.max(0, Number(snapshot.index || 0)), this.rows.length);
+                    this.rows.splice(at, 0, row);
+                    this.counts.all += 1;
+                    if (row.planning_reviewed) {
+                        this.counts.reviewed += 1;
+                    } else {
+                        this.counts.unreviewed += 1;
+                    }
+                    this.applyVisibility();
                 },
 
                 async skipRow(row) {
                     if (!window.confirm(this.confirmSkip)) {
                         return;
                     }
+                    const snapshot = this.removeLocal(row.id);
                     try {
-                        await this.$wire.skipSeoAuditOne(row.id);
-                        this.removeLocal(row.id);
+                        const ok = await this.$wire.skipSeoAuditOne(row.id);
+                        if (! ok) {
+                            this.restoreLocal(snapshot);
+                        }
                     } catch (e) {
-                        // Halt / notify handled by Livewire; keep row.
+                        this.restoreLocal(snapshot);
                     }
                 },
 
@@ -628,11 +708,15 @@
                     if (!window.confirm(this.confirmArchive)) {
                         return;
                     }
+                    // Optimistic: drop from list immediately, then persist.
+                    const snapshot = this.removeLocal(row.id);
                     try {
-                        await this.$wire.archiveOne(row.id);
-                        this.removeLocal(row.id);
+                        const ok = await this.$wire.archiveOne(row.id);
+                        if (! ok) {
+                            this.restoreLocal(snapshot);
+                        }
                     } catch (e) {
-                        // Halt / notify handled by Livewire; keep row.
+                        this.restoreLocal(snapshot);
                     }
                 },
             };
@@ -643,15 +727,54 @@
 <section
     class="cp-plan-draft cp-plan-draft--full"
     data-content-planning-draft-items="1"
-    wire:key="cp-draft-items-{{ $reviewFilter }}-{{ $typeFilter }}-{{ (int) $refreshNonce }}"
+    wire:key="cp-draft-items-{{ $reviewFilter }}-{{ $typeFilter }}-{{ $draftDomainFilter }}-{{ (int) $refreshNonce }}"
     x-data="cpPlanDraftItems(@js($boot))"
 >
-    <div class="cp-plan-draft__head" @if ($hideSectionTitle) style="display:none" aria-hidden="true" @endif>
-        <h3 class="cp-plan-draft__title">
-            {{ __('seo-content-ai::filament.projects.planner_draft_items') }}
-        </h3>
+    <div class="cp-plan-draft-header cp-plan-draft__head" @if ($hideSectionTitle) style="display:none" aria-hidden="true" @endif>
+        <div class="cp-plan-draft-header__title">
+            <h3 class="cp-plan-draft__title">
+                {{ __('seo-content-ai::filament.projects.planner_draft_items') }}<span class="cp-plan-draft__title-count" x-text="' · ' + counts.all"> · {{ $allCount }}</span>
+            </h3>
+        </div>
         @if ($hasDraft)
-            <span class="cp-plan-draft__badge" x-text="counts.all">{{ $allCount }}</span>
+            <div class="cp-plan-draft-header__domain" data-draft-domain-filter="1">
+                <span class="cp-plan-draft-header__domain-label">{{ __('seo-content-ai::filament.projects.planning_domain_filter') }}</span>
+                <select
+                    class="cp-plan-inline-select cp-plan-inline-select--domain-filter"
+                    :value="domainFilter"
+                    @change="setDomainFilter($event.target.value)"
+                    wire:loading.attr="disabled"
+                    wire:target="setDraftDomainFilter"
+                    aria-label="{{ __('seo-content-ai::filament.projects.planning_domain_filter') }}"
+                >
+                    <option value="all" @selected((string) $draftDomainFilter === 'all')>{{ __('seo-content-ai::filament.projects.planning_domain_filter_all') }}</option>
+                    <option value="0" @selected((string) $draftDomainFilter === '0')>{{ __('seo-content-ai::filament.projects.planning_domain_blank') }}</option>
+                    @foreach ($siteOptionsList as $siteOpt)
+                        <option
+                            value="{{ $siteOpt['value'] }}"
+                            @selected((string) $draftDomainFilter === (string) $siteOpt['value'])
+                        >{{ $siteOpt['label'] }}</option>
+                    @endforeach
+                </select>
+            </div>
+        @endif
+        @if ($showPublishInHeader && $hasDraft)
+            <button
+                type="button"
+                wire:click="openPublishFromPlanner"
+                wire:loading.attr="disabled"
+                wire:target="openPublishFromPlanner,openDraftSplitModal,confirmDraftSplit"
+                class="cp-plan-btn cp-plan-btn--publish cp-plan-draft-header__publish"
+                data-content-planning-action="publish"
+            >
+                <svg wire:loading.remove wire:target="openPublishFromPlanner,openDraftSplitModal,confirmDraftSplit" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4.5 16.5c-1.5 1.26-2 5-2 5s3.74-.5 5-2c.71-.84.7-2.13-.09-2.91a2.18 2.18 0 00-2.91-.09z"/><path d="M12 15l-3-3a22 22 0 012-3.95A12.88 12.88 0 0122 2c0 2.72-.78 7.5-6 11a22.35 22.35 0 01-4 2z"/><path d="M9 12H4s.55-3.03 2-4c1.62-1.08 5 0 5 0"/><path d="M12 15v5s3.03-.55 4-2c1.08-1.62 0-5 0-5"/></svg>
+                <span wire:loading.remove wire:target="openPublishFromPlanner,openDraftSplitModal,confirmDraftSplit">
+                    {{ __('seo-content-ai::filament.projects.content_planning_publish') }}
+                </span>
+                <span wire:loading wire:target="openPublishFromPlanner,openDraftSplitModal,confirmDraftSplit" class="inline-flex items-center gap-1">
+                    <svg class="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
+                </span>
+            </button>
         @endif
     </div>
 
@@ -683,28 +806,13 @@
                     >{{ $typeLabel }}</button>
                 @endforeach
             </div>
-            <div class="cp-plan-draft__domain-filter" data-draft-domain-filter="1">
-                <span class="cp-plan-chips__label">{{ __('seo-content-ai::filament.projects.planning_domain_filter') }}</span>
-                <select
-                    class="cp-plan-inline-select cp-plan-inline-select--domain-filter"
-                    x-model="domainFilter"
-                    @change="setDomainFilter($event.target.value)"
-                    aria-label="{{ __('seo-content-ai::filament.projects.planning_domain_filter') }}"
-                >
-                    <option value="all">{{ __('seo-content-ai::filament.projects.planning_domain_filter_all') }}</option>
-                    <option value="0">{{ __('seo-content-ai::filament.projects.planning_domain_blank') }}</option>
-                    <template x-for="opt in siteOptions" :key="opt.value">
-                        <option :value="String(opt.value)" x-text="opt.label"></option>
-                    </template>
-                </select>
-            </div>
         </div>
     @endif
 
     <x-seo-content-ai::list-table-loading-shell
         class="cp-plan-draft__body"
         preset="livewire-page"
-        targets="setDraftReviewFilter,setDraftTypeFilter,draftReviewFilter,draftTypeFilter,filterSiteId,updatedFilterSiteId"
+        targets="setDraftReviewFilter,setDraftTypeFilter,setDraftDomainFilter,draftReviewFilter,draftTypeFilter,draftDomainFilter,onDomainContextChanged"
     >
         @if (! $hasDraft)
             <div class="cp-plan-draft__empty text-sm text-gray-500 dark:text-gray-400">
@@ -742,6 +850,7 @@
                     <thead class="bg-gray-50 text-left text-xs font-medium text-gray-500 dark:bg-gray-950/50 dark:text-gray-400">
                         <tr>
                             <th class="w-10 px-4 py-2.5"></th>
+                            <th class="cp-plan-draft-table__col-stt px-2 py-2.5 text-center">{{ __('seo-content-ai::filament.projects.planning_col_stt') }}</th>
                             <th class="px-3 py-2.5">{{ __('seo-content-ai::filament.projects.suggestions_col_article') }}</th>
                             <th class="px-3 py-2.5 cp-plan-draft-table__col-domain">{{ __('seo-content-ai::filament.projects.planning_col_domain') }}</th>
                             <th class="px-3 py-2.5">{{ __('seo-content-ai::filament.projects.planning_col_keywords') }}</th>
@@ -764,6 +873,7 @@
                                         tabindex="-1"
                                     >
                                 </td>
+                                <td class="cp-plan-draft-table__col-stt px-2 py-3 align-top text-center text-xs text-gray-500 tabular-nums">{{ $loop->iteration }}</td>
                                 <td class="px-3 py-3 align-top">
                                     <div class="cp-plan-article-cell">
                                         <div class="min-w-0 flex-1">
@@ -806,6 +916,7 @@
                                         @change="toggleSelect(row.id)"
                                     >
                                 </td>
+                                <td class="cp-plan-draft-table__col-stt px-2 py-3 align-top text-center text-xs text-gray-500 tabular-nums" x-text="displayStt(row)"></td>
                                 <td class="px-3 py-3 align-top">
                                     <div class="cp-plan-article-cell">
                                         <span class="cp-plan-article-icon" :class="'cp-plan-article-icon--' + row.icon_kind" aria-hidden="true">
@@ -970,26 +1081,72 @@
                                         <template x-if="row.can_clone_idea">
                                             <button
                                                 type="button"
-                                                class="cp-plan-row-action"
+                                                class="cp-plan-icon-btn"
                                                 :class="{ 'opacity-50 pointer-events-none': row.cloning }"
                                                 :disabled="row.cloning"
                                                 @click="cloneIdea(row)"
-                                                x-text="labelCloneIdea"
-                                            ></button>
+                                                :title="labelCloneIdea"
+                                                :aria-label="labelCloneIdea"
+                                            >
+                                                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5.2A2.2 2.2 0 0013.8 3H7.5A2.2 2.2 0 005.3 5.2V11.5A2.2 2.2 0 007.5 13.7H10"/></svg>
+                                            </button>
                                         </template>
                                         <template x-if="row.can_edit_article && row.article_edit_url">
-                                            <a :href="row.article_edit_url" target="_blank" rel="noopener" class="cp-plan-row-action" x-text="labelEditArticle"></a>
+                                            <a
+                                                :href="row.article_edit_url"
+                                                target="_blank"
+                                                rel="noopener"
+                                                class="cp-plan-icon-btn"
+                                                :title="labelEditArticle"
+                                                :aria-label="labelEditArticle"
+                                            >
+                                                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4 9.5-9.5z"/></svg>
+                                            </a>
                                         </template>
                                         <template x-if="row.can_open_public && row.article_public_url">
-                                            <a :href="row.article_public_url" target="_blank" rel="noopener" class="cp-plan-row-action" x-text="labelOpenPublic"></a>
+                                            <a
+                                                :href="row.article_public_url"
+                                                target="_blank"
+                                                rel="noopener"
+                                                class="cp-plan-icon-btn"
+                                                :title="labelOpenPublic"
+                                                :aria-label="labelOpenPublic"
+                                            >
+                                                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg>
+                                            </a>
                                         </template>
                                         <template x-if="row.can_check_index && row.check_index_url">
-                                            <a :href="row.check_index_url" target="_blank" rel="noopener" class="cp-plan-row-action" x-text="labelCheckIndex"></a>
+                                            <a
+                                                :href="row.check_index_url"
+                                                target="_blank"
+                                                rel="noopener"
+                                                class="cp-plan-icon-btn"
+                                                :title="labelCheckIndex"
+                                                :aria-label="labelCheckIndex"
+                                            >
+                                                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.35-4.35"/></svg>
+                                            </a>
                                         </template>
                                         <template x-if="row.can_skip_seo_audit">
-                                            <button type="button" class="cp-plan-row-action cp-plan-row-action--warn" @click="skipRow(row)" x-text="labelSkipSeoAudit"></button>
+                                            <button
+                                                type="button"
+                                                class="cp-plan-icon-btn cp-plan-icon-btn--warn"
+                                                @click="skipRow(row)"
+                                                :title="labelSkipSeoAudit"
+                                                :aria-label="labelSkipSeoAudit"
+                                            >
+                                                <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94"/><path d="M1 1l22 22"/><path d="M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19"/></svg>
+                                            </button>
                                         </template>
-                                        <button type="button" class="cp-plan-row-action cp-plan-row-action--danger" @click="archiveRow(row)" x-text="labelRemove"></button>
+                                        <button
+                                            type="button"
+                                            class="cp-plan-icon-btn cp-plan-icon-btn--danger"
+                                            @click="archiveRow(row)"
+                                            :title="labelRemove"
+                                            :aria-label="labelRemove"
+                                        >
+                                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/></svg>
+                                        </button>
                                     </div>
                                 </td>
                             </tr>

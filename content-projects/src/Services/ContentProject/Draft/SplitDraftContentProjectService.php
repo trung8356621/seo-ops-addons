@@ -60,7 +60,8 @@ final class SplitDraftContentProjectService
         $month = $this->resolveTargetMonth($targetMonth);
         $taskIds = $resolved['task_ids'];
         $plan = $this->planAllocations($taskIds, $assigneeIds, $month);
-        $remaining = max(0, $this->currentDraftItemCount($draft) - count($taskIds));
+        $assigned = (int) ($plan['assigned_items'] ?? 0);
+        $remaining = max(0, $this->currentDraftItemCount($draft) - $assigned);
 
         return $this->presentPlan(
             $draft,
@@ -137,6 +138,55 @@ final class SplitDraftContentProjectService
                 ->get(['id']);
 
             $plan = $this->planAllocations($taskIds, $writerIds, $month);
+            $requestedItems = (int) ($plan['requested_items'] ?? count($taskIds));
+            $assignableTaskIds = [];
+            foreach ($plan['allocations'] as $allocation) {
+                foreach ($allocation['task_ids'] ?? [] as $tid) {
+                    $assignableTaskIds[] = (int) $tid;
+                }
+            }
+            $assignableTaskIds = array_values(array_filter($assignableTaskIds, static fn (int $id): bool => $id > 0));
+
+            if ($assignableTaskIds === [] && $writerIds !== []) {
+                // Team out of capacity — leave everything in Draft (normal handled result).
+                return [
+                    'source_draft_project_id' => (int) $lockedDraft->getKey(),
+                    'requested_items' => $requestedItems,
+                    'assigned_items' => 0,
+                    'moved_count' => 0,
+                    'unallocated_count' => (int) ($plan['unallocated_count'] ?? $requestedItems),
+                    'unallocated_task_ids' => array_values(array_map(
+                        'intval',
+                        $plan['unallocated_task_ids'] ?? $taskIds,
+                    )),
+                    'touched_projects' => [],
+                    'created_projects' => [],
+                    'reused_projects' => [],
+                    'execution_project_id' => null,
+                    'execution_project_ids' => [],
+                    'projects' => [],
+                    'allocations' => $plan['allocations'],
+                    'remaining_count' => $this->currentDraftItemCount($lockedDraft),
+                    'reviewed_remaining_count' => $this->currentReviewedDraftItemCount($lockedDraft),
+                    'month' => $month->format('Y-m-d'),
+                    'month_date' => $month->format('Y-m-d'),
+                    'month_label' => $month->format('m/Y'),
+                    'project_count' => 0,
+                    'created_count' => 0,
+                    'reused_count' => 0,
+                    'project_name' => '',
+                    'task_ids' => [],
+                    'selection_mode' => $resolved['mode'],
+                    'auto_generate' => false,
+                    'assignee_id' => null,
+                    'has_real_writer' => true,
+                    'status' => SeoProject::STATUS_PENDING,
+                    'max_items_per_project' => ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS,
+                    'redirect_month' => $month->format('Y-m'),
+                    'capacity_exhausted' => true,
+                ];
+            }
+
             if ($plan['allocations'] === []) {
                 throw new InvalidArgumentException(
                     (string) __('seo-content-ai::filament.projects.draft_split_no_writers'),
@@ -145,18 +195,18 @@ final class SplitDraftContentProjectService
 
             $tasks = SeoProjectTask::query()
                 ->where('project_id', (int) $lockedDraft->getKey())
-                ->whereIn('id', $taskIds)
+                ->whereIn('id', $assignableTaskIds)
                 ->whereNull('archived_at')
                 ->orderBy('id')
                 ->lockForUpdate()
                 ->get()
                 ->keyBy(static fn (SeoProjectTask $task): int => (int) $task->id);
 
-            if ($tasks->count() !== count($taskIds)) {
+            if ($tasks->count() !== count($assignableTaskIds)) {
                 throw new InvalidArgumentException('One or more items are no longer in this Draft.');
             }
 
-            foreach ($taskIds as $taskId) {
+            foreach ($assignableTaskIds as $taskId) {
                 $task = $tasks->get($taskId);
                 if (! $task instanceof SeoProjectTask) {
                     throw new InvalidArgumentException('Item '.$taskId.' is missing.');
@@ -289,8 +339,14 @@ final class SplitDraftContentProjectService
 
             return [
                 'source_draft_project_id' => (int) $lockedDraft->getKey(),
+                'requested_items' => $requestedItems,
                 'assigned_items' => count($allMoved),
                 'moved_count' => count($allMoved),
+                'unallocated_count' => (int) ($plan['unallocated_count'] ?? 0),
+                'unallocated_task_ids' => array_values(array_map(
+                    'intval',
+                    $plan['unallocated_task_ids'] ?? [],
+                )),
                 'touched_projects' => $touchedProjects,
                 'created_projects' => $createdProjects,
                 'reused_projects' => $reusedProjects,
@@ -318,6 +374,7 @@ final class SplitDraftContentProjectService
                 'status' => SeoProject::STATUS_PENDING,
                 'max_items_per_project' => ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS,
                 'redirect_month' => $month->format('Y-m'),
+                'capacity_exhausted' => ((int) ($plan['unallocated_count'] ?? 0)) > 0,
             ];
         });
     }
@@ -410,20 +467,32 @@ final class SplitDraftContentProjectService
      *         task_ids: list<int>,
      *         pack_bins: list<array<string, mixed>>,
      *         project_count: int
-     *     }>
+     *     }>,
+     *     requested_items: int,
+     *     assigned_items: int,
+     *     unallocated_count: int,
+     *     unallocated_task_ids: list<int>
      * }
      */
     public function planAllocations(array $taskIds, array $assigneeIds, Carbon|string $month): array
     {
         $writerIds = $this->capacity->normalizeUserIds($assigneeIds);
-        $allocated = ContentProjectWriterAllocator::allocate($taskIds, $writerIds);
+        $remainingRaw = $this->capacity->remainingByUserId($writerIds, $month);
+        $remainingCaps = [];
+        foreach ($writerIds as $writerId) {
+            $remainingCaps[$writerId] = max(0, (int) ($remainingRaw[$writerId] ?? 0));
+        }
+
+        $allocated = ContentProjectWriterAllocator::allocate($taskIds, $writerIds, $remainingCaps);
         $names = $this->capacity->displayNamesByUserId($writerIds);
 
         $allocations = [];
         foreach ($allocated['allocations'] as $row) {
             $userId = (int) $row['user_id'];
             $writerTaskIds = $row['task_ids'];
-            $bins = $this->packing->planPack($userId, $month, $writerTaskIds);
+            $bins = $writerTaskIds === []
+                ? []
+                : $this->packing->planPack($userId, $month, $writerTaskIds);
             $allocations[] = [
                 'user_id' => $userId,
                 'user_name' => (string) ($names[$userId] ?? '#'.$userId),
@@ -436,6 +505,13 @@ final class SplitDraftContentProjectService
 
         return [
             'allocations' => $allocations,
+            'requested_items' => (int) ($allocated['requested_items'] ?? count($taskIds)),
+            'assigned_items' => (int) ($allocated['assigned_items'] ?? 0),
+            'unallocated_count' => (int) ($allocated['unallocated_count'] ?? 0),
+            'unallocated_task_ids' => array_values(array_map(
+                'intval',
+                $allocated['unallocated_task_ids'] ?? [],
+            )),
         ];
     }
 
@@ -449,7 +525,11 @@ final class SplitDraftContentProjectService
      *         task_ids: list<int>,
      *         pack_bins: list<array<string, mixed>>,
      *         project_count: int
-     *     }>
+     *     }>,
+     *     requested_items?: int,
+     *     assigned_items?: int,
+     *     unallocated_count?: int,
+     *     unallocated_task_ids?: list<int>
      * }  $plan
      * @return array<string, mixed>
      */
@@ -463,10 +543,12 @@ final class SplitDraftContentProjectService
     ): array {
         $allocations = [];
         $projectCount = 0;
+        $assignedItems = 0;
         foreach ($plan['allocations'] as $row) {
             $itemCount = (int) $row['item_count'];
             $bins = (int) ($row['project_count'] ?? 0);
             $projectCount += $bins;
+            $assignedItems += $itemCount;
             $allocations[] = [
                 'user_id' => (int) $row['user_id'],
                 'user_name' => (string) $row['user_name'],
@@ -483,15 +565,32 @@ final class SplitDraftContentProjectService
         }
 
         $first = $allocations[0] ?? null;
+        $unallocatedCount = (int) ($plan['unallocated_count'] ?? max(0, count($taskIds) - $assignedItems));
+        $unallocatedTaskIds = array_values(array_map(
+            'intval',
+            $plan['unallocated_task_ids'] ?? [],
+        ));
+        $assignedTaskIds = [];
+        foreach ($allocations as $row) {
+            foreach ($row['task_ids'] ?? [] as $tid) {
+                $id = (int) $tid;
+                if ($id > 0) {
+                    $assignedTaskIds[] = $id;
+                }
+            }
+        }
 
         return [
             'source_draft_project_id' => (int) $draft->getKey(),
             'selection_mode' => $mode,
-            'assigned_items' => count($taskIds),
-            'moved_count' => count($taskIds),
+            'requested_items' => (int) ($plan['requested_items'] ?? count($taskIds)),
+            'assigned_items' => (int) ($plan['assigned_items'] ?? $assignedItems),
+            'moved_count' => (int) ($plan['assigned_items'] ?? $assignedItems),
+            'unallocated_count' => $unallocatedCount,
+            'unallocated_task_ids' => $unallocatedTaskIds,
             'remaining_count' => $remainingDraftCount,
             'reviewed_eligible_count' => $this->currentReviewedDraftItemCount($draft),
-            'task_ids' => $taskIds,
+            'task_ids' => $assignedTaskIds,
             'target_month' => $month->format('Y-m-d'),
             'target_month_label' => $month->format('m/Y'),
             'month' => $month->format('Y-m-d'),
@@ -506,6 +605,7 @@ final class SplitDraftContentProjectService
             'max_items_per_project' => ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS,
             'redirect_month' => $month->format('Y-m'),
             'execution_project_id' => null,
+            'capacity_exhausted' => $unallocatedCount > 0,
         ];
     }
 
@@ -576,9 +676,10 @@ final class SplitDraftContentProjectService
     /**
      * Eligible split set: planning_reviewed_at IS NOT NULL.
      *
+     * @param  int|null  $siteId  null = all domains; >0 = that site; 0 = unassigned only
      * @return list<int>
      */
-    public function orderedReviewedDraftTaskIds(SeoProject $draft): array
+    public function orderedReviewedDraftTaskIds(SeoProject $draft, ?int $siteId = null): array
     {
         $query = SeoProjectTask::query()
             ->where('project_id', (int) $draft->getKey())
@@ -593,6 +694,14 @@ final class SplitDraftContentProjectService
             return [];
         }
 
+        if ($siteId !== null && $siteId > 0) {
+            $query->where('site_id', $siteId);
+        } elseif ($siteId === 0) {
+            $query->where(static function ($q): void {
+                $q->whereNull('site_id')->orWhere('site_id', '<=', 0);
+            });
+        }
+
         return $query
             ->pluck('id')
             ->map(static fn (mixed $id): int => (int) $id)
@@ -605,9 +714,9 @@ final class SplitDraftContentProjectService
         return count($this->orderedDraftTaskIds($draft));
     }
 
-    public function currentReviewedDraftItemCount(SeoProject $draft): int
+    public function currentReviewedDraftItemCount(SeoProject $draft, ?int $siteId = null): int
     {
-        return count($this->orderedReviewedDraftTaskIds($draft));
+        return count($this->orderedReviewedDraftTaskIds($draft, $siteId));
     }
 
     public function currentMonth(): Carbon

@@ -5,8 +5,8 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes;
 
 /**
- * Build compact prompt section from selected Audit Note items.
- * DNA weight DESC only — MCP share is planning priority for suggestions, not DNA ordering.
+ * Compact DATA serializer for selected Audit Note items.
+ * Auto-fill algorithm rules live in NewContentAutoDnaPolicy (system-owned).
  */
 final class AuditNotePromptSectionBuilder
 {
@@ -21,17 +21,39 @@ final class AuditNotePromptSectionBuilder
             return [];
         }
 
-        $lines = ['Selected SEO Audit Notes (DNA weight DESC — semantic priority):'];
+        $lines = [
+            'Selected SEO Audit Notes:',
+            'DNA placement contract:',
+            '  · placement=before → phrase is guided BEFORE the base topic/keyword.',
+            '  · placement=after → phrase is guided AFTER the base topic/keyword.',
+            'Respect each DNA placement; do not arbitrarily invert user-specified positions.',
+        ];
         foreach ($items as $item) {
-            $isManual = AuditNoteDnaNormalizer::isManualRef((string) $item['cluster_ref']);
-            if ($isManual) {
-                $lines[] = '- '.$item['cluster_name_snapshot'].' · manual';
+            $isManualSeed = AuditNoteDnaNormalizer::isManualSeed($item);
+            $target = (int) $item['target_dna_count'];
+            $dna = is_array($item['dna'] ?? null) ? $item['dna'] : [];
+            $specified = AuditNoteDnaNormalizer::specifiedSlotCount($dna);
+            $missing = AuditNoteDnaNormalizer::missingSlotCount($target, $dna);
+
+            if ($isManualSeed) {
+                $seed = trim((string) ($item['seed_text'] ?? $item['cluster_name_snapshot'] ?? ''));
+                $head = '- Planning Seed "'.$seed.'" · source_type=manual_seed · no existing Topic/MCP required';
             } else {
-                $share = number_format((float) $item['mcp_share_snapshot'], 1, '.', '');
-                $lines[] = '- '.$item['cluster_name_snapshot'].' · MCP '.$share.'%';
+                $share = number_format((float) ($item['mcp_share_snapshot'] ?? 0), 1, '.', '');
+                $head = '- '.$item['cluster_name_snapshot'].' · MCP '.$share.'% · source_type=cluster';
             }
-            foreach (AuditNoteDnaNormalizer::promptLines($item['dna'], $maxDnaPerNote) as $dnaLine) {
-                $lines[] = '  · '.$dnaLine;
+            $lines[] = $head;
+            $lines[] = '  · Target DNA: '.$target;
+            $lines[] = '  · Specified slots: '.$specified;
+            $lines[] = '  · Missing slots: '.$missing;
+            if ($isManualSeed) {
+                $lines[] = '  · Goal: explore/create a NEW semantic area from the seed text; generate novel keywords/intents/titles (not limited to existing keyword inventory).';
+            }
+            if ($specified > 0) {
+                $lines[] = '  · Specified:';
+                foreach (AuditNoteDnaNormalizer::promptLines($dna, $maxDnaPerNote) as $dnaLine) {
+                    $lines[] = '    - '.$dnaLine;
+                }
             }
         }
 
@@ -39,8 +61,6 @@ final class AuditNotePromptSectionBuilder
     }
 
     /**
-     * Compact notes string for {{notes}} prompt variable (hooks without brief DNA section).
-     *
      * @param  list<array<string, mixed>>  $noteItems
      */
     public function compactNotesText(array $noteItems, string $extraNotes = ''): string
@@ -58,5 +78,34 @@ final class AuditNotePromptSectionBuilder
         }
 
         return implode("\n", $parts);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $noteItems
+     * @return list<string>
+     */
+    public function historyLines(array $noteItems): array
+    {
+        $items = AuditNoteDnaNormalizer::normalizeNoteItems($noteItems);
+        $lines = [];
+        foreach ($items as $item) {
+            $target = (int) $item['target_dna_count'];
+            $dna = is_array($item['dna'] ?? null) ? $item['dna'] : [];
+            $specified = AuditNoteDnaNormalizer::specifiedSlotCount($dna);
+            $missing = AuditNoteDnaNormalizer::missingSlotCount($target, $dna);
+            if (AuditNoteDnaNormalizer::isManualSeed($item)) {
+                $seed = trim((string) ($item['seed_text'] ?? $item['cluster_name_snapshot'] ?? ''));
+                $lines[] = 'Seed: '.$seed;
+                $lines[] = 'source_type=manual_seed · DNA mục tiêu '.$target.' · Manual DNA '.$specified.' · AI fill '.$missing;
+            } else {
+                $lines[] = (string) $item['cluster_name_snapshot'];
+                $lines[] = 'DNA mục tiêu '.$target.' · Đã chỉ định '.$specified.' · AI bổ sung '.$missing;
+            }
+            foreach (AuditNoteDnaNormalizer::promptLines($dna, 12) as $dnaLine) {
+                $lines[] = $dnaLine;
+            }
+        }
+
+        return $lines;
     }
 }

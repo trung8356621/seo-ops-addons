@@ -59,7 +59,6 @@ use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Applicati
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\MoveTopicCommand;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\PreviewContentProjectFromClustersCommand;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\PreviewContentProjectFromTopicalMapCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\ReviewCannibalizationIssueCommand;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\ReviewTopicalMapCommand;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\SaveTopicalMapVersionCommand;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\SetTopicRelationshipCommand;
@@ -215,6 +214,7 @@ final class ContentProjectCapabilityRegistry
                 dryRunSupport: true,
                 inputSchema: [
                     'project_ref' => ['type' => 'string', 'required' => true],
+                    'site_id' => ['type' => 'integer', 'required' => false],
                     'quantity' => ['type' => 'integer', 'required' => false],
                     'content_type' => ['type' => 'string', 'required' => false],
                     'notes' => ['type' => 'string', 'required' => false],
@@ -1051,28 +1051,6 @@ final class ContentProjectCapabilityRegistry
                     'workspace_ref' => ['type' => 'string', 'required' => true],
                     'keyword_refs' => ['type' => 'array', 'required' => true],
                     'destination_cluster_ref' => ['type' => 'string', 'required' => true],
-                ],
-                phases: null,
-                confirmation: false,
-                presentation: [
-                    'internal' => true,
-                    'agent_exposed' => false,
-                    'mcp_exposed' => false,
-                    'visibility' => 'internal',
-                ],
-            ),
-            $this->cap(
-                'keyword_intelligence.review_cannibalization',
-                'Review/ignore/resolve a cannibalization issue',
-                ReviewCannibalizationIssueCommand::class,
-                'keyword_intelligence.review_cannibalization',
-                riskLevel: 'write',
-                idempotencySupport: true,
-                dryRunSupport: false,
-                inputSchema: [
-                    'workspace_ref' => ['type' => 'string', 'required' => true],
-                    'issue_ref' => ['type' => 'string', 'required' => true],
-                    'action' => ['type' => 'string', 'required' => true],
                 ],
                 phases: null,
                 confirmation: false,

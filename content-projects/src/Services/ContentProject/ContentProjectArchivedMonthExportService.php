@@ -45,7 +45,7 @@ final class ContentProjectArchivedMonthExportService
             (string) __('seo-content-ai::filament.projects.archive_export_col_post_type'),
             (string) __('seo-content-ai::filament.projects.archive_export_col_plan'),
             (string) __('seo-content-ai::filament.projects.archive_export_col_index'),
-            (string) __('seo-content-ai::filament.projects.archive_export_col_archived_at'),
+            (string) __('seo-content-ai::filament.projects.archive_export_col_reviewed_at'),
             (string) __('seo-content-ai::filament.projects.archive_export_col_archived_by'),
         ];
     }
@@ -364,7 +364,7 @@ final class ContentProjectArchivedMonthExportService
                 (string) ($row['post_type'] ?? ''),
                 (string) ($row['plan'] ?? ''),
                 (string) ($row['index_status'] ?? ''),
-                (string) ($row['archived_at'] ?? ''),
+                (string) ($row['reviewed_at'] ?? ''),
                 (string) ($row['archived_by'] ?? ''),
             ];
 

@@ -80,6 +80,7 @@ final class ContentProjectArchivedMonthExportContractTest extends TestCase
         self::assertStringContainsString('ContentProjectArchivedMonthExportAssembler', $src);
         self::assertStringContainsString('userSheetHeaders', $src);
         self::assertStringContainsString('archive_export_col_index', $src);
+        self::assertStringContainsString('archive_export_col_reviewed_at', $src);
         self::assertStringContainsString('chart_articles_by_domain', $src);
         self::assertStringContainsString('ExcelHyperlinkHelper', $src);
         self::assertStringContainsString('ExcelSheetColumnAutoSizer', $src);
@@ -317,6 +318,7 @@ final class ContentProjectArchivedMonthExportContractTest extends TestCase
             'post_type_category',
             'post_type_product_category',
             'archive_export_col_index',
+            'archive_export_col_reviewed_at',
             'archive_export_sheet_summary',
             'archive_export_col_project',
             'archive_export_plan_create',
@@ -345,6 +347,9 @@ final class ContentProjectArchivedMonthExportContractTest extends TestCase
         self::assertStringContainsString('post_type_product', $workloadSrc);
         self::assertStringContainsString('resolveArticleExportFields', $workloadSrc);
         self::assertStringContainsString('wordpress_url', $workloadSrc);
+        self::assertStringContainsString('ContentProjectExportReviewedAtResolver', $workloadSrc);
+        self::assertStringContainsString("'reviewed_at'", $workloadSrc);
+        self::assertStringNotContainsString('p.archived_at as archived_at', $workloadSrc);
         self::assertStringNotContainsString("'title' => trim((string) (\$row->title", $workloadSrc);
     }
 
@@ -429,7 +434,7 @@ final class ContentProjectArchivedMonthExportContractTest extends TestCase
      *     post_type: string,
      *     plan: string,
      *     index_status: string,
-     *     archived_at: string,
+     *     reviewed_at: string,
      *     archived_by: string
      * }
      */
@@ -447,7 +452,7 @@ final class ContentProjectArchivedMonthExportContractTest extends TestCase
             'post_type' => 'Post',
             'plan' => 'Create',
             'index_status' => 'Indexed',
-            'archived_at' => '2026-08-31 10:00:00',
+            'reviewed_at' => '31/08/2026',
             'archived_by' => 'Admin',
         ];
     }

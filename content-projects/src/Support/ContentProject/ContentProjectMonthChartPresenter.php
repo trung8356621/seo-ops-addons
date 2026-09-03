@@ -108,7 +108,8 @@ final class ContentProjectMonthChartPresenter
      * @param  array{
      *     month?: string,
      *     month_label?: string,
-     *     capacity?: int,
+     *     default_capacity?: int,
+     *     team_capacity?: int,
      *     by_writer?: list<array{user_id?: int, name?: string, active_count?: int, archived_count?: int, total_count?: int, capacity?: int, remaining?: int}>,
      *     writer_empty?: bool,
      *     writer_max?: int
@@ -116,7 +117,7 @@ final class ContentProjectMonthChartPresenter
      * @return array{
      *     month: string,
      *     month_label: string,
-     *     capacity: int,
+     *     default_capacity: int,
      *     total: int,
      *     writer_count: int,
      *     team_capacity: int,
@@ -135,6 +136,8 @@ final class ContentProjectMonthChartPresenter
      *         capacity: int,
      *         remaining: int,
      *         progress_pct: int,
+     *         capacity_zero: bool,
+     *         over_capacity: bool,
      *         rank: int
      *     }>,
      *     visible_rows: list<array<string, mixed>>,
@@ -143,11 +146,12 @@ final class ContentProjectMonthChartPresenter
      */
     public function presentWriter(array $workload): array
     {
-        $perCapacity = max(1, (int) ($workload['capacity'] ?? ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS));
+        $defaultCapacity = max(0, (int) ($workload['default_capacity'] ?? 0));
         $rawRows = is_array($workload['by_writer'] ?? null) ? $workload['by_writer'] : [];
 
         $rows = [];
         $assigned = 0;
+        $rowsCapacitySum = 0;
         $rank = 0;
         foreach ($rawRows as $row) {
             $count = max(0, (int) ($row['total_count'] ?? 0));
@@ -155,9 +159,15 @@ final class ContentProjectMonthChartPresenter
                 continue;
             }
             $rank++;
-            $rowCapacity = max(1, (int) ($row['capacity'] ?? $perCapacity));
+            $rowCapacity = max(0, (int) ($row['capacity'] ?? $defaultCapacity));
             $name = (string) ($row['name'] ?? '');
             $assigned += $count;
+            $rowsCapacitySum += $rowCapacity;
+            $capacityZero = $rowCapacity === 0;
+            $over = $capacityZero ? $count > 0 : $count > $rowCapacity;
+            $progressPct = $capacityZero
+                ? ($count > 0 ? 100 : 0)
+                : self::percent($count, $rowCapacity);
             $rows[] = [
                 'user_id' => (int) ($row['user_id'] ?? 0),
                 'name' => $name,
@@ -168,13 +178,17 @@ final class ContentProjectMonthChartPresenter
                 'count' => $count,
                 'capacity' => $rowCapacity,
                 'remaining' => (int) ($row['remaining'] ?? ($rowCapacity - $count)),
-                'progress_pct' => self::percent($count, $rowCapacity),
+                'progress_pct' => $progressPct,
+                'capacity_zero' => $capacityZero,
+                'over_capacity' => $over,
                 'rank' => $rank,
             ];
         }
 
         $writerCount = count($rows);
-        $teamCapacity = $writerCount * $perCapacity;
+        $teamCapacity = isset($workload['team_capacity'])
+            ? max(0, (int) $workload['team_capacity'])
+            : $rowsCapacitySum;
         $overallPct = self::percent($assigned, $teamCapacity);
         $visible = array_slice($rows, 0, self::WRITER_VISIBLE);
         $moreCount = max(0, count($rows) - count($visible));
@@ -182,13 +196,13 @@ final class ContentProjectMonthChartPresenter
         return [
             'month' => (string) ($workload['month'] ?? ''),
             'month_label' => (string) ($workload['month_label'] ?? ''),
-            'capacity' => $perCapacity,
+            'default_capacity' => $defaultCapacity,
             'total' => $assigned,
             'writer_count' => $writerCount,
             'team_capacity' => $teamCapacity,
             'overall_progress_pct' => $overallPct,
             'empty' => (bool) ($workload['writer_empty'] ?? $rows === []),
-            'max' => max(1, (int) ($workload['writer_max'] ?? $perCapacity)),
+            'max' => max(1, (int) ($workload['writer_max'] ?? max($defaultCapacity, 1))),
             'donut_gradient' => self::progressConicGradient($overallPct),
             'rows' => $rows,
             'visible_rows' => $visible,

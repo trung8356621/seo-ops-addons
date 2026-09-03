@@ -11,8 +11,8 @@ use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\AssignKey
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\HideKeywordFromSeoService;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterQuery;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\SkipKeywordFromMcpService;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\TopicClusterReclusterState;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordPhrasePresentation;
-use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use RuntimeException;
 
 trait InteractsWithKeywordItemActions
@@ -172,6 +172,10 @@ trait InteractsWithKeywordItemActions
     public function openMoveClusterModal(int $keywordId): void
     {
         $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        if (! TopicClusterReclusterState::assertMutationAllowed($siteId)) {
+            return;
+        }
+
         if ($keywordId <= 0 || $siteId <= 0) {
             return;
         }
@@ -187,6 +191,10 @@ trait InteractsWithKeywordItemActions
         $keywordId = (int) ($this->moveClusterKeywordId ?? 0);
         $clusterKey = trim($this->moveClusterTargetKey);
         $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+
+        if (! TopicClusterReclusterState::assertMutationAllowed($siteId)) {
+            return;
+        }
 
         if ($keywordId <= 0 || $clusterKey === '' || $siteId <= 0) {
             return;

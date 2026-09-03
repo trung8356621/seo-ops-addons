@@ -10,6 +10,8 @@ use Anthropic\Exceptions\TransporterException;
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\Models\SeoPromptPart;
+use Omnichannel\Addons\AiPrompt\Services\AiOutboundBudgetGate;
+use Omnichannel\Addons\AiPrompt\Services\PromptBudgetPreflightService;
 use Omnichannel\Addons\Seo\Support\AiModelCategory;
 use Omnichannel\Addons\Content\Support\Utf8Sanitizer;
 use GuzzleHttp\Client;
@@ -27,6 +29,7 @@ final class AiExecutionService
      * Thực thi gọi API Claude qua mozex/anthropic-laravel (API key từ DB, không dùng .env).
      *
      * @param  array<string, string>  $variables
+     * @param  array<string, mixed>  $budgetOptions
      * @return array{0: string, 1: array<string, mixed>|null}
      */
     public function executeClaude(
@@ -36,6 +39,7 @@ final class AiExecutionService
         array $variables = [],
         ?string $modelOverride = null,
         ?string $compiledPrompt = null,
+        array $budgetOptions = [],
     ): array {
         $prompt->loadMissing(['aiConnection']);
         $variables = Utf8Sanitizer::variablesForAi($variables);
@@ -92,9 +96,14 @@ final class AiExecutionService
             throw new PromptRunException('Prompt không có khối nhiệm vụ (task) để gửi tới Claude.');
         }
 
+        $maxTokens = (int) ($budgetOptions['max_output'] ?? self::MAX_OUTPUT_TOKENS);
+        if ($maxTokens <= 0) {
+            $maxTokens = self::MAX_OUTPUT_TOKENS;
+        }
+
         $payload = [
             'model' => $modelName,
-            'max_tokens' => self::MAX_OUTPUT_TOKENS,
+            'max_tokens' => $maxTokens,
             'messages' => [
                 [
                     'role' => 'user',
@@ -105,6 +114,29 @@ final class AiExecutionService
 
         if ($isTaskMode && $systemInstructions !== []) {
             $payload['system'] = implode("\n\n", $systemInstructions);
+        }
+
+        if (function_exists('app') && app()->bound(PromptBudgetPreflightService::class)) {
+            $messages = [];
+            if (isset($payload['system']) && is_string($payload['system'])) {
+                $messages[] = ['role' => 'system', 'content' => $payload['system']];
+            }
+            $messages[] = ['role' => 'user', 'content' => (string) $payload['messages'][0]['content']];
+            $gate = new AiOutboundBudgetGate(app(PromptBudgetPreflightService::class));
+            $plan = $gate->verifyMessages(
+                $gate->preflight()->capabilities()->resolveFor($connection, $modelName),
+                $messages,
+                'claude',
+                $modelName,
+                is_string($budgetOptions['hook_key'] ?? null) ? (string) $budgetOptions['hook_key'] : (string) ($prompt->hook_key ?? ''),
+                array_merge($budgetOptions, [
+                    'max_output' => $maxTokens,
+                    'json_schema' => is_string($budgetOptions['json_schema'] ?? null) ? $budgetOptions['json_schema'] : null,
+                ]),
+            );
+            if ($plan->requestedMaxOutputTokens > 0) {
+                $payload['max_tokens'] = $plan->requestedMaxOutputTokens;
+            }
         }
 
         try {

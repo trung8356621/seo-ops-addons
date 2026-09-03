@@ -19,9 +19,10 @@ use Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\ProviderConnectionRes
 final class GeminiGenerateContentClient
 {
     /**
+     * @param  array<string, mixed>  $options
      * @return array{0: string, 1: array<string, mixed>|null}
      */
-    public function generate(ApiConnection $connection, string $prompt, string $model): array
+    public function generate(ApiConnection $connection, string $prompt, string $model, array $options = []): array
     {
         $modelsToTry = GeminiModelCatalog::modelsToTry($model);
 
@@ -30,7 +31,7 @@ final class GeminiGenerateContentClient
         foreach ($modelsToTry as $candidateModel) {
             foreach (['v1beta', 'v1'] as $apiVersion) {
                 try {
-                    return $this->requestGenerateContent($connection, $prompt, $candidateModel, $apiVersion);
+                    return $this->requestGenerateContent($connection, $prompt, $candidateModel, $apiVersion, $options);
                 } catch (PromptRunException $exception) {
                     $lastError = $exception;
                     if (! $this->isModelNotFoundError($exception->getMessage())
@@ -65,6 +66,7 @@ final class GeminiGenerateContentClient
     }
 
     /**
+     * @param  array<string, mixed>  $options
      * @return array{0: string, 1: array<string, mixed>|null}
      */
     private function requestGenerateContent(
@@ -72,7 +74,23 @@ final class GeminiGenerateContentClient
         string $prompt,
         string $model,
         string $apiVersion,
+        array $options = [],
     ): array {
+        if (function_exists('app') && app()->bound(\Omnichannel\Addons\AiPrompt\Services\PromptBudgetPreflightService::class)) {
+            $gate = new \Omnichannel\Addons\AiPrompt\Services\AiOutboundBudgetGate(
+                app(\Omnichannel\Addons\AiPrompt\Services\PromptBudgetPreflightService::class),
+            );
+            $gate->verifyCompiled(
+                null,
+                $connection,
+                $prompt,
+                $model,
+                'gemini',
+                is_string($options['hook_key'] ?? null) ? (string) $options['hook_key'] : null,
+                $options,
+            );
+        }
+
         $url = sprintf(
             '%s/%s/models/%s:generateContent',
             $this->httpBaseUrl($connection),

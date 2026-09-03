@@ -6,7 +6,6 @@ namespace Omnichannel\Addons\ContentProjects\Services;
 
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
-use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExecutionLimits;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use App\Models\User;
 use App\Services\Users\SeoOpsSystemUser;
@@ -20,11 +19,15 @@ use Illuminate\Support\Facades\Schema;
  *
  * used_capacity(user, month) = ACTIVE execution items + ARCHIVED execution items.
  * Shared Planning Draft excluded. Archive does NOT free capacity.
+ *
+ * Effective capacity comes from {@see ContentProjectWriterCapacitySettingsService}
+ * (per-user override ?? global default) — not from execution project packing limits.
  */
 final class ContentProjectWriterMonthlyCapacityService
 {
     public function __construct(
         private readonly ContentProjectStaffAvailabilityService $staff,
+        private readonly ContentProjectWriterCapacitySettingsService $capacitySettings,
     ) {}
 
     /**
@@ -113,7 +116,18 @@ final class ContentProjectWriterMonthlyCapacityService
     }
 
     /**
-     * remaining = MAX_WRITER_MONTHLY_ITEMS - used_capacity (may be negative for legacy overage).
+     * Effective monthly capacity per user (override ?? global default).
+     *
+     * @param  list<int>  $userIds
+     * @return array<int, int>
+     */
+    public function capacityByUserId(array $userIds): array
+    {
+        return $this->capacitySettings->capacitiesForUsers($userIds);
+    }
+
+    /**
+     * remaining = effective_capacity - used_capacity (may be negative for overage reporting).
      *
      * @param  list<int>  $userIds
      * @return array<int, int>
@@ -122,39 +136,45 @@ final class ContentProjectWriterMonthlyCapacityService
         array $userIds,
         CarbonImmutable|Carbon|string|null $month = null,
     ): array {
-        $capacity = ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS;
-        $used = $this->itemCountsByUserId($userIds, $month);
+        $ids = $this->normalizeUserIds($userIds);
+        $capacities = $this->capacityByUserId($ids);
+        $used = $this->itemCountsByUserId($ids, $month);
         $remaining = [];
-        foreach ($used as $userId => $count) {
-            $remaining[$userId] = $capacity - $count;
+        foreach ($ids as $userId) {
+            $capacity = (int) ($capacities[$userId] ?? 0);
+            $total = (int) ($used[$userId] ?? 0);
+            $remaining[$userId] = $capacity - $total;
         }
 
         return $remaining;
     }
 
     /**
-     * Assignable staff with current-month workload for display.
+     * Assignable staff with target-month workload for display.
      * System user is excluded. Capacity uses active + archived totals.
      *
      * @return array{
      *     month: string,
      *     month_label: string,
      *     month_display: string,
-     *     capacity: int,
+     *     default_capacity: int,
+     *     team_capacity: int,
      *     writers: list<array{
      *         id: int,
      *         name: string,
+     *         capacity: int,
      *         current: int,
      *         active: int,
      *         archived: int,
-     *         remaining: int
+     *         remaining: int,
+     *         assignable: bool
      *     }>
      * }
      */
     public function writerSelectorPayload(CarbonImmutable|Carbon|string|null $month = null): array
     {
         $normalized = ContentProjectMonthContext::normalize($month);
-        $capacity = ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS;
+        $defaultCapacity = $this->capacitySettings->defaultMonthlyCapacity();
         $staff = $this->staff->listUnassigned($normalized, null, null);
         $userIds = $staff
             ->map(static fn (User $user): int => (int) $user->getKey())
@@ -163,7 +183,9 @@ final class ContentProjectWriterMonthlyCapacityService
             ->all();
 
         $breakdown = $this->itemBreakdownByUserId($userIds, $normalized);
+        $capacities = $this->capacityByUserId($userIds);
         $writers = [];
+        $teamCapacity = 0;
 
         foreach ($staff as $user) {
             if (! $user instanceof User) {
@@ -178,14 +200,19 @@ final class ContentProjectWriterMonthlyCapacityService
             $email = trim((string) ($user->email ?? ''));
             $row = $breakdown[$id] ?? ['active' => 0, 'archived' => 0, 'total' => 0];
             $total = (int) $row['total'];
+            $capacity = (int) ($capacities[$id] ?? $defaultCapacity);
+            $remaining = $capacity - $total;
+            $teamCapacity += $capacity;
 
             $writers[] = [
                 'id' => $id,
                 'name' => $name !== '' ? $name : ($email !== '' ? $email : '#'.$id),
+                'capacity' => $capacity,
                 'current' => $total,
                 'active' => (int) $row['active'],
                 'archived' => (int) $row['archived'],
-                'remaining' => $capacity - $total,
+                'remaining' => $remaining,
+                'assignable' => $capacity > 0 && $remaining > 0,
             ];
         }
 
@@ -193,7 +220,8 @@ final class ContentProjectWriterMonthlyCapacityService
             'month' => ContentProjectMonthContext::toDateString($normalized),
             'month_label' => ContentProjectMonthContext::display($normalized),
             'month_display' => 'Tháng '.ContentProjectMonthContext::display($normalized),
-            'capacity' => $capacity,
+            'default_capacity' => $defaultCapacity,
+            'team_capacity' => $teamCapacity,
             'writers' => $writers,
         ];
     }

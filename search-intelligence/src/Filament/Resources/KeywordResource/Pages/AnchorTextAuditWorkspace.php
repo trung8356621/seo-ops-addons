@@ -199,7 +199,8 @@ final class AnchorTextAuditWorkspace extends Page implements HasActions, HasForm
         $query = SeoLinkMap::query()
             ->with([
                 'keyword:id,phrase,type',
-                'sourceArticle:id,site_id,title,slug,wp_post_id',
+                'sourceArticle:id,site_id,title,slug',
+                'sourceArticle.wordpressLink:id,article_id,wp_post_id',
                 'sourceArticle.site:id,domain,ssl',
                 'targetArticle:id,site_id,title,slug',
             ])

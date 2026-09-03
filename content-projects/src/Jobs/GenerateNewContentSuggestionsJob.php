@@ -15,6 +15,7 @@ use Illuminate\Queue\SerializesModels;
 
 /**
  * Async AI New Content planning. Actor is explicit — never resolve session user in queue runtime.
+ * One logical planner run may span multiple job slices via automatic continuation.
  */
 final class GenerateNewContentSuggestionsJob implements ShouldBeUnique, ShouldQueue
 {
@@ -23,11 +24,11 @@ final class GenerateNewContentSuggestionsJob implements ShouldBeUnique, ShouldQu
     use Queueable;
     use SerializesModels;
 
-    public int $timeout = 300;
+    public int $timeout = 900;
 
     public int $tries = 1;
 
-    public int $uniqueFor = 300;
+    public int $uniqueFor = 960;
 
     public function __construct(
         public readonly int $plannerRunId,
@@ -37,7 +38,8 @@ final class GenerateNewContentSuggestionsJob implements ShouldBeUnique, ShouldQu
 
     public function uniqueId(): string
     {
-        return 'content-project-new-content:'.$this->projectId;
+        // Per logical run — prevents duplicate concurrent slices; allows other projects.
+        return 'content-project-new-content:run:'.$this->plannerRunId;
     }
 
     public function handle(
@@ -45,6 +47,32 @@ final class GenerateNewContentSuggestionsJob implements ShouldBeUnique, ShouldQu
         NewContentSuggestionPlannerService $planner,
     ): void {
         $databaseConnection->bootstrapLegacySharedConnection();
-        $planner->executeQueuedRun($this->plannerRunId, $this->actorId);
+        $run = \Omnichannel\Addons\ContentProjects\Models\SeoContentProjectPlannerRun::query()
+            ->find($this->plannerRunId);
+        if ($run === null) {
+            return;
+        }
+        $priorStatus = (string) (($run->result_summary ?? [])['status'] ?? '');
+        if ($priorStatus === \Omnichannel\Addons\ContentProjects\Models\SeoContentProjectPlannerRun::STATUS_CANCELLED) {
+            return;
+        }
+
+        $summary = $planner->executeQueuedRun($this->plannerRunId, $this->actorId);
+
+        if (! empty($summary['needs_continuation'])) {
+            $delay = max(1, (int) ($summary['continuation_delay_seconds'] ?? 2));
+            $fresh = \Omnichannel\Addons\ContentProjects\Models\SeoContentProjectPlannerRun::query()
+                ->findOrFail($this->plannerRunId);
+            if ((string) (($fresh->result_summary ?? [])['status'] ?? '')
+                === \Omnichannel\Addons\ContentProjects\Models\SeoContentProjectPlannerRun::STATUS_CANCELLED
+            ) {
+                return;
+            }
+            $queued = $planner->queueContinuation($fresh, $this->actorId, $delay);
+            if (! empty($queued['queued'])) {
+                self::dispatch($this->plannerRunId, $this->projectId, $this->actorId)
+                    ->delay(now()->addSeconds((int) $queued['delay_seconds']));
+            }
+        }
     }
 }

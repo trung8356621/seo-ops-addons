@@ -94,7 +94,13 @@ final class ContentProjectDraftAiHistory extends SeoPanelPage
             ->find($projectId);
 
         abort_unless($project instanceof SeoProject, 404);
-        abort_unless(SeoAccessControl::canAccessSite((int) ($project->site_id ?? 0)), 403);
+
+        $projectSiteId = (int) ($project->site_id ?? 0);
+        $isSharedDraft = $project->isDraftPlanning() && $projectSiteId <= 0;
+        if (! $isSharedDraft) {
+            abort_unless(SeoAccessControl::canAccessSite($projectSiteId), 403);
+        }
+
         abort_unless(SeoAccessControl::canAccessContentProjectRun($project), 403);
 
         $this->project = $project;

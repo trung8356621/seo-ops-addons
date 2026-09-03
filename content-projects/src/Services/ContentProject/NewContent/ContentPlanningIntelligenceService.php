@@ -225,6 +225,10 @@ final class ContentPlanningIntelligenceService
 
         $noteItems = is_array($options['note_items'] ?? null) ? $options['note_items'] : [];
         if ($noteItems !== []) {
+            $policy = new NewContentAutoDnaPolicy;
+            foreach ($policy->instructionLines((int) $options['quantity'], $noteItems) as $policyLine) {
+                $lines[] = $policyLine;
+            }
             foreach ((new AuditNotePromptSectionBuilder)->lines($noteItems) as $noteLine) {
                 $lines[] = $noteLine;
             }

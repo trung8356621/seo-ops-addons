@@ -42,9 +42,6 @@ final class KeywordListLoadingUxTest extends TestCase
         $detail = (string) file_get_contents(LegacyAddonPath::resolve(
             'resources/views/filament/resources/keywords/pages/topic-cluster-detail.blade.php',
         ));
-        $cannibalization = (string) file_get_contents(LegacyAddonPath::resolve(
-            'resources/views/filament/resources/keywords/pages/keyword-cannibalization-workspace.blade.php',
-        ));
         $anchor = (string) file_get_contents(LegacyAddonPath::resolve(
             'resources/views/filament/resources/keywords/pages/anchor-text-audit-workspace.blade.php',
         ));
@@ -56,11 +53,20 @@ final class KeywordListLoadingUxTest extends TestCase
         self::assertDoesNotMatchRegularExpression('/list-table-loading-shell[^>]*targets="[^"]*quickCreateCluster/', $index);
 
         self::assertStringContainsString('list-table-loading-shell', $detail);
-        self::assertStringContainsString('list-table-loading-shell', $cannibalization);
 
         self::assertStringContainsString('list-table-loading-shell', $anchor);
         self::assertStringContainsString('setTriageFilter', $anchor);
         self::assertStringNotContainsString('link-triage-loading-overlay', $anchor);
         self::assertStringNotContainsString('hideKeywordFromSeo', $index);
+    }
+
+    public function test_anchor_audit_eager_loads_wp_post_id_via_wordpress_link(): void
+    {
+        $source = (string) file_get_contents(dirname(__DIR__, 2)
+            .'/src/Filament/Resources/KeywordResource/Pages/AnchorTextAuditWorkspace.php');
+
+        self::assertStringNotContainsString('sourceArticle:id,site_id,title,slug,wp_post_id', $source);
+        self::assertStringContainsString('sourceArticle:id,site_id,title,slug', $source);
+        self::assertStringContainsString('sourceArticle.wordpressLink:id,article_id,wp_post_id', $source);
     }
 }

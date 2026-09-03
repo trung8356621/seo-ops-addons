@@ -88,11 +88,13 @@ final class ContentProjectAgentCommandFactory
             ),
             'content_project.fill_seo_audit_suggestions' => new \Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\FillSeoAuditSuggestionsCommand(
                 $this->projectRef($input),
+                (int) ($input['site_id'] ?? $resolvedSiteId),
                 is_array($input['filters'] ?? null) ? $input['filters'] : [],
                 $input['limit'] ?? 20,
             ),
             'content_project.generate_new_content_suggestions' => new \Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\GenerateNewContentSuggestionsCommand(
                 $this->projectRef($input),
+                (int) ($input['site_id'] ?? $resolvedSiteId),
                 (int) ($input['quantity'] ?? $input['limit'] ?? 20),
                 array_merge(
                     is_array($input['options'] ?? null) ? $input['options'] : [],

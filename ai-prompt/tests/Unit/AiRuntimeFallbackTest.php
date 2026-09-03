@@ -280,6 +280,97 @@ final class AiRuntimeFallbackTest extends TestCase
         $this->assertSame(['google/gemma-3-12b-it:free'], $calls);
     }
 
+    public function test_503_then_fallback_success(): void
+    {
+        $this->seedTwoModelRoute(55, 'paid/claude', 'free/gemma:free', false, true);
+        $calls = [];
+        [$output] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextLongform->value,
+            new AiRoutingContext(userId: 55),
+            function ($candidate) use (&$calls): array {
+                $calls[] = $candidate->model;
+                if ($candidate->model === 'paid/claude') {
+                    throw new PromptRunException('503 service unavailable', 503);
+                }
+
+                return ['recovered', null];
+            },
+        );
+        $this->assertSame('recovered', $output);
+        $this->assertSame(['paid/claude', 'free/gemma:free'], $calls);
+    }
+
+    public function test_schema_parse_error_stops_without_second_route(): void
+    {
+        $this->seedTwoModelRoute(56, 'paid/claude', 'free/gemma:free', false, true);
+        $calls = [];
+        try {
+            $this->router->executeWithProfile(
+                AiExecutionProfile::TextLongform->value,
+                new AiRoutingContext(userId: 56),
+                function ($candidate) use (&$calls): array {
+                    $calls[] = $candidate->model;
+                    throw new PromptRunException('Planner structured output invalid after repair (schema validation failed)');
+                },
+            );
+            $this->fail('Expected parse/schema stop');
+        } catch (PromptRunException $exception) {
+            $this->assertSame(['paid/claude'], $calls);
+            $this->assertStringContainsString('schema validation', strtolower($exception->getMessage()));
+            $this->assertStringNotContainsString('AI_ROUTES_EXHAUSTED', $exception->getMessage());
+        }
+    }
+
+    public function test_context_length_stops_without_exhausting_routes(): void
+    {
+        $this->seedTwoModelRoute(57, 'paid/claude', 'free/gemma:free', false, true);
+        $calls = [];
+        try {
+            $this->router->executeWithProfile(
+                AiExecutionProfile::TextLongform->value,
+                new AiRoutingContext(userId: 57),
+                function ($candidate) use (&$calls): array {
+                    $calls[] = $candidate->model;
+                    throw new PromptRunException('This model\'s maximum context length was exceeded', 400);
+                },
+            );
+            $this->fail('Expected context limit stop');
+        } catch (PromptRunException $exception) {
+            $this->assertSame(['paid/claude'], $calls);
+            $this->assertStringContainsString('context length', strtolower($exception->getMessage()));
+        }
+    }
+
+    public function test_business_false_style_error_does_not_call_second_route(): void
+    {
+        // Global regression: article-quality / business false must not burn the AI chain.
+        $this->seedTwoModelRoute(58, 'paid/claude', 'free/gemma:free', false, true);
+        $calls = [];
+        try {
+            $this->router->executeWithProfile(
+                AiExecutionProfile::TextLongform->value,
+                new AiRoutingContext(userId: 58),
+                function ($candidate) use (&$calls): array {
+                    $calls[] = $candidate->model;
+                    throw new PromptRunException(
+                        'Content quality rejected: unexpected_script',
+                        0,
+                        null,
+                        [
+                            'classification' => \Omnichannel\Addons\AiPrompt\Support\AiFailureClass::OutputQuality->value,
+                            'retryable' => false,
+                        ],
+                    );
+                },
+            );
+            $this->fail('Expected output quality stop');
+        } catch (PromptRunException $exception) {
+            $this->assertSame(['paid/claude'], $calls);
+            $decision = (new AiProviderFailureClassifier())->classify($exception);
+            $this->assertFalse($decision->fallbackAllowed());
+        }
+    }
+
     /**
      * @param  list<array{0: string, 1: string, 2: string, 3: bool}>  $rows
      */

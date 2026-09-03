@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence;
 
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Canonical\CanonicalClusterPhraseResolver;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\DnaPlacement;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordNormalizer;
 
 /**
@@ -45,7 +46,7 @@ final class KeywordDnaExtractor
     ) {}
 
     /**
-     * @return list<array{value: string, normalized_value: string, facet_type: ?string, confidence: string}>
+     * @return list<array{value: string, normalized_value: string, facet_type: ?string, confidence: string, placement: string}>
      */
     public function extract(string $keywordPhrase, string $clusterCanonical): array
     {
@@ -87,7 +88,7 @@ final class KeywordDnaExtractor
     /**
      * @param  list<string>  $residual
      * @param  list<string>  $clusterTokens
-     * @return list<array{value: string, normalized_value: string, facet_type: ?string, confidence: string}>
+     * @return list<array{value: string, normalized_value: string, facet_type: ?string, confidence: string, placement: string}>
      */
     private function composeDnaValues(
         string $originalPhrase,
@@ -119,6 +120,7 @@ final class KeywordDnaExtractor
                 'normalized_value' => $normalized,
                 'facet_type' => $facet,
                 'confidence' => 'high',
+                'placement' => $this->detectPlacement($originalPhrase, $clusterFolded, $display !== '' ? $display : $pattern),
             ];
             $used[$normalized] = true;
             $residual = $this->removePatternTokens($residual, $pattern);
@@ -139,10 +141,31 @@ final class KeywordDnaExtractor
                 'normalized_value' => $normalized,
                 'facet_type' => $this->guessFacet($normalized),
                 'confidence' => 'medium',
+                'placement' => $this->detectPlacement($originalPhrase, $clusterFolded, $display),
             ];
         }
 
         return $values;
+    }
+
+    /**
+     * Infer before|after from DNA fragment position relative to cluster core in the keyword.
+     */
+    private function detectPlacement(string $keywordPhrase, string $clusterFolded, string $dnaDisplay): string
+    {
+        $kwFolded = $this->normalizer->normalize($keywordPhrase)['folded_text'] ?? '';
+        $dnaFolded = $this->normalizer->normalize($dnaDisplay)['folded_text'] ?? '';
+        if ($kwFolded === '' || $clusterFolded === '' || $dnaFolded === '') {
+            return DnaPlacement::DEFAULT;
+        }
+
+        $clusterPos = mb_strpos($kwFolded, $clusterFolded);
+        $dnaPos = mb_strpos($kwFolded, $dnaFolded);
+        if ($clusterPos === false || $dnaPos === false) {
+            return DnaPlacement::DEFAULT;
+        }
+
+        return $dnaPos < $clusterPos ? DnaPlacement::BEFORE : DnaPlacement::AFTER;
     }
 
     /**

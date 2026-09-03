@@ -117,6 +117,22 @@ final class SeoPanelRoutes
         );
     }
 
+    /** Canonical Project Planner (/content-projects/seo-audit) — domain-scoped via Global bar. */
+    public static function isProjectPlannerSeoAudit(?string $route = null): bool
+    {
+        return self::check($route, 'filament.seo.pages.content-projects.seo-audit');
+    }
+
+    public static function isProjectPlannerSeoAuditPath(?string $path = null): bool
+    {
+        $path = strtolower(trim((string) ($path ?? self::resolveUiPath()), '/'));
+        if ($path === '') {
+            return false;
+        }
+
+        return (bool) preg_match('#(?:^|/)content-projects/seo-audit(?:/|$)#', $path);
+    }
+
     public static function isPublishingQueueNav(?string $route = null): bool
     {
         return self::check($route,
@@ -220,11 +236,6 @@ final class SeoPanelRoutes
             'filament.seo.resources.keywords.cluster',
             'filament.seo.resources.keywords.workspace-2',
         );
-    }
-
-    public static function isKeywordsCannibalizationNav(?string $route = null): bool
-    {
-        return self::check($route, 'filament.seo.resources.keywords.cannibalization');
     }
 
     public static function isKeywordsBrokenLinksNav(?string $route = null): bool

@@ -196,7 +196,6 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
         $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterMutationService::class);
         $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordImportService::class);
         $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordExistingContentMapper::class);
-        $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordCannibalizationService::class);
         $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordWorkspaceAnalysisLock::class);
         $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordTopicalMapBuildLock::class);
         $this->app->singleton(\Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\TopicalMapHierarchyValidator::class);
@@ -1075,6 +1074,10 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
         $this->app->singleton(\Omnichannel\Addons\AiPrompt\Services\Ai\ClaudeMessagesClient::class);
         $this->app->singleton(\Omnichannel\Addons\AiPrompt\Services\Ai\DeepSeekChatClient::class);
         $this->app->singleton(\Omnichannel\Addons\AiPrompt\Services\ModelCapabilityRegistry::class);
+        $this->app->singleton(\Omnichannel\Addons\AiPrompt\Services\ModelContextCapabilityResolver::class);
+        $this->app->singleton(\Omnichannel\Addons\AiPrompt\Services\PromptTokenEstimator::class);
+        $this->app->singleton(\Omnichannel\Addons\AiPrompt\PromptBudget\PromptSplitStrategyRegistry::class);
+        $this->app->singleton(\Omnichannel\Addons\AiPrompt\Services\PromptBudgetPreflightService::class);
         $this->app->singleton(\Omnichannel\Addons\AiPrompt\Services\PromptExecutionProfileResolver::class);
         $this->app->singleton(\Omnichannel\Addons\AiPrompt\Services\AiRoutingTargetService::class);
         $this->app->singleton(\Omnichannel\Addons\AiPrompt\Services\AiRoutingBootstrapService::class);

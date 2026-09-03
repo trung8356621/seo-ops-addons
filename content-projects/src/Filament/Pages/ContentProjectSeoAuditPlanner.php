@@ -9,6 +9,7 @@ use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Con
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithAuditNotes;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithIdeaCandidates;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithNewContentSuggestions;
+use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithPlannerPlanClone;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns\InteractsWithSeoAuditSuggestions;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
@@ -20,7 +21,10 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Conte
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectDraftPlanningItemsReadModel;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftIntakeService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftResolver;
+use Omnichannel\Addons\Seo\Filament\Concerns\HidesFilamentPageHeader;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoPanelPage;
+use Omnichannel\Addons\Seo\Support\DomainContext;
+use Omnichannel\Addons\Seo\Support\DomainContextResolver;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Models\Site;
 use App\Support\RuntimeLogger;
@@ -39,10 +43,12 @@ use Throwable;
  */
 final class ContentProjectSeoAuditPlanner extends SeoPanelPage
 {
+    use HidesFilamentPageHeader;
     use InteractsWithAuditNotes;
     use InteractsWithDraftSplit;
     use InteractsWithIdeaCandidates;
     use InteractsWithNewContentSuggestions;
+    use InteractsWithPlannerPlanClone;
     use InteractsWithSeoAuditSuggestions;
     use WithPagination;
 
@@ -61,8 +67,15 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
     #[Url(as: 'project')]
     public ?int $projectId = null;
 
-    #[Url(as: 'site')]
+    /** Working Site mirror of Global Domain Context — not a separate URL SSOT. */
     public ?int $filterSiteId = null;
+
+    /**
+     * Draft list Domain filter (bottom table) — independent of Working Site (?site=).
+     * Allowed: all | 0 (no domain) | {accessible site id}.
+     */
+    #[Url(as: 'draft_domain', except: 'all')]
+    public string $draftDomainFilter = 'all';
 
     public ?SeoProject $project = null;
 
@@ -99,7 +112,18 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
     {
         abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
 
+        $this->draftDomainFilter = $this->normalizeDraftDomainFilter($this->draftDomainFilter);
+
+        $this->migrateLegacyPlannerSiteQuery();
+        $this->ensureConcreteGlobalWorkingSite();
+
         if ($this->shouldRedirectLegacyAdvancedParam()) {
+            $this->redirect(static::getUrl($this->canonicalPlannerQueryParams()), navigate: false);
+
+            return;
+        }
+
+        if ($this->shouldCanonicalizePlannerUrl()) {
             $this->redirect(static::getUrl($this->canonicalPlannerQueryParams()), navigate: false);
 
             return;
@@ -108,11 +132,19 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         $this->workspaceTab = 'suggestions';
         $this->resolveSelectedProject();
         $this->autoSelectSharedDraftIfNeeded();
-        $this->mountInteractsWithSeoAuditSuggestions();
-        $this->mountInteractsWithNewContentSuggestions();
-        $this->mountInteractsWithAuditNotes();
-        $this->mountInteractsWithIdeaCandidates();
-        $this->mountInteractsWithDraftSplit();
+        $this->applyWorkingSiteContext(null, remount: true);
+    }
+
+    #[On('domain-context-changed')]
+    #[On('seoGlobalSiteChanged')]
+    public function onDomainContextChanged(mixed $domain = null, mixed $siteId = null): void
+    {
+        $resolved = is_numeric($siteId) && (int) $siteId > 0
+            ? (int) $siteId
+            : SeoAccessControl::globalSiteId();
+
+        $this->ensureConcreteGlobalWorkingSite();
+        $this->applyWorkingSiteContext($resolved, remount: true);
     }
 
     public function getTitle(): string|Htmlable
@@ -146,7 +178,18 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
 
     public function updatedFilterSiteId(): void
     {
+        $this->applyWorkingSiteContext(null, remount: true);
+    }
+
+    private function applyWorkingSiteContext(?int $siteId, bool $remount = false): void
+    {
+        $resolved = $siteId ?? SeoAccessControl::globalSiteId();
+        $this->filterSiteId = ($resolved !== null && $resolved > 0) ? $resolved : null;
+
         // Working site is data context only — Shared Draft id must stay the same.
+        // Draft Domain filter stays independent unless the referenced site becomes inaccessible.
+        $this->draftDomainFilter = $this->normalizeDraftDomainFilter($this->draftDomainFilter);
+
         $this->selectedTaskIds = [];
         $this->clearSuggestionSelection();
         $this->resetPage('suggestionsPage');
@@ -155,11 +198,96 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
             $this->autoSelectSharedDraftIfNeeded();
         }
 
-        $this->mountInteractsWithSeoAuditSuggestions();
-        $this->mountInteractsWithNewContentSuggestions();
-        $this->mountInteractsWithAuditNotes();
-        $this->mountInteractsWithIdeaCandidates();
-        $this->mountInteractsWithDraftSplit();
+        if ($remount) {
+            $this->mountInteractsWithSeoAuditSuggestions();
+            $this->mountInteractsWithNewContentSuggestions();
+            $this->mountInteractsWithAuditNotes();
+            $this->mountInteractsWithIdeaCandidates();
+            $this->mountInteractsWithDraftSplit();
+        }
+    }
+
+    private function migrateLegacyPlannerSiteQuery(): void
+    {
+        $legacySite = (int) request()->query('site', 0);
+        if ($legacySite <= 0 || ! SeoAccessControl::canAccessSite($legacySite)) {
+            return;
+        }
+
+        if (app(DomainContextResolver::class)->hasExplicitRequestKey()) {
+            return;
+        }
+
+        SeoAccessControl::setGlobalSiteId($legacySite);
+    }
+
+    private function ensureConcreteGlobalWorkingSite(): void
+    {
+        $siteId = SeoAccessControl::globalSiteId();
+        if ($siteId !== null && $siteId > 0) {
+            return;
+        }
+
+        $first = SeoAccessControl::accessibleSitesQuery()->orderBy('domain')->first();
+        if ($first instanceof Site) {
+            SeoAccessControl::setGlobalSiteId((int) $first->getKey());
+        }
+    }
+
+    private function shouldCanonicalizePlannerUrl(): bool
+    {
+        if (request()->has('site')) {
+            return true;
+        }
+
+        $globalSiteId = (int) (SeoAccessControl::globalSiteId() ?? 0);
+        if ($globalSiteId <= 0) {
+            return false;
+        }
+
+        return ! request()->has(DomainContext::SITE_ID_QUERY_KEY)
+            && ! request()->has(DomainContext::QUERY_KEY);
+    }
+
+    /**
+     * Persist Draft list Domain filter to URL and remount the Alpine projection
+     * with domain-scoped rows + counts from the read model.
+     */
+    public function setDraftDomainFilter(string $value): void
+    {
+        $this->draftDomainFilter = $this->normalizeDraftDomainFilter($value);
+        $this->selectedTaskIds = [];
+        $this->draftPlanningRefreshNonce++;
+    }
+
+    /**
+     * @return 'all'|'0'|string concrete accessible site id as string
+     */
+    private function normalizeDraftDomainFilter(string $value): string
+    {
+        $normalized = strtolower(trim($value));
+        if ($normalized === '' || $normalized === 'all') {
+            return 'all';
+        }
+
+        if ($normalized === '0') {
+            return '0';
+        }
+
+        if (! ctype_digit($normalized)) {
+            return 'all';
+        }
+
+        $siteId = (int) $normalized;
+        if ($siteId <= 0) {
+            return 'all';
+        }
+
+        if (! SeoAccessControl::canAccessSite($siteId)) {
+            return 'all';
+        }
+
+        return (string) $siteId;
     }
 
     /**
@@ -213,11 +341,36 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
 
     public function getDraftSupportsProductProperty(): bool
     {
+        $site = $this->resolvePlanningSite();
+        if ($site instanceof Site) {
+            return $this->newContentSiteSupportsProductForSite($site);
+        }
+
         if (! $this->project instanceof SeoProject) {
             return false;
         }
 
         return $this->newContentSiteSupportsProduct($this->project);
+    }
+
+    /**
+     * Canonical working Site for Project Planner (filterSiteId).
+     * Shared Draft remains domain-neutral — this is explicit context, not project.site_id.
+     */
+    public function resolvePlanningSite(): ?Site
+    {
+        $siteId = (int) (SeoAccessControl::globalSiteId() ?? $this->filterSiteId ?? 0);
+        if ($siteId <= 0) {
+            return null;
+        }
+
+        if (! SeoAccessControl::canAccessSite($siteId)) {
+            return null;
+        }
+
+        $site = Site::query()->find($siteId);
+
+        return $site instanceof Site ? $site : null;
     }
 
     /**
@@ -241,6 +394,7 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         return app(ContentProjectDraftPlanningItemsReadModel::class)->forProject($this->project, [
             'review' => $this->draftReviewFilter,
             'type' => $this->draftTypeFilter,
+            'domain' => $this->draftDomainFilter,
         ]);
     }
 
@@ -359,6 +513,7 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
             ->forProject($project->fresh() ?? $project, [
                 'review' => 'all',
                 'type' => 'all',
+                'domain' => $this->draftDomainFilter,
             ]);
 
         $row = null;
@@ -369,7 +524,7 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
             }
         }
 
-        // Alpine inserts the returned row locally — avoid full table remount.
+        // Alpine inserts the returned row locally only when it matches current domain projection.
         return [
             'clone_id' => $cloneId,
             'source_id' => (int) ($result['source_id'] ?? 0),
@@ -477,25 +632,38 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
     }
 
     /**
+     * Re-query Draft planning rows after SEO Audit / AI New Content mutations.
+     */
+    public function refreshDraftPlanningSnapshot(): void
+    {
+        $this->draftPlanningRefreshNonce++;
+    }
+
+    /**
      * Re-query Draft planning rows after AI New Content / SEO Audit mutations.
      * Alpine Draft table boots from a one-time snapshot — bump wire:key to remount.
      */
     #[On('cp-ops-refresh')]
     public function onCpOpsRefresh(): void
     {
-        $this->draftPlanningRefreshNonce++;
+        $this->refreshDraftPlanningSnapshot();
     }
 
-    public function archiveOne(int $taskId): void
+    public function archiveOne(int $taskId): bool
     {
-        $this->dispatchDraftArchive([$taskId]);
+        return $this->dispatchDraftArchive([$taskId]);
     }
 
-    public function skipSeoAuditOne(int $taskId): void
+    public function skipSeoAuditOne(int $taskId): bool
     {
         abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
 
-        $project = $this->requireProject();
+        try {
+            $project = $this->requireProject();
+        } catch (Halt) {
+            return false;
+        }
+
         $task = SeoProjectTask::query()
             ->where('project_id', (int) $project->getKey())
             ->whereKey($taskId)
@@ -508,7 +676,7 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
                 ->warning()
                 ->send();
 
-            throw new Halt;
+            return false;
         }
 
         $actor = ActorContext::user(
@@ -531,7 +699,7 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
                 ->danger()
                 ->send();
 
-            throw new Halt;
+            return false;
         }
 
         // Soft-remove from Draft without project-scoped dismissal (Restore → Fill again).
@@ -561,9 +729,7 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
             ->{$archiveResult->success ? 'success' : 'warning'}()
             ->send();
 
-        if (! $archiveResult->success) {
-            throw new Halt;
-        }
+        return $archiveResult->success;
     }
 
     public function plannerRunDetailUrl(int $plannerRunId): string
@@ -782,9 +948,14 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
             $params['project'] = $projectId;
         }
 
-        $siteId = (int) ($this->filterSiteId ?? 0);
+        $siteId = (int) (SeoAccessControl::globalSiteId() ?? $this->filterSiteId ?? 0);
         if ($siteId > 0) {
-            $params['site'] = $siteId;
+            $params[DomainContext::SITE_ID_QUERY_KEY] = $siteId;
+        }
+
+        $draftDomain = $this->normalizeDraftDomainFilter($this->draftDomainFilter);
+        if ($draftDomain !== 'all') {
+            $params['draft_domain'] = $draftDomain;
         }
 
         $domain = trim((string) request()->query('domain', ''));
@@ -798,7 +969,7 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
     /**
      * @param  list<int>  $taskIds
      */
-    private function dispatchDraftArchive(array $taskIds): void
+    private function dispatchDraftArchive(array $taskIds): bool
     {
         abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
 
@@ -809,10 +980,14 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
                 ->warning()
                 ->send();
 
-            return;
+            return false;
         }
 
-        $project = $this->requireProject();
+        try {
+            $project = $this->requireProject();
+        } catch (Halt) {
+            return false;
+        }
 
         try {
             $result = app(ContentProjectCommandBus::class)->dispatch(
@@ -828,41 +1003,49 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
 
             Notification::make()
                 ->title($result->success
-                    ? __('seo-content-ai::filament.projects.archive_item_completed')
-                    : __('seo-content-ai::filament.projects.archive_failed'))
+                    ? ($project->isDraftPlanning()
+                        ? __('seo-content-ai::filament.projects.draft_remove_completed')
+                        : __('seo-content-ai::filament.projects.archive_item_completed'))
+                    : ($project->isDraftPlanning()
+                        ? __('seo-content-ai::filament.projects.draft_remove_failed')
+                        : __('seo-content-ai::filament.projects.archive_failed')))
                 ->body($result->success
-                    ? __('seo-content-ai::filament.projects.archive_item_completed_body', [
-                        'archived' => (int) ($result->metadata['affected_count'] ?? count($ids)),
-                    ])
+                    ? ($project->isDraftPlanning()
+                        ? __('seo-content-ai::filament.projects.draft_remove_completed_body', [
+                            'archived' => (int) ($result->metadata['affected_count'] ?? count($ids)),
+                        ])
+                        : __('seo-content-ai::filament.projects.archive_item_completed_body', [
+                            'archived' => (int) ($result->metadata['affected_count'] ?? count($ids)),
+                        ]))
                     : $result->message)
                 ->{$result->success ? 'success' : 'danger'}()
                 ->send();
 
-            if ($result->success) {
-                $archived = array_flip($ids);
-                $this->selectedTaskIds = array_values(array_filter(
-                    $this->normalizeSelectedIds($this->selectedTaskIds),
-                    static fn (int $id): bool => ! isset($archived[$id]),
-                ));
-
-                return;
+            if (! $result->success) {
+                return false;
             }
 
-            throw new Halt;
-        } catch (Halt $e) {
-            throw $e;
+            $archived = array_flip($ids);
+            $this->selectedTaskIds = array_values(array_filter(
+                $this->normalizeSelectedIds($this->selectedTaskIds),
+                static fn (int $id): bool => ! isset($archived[$id]),
+            ));
+
+            return true;
         } catch (Throwable $e) {
             RuntimeLogger::report($e, [
                 'endpoint' => 'content_project.content_planning.archive',
                 'project_id' => (int) $project->getKey(),
             ]);
             Notification::make()
-                ->title(__('seo-content-ai::filament.projects.archive_failed'))
+                ->title($project->isDraftPlanning()
+                    ? __('seo-content-ai::filament.projects.draft_remove_failed')
+                    : __('seo-content-ai::filament.projects.archive_failed'))
                 ->body($e->getMessage())
                 ->danger()
                 ->send();
 
-            throw new Halt;
+            return false;
         }
     }
 }

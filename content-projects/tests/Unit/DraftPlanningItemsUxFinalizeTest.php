@@ -52,6 +52,28 @@ final class DraftPlanningItemsUxFinalizeTest extends TestCase
         self::assertStringNotContainsString('planningEditModal', $page);
     }
 
+    public function test_draft_remove_uses_draft_toasts_not_archive_project_failed(): void
+    {
+        $page = (string) file_get_contents(
+            (string) (new ReflectionClass(ContentProjectSeoAuditPlanner::class))->getFileName(),
+        );
+
+        self::assertStringContainsString('draft_remove_completed', $page);
+        self::assertStringContainsString('draft_remove_failed', $page);
+        self::assertStringContainsString('isDraftPlanning()', $page);
+    }
+
+    public function test_archive_tasks_allows_shared_draft_without_project_site_id(): void
+    {
+        $src = (string) file_get_contents(
+            (string) (new ReflectionClass(\Omnichannel\Addons\ContentProjects\Services\SeoProjectArchiveService::class))->getFileName(),
+        );
+
+        self::assertStringContainsString('Shared Draft has project.site_id = 0', $src);
+        self::assertStringContainsString('$siteId = (int) ($task->site_id ?? 0)', $src);
+        self::assertStringContainsString('task_site_missing', $src);
+    }
+
     public function test_inline_update_uses_canonical_title_keyword_description(): void
     {
         $page = (string) file_get_contents(

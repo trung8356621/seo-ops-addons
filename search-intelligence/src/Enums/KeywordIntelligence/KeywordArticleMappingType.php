@@ -12,5 +12,4 @@ enum KeywordArticleMappingType: string
     case ExistingRankTarget = 'existing_rank_target';
     case CurrentContent = 'current_content';
     case PlannedTarget = 'planned_target';
-    case CannibalizationCandidate = 'cannibalization_candidate';
 }

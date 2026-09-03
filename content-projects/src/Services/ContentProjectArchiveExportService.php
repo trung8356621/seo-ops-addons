@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\ContentProjects\Services;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectArchive;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectArchiveItem;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemDomainResolver;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExportReviewedAtResolver;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ExcelHyperlinkHelper;
 use Omnichannel\Addons\Seo\Support\ExcelFormulaEscaper;
 use Omnichannel\Addons\Social\Services\ArticleSocialLinkService;
@@ -61,12 +62,13 @@ final class ContentProjectArchiveExportService
         'seo_score' => 'SEO',
         'index_status' => 'Index',
         'social_links_count' => 'Social',
-        'completed_at' => 'Hoàn thành',
+        'reviewed_at' => 'Reviewed at',
     ];
 
     public function __construct(
         private readonly ContentProjectItemDomainResolver $domainResolver,
         private readonly ArticleSocialLinkService $socialLinks,
+        private readonly ContentProjectExportReviewedAtResolver $reviewedAtResolver = new ContentProjectExportReviewedAtResolver(),
     ) {}
 
     public function download(SeoProjectArchive $archive): StreamedResponse|Response
@@ -96,7 +98,8 @@ final class ContentProjectArchiveExportService
     {
         $archive->load([
             'items' => static fn ($query) => $query->orderBy('position')->orderBy('id'),
-            'items.article',
+            'items.article.wordpressLink',
+            'items.article.seoProfile',
             'items.task',
             'archivedByUser',
             'owner',
@@ -231,8 +234,10 @@ final class ContentProjectArchiveExportService
                     continue;
                 }
 
-                if ($column === 'completed_at') {
-                    $row[] = $this->formatReportDate($this->articleField($data, $item, 'completed_at'));
+                if ($column === 'reviewed_at') {
+                    $row[] = $this->formatReportDate(
+                        $this->reviewedAtResolver->resolve($data, $item->article),
+                    );
 
                     continue;
                 }
@@ -387,7 +392,7 @@ final class ContentProjectArchiveExportService
             'status' => $item->task?->status,
             'approved_status' => $article->review_status ?? null,
             'seo_score' => $article->seoProfile?->seo_score ?? null,
-            'completed_at' => $this->formatDateTime($item->task?->completed_at ?? $article->reviewed_at),
+            ...$this->reviewedAtResolver->exportFields($article),
             'sync_status' => $article->wordpressLink?->sync_status ?? null,
             'wordpress_post_id' => $article->wordpressLink?->wp_post_id ?? null,
             'last_synced_at' => $this->formatDateTime($article->wordpressLink?->last_synced_at),
@@ -411,7 +416,7 @@ final class ContentProjectArchiveExportService
             'status' => $item->task?->status,
             'approved_status' => $item->article?->review_status,
             'seo_score' => $item->article?->seoProfile?->seo_score,
-            'completed_at' => $this->formatDateTime($item->task?->completed_at ?? $item->article?->reviewed_at),
+            'reviewed_at' => $this->reviewedAtResolver->resolve([], $item->article),
             'seo_rule_violations' => null,
             'sync_status' => $item->article?->wordpressLink?->sync_status ?? null,
             'wordpress_post_id' => $item->article?->wordpressLink?->wp_post_id,

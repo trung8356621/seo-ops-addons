@@ -9,6 +9,7 @@ use Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate;
 use Omnichannel\Addons\AiPrompt\Models\AiRuntimeHealthState;
 use Omnichannel\Addons\AiPrompt\Models\SeoAiModel;
 use Omnichannel\Addons\AiPrompt\Support\AiFailureClass;
+use Omnichannel\Addons\AiPrompt\Support\AiFailureScope;
 use Omnichannel\Addons\AiPrompt\Support\AiRuntimeHealthStatus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -139,7 +140,9 @@ final class AiRuntimeHealthService
                 $row->health_status = AiRuntimeHealthStatus::BudgetLimited->value;
                 $row->paid_locked = true;
                 $row->manual_unlock_required = true;
-            } elseif ($decision->applyCooldown) {
+            } elseif ($decision->applyCooldown && $this->cooldownAppliesToConnection($decision)) {
+                // Model-scoped transient/429 must not cooldown the whole connection —
+                // sibling models on the same connection must still be tried in-route.
                 $row->cooldown_until = now()->addMinutes(self::COOLDOWN_MINUTES);
                 $row->health_status = $this->degradedOrExisting($row)->value;
             }
@@ -486,6 +489,12 @@ final class AiRuntimeHealthService
     private function isOnCooldown(AiRuntimeHealthState $row): bool
     {
         return $row->cooldown_until !== null && $row->cooldown_until->isFuture();
+    }
+
+    private function cooldownAppliesToConnection(AiFailureDecision $decision): bool
+    {
+        return $decision->scope === AiFailureScope::Connection
+            || $decision->scope === AiFailureScope::ConnectionPaid;
     }
 
     /**

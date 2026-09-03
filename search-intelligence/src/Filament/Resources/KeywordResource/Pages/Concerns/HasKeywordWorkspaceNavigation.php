@@ -177,11 +177,6 @@ trait HasKeywordWorkspaceNavigation
                 'count' => $counts['focus'],
             ],
             [
-                'key' => 'cannibalization',
-                'label' => __('seo-content-ai::filament.keyword.cannibalization_nav'),
-                'url' => KeywordResource::getUrl('cannibalization'),
-            ],
-            [
                 'key' => 'anchor-audit',
                 'label' => __('seo-content-ai::filament.keyword.workspace_nav_anchor_audit'),
                 'url' => KeywordResource::getUrl('anchor-audit'),

@@ -40,6 +40,7 @@ final class SeoAuditSuggestionDecisionService
         array $articleIds,
         ?int $actorId = null,
         string $sourceType = SeoContentProjectSuggestionDecision::SOURCE_SEO_AUDIT,
+        ?int $siteId = null,
     ): array {
         $articleIds = $this->normalizeArticleIds($articleIds);
         if ($articleIds === []) {
@@ -47,7 +48,7 @@ final class SeoAuditSuggestionDecisionService
         }
 
         $count = 0;
-        DB::connection('omi_seo_ai')->transaction(function () use ($project, $articleIds, $actorId, $sourceType, &$count): void {
+        DB::connection('omi_seo_ai')->transaction(function () use ($project, $articleIds, $actorId, $sourceType, $siteId, &$count): void {
             foreach ($articleIds as $articleId) {
                 $this->upsertDecision(
                     $project,
@@ -56,6 +57,7 @@ final class SeoAuditSuggestionDecisionService
                     SeoContentProjectSuggestionDecision::DECISION_DISMISSED,
                     $articleId,
                     $actorId,
+                    siteId: $siteId,
                 );
                 $count++;
             }
@@ -94,6 +96,7 @@ final class SeoAuditSuggestionDecisionService
         ?int $actorId = null,
         string $sourceType = SeoContentProjectSuggestionDecision::SOURCE_SEO_AUDIT,
         ?array $meta = null,
+        ?int $siteId = null,
     ): void {
         if ($articleId <= 0) {
             return;
@@ -107,6 +110,7 @@ final class SeoAuditSuggestionDecisionService
             $articleId,
             $actorId,
             $meta,
+            $siteId,
         );
     }
 
@@ -232,7 +236,12 @@ final class SeoAuditSuggestionDecisionService
         ?int $articleId,
         ?int $actorId,
         ?array $meta = null,
+        ?int $siteId = null,
     ): void {
+        $resolvedSiteId = $siteId !== null && $siteId > 0
+            ? $siteId
+            : ((int) ($project->site_id ?? 0) ?: null);
+
         SeoContentProjectSuggestionDecision::query()->updateOrCreate(
             [
                 'project_id' => (int) $project->getKey(),
@@ -240,7 +249,7 @@ final class SeoAuditSuggestionDecisionService
                 'source_key' => $sourceKey,
             ],
             [
-                'site_id' => (int) ($project->site_id ?? 0) ?: null,
+                'site_id' => $resolvedSiteId,
                 'decision' => $decision,
                 'article_id' => $articleId !== null && $articleId > 0 ? $articleId : null,
                 'meta' => $meta,

@@ -7,7 +7,7 @@ return [
     'max_topic_depth' => 4,
 
     // Consumed directly by KeywordIntelligenceQuotaGuard / TopicalMapBuilder /
-    // KeywordWorkspaceAnalysisService / KeywordCannibalizationService.
+    // KeywordWorkspaceAnalysisService.
     'limits' => [
         'max_workspaces_per_site' => 50,
         'max_keywords_per_import' => 2000,
@@ -42,9 +42,6 @@ return [
         'default_policy' => 'new_only',
         'default_grouping' => 'single_project',
     ],
-    'cannibalization' => [
-        'multi_mapping_threshold' => 2,
-    ],
 
     'scoring' => [
         'version' => '1',
@@ -55,7 +52,6 @@ return [
             'intent' => 0.10,
         ],
         'penalties' => [
-            'cannibalization' => 15,
             'existing_coverage' => 10,
         ],
     ],
@@ -81,7 +77,6 @@ return [
             'scoring',
             'mapping_content',
             'clustering',
-            'detecting_cannibalization',
             'finalize',
             'completed',
             'failed',

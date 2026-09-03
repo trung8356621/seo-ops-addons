@@ -71,7 +71,6 @@ final class SeoPanelNavActiveStateTest extends TestCase
             ['filament.seo-main.resources.keywords.focus', 'keywordsDictionary', false],
             ['filament.seo-main.resources.keywords.clusters', 'keywordsClusters', true],
             ['filament.seo-main.resources.keywords.cluster', 'keywordsClusters', true],
-            ['filament.seo-main.resources.keywords.cannibalization', 'keywordsCannibalization', true],
             ['filament.seo-main.resources.keywords.anchor-audit', 'keywordsBrokenLinks', true],
             ['filament.seo-main.resources.keywords.anchor-audit', 'keywordsDictionary', false],
             ['filament.seo-main.resources.keywords.focus', 'keywordsModule', true],
@@ -177,7 +176,6 @@ final class SeoPanelNavActiveStateTest extends TestCase
             SeoPanelRoutes::isKeywordsDictionaryNav($route),
             SeoPanelRoutes::isKeywordsFocusNav($route),
             SeoPanelRoutes::isKeywordsClustersNav($route),
-            SeoPanelRoutes::isKeywordsCannibalizationNav($route),
             SeoPanelRoutes::isKeywordsBrokenLinksNav($route),
         ];
 
@@ -200,7 +198,6 @@ final class SeoPanelNavActiveStateTest extends TestCase
             'keywordsDictionary' => SeoPanelRoutes::isKeywordsDictionaryNav($route),
             'keywordsFocus' => SeoPanelRoutes::isKeywordsFocusNav($route),
             'keywordsClusters' => SeoPanelRoutes::isKeywordsClustersNav($route),
-            'keywordsCannibalization' => SeoPanelRoutes::isKeywordsCannibalizationNav($route),
             'keywordsBrokenLinks' => SeoPanelRoutes::isKeywordsBrokenLinksNav($route),
             'seoModule' => SeoPanelRoutes::isSeoModule($route),
             'seoPerformance' => SeoPanelRoutes::isSeoPerformanceNav($route),

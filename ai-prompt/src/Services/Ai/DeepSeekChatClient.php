@@ -7,6 +7,8 @@ namespace Omnichannel\Addons\AiPrompt\Services\Ai;
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use App\Models\ApiConnection;
 use Illuminate\Support\Facades\Http;
+use Omnichannel\Addons\AiPrompt\Services\AiOutboundBudgetGate;
+use Omnichannel\Addons\AiPrompt\Services\PromptBudgetPreflightService;
 use Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\ProviderConnectionResolver;
 
 /**
@@ -47,6 +49,25 @@ final class DeepSeekChatClient
         if (isset($options['max_output']) && is_numeric($options['max_output'])) {
             $payload['max_tokens'] = (int) $options['max_output'];
         }
+
+        // Final outbound invariant — blocks HTTP when payload exceeds verified budget.
+        if (function_exists('app') && app()->bound(PromptBudgetPreflightService::class)) {
+            $gate = new AiOutboundBudgetGate(app(PromptBudgetPreflightService::class));
+            $plan = $gate->verifyCompiled(
+                null,
+                $connection,
+                $prompt,
+                $modelName,
+                'deepseek',
+                is_string($options['hook_key'] ?? null) ? (string) $options['hook_key'] : null,
+                $options,
+            );
+            if ($plan->requestedMaxOutputTokens > 0 && ! isset($payload['max_tokens'])) {
+                $payload['max_tokens'] = $plan->requestedMaxOutputTokens;
+            }
+            $options['budget_plan_id'] = $plan->planId;
+        }
+
         if (isset($options['thinking']) && $options['thinking'] === 'disabled' && $modelName === 'deepseek-reasoner') {
             // Reasoner always thinks; documented no-op kept for routing options compatibility.
         }

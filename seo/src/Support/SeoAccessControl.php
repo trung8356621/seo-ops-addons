@@ -216,8 +216,24 @@ final class SeoAccessControl
         return ! self::isContentManager();
     }
 
+    public static function isProjectPlannerSeoAuditPage(): bool
+    {
+        return SeoPanelRoutes::isProjectPlannerSeoAudit()
+            || SeoPanelRoutes::isProjectPlannerSeoAuditPath();
+    }
+
+    /** Project Planner requires a concrete domain — never "All domains". */
+    public static function shouldRequireConcreteGlobalDomain(): bool
+    {
+        return self::isProjectPlannerSeoAuditPage();
+    }
+
     public static function shouldShowGlobalSitePicker(): bool
     {
+        if (self::isProjectPlannerSeoAuditPage()) {
+            return true;
+        }
+
         if (SeoPanelRoutes::is('filament.seo.pages.mcp-intelligence')) {
             return false;
         }
@@ -227,14 +243,10 @@ final class SeoAccessControl
         }
 
         if (
-            SeoPanelRoutes::is('filament.seo.pages.articles-optimal', 'filament.seo.pages.content-projects-seo-audit')
+            SeoPanelRoutes::is('filament.seo.pages.articles-optimal')
             || request()->is(
                 'seo/*/articles/optimal',
                 'seo/*/articles/optimal/*',
-                'seo/*/content-projects/seo-audit',
-                'seo/*/content-projects/seo-audit/*',
-                'seo/content-projects/seo-audit',
-                'seo/content-projects/seo-audit/*',
             )
         ) {
             return false;

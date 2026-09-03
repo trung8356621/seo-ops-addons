@@ -109,7 +109,8 @@ final class OutlineComparisonRetirementContractTest extends TestCase
         self::assertStringNotContainsString('compare_outline', $source);
         self::assertStringNotContainsString('check_outline_duplicate', $source);
         self::assertStringNotContainsString('outline_similarity', $source);
-        self::assertStringContainsString('keyword_intelligence.get_cannibalization', $source);
+        self::assertStringNotContainsString('keyword_intelligence.get_cannibalization', $source);
+        self::assertStringContainsString('keyword_intelligence.get_analysis_operation', $source);
     }
 
     public function test_legacy_comparison_services_remain_but_are_marked_deprecated(): void

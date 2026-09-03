@@ -51,7 +51,19 @@ function highlightRow(root, keywordId) {
     row?.classList.add('keyword-row-selected');
 }
 
+function isQuickViewMode(root) {
+    const layout = root?.closest?.('.keyword-detail-layout') ?? root;
+    const mode = layout?.getAttribute?.('data-keyword-view-mode')
+        || (layout?.classList?.contains('is-quick-mode') ? 'quick' : null);
+
+    return mode === 'quick';
+}
+
 function handleKeywordRowSelect(root, config, recordKey) {
+    if (isQuickViewMode(root)) {
+        return;
+    }
+
     const keywordId = Number(recordKey);
     if (!Number.isFinite(keywordId) || keywordId <= 0) {
         return;

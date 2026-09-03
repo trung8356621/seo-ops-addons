@@ -17,7 +17,6 @@ enum KeywordAnalysisStage: string
     case Clustering = 'clustering';
     /** @deprecated Phase 2 pipeline skips topical map — kept for BC */
     case BuildingTopics = 'building_topics';
-    case DetectingCannibalization = 'detecting_cannibalization';
     case Finalize = 'finalize';
     case Completed = 'completed';
     case Failed = 'failed';

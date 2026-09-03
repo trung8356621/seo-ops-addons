@@ -28,7 +28,7 @@ final class PromptExecutionProfileResolver
         'article.outline.generate' => AiExecutionProfile::TextReasoning,
         'article.outline.structure.generate' => AiExecutionProfile::TextReasoning,
         'article.vocabulary.generate' => AiExecutionProfile::TextReasoning,
-        'keyword.discovery.structured' => AiExecutionProfile::TextReasoning,
+        'keyword.discovery.structured' => AiExecutionProfile::TextLongform,
         'article.content.generate' => AiExecutionProfile::TextLongform,
         'article.content.rewrite' => AiExecutionProfile::TextLongform,
         'article.content.translate' => AiExecutionProfile::TextLongform,

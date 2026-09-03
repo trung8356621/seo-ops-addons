@@ -67,9 +67,9 @@ final class SharedPlanningDraftMigrationContractTest extends TestCase
             (string) (new ReflectionClass(ContentProjectSeoAuditPlanner::class))->getFileName(),
         );
 
-        self::assertStringContainsString('content_planning_working_site', $blade);
-        self::assertStringContainsString('data-shared-planning-draft', $blade);
-        self::assertStringContainsString('content_planning_shared_draft_summary', $blade);
+        self::assertStringNotContainsString('content_planning_working_site', $blade);
+        self::assertStringNotContainsString('content_planning_draft_label', $blade);
+        self::assertStringNotContainsString('data-shared-planning-draft', $blade);
         self::assertStringNotContainsString('content_planning_no_draft_yet', $blade);
         self::assertStringNotContainsString('data-content-planning-action="create-draft"', $blade);
         self::assertStringNotContainsString('seo_audit_create_draft', $blade);

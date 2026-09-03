@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Tests\Unit;
 
-use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExecutionLimits;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthChartPresenter;
 use PHPUnit\Framework\TestCase;
 
@@ -17,7 +16,8 @@ final class ContentProjectMonthChartPresenterTest extends TestCase
         $chart = $presenter->presentWriter([
             'month' => '2026-08-01',
             'month_label' => '08/2026',
-            'capacity' => ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS,
+            'default_capacity' => 30,
+            'team_capacity' => 180,
             'writer_empty' => false,
             'writer_max' => 13,
             'by_writer' => [
@@ -38,6 +38,29 @@ final class ContentProjectMonthChartPresenterTest extends TestCase
         self::assertStringContainsString('conic-gradient', $chart['donut_gradient']);
         self::assertSame(6, count($chart['visible_rows']));
         self::assertSame(0, $chart['more_count']);
+    }
+
+    public function test_unequal_capacities_sum_to_team_capacity(): void
+    {
+        $presenter = new ContentProjectMonthChartPresenter();
+
+        $chart = $presenter->presentWriter([
+            'month' => '2026-09-01',
+            'month_label' => '09/2026',
+            'default_capacity' => 30,
+            'team_capacity' => 100,
+            'writer_empty' => false,
+            'by_writer' => [
+                ['user_id' => 1, 'name' => 'A', 'total_count' => 1, 'active_count' => 1, 'archived_count' => 0, 'capacity' => 40, 'remaining' => 39],
+                ['user_id' => 2, 'name' => 'B', 'total_count' => 1, 'active_count' => 1, 'archived_count' => 0, 'capacity' => 15, 'remaining' => 14],
+                ['user_id' => 3, 'name' => 'C', 'total_count' => 1, 'active_count' => 1, 'archived_count' => 0, 'capacity' => 10, 'remaining' => 9],
+                ['user_id' => 4, 'name' => 'D', 'total_count' => 1, 'active_count' => 1, 'archived_count' => 0, 'capacity' => 30, 'remaining' => 29],
+                ['user_id' => 5, 'name' => 'E', 'total_count' => 1, 'active_count' => 1, 'archived_count' => 0, 'capacity' => 5, 'remaining' => 4],
+            ],
+        ]);
+
+        self::assertSame(100, $chart['team_capacity']);
+        self::assertSame(5, $chart['overall_progress_pct']);
     }
 
     public function test_domain_share_percent_and_top_limit(): void

@@ -7,14 +7,18 @@ namespace Omnichannel\Addons\ContentProjects\Support\ContentProject;
 /**
  * Fair distribution of Reviewed items across included writers, then
  * chunk each writer allocation into Execution Projects of max 30 items.
+ *
+ * When remaining capacities are provided, never assigns beyond each writer's
+ * free monthly slots (capacity-aware water-filling / round-robin).
  */
 final class ContentProjectWriterAllocator
 {
     /**
-     * Deterministic fair split: base = floor(n/users), first remainder users get +1.
+     * Deterministic fair split with optional per-writer remaining capacity.
      *
      * @param  list<int>  $taskIds
      * @param  list<int>  $selectedUserIds  Stable included order
+     * @param  array<int, int>|null  $remainingByUserId  max(0, capacity - used); null = unlimited (legacy fair)
      * @return array{
      *     allocations: list<array{
      *         user_id: int,
@@ -24,11 +28,16 @@ final class ContentProjectWriterAllocator
      *         project_count: int
      *     }>,
      *     unallocated_count: int,
-     *     unallocated_task_ids: list<int>
+     *     unallocated_task_ids: list<int>,
+     *     requested_items: int,
+     *     assigned_items: int
      * }
      */
-    public static function allocate(array $taskIds, array $selectedUserIds): array
-    {
+    public static function allocate(
+        array $taskIds,
+        array $selectedUserIds,
+        ?array $remainingByUserId = null,
+    ): array {
         $taskIds = array_values(array_filter(
             array_map(static fn (mixed $id): int => (int) $id, $taskIds),
             static fn (int $id): bool => $id > 0,
@@ -45,17 +54,25 @@ final class ContentProjectWriterAllocator
             $orderedUserIds[] = $userId;
         }
 
+        $requested = count($taskIds);
+
         if ($orderedUserIds === [] || $taskIds === []) {
             return [
                 'allocations' => [],
-                'unallocated_count' => count($taskIds),
+                'unallocated_count' => $requested,
                 'unallocated_task_ids' => $taskIds,
+                'requested_items' => $requested,
+                'assigned_items' => 0,
             ];
         }
 
-        $counts = self::fairCounts(count($taskIds), count($orderedUserIds));
+        $counts = $remainingByUserId === null
+            ? self::fairCounts($requested, count($orderedUserIds))
+            : self::capacityAwareFairCounts($requested, $orderedUserIds, $remainingByUserId);
+
         $offset = 0;
         $allocations = [];
+        $assignedTotal = 0;
 
         foreach ($orderedUserIds as $index => $userId) {
             $take = (int) ($counts[$index] ?? 0);
@@ -73,6 +90,7 @@ final class ContentProjectWriterAllocator
 
             $chunk = array_slice($taskIds, $offset, $take);
             $offset += count($chunk);
+            $assignedTotal += count($chunk);
             $projectChunks = self::chunkByMaxItems($chunk);
 
             $allocations[] = [
@@ -84,11 +102,62 @@ final class ContentProjectWriterAllocator
             ];
         }
 
+        $unallocated = array_slice($taskIds, $offset);
+
         return [
             'allocations' => $allocations,
-            'unallocated_count' => 0,
-            'unallocated_task_ids' => [],
+            'unallocated_count' => count($unallocated),
+            'unallocated_task_ids' => array_values($unallocated),
+            'requested_items' => $requested,
+            'assigned_items' => $assignedTotal,
         ];
+    }
+
+    /**
+     * Round-robin among writers that still have free remaining capacity.
+     * Deterministic: stable writer order, one item per pass.
+     *
+     * @param  list<int>  $orderedUserIds
+     * @param  array<int, int>  $remainingByUserId
+     * @return list<int>
+     */
+    public static function capacityAwareFairCounts(
+        int $totalItems,
+        array $orderedUserIds,
+        array $remainingByUserId,
+    ): array {
+        $userCount = count($orderedUserIds);
+        if ($userCount < 1 || $totalItems < 1) {
+            return [];
+        }
+
+        $caps = [];
+        foreach ($orderedUserIds as $userId) {
+            $caps[] = max(0, (int) ($remainingByUserId[$userId] ?? 0));
+        }
+
+        $counts = array_fill(0, $userCount, 0);
+        $left = $totalItems;
+
+        while ($left > 0) {
+            $progress = false;
+            for ($i = 0; $i < $userCount; $i++) {
+                if ($left < 1) {
+                    break;
+                }
+                if ($counts[$i] >= $caps[$i]) {
+                    continue;
+                }
+                $counts[$i]++;
+                $left--;
+                $progress = true;
+            }
+            if (! $progress) {
+                break;
+            }
+        }
+
+        return $counts;
     }
 
     /**

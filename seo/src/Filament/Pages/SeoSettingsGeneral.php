@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\Seo\Filament\Pages;
 
 use Omnichannel\Addons\Content\Support\ContentLanguageRegistry;
 use Omnichannel\Addons\Content\Support\SystemDateTime;
+use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterCapacitySettingsService;
 use Omnichannel\Addons\Seo\Services\SeoContentLanguageSettingsService;
 use Omnichannel\Addons\Seo\Services\SeoDateTimeSettingsService;
 use Omnichannel\Addons\Seo\Services\SeoOverviewSettingsService;
@@ -46,6 +47,7 @@ class SeoSettingsGeneral extends Page implements HasForms
         SeoDateTimeSettingsService $dateTimeSettings,
         SeoOverviewSettingsService $overviewSettings,
         SeoContentLanguageSettingsService $contentLanguageSettings,
+        ContentProjectWriterCapacitySettingsService $writerCapacitySettings,
         SocialSupportedDomainService $socialSupportedDomains,
     ): void {
         abort_unless(static::canAccess(), 403);
@@ -53,6 +55,7 @@ class SeoSettingsGeneral extends Page implements HasForms
         $this->dateTimeSettingsData = array_merge(
             $dateTimeSettings->getSettings(),
             $contentLanguageSettings->getSettings(),
+            $writerCapacitySettings->getSettings(),
         );
         $this->form->fill($this->dateTimeSettingsData);
 
@@ -150,6 +153,18 @@ class SeoSettingsGeneral extends Page implements HasForms
                             ->in(ContentLanguageRegistry::codes()),
                     ])
                     ->columns(1),
+                Forms\Components\Section::make(__('seo-content-ai::filament.settings_general.writer_capacity_section'))
+                    ->schema([
+                        Forms\Components\TextInput::make(ContentProjectWriterCapacitySettingsService::KEY_DEFAULT_CAPACITY)
+                            ->label(__('seo-content-ai::filament.settings_general.writer_monthly_default_capacity'))
+                            ->helperText(__('seo-content-ai::filament.settings_general.writer_monthly_default_capacity_hint'))
+                            ->numeric()
+                            ->required()
+                            ->minValue(ContentProjectWriterCapacitySettingsService::MIN_CAPACITY)
+                            ->maxValue(ContentProjectWriterCapacitySettingsService::MAX_CAPACITY)
+                            ->integer(),
+                    ])
+                    ->columns(1),
             ])
             ->statePath('dateTimeSettingsData');
     }
@@ -201,6 +216,7 @@ class SeoSettingsGeneral extends Page implements HasForms
     public function save(
         SeoDateTimeSettingsService $settings,
         SeoContentLanguageSettingsService $contentLanguageSettings,
+        ContentProjectWriterCapacitySettingsService $writerCapacitySettings,
     ): void {
         $data = $this->form->getState();
         $settings->save([
@@ -214,9 +230,17 @@ class SeoSettingsGeneral extends Page implements HasForms
             ),
         ]);
 
+        $writerCapacitySettings->save([
+            ContentProjectWriterCapacitySettingsService::KEY_DEFAULT_CAPACITY => (int) (
+                $data[ContentProjectWriterCapacitySettingsService::KEY_DEFAULT_CAPACITY]
+                    ?? ContentProjectWriterCapacitySettingsService::DEFAULT_CAPACITY
+            ),
+        ]);
+
         $this->dateTimeSettingsData = array_merge(
             $settings->getSettings(),
             $contentLanguageSettings->getSettings(),
+            $writerCapacitySettings->getSettings(),
         );
         $this->form->fill($this->dateTimeSettingsData);
 

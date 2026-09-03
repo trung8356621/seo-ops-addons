@@ -72,9 +72,9 @@ final class SeoAuditExistingContentSuggestionService
      * }  $filters
      * @return LengthAwarePaginator<int, array<string, mixed>>
      */
-    public function paginate(SeoProject $project, array $filters = [], int $page = 1, int $perPage = 25): LengthAwarePaginator
+    public function paginate(SeoProject $project, Site $site, array $filters = [], int $page = 1, int $perPage = 25): LengthAwarePaginator
     {
-        $siteId = (int) ($project->site_id ?? 0);
+        $siteId = (int) $site->getKey();
         if ($siteId <= 0) {
             return new Paginator([], 0, $perPage, $page);
         }
@@ -85,7 +85,7 @@ final class SeoAuditExistingContentSuggestionService
             ->where('articles.site_id', $siteId)
             ->notContentArchived();
 
-        $this->applyLanguageFilter($base, $project, $filters);
+        $this->applyLanguageFilter($base, $site, $filters);
         $this->applyEntityAndPostTypeScopes($base, $filters);
         $this->applyTaxonomyTermScope($base, $filters);
         $this->applySkipSeoAuditScope($base, $filters);
@@ -193,10 +193,10 @@ final class SeoAuditExistingContentSuggestionService
      *
      * @param  array<string, mixed>  $filters
      */
-    public function countMatched(SeoProject $project, array $filters = []): int
+    public function countMatched(SeoProject $project, Site $site, array $filters = []): int
     {
         $filters = SeoAuditSuggestionFilterSet::normalize($filters);
-        $paginator = $this->paginate($project, $filters, 1, 1);
+        $paginator = $this->paginate($project, $site, $filters, 1, 1);
 
         return (int) $paginator->total();
     }
@@ -207,7 +207,7 @@ final class SeoAuditExistingContentSuggestionService
      * @param  array<string, mixed>  $filters
      * @return list<array<string, mixed>>
      */
-    public function eligibleForFill(SeoProject $project, array $filters, int $limit): array
+    public function eligibleForFill(SeoProject $project, Site $site, array $filters, int $limit): array
     {
         $filters = SeoAuditSuggestionFilterSet::normalize($filters);
         $filters['state'] = self::STATE_AVAILABLE;
@@ -220,7 +220,7 @@ final class SeoAuditExistingContentSuggestionService
         $perPage = min(100, max(25, $limit));
 
         while (count($collected) < $limit) {
-            $paginator = $this->paginate($project, $filters, $page, $perPage);
+            $paginator = $this->paginate($project, $site, $filters, $page, $perPage);
             $batch = collect($paginator->items())
                 ->filter(static fn (array $row): bool => (string) ($row['state'] ?? '') === self::STATE_AVAILABLE)
                 ->values()
@@ -478,7 +478,7 @@ final class SeoAuditExistingContentSuggestionService
      * @param  Builder<SeoArticle>  $base
      * @param  array<string, mixed>  $filters
      */
-    private function applyLanguageFilter(Builder $base, SeoProject $project, array $filters): void
+    private function applyLanguageFilter(Builder $base, Site $site, array $filters): void
     {
         $language = trim((string) ($filters['language'] ?? ''));
         if ($language !== '' && strtolower($language) !== 'all') {
@@ -493,15 +493,6 @@ final class SeoAuditExistingContentSuggestionService
 
         $scope = strtolower(trim((string) ($filters['language_scope'] ?? 'primary')));
         if ($scope === 'all') {
-            return;
-        }
-
-        $site = $project->site;
-        if (! $site instanceof Site) {
-            $siteId = (int) ($project->site_id ?? 0);
-            $site = $siteId > 0 ? Site::query()->find($siteId) : null;
-        }
-        if (! $site instanceof Site) {
             return;
         }
 

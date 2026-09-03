@@ -13,6 +13,7 @@ final class FillSeoAuditSuggestionsCommand implements ContentProjectCommand
      */
     public function __construct(
         public readonly string|int $projectRef,
+        public readonly int $siteId,
         public readonly array $filters = [],
         public readonly int|string $limit = 20,
     ) {}

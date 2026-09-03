@@ -142,15 +142,6 @@ final class KeywordIntelligenceReadService
      * @param  array<string, mixed>  $input
      * @return array<string, mixed>
      */
-    public function getCannibalization(AgentExecutionContext $context, array $input): array
-    {
-        return $this->reads->listCannibalization($this->siteId($context), $this->workspaceRef($input));
-    }
-
-    /**
-     * @param  array<string, mixed>  $input
-     * @return array<string, mixed>
-     */
     public function getAnalysisOperation(AgentExecutionContext $context, array $input): array
     {
         $ref = trim((string) ($input['operation_ref'] ?? ''));

@@ -18,6 +18,8 @@ enum AiFailureClass: string
     case ProviderEmptyOutput = 'provider_empty_output';
     case ProviderInvalidOutput = 'provider_invalid_output';
     case OutputQuality = 'output_quality';
+    case ContextLimitExceeded = 'context_limit_exceeded';
+    case RequestInvalid = 'request_invalid';
     case SystemError = 'system_error';
     case RoutesExhausted = 'routes_exhausted';
 }

@@ -28,7 +28,6 @@ use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Applicati
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\ReviewTopicalMapCommand;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\SaveTopicalMapVersionCommand;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\KeywordIntelligencePublicRef;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordCannibalizationService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\Providers\ManualImportSerpProvider;
 use Omnichannel\Addons\SearchIntelligence\Services\SerpIntelligence\SerpResultClassifier;
@@ -69,9 +68,6 @@ final class ViewKeywordWorkspace extends SeoPanelPage
     public ?array $mapConvertPreview = null;
 
     public ?string $mapConvertConfirmationToken = null;
-
-    /** @var list<array<string, mixed>> */
-    public array $cannibalizationRisks = [];
 
     public string $importText = '';
 
@@ -120,7 +116,7 @@ final class ViewKeywordWorkspace extends SeoPanelPage
 
     public function switchTab(string $tab): void
     {
-        $allowed = ['overview', 'keywords', 'clusters', 'cannibalization', 'existing_content', 'analysis', 'topical_map', 'serp_intelligence'];
+        $allowed = ['overview', 'keywords', 'clusters', 'existing_content', 'analysis', 'topical_map', 'serp_intelligence'];
         if (! in_array($tab, $allowed, true)) {
             return;
         }
@@ -131,7 +127,6 @@ final class ViewKeywordWorkspace extends SeoPanelPage
             'keywords' => $this->loadKeywords(),
             'clusters' => $this->loadClusters(),
             'topical_map' => $this->loadTopicalMap(),
-            'cannibalization' => $this->loadCannibalization(),
             default => $this->loadOverview(),
         };
     }
@@ -544,13 +539,6 @@ final class ViewKeywordWorkspace extends SeoPanelPage
                 'keyword_count' => (int) $t->keyword_count,
             ])
             ->all();
-    }
-
-    private function loadCannibalization(): void
-    {
-        $workspace = $this->resolveWorkspaceModel();
-
-        $this->cannibalizationRisks = app(KeywordCannibalizationService::class)->detect($workspace);
     }
 
     /**

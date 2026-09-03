@@ -107,6 +107,40 @@ final class AiRuntimeHealthStateTest extends TestCase
         $this->assertNull($this->health->skipReason(7, $freeCandidate));
     }
 
+    public function test_model_scoped_transient_cooldown_does_not_block_sibling_on_same_connection(): void
+    {
+        $connection = $this->connection(21, 'openrouter');
+        $failed = new RoutedAiCandidate(
+            profile: 'text.longform',
+            connection: $connection,
+            provider: 'openrouter',
+            model: 'paid/claude',
+            capabilities: [],
+            priority: 1,
+            isFree: false,
+        );
+        $sibling = new RoutedAiCandidate(
+            profile: 'text.longform',
+            connection: $connection,
+            provider: 'openrouter',
+            model: 'free/gemma:free',
+            capabilities: [],
+            priority: 2,
+            isFree: true,
+        );
+        $decision = (new AiProviderFailureClassifier())->classify(
+            new \Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException('503 service unavailable', 503),
+        );
+        $this->assertTrue($decision->fallbackAllowed());
+        $this->assertTrue($decision->applyCooldown);
+        $this->assertSame(AiFailureScope::Model, $decision->scope);
+
+        $this->health->recordFailure(21, $failed, $decision);
+        // Connection must stay usable so sibling models on the same key can still run.
+        $this->assertNull($this->health->skipReason(21, $failed));
+        $this->assertNull($this->health->skipReason(21, $sibling));
+    }
+
     public function test_manual_unlock_clears_connection_lock(): void
     {
         $connection = $this->connection(15, 'gemini');

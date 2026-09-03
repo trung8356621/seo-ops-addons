@@ -53,6 +53,9 @@ final class DraftPlanningItemsCompactTableTest extends TestCase
     {
         $items = LegacyAddonPath::read('resources/views/components/content-project-draft-items.blade.php');
 
+        self::assertStringContainsString('planning_col_stt', $items);
+        self::assertStringContainsString('cp-plan-draft-table__col-stt', $items);
+        self::assertStringContainsString('displayStt(row)', $items);
         self::assertStringContainsString('planning_col_post_type', $items);
         self::assertStringContainsString('planning_col_added', $items);
         self::assertStringContainsString('planning_col_domain', $items);
@@ -92,6 +95,7 @@ final class DraftPlanningItemsCompactTableTest extends TestCase
         self::assertStringContainsString('cp-plan-draft-table__col-added', $styles);
         self::assertStringContainsString('cp-plan-draft-table__col-post-type', $styles);
         self::assertStringContainsString('cp-plan-draft-table__col-domain', $styles);
+        self::assertStringContainsString('cp-plan-draft-table__col-stt', $styles);
         self::assertStringContainsString('cp-plan-seo-inline', $styles);
         self::assertStringContainsString('cp-plan-row-actions', $styles);
         self::assertMatchesRegularExpression(

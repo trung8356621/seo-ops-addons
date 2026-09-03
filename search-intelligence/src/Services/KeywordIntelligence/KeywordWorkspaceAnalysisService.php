@@ -19,7 +19,7 @@ use Throwable;
 
 /**
  * Phase 2 analysis pipeline:
- * normalize → deduplicate → classify → score → map_existing → cluster → cannibalization → finalize
+ * normalize → deduplicate → classify → score → map_existing → cluster → finalize
  * No Topical Map / Content Project in this phase.
  */
 final class KeywordWorkspaceAnalysisService
@@ -33,7 +33,6 @@ final class KeywordWorkspaceAnalysisService
         private readonly KeywordExistingContentMapper $contentMapper,
         private readonly KeywordExistingContentIndex $contentIndex,
         private readonly KeywordClusterService $clusterService,
-        private readonly KeywordCannibalizationService $cannibalizationService,
         private readonly KeywordWorkspaceAnalysisLock $analysisLock,
         private readonly KeywordManualOverrideGuard $overrideGuard,
     ) {}
@@ -147,10 +146,6 @@ final class KeywordWorkspaceAnalysisService
                 'preserve_manual_overrides' => $preserveManual,
             ]);
 
-            $this->assertNotCancelled($operation);
-            $this->advance($operation, KeywordAnalysisStage::DetectingCannibalization, 90, 'keyword.cannibalization.completed', (string) $workspace->public_ref, $ownerToken);
-            $cannibalization = $this->cannibalizationService->detect($workspace);
-
             $this->advance($operation, KeywordAnalysisStage::Finalize, 96, 'keyword.analysis.completed', (string) $workspace->public_ref, $ownerToken);
 
             $summary = [
@@ -160,7 +155,6 @@ final class KeywordWorkspaceAnalysisService
                 'scored' => $scored,
                 'content_mapping' => $mapping,
                 'cluster_count' => is_countable($clusters) ? count($clusters) : 0,
-                'cannibalization' => is_array($cannibalization) ? $cannibalization : ['issues' => $cannibalization],
                 'warnings' => $warnings,
             ];
 

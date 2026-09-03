@@ -13,7 +13,6 @@ use Omnichannel\Addons\SearchIntelligence\Models\KeywordIntelligence\SeoKiTopic;
 use Omnichannel\Addons\SearchIntelligence\Models\KeywordIntelligence\SeoTopicalLinkSuggestion;
 use Omnichannel\Addons\SearchIntelligence\Models\KeywordIntelligence\SeoTopicalMapVersion;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectPublicRef;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordCannibalizationService;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordTopicalMapMutationService;
 use RuntimeException;
 
@@ -24,7 +23,6 @@ use RuntimeException;
 final class KeywordIntelligenceReadService
 {
     public function __construct(
-        private readonly KeywordCannibalizationService $cannibalization,
         private readonly KeywordTopicalMapMutationService $mapMutations,
     ) {}
 
@@ -331,17 +329,6 @@ final class KeywordIntelligenceReadService
                 'created_at' => $conversion->created_at?->toIso8601String(),
             ],
         ];
-    }
-
-    /**
-     * @return array<string, mixed>
-     */
-    public function listCannibalization(int $siteId, string $workspaceRef): array
-    {
-        $workspace = $this->resolveWorkspace($siteId, $workspaceRef);
-        $risks = $this->cannibalization->detect($workspace);
-
-        return ['workspace_ref' => $workspace->public_ref, 'risks' => $risks];
     }
 
     /**

@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AiPrompt\Services;
 
 use Omnichannel\Addons\AiPrompt\Exceptions\AiRoutesExhaustedException;
+use Omnichannel\Addons\AiPrompt\Exceptions\AiRouteCapabilitySkipException;
+use Omnichannel\Addons\AiPrompt\Exceptions\PromptBudgetException;
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\AiPrompt\Exceptions\AiRoutingException;
 use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext;
@@ -13,6 +15,10 @@ use Omnichannel\Addons\AiPrompt\Extension\Resolvers\AiProviderResolver;
 use Omnichannel\Addons\AiPrompt\Models\PromptResult;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\Models\SeoPromptPart;
+use Omnichannel\Addons\AiPrompt\PromptBudget\HtmlSafeRewriteSplitStrategy;
+use Omnichannel\Addons\AiPrompt\PromptBudget\KeywordDiscoveryBudgetStrategy;
+use Omnichannel\Addons\AiPrompt\PromptBudget\LongFormArticleSplitStrategy;
+use Omnichannel\Addons\AiPrompt\PromptBudget\PromptChunkLedger;
 use Omnichannel\Addons\AiPrompt\Services\Ai\DeepSeekChatClient;
 use Omnichannel\Addons\AiPrompt\Services\Ai\GeminiGenerateContentClient;
 use Omnichannel\Addons\AiPrompt\Support\AiCostPolicyScope;
@@ -40,7 +46,19 @@ class PromptRunnerService
         private readonly GeminiGenerateContentClient $geminiClient,
         private readonly PromptExecutionProfileResolver $profileResolver,
         private readonly DeepSeekChatClient $deepSeekClient,
+        private readonly ?PromptBudgetPreflightService $budgetPreflight = null,
     ) {}
+
+    private function budgetPreflight(): PromptBudgetPreflightService
+    {
+        if ($this->budgetPreflight instanceof PromptBudgetPreflightService) {
+            return $this->budgetPreflight;
+        }
+
+        return function_exists('app') && app()->bound(PromptBudgetPreflightService::class)
+            ? app(PromptBudgetPreflightService::class)
+            : new PromptBudgetPreflightService();
+    }
 
     private const ROLE_HEADINGS = [
         'role' => 'Vai trò',
@@ -468,19 +486,14 @@ class PromptRunnerService
             $profile->value,
             $context,
             function (RoutedAiCandidate $routed) use ($prompt, $compiled, $variables, $isTaskMode, $toolType): array {
-                [$output, $usage] = $this->callProvider(
-                    $routed->connection,
+                return $this->executePlannedRouteAttempt(
+                    $routed,
                     $prompt,
                     $compiled,
-                    $routed->model,
                     $variables,
                     $isTaskMode,
                     $toolType,
-                    $routed->options,
                 );
-                $this->assertGeneratedContentQuality($output, $prompt, $variables);
-
-                return [$output, $usage];
             },
         );
 
@@ -1260,10 +1273,214 @@ class PromptRunnerService
     }
 
     /**
+     * Build + verify + execute for ONE route candidate.
+     * Rebuilds/recompiles when falling over to a smaller model (no opaque A→B payload reuse).
+     *
+     * @param  array<string, string>  $variables
      * @return array{0: string, 1: array<string, mixed>|null}
      */
+    private function executePlannedRouteAttempt(
+        RoutedAiCandidate $routed,
+        SeoPrompt $prompt,
+        string $baselineCompiled,
+        array $variables,
+        bool $isTaskMode,
+        string $toolType,
+    ): array {
+        $hookKey = (string) ($prompt->hook_key ?? '');
+        $routeVariables = $variables;
+        $compiled = $baselineCompiled;
+        $preflight = $this->budgetPreflight();
+        $capability = $preflight->capabilities()->resolve($routed);
+        $strategy = $preflight->strategies()->forHook($hookKey);
+
+        // Keyword Discovery: shrink batch target to THIS model's output/context capacity.
+        if ($hookKey === KeywordDiscoveryBudgetStrategy::HOOK && $strategy instanceof KeywordDiscoveryBudgetStrategy) {
+            $requested = max(1, (int) ($variables['count'] ?? $variables['quantity'] ?? $variables['requested_quantity'] ?? 1));
+            $immutableTokens = $preflight->estimator()->estimate($baselineCompiled, $capability->estimatorFamily);
+            $target = $strategy->resolveBatchTarget($requested, $immutableTokens, 0, $capability);
+            if ($target < 1) {
+                throw new AiRouteCapabilitySkipException('keyword_batch_does_not_fit_model', null);
+            }
+            if ($target < $requested) {
+                $routeVariables = $variables;
+                $routeVariables['count'] = (string) $target;
+                $routeVariables['quantity'] = (string) $target;
+                $routeVariables['requested_quantity'] = (string) $target;
+                $routeVariables['keyword_count'] = (string) $target;
+                $compiled = $this->compilePrompt($prompt, $routeVariables);
+            }
+        }
+
+        $planOptions = [
+            'quantity' => (int) ($routeVariables['quantity'] ?? $routeVariables['count'] ?? 0),
+            'count' => (int) ($routeVariables['count'] ?? $routeVariables['quantity'] ?? 0),
+            'batch_target' => (int) ($routeVariables['count'] ?? $routeVariables['quantity'] ?? 0),
+            'continuation_already_inlined' => true,
+            'schema_already_inlined' => true,
+            'desired_output_tokens' => $strategy->estimateOutputReserve([
+                'batch_target' => (int) ($routeVariables['count'] ?? $routeVariables['quantity'] ?? 0),
+                'quantity' => (int) ($routeVariables['quantity'] ?? 0),
+                'section_count' => max(1, (int) ($routeVariables['section_count'] ?? 1)),
+                'block_count' => max(1, (int) ($routeVariables['block_count'] ?? 1)),
+            ], $capability),
+        ];
+        $planOptions['minimum_required_output_tokens'] = max(
+            64,
+            (int) floor(((int) $planOptions['desired_output_tokens']) * 0.35),
+        );
+
+        try {
+            $budgetPlan = $preflight->assertSendable($routed, $compiled, $hookKey, $planOptions);
+        } catch (PromptBudgetException $exception) {
+            $code = (string) ($exception->context['budget_code'] ?? '');
+            // Semantic strategies: split+execute on THIS route instead of opaque skip.
+            if ($strategy->supportsSplit() && (
+                $code === PromptBudgetException::CODE_CONTEXT_BUDGET
+                || $code === PromptBudgetException::CODE_OUTPUT_CAPABILITY
+            )) {
+                return $this->executeSemanticRouteAttempt(
+                    $routed,
+                    $prompt,
+                    $compiled,
+                    $routeVariables,
+                    $isTaskMode,
+                    $toolType,
+                    $hookKey,
+                    $strategy,
+                    $exception,
+                );
+            }
+
+            throw new AiRouteCapabilitySkipException(
+                $code !== '' ? $code : 'budget_mismatch',
+                null,
+            );
+        }
+
+        $callOptions = array_merge($routed->options, [
+            'max_output' => $budgetPlan->requestedMaxOutputTokens,
+            'budget_plan_id' => $budgetPlan->planId,
+            'hook_key' => $hookKey,
+        ]);
+
+        [$output, $usage] = $this->callProvider(
+            $routed->connection,
+            $prompt,
+            $compiled,
+            $routed->model,
+            $routeVariables,
+            $isTaskMode,
+            $toolType,
+            $callOptions,
+        );
+        $this->assertGeneratedContentQuality($output, $prompt, $routeVariables);
+        $usage = is_array($usage) ? $usage : [];
+        $usage['budget'] = $budgetPlan->toDiagnostics();
+        $usage['compiled_chars'] = mb_strlen($compiled);
+
+        return [$output, $usage];
+    }
+
     /**
      * @param  array<string, string>  $variables
+     * @return array{0: string, 1: array<string, mixed>|null}
+     */
+    private function executeSemanticRouteAttempt(
+        RoutedAiCandidate $routed,
+        SeoPrompt $prompt,
+        string $compiled,
+        array $variables,
+        bool $isTaskMode,
+        string $toolType,
+        string $hookKey,
+        object $strategy,
+        PromptBudgetException $budgetException,
+    ): array {
+        $executor = new SemanticSplitExecutor($this->budgetPreflight());
+        $ledger = PromptChunkLedger::fromMetadata([
+            'chunk_ledger' => is_array($variables['_chunk_ledger'] ?? null) ? $variables['_chunk_ledger'] : [],
+        ]);
+        $ledger->setRun((string) ($variables['_execution_run_id'] ?? uniqid('run_', true)), $hookKey);
+
+        $providerCall = function (string $chunkPrompt, array $options) use (
+            $routed,
+            $prompt,
+            $variables,
+            $isTaskMode,
+            $toolType,
+        ): array {
+            return $this->callProvider(
+                $routed->connection,
+                $prompt,
+                $chunkPrompt,
+                $routed->model,
+                $variables,
+                $isTaskMode,
+                $toolType,
+                array_merge($routed->options, $options),
+            );
+        };
+
+        try {
+            if ($strategy instanceof LongFormArticleSplitStrategy) {
+                [$output, $meta, $ledger] = $executor->executeLongForm(
+                    $routed,
+                    $strategy,
+                    [
+                        'title' => (string) ($variables['title'] ?? $variables['article_title'] ?? ''),
+                        'keyword' => (string) ($variables['primary_keyword'] ?? $variables['keyword'] ?? ''),
+                        'language' => (string) ($variables['language'] ?? 'vi'),
+                        'outline' => (string) ($variables['outline'] ?? $variables['source'] ?? $compiled),
+                        'body' => (string) ($variables['body'] ?? ''),
+                    ],
+                    $ledger,
+                    $providerCall,
+                );
+            } elseif ($strategy instanceof HtmlSafeRewriteSplitStrategy) {
+                [$output, $meta, $ledger] = $executor->executeHtmlSafe(
+                    $routed,
+                    $strategy,
+                    [
+                        'source' => (string) ($variables['source'] ?? $variables['content'] ?? $compiled),
+                        'instructions' => (string) ($variables['instructions'] ?? ''),
+                        'glossary' => (string) ($variables['glossary'] ?? ''),
+                        'language' => (string) ($variables['language'] ?? 'vi'),
+                    ],
+                    $ledger,
+                    $providerCall,
+                );
+            } elseif ($strategy instanceof KeywordDiscoveryBudgetStrategy) {
+                // Already shrunk; still oversized → skip this route (not provider failure).
+                throw new AiRouteCapabilitySkipException(
+                    (string) ($budgetException->context['budget_code'] ?? 'keyword_still_oversize'),
+                    null,
+                );
+            } else {
+                throw new AiRouteCapabilitySkipException(
+                    (string) ($budgetException->context['budget_code'] ?? 'budget_mismatch'),
+                    null,
+                );
+            }
+        } catch (PromptBudgetException $exception) {
+            // Merge/structure failure — stop, never fallback.
+            throw $exception;
+        }
+
+        $this->assertGeneratedContentQuality($output, $prompt, $variables);
+        $usage = [
+            'budget' => $budgetException->context['budget'] ?? [],
+            'semantic_split' => $meta,
+            'chunk_ledger' => $ledger->toArray(),
+            'compiled_chars' => mb_strlen($compiled),
+        ];
+
+        return [$output, $usage];
+    }
+
+    /**
+     * @param  array<string, string>  $variables
+     * @return array{0: string, 1: array<string, mixed>|null}
      */
     private function callProvider(
         ApiConnection $connection,
@@ -1298,8 +1515,8 @@ class PromptRunnerService
         }
 
         return match ($connection->provider) {
-            ApiConnectionProviders::GEMINI => $this->callGemini($connection, $compiled, $model),
-            ApiConnectionProviders::CLAUDE => $this->callClaude($prompt, $variables, $model, $isTaskMode, $compiled),
+            ApiConnectionProviders::GEMINI => $this->callGemini($connection, $compiled, $model, $options),
+            ApiConnectionProviders::CLAUDE => $this->callClaude($prompt, $variables, $model, $isTaskMode, $compiled, $options),
             ApiConnectionProviders::DEEPSEEK => $this->deepSeekClient->generate($connection, $compiled, $model, $options),
             default => app(\Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\OpenAiCompatibleProtocolAdapter::class)
                 ->generate($connection, $compiled, $model, $options),
@@ -1307,11 +1524,12 @@ class PromptRunnerService
     }
 
     /**
+     * @param  array<string, mixed>  $options
      * @return array{0: string, 1: array<string, mixed>|null}
      */
-    private function callGemini(ApiConnection $connection, string $prompt, string $model): array
+    private function callGemini(ApiConnection $connection, string $prompt, string $model, array $options = []): array
     {
-        return $this->geminiClient->generate($connection, $prompt, $model);
+        return $this->geminiClient->generate($connection, $prompt, $model, $options);
     }
 
     /**
@@ -1352,12 +1570,16 @@ class PromptRunnerService
      * @param  array<string, string>  $variables
      * @return array{0: string, 1: array<string, mixed>|null}
      */
+    /**
+     * @param  array<string, mixed>  $options
+     */
     private function callClaude(
         SeoPrompt $prompt,
         array $variables,
         string $model,
         bool $isTaskMode,
         string $compiled = '',
+        array $options = [],
     ): array {
         $inputData = trim((string) ($variables['input'] ?? ''));
 
@@ -1368,6 +1590,7 @@ class PromptRunnerService
             $variables,
             $model !== '' ? $model : null,
             trim($compiled) !== '' ? $compiled : null,
+            $options,
         );
     }
 
@@ -1393,7 +1616,7 @@ class PromptRunnerService
     }
 
     /**
-     * Reject clearly corrupted full-article AI output so executeWithProfile can try the next candidate.
+     * Reject clearly corrupted full-article AI output (typed output failure — no route fallback).
      *
      * @param  array<string, mixed>  $variables
      */
@@ -1450,10 +1673,10 @@ class PromptRunnerService
             null,
             [
                 'classification' => AiFailureClass::OutputQuality->value,
-                'retryable' => true,
+                'retryable' => false,
                 'quality_rules' => $rules,
                 'quality_sample' => $sample,
-                'user_message' => 'AI output failed content quality checks; trying next model.',
+                'user_message' => 'AI output failed content quality checks.',
             ],
         );
     }

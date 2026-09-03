@@ -6,7 +6,6 @@ namespace Omnichannel\Addons\SearchIntelligence\Filament\Pages;
 
 
 use Omnichannel\Addons\Seo\Filament\Pages\SeoPanelPage;
-use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoRankKeywordGroup;
 use Omnichannel\Addons\SearchIntelligence\Services\GoogleSearchConsoleBulkSyncService;
@@ -305,12 +304,6 @@ final class SeoPerformanceHub extends SeoPanelPage
     {
         if ($this->activeTab === 'ai-discovery') {
             $this->redirect(AiKeywordDiscovery::getUrl());
-
-            return;
-        }
-
-        if ($this->activeTab === 'cannibalization') {
-            $this->redirect(KeywordResource::getUrl('cannibalization'));
 
             return;
         }

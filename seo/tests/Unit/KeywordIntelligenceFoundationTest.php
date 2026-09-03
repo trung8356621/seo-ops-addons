@@ -134,7 +134,6 @@ final class KeywordIntelligenceFoundationTest extends TestCase
             'merge_clusters' => [$ns.'MergeKeywordClustersCommand', 'keyword_intelligence.merge_clusters'],
             'split_cluster' => [$ns.'SplitKeywordClusterCommand', 'keyword_intelligence.split_cluster'],
             'move_keywords' => [$ns.'MoveKeywordsToClusterCommand', 'keyword_intelligence.move_keywords'],
-            'review_cannibalization' => [$ns.'ReviewCannibalizationIssueCommand', 'keyword_intelligence.review_cannibalization'],
             'build_topical_map' => [$ns.'BuildTopicalMapCommand', 'keyword_intelligence.build_topical_map'],
             'preview_convert' => [$ns.'PreviewContentProjectFromClustersCommand', 'keyword_intelligence.preview_convert'],
             'convert_to_content_project' => [$ns.'CreateContentProjectFromKeywordClustersCommand', 'keyword_intelligence.convert_to_content_project'],

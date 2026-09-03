@@ -57,6 +57,20 @@ final class GlobalSeoBarDomainContextTest extends TestCase
         $this->assertStringContainsString('forgetLegacyGlobalSitePersistence', $setSource);
     }
 
+    public function test_project_planner_shows_global_domain_while_list_and_archive_stay_neutral(): void
+    {
+        $access = (string) file_get_contents((string) (new ReflectionClass(SeoAccessControl::class))->getFileName());
+        $bar = (string) file_get_contents((string) (new ReflectionClass(GlobalSeoBar::class))->getFileName());
+
+        $this->assertStringContainsString('isProjectPlannerSeoAuditPage', $access);
+        $this->assertStringContainsString('shouldRequireConcreteGlobalDomain', $access);
+        $this->assertStringContainsString('isProjectPlannerSeoAudit', $bar);
+        $this->assertStringContainsString('hideAllDomainsOption', $bar);
+
+        $this->assertNotContains(RefreshesOnDomainContextChanged::class, class_uses(ListSeoProjects::class) ?: []);
+        $this->assertNotContains(RefreshesOnDomainContextChanged::class, class_uses(ContentProjectArchive::class) ?: []);
+    }
+
     public function test_content_projects_list_is_domain_neutral_and_keeps_month(): void
     {
         $this->assertNotContains(RefreshesOnDomainContextChanged::class, class_uses(ListSeoProjects::class) ?: []);

@@ -8,6 +8,7 @@ use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectArchiveItem;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterMonthlyCapacityService;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExportReviewedAtResolver;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\WordPress\Support\WordPressPermalinkBuilder;
 use App\Models\Site;
@@ -27,6 +28,7 @@ final class ContentProjectArchivedMonthlyWorkloadService
         private readonly ContentProjectMonthlyWorkloadService $workload,
         private readonly ContentProjectWriterMonthlyCapacityService $writerCapacity,
         private readonly WordPressPermalinkBuilder $permalinkBuilder,
+        private readonly ContentProjectExportReviewedAtResolver $reviewedAtResolver = new ContentProjectExportReviewedAtResolver(),
     ) {}
 
     /**
@@ -101,7 +103,7 @@ final class ContentProjectArchivedMonthlyWorkloadService
      *     post_type: string,
      *     plan: string,
      *     index_status: string,
-     *     archived_at: string,
+     *     reviewed_at: string,
      *     archived_by: string
      * }>
      */
@@ -119,7 +121,6 @@ final class ContentProjectArchivedMonthlyWorkloadService
                 't.project_id as project_id',
                 'p.name as project_name',
                 'p.user_id as writer_id',
-                'p.archived_at as archived_at',
                 'p.archived_by as archived_by',
             ])
             ->orderBy('p.user_id')
@@ -190,7 +191,9 @@ final class ContentProjectArchivedMonthlyWorkloadService
                 'index_status' => isset($indexedByArticle[$resolvedArticleId])
                     ? (string) __('seo-content-ai::filament.projects.indexed')
                     : (string) __('seo-content-ai::filament.projects.not_indexed'),
-                'archived_at' => $this->formatDateTime($row->archived_at ?? null),
+                'reviewed_at' => $this->formatReportDate(
+                    $this->reviewedAtResolver->resolve($articleFields, $article),
+                ),
                 'archived_by' => $archivedByNames[$archivedBy] ?? '',
             ];
         }
@@ -257,7 +260,7 @@ final class ContentProjectArchivedMonthlyWorkloadService
     /**
      * Final published article fields only — never task planning title/keyword.
      *
-     * @return array{title: string, keyword: string, wordpress_url: string}
+     * @return array{title: string, keyword: string, wordpress_url: string, reviewed_at: mixed, last_update_wp: mixed, wp_created_at: mixed}
      */
     private function resolveArticleExportFields(?SeoArticle $article): array
     {
@@ -266,6 +269,9 @@ final class ContentProjectArchivedMonthlyWorkloadService
                 'title' => '',
                 'keyword' => '',
                 'wordpress_url' => '',
+                'reviewed_at' => null,
+                'last_update_wp' => null,
+                'wp_created_at' => null,
             ];
         }
 
@@ -282,7 +288,25 @@ final class ContentProjectArchivedMonthlyWorkloadService
             'title' => $title,
             'keyword' => $keyword,
             'wordpress_url' => $wordpressUrl,
+            ...$this->reviewedAtResolver->exportFields($article),
         ];
+    }
+
+    private function formatReportDate(mixed $value): string
+    {
+        if ($value === null || $value === '') {
+            return '';
+        }
+
+        try {
+            if ($value instanceof Carbon) {
+                return $value->format('d/m/Y');
+            }
+
+            return Carbon::parse((string) $value)->format('d/m/Y');
+        } catch (\Throwable) {
+            return is_scalar($value) ? (string) $value : '';
+        }
     }
 
     private function articleMeta(?SeoArticle $article, string $key): ?string
@@ -385,22 +409,5 @@ final class ContentProjectArchivedMonthlyWorkloadService
             SeoProjectTask::POST_TYPE_PRODUCT_CATEGORY => (string) __('seo-content-ai::filament.projects.post_type_product_category'),
             default => (string) __('seo-content-ai::filament.projects.post_type_post'),
         };
-    }
-
-    private function formatDateTime(mixed $value): string
-    {
-        if ($value === null || $value === '') {
-            return '';
-        }
-
-        if ($value instanceof Carbon) {
-            return $value->format('Y-m-d H:i:s');
-        }
-
-        try {
-            return Carbon::parse((string) $value)->format('Y-m-d H:i:s');
-        } catch (\Throwable) {
-            return is_scalar($value) ? (string) $value : '';
-        }
     }
 }

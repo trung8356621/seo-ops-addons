@@ -41,11 +41,14 @@ final class DissolveTopicClusterUiTest extends TestCase
         self::assertStringContainsString('Illuminate\\Support\\Js::from', $detail);
         self::assertStringContainsString('canDissolveCluster', $detail);
         self::assertStringContainsString('dissolve-cluster-modal', $detail);
-        // Modal must stay mounted after dissolve clears detail members.
-        self::assertMatchesRegularExpression(
-            '/@endif\s*@include\([\'"]seo-content-ai::filament\.resources\.keywords\.pages\.partials\.dissolve-cluster-modal/s',
-            $detail,
-        );
+        // Modal must stay mounted after dissolve clears detail members (outside @if ($detail)).
+        $emptyPos = strpos($detail, 'topic_empty_clusters');
+        $modalPos = strpos($detail, 'partials.dissolve-cluster-modal');
+        self::assertNotFalse($emptyPos);
+        self::assertNotFalse($modalPos);
+        $endifAfterElse = strpos($detail, '@endif', $emptyPos);
+        self::assertNotFalse($endifAfterElse);
+        self::assertGreaterThan($endifAfterElse, $modalPos);
     }
 
     public function test_index_title_is_not_navigation_link(): void

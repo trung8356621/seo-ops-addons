@@ -16,10 +16,14 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\AuditN
  *   focus: string,
  *   notes: string,
  *   note_items: list<array{
+ *     source_type?: string,
  *     cluster_ref: string,
  *     cluster_name_snapshot: string,
- *     mcp_share_snapshot: float,
- *     dna: list<array{phrase: string, weight: int, source: string}>
+ *     seed_text?: string|null,
+ *     mcp_share_snapshot: float|null,
+ *     target_dna_count: int,
+ *     target_mode: string,
+ *     dna: list<array{phrase: string, slots: int, source: string}>
  *   }>,
  *   post_type: string,
  *   content_type: string,
@@ -48,7 +52,8 @@ final class NewContentSuggestionOptions
 
     public const MIN_QUANTITY = 1;
 
-    public const MAX_QUANTITY = 100;
+    /** Align with NewContentGenerationBatchPolicy::MAX_TOTAL_PLANNER_IDEAS. */
+    public const MAX_QUANTITY = 200;
 
     /**
      * @param  array<string, mixed>  $input
@@ -128,9 +133,17 @@ final class NewContentSuggestionOptions
      * @param  Options|array<string, mixed>  $options
      * @return array<string, mixed>
      */
-    public static function snapshot(array $options, string $primaryLanguage): array
+    public static function snapshot(array $options, string $primaryLanguage, ?int $siteId = null): array
     {
         $normalized = self::normalize($options);
+        $resolvedSiteId = $siteId !== null && $siteId > 0
+            ? $siteId
+            : ((int) ($options['site_id'] ?? 0) ?: null);
+
+        $automationPolicy = (new NewContentAutoDnaPolicy)->metadata(
+            (int) $normalized['quantity'],
+            $normalized['note_items'],
+        );
 
         return [
             'quantity' => $normalized['quantity'],
@@ -138,7 +151,9 @@ final class NewContentSuggestionOptions
             'post_type' => $normalized['post_type'],
             'notes' => $normalized['notes'],
             'note_items' => $normalized['note_items'],
+            'automation_policy' => $automationPolicy,
             'primary_language' => $primaryLanguage,
+            'site_id' => $resolvedSiteId,
             'context' => [
                 'planning_intelligence' => $normalized['use_keyword_intelligence'],
                 'mcp' => $normalized['use_mcp_context'],

@@ -9,10 +9,13 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Contr
 final class GenerateNewContentSuggestionsCommand implements ContentProjectCommand
 {
     /**
+     * Generate new content suggestions into this Draft FOR this Site.
+     *
      * @param  array<string, mixed>  $options
      */
     public function __construct(
         public readonly string|int $projectRef,
+        public readonly int $siteId,
         public readonly int $quantity = 20,
         public readonly array $options = [],
         public readonly bool $dryRun = false,

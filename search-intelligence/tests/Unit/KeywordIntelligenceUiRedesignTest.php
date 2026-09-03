@@ -9,9 +9,9 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\ClusterIndexMcpPreviewSummary;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\CreateManualTopicClusterService;
+use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicClusterMeta;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordPhrasePresentation;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
-use RuntimeException;
 use Tests\Support\LegacyAddonPath;
 use Tests\TestCase as LaravelTestCase;
 
@@ -73,20 +73,24 @@ final class KeywordIntelligenceUiRedesignTest extends LaravelTestCase
         self::assertStringNotContainsString('Primary keyword', $detail);
     }
 
-    public function test_manual_cluster_quick_create_and_duplicate_guard(): void
+    public function test_manual_cluster_quick_create_and_duplicate_resolves_existing(): void
     {
         $this->ensureTables();
 
         $service = app(CreateManualTopicClusterService::class);
-        $created = $service->create(self::SITE_ID, 'May túi canvas');
+        $created = $service->prepareManualTopic(self::SITE_ID, 'May túi canvas');
 
-        self::assertSame('May túi canvas', $created['label']);
-        self::assertSame(0, $created['keyword_count']);
+        self::assertTrue($created['created']);
+        self::assertSame('May túi canvas', $created['canonical_phrase']);
         self::assertTrue($service->normalizedExists(self::SITE_ID, 'MAY TÚI CANVAS'));
 
-        $this->expectException(RuntimeException::class);
-        $this->expectExceptionMessage('duplicate_cluster');
-        $service->create(self::SITE_ID, 'may tui canvas');
+        $again = $service->prepareManualTopic(self::SITE_ID, 'may tui canvas');
+        self::assertFalse($again['created']);
+        self::assertSame($created['cluster_key'], $again['cluster_key']);
+        self::assertSame(
+            1,
+            SeoTopicClusterMeta::query()->where('site_id', self::SITE_ID)->count(),
+        );
     }
 
     public function test_mcp_preview_subset_targets_coverage_and_tokens(): void

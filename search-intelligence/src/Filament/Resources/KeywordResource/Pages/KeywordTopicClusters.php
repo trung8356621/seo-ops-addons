@@ -18,6 +18,7 @@ use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\CreateMan
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\ClusterIndexMcpPreviewSummary;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\McpTopicGroupService;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordPhrasePresentation;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\TopicClusterReclusterState;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\UpdateClusterCanonicalService;
 use Omnichannel\Addons\Seo\Support\DomainContext;
 use Omnichannel\Addons\Seo\Support\DomainContextResolver;
@@ -25,6 +26,7 @@ use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Models\Site;
 use Filament\Notifications\Notification;
 use Livewire\Attributes\Renderless;
+use Livewire\WithPagination;
 use RuntimeException;
 
 final class KeywordTopicClusters extends Page
@@ -32,6 +34,7 @@ final class KeywordTopicClusters extends Page
     use DissolvesTopicClusters;
     use HasKeywordWorkspaceNavigation;
     use ReclustersTopicClusters;
+    use WithPagination;
 
     protected static string $resource = KeywordResource::class;
 
@@ -85,26 +88,53 @@ final class KeywordTopicClusters extends Page
     public function mount(): void
     {
         $this->initializeKeywordWorkspaceSiteFilter();
-        $this->redirectToFirstAccessibleDomainIfNeeded();
+        if ($this->redirectToFirstAccessibleDomainIfNeeded()) {
+            return;
+        }
         $this->dispatchKeywordWorkspaceLanguageContext();
         $this->clusterSearchInput = $this->clusterSearch;
+        $this->syncReclusterStateFromCache();
     }
 
     public function applyClusterSearch(): void
     {
         $this->clusterSearch = trim($this->clusterSearchInput);
         $this->clusterSearchInput = $this->clusterSearch;
+        $this->resetPage();
     }
 
     public function clearClusterSearch(): void
     {
         $this->clusterSearch = '';
         $this->clusterSearchInput = '';
+        $this->resetPage();
+    }
+
+    public function updatedCoverageFilter(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatedHasArticles(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatedClusterSort(): void
+    {
+        $this->resetPage();
+    }
+
+    public function updatedClusterProjection(): void
+    {
+        $this->resetPage();
     }
 
     public function onKeywordWorkspaceSiteFilterChanged(): void
     {
         $this->clusterDataEpoch++;
+        $this->resetPage();
+        $this->syncReclusterStateFromCache();
     }
 
     /**
@@ -170,22 +200,18 @@ final class KeywordTopicClusters extends Page
             ];
     }
 
-    public function quickCreateClusterExists(): bool
-    {
-        $siteId = $this->resolveKeywordWorkspaceSiteId();
-        $phrase = trim($this->quickCreateInput !== '' ? $this->quickCreateInput : $this->clusterSearchInput);
-        if ($siteId === null || $siteId <= 0 || $phrase === '') {
-            return false;
-        }
-
-        return app(CreateManualTopicClusterService::class)->normalizedExists($siteId, $phrase);
-    }
-
     /**
-     * @return array{ok: bool, row?: array<string, mixed>}
+     * Fast enqueue: prepare Topic meta + queue Fix Keywords. Does not wait for membership.
+     *
+     * @return array{ok: bool, cluster_key?: string, canonical_phrase?: string, created?: bool}
      */
     public function quickCreateCluster(): array
     {
+        $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
+        if (! TopicClusterReclusterState::assertMutationAllowed($siteId)) {
+            return ['ok' => false];
+        }
+
         if (! $this->canEditClusterCanonical()) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.keyword.topic_canonical_edit_denied'))
@@ -195,7 +221,6 @@ final class KeywordTopicClusters extends Page
             return ['ok' => false];
         }
 
-        $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
         $phrase = trim($this->quickCreateInput !== '' ? $this->quickCreateInput : $this->clusterSearchInput);
         if ($phrase === '') {
             Notification::make()
@@ -207,14 +232,15 @@ final class KeywordTopicClusters extends Page
         }
 
         try {
-            $created = app(CreateManualTopicClusterService::class)->create($siteId, $phrase);
+            $prepared = app(CreateManualTopicClusterService::class)->create(
+                $siteId,
+                $phrase,
+                auth()->id() !== null ? (int) auth()->id() : null,
+            );
         } catch (RuntimeException $e) {
-            $message = $e->getMessage() === 'duplicate_cluster'
-                ? __('seo-content-ai::filament.keyword.topic_quick_create_duplicate')
-                : $e->getMessage();
             Notification::make()
                 ->title(__('seo-content-ai::filament.keyword.topic_quick_create_failed'))
-                ->body($message)
+                ->body($e->getMessage())
                 ->danger()
                 ->send();
 
@@ -226,32 +252,35 @@ final class KeywordTopicClusters extends Page
         $this->clusterSearchInput = '';
         $this->refreshClusterSummaryCounters();
 
-        $attached = (int) ($created['attached'] ?? 0);
+        $label = KeywordPhrasePresentation::present($prepared['canonical_phrase']);
+        $created = (bool) ($prepared['created'] ?? false);
         Notification::make()
-            ->title(__('seo-content-ai::filament.keyword.topic_quick_create_success'))
-            ->body(KeywordPhrasePresentation::present($created['label'])
-                .($attached > 0
-                    ? ' · '.__('seo-content-ai::filament.keyword.topic_quick_create_attached', ['count' => $attached])
-                    : ''))
+            ->title($created
+                ? __('seo-content-ai::filament.keyword.topic_quick_create_queued')
+                : __('seo-content-ai::filament.keyword.topic_quick_create_existing_queued'))
+            ->body($label)
             ->success()
             ->send();
 
         return [
             'ok' => true,
-            'row' => [
-                ...$created,
-                'label' => KeywordPhrasePresentation::present($created['label']),
-            ],
+            'cluster_key' => $prepared['cluster_key'],
+            'canonical_phrase' => $prepared['canonical_phrase'],
+            'created' => $created,
         ];
     }
 
     public function openMcpGroupModal(string $clusterKey): void
     {
+        $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
+        if (! TopicClusterReclusterState::assertMutationAllowed($siteId)) {
+            return;
+        }
+
         if (! $this->canEditClusterCanonical()) {
             return;
         }
 
-        $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
         $clusterKey = trim($clusterKey);
         if ($siteId <= 0 || $clusterKey === '') {
             return;
@@ -436,6 +465,11 @@ final class KeywordTopicClusters extends Page
 
     public function confirmMcpGroup(): void
     {
+        $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
+        if (! TopicClusterReclusterState::assertMutationAllowed($siteId)) {
+            return;
+        }
+
         if (! $this->canEditClusterCanonical()) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.keyword.topic_canonical_edit_denied'))
@@ -445,7 +479,6 @@ final class KeywordTopicClusters extends Page
             return;
         }
 
-        $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
         $mask = KeywordPhrasePresentation::present(trim($this->mcpGroupMaskName));
         $members = array_values(array_unique(array_filter($this->mcpGroupMemberKeys)));
         if ($siteId <= 0) {
@@ -515,10 +548,15 @@ final class KeywordTopicClusters extends Page
 
     public function dissolveMcpGroupFromModal(): void
     {
+        $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
+        if (! TopicClusterReclusterState::assertMutationAllowed($siteId)) {
+            return;
+        }
+
         if (! $this->canEditClusterCanonical()) {
             return;
         }
-        $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
+
         $ref = trim($this->mcpGroupGroupRef !== '' ? $this->mcpGroupGroupRef : $this->mcpGroupAnchorKey);
         if ($siteId <= 0 || $ref === '') {
             return;
@@ -536,6 +574,11 @@ final class KeywordTopicClusters extends Page
 
     public function ungroupMcp(string $clusterKey): void
     {
+        $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
+        if (! TopicClusterReclusterState::assertMutationAllowed($siteId)) {
+            return;
+        }
+
         if (! $this->canEditClusterCanonical()) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.keyword.topic_canonical_edit_denied'))
@@ -545,7 +588,6 @@ final class KeywordTopicClusters extends Page
             return;
         }
 
-        $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
         $clusterKey = trim($clusterKey);
         if ($siteId <= 0 || $clusterKey === '') {
             return;
@@ -619,6 +661,7 @@ final class KeywordTopicClusters extends Page
                     'language_variants' => $this->resolveKeywordLanguageFilterVariants(),
                 ],
                 path: $listPath,
+                page: $this->getPage(),
             )
             ->appends($appends);
 
@@ -640,12 +683,8 @@ final class KeywordTopicClusters extends Page
 
     public function canEditClusterCanonical(): bool
     {
-        $siteId = $this->resolveKeywordWorkspaceSiteId();
-
-        return SeoAccessControl::canMutateInSeoPanel()
-            && $siteId !== null
-            && $siteId > 0
-            && SeoAccessControl::canAccessSite($siteId);
+        return $this->hasTopicClusterMutationPermission()
+            && ! $this->isTopicMutationLocked();
     }
 
     /**
@@ -656,6 +695,11 @@ final class KeywordTopicClusters extends Page
     #[Renderless]
     public function saveMcpGroupMaskFromIndex(string $groupRef, string $maskName): array
     {
+        $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
+        if (! TopicClusterReclusterState::assertMutationAllowed($siteId)) {
+            return ['ok' => false];
+        }
+
         if (! $this->canEditClusterCanonical()) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.keyword.topic_canonical_edit_denied'))
@@ -665,7 +709,6 @@ final class KeywordTopicClusters extends Page
             return ['ok' => false];
         }
 
-        $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
         $groupRef = trim($groupRef);
         $maskName = trim($maskName);
         if ($siteId <= 0 || $groupRef === '' || $maskName === '') {
@@ -729,6 +772,11 @@ final class KeywordTopicClusters extends Page
     #[Renderless]
     public function saveClusterCanonicalFromIndex(string $clusterKey, string $phrase): array
     {
+        $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
+        if (! TopicClusterReclusterState::assertMutationAllowed($siteId)) {
+            return ['ok' => false];
+        }
+
         if (! $this->canEditClusterCanonical()) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.keyword.topic_canonical_edit_denied'))
@@ -738,7 +786,6 @@ final class KeywordTopicClusters extends Page
             return ['ok' => false];
         }
 
-        $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
         $clusterKey = trim($clusterKey);
 
         try {
@@ -841,6 +888,11 @@ final class KeywordTopicClusters extends Page
      */
     private function mutateClusterExclusion(string $clusterKey, callable $action): void
     {
+        $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
+        if (! TopicClusterReclusterState::assertMutationAllowed($siteId)) {
+            return;
+        }
+
         if (! $this->canEditClusterCanonical()) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.keyword.topic_canonical_edit_denied'))
@@ -850,7 +902,6 @@ final class KeywordTopicClusters extends Page
             return;
         }
 
-        $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
         $clusterKey = trim($clusterKey);
         if ($siteId <= 0 || $clusterKey === '') {
             return;

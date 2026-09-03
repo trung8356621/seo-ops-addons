@@ -72,8 +72,7 @@ final class DraftContentPlannerCoreContractTest extends TestCase
         self::assertStringContainsString('applySkipSeoAuditScope', $src);
         self::assertStringContainsString('applyEntityAndPostTypeScopes', $src);
         self::assertStringContainsString('applyStateSqlScope', $src);
-        self::assertStringContainsString('wp_post_type', $src);
-        self::assertStringContainsString("'page'", $src);
+        self::assertStringContainsString('ContentType::Page', $src);
         self::assertStringContainsString('exclude_taxonomy_archives', $src);
         self::assertStringContainsString('ArticleSeoAuditSkipService', $src);
         self::assertStringContainsString('public_url', $src);
@@ -147,7 +146,7 @@ final class DraftContentPlannerCoreContractTest extends TestCase
         self::assertStringContainsString('unavailable under current filters', $handler);
         self::assertStringContainsString('listExecuted', $runService);
         self::assertStringContainsString('recordSavedConfig', $runService);
-        self::assertSame('content_project.fill_seo_audit_suggestions', (new FillSeoAuditSuggestionsCommand(1))->name());
+        self::assertSame('content_project.fill_seo_audit_suggestions', (new FillSeoAuditSuggestionsCommand(1, 6))->name());
     }
 
     public function test_draft_planner_and_audit_ui_contracts(): void

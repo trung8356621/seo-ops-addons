@@ -15,5 +15,4 @@ enum KeywordRelationshipType: string
     case SameSerpIntent = 'same_serp_intent';
     case ParentChild = 'parent_child';
     case Related = 'related';
-    case CannibalizationRisk = 'cannibalization_risk';
 }

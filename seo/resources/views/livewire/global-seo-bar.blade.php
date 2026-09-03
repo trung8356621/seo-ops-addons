@@ -15,7 +15,9 @@
                 size="sm"
                 x-on:change="window.SeoDomainContext && window.SeoDomainContext.select($event.target.value)"
             >
-                <option value="all">{{ __('seo-content-ai::filament.global_bar.all_domains') }}</option>
+                @if (! ($hideAllDomainsOption ?? false))
+                    <option value="all">{{ __('seo-content-ai::filament.global_bar.all_domains') }}</option>
+                @endif
                 @foreach($sites as $site)
                     <option value="{{ $domainKeys[$site->id] ?? $site->domain }}">{{ $site->name ?? $site->domain }}</option>
                 @endforeach

@@ -146,7 +146,7 @@ final class ContentProjectPlannerRunDetail extends SeoPanelPage
             new RestoreNewContentSuggestionsCommand((int) $this->project->getKey(), [$fp]),
             ActorContext::user(
                 auth()->id() !== null ? (int) auth()->id() : null,
-                (int) ($this->project->site_id ?? 0) ?: null,
+                $this->resolveWorkingSiteIdForRun(),
             ),
         );
 
@@ -195,7 +195,13 @@ final class ContentProjectPlannerRunDetail extends SeoPanelPage
             ->find($projectId);
 
         abort_unless($project instanceof SeoProject, 404);
-        abort_unless(SeoAccessControl::canAccessSite((int) ($project->site_id ?? 0)), 403);
+
+        $projectSiteId = (int) ($project->site_id ?? 0);
+        $isSharedDraft = $project->isDraftPlanning() && $projectSiteId <= 0;
+        if (! $isSharedDraft) {
+            abort_unless(SeoAccessControl::canAccessSite($projectSiteId), 403);
+        }
+
         abort_unless(SeoAccessControl::canAccessContentProjectRun($project), 403);
 
         $run = app(ContentProjectPlannerRunService::class)->findForProject($project, $runId);
@@ -205,5 +211,23 @@ final class ContentProjectPlannerRunDetail extends SeoPanelPage
         $this->run = $run;
         $this->projectId = (int) $project->getKey();
         $this->runId = (int) $run->getKey();
+    }
+
+    private function resolveWorkingSiteIdForRun(): ?int
+    {
+        $fromRun = (int) ($this->run?->site_id ?? 0);
+        if ($fromRun > 0) {
+            return $fromRun;
+        }
+
+        $snapshot = is_array($this->run?->configuration_snapshot) ? $this->run->configuration_snapshot : [];
+        $fromSnapshot = (int) ($snapshot['site_id'] ?? 0);
+        if ($fromSnapshot > 0) {
+            return $fromSnapshot;
+        }
+
+        $fromProject = (int) ($this->project?->site_id ?? 0);
+
+        return $fromProject > 0 ? $fromProject : null;
     }
 }

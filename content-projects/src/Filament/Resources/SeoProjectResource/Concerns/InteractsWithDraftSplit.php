@@ -59,7 +59,10 @@ trait InteractsWithDraftSplit
         }
 
         $splitter = app(SplitDraftContentProjectService::class);
-        $reviewed = $splitter->currentReviewedDraftItemCount($project);
+        $reviewed = $splitter->currentReviewedDraftItemCount(
+            $project,
+            $this->resolvePublishDraftSiteScope(),
+        );
         if ($reviewed <= 0) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.projects.draft_split_empty_title'))
@@ -185,13 +188,36 @@ trait InteractsWithDraftSplit
             return;
         }
 
+        $eligible = $this->resolvePublishEligibleTaskIds($project);
+        if ($eligible === []) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.draft_split_empty_title'))
+                ->body(__('seo-content-ai::filament.projects.draft_split_empty_reviewed_body'))
+                ->danger()
+                ->send();
+
+            return;
+        }
+
         $mode = strtolower(trim($this->draftSplitMode));
         $quantity = null;
+        $itemRefs = $eligible;
+        $selectionMode = SplitDraftContentProjectCommand::MODE_SELECTED;
 
         if ($mode === SplitDraftContentProjectCommand::MODE_FIRST_N) {
             $quantity = max(1, (int) $this->draftSplitQuantity);
-        } else {
-            $mode = SplitDraftContentProjectCommand::MODE_ALL;
+            $itemRefs = array_slice($eligible, 0, $quantity);
+        } elseif ($this->resolvePublishDraftSiteScope() === null
+            && $this->normalizeSelectedIds($this->selectedTaskIds ?? []) === []
+        ) {
+            // Global Shared Draft overview — keep legacy first_n / all semantics.
+            $selectionMode = $mode === SplitDraftContentProjectCommand::MODE_ALL
+                ? SplitDraftContentProjectCommand::MODE_ALL
+                : SplitDraftContentProjectCommand::MODE_FIRST_N;
+            $itemRefs = [];
+            if ($selectionMode === SplitDraftContentProjectCommand::MODE_FIRST_N) {
+                $quantity = max(1, (int) $this->draftSplitQuantity);
+            }
         }
 
         $idemKey = 'ui:split-draft:'.$project->getKey().':'.Str::uuid()->toString();
@@ -199,9 +225,9 @@ trait InteractsWithDraftSplit
         $result = app(ContentProjectCommandBus::class)->dispatch(
             new SplitDraftContentProjectCommand(
                 projectRef: (int) $project->getKey(),
-                selectionMode: $mode,
+                selectionMode: $selectionMode,
                 quantity: $quantity,
-                itemRefs: [],
+                itemRefs: $itemRefs,
                 dryRun: false,
                 assigneeIds: $writerIds,
                 targetMonth: $targetMonth,
@@ -230,6 +256,7 @@ trait InteractsWithDraftSplit
         $createdCount = (int) ($result->metadata['created_count'] ?? count($result->metadata['created_projects'] ?? []));
         $reusedCount = (int) ($result->metadata['reused_count'] ?? count($result->metadata['reused_projects'] ?? []));
         $projectCount = (int) ($result->metadata['project_count'] ?? ($createdCount + $reusedCount));
+        $unallocated = (int) ($result->metadata['unallocated_count'] ?? 0);
         $redirectMonth = (string) ($result->metadata['redirect_month']
             ?? $result->metadata['month']
             ?? $targetMonth);
@@ -238,12 +265,17 @@ trait InteractsWithDraftSplit
         }
         $redirectMonth = ContentProjectMonthContext::normalize($redirectMonth);
 
-        $body = __('seo-content-ai::filament.projects.draft_split_success_body', [
-            'moved' => $moved,
-            'projects' => max(1, $projectCount),
-            'created' => $createdCount,
-            'reused' => $reusedCount,
-        ]);
+        $body = $unallocated > 0
+            ? __('seo-content-ai::filament.projects.draft_split_partial_capacity_body', [
+                'moved' => $moved,
+                'unallocated' => $unallocated,
+            ])
+            : __('seo-content-ai::filament.projects.draft_split_success_body', [
+                'moved' => $moved,
+                'projects' => max(1, $projectCount),
+                'created' => $createdCount,
+                'reused' => $reusedCount,
+            ]);
 
         $listUrl = null;
         try {
@@ -333,8 +365,12 @@ trait InteractsWithDraftSplit
         }
 
         $splitter = app(SplitDraftContentProjectService::class);
-        $reviewed = $splitter->currentReviewedDraftItemCount($project);
-        $total = $splitter->currentDraftItemCount($project);
+        $siteScope = $this->resolvePublishDraftSiteScope();
+        $reviewed = $splitter->currentReviewedDraftItemCount($project, $siteScope);
+        // Domain-scoped Publish reports the eligible (reviewed) pool, not whole Shared Draft.
+        $total = $siteScope !== null
+            ? $reviewed
+            : $splitter->currentDraftItemCount($project);
         $writerIds = $this->orderedIncludedUserIds($selector['writers']);
         $selectedCount = $this->selectedItemCount($reviewed);
 
@@ -389,6 +425,8 @@ trait InteractsWithDraftSplit
             }
 
             $current = (int) ($writer['current'] ?? 0);
+            $capacity = max(0, (int) ($writer['capacity'] ?? 0));
+            $remaining = (int) ($writer['remaining'] ?? ($capacity - $current));
             $included = isset($includedLookup[$id]);
             $newAllocation = $included ? (int) ($allocationByUser[$id] ?? 0) : 0;
             $projectCount = $included ? (int) ($projectCountByUser[$id] ?? 0) : 0;
@@ -396,12 +434,17 @@ trait InteractsWithDraftSplit
                 'id' => $id,
                 'name' => (string) ($writer['name'] ?? ''),
                 'current' => $current,
+                'capacity' => $capacity,
+                'remaining' => $remaining,
                 'active' => (int) ($writer['active'] ?? $current),
                 'archived' => (int) ($writer['archived'] ?? 0),
                 'included' => $included,
                 'new_allocation' => $newAllocation,
                 'resulting' => $current + $newAllocation,
                 'project_count' => $projectCount,
+                'assignable' => (bool) ($writer['assignable'] ?? ($capacity > 0 && $remaining > 0)),
+                'capacity_zero' => $capacity === 0,
+                'capacity_full' => $capacity > 0 && $remaining <= 0,
             ];
             $allWriters[] = $row;
 
@@ -443,7 +486,10 @@ trait InteractsWithDraftSplit
             $this->draftSplitTargetMonth !== '' ? $this->draftSplitTargetMonth : null,
         );
 
-        $reviewed = app(SplitDraftContentProjectService::class)->currentReviewedDraftItemCount($project);
+        $reviewed = app(SplitDraftContentProjectService::class)->currentReviewedDraftItemCount(
+            $project,
+            $this->resolvePublishDraftSiteScope(),
+        );
         if ($reviewed < 1) {
             $this->draftSplitQuantity = 1;
 
@@ -451,6 +497,58 @@ trait InteractsWithDraftSplit
         }
 
         $this->draftSplitQuantity = min(max(1, (int) $this->draftSplitQuantity), $reviewed);
+    }
+
+    /**
+     * Publish / Split eligible scope from Draft list projection (?draft_domain=).
+     * null = entire Shared Draft; 0 = unassigned; >0 = concrete Site.
+     */
+    protected function resolvePublishDraftSiteScope(): ?int
+    {
+        if (! property_exists($this, 'draftDomainFilter')) {
+            return null;
+        }
+
+        $domain = strtolower(trim((string) $this->draftDomainFilter));
+        if ($domain === '' || $domain === 'all') {
+            return null;
+        }
+        if ($domain === '0') {
+            return 0;
+        }
+        if (! ctype_digit($domain)) {
+            return null;
+        }
+
+        $siteId = (int) $domain;
+
+        return $siteId > 0 ? $siteId : null;
+    }
+
+    /**
+     * Priority: explicit selected rows ∩ current domain projection → domain projection → all.
+     *
+     * @return list<int>
+     */
+    protected function resolvePublishEligibleTaskIds(SeoProject $project): array
+    {
+        $scoped = app(SplitDraftContentProjectService::class)
+            ->orderedReviewedDraftTaskIds($project, $this->resolvePublishDraftSiteScope());
+
+        $selected = $this->normalizeSelectedIds($this->selectedTaskIds ?? []);
+        if ($selected === []) {
+            return $scoped;
+        }
+
+        $lookup = array_fill_keys($scoped, true);
+        $hit = [];
+        foreach ($selected as $id) {
+            if (isset($lookup[$id])) {
+                $hit[] = $id;
+            }
+        }
+
+        return $hit !== [] ? $hit : $scoped;
     }
 
     /**
@@ -462,6 +560,11 @@ trait InteractsWithDraftSplit
         foreach ($this->currentWriterSelectorPayload()['writers'] as $writer) {
             $id = (int) ($writer['id'] ?? 0);
             if ($id <= 0) {
+                continue;
+            }
+            // Capacity 0 writers stay visible but are not auto-included for allocation.
+            $capacity = (int) ($writer['capacity'] ?? 0);
+            if ($capacity <= 0) {
                 continue;
             }
             $ids[] = $id;
@@ -508,7 +611,8 @@ trait InteractsWithDraftSplit
      *     month: string,
      *     month_label: string,
      *     month_display?: string,
-     *     capacity?: int,
+     *     default_capacity?: int,
+     *     team_capacity?: int,
      *     writers: list<array<string, mixed>>
      * }
      */

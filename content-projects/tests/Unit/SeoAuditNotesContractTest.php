@@ -14,7 +14,7 @@ use ReflectionClass;
 use Tests\Support\LegacyAddonPath;
 
 /**
- * SEO Audit Notes: MCP share ASC suggestions + DNA snapshot edit + prompt weight DESC.
+ * SEO Audit Notes: MCP share ASC suggestions + DNA slot snapshot + prompt serialization.
  */
 final class SeoAuditNotesContractTest extends TestCase
 {
@@ -41,65 +41,69 @@ final class SeoAuditNotesContractTest extends TestCase
             ['value' => 'du lịch', 'count' => 6],
         ]);
         self::assertSame(
-            ['túi mỹ phẩm', 'túi đựng mỹ phẩm', 'du lịch'],
+            ['du lịch', 'túi mỹ phẩm', 'túi đựng mỹ phẩm'],
             array_column($initial, 'phrase'),
         );
+        self::assertSame([1, 1, 1], array_column($initial, 'slots'));
 
         $afterRemove = AuditNoteDnaNormalizer::removeDna($initial, 'du lịch');
-        $afterAdd = AuditNoteDnaNormalizer::addDna($afterRemove, 'ngăn chia mỹ phẩm', 8);
+        $afterAdd = AuditNoteDnaNormalizer::addDna($afterRemove, 'ngăn chia mỹ phẩm');
 
-        self::assertSame(
+        self::assertEqualsCanonicalizing(
             [
-                ['phrase' => 'túi mỹ phẩm', 'weight' => 18, 'source' => 'cluster'],
-                ['phrase' => 'túi đựng mỹ phẩm', 'weight' => 12, 'source' => 'cluster'],
-                ['phrase' => 'ngăn chia mỹ phẩm', 'weight' => 8, 'source' => 'manual'],
+                ['phrase' => 'túi mỹ phẩm', 'slots' => 1, 'source' => 'cluster', 'placement' => 'after'],
+                ['phrase' => 'túi đựng mỹ phẩm', 'slots' => 1, 'source' => 'cluster', 'placement' => 'after'],
+                ['phrase' => 'ngăn chia mỹ phẩm', 'slots' => 1, 'source' => 'manual', 'placement' => 'after'],
             ],
             $afterAdd,
         );
-        // Canonical cluster DNA untouched — we only mutated the snapshot array.
         self::assertCount(3, $initial);
-        self::assertSame('du lịch', $initial[2]['phrase']);
+        self::assertContains('du lịch', array_column($initial, 'phrase'));
     }
 
-    public function test_duplicate_manual_dna_merges_keeping_higher_weight(): void
+    public function test_duplicate_manual_dna_increments_slots(): void
     {
         $dna = AuditNoteDnaNormalizer::snapshotFromClusterDna([
             ['value' => 'balo', 'count' => 5],
         ]);
-        $dna = AuditNoteDnaNormalizer::addDna($dna, 'Balo', 3);
+        $dna = AuditNoteDnaNormalizer::addDna($dna, 'Balo');
         self::assertCount(1, $dna);
-        self::assertSame(5, $dna[0]['weight']);
+        self::assertSame(2, $dna[0]['slots']);
 
-        $dna = AuditNoteDnaNormalizer::addDna($dna, 'balo', 9);
+        $dna = AuditNoteDnaNormalizer::addDna($dna, 'balo');
         self::assertCount(1, $dna);
-        self::assertSame(9, $dna[0]['weight']);
+        self::assertSame(3, $dna[0]['slots']);
     }
 
-    public function test_prompt_builder_orders_dna_by_weight_desc_and_skips_deleted(): void
+    public function test_prompt_builder_serializes_slots_and_skips_deleted(): void
     {
         $item = AuditNoteDnaNormalizer::normalizeNoteItem([
             'cluster_ref' => 'clu_tui',
             'cluster_name_snapshot' => 'Túi mỹ phẩm',
             'mcp_share_snapshot' => 0,
+            'target_dna_count' => 10,
             'dna' => [
-                ['phrase' => 'túi mỹ phẩm', 'weight' => 18, 'source' => 'cluster'],
-                ['phrase' => 'túi đựng mỹ phẩm', 'weight' => 12, 'source' => 'cluster'],
-                ['phrase' => 'ngăn chia mỹ phẩm', 'weight' => 8, 'source' => 'manual'],
+                ['phrase' => 'túi mỹ phẩm', 'slots' => 2, 'source' => 'cluster'],
+                ['phrase' => 'túi đựng mỹ phẩm', 'slots' => 1, 'source' => 'cluster'],
+                ['phrase' => 'ngăn chia mỹ phẩm', 'slots' => 1, 'source' => 'manual'],
             ],
         ]);
         self::assertNotNull($item);
 
         $lines = (new AuditNotePromptSectionBuilder)->lines([$item]);
         $joined = implode("\n", $lines);
-        self::assertStringContainsString('18 túi mỹ phẩm', $joined);
-        self::assertStringContainsString('12 túi đựng mỹ phẩm', $joined);
-        self::assertStringContainsString('8 ngăn chia mỹ phẩm', $joined);
+        self::assertStringContainsString('túi mỹ phẩm · placement=after ×2', $joined);
+        self::assertStringContainsString('túi đựng mỹ phẩm · placement=after', $joined);
+        self::assertStringContainsString('ngăn chia mỹ phẩm · placement=after', $joined);
         self::assertStringNotContainsString('du lịch', $joined);
+        self::assertStringContainsString('Target DNA: 10', $joined);
+        self::assertStringContainsString('Missing slots: 6', $joined);
 
         $promptOrder = AuditNoteDnaNormalizer::promptLines($item['dna']);
-        self::assertSame(
-            ['18 túi mỹ phẩm', '12 túi đựng mỹ phẩm', '8 ngăn chia mỹ phẩm'],
-            $promptOrder,
+        self::assertSame('túi mỹ phẩm · placement=after ×2', $promptOrder[0]);
+        self::assertEqualsCanonicalizing(
+            ['túi đựng mỹ phẩm · placement=after', 'ngăn chia mỹ phẩm · placement=after'],
+            array_slice($promptOrder, 1),
         );
     }
 
@@ -109,19 +113,23 @@ final class SeoAuditNotesContractTest extends TestCase
         self::assertTrue(AuditNoteDnaNormalizer::isManualRef($ref));
 
         $item = AuditNoteDnaNormalizer::normalizeNoteItem([
+            'source_type' => AuditNoteDnaNormalizer::SOURCE_TYPE_MANUAL_SEED,
             'cluster_ref' => $ref,
+            'seed_text' => 'Balo thủ công',
             'cluster_name_snapshot' => 'Balo thủ công',
-            'mcp_share_snapshot' => 0,
+            'mcp_share_snapshot' => null,
             'dna' => [
-                ['phrase' => 'Balo thủ công', 'weight' => 1, 'source' => 'manual'],
+                ['phrase' => 'Balo thủ công', 'slots' => 1, 'source' => 'manual'],
             ],
         ]);
         self::assertNotNull($item);
+        self::assertTrue(AuditNoteDnaNormalizer::isManualSeed($item));
 
         $lines = (new AuditNotePromptSectionBuilder)->lines([$item]);
         $joined = implode("\n", $lines);
-        self::assertStringContainsString('manual', $joined);
-        self::assertStringContainsString('1 Balo thủ công', $joined);
+        self::assertStringContainsString('Planning Seed', $joined);
+        self::assertStringContainsString('manual_seed', $joined);
+        self::assertStringContainsString('Balo thủ công', $joined);
         self::assertStringNotContainsString('MCP 0.0%', $joined);
     }
 
@@ -134,14 +142,16 @@ final class SeoAuditNotesContractTest extends TestCase
                 'cluster_ref' => 'clu_a',
                 'cluster_name_snapshot' => 'A',
                 'mcp_share_snapshot' => 2.4,
+                'target_dna_count' => 5,
                 'dna' => [
-                    ['phrase' => 'a', 'weight' => 3, 'source' => 'cluster'],
+                    ['phrase' => 'a', 'slots' => 1, 'source' => 'cluster'],
                 ],
             ]],
         ]);
         self::assertCount(1, $opts['note_items']);
         self::assertSame('clu_a', $opts['note_items'][0]['cluster_ref']);
         self::assertSame(2.4, $opts['note_items'][0]['mcp_share_snapshot']);
+        self::assertSame(5, $opts['note_items'][0]['target_dna_count']);
 
         $snap = NewContentSuggestionOptions::snapshot($opts, 'vi');
         self::assertArrayHasKey('note_items', $snap);
@@ -183,17 +193,20 @@ final class SeoAuditNotesContractTest extends TestCase
                 'cluster_ref' => 'clu_tui',
                 'cluster_name_snapshot' => 'Túi mỹ phẩm',
                 'mcp_share_snapshot' => 0,
+                'target_dna_count' => 5,
                 'dna' => [
-                    ['phrase' => 'túi mỹ phẩm', 'weight' => 18, 'source' => 'cluster'],
-                    ['phrase' => 'ngăn chia mỹ phẩm', 'weight' => 8, 'source' => 'manual'],
+                    ['phrase' => 'túi mỹ phẩm', 'slots' => 1, 'source' => 'cluster'],
+                    ['phrase' => 'ngăn chia mỹ phẩm', 'slots' => 1, 'source' => 'manual'],
                 ],
             ]],
             'notes' => '',
         ]);
         self::assertStringContainsString('Selected SEO Audit Notes', $brief);
-        self::assertStringContainsString('18 túi mỹ phẩm', $brief);
-        self::assertStringContainsString('8 ngăn chia mỹ phẩm', $brief);
+        self::assertStringContainsString('SYSTEM AUTOMATION POLICY', $brief);
+        self::assertStringContainsString('túi mỹ phẩm', $brief);
+        self::assertStringContainsString('ngăn chia mỹ phẩm', $brief);
         self::assertStringContainsString('MCP 0.0%', $brief);
+        self::assertStringContainsString('Missing slots: 3', $brief);
     }
 
     public function test_ui_and_concern_wiring(): void
@@ -219,13 +232,16 @@ final class SeoAuditNotesContractTest extends TestCase
         $bladeSrc = (string) file_get_contents($blade);
         self::assertStringContainsString('audit_notes_heading', $bladeSrc);
         self::assertStringContainsString('toggleAuditNoteCluster', $bladeSrc);
-        self::assertStringContainsString('addAuditNoteDna', $bladeSrc);
-        self::assertStringContainsString('removeAuditNoteDna', $bladeSrc);
-        self::assertStringContainsString('addManualAuditNoteTopic', $bladeSrc);
+        self::assertStringContainsString('cpAuditNotesRoot', $bladeSrc);
+        self::assertStringContainsString('addDna(item.cluster_ref)', $bladeSrc);
+        self::assertStringContainsString('addManualSeed()', $bladeSrc);
+        self::assertStringContainsString('data-planning-seed-form="1"', $bladeSrc);
         self::assertStringContainsString('$visibleRows', $bladeSrc);
         self::assertStringContainsString('wire:init="loadAuditNoteSuggestions"', $bladeSrc);
         self::assertStringContainsString('cp-audit-notes__skeleton', $bladeSrc);
         self::assertStringNotContainsString('is-selected', $bladeSrc);
+        self::assertStringNotContainsString('$wire.addAuditNoteDna', $bladeSrc);
+        self::assertStringNotContainsString('wire:model="auditNoteDnaPhrase"', $bladeSrc);
 
         $cardFull = (string) file_get_contents($card);
         self::assertStringContainsString('cp-plan-sticky-cta', $cardFull);

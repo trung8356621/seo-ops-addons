@@ -415,10 +415,13 @@
                                 $name = (string) ($row['name'] ?? '');
                                 $initials = (string) ($row['initials'] ?? '?');
                                 $count = (int) ($row['total_count'] ?? $row['count'] ?? 0);
-                                $capacity = (int) ($row['capacity'] ?? 30);
+                                $capacity = max(0, (int) ($row['capacity'] ?? 0));
                                 $progressPct = (int) ($row['progress_pct'] ?? 0);
-                                $barPct = max(0, min(100, $progressPct));
-                                $over = $count > $capacity;
+                                $capacityZero = (bool) ($row['capacity_zero'] ?? ($capacity === 0));
+                                $over = (bool) ($row['over_capacity'] ?? ($capacityZero ? $count > 0 : $count > $capacity));
+                                $barPct = $capacityZero
+                                    ? ($count > 0 ? 100 : 0)
+                                    : max(0, min(100, $progressPct));
                             @endphp
                             <li>
                                 <div class="cp-month-charts__writer-row">
@@ -427,16 +430,26 @@
                                         <span class="truncate font-medium text-gray-800 dark:text-gray-100" title="{{ $name }}">{{ $name }}</span>
                                     </div>
                                     <div class="cp-month-charts__progress">
-                                        <div class="cp-month-charts__progress-track">
-                                            <div
-                                                class="cp-month-charts__progress-fill{{ $over ? ' cp-month-charts__progress-fill--over' : '' }}"
-                                                style="width: {{ $barPct }}%"
-                                            ></div>
-                                        </div>
-                                        <span class="w-7 shrink-0 text-right tabular-nums text-gray-500 dark:text-gray-400">{{ $progressPct }}%</span>
+                                        @if ($capacityZero)
+                                            <span class="text-[11px] text-amber-700 dark:text-amber-300">
+                                                {{ __('seo-content-ai::filament.projects.chart_capacity_zero') }}
+                                            </span>
+                                        @else
+                                            <div class="cp-month-charts__progress-track">
+                                                <div
+                                                    class="cp-month-charts__progress-fill{{ $over ? ' cp-month-charts__progress-fill--over' : '' }}"
+                                                    style="width: {{ $barPct }}%"
+                                                ></div>
+                                            </div>
+                                            <span class="w-7 shrink-0 text-right tabular-nums text-gray-500 dark:text-gray-400">{{ $progressPct }}%</span>
+                                        @endif
                                     </div>
                                     <span class="text-right tabular-nums {{ $over ? 'text-warning-600 dark:text-warning-400' : 'text-gray-700 dark:text-gray-200' }}">
-                                        {{ $count }} / {{ $capacity }}
+                                        @if ($capacityZero)
+                                            {{ $count }} · {{ __('seo-content-ai::filament.projects.chart_no_assignment') }}
+                                        @else
+                                            {{ $count }} / {{ $capacity }}
+                                        @endif
                                     </span>
                                 </div>
                             </li>

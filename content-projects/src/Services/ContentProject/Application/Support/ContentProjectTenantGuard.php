@@ -20,8 +20,20 @@ final class ContentProjectTenantGuard
     public function assertCanAccessProject(SeoProject $project, ActorContext $actor): void
     {
         $siteId = (int) ($project->site_id ?? 0);
+
+        // Shared / domain-neutral Draft: site lives on items + working filter, not project.site_id.
         if ($siteId <= 0) {
-            throw new RuntimeException('Project thiếu site_id.');
+            if (! $project->isDraftPlanning()) {
+                throw new RuntimeException('Project thiếu site_id.');
+            }
+
+            if (in_array($actor->actorType, ['user', 'api', 'agent'], true)
+                && ! SeoAccessControl::canManageContentProjectWorkflow()
+            ) {
+                throw new RuntimeException('Không có quyền truy cập project.');
+            }
+
+            return;
         }
 
         if ($actor->siteId !== null && $actor->siteId > 0 && $actor->siteId !== $siteId) {
@@ -31,6 +43,26 @@ final class ContentProjectTenantGuard
         if (in_array($actor->actorType, ['user', 'api', 'agent'], true)) {
             if (! SeoAccessControl::canAccessSite($siteId)) {
                 throw new RuntimeException('Không có quyền truy cập project.');
+            }
+        }
+    }
+
+    /**
+     * Validate actor may operate against an explicit working Site (separate from Shared Draft access).
+     */
+    public function assertCanAccessSite(int $siteId, ActorContext $actor): void
+    {
+        if ($siteId <= 0) {
+            throw new RuntimeException('Site is required.');
+        }
+
+        if ($actor->siteId !== null && $actor->siteId > 0 && $actor->siteId !== $siteId) {
+            throw new RuntimeException('Site không thuộc ngữ cảnh hiện tại.');
+        }
+
+        if (in_array($actor->actorType, ['user', 'api', 'agent'], true)) {
+            if (! SeoAccessControl::canAccessSite($siteId)) {
+                throw new RuntimeException('Không có quyền truy cập site.');
             }
         }
     }

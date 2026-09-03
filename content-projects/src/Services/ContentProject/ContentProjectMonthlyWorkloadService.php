@@ -6,9 +6,11 @@ namespace Omnichannel\Addons\ContentProjects\Services\ContentProject;
 
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\ContentProjects\Services\ContentProjectStaffAvailabilityService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterCapacitySettingsService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterMonthlyCapacityService;
-use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExecutionLimits;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
+use App\Models\User;
 use App\Services\Users\SeoOpsSystemUser;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Carbon\Carbon;
@@ -33,6 +35,8 @@ final class ContentProjectMonthlyWorkloadService
 
     public function __construct(
         private readonly ContentProjectWriterMonthlyCapacityService $writerCapacity,
+        private readonly ContentProjectWriterCapacitySettingsService $capacitySettings,
+        private readonly ContentProjectStaffAvailabilityService $staff,
     ) {}
 
     /**
@@ -40,7 +44,8 @@ final class ContentProjectMonthlyWorkloadService
      *     month: string,
      *     month_label: string,
      *     scope: string,
-     *     capacity: int,
+     *     default_capacity: int,
+     *     team_capacity: int,
      *     by_domain: list<array{site_id: int, domain: string, active_count: int, archived_count: int, total_count: int}>,
      *     by_writer: list<array{user_id: int, name: string, active_count: int, archived_count: int, total_count: int, capacity: int, remaining: int}>,
      *     domain_empty: bool,
@@ -56,26 +61,28 @@ final class ContentProjectMonthlyWorkloadService
         $scope = $this->normalizeScope($scope);
         $normalized = ContentProjectMonthContext::normalize($month);
         $monthDate = ContentProjectMonthContext::toDateString($normalized);
-        $capacity = ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS;
+        $defaultCapacity = $this->capacitySettings->defaultMonthlyCapacity();
 
         $byDomain = $this->aggregateByDomain($monthDate, $scope);
-        $byWriter = $this->aggregateByWriter($monthDate, $scope, $capacity);
+        $byWriter = $this->aggregateByWriter($monthDate, $scope);
+        $teamCapacity = $this->teamCapacityForEligibleWriters();
 
         $domainMax = 0;
         foreach ($byDomain as $row) {
             $domainMax = max($domainMax, (int) $row['total_count']);
         }
 
-        $writerMax = $capacity;
+        $writerMax = max(1, $defaultCapacity);
         foreach ($byWriter as $row) {
-            $writerMax = max($writerMax, (int) $row['total_count']);
+            $writerMax = max($writerMax, (int) $row['total_count'], (int) $row['capacity']);
         }
 
         return [
             'month' => $monthDate,
             'month_label' => ContentProjectMonthContext::display($normalized),
             'scope' => $scope,
-            'capacity' => $capacity,
+            'default_capacity' => $defaultCapacity,
+            'team_capacity' => $teamCapacity,
             'by_domain' => $byDomain,
             'by_writer' => $byWriter,
             'domain_empty' => $byDomain === [],
@@ -124,7 +131,8 @@ final class ContentProjectMonthlyWorkloadService
      * @return array{
      *     month: string,
      *     month_label: string,
-     *     capacity: int,
+     *     default_capacity: int,
+     *     team_capacity: int,
      *     rows: list<array{user_id: int, name: string, active_count: int, archived_count: int, total_count: int, count: int, capacity: int, remaining: int}>,
      *     max: int,
      *     empty: bool
@@ -152,7 +160,8 @@ final class ContentProjectMonthlyWorkloadService
         return [
             'month' => $payload['month'],
             'month_label' => $payload['month_label'],
-            'capacity' => $payload['capacity'],
+            'default_capacity' => $payload['default_capacity'],
+            'team_capacity' => $payload['team_capacity'],
             'rows' => $rows,
             'max' => $payload['writer_max'],
             'empty' => $payload['writer_empty'],
@@ -235,7 +244,7 @@ final class ContentProjectMonthlyWorkloadService
     /**
      * @return list<array{user_id: int, name: string, active_count: int, archived_count: int, total_count: int, capacity: int, remaining: int}>
      */
-    private function aggregateByWriter(string $monthDate, string $scope, int $capacity): array
+    private function aggregateByWriter(string $monthDate, string $scope): array
     {
         $query = $this->baseItemQuery($monthDate, $scope)
             ->whereNotNull('p.user_id')
@@ -259,6 +268,8 @@ final class ContentProjectMonthlyWorkloadService
         }
 
         $names = $this->writerCapacity->displayNamesByUserId($userIds);
+        $capacities = $this->writerCapacity->capacityByUserId($userIds);
+        $defaultCapacity = $this->capacitySettings->defaultMonthlyCapacity();
         $rows = [];
         foreach ($raw as $row) {
             $userId = (int) ($row->user_id ?? 0);
@@ -268,6 +279,7 @@ final class ContentProjectMonthlyWorkloadService
             if ($userId <= 0 || $total <= 0 || SeoOpsSystemUser::isSystemUserId($userId)) {
                 continue;
             }
+            $capacity = (int) ($capacities[$userId] ?? $defaultCapacity);
             $rows[] = [
                 'user_id' => $userId,
                 'name' => $names[$userId] ?? ('#'.$userId),
@@ -280,6 +292,29 @@ final class ContentProjectMonthlyWorkloadService
         }
 
         return $rows;
+    }
+
+    /**
+     * SUM of effective monthly capacities for assignable real writers (System User excluded).
+     */
+    private function teamCapacityForEligibleWriters(): int
+    {
+        try {
+            $ids = $this->staff->baseAssignableStaffQuery()
+                ->get(['id'])
+                ->map(static fn (User $user): int => (int) $user->getKey())
+                ->filter(static fn (int $id): bool => $id > 0 && ! SeoOpsSystemUser::isSystemUserId($id))
+                ->values()
+                ->all();
+        } catch (\Throwable) {
+            return 0;
+        }
+
+        if ($ids === []) {
+            return 0;
+        }
+
+        return (int) array_sum($this->capacitySettings->capacitiesForUsers($ids));
     }
 
     /**

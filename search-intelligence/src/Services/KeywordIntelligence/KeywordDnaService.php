@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordDna;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Canonical\CanonicalClusterResolverService;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\DnaPlacement;
 
 final class KeywordDnaService
 {
@@ -45,8 +46,9 @@ final class KeywordDnaService
             ->delete();
 
         $created = 0;
+        $hasPlacement = Schema::connection('omi_seo_ai')->hasColumn('seo_keyword_dna', 'placement');
         foreach ($extracted as $row) {
-            SeoKeywordDna::query()->create([
+            $payload = [
                 'site_id' => $siteId,
                 'keyword_id' => $keywordId,
                 'cluster_key' => $clusterKey,
@@ -55,7 +57,11 @@ final class KeywordDnaService
                 'facet_type' => $row['facet_type'],
                 'confidence' => $row['confidence'],
                 'source' => 'deterministic',
-            ]);
+            ];
+            if ($hasPlacement) {
+                $payload['placement'] = DnaPlacement::normalize($row['placement'] ?? null);
+            }
+            SeoKeywordDna::query()->create($payload);
             $created++;
         }
 
@@ -119,7 +125,7 @@ final class KeywordDnaService
     }
 
     /**
-     * @return list<array{value: string, count: int}>
+     * @return list<array{value: string, count: int, placement: string}>
      */
     public function coverageForCluster(int $siteId, string $clusterKey): array
     {
@@ -127,19 +133,30 @@ final class KeywordDnaService
             return [];
         }
 
+        $hasPlacement = Schema::connection('omi_seo_ai')->hasColumn('seo_keyword_dna', 'placement');
+        $placementSelect = $hasPlacement
+            ? ', SUM(CASE WHEN placement = \'before\' THEN 1 ELSE 0 END) as before_count'
+            : ', 0 as before_count';
+
         $rows = SeoKeywordDna::query()
             ->where('site_id', $siteId)
             ->where('cluster_key', $clusterKey)
-            ->selectRaw('MIN(value) as value, normalized_value, COUNT(DISTINCT keyword_id) as kw_count')
+            ->selectRaw('MIN(value) as value, normalized_value, COUNT(DISTINCT keyword_id) as kw_count'.$placementSelect)
             ->groupBy('normalized_value')
             ->orderByDesc('kw_count')
             ->get();
 
         $out = [];
         foreach ($rows as $row) {
+            $beforeCount = (int) ($row->before_count ?? 0);
+            $total = (int) $row->kw_count;
+            $placement = ($beforeCount > (int) floor($total / 2))
+                ? DnaPlacement::BEFORE
+                : DnaPlacement::AFTER;
             $out[] = [
                 'value' => (string) $row->value,
-                'count' => (int) $row->kw_count,
+                'count' => $total,
+                'placement' => $placement,
             ];
         }
 

@@ -31,9 +31,10 @@ final class ClaudeMessagesClient
     private const DEFAULT_MODEL = 'claude-sonnet-4-20250514';
 
     /**
+     * @param  array<string, mixed>  $options
      * @return array{0: string, 1: array<string, mixed>|null}
      */
-    public function generate(ApiConnection $connection, string $prompt, string $model): array
+    public function generate(ApiConnection $connection, string $prompt, string $model, array $options = []): array
     {
         if (blank($connection->api_key)) {
             throw new PromptRunException('Kết nối Claude chưa có API Key.');
@@ -41,14 +42,37 @@ final class ClaudeMessagesClient
 
         $modelName = trim($model) !== '' ? trim($model) : self::DEFAULT_MODEL;
 
+        if (function_exists('app') && app()->bound(\Omnichannel\Addons\AiPrompt\Services\PromptBudgetPreflightService::class)) {
+            $gate = new \Omnichannel\Addons\AiPrompt\Services\AiOutboundBudgetGate(
+                app(\Omnichannel\Addons\AiPrompt\Services\PromptBudgetPreflightService::class),
+            );
+            $plan = $gate->verifyCompiled(
+                null,
+                $connection,
+                $prompt,
+                $modelName,
+                'claude',
+                is_string($options['hook_key'] ?? null) ? (string) $options['hook_key'] : null,
+                $options,
+            );
+            if ($plan->requestedMaxOutputTokens > 0) {
+                $options['max_output'] = $plan->requestedMaxOutputTokens;
+            }
+        }
+
         $client = Anthropic::factory()
             ->withApiKey((string) $connection->api_key)
             ->withHttpClient($this->createHttpClient())
             ->make();
 
+        $maxTokens = (int) ($options['max_output'] ?? self::MAX_OUTPUT_TOKENS);
+        if ($maxTokens <= 0) {
+            $maxTokens = self::MAX_OUTPUT_TOKENS;
+        }
+
         $payload = [
             'model' => $modelName,
-            'max_tokens' => self::MAX_OUTPUT_TOKENS,
+            'max_tokens' => $maxTokens,
             'messages' => [
                 ['role' => 'user', 'content' => $prompt],
             ],

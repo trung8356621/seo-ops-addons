@@ -529,9 +529,93 @@ body:has(.keyword-workspace-page) .fi-page-content {
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    justify-content: flex-end;
+    justify-content: space-between;
     gap: 0.5rem;
     margin-bottom: 0.875rem;
+}
+
+.keyword-dictionary-toolbar__actions {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.keyword-view-mode-toggle {
+    display: inline-flex;
+    align-items: stretch;
+    border: 1px solid rgb(229 231 235);
+    border-radius: 0.75rem;
+    background: rgb(249 250 251);
+    overflow: hidden;
+}
+
+.keyword-view-mode-toggle__btn {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: rgb(75 85 99);
+    font-size: 0.8125rem;
+    font-weight: 600;
+    line-height: 1.25;
+    padding: 0.5rem 0.875rem;
+    cursor: pointer;
+    transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.keyword-view-mode-toggle__btn + .keyword-view-mode-toggle__btn {
+    border-left: 1px solid rgb(229 231 235);
+}
+
+.keyword-view-mode-toggle__btn.is-active {
+    background: rgb(255 255 255);
+    color: rgb(var(--ws-violet-700));
+    box-shadow: inset 0 0 0 1px rgb(var(--ws-violet-600) / 0.25);
+}
+
+.keyword-view-mode-toggle__btn:hover:not(.is-active) {
+    background: rgb(243 244 246);
+    color: rgb(31 41 55);
+}
+
+.dark .keyword-view-mode-toggle {
+    border-color: rgb(255 255 255 / 0.12);
+    background: rgb(17 24 39 / 0.65);
+}
+
+.dark .keyword-view-mode-toggle__btn {
+    color: rgb(209 213 219);
+}
+
+.dark .keyword-view-mode-toggle__btn + .keyword-view-mode-toggle__btn {
+    border-left-color: rgb(255 255 255 / 0.12);
+}
+
+.dark .keyword-view-mode-toggle__btn.is-active {
+    background: rgb(31 41 55);
+    color: rgb(196 181 253);
+    box-shadow: inset 0 0 0 1px rgb(167 139 250 / 0.35);
+}
+
+.keyword-detail-layout.is-quick-mode,
+.keyword-detail-layout[data-keyword-view-mode="quick"] {
+    display: block !important;
+}
+
+.keyword-detail-layout.is-quick-mode .keyword-table-shell,
+.keyword-detail-layout[data-keyword-view-mode="quick"] .keyword-table-shell {
+    width: 100% !important;
+    max-width: 100% !important;
+    flex: none !important;
+}
+
+.keyword-detail-layout.is-quick-mode .keyword-detail-drawer-slot,
+.keyword-detail-layout[data-keyword-view-mode="quick"] .keyword-detail-drawer-slot,
+.keyword-detail-layout.is-quick-mode .keyword-detail-drawer,
+.keyword-detail-layout[data-keyword-view-mode="quick"] .keyword-detail-drawer,
+.keyword-detail-layout.is-quick-mode .keyword-detail-backdrop,
+.keyword-detail-layout[data-keyword-view-mode="quick"] .keyword-detail-backdrop {
+    display: none !important;
 }
 
 .ws-btn {

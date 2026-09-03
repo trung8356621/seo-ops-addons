@@ -65,7 +65,6 @@ final class DomainSeoMcpService
             'domain.keyword_cluster_detail' => $this->keywordClusterDetail($site, $freshness, $input),
             'domain.keyword_generation_context' => $this->keywordGenerationContext($site, $freshness, $input),
             'domain.keyword_opportunities' => $this->keywordGaps($site, $freshness),
-            'domain.keyword_cannibalization' => $this->unavailableKeywords($freshness),
             'domain.keyword_near_top' => $this->unavailableKeywords($freshness),
             'domain.rewrite_candidates',
             'domain.content_opportunities' => $this->unavailableContent($freshness),
@@ -167,8 +166,8 @@ final class DomainSeoMcpService
     private function unavailableKeywords(array $freshness): array
     {
         return [
-            'text' => 'keyword_cannibalization = unavailable (insufficient target/rank evidence).',
-            'keyword_cannibalization' => 'unavailable',
+            'text' => 'Keyword insight unavailable (insufficient target/rank evidence).',
+            'status' => 'unavailable',
             'generated_at' => $freshness['generated_at'],
             'data_freshness' => $freshness['data_freshness'],
             'stale' => true,
@@ -399,7 +398,6 @@ final class DomainSeoMcpService
             'saturated_topics' => array_slice($saturated, 0, 20),
             'weak_topics' => array_slice($weak, 0, 20),
             'missing_topics' => array_slice($missing, 0, 20),
-            'keyword_cannibalization' => 'unavailable',
             'cluster_count' => count($clusters),
         ]);
     }

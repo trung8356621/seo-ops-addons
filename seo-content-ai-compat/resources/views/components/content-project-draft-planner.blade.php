@@ -45,9 +45,9 @@
 @endphp
 
 <div
-    class="space-y-4"
+    class="cp-plan-slide__planner space-y-3"
     wire:key="cp-draft-content-planner"
-    x-data="{ filtersOpen: true, createTab: 'ideas' }"
+    x-data="{ filtersOpen: true, createTab: 'ideas', plannerLayout: 'balanced' }"
 >
     @if ($showProjectActions)
         <div class="flex flex-wrap items-end justify-between gap-3">
@@ -101,9 +101,14 @@
         </div>
     @endif
 
-    <div class="cp-plan-grid">
-        {{-- Improve existing --}}
-        <div class="cp-plan-card cp-plan-card--improve" data-planner-card="improve">
+    <div
+        class="cp-plan-slide__grid cp-plan-grid"
+        :class="{ 'is-ai-focused': plannerLayout === 'ai-focused' }"
+        data-planner-grid="1"
+        :data-planner-layout="plannerLayout"
+    >
+        {{-- Improve existing — full card only in balanced 50/50 mode --}}
+        <div class="cp-plan-card cp-plan-card--improve cp-plan-card--with-sticky-cta" data-planner-card="improve">
             <div class="cp-plan-card__head">
                 <span class="cp-plan-card__icon cp-plan-card__icon--improve" aria-hidden="true">
                     <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 17l6-6 4 4 7-7"/><path d="M14 8h7v7"/></svg>
@@ -116,31 +121,6 @@
                         {{ __('seo-content-ai::filament.projects.planner_improve_help') }}
                     </p>
                 </div>
-            </div>
-
-            <div class="cp-plan-action-row">
-                <div class="cp-plan-qty">
-                    <label class="cp-plan-qty__label">{{ __('seo-content-ai::filament.projects.planner_quantity') }}</label>
-                    <x-select wire:model.live="fillLimit" wrapClass="cp-ops-select" :disabled="! $canWrite">
-                        <option value="10">10</option>
-                        <option value="20">20</option>
-                        <option value="50">50</option>
-                    </x-select>
-                </div>
-                <button
-                    type="button"
-                    wire:click="fillSuggestions"
-                    wire:loading.attr="disabled"
-                    wire:target="fillSuggestions"
-                    @disabled(! $canWrite)
-                    @class(['cp-plan-btn cp-plan-btn--improve', 'is-disabled' => ! $canWrite])
-                >
-                    <svg wire:loading.remove wire:target="fillSuggestions" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.2 3.6L17 8l-3.8 1.4L12 13l-1.2-3.6L7 8l3.8-1.4L12 3z"/><path d="M19 14l.6 1.8L21.5 16.5l-1.9.7L19 19l-.6-1.8L16.5 16.5l1.9-.7L19 14z"/></svg>
-                    <span wire:loading.remove wire:target="fillSuggestions">{{ __('seo-content-ai::filament.projects.planner_fill_from_seo_audit') }}</span>
-                    <span wire:loading wire:target="fillSuggestions" class="inline-flex items-center gap-1">
-                        <svg class="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
-                    </span>
-                </button>
             </div>
 
             <div class="cp-plan-card__scroll" data-plan-scroll="improve">
@@ -264,6 +244,33 @@
                 </div>
             </div>
             </div>
+
+            <div class="cp-plan-sticky-cta cp-plan-sticky-cta--improve">
+                <div class="cp-plan-action-row">
+                    <div class="cp-plan-qty">
+                        <label class="cp-plan-qty__label">{{ __('seo-content-ai::filament.projects.planner_quantity') }}</label>
+                        <x-select wire:model.live="fillLimit" wrapClass="cp-ops-select" :disabled="! $canWrite">
+                            <option value="10">10</option>
+                            <option value="20">20</option>
+                            <option value="50">50</option>
+                        </x-select>
+                    </div>
+                    <button
+                        type="button"
+                        wire:click="fillSuggestions"
+                        wire:loading.attr="disabled"
+                        wire:target="fillSuggestions"
+                        @disabled(! $canWrite)
+                        @class(['cp-plan-btn cp-plan-btn--improve', 'is-disabled' => ! $canWrite])
+                    >
+                        <svg wire:loading.remove wire:target="fillSuggestions" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.2 3.6L17 8l-3.8 1.4L12 13l-1.2-3.6L7 8l3.8-1.4L12 3z"/><path d="M19 14l.6 1.8L21.5 16.5l-1.9.7L19 19l-.6-1.8L16.5 16.5l1.9-.7L19 14z"/></svg>
+                        <span wire:loading.remove wire:target="fillSuggestions">{{ __('seo-content-ai::filament.projects.planner_fill_from_seo_audit') }}</span>
+                        <span wire:loading wire:target="fillSuggestions" class="inline-flex items-center gap-1">
+                            <svg class="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
+                        </span>
+                    </button>
+                </div>
+            </div>
         </div>
 
         {{-- Create / ideas (blue outer panel; tab panels stacked for stable height) --}}
@@ -275,7 +282,7 @@
                     class="cp-plan-create-tab"
                     :class="createTab === 'ideas' && 'is-active'"
                     :aria-selected="createTab === 'ideas'"
-                    @click="createTab = 'ideas'"
+                    @click="createTab = 'ideas'; plannerLayout = 'balanced'"
                     data-create-tab="ideas"
                 >
                     {{ __('seo-content-ai::filament.projects.idea_candidate_tab_available') }}
@@ -287,7 +294,7 @@
                     class="cp-plan-create-tab"
                     :class="createTab === 'ai' && 'is-active'"
                     :aria-selected="createTab === 'ai'"
-                    @click="createTab = 'ai'"
+                    @click="createTab = 'ai'; plannerLayout = 'ai-focused'"
                     data-create-tab="ai"
                 >
                     {{ __('seo-content-ai::filament.projects.idea_candidate_tab_ai') }}
@@ -430,12 +437,16 @@
                                         @php
                                             $writerId = (int) ($writer['id'] ?? 0);
                                             $writerCurrent = (int) ($writer['current'] ?? 0);
+                                            $writerCapacity = max(0, (int) ($writer['capacity'] ?? 0));
+                                            $writerRemaining = (int) ($writer['remaining'] ?? ($writerCapacity - $writerCurrent));
                                             $writerNew = (int) ($writer['new_allocation'] ?? 0);
                                             $writerResult = (int) ($writer['resulting'] ?? ($writerCurrent + $writerNew));
                                             $writerProjects = (int) ($writer['project_count'] ?? 0);
+                                            $capacityZero = (bool) ($writer['capacity_zero'] ?? ($writerCapacity === 0));
+                                            $capacityFull = (bool) ($writer['capacity_full'] ?? ($writerCapacity > 0 && $writerRemaining <= 0));
                                         @endphp
                                         <div
-                                            class="cp-draft-split-writer-row"
+                                            class="cp-draft-split-writer-row{{ $capacityZero || $capacityFull ? ' is-capacity-limited' : '' }}"
                                             data-split-writer="{{ $writerId }}"
                                             data-split-writer-included="1"
                                         >
@@ -447,17 +458,36 @@
                                                     <span class="cp-draft-split-metric cp-draft-split-metric--existing" data-split-existing="1">
                                                         {{ __('seo-content-ai::filament.projects.draft_split_existing', ['count' => $writerCurrent]) }}
                                                     </span>
-                                                    <span class="cp-draft-split-metric cp-draft-split-metric--new" data-split-new="1">
-                                                        {{ __('seo-content-ai::filament.projects.draft_split_new', ['count' => $writerNew]) }}
-                                                        @if ($writerProjects > 1)
-                                                            <span class="cp-draft-split-metric--projects" data-split-projects="1">
-                                                                · {{ __('seo-content-ai::filament.projects.draft_split_projects_hint', ['count' => $writerProjects]) }}
-                                                            </span>
-                                                        @endif
+                                                    <span class="cp-draft-split-metric" data-split-capacity="1">
+                                                        {{ __('seo-content-ai::filament.projects.draft_split_capacity_label', ['count' => $writerCapacity]) }}
                                                     </span>
-                                                    <span class="cp-draft-split-metric cp-draft-split-metric--result" data-split-result="1">
-                                                        {{ __('seo-content-ai::filament.projects.draft_split_result', ['count' => $writerResult]) }}
-                                                    </span>
+                                                    @if ($capacityZero)
+                                                        <span class="cp-draft-split-metric text-amber-700 dark:text-amber-300" data-split-capacity-zero="1">
+                                                            {{ __('seo-content-ai::filament.projects.draft_split_capacity_zero') }}
+                                                        </span>
+                                                    @elseif ($capacityFull)
+                                                        <span class="cp-draft-split-metric text-amber-700 dark:text-amber-300" data-split-capacity-full="1">
+                                                            {{ __('seo-content-ai::filament.projects.draft_split_capacity_exhausted') }}
+                                                        </span>
+                                                    @else
+                                                        <span class="cp-draft-split-metric" data-split-remaining="1">
+                                                            {{ __('seo-content-ai::filament.projects.draft_split_remaining', ['count' => max(0, $writerRemaining)]) }}
+                                                        </span>
+                                                        <span class="cp-draft-split-metric cp-draft-split-metric--new" data-split-new="1">
+                                                            {{ __('seo-content-ai::filament.projects.draft_split_new', ['count' => $writerNew]) }}
+                                                            @if ($writerProjects > 1)
+                                                                <span class="cp-draft-split-metric--projects" data-split-projects="1">
+                                                                    · {{ __('seo-content-ai::filament.projects.draft_split_projects_hint', ['count' => $writerProjects]) }}
+                                                                </span>
+                                                            @endif
+                                                        </span>
+                                                        <span class="cp-draft-split-metric cp-draft-split-metric--result" data-split-result="1">
+                                                            {{ __('seo-content-ai::filament.projects.draft_split_result_capacity', [
+                                                                'result' => $writerResult,
+                                                                'capacity' => $writerCapacity,
+                                                            ]) }}
+                                                        </span>
+                                                    @endif
                                                 </div>
                                             </div>
                                             <button
@@ -492,6 +522,8 @@
                                                 @php
                                                     $writerId = (int) ($writer['id'] ?? 0);
                                                     $writerCurrent = (int) ($writer['current'] ?? 0);
+                                                    $writerCapacity = max(0, (int) ($writer['capacity'] ?? 0));
+                                                    $capacityZero = (bool) ($writer['capacity_zero'] ?? ($writerCapacity === 0));
                                                 @endphp
                                                 <div
                                                     class="cp-draft-split-writer-row is-excluded"
@@ -506,6 +538,14 @@
                                                             <span class="cp-draft-split-metric cp-draft-split-metric--existing">
                                                                 {{ __('seo-content-ai::filament.projects.draft_split_existing', ['count' => $writerCurrent]) }}
                                                             </span>
+                                                            <span class="cp-draft-split-metric">
+                                                                {{ __('seo-content-ai::filament.projects.draft_split_capacity_label', ['count' => $writerCapacity]) }}
+                                                            </span>
+                                                            @if ($capacityZero)
+                                                                <span class="cp-draft-split-metric text-amber-700 dark:text-amber-300">
+                                                                    {{ __('seo-content-ai::filament.projects.draft_split_capacity_zero') }}
+                                                                </span>
+                                                            @endif
                                                         </div>
                                                     </div>
                                                     <button
@@ -515,6 +555,7 @@
                                                         wire:loading.attr="disabled"
                                                         wire:target="includeDraftSplitWriter({{ $writerId }})"
                                                         data-split-add-back="{{ $writerId }}"
+                                                        @disabled($capacityZero)
                                                     >
                                                         {{ __('seo-content-ai::filament.projects.draft_split_add_back') }}
                                                     </button>

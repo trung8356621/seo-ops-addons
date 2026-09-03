@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\IdeaCandidates;
 
 use Illuminate\Support\Facades\DB;
+use App\Models\Site;
+use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectItemOrigin;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
@@ -229,7 +231,18 @@ final class IdeaCandidateDraftPlannerService
             'recommendation_summary' => $note,
         ], $articleIds);
 
-        $summary = $this->seoAuditPlanner->addToDraftProject($project, $rows, $actorId);
+        $site = $this->resolveWorkingSite($project, $articleIds);
+        if (! $site instanceof Site) {
+            return [
+                'added' => 0,
+                'duplicate_skipped' => 0,
+                'ineligible' => count($candidates),
+                'task_ids' => [],
+                'action' => $action,
+            ];
+        }
+
+        $summary = $this->seoAuditPlanner->addToDraftProject($project, $site, $rows, $actorId);
 
         // Overlay vocabulary provenance on newly created tasks (seo_audit origin remains primary for article).
         $taskIds = array_values(array_map('intval', $summary['task_ids'] ?? []));
@@ -291,5 +304,24 @@ final class IdeaCandidateDraftPlannerService
                 'created_at' => now(),
             ],
         );
+    }
+
+    /**
+     * @param  list<int>  $articleIds
+     */
+    private function resolveWorkingSite(SeoProject $project, array $articleIds): ?Site
+    {
+        $siteId = (int) ($project->site_id ?? 0);
+        if ($siteId <= 0 && $articleIds !== []) {
+            $article = SeoArticle::query()->find((int) $articleIds[0]);
+            $siteId = (int) ($article?->site_id ?? 0);
+        }
+        if ($siteId <= 0) {
+            return null;
+        }
+
+        $site = Site::query()->find($siteId);
+
+        return $site instanceof Site ? $site : null;
     }
 }

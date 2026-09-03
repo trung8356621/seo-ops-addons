@@ -166,7 +166,8 @@ final class AiCenterTextTaxonomyFreeRoutingTest extends TestCase
         $this->assertSame(AiExecutionProfile::TextLongform, $resolver->resolve(null, 'article.content.translate'));
         $this->assertSame(AiExecutionProfile::TextLongform, $resolver->resolve(null, 'article.content.improve'));
         $this->assertSame(AiExecutionProfile::TextReasoning, $resolver->resolve(null, 'article.outline.generate'));
-        $this->assertSame(AiExecutionProfile::TextReasoning, $resolver->resolve(null, 'keyword.discovery.structured'));
+        // KD must NOT resolve to text.reasoning (deepseek-reasoner chain) — incident 2026-09-03 run20.
+        $this->assertSame(AiExecutionProfile::TextLongform, $resolver->resolve(null, 'keyword.discovery.structured'));
         $this->assertSame(AiExecutionProfile::TextFast, $resolver->resolve(null, 'article.title_suggestion'));
         $this->assertSame(AiExecutionProfile::TextFast, $resolver->resolve(null, 'article.meta_description_suggestion'));
         $this->assertSame(AiExecutionProfile::TextFast, $resolver->resolve(null, 'article.faq.generate'));

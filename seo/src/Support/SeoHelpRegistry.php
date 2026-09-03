@@ -378,7 +378,7 @@ final class SeoHelpRegistry
                     [
                         'id' => 'keywords',
                         'title' => 'Keywords workspace',
-                        'summary' => 'Quản lý từ khóa focus, cannibalization, discovery.',
+                        'summary' => 'Quản lý từ khóa focus, topic và discovery.',
                         'steps' => [
                             'Mở Keywords trên sidebar.',
                             'Gắn focus keyword cho bài trong Editor hoặc list.',

@@ -44,6 +44,7 @@ final class SeoAuditSuggestionPlannerService
      */
     public function addToDraftProject(
         SeoProject $project,
+        Site $site,
         array $rows,
         ?int $actorId = null,
         ?int $plannerRunId = null,
@@ -65,7 +66,7 @@ final class SeoAuditSuggestionPlannerService
             return $totals;
         }
 
-        $siteId = (int) ($project->site_id ?? 0);
+        $siteId = (int) $site->getKey();
         if ($siteId <= 0) {
             $totals['ineligible'] = count($rows);
 
@@ -153,7 +154,7 @@ final class SeoAuditSuggestionPlannerService
             }
 
             $taskIds[] = (int) $task->getKey();
-            $this->recordOriginAndAccepted($project, $task, $articleId, $reasonCodes, $actorId, $plannerRunId);
+            $this->recordOriginAndAccepted($project, $site, $task, $articleId, $reasonCodes, $actorId, $plannerRunId);
         }
 
         $totals['task_ids'] = array_values(array_unique($taskIds));
@@ -165,8 +166,13 @@ final class SeoAuditSuggestionPlannerService
      * @param  array<string, mixed>  $filters
      * @return array<string, mixed>
      */
-    public function fillSuggestions(SeoProject $project, array $filters, int|string $limit, ?int $actorId = null): array
-    {
+    public function fillSuggestions(
+        SeoProject $project,
+        Site $site,
+        array $filters,
+        int|string $limit,
+        ?int $actorId = null,
+    ): array {
         if (! $project->isDraftPlanning()) {
             return [
                 'requested' => 0,
@@ -190,8 +196,8 @@ final class SeoAuditSuggestionPlannerService
             ? 500
             : max(1, (int) $limit);
 
-        $matched = $this->suggestions->countMatched($project, $filters);
-        $eligible = $this->suggestions->eligibleForFill($project, $filters, $cap);
+        $matched = $this->suggestions->countMatched($project, $site, $filters);
+        $eligible = $this->suggestions->eligibleForFill($project, $site, $filters, $cap);
         $rows = array_map(static fn (array $c): array => [
             'article_id' => (int) $c['article_id'],
             'action' => (string) ($c['suggested_action'] ?? SeoAuditExistingContentSuggestionService::ACTION_IMPROVE),
@@ -203,7 +209,11 @@ final class SeoAuditSuggestionPlannerService
             $project,
             SeoContentProjectPlannerRun::SOURCE_SEO_AUDIT,
             $cap,
-            SeoAuditSuggestionFilterSet::snapshot($filters, $this->resolvedPrimaryLanguage($project)),
+            SeoAuditSuggestionFilterSet::snapshot(
+                $filters,
+                $this->resolvedPrimaryLanguage($site),
+                (int) $site->getKey(),
+            ),
             [
                 'matched_count' => $matched,
                 'added_count' => 0,
@@ -212,7 +222,7 @@ final class SeoAuditSuggestionPlannerService
             $actorId,
         );
 
-        $totals = $this->addToDraftProject($project, $rows, $actorId, (int) $run->getKey());
+        $totals = $this->addToDraftProject($project, $site, $rows, $actorId, (int) $run->getKey());
         $added = (int) ($totals['added'] ?? 0);
         $unavailable = max(0, $cap - $added);
         $skipped = (int) ($totals['already_planned'] ?? 0)
@@ -247,13 +257,15 @@ final class SeoAuditSuggestionPlannerService
      */
     private function recordOriginAndAccepted(
         SeoProject $project,
+        Site $site,
         SeoProjectTask $task,
         int $articleId,
         array $reasonCodes,
         ?int $actorId,
         ?int $plannerRunId = null,
     ): void {
-        DB::connection('omi_seo_ai')->transaction(function () use ($project, $task, $articleId, $reasonCodes, $actorId, $plannerRunId): void {
+        $siteId = (int) $site->getKey();
+        DB::connection('omi_seo_ai')->transaction(function () use ($project, $siteId, $task, $articleId, $reasonCodes, $actorId, $plannerRunId): void {
             SeoContentProjectItemOrigin::query()->updateOrCreate(
                 ['project_task_id' => (int) $task->getKey()],
                 [
@@ -276,21 +288,12 @@ final class SeoAuditSuggestionPlannerService
                 'task_id' => (int) $task->getKey(),
                 'task_type' => (string) $task->type,
                 'planner_run_id' => $plannerRunId,
-            ]);
+            ], siteId: $siteId > 0 ? $siteId : null);
         });
     }
 
-    private function resolvedPrimaryLanguage(SeoProject $project): ?string
+    private function resolvedPrimaryLanguage(Site $site): ?string
     {
-        $site = $project->site;
-        if (! $site instanceof Site) {
-            $siteId = (int) ($project->site_id ?? 0);
-            $site = $siteId > 0 ? Site::query()->find($siteId) : null;
-        }
-        if (! $site instanceof Site) {
-            return null;
-        }
-
         $svc = app(SitePrimaryLanguageService::class);
 
         return $svc->resolvePrimaryLanguage($site) ?? $svc->seedCandidate($site);

@@ -60,11 +60,14 @@ final class ContentProjectArchiveSocialColumnTest extends TestCase
         self::assertStringContainsString(ArticleSocialLinkService::class, $exportSource);
         self::assertStringContainsString('ExcelHyperlinkHelper', $exportSource);
         self::assertStringContainsString("'social_links_count' => 'Social'", $exportSource);
+        self::assertStringContainsString("'reviewed_at' => 'Reviewed at'", $exportSource);
+        self::assertStringContainsString('ContentProjectExportReviewedAtResolver', $exportSource);
         self::assertStringContainsString('linksGroupedByArticle', $exportSource);
         self::assertStringContainsString('↳', $exportSource);
         self::assertStringNotContainsString('writeSeoAuditSheet', $exportSource);
         self::assertStringNotContainsString('writeWordPressSyncSheet', $exportSource);
         self::assertStringContainsString("'index_status' => 'Index'", $exportSource);
+        self::assertStringNotContainsString("'completed_at' => 'Hoàn thành'", $exportSource);
     }
 
     public function test_gsc_mcp_drawer_still_uses_social_share_actions_component(): void

@@ -22,7 +22,7 @@ namespace Omnichannel\Addons\ContentProjects\Support\ContentProject;
  *     post_type: string,
  *     plan: string,
  *     index_status: string,
- *     archived_at: string,
+ *     reviewed_at: string,
  *     archived_by: string
  * }
  * @phpstan-type DomainRow array{site_id: int, domain: string, item_count: int}
@@ -37,7 +37,7 @@ namespace Omnichannel\Addons\ContentProjects\Support\ContentProject;
  *     post_type: string,
  *     plan: string,
  *     index_status: string,
- *     archived_at: string,
+ *     reviewed_at: string,
  *     archived_by: string
  * }
  * @phpstan-type WriterSheet array{user_id: int, writer_name: string, sheet_name: string, rows: list<SheetRow>}
@@ -131,7 +131,7 @@ final class ContentProjectArchivedMonthExportAssembler
                 'post_type' => (string) ($item['post_type'] ?? ''),
                 'plan' => (string) ($item['plan'] ?? ''),
                 'index_status' => (string) ($item['index_status'] ?? ''),
-                'archived_at' => (string) ($item['archived_at'] ?? ''),
+                'reviewed_at' => (string) ($item['reviewed_at'] ?? ''),
                 'archived_by' => (string) ($item['archived_by'] ?? ''),
             ];
         }

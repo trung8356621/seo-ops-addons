@@ -55,7 +55,7 @@ final class KeywordIntelligenceActionCodes
 
     public const FAILED = 'keyword.failed';
 
-    // Phase 2 — analysis pipeline / near-duplicate / cluster review / cannibalization.
+    // Phase 2 — analysis pipeline / near-duplicate / cluster review.
     public const ANALYSIS_ALREADY_PROCESSING = 'keyword.analysis_already_processing';
 
     public const ANALYSIS_CANCELLED = 'keyword.analysis_cancelled';
@@ -75,8 +75,6 @@ final class KeywordIntelligenceActionCodes
     public const MERGE_PREVIEW = 'keyword.merge_preview';
 
     public const SPLIT_PREVIEW = 'keyword.split_preview';
-
-    public const CANNIBALIZATION_REVIEWED = 'keyword.cannibalization_reviewed';
 
     public const TOPICAL_MAP_BUILD_STARTED = 'topical_map.build_started';
 

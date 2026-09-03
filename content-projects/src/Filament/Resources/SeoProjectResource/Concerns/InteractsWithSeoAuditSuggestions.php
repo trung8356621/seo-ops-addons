@@ -16,12 +16,14 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Comma
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\FillSeoAuditSuggestionsCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RestoreSeoAuditSuggestionsCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SkipSeoAuditArticlesCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectActionCodes;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectActionResult;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectCommandBus;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Planner\ContentProjectPlannerRunService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\SeoAudit\SeoAuditExistingContentSuggestionService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\SeoAudit\SeoAuditSuggestionFilterSet;
 use Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource;
+use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\Seo\Support\SeoScoringRulesRegistry;
 use Omnichannel\Addons\WordPress\Services\SitePrimaryLanguageService;
 use App\Models\Site;
@@ -250,9 +252,34 @@ trait InteractsWithSeoAuditSuggestions
         $filters = $this->buildSuggestionFilters();
         $page = max(1, (int) $this->getPage('suggestionsPage'));
         $perPage = max(1, min(100, (int) $this->suggestionsPerPage));
+        $isDraft = $project->isDraftPlanning();
+        $selectedCount = count($this->normalizeSuggestionIds($this->selectedSuggestionArticleIds));
+
+        $workingSite = $this->resolveSeoAuditWorkingSite();
+        if (! $workingSite instanceof Site) {
+            return [
+                'can_write' => $isDraft,
+                'has_project' => true,
+                'is_draft' => $isDraft,
+                'rows' => [],
+                'paginator' => $emptyPaginator,
+                'issue_options' => $issueOptions,
+                'filters' => $filters,
+                'primary_configured' => false,
+                'primary_language_label' => null,
+                'domain_edit_url' => null,
+                'summary' => [
+                    'matched' => 0,
+                    'selected' => $selectedCount,
+                    'available' => 0,
+                    'dismissed' => 0,
+                    'planned' => 0,
+                ],
+            ];
+        }
 
         $paginator = app(SeoAuditExistingContentSuggestionService::class)
-            ->paginate($project, $filters, $page, $perPage);
+            ->paginate($project, $workingSite, $filters, $page, $perPage);
         $paginator->setPageName('suggestionsPage');
 
         /** @var list<array<string, mixed>> $rows */
@@ -276,8 +303,6 @@ trait InteractsWithSeoAuditSuggestions
             }));
         }
 
-        $isDraft = $project->isDraftPlanning();
-        $selectedCount = count($this->normalizeSuggestionIds($this->selectedSuggestionArticleIds));
         $primaryMeta = $this->primaryLanguagePayloadForProject($project);
 
         return [
@@ -557,12 +582,28 @@ trait InteractsWithSeoAuditSuggestions
             return;
         }
 
+        $workingSiteId = $this->resolveSeoAuditWorkingSiteId();
+        if ($workingSiteId <= 0) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.planner_generate_blocked'))
+                ->body((string) __('seo-content-ai::filament.projects.planner_readiness_language_missing'))
+                ->warning()
+                ->send();
+
+            return;
+        }
+
         $result = $this->dispatchSuggestionCommand(new AddSeoAuditSuggestionsCommand(
             (int) $project->getKey(),
+            $workingSiteId,
             $commandRows,
         ));
 
-        if ($result?->success) {
+        if ($result !== null && (int) ($result->metadata['added'] ?? count($result->affectedItemIds)) > 0) {
+            $this->clearSuggestionSelection();
+            $this->resetSuggestionsPage();
+            $this->refreshDraftPlanningSnapshotAfterMutation();
+        } elseif ($result?->success) {
             $this->clearSuggestionSelection();
             $this->resetSuggestionsPage();
         }
@@ -704,18 +745,31 @@ trait InteractsWithSeoAuditSuggestions
             ? 'all'
             : max(1, (int) $this->fillLimit);
 
+        $workingSiteId = $this->resolveSeoAuditWorkingSiteId();
+        if ($workingSiteId <= 0) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.planner_generate_blocked'))
+                ->body((string) __('seo-content-ai::filament.projects.planner_readiness_language_missing'))
+                ->warning()
+                ->send();
+
+            return;
+        }
+
         $result = $this->dispatchSuggestionCommand(new FillSeoAuditSuggestionsCommand(
             (int) $project->getKey(),
+            $workingSiteId,
             $this->buildSuggestionFilters(),
             $limit,
         ));
 
-        if ($result?->success) {
+        if ($result !== null && (int) ($result->metadata['added'] ?? count($result->affectedItemIds)) > 0) {
             $this->clearSuggestionSelection();
             $this->resetSuggestionsPage();
-            if (method_exists($this, 'dispatch')) {
-                $this->dispatch('cp-ops-refresh');
-            }
+            $this->refreshDraftPlanningSnapshotAfterMutation();
+        } elseif ($result?->success) {
+            $this->clearSuggestionSelection();
+            $this->resetSuggestionsPage();
         }
     }
 
@@ -747,8 +801,11 @@ trait InteractsWithSeoAuditSuggestions
      */
     public function getSuggestionFilterOptionsProperty(): array
     {
-        $project = $this->resolvePlannerProject();
-        $siteId = (int) ($project?->site_id ?? 0);
+        $siteId = $this->resolveSeoAuditWorkingSiteId();
+        if ($siteId <= 0) {
+            $project = $this->resolvePlannerProject();
+            $siteId = (int) ($project?->site_id ?? 0);
+        }
 
         $postTypes = [
             'post' => (string) __('seo-content-ai::filament.article_list.post_type_post'),
@@ -789,9 +846,14 @@ trait InteractsWithSeoAuditSuggestions
         $params = [];
         if ($project instanceof SeoProject) {
             $params['project'] = (int) $project->getKey();
-            $siteId = (int) ($project->site_id ?? 0);
-            if ($siteId > 0) {
-                $params['site'] = $siteId;
+        }
+        $workingSiteId = $this->resolveSeoAuditWorkingSiteId();
+        if ($workingSiteId > 0) {
+            $params['site'] = $workingSiteId;
+        } elseif ($project instanceof SeoProject) {
+            $legacySiteId = (int) ($project->site_id ?? 0);
+            if ($legacySiteId > 0) {
+                $params['site'] = $legacySiteId;
             }
         }
 
@@ -935,12 +997,8 @@ trait InteractsWithSeoAuditSuggestions
      */
     protected function primaryLanguagePayloadForProject(SeoProject $project): array
     {
-        $site = $project->site;
-        if (! $site instanceof Site) {
-            $siteId = (int) ($project->site_id ?? 0);
-            $site = $siteId > 0 ? Site::query()->find($siteId) : null;
-        }
-
+        unset($project);
+        $site = $this->resolveSeoAuditWorkingSite();
         if (! $site instanceof Site) {
             return [
                 'primary_configured' => false,
@@ -1029,11 +1087,12 @@ trait InteractsWithSeoAuditSuggestions
         }
 
         try {
+            $workingSiteId = $this->resolveSeoAuditWorkingSiteId();
             $result = app(ContentProjectCommandBus::class)->dispatch(
                 $command,
                 ActorContext::user(
                     auth()->id() !== null ? (int) auth()->id() : null,
-                    (int) ($project->site_id ?? 0) ?: null,
+                    $workingSiteId > 0 ? $workingSiteId : null,
                 ),
             );
         } catch (Throwable $e) {
@@ -1053,14 +1112,75 @@ trait InteractsWithSeoAuditSuggestions
 
         $this->suggestionsLastResult = (string) $result->message;
 
+        $added = (int) ($result->metadata['added'] ?? count($result->affectedItemIds));
+        $notificationLevel = 'success';
+        $title = (string) __('seo-content-ai::filament.projects.suggestions_action_done');
+
+        if (! $result->success) {
+            $notificationLevel = $result->code === ContentProjectActionCodes::SUGGESTIONS_NONE_ADDED
+                ? 'warning'
+                : 'danger';
+            $title = $result->code === ContentProjectActionCodes::SUGGESTIONS_NONE_ADDED
+                ? (string) __('seo-content-ai::filament.projects.suggestions_none_added')
+                : 'Failed';
+        } elseif ($result->warnings !== []) {
+            $notificationLevel = 'warning';
+        }
+
         Notification::make()
-            ->title($result->success
-                ? __('seo-content-ai::filament.projects.suggestions_action_done')
-                : 'Failed')
+            ->title($title)
             ->body($result->message)
-            ->{$result->success ? 'success' : 'danger'}()
+            ->{$notificationLevel}()
             ->send();
 
         return $result;
+    }
+
+    /**
+     * Canonical Working Site for SEO Audit Existing Content on Project Planner.
+     * Shared Draft has site_id = null — never derive from project.site_id here.
+     */
+    protected function resolveSeoAuditWorkingSite(): ?Site
+    {
+        if (method_exists($this, 'resolvePlanningSite')) {
+            $site = $this->resolvePlanningSite();
+            if ($site instanceof Site) {
+                return $site;
+            }
+        }
+
+        $siteId = (int) ($this->filterSiteId ?? 0);
+        if ($siteId <= 0 || ! SeoAccessControl::canAccessSite($siteId)) {
+            $project = $this->resolvePlannerProject();
+            $siteId = $project instanceof SeoProject ? (int) ($project->site_id ?? 0) : 0;
+        }
+
+        if ($siteId <= 0 || ! SeoAccessControl::canAccessSite($siteId)) {
+            return null;
+        }
+
+        $site = Site::query()->find($siteId);
+
+        return $site instanceof Site ? $site : null;
+    }
+
+    protected function resolveSeoAuditWorkingSiteId(): int
+    {
+        $site = $this->resolveSeoAuditWorkingSite();
+
+        return $site instanceof Site ? (int) $site->getKey() : 0;
+    }
+
+    protected function refreshDraftPlanningSnapshotAfterMutation(): void
+    {
+        if (method_exists($this, 'refreshDraftPlanningSnapshot')) {
+            $this->refreshDraftPlanningSnapshot();
+
+            return;
+        }
+
+        if (method_exists($this, 'dispatch')) {
+            $this->dispatch('cp-ops-refresh');
+        }
     }
 }

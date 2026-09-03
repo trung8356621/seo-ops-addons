@@ -12,13 +12,14 @@ use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pag
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\HasKeywordWorkspaceNavigation;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\InteractsWithKeywordDetailDrawer;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\InteractsWithKeywordItemActions;
+use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns\ReclustersTopicClusters;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterDetailBuilder;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterQuery;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\TopicClusterReclusterState;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\UpdateClusterCanonicalService;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordPhrasePresentation;
 use Omnichannel\Addons\Seo\Support\DomainContext;
 use Omnichannel\Addons\Seo\Support\DomainContextResolver;
-use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use RuntimeException;
 
 final class KeywordTopicClusterDetail extends Page
@@ -27,6 +28,7 @@ final class KeywordTopicClusterDetail extends Page
     use HasKeywordWorkspaceNavigation;
     use InteractsWithKeywordDetailDrawer;
     use InteractsWithKeywordItemActions;
+    use ReclustersTopicClusters;
 
     protected static string $resource = KeywordResource::class;
 
@@ -43,6 +45,7 @@ final class KeywordTopicClusterDetail extends Page
         $this->initializeKeywordWorkspaceSiteFilter();
         $this->clusterKey = rawurldecode($clusterKey);
         $this->dispatchKeywordWorkspaceLanguageContext();
+        $this->syncReclusterStateFromCache();
 
         if ($this->getDetail() !== null) {
             $this->maybeRedirectToScopedSiteUrl();
@@ -60,6 +63,8 @@ final class KeywordTopicClusterDetail extends Page
         if ($siteId === null || $siteId <= 0) {
             return;
         }
+
+        $this->syncReclusterStateFromCache();
 
         // Always Filament page URL — request()->fullUrl() during Livewire is /livewire/update.
         $this->redirect($this->clusterDetailPageUrl());
@@ -178,16 +183,17 @@ final class KeywordTopicClusterDetail extends Page
 
     public function canEditClusterCanonical(): bool
     {
-        $siteId = $this->resolveKeywordWorkspaceSiteId();
-
-        return SeoAccessControl::canMutateInSeoPanel()
-            && $siteId !== null
-            && $siteId > 0
-            && SeoAccessControl::canAccessSite($siteId);
+        return $this->hasTopicClusterMutationPermission()
+            && ! $this->isTopicMutationLocked();
     }
 
     public function saveClusterCanonicalPhrase(string $phrase): string
     {
+        $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
+        if (! TopicClusterReclusterState::assertMutationAllowed($siteId)) {
+            return (string) ($this->getDetail()['label'] ?? $phrase);
+        }
+
         if (! $this->canEditClusterCanonical()) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.keyword.topic_canonical_edit_denied'))
@@ -196,8 +202,6 @@ final class KeywordTopicClusterDetail extends Page
 
             return (string) ($this->getDetail()['label'] ?? $phrase);
         }
-
-        $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
 
         try {
             $result = app(UpdateClusterCanonicalService::class)
@@ -231,6 +235,11 @@ final class KeywordTopicClusterDetail extends Page
 
     public function fixTopicKeywords(): void
     {
+        $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
+        if (! TopicClusterReclusterState::assertMutationAllowed($siteId)) {
+            return;
+        }
+
         if (! $this->canEditClusterCanonical()) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.keyword.topic_fix_keywords_denied'))
@@ -240,7 +249,6 @@ final class KeywordTopicClusterDetail extends Page
             return;
         }
 
-        $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
         $detail = $this->getDetail();
         $topicLabel = (string) ($detail['label'] ?? $this->clusterKey);
 
@@ -283,6 +291,11 @@ final class KeywordTopicClusterDetail extends Page
 
     public function resetClusterCanonicalToAuto(): string
     {
+        $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
+        if (! TopicClusterReclusterState::assertMutationAllowed($siteId)) {
+            return (string) ($this->getDetail()['label'] ?? '');
+        }
+
         if (! $this->canEditClusterCanonical()) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.keyword.topic_canonical_edit_denied'))
@@ -291,8 +304,6 @@ final class KeywordTopicClusterDetail extends Page
 
             return (string) ($this->getDetail()['label'] ?? '');
         }
-
-        $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
 
         try {
             app(UpdateClusterCanonicalService::class)->resetToAuto($siteId, $this->clusterKey);

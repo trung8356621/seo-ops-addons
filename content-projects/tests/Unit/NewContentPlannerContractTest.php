@@ -46,12 +46,13 @@ final class NewContentPlannerContractTest extends TestCase
             'post_type' => 'page',
             'direction' => 'weird',
         ]);
-        self::assertSame(100, $opts['quantity']);
+        self::assertSame(200, $opts['quantity']);
         self::assertSame('post', $opts['post_type']);
         self::assertSame('automatic', $opts['direction']);
 
-        $snapshot = NewContentSuggestionOptions::snapshot(['quantity' => 20, 'focus' => 'balo học sinh'], 'vi');
+        $snapshot = NewContentSuggestionOptions::snapshot(['quantity' => 20, 'focus' => 'balo học sinh'], 'vi', 6);
         self::assertSame('vi', $snapshot['primary_language']);
+        self::assertSame(6, $snapshot['site_id']);
         self::assertSame('balo học sinh', $snapshot['notes']);
         $restored = NewContentSuggestionOptions::fromSnapshot(['quantity' => 20, 'focus' => 'balo học sinh']);
         self::assertSame(20, $restored['quantity']);
@@ -121,6 +122,7 @@ final class NewContentPlannerContractTest extends TestCase
         self::assertStringContainsString("'requested_quantity' => \$quantity", $src);
         self::assertStringContainsString("'notes' => \$notesValue", $src);
         self::assertStringContainsString('importFromExistingRun', $src);
+        self::assertStringContainsString('resolveSiteForRun', $src);
         self::assertStringContainsString('NewContentSuggestionStructuredResult', $src);
         self::assertStringContainsString('acceptStructuredDiscoveryValue', $src);
         self::assertStringContainsString('repairBrief', $src);
@@ -160,10 +162,14 @@ final class NewContentPlannerContractTest extends TestCase
         self::assertStringContainsString('GenerateNewContentSuggestionsJob::dispatch', $handler);
         self::assertStringContainsString('PRIMARY_LANGUAGE_MISSING', $handler);
         self::assertStringContainsString('queueGeneration', $handler);
+        self::assertStringContainsString('command->siteId', $handler);
+        self::assertStringContainsString('assertCanAccessSite', $handler);
+        self::assertStringNotContainsString('$project->site_id ?? 0', $handler);
         self::assertSame(
             'content_project.generate_new_content_suggestions',
-            (new GenerateNewContentSuggestionsCommand(1, 20))->name(),
+            (new GenerateNewContentSuggestionsCommand(1, 6, 20))->name(),
         );
+        self::assertSame(6, (new GenerateNewContentSuggestionsCommand(1, 6, 20))->siteId);
     }
 
     public function test_archive_dismisses_ai_fingerprints_on_draft_remove(): void

@@ -38,8 +38,8 @@ final class NewContentGenerationReadinessTest extends TestCase
                 'reason' => null,
             ],
             profile: [
-                'value' => AiExecutionProfile::TextReasoning->value,
-                'label' => AiExecutionProfile::TextReasoning->displayName(),
+                'value' => AiExecutionProfile::TextLongform->value,
+                'label' => AiExecutionProfile::TextLongform->displayName(),
             ],
             generation: ['active' => false, 'status' => null, 'run_id' => null, 'reason' => null],
             permission: ['ready' => true, 'reason' => null],
@@ -52,7 +52,7 @@ final class NewContentGenerationReadinessTest extends TestCase
         self::assertSame('vi', $readiness->language['value']);
         self::assertSame('Content Planning Assistant', $readiness->prompt['prompt_name']);
         self::assertSame(
-            AiExecutionProfile::TextReasoning,
+            AiExecutionProfile::TextLongform,
             (new PromptExecutionProfileResolver)->resolve($prompt, NewContentGenerationReadiness::HOOK_KEY),
         );
     }
@@ -152,6 +152,7 @@ final class NewContentGenerationReadinessTest extends TestCase
         self::assertStringContainsString('NewContentGenerationReadinessService', $trait);
         self::assertStringContainsString('generate_enabled', $trait);
         self::assertStringContainsString('quantity_enabled', $trait);
+        self::assertStringContainsString('resolveNewContentWorkingSite', $trait);
         self::assertStringNotContainsString(
             'isDraftPlanning() && (bool) $primary[\'primary_configured\']',
             $trait,

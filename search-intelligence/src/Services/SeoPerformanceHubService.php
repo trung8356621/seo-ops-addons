@@ -6,13 +6,9 @@ namespace Omnichannel\Addons\SearchIntelligence\Services;
 
 
 use Omnichannel\Addons\SearchFoundation\Services\KeywordPersistenceService;
-use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
-use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Models\Site;
-use Illuminate\Support\Collection;
-use Illuminate\Support\Str;
 
 final class SeoPerformanceHubService
 {
@@ -126,53 +122,6 @@ final class SeoPerformanceHubService
     public function getQuickWinQueries(?int $siteId, int $limit = 50): array
     {
         return $this->getQuickWinQueriesFromSource($this->getGscQueries($siteId, 'impressions', 'desc'), $limit);
-    }
-
-    /**
-     * @return list<array{phrase: string, article_count: int, articles: list<array{id: int, title: string, url: string}>}>
-     */
-    public function detectCannibalization(?int $siteId, int $limit = 100): array
-    {
-        $query = SeoArticle::query()
-            ->with(['articleMetas' => static fn ($relation) => $relation->where('meta_key', 'seo_focus_keyword')])
-            ->when($siteId !== null && $siteId > 0, static fn ($builder) => $builder->where('site_id', $siteId));
-
-        SeoAccessControl::applyAccessibleSiteScope($query);
-
-        /** @var Collection<int, SeoArticle> $articles */
-        $articles = $query->get();
-
-        $groups = [];
-
-        foreach ($articles as $article) {
-            $raw = trim((string) ($article->articleMetas->first()?->meta_value ?? ''));
-            $phrase = Keyword::normalizeFocusPhrase($raw);
-            if ($phrase === '') {
-                continue;
-            }
-
-            $key = Str::lower($phrase);
-            $groups[$key]['phrase'] = $phrase;
-            $groups[$key]['articles'][] = [
-                'id' => (int) $article->id,
-                'title' => (string) ($article->title ?? __('seo-content-ai::filament.performance_hub.untitled_article')),
-                'url' => ArticleResource::getUrl('edit', ['record' => $article->id]),
-            ];
-        }
-
-        return collect($groups)
-            ->filter(static fn (array $group): bool => count($group['articles'] ?? []) > 1)
-            ->map(static function (array $group): array {
-                return [
-                    'phrase' => (string) ($group['phrase'] ?? ''),
-                    'article_count' => count($group['articles'] ?? []),
-                    'articles' => array_values($group['articles'] ?? []),
-                ];
-            })
-            ->sortByDesc(static fn (array $row): int => (int) ($row['article_count'] ?? 0))
-            ->take($limit)
-            ->values()
-            ->all();
     }
 
     /**

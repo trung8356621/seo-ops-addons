@@ -701,8 +701,6 @@ class SeoPanelProvider extends PanelProvider
 
                 Route::redirect('/keywords/workspace-3', '../keywords/ai-discovery')
                     ->name('seo.keywords.workspace-3-legacy');
-                Route::redirect('/keywords/workspace-4', '../keywords/cannibalization')
-                    ->name('seo.keywords.workspace-4-legacy');
                 Route::redirect('/settings/ai', '../settings/api')
                     ->name('seo.settings.ai-legacy');
                 Route::redirect('/settings/ai/create', '../settings/api/create')

@@ -23,7 +23,8 @@ final class PromptManagementRoutingCleanupTest extends TestCase
 
         $resolved = (new PromptExecutionProfileResolver)->resolve($prompt);
 
-        $this->assertSame(AiExecutionProfile::TextReasoning, $resolved);
+        // Hook map wins over DB override; KD canonical profile is TextLongform.
+        $this->assertSame(AiExecutionProfile::TextLongform, $resolved);
     }
 
     public function test_core_resolver_maps_registered_hooks_read_only(): void
@@ -35,7 +36,7 @@ final class PromptManagementRoutingCleanupTest extends TestCase
             $resolver->resolve(null, 'article.title_suggestion'),
         );
         $this->assertSame(
-            AiExecutionProfile::TextReasoning,
+            AiExecutionProfile::TextLongform,
             $resolver->resolve(null, 'keyword.discovery.structured'),
         );
         $this->assertSame(
@@ -81,8 +82,8 @@ final class PromptManagementRoutingCleanupTest extends TestCase
             'default',
         );
 
-        $this->assertStringContainsString(AiExecutionProfile::TextReasoning->displayName(), $html);
-        $this->assertStringNotContainsString(AiExecutionProfile::TextLongform->displayName(), $html);
+        $this->assertStringContainsString(AiExecutionProfile::TextLongform->displayName(), $html);
+        $this->assertStringNotContainsString(AiExecutionProfile::TextReasoning->displayName(), $html);
         $this->assertTrue(
             str_contains($html, 'AI Center') || str_contains($html, 'Prompt Hook'),
             'Expected execution profile helper copy in display HTML.',

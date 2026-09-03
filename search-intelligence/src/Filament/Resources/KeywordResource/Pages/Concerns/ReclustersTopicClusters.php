@@ -6,9 +6,12 @@ namespace Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResour
 
 use Filament\Notifications\Notification;
 use Illuminate\Support\Facades\Cache;
+use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchIntelligence\Jobs\ReclusterTopicClustersJob;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Dto\ReclusterTopicClustersResult;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\ReclusterTopicClustersService;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\TopicClusterReclusterState;
+use Omnichannel\Addons\Seo\Support\DomainContextResolver;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 
 trait ReclustersTopicClusters
@@ -30,12 +33,72 @@ trait ReclustersTopicClusters
             && SeoAccessControl::canAccessSite($siteId);
     }
 
+    public function isTopicMutationLocked(): bool
+    {
+        $siteId = $this->resolveKeywordWorkspaceSiteId();
+
+        return $siteId !== null
+            && $siteId > 0
+            && TopicClusterReclusterState::isMutationLocked((int) $siteId);
+    }
+
+    /**
+     * Permission + site access only (ignores recluster lock). Used to keep controls visible but disabled.
+     */
+    public function hasTopicClusterMutationPermission(): bool
+    {
+        $siteId = $this->resolveKeywordWorkspaceSiteId();
+
+        return SeoAccessControl::canMutateInSeoPanel()
+            && $siteId !== null
+            && $siteId > 0
+            && SeoAccessControl::canAccessSite($siteId);
+    }
+
+    protected function syncReclusterStateFromCache(): void
+    {
+        $siteId = $this->resolveKeywordWorkspaceSiteId();
+        if ($siteId === null || $siteId <= 0) {
+            $this->reclusterRunning = false;
+
+            return;
+        }
+
+        $state = TopicClusterReclusterState::stateForSite((int) $siteId);
+        if ($state === null) {
+            $this->reclusterRunning = false;
+
+            return;
+        }
+
+        $status = (string) ($state['status'] ?? '');
+        if ($status === 'queued' || $status === 'running') {
+            $this->reclusterRunning = true;
+            $this->reclusterResult = $state;
+
+            return;
+        }
+
+        $this->reclusterRunning = false;
+        $this->reclusterResult = $state;
+    }
+
     public function openReclusterConfirm(): void
     {
         if (! $this->canReclusterTopicClusters()) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.keyword.topic_recluster_denied'))
                 ->danger()
+                ->send();
+
+            return;
+        }
+
+        if ($this->isTopicMutationLocked()) {
+            $this->syncReclusterStateFromCache();
+            Notification::make()
+                ->title(__('seo-content-ai::filament.keyword.topic_recluster_running'))
+                ->warning()
                 ->send();
 
             return;
@@ -52,6 +115,7 @@ trait ReclustersTopicClusters
     public function confirmDispatchReclusterTopicClusters(): void
     {
         $this->confirmRecluster = false;
+        $this->closeTopicMutationUiBeforeRecluster();
         $this->dispatchReclusterTopicClusters();
     }
 
@@ -67,33 +131,23 @@ trait ReclustersTopicClusters
         }
 
         $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
+        $this->closeTopicMutationUiBeforeRecluster();
+
+        $state = TopicClusterReclusterState::stateForSite($siteId);
+        $status = is_array($state) ? (string) ($state['status'] ?? '') : '';
+
+        if ($status === 'running' || $status === 'queued') {
+            $this->reclusterRunning = true;
+            $this->reclusterResult = $state;
+            Notification::make()
+                ->title(__('seo-content-ai::filament.keyword.topic_recluster_running'))
+                ->warning()
+                ->send();
+
+            return;
+        }
+
         $cacheKey = ReclusterTopicClustersJob::resultCacheKey($siteId);
-        $cached = Cache::get($cacheKey);
-        $status = is_array($cached) ? (string) ($cached['status'] ?? '') : '';
-
-        if ($status === 'running') {
-            $this->reclusterRunning = true;
-            $this->reclusterResult = is_array($cached) ? $cached : null;
-            Notification::make()
-                ->title(__('seo-content-ai::filament.keyword.topic_recluster_running'))
-                ->warning()
-                ->send();
-
-            return;
-        }
-
-        // Stale "queued" (worker never picked job / wrong queue) — allow redispatch.
-        if ($status === 'queued' && ! $this->isReclusterCacheStale($cached)) {
-            $this->reclusterRunning = true;
-            $this->reclusterResult = is_array($cached) ? $cached : null;
-            Notification::make()
-                ->title(__('seo-content-ai::filament.keyword.topic_recluster_running'))
-                ->warning()
-                ->send();
-
-            return;
-        }
-
         Cache::put($cacheKey, [
             'status' => 'queued',
             'queued_at' => now()->toIso8601String(),
@@ -124,63 +178,71 @@ trait ReclustersTopicClusters
             return;
         }
 
-        $cached = Cache::get(ReclusterTopicClustersJob::resultCacheKey($siteId));
-        if (! is_array($cached)) {
+        $wasPolling = $this->reclusterRunning;
+        $state = TopicClusterReclusterState::stateForSite((int) $siteId);
+        if ($state === null) {
             return;
         }
 
-        $status = (string) ($cached['status'] ?? '');
-
-        if ($status === 'queued' && $this->isReclusterCacheStale($cached)) {
-            Cache::put(ReclusterTopicClustersJob::resultCacheKey($siteId), [
-                'status' => 'failed',
-                'error' => __('seo-content-ai::filament.keyword.topic_recluster_stale_queue', [
-                    'queue' => ReclusterTopicClustersJob::QUEUE_NAME,
-                ]),
-                'finished_at' => now()->toIso8601String(),
-                'queue' => ReclusterTopicClustersJob::QUEUE_NAME,
-            ], 3600);
-            $this->reclusterRunning = false;
-            $this->reclusterResult = Cache::get(ReclusterTopicClustersJob::resultCacheKey($siteId));
-
-            return;
-        }
+        $status = (string) ($state['status'] ?? '');
 
         if ($status === 'queued' || $status === 'running') {
             $this->reclusterRunning = true;
-            $this->reclusterResult = $cached;
+            $this->reclusterResult = $state;
 
             return;
         }
 
         if ($status === 'completed' || $status === 'failed') {
             $this->reclusterRunning = false;
-            $this->reclusterResult = $cached;
+            $this->reclusterResult = $state;
 
-            if ($status === 'completed' && method_exists($this, 'resetPage')) {
-                $this->resetPage();
+            // Only the active polling session observes the transition → one full refresh.
+            if (! $wasPolling) {
+                return;
             }
+
+            if ($status === 'failed') {
+                Notification::make()
+                    ->title(__('seo-content-ai::filament.keyword.topic_recluster_failed_title'))
+                    ->body((string) ($state['error'] ?? ''))
+                    ->danger()
+                    ->send();
+            }
+
+            $this->redirect($this->reclusterCompletionRedirectUrl(), navigate: false);
         }
     }
 
-    /**
-     * @param  array<string, mixed>|null  $cached
-     */
-    private function isReclusterCacheStale(?array $cached): bool
+    protected function reclusterCompletionRedirectUrl(): string
     {
-        if ($cached === null) {
-            return true;
+        if (method_exists($this, 'clusterDetailPageUrl')) {
+            return (string) $this->clusterDetailPageUrl();
         }
 
-        $queuedAt = (string) ($cached['queued_at'] ?? '');
-        if ($queuedAt === '') {
-            return true;
+        return app(DomainContextResolver::class)->appendSiteToUrl(
+            KeywordResource::getUrl('clusters'),
+            $this->resolveKeywordWorkspaceSiteId(),
+        );
+    }
+
+    protected function closeTopicMutationUiBeforeRecluster(): void
+    {
+        $this->confirmRecluster = false;
+
+        if (method_exists($this, 'closeMcpGroupModal')) {
+            $this->closeMcpGroupModal();
         }
 
-        try {
-            return \Illuminate\Support\Carbon::parse($queuedAt)->lt(now()->subSeconds(90));
-        } catch (\Throwable) {
-            return true;
+        if (method_exists($this, 'cancelDissolveConfirm')) {
+            $this->cancelDissolveConfirm();
+        }
+
+        if (property_exists($this, 'moveClusterKeywordId')) {
+            $this->moveClusterKeywordId = null;
+            $this->moveClusterTargetKey = '';
+            $this->moveClusterOptions = [];
+            $this->dispatch('close-modal', id: 'keyword-move-cluster-modal');
         }
     }
 

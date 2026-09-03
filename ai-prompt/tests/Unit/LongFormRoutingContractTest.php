@@ -108,6 +108,15 @@ final class LongFormRoutingContractTest extends TestCase
             $table->timestamps();
         });
 
+        Schema::dropIfExists('wp_options');
+        Schema::create('wp_options', function (Blueprint $table): void {
+            $table->id();
+            $table->string('option_name')->unique();
+            $table->longText('option_value')->nullable();
+            $table->string('autoload')->default('no');
+            $table->timestamps();
+        });
+
         $registry = new ModelCapabilityRegistry();
         $this->priorities = new AiModelPriorityService();
         $this->targets = new AiRoutingTargetService($registry, priorities: $this->priorities);

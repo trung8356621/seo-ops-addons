@@ -65,9 +65,9 @@ final class SplitDraftContentProjectContractTest extends TestCase
         self::assertSame('project.not_draft', ContentProjectActionCodes::PROJECT_NOT_DRAFT);
         self::assertSame('draft.split', ContentProjectActionCodes::DRAFT_SPLIT);
         self::assertSame(30, ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS);
-        self::assertSame(
-            ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS,
-            ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS,
+        self::assertFalse(
+            (new ReflectionClass(ContentProjectExecutionLimits::class))
+                ->hasConstant('MAX_WRITER_MONTHLY_ITEMS'),
         );
     }
 
@@ -102,9 +102,10 @@ final class SplitDraftContentProjectContractTest extends TestCase
         self::assertStringContainsString('normalizeUserIds', $src);
         self::assertStringContainsString('resolveTargetMonth', $src);
         self::assertStringContainsString('targetMonth', $src);
+        self::assertStringContainsString('remainingByUserId', $src);
+        self::assertStringContainsString('unallocated_count', $src);
         self::assertStringNotContainsString('SeoOpsSystemUser::id()', $src);
         self::assertStringNotContainsString('insufficient_slots', $src);
-        self::assertStringNotContainsString('remainingByUserId', $src);
         self::assertStringNotContainsString('partitionEvenly', $src);
         self::assertStringNotContainsString('normalizeSplitMonths', $src);
         self::assertStringNotContainsString('splitMonths', $src);

@@ -10,7 +10,7 @@ use Illuminate\Support\Str;
 
 /**
  * @deprecated Outline-vs-outline duplicate detection is retired.
- * Duplicate-topic / cannibalization belongs to Keyword Intelligence, topic cluster,
+ * Duplicate-topic handling belongs to Keyword Intelligence, topic cluster,
  * intent, and Content Project planning. Outline is article structure only.
  *
  * Kept as inert historical implementation — do not call from active runtime paths.

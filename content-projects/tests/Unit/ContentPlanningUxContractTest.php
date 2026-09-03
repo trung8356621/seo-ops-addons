@@ -37,13 +37,14 @@ final class ContentPlanningUxContractTest extends TestCase
     {
         $blade = LegacyAddonPath::read('resources/views/filament/pages/content-project-seo-audit-planner.blade.php');
 
-        self::assertStringContainsString('data-content-planning-context="1"', $blade);
-        self::assertStringContainsString('content_planning_draft_label', $blade);
-        self::assertStringContainsString('content_planning_working_site', $blade);
-        self::assertStringContainsString('data-content-planning-action="publish"', $blade);
-        self::assertStringContainsString('data-shared-planning-draft', $blade);
-        self::assertStringContainsString('openPublishFromPlanner', $blade);
-        self::assertStringContainsString('data-planning-draft-display', $blade);
+        self::assertStringContainsString(':show-publish-in-header="true"', $blade);
+        self::assertStringContainsString('openPublishFromPlanner', LegacyAddonPath::read('resources/views/components/content-project-draft-items.blade.php'));
+        self::assertStringNotContainsString('data-content-planning-context="1"', $blade);
+        self::assertStringNotContainsString('content_planning_working_site', $blade);
+        self::assertStringNotContainsString('data-content-planning-action="publish"', $blade);
+        self::assertStringNotContainsString('content_planning_draft_label', $blade);
+        self::assertStringNotContainsString('data-shared-planning-draft', $blade);
+        self::assertStringNotContainsString('data-planning-draft-display', $blade);
         self::assertStringNotContainsString('data-content-planning-action="create-draft"', $blade);
         self::assertStringNotContainsString('content_planning_no_draft_yet', $blade);
         self::assertStringNotContainsString('seo_audit_create_draft', $blade);
@@ -61,6 +62,7 @@ final class ContentPlanningUxContractTest extends TestCase
         self::assertStringContainsString('content-project-new-content-card', $draft);
         self::assertStringContainsString('filtersOpen: true', $draft);
         self::assertStringContainsString('createTab', $draft);
+        self::assertStringContainsString("plannerLayout: 'balanced'", $draft);
         self::assertStringContainsString('data-create-tab="ideas"', $draft);
         self::assertStringContainsString('content-project-idea-candidate-picker', $draft);
         self::assertStringContainsString('cp-plan-tab-panels', $draft);

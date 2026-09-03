@@ -54,7 +54,6 @@
                 'overview' => __('seo-content-ai::filament.keyword_intelligence.tab_overview'),
                 'keywords' => __('seo-content-ai::filament.keyword_intelligence.tab_keywords'),
                 'clusters' => __('seo-content-ai::filament.keyword_intelligence.tab_clusters'),
-                'cannibalization' => __('seo-content-ai::filament.keyword_intelligence.tab_cannibalization'),
                 'existing_content' => 'Existing Content',
                 'analysis' => 'Analysis',
                 'topical_map' => __('seo-content-ai::filament.keyword_intelligence.tab_topical_map'),
@@ -391,40 +390,6 @@
                     </div>
                 </x-filament::section>
             @endif
-        </div>
-
-        {{-- Cannibalization --}}
-        <div x-show="tab === 'cannibalization'" x-cloak class="space-y-4">
-            <div class="overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
-                <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-700">
-                    <thead class="bg-gray-50 dark:bg-gray-800">
-                        <tr>
-                            <th class="px-3 py-2 text-left">{{ __('seo-content-ai::filament.keyword_intelligence.col_type') }}</th>
-                            <th class="px-3 py-2 text-left">{{ __('seo-content-ai::filament.keyword_intelligence.col_target') }}</th>
-                            <th class="px-3 py-2 text-left">{{ __('seo-content-ai::filament.keyword_intelligence.col_risk') }}</th>
-                            <th class="px-3 py-2 text-left">{{ __('seo-content-ai::filament.keyword_intelligence.col_articles') }}</th>
-                            <th class="px-3 py-2 text-left">{{ __('seo-content-ai::filament.keyword_intelligence.col_recommendation') }}</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
-                        @forelse ($cannibalizationRisks as $risk)
-                            <tr>
-                                <td class="px-3 py-2">{{ $risk['type'] }}</td>
-                                <td class="px-3 py-2">{{ $risk['keyword'] ?? $risk['cluster_name'] ?? '—' }}</td>
-                                <td class="px-3 py-2">
-                                    <span class="rounded-full px-2 py-0.5 text-xs {{ $risk['risk_level'] === 'critical' ? 'bg-danger-100 text-danger-700' : ($risk['risk_level'] === 'high' ? 'bg-warning-100 text-warning-700' : 'bg-gray-100 text-gray-600') }}">
-                                        {{ $risk['risk_level'] }}
-                                    </span>
-                                </td>
-                                <td class="px-3 py-2">{{ count($risk['article_refs'] ?? []) }}</td>
-                                <td class="px-3 py-2 text-xs">{{ $risk['recommended_action'] }}</td>
-                            </tr>
-                        @empty
-                            <tr><td colspan="5" class="px-3 py-6 text-center text-gray-500">{{ __('seo-content-ai::filament.keyword_intelligence.no_cannibalization') }}</td></tr>
-                        @endforelse
-                    </tbody>
-                </table>
-            </div>
         </div>
 
         <div x-show="tab === 'existing_content'" x-cloak class="space-y-4">

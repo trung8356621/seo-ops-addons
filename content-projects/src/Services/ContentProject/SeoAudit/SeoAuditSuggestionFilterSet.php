@@ -139,11 +139,11 @@ final class SeoAuditSuggestionFilterSet
      * @param  array<string, mixed>  $filters
      * @return array<string, mixed>
      */
-    public static function snapshot(array $filters, ?string $resolvedPrimaryLanguage = null): array
+    public static function snapshot(array $filters, ?string $resolvedPrimaryLanguage = null, ?int $siteId = null): array
     {
         $n = self::normalize($filters);
 
-        return [
+        $out = [
             'language_scope' => $n['language_scope'],
             'language' => $n['language'] ?? $resolvedPrimaryLanguage,
             'seo_score' => [
@@ -162,6 +162,12 @@ final class SeoAuditSuggestionFilterSet
             'search' => $n['search'],
             'only_with_issues' => $n['only_with_issues'],
         ];
+
+        if ($siteId !== null && $siteId > 0) {
+            $out['site_id'] = $siteId;
+        }
+
+        return $out;
     }
 
     /**

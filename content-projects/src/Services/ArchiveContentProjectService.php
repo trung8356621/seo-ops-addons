@@ -16,6 +16,7 @@ use Omnichannel\Addons\Content\Services\ArticleEditor\ArticleEditorSessionServic
 use Omnichannel\Addons\Content\Services\ArticleLastSavedTimestampService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\ContentProjectAiWorkspaceDestroyer;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\ContentProjectWorkspaceCleanupContext;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExportReviewedAtResolver;
 use Omnichannel\Addons\WordPress\Support\WordPressPermalinkBuilder;
 use App\Models\User;
 use App\Support\RuntimeLogger;
@@ -38,6 +39,7 @@ final class ArchiveContentProjectService
         private readonly WordPressPermalinkBuilder $permalinkBuilder,
         private readonly ContentProjectAiWorkspaceDestroyer $workspaceDestroyer,
         private readonly ArticleEditorSessionService $editorSessions,
+        private readonly ContentProjectExportReviewedAtResolver $reviewedAtResolver = new ContentProjectExportReviewedAtResolver(),
     ) {}
 
     /**
@@ -566,7 +568,7 @@ final class ArchiveContentProjectService
      */
     private function buildArticleSnapshot(SeoProjectTask $task, SeoArticle $article): array
     {
-        $article->loadMissing(['articleMetas', 'site']);
+        $article->loadMissing(['articleMetas', 'site', 'wordpressLink']);
 
         $lastSaved = $this->lastSavedTimestamps->resolve($article);
         $wpPostId = (int) ($article->wordpressLink?->wp_post_id ?? 0);
@@ -593,6 +595,8 @@ final class ArchiveContentProjectService
             $seoRuleViolations = is_array($decoded) ? $decoded : null;
         }
 
+        $reviewedFields = $this->reviewedAtResolver->exportFields($article);
+
         return [
             'task_id' => (int) $task->getKey(),
             'article_id' => (int) $article->getKey(),
@@ -612,6 +616,9 @@ final class ArchiveContentProjectService
             'created_at' => $this->toIso8601($article->created_at),
             'updated_at' => $this->toIso8601($article->updated_at),
             'completed_at' => $this->toIso8601($task->completed_at),
+            'reviewed_at' => $this->toIso8601($reviewedFields['reviewed_at'] ?? null),
+            'last_update_wp' => $this->toIso8601($reviewedFields['last_update_wp'] ?? null),
+            'wp_created_at' => $this->toIso8601($reviewedFields['wp_created_at'] ?? null),
             'last_saved_at' => $this->toIso8601($lastSaved['at'] ?? null),
             'meta_title' => trim((string) ($article->title ?? '')) !== ''
                 ? trim((string) $article->title)

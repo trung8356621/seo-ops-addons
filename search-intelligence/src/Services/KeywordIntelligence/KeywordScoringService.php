@@ -19,7 +19,6 @@ final class KeywordScoringService
      *   keyword_difficulty?: float|null,
      *   competition?: float|null,
      *   has_existing_coverage?: bool,
-     *   cannibalization_risk?: string|null,
      *   intent?: string|null,
      * }  $input
      * @return array{
@@ -107,19 +106,6 @@ final class KeywordScoringService
             + ($business * $wBiz)
             + ($opportunity * $wOpp)
             + ($intentBonus * $wIntent);
-
-        $risk = strtolower((string) ($input['cannibalization_risk'] ?? ''));
-        if (in_array($risk, ['medium', 'high', 'critical'], true)) {
-            $penalty = (float) ($penalties['cannibalization'] ?? 15);
-            if ($risk === 'high') {
-                $penalty *= 1.2;
-            }
-            if ($risk === 'critical') {
-                $penalty *= 1.5;
-            }
-            $priority -= $penalty;
-            $factors[] = ['label' => 'Cannibalization penalty ('.$risk.')', 'delta' => round(-$penalty, 2)];
-        }
 
         if (! empty($input['has_existing_coverage'])) {
             $coverPenalty = (float) ($penalties['existing_coverage'] ?? 10);

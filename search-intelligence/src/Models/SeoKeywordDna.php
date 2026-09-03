@@ -21,6 +21,7 @@ final class SeoKeywordDna extends Model
         'facet_type',
         'confidence',
         'source',
+        'placement',
     ];
 
     protected $casts = [

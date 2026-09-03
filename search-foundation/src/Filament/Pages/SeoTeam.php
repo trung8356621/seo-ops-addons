@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\SearchFoundation\Filament\Pages;
 
 use Omnichannel\Addons\Seo\Filament\Pages\SeoPanelPage;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterCapacitySettingsService;
 use App\Models\User;
 use Filament\Forms;
 use Filament\Forms\Get;
@@ -61,7 +62,7 @@ class SeoTeam extends SeoPanelPage implements HasTable
                     ->extraAttributes([
                         'x-data' => '{ timer: null }',
                         'x-on:click' => 'if (timer) { clearTimeout(timer); timer = null; } else { timer = setTimeout(() => { timer = null; }, 250); }',
-                        'x-on:dblclick.prevent' => 'recordKey = $el.closest(\'tr\').getAttribute(\'wire:key\'); id = recordKey?.split(\'-\').pop(); if (id) { $wire.mountTableAction(\'editNickname\', id); }',
+                        'x-on:dblclick.prevent' => 'recordKey = $el.closest(\'tr\').getAttribute(\'wire:key\'); id = recordKey?.split(\'-\').pop(); if (id) { $wire.mountTableAction(\'memberSettings\', id); }',
                     ]),
 
                 Tables\Columns\TextColumn::make('email')
@@ -79,6 +80,23 @@ class SeoTeam extends SeoPanelPage implements HasTable
                     ->beforeStateUpdated(function (mixed $state, User $record): void {
                         $this->assertCanManageMember($record);
                     }),
+
+                Tables\Columns\TextColumn::make('seo_monthly_capacity')
+                    ->label(__('seo-content-ai::filament.team.seo_monthly_capacity'))
+                    ->getStateUsing(function (User $record): string {
+                        $settings = app(ContentProjectWriterCapacitySettingsService::class);
+                        $override = $settings->overrideForUserId((int) $record->getKey());
+                        $effective = $settings->capacityForUser($record);
+                        if ($override === null) {
+                            return __('seo-content-ai::filament.team.seo_monthly_capacity_default', [
+                                'count' => $effective,
+                            ]);
+                        }
+
+                        return (string) $effective;
+                    })
+                    ->alignCenter()
+                    ->tooltip(fn (User $record): string => __('seo-content-ai::filament.team.seo_monthly_capacity_hint')),
 
                 Tables\Columns\TextColumn::make('status')
                     ->label(__('seo-content-ai::filament.team.status'))
@@ -122,16 +140,42 @@ class SeoTeam extends SeoPanelPage implements HasTable
                 $this->addMemberAction(),
             ])
             ->actions($readOnly ? [] : [
-                Tables\Actions\Action::make('editNickname')
-                    ->label(__('Sửa biệt danh'))
-                    ->modalHeading(__('Sửa biệt danh'))
+                Tables\Actions\Action::make('memberSettings')
+                    ->label(__('seo-content-ai::filament.team.member_settings'))
+                    ->icon('heroicon-o-cog-6-tooth')
+                    ->modalHeading(__('seo-content-ai::filament.team.member_settings'))
                     ->modalSubmitActionLabel(__('Lưu'))
                     ->modalCancelActionLabel(__('Huỷ'))
+                    ->modalWidth('md')
+                    ->fillForm(function (User $record): array {
+                        $settings = app(ContentProjectWriterCapacitySettingsService::class);
+                        $override = $settings->overrideForUserId((int) $record->getKey());
+
+                        return [
+                            'name' => (string) ($record->name ?? ''),
+                            'use_default' => $override === null,
+                            'capacity' => $override ?? $settings->defaultMonthlyCapacity(),
+                        ];
+                    })
                     ->form([
                         Forms\Components\TextInput::make('name')
-                            ->label(__('Biệt danh'))
+                            ->label(__('seo-content-ai::filament.team.nickname'))
                             ->required()
                             ->maxLength(255),
+                        Forms\Components\Toggle::make('use_default')
+                            ->label(fn (): string => __('seo-content-ai::filament.team.seo_monthly_capacity_use_default', [
+                                'count' => app(ContentProjectWriterCapacitySettingsService::class)->defaultMonthlyCapacity(),
+                            ]))
+                            ->live(),
+                        Forms\Components\TextInput::make('capacity')
+                            ->label(__('seo-content-ai::filament.team.seo_monthly_capacity_field'))
+                            ->numeric()
+                            ->integer()
+                            ->minValue(ContentProjectWriterCapacitySettingsService::MIN_CAPACITY)
+                            ->maxValue(ContentProjectWriterCapacitySettingsService::MAX_CAPACITY)
+                            ->required(fn (Get $get): bool => ! (bool) $get('use_default'))
+                            ->disabled(fn (Get $get): bool => (bool) $get('use_default'))
+                            ->helperText(__('seo-content-ai::filament.team.seo_monthly_capacity_field_hint')),
                     ])
                     ->action(function (User $record, array $data): void {
                         $this->assertCanManageMember($record);
@@ -140,8 +184,15 @@ class SeoTeam extends SeoPanelPage implements HasTable
                             'name' => trim((string) ($data['name'] ?? '')),
                         ]);
 
+                        $settings = app(ContentProjectWriterCapacitySettingsService::class);
+                        if (! empty($data['use_default'])) {
+                            $settings->setUserOverride($record, null);
+                        } else {
+                            $settings->setUserOverride($record, (int) ($data['capacity'] ?? 0));
+                        }
+
                         Notification::make()
-                            ->title(__('Đã cập nhật biệt danh'))
+                            ->title(__('seo-content-ai::filament.team.member_settings_saved'))
                             ->success()
                             ->send();
                     })

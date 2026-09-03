@@ -58,13 +58,26 @@ final class GenerateNewContentSuggestionsHandler extends AbstractPublishingHandl
                 );
             }
 
-            $siteId = (int) ($project->site_id ?? 0);
-            $site = $siteId > 0 ? Site::query()->find($siteId) : null;
+            $siteId = (int) $command->siteId;
+            if ($siteId <= 0) {
+                return ContentProjectActionResult::fail(
+                    ContentProjectActionCodes::VALIDATION_FAILED,
+                    'Working site is required.',
+                    $projectId,
+                );
+            }
+
+            $this->tenantGuard->assertCanAccessSite($siteId, $actor);
+
+            $site = Site::query()->find($siteId);
             if (! $site instanceof Site) {
                 return ContentProjectActionResult::fail(
                     ContentProjectActionCodes::VALIDATION_FAILED,
-                    'Project domain is required.',
+                    'Working site is required.',
                     $projectId,
+                    metadata: [
+                        'site_id' => $siteId,
+                    ],
                 );
             }
 
@@ -91,6 +104,7 @@ final class GenerateNewContentSuggestionsHandler extends AbstractPublishingHandl
                     $projectId,
                     metadata: [
                         'project_id' => $projectId,
+                        'site_id' => $siteId,
                         'quantity' => $options['quantity'],
                         'primary_language' => trim($language),
                         'direction' => $options['direction'],
@@ -101,7 +115,7 @@ final class GenerateNewContentSuggestionsHandler extends AbstractPublishingHandl
                 );
             }
 
-            $queued = $this->planner->queueGeneration($project, $options, $actor->actorId);
+            $queued = $this->planner->queueGeneration($project, $site, $options, $actor->actorId);
             $runId = (int) ($queued['planner_run_id'] ?? 0);
 
             if (! (bool) ($queued['already_active'] ?? false) && $runId > 0) {
@@ -129,6 +143,7 @@ final class GenerateNewContentSuggestionsHandler extends AbstractPublishingHandl
                     'status' => (string) ($queued['status'] ?? 'queued'),
                     'already_active' => (bool) ($queued['already_active'] ?? false),
                     'primary_language' => trim($language),
+                    'site_id' => $siteId,
                 ],
             );
         });

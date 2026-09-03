@@ -178,7 +178,7 @@ final class DraftItemTableDomainAndCloneContractTest extends TestCase
         self::assertStringContainsString('<template x-for="row in rows"', $items);
         self::assertStringContainsString('wire:ignore', $items);
         self::assertStringContainsString('data-draft-tbody-alpine-owned', $items);
-        self::assertStringContainsString('wire:key="cp-draft-items-{{ $reviewFilter }}-{{ $typeFilter }}-{{ (int) $refreshNonce }}"', $items);
+        self::assertStringContainsString('wire:key="cp-draft-items-{{ $reviewFilter }}-{{ $typeFilter }}-{{ $draftDomainFilter }}-{{ (int) $refreshNonce }}"', $items);
         self::assertStringContainsString('cpPlanDraftItems(@js($boot))', $items);
         self::assertStringContainsString("this.qsa('[data-draft-ssr-row]')", $items);
 

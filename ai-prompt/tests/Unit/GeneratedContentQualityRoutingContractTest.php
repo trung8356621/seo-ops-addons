@@ -14,9 +14,12 @@ use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use ReflectionMethod;
 
+/**
+ * Article content quality is an OUTPUT failure — must NOT fall back to another AI route.
+ */
 final class GeneratedContentQualityRoutingContractTest extends TestCase
 {
-    public function test_classifier_maps_output_quality_without_health_side_effects(): void
+    public function test_classifier_maps_output_quality_without_health_or_fallback(): void
     {
         $classifier = new AiProviderFailureClassifier;
         $exception = new PromptRunException(
@@ -25,7 +28,7 @@ final class GeneratedContentQualityRoutingContractTest extends TestCase
             null,
             [
                 'classification' => AiFailureClass::OutputQuality->value,
-                'retryable' => true,
+                'retryable' => false,
                 'quality_rules' => ['unexpected_script'],
                 'quality_sample' => 'may đôi,補強 góc',
             ],
@@ -33,7 +36,8 @@ final class GeneratedContentQualityRoutingContractTest extends TestCase
 
         $decision = $classifier->classify($exception);
         self::assertSame(AiFailureClass::OutputQuality, $decision->category);
-        self::assertTrue($decision->shouldContinueRouting());
+        self::assertFalse($decision->shouldContinueRouting());
+        self::assertFalse($decision->fallbackAllowed());
         self::assertFalse($decision->affectsRuntimeHealth);
         self::assertFalse($decision->lockConnection);
         self::assertFalse($decision->lockConnectionPaid);
@@ -50,15 +54,12 @@ final class GeneratedContentQualityRoutingContractTest extends TestCase
         self::assertStringContainsString('GeneratedContentQualityValidator', $src);
         self::assertStringContainsString('article.content.generate', $src);
         self::assertStringContainsString('AiFailureClass::OutputQuality', $src);
+        self::assertStringContainsString("'retryable' => false", $src);
+        self::assertStringNotContainsString('trying next model', $src);
     }
 
-    public function test_execute_with_profile_retries_after_output_quality_reject(): void
+    public function test_output_quality_reject_stops_without_second_route(): void
     {
-        if (! class_exists(\Tests\TestCase::class)) {
-            self::markTestSkipped('Laravel TestCase unavailable in this harness.');
-        }
-
-        // Lightweight loop simulation mirroring executeWithProfile catch semantics.
         $classifier = new AiProviderFailureClassifier;
         $attempts = [];
         $outputs = [
@@ -81,7 +82,7 @@ final class GeneratedContentQualityRoutingContractTest extends TestCase
                         null,
                         [
                             'classification' => AiFailureClass::OutputQuality->value,
-                            'retryable' => true,
+                            'retryable' => false,
                             'quality_rules' => $quality->rejectRules(),
                             'quality_sample' => $quality->primarySample(),
                         ],
@@ -92,22 +93,24 @@ final class GeneratedContentQualityRoutingContractTest extends TestCase
                 break;
             } catch (PromptRunException $exception) {
                 $decision = $classifier->classify($exception);
-                self::assertTrue($decision->shouldContinueRouting());
+                self::assertFalse($decision->shouldContinueRouting());
                 self::assertSame(AiFailureClass::OutputQuality, $decision->category);
                 $routingAttempts[] = [
                     'attempt' => $attemptNumber,
                     'result' => 'failed',
                     'failure_class' => $decision->category->value,
+                    'fallback_allowed' => $decision->fallbackAllowed(),
                     'quality_rules' => $exception->context['quality_rules'] ?? [],
                 ];
+                // STOP — do not try next output/route.
+                break;
             }
         }
 
-        self::assertSame([1, 2], $attempts);
+        self::assertSame([1], $attempts);
         self::assertSame('output_quality', $routingAttempts[0]['failure_class'] ?? null);
-        self::assertSame('success', $routingAttempts[1]['result'] ?? null);
-        self::assertSame($outputs[1], $selected);
-        self::assertStringNotContainsString('補強', (string) $selected);
+        self::assertFalse($routingAttempts[0]['fallback_allowed'] ?? true);
+        self::assertNull($selected);
     }
 
     public function test_quality_exhaustion_does_not_select_malformed_output(): void
@@ -132,13 +135,14 @@ final class GeneratedContentQualityRoutingContractTest extends TestCase
                 'Content quality rejected',
                 0,
                 null,
-                ['classification' => AiFailureClass::OutputQuality->value, 'retryable' => true],
+                ['classification' => AiFailureClass::OutputQuality->value, 'retryable' => false],
             ));
-            self::assertTrue($decision->shouldContinueRouting());
+            self::assertFalse($decision->shouldContinueRouting());
+            break; // central policy: stop after first output failure
         }
 
         self::assertNull($selected);
-        self::assertSame(2, $failed);
+        self::assertSame(1, $failed);
     }
 
     public function test_warning_only_does_not_reject_attempt(): void

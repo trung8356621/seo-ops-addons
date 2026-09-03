@@ -7,17 +7,18 @@ namespace Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResour
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\AuditNoteClusterSuggestionQuery;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\AuditNoteDnaNormalizer;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\AuditNoteTargetAllocator;
 use Livewire\WithPagination;
 
 /**
- * SEO Audit Notes — Cluster suggestions (MCP share ASC) + per-item editable DNA snapshots.
- * Suggestion list is cached; DNA edits do not re-query Cluster suggestions.
+ * SEO Audit Notes — Cluster suggestions + client-edited DNA slots / target_dna_count.
+ * Topic select/remove may hit Livewire; DNA slot edits stay client-side until Generate / hydrate.
  *
  * @mixin WithPagination
  */
 trait InteractsWithAuditNotes
 {
-    /** @var list<array{cluster_ref: string, cluster_name_snapshot: string, mcp_share_snapshot: float, dna: list<array{phrase: string, weight: int, source: string}>}> */
+    /** @var list<array{cluster_ref: string, cluster_name_snapshot: string, mcp_share_snapshot: float, target_dna_count: int, dna: list<array{phrase: string, slots: int, source: string}>}> */
     public array $auditNoteItems = [];
 
     public string $auditNoteSearch = '';
@@ -27,11 +28,6 @@ trait InteractsWithAuditNotes
     /** all|mcp_low|has_focus|no_focus */
     public string $auditNoteFilter = 'all';
 
-    public string $auditNoteDnaPhrase = '';
-
-    public string $auditNoteDnaWeight = '';
-
-    /** Manual selected-note topic name (replaces free-text planner notes). */
     public string $auditNoteManualTopic = '';
 
     /** @var list<array<string, mixed>> */
@@ -49,8 +45,6 @@ trait InteractsWithAuditNotes
         $this->auditNoteSearch = '';
         $this->auditNoteSearchInput = '';
         $this->auditNoteFilter = 'all';
-        $this->auditNoteDnaPhrase = '';
-        $this->auditNoteDnaWeight = '';
         $this->auditNoteManualTopic = '';
         $this->auditNoteSuggestionRows = [];
         $this->auditNoteSuggestionTotal = 0;
@@ -123,12 +117,25 @@ trait InteractsWithAuditNotes
 
     protected function resolveAuditNotesSiteId(): int
     {
+        if (method_exists($this, 'resolvePlanningSite')) {
+            /** @var callable $resolver */
+            $resolver = [$this, 'resolvePlanningSite'];
+            $site = $resolver();
+            if ($site instanceof \App\Models\Site) {
+                return (int) $site->getKey();
+            }
+        }
+
+        if (property_exists($this, 'filterSiteId')) {
+            $filterSiteId = (int) ($this->filterSiteId ?? 0);
+            if ($filterSiteId > 0) {
+                return $filterSiteId;
+            }
+        }
+
         $project = $this->resolveAuditNotesProject();
         if ($project instanceof SeoProject) {
             return (int) ($project->site_id ?? 0);
-        }
-        if (property_exists($this, 'filterSiteId')) {
-            return (int) ($this->filterSiteId ?? 0);
         }
 
         return 0;
@@ -150,10 +157,9 @@ trait InteractsWithAuditNotes
     }
 
     /**
-     * Lightweight UI payload — no Cluster query (uses cached suggestion rows).
-     *
      * @return array{
      *   can_write: bool,
+     *   site_id: int,
      *   total: int,
      *   filter: string,
      *   search: string,
@@ -182,6 +188,7 @@ trait InteractsWithAuditNotes
 
         return [
             'can_write' => $siteId > 0,
+            'site_id' => $siteId,
             'total' => $this->auditNoteSuggestionTotal,
             'filter' => $this->auditNoteFilter,
             'search' => $this->auditNoteSearch,
@@ -207,6 +214,7 @@ trait InteractsWithAuditNotes
             if (($item['cluster_ref'] ?? '') === $clusterRef) {
                 unset($this->auditNoteItems[$index]);
                 $this->auditNoteItems = array_values($this->auditNoteItems);
+                $this->dispatchAuditNotesSelectedUpdated();
 
                 return;
             }
@@ -218,48 +226,47 @@ trait InteractsWithAuditNotes
             return;
         }
 
+        $dna = AuditNoteDnaNormalizer::snapshotFromClusterDna(
+            is_array($suggestion['cluster_dna'] ?? null) ? $suggestion['cluster_dna'] : [],
+        );
         $item = AuditNoteDnaNormalizer::normalizeNoteItem([
+            'source_type' => AuditNoteDnaNormalizer::SOURCE_TYPE_CLUSTER,
             'cluster_ref' => $suggestion['cluster_ref'],
             'cluster_name_snapshot' => $suggestion['cluster_name'],
             'mcp_share_snapshot' => $suggestion['mcp_share'],
-            'dna' => AuditNoteDnaNormalizer::snapshotFromClusterDna(
-                is_array($suggestion['cluster_dna'] ?? null) ? $suggestion['cluster_dna'] : [],
-            ),
+            'target_dna_count' => AuditNoteDnaNormalizer::DEFAULT_TARGET_DNA_COUNT,
+            'target_mode' => AuditNoteTargetAllocator::TARGET_MODE_AUTO,
+            'dna' => $dna,
         ]);
         if ($item === null) {
             return;
         }
 
         $this->auditNoteItems[] = $item;
+        $this->dispatchAuditNotesSelectedUpdated();
     }
 
+    /**
+     * Server-side Planning Seed create (Generate/normalize path). Preferred UX is client-local Alpine.
+     * Does NOT create SeoTopicClusterMeta / permanent Topic rows.
+     */
     public function addManualAuditNoteTopic(): void
     {
-        $name = AuditNoteDnaNormalizer::displayPhrase($this->auditNoteManualTopic);
-        if ($name === '') {
+        $seed = AuditNoteDnaNormalizer::normalizeSeedText($this->auditNoteManualTopic);
+        if ($seed === '') {
             return;
         }
 
-        $ref = AuditNoteDnaNormalizer::manualRef($name);
-        foreach ($this->auditNoteItems as $item) {
-            if (($item['cluster_ref'] ?? '') === $ref) {
-                $this->auditNoteManualTopic = '';
-
-                return;
-            }
-        }
-
+        $ref = AuditNoteDnaNormalizer::manualSeedRef();
         $item = AuditNoteDnaNormalizer::normalizeNoteItem([
+            'source_type' => AuditNoteDnaNormalizer::SOURCE_TYPE_MANUAL_SEED,
             'cluster_ref' => $ref,
-            'cluster_name_snapshot' => $name,
-            'mcp_share_snapshot' => 0.0,
-            'dna' => [
-                [
-                    'phrase' => $name,
-                    'weight' => AuditNoteDnaNormalizer::DEFAULT_WEIGHT,
-                    'source' => AuditNoteDnaNormalizer::SOURCE_MANUAL,
-                ],
-            ],
+            'cluster_name_snapshot' => $seed,
+            'seed_text' => $seed,
+            'mcp_share_snapshot' => null,
+            'target_dna_count' => AuditNoteDnaNormalizer::DEFAULT_TARGET_DNA_COUNT,
+            'target_mode' => AuditNoteTargetAllocator::TARGET_MODE_MANUAL,
+            'dna' => [],
         ]);
         if ($item === null) {
             return;
@@ -267,6 +274,7 @@ trait InteractsWithAuditNotes
 
         $this->auditNoteItems[] = $item;
         $this->auditNoteManualTopic = '';
+        $this->dispatchAuditNotesSelectedUpdated();
     }
 
     public function removeAuditNoteItem(string $clusterRef): void
@@ -276,52 +284,7 @@ trait InteractsWithAuditNotes
             $this->auditNoteItems,
             static fn (array $item): bool => ($item['cluster_ref'] ?? '') !== $clusterRef,
         ));
-    }
-
-    public function addAuditNoteDna(string $clusterRef): void
-    {
-        $clusterRef = trim($clusterRef);
-        $phrase = trim($this->auditNoteDnaPhrase);
-        if ($clusterRef === '' || $phrase === '') {
-            return;
-        }
-
-        $weightRaw = trim($this->auditNoteDnaWeight);
-        $weight = $weightRaw === '' ? AuditNoteDnaNormalizer::DEFAULT_WEIGHT : (int) $weightRaw;
-        if ($weight < 1) {
-            $weight = AuditNoteDnaNormalizer::DEFAULT_WEIGHT;
-        }
-
-        foreach ($this->auditNoteItems as $index => $item) {
-            if (($item['cluster_ref'] ?? '') !== $clusterRef) {
-                continue;
-            }
-            $dna = is_array($item['dna'] ?? null) ? $item['dna'] : [];
-            $this->auditNoteItems[$index]['dna'] = AuditNoteDnaNormalizer::addDna(
-                $dna,
-                $phrase,
-                $weight,
-                AuditNoteDnaNormalizer::SOURCE_MANUAL,
-            );
-            $this->auditNoteDnaPhrase = '';
-            $this->auditNoteDnaWeight = '';
-
-            return;
-        }
-    }
-
-    public function removeAuditNoteDna(string $clusterRef, string $phrase): void
-    {
-        $clusterRef = trim($clusterRef);
-        foreach ($this->auditNoteItems as $index => $item) {
-            if (($item['cluster_ref'] ?? '') !== $clusterRef) {
-                continue;
-            }
-            $dna = is_array($item['dna'] ?? null) ? $item['dna'] : [];
-            $this->auditNoteItems[$index]['dna'] = AuditNoteDnaNormalizer::removeDna($dna, $phrase);
-
-            return;
-        }
+        $this->dispatchAuditNotesSelectedUpdated();
     }
 
     public function gotoAuditNotesPage(int $page): void
@@ -333,7 +296,7 @@ trait InteractsWithAuditNotes
     }
 
     /**
-     * @return list<array{cluster_ref: string, cluster_name_snapshot: string, mcp_share_snapshot: float, dna: list<array{phrase: string, weight: int, source: string}>}>
+     * @return list<array{cluster_ref: string, cluster_name_snapshot: string, mcp_share_snapshot: float, target_dna_count: int, dna: list<array{phrase: string, slots: int, source: string}>}>
      */
     protected function auditNoteItemsForOptions(): array
     {
@@ -343,8 +306,18 @@ trait InteractsWithAuditNotes
     /**
      * @param  list<array<string, mixed>>  $items
      */
-    protected function applyAuditNoteItems(array $items): void
+    public function applyAuditNoteItems(array $items): void
     {
         $this->auditNoteItems = AuditNoteDnaNormalizer::normalizeNoteItems($items);
+        $this->dispatchAuditNotesSelectedUpdated();
+    }
+
+    protected function dispatchAuditNotesSelectedUpdated(): void
+    {
+        if (! method_exists($this, 'dispatch')) {
+            return;
+        }
+
+        $this->dispatch('cp-audit-notes-selected', items: $this->auditNoteItems);
     }
 }

@@ -184,10 +184,9 @@ final class SeoProjectArchiveService
 
         $note = $this->normalizeNote($note);
         $lockedProject = $this->lockMonthlyProject($project);
-        $siteId = (int) ($lockedProject->site_id ?? 0);
-        if ($siteId <= 0) {
-            throw new RuntimeException(__('seo-content-ai::filament.projects.domain_required'));
-        }
+        $projectSiteId = (int) ($lockedProject->site_id ?? 0);
+        // Shared Draft has project.site_id = 0 — domain lives on each task.
+        // Soft-remove from Draft must not require a project-level domain.
 
         $tasks = $lockedProject->tasks()
             ->active()
@@ -225,16 +224,32 @@ final class SeoProjectArchiveService
             ]);
             $archived++;
 
-            if ($articleId > 0) {
-                $this->tryPersistArchiveMirrorFromTask(
-                    $task->fresh() ?? $task,
-                    $lockedProject,
-                    $siteId,
-                    $archivedByUserId,
-                    $note,
-                    $now,
-                );
+            if ($articleId <= 0) {
+                continue;
             }
+
+            $siteId = (int) ($task->site_id ?? 0);
+            if ($siteId <= 0) {
+                $siteId = $projectSiteId;
+            }
+            if ($siteId <= 0) {
+                Log::warning('seo.project_archive.task_site_missing', [
+                    'task_id' => $taskId,
+                    'project_id' => (int) $lockedProject->getKey(),
+                    'article_id' => $articleId,
+                ]);
+
+                continue;
+            }
+
+            $this->tryPersistArchiveMirrorFromTask(
+                $task->fresh() ?? $task,
+                $lockedProject,
+                $siteId,
+                $archivedByUserId,
+                $note,
+                $now,
+            );
         }
 
         if ($archived === 0) {

@@ -241,7 +241,7 @@ final class KeywordRuleClassifierTest extends TestCase
         self::assertSame('sentence', $out[3]['reason']);
     }
 
-    public function test_landscape_marks_saturated_and_unavailable_cannibalization(): void
+    public function test_landscape_marks_saturated_topics(): void
     {
         $rows = [];
         for ($i = 0; $i < 25; $i++) {
@@ -260,6 +260,6 @@ final class KeywordRuleClassifierTest extends TestCase
         ]);
         self::assertSame('saturated', $landscape['clusters'][0]['coverage']);
         self::assertSame('do_not_expand', $landscape['clusters'][0]['recommended_action']);
-        self::assertSame('unavailable', $landscape['keyword_cannibalization']);
+        self::assertArrayNotHasKey('keyword_cannibalization', $landscape);
     }
 }

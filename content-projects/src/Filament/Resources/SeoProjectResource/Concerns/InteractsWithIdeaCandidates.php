@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Concerns;
 
+use App\Models\Site;
 use App\Support\RuntimeLogger;
 use Filament\Notifications\Notification;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
@@ -385,24 +386,28 @@ trait InteractsWithIdeaCandidates
             $filters['state'] = SeoAuditExistingContentSuggestionService::STATE_AVAILABLE;
             $filters['only_with_issues'] = false;
             $filters['score_max'] = null;
-            $articlePaginator = app(SeoAuditExistingContentSuggestionService::class)->paginate(
-                $project,
-                $filters,
-                max(1, (int) $this->getPage('ideaArticlesPage')),
-                10,
-            );
-            $articleRows = array_map(static function (mixed $row): array {
-                if (! is_array($row)) {
-                    return [];
-                }
+            $articleSite = $siteId > 0 ? Site::query()->find($siteId) : null;
+            if ($articleSite instanceof Site) {
+                $articlePaginator = app(SeoAuditExistingContentSuggestionService::class)->paginate(
+                    $project,
+                    $articleSite,
+                    $filters,
+                    max(1, (int) $this->getPage('ideaArticlesPage')),
+                    10,
+                );
+                $articleRows = array_map(static function (mixed $row): array {
+                    if (! is_array($row)) {
+                        return [];
+                    }
 
-                return [
-                    'article_id' => (int) ($row['article_id'] ?? 0),
-                    'title' => (string) ($row['title'] ?? ''),
-                    'seo_score' => $row['seo_score'] ?? null,
-                    'suggested_action' => (string) ($row['suggested_action'] ?? ''),
-                ];
-            }, $articlePaginator->items());
+                    return [
+                        'article_id' => (int) ($row['article_id'] ?? 0),
+                        'title' => (string) ($row['title'] ?? ''),
+                        'seo_score' => $row['seo_score'] ?? null,
+                        'suggested_action' => (string) ($row['suggested_action'] ?? ''),
+                    ];
+                }, $articlePaginator->items());
+            }
         }
 
         return [

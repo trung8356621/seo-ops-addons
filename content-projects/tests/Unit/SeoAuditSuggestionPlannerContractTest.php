@@ -53,22 +53,25 @@ final class SeoAuditSuggestionPlannerContractTest extends TestCase
         self::assertStringContainsString("['project_id', 'source_type', 'source_key']", $src);
     }
 
-    public function test_suggestion_service_fails_closed_without_site(): void
+    public function test_suggestion_service_scopes_articles_by_explicit_site(): void
     {
         $src = (string) file_get_contents(
             dirname(__DIR__, 2).'/src/Services/ContentProject/SeoAudit/SeoAuditExistingContentSuggestionService.php',
         );
 
+        self::assertStringContainsString('function paginate(SeoProject $project, Site $site', $src);
         self::assertStringContainsString("where('articles.site_id', \$siteId)", $src);
         self::assertStringContainsString('siteId <= 0', $src);
     }
 
-    public function test_planner_rejects_mismatched_site_articles(): void
+    public function test_planner_scopes_articles_by_working_site(): void
     {
         $src = (string) file_get_contents(
             dirname(__DIR__, 2).'/src/Services/ContentProject/SeoAudit/SeoAuditSuggestionPlannerService.php',
         );
 
+        self::assertStringContainsString('Site $site', $src);
+        self::assertStringContainsString('addToDraftProject(', $src);
         self::assertStringContainsString("->where('site_id', \$siteId)", $src);
         self::assertStringContainsString('notContentArchived()', $src);
     }

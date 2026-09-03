@@ -64,7 +64,7 @@ final class ContentProjectArchiveSocialExportRowExpander
             'post_type' => '',
             'plan' => '',
             'index_status' => '',
-            'archived_at' => (string) ($link['recorded_at'] ?? ''),
+            'reviewed_at' => (string) ($link['recorded_at'] ?? ''),
             'archived_by' => '',
             'article_id' => 0,
             'row_kind' => 'social',

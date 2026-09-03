@@ -63,12 +63,20 @@ final class KeywordClusterQuery
      *     projection?: 'mcp'|'seo',
      *     language_variants?: list<string>|null
      * }  $filters
+     * @param  int|null  $page  Explicit page (Livewire). Null falls back to request query — avoid on Livewire re-renders.
      * @return LengthAwarePaginator<int, array<string, mixed>>
      */
-    public function paginateClusters(?int $siteId, array $filters, int $perPage = 25, ?string $path = null): LengthAwarePaginator
-    {
+    public function paginateClusters(
+        ?int $siteId,
+        array $filters,
+        int $perPage = 25,
+        ?string $path = null,
+        ?int $page = null,
+    ): LengthAwarePaginator {
+        $resolvedPage = max(1, $page ?? (int) request()->integer('page', 1));
+
         if (! $this->classificationsReady()) {
-            return new \Illuminate\Pagination\LengthAwarePaginator([], 0, $perPage, 1, [
+            return new \Illuminate\Pagination\LengthAwarePaginator([], 0, $perPage, $resolvedPage, [
                 'path' => $path ?? '/',
             ]);
         }
@@ -193,9 +201,12 @@ final class KeywordClusterQuery
             return self::compareClusterRows($a, $b, $sort);
         });
 
-        $page = max(1, (int) request()->integer('page', 1));
         $total = count($items);
-        $slice = array_slice($items, ($page - 1) * $perPage, $perPage);
+        $lastPage = max(1, (int) ceil($total / max(1, $perPage)));
+        if ($resolvedPage > $lastPage) {
+            $resolvedPage = $lastPage;
+        }
+        $slice = array_slice($items, ($resolvedPage - 1) * $perPage, $perPage);
         $resolvedPath = is_string($path) && $path !== ''
             ? $path
             : (string) (request()->routeIs('livewire.*') || str_contains((string) request()->path(), 'livewire/')
@@ -206,7 +217,7 @@ final class KeywordClusterQuery
             $slice,
             $total,
             $perPage,
-            $page,
+            $resolvedPage,
             ['path' => $resolvedPath],
         );
     }

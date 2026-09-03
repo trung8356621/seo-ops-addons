@@ -21,6 +21,7 @@ final class ContentProjectDraftPlanningItemsReadModel
      * @param  array{
      *     review?: string,
      *     type?: string,
+     *     domain?: string,
      * }  $filters
      * @return array{
      *     rows: list<array<string, mixed>>,
@@ -38,8 +39,9 @@ final class ContentProjectDraftPlanningItemsReadModel
 
         $projectId = (int) $project->getKey();
         $hasPlanningReviewed = Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'planning_reviewed_at');
+        $domainFilter = $this->normalizeDomainFilter($filters['domain'] ?? 'all');
 
-        $tasks = SeoProjectTask::query()
+        $query = SeoProjectTask::query()
             ->where('project_id', $projectId)
             ->planned()
             ->inContentProjectWorkingSet()
@@ -50,8 +52,11 @@ final class ContentProjectDraftPlanningItemsReadModel
                 'site:id,domain',
             ])
             ->orderByDesc('updated_at')
-            ->orderByDesc('id')
-            ->get();
+            ->orderByDesc('id');
+
+        $this->applyDomainScopeToQuery($query, $domainFilter);
+
+        $tasks = $query->get();
 
         $rows = [];
         $unreviewed = 0;
@@ -61,6 +66,10 @@ final class ContentProjectDraftPlanningItemsReadModel
                 continue;
             }
             $row = $this->mapRow($task, $projectId, $hasPlanningReviewed);
+            // Defense: recovered site_id may still disagree with a concrete domain query edge-case.
+            if (! $this->rowMatchesDomain($row, $domainFilter)) {
+                continue;
+            }
             $rows[] = $row;
             if (! empty($row['planning_reviewed'])) {
                 $reviewed++;
@@ -98,6 +107,63 @@ final class ContentProjectDraftPlanningItemsReadModel
             'rows' => $rows,
             'counts' => $counts,
         ];
+    }
+
+    /**
+     * @return 'all'|'0'|string concrete site id
+     */
+    public function normalizeDomainFilter(mixed $raw): string
+    {
+        $normalized = strtolower(trim((string) ($raw ?? 'all')));
+        if ($normalized === '' || $normalized === 'all') {
+            return 'all';
+        }
+        if ($normalized === '0') {
+            return '0';
+        }
+        if (! ctype_digit($normalized)) {
+            return 'all';
+        }
+        $siteId = (int) $normalized;
+
+        return $siteId > 0 ? (string) $siteId : 'all';
+    }
+
+    /**
+     * @param  \Illuminate\Database\Eloquent\Builder<\Omnichannel\Addons\ContentProjects\Models\SeoProjectTask>  $query
+     */
+    private function applyDomainScopeToQuery($query, string $domainFilter): void
+    {
+        if ($domainFilter === 'all') {
+            return;
+        }
+
+        if ($domainFilter === '0') {
+            $query->where(static function ($q): void {
+                $q->whereNull('site_id')->orWhere('site_id', '<=', 0);
+            });
+
+            return;
+        }
+
+        $query->where('site_id', (int) $domainFilter);
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    private function rowMatchesDomain(array $row, string $domainFilter): bool
+    {
+        if ($domainFilter === 'all') {
+            return true;
+        }
+
+        $have = (int) ($row['site_id'] ?? 0);
+        if ($domainFilter === '0') {
+            return $have <= 0;
+        }
+
+        return $have === (int) $domainFilter;
     }
 
     /**

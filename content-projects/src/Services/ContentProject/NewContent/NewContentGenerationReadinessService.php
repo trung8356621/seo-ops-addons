@@ -32,7 +32,10 @@ final class NewContentGenerationReadinessService
         private readonly ContentProjectExecutionStalenessPolicy $staleness,
     ) {}
 
-    public function evaluate(?SeoProject $project, ?int $actorUserId = null): NewContentGenerationReadiness
+    /**
+     * @param  Site|null  $site  Explicit working Site (Project Planner filter). Prefer over project.site_id.
+     */
+    public function evaluate(?SeoProject $project, ?Site $site = null, ?int $actorUserId = null): NewContentGenerationReadiness
     {
         $blockReasons = [];
 
@@ -47,7 +50,7 @@ final class NewContentGenerationReadinessService
             $blockReasons[] = (string) $draft['reason'];
         }
 
-        $language = $this->evaluateLanguage($project);
+        $language = $this->evaluateLanguage($project, $site);
         if (! $language['ready']) {
             $blockReasons[] = (string) ($language['reason'] ?? '');
         }
@@ -100,23 +103,9 @@ final class NewContentGenerationReadinessService
     /**
      * @return array{ready: bool, value: ?string, label: ?string, domain_edit_url: ?string, reason: ?string}
      */
-    protected function evaluateLanguage(?SeoProject $project): array
+    protected function evaluateLanguage(?SeoProject $project, ?Site $explicitSite = null): array
     {
-        if (! $project instanceof SeoProject) {
-            return [
-                'ready' => false,
-                'value' => null,
-                'label' => null,
-                'domain_edit_url' => null,
-                'reason' => (string) __('seo-content-ai::filament.projects.planner_readiness_language_missing'),
-            ];
-        }
-
-        $siteId = (int) ($project->site_id ?? 0);
-        $site = $project->site instanceof Site ? $project->site : null;
-        if (! $site instanceof Site && $siteId > 0) {
-            $site = Site::query()->find($siteId);
-        }
+        $site = $this->resolveLanguageSite($project, $explicitSite);
         if (! $site instanceof Site) {
             return [
                 'ready' => false,
@@ -127,6 +116,7 @@ final class NewContentGenerationReadinessService
             ];
         }
 
+        $siteId = (int) $site->getKey();
         $code = $this->primaryLanguage->resolvePrimaryLanguage($site);
         $normalized = is_string($code) ? trim($code) : '';
         $url = null;
@@ -153,6 +143,28 @@ final class NewContentGenerationReadinessService
             'domain_edit_url' => $url,
             'reason' => null,
         ];
+    }
+
+    /**
+     * Prefer explicit working Site (Shared Draft / Project Planner). Legacy fallback: project.site_id.
+     */
+    private function resolveLanguageSite(?SeoProject $project, ?Site $explicitSite): ?Site
+    {
+        if ($explicitSite instanceof Site && (int) $explicitSite->getKey() > 0) {
+            return $explicitSite;
+        }
+
+        if (! $project instanceof SeoProject) {
+            return null;
+        }
+
+        $siteId = (int) ($project->site_id ?? 0);
+        $site = $project->site instanceof Site ? $project->site : null;
+        if (! $site instanceof Site && $siteId > 0) {
+            $site = Site::query()->find($siteId);
+        }
+
+        return $site instanceof Site ? $site : null;
     }
 
     /**
@@ -244,9 +256,16 @@ final class NewContentGenerationReadinessService
         }
 
         $status = (string) (($active->result_summary ?? [])['status'] ?? SeoContentProjectPlannerRun::STATUS_QUEUED);
-        $reason = $status === SeoContentProjectPlannerRun::STATUS_RUNNING
-            ? (string) __('seo-content-ai::filament.projects.planner_readiness_generation_running')
-            : (string) __('seo-content-ai::filament.projects.planner_readiness_generation_queued');
+        $reason = match ($status) {
+            SeoContentProjectPlannerRun::STATUS_RUNNING,
+            SeoContentProjectPlannerRun::STATUS_RECOVERING => (string) __('seo-content-ai::filament.projects.planner_readiness_generation_running'),
+            SeoContentProjectPlannerRun::STATUS_WAITING_RETRY => (string) __('seo-content-ai::filament.projects.planner_auto_progress', [
+                'added' => (int) (($active->result_summary ?? [])['added'] ?? 0),
+                'requested' => (int) (($active->result_summary ?? [])['requested'] ?? $active->requested_quantity ?? 0),
+                'remaining' => (int) (($active->result_summary ?? [])['remaining'] ?? 0),
+            ]),
+            default => (string) __('seo-content-ai::filament.projects.planner_readiness_generation_queued'),
+        };
 
         return [
             'active' => true,

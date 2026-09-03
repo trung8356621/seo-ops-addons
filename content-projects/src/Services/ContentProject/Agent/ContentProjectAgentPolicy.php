@@ -85,7 +85,20 @@ final class ContentProjectAgentPolicy
             return null;
         }
 
-        if ((int) ($project->site_id ?? 0) !== $siteId) {
+        $projectSiteId = (int) ($project->site_id ?? 0);
+        // Shared Draft is domain-neutral — working Site comes from agent site_ref / command.siteId.
+        if ($projectSiteId > 0 && $projectSiteId !== $siteId) {
+            return AgentCapabilityResult::fail(
+                AgentErrorCodes::CONTEXT_MISMATCH,
+                'Project does not belong to site context.',
+                data: [
+                    'required' => ['project_ref'],
+                    'mismatch' => 'site_ref',
+                ],
+            );
+        }
+
+        if ($projectSiteId <= 0 && ! $project->isDraftPlanning()) {
             return AgentCapabilityResult::fail(
                 AgentErrorCodes::CONTEXT_MISMATCH,
                 'Project does not belong to site context.',

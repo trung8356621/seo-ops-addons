@@ -78,11 +78,14 @@ final class ContentProjectMonthChartContractTest extends TestCase
         self::assertStringContainsString('t.site_id', $src);
         self::assertStringContainsString('articlesByDomain', $src);
         self::assertStringContainsString('articlesByWriter', $src);
-        self::assertStringContainsString('MAX_WRITER_MONTHLY_ITEMS', $src);
+        self::assertStringContainsString('team_capacity', $src);
+        self::assertStringContainsString('default_capacity', $src);
+        self::assertStringContainsString('ContentProjectWriterCapacitySettingsService', $src);
+        self::assertStringNotContainsString('MAX_WRITER_MONTHLY_ITEMS', $src);
         self::assertStringContainsString('SCOPE_ALL', $src);
         self::assertStringContainsString('active_count', $src);
         self::assertStringContainsString('archived_count', $src);
-        self::assertSame(30, ContentProjectExecutionLimits::MAX_WRITER_MONTHLY_ITEMS);
+        self::assertSame(30, ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS);
     }
 
     public function test_list_bucket_draft_is_excluded_from_projects_list(): void

@@ -118,7 +118,6 @@ use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Applicati
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\MoveTopicCommand;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\PreviewContentProjectFromClustersCommand;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\PreviewContentProjectFromTopicalMapCommand;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\ReviewCannibalizationIssueCommand;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\ReviewTopicalMapCommand;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\SaveTopicalMapVersionCommand;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Commands\SetTopicRelationshipCommand;
@@ -149,7 +148,6 @@ use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Applicati
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\MoveTopicHandler;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\PreviewContentProjectFromClustersHandler;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\PreviewContentProjectFromTopicalMapHandler;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\ReviewCannibalizationIssueHandler;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\ReviewTopicalMapHandler;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\SaveTopicalMapVersionHandler;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Application\Handlers\SetTopicRelationshipHandler;
@@ -230,7 +228,6 @@ final class ContentProjectCommandBusRegistrar
             MergeKeywordClustersCommand::class => MergeKeywordClustersHandler::class,
             SplitKeywordClusterCommand::class => SplitKeywordClusterHandler::class,
             MoveKeywordsToClusterCommand::class => MoveKeywordsToClusterHandler::class,
-            ReviewCannibalizationIssueCommand::class => ReviewCannibalizationIssueHandler::class,
             BuildTopicalMapCommand::class => BuildTopicalMapHandler::class,
             CancelTopicalMapBuildCommand::class => CancelTopicalMapBuildHandler::class,
             CreateTopicCommand::class => CreateTopicHandler::class,

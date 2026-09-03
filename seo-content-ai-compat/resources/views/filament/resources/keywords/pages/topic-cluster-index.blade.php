@@ -8,6 +8,8 @@
     $reclusterRunning = (bool) ($this->reclusterRunning ?? false);
     $confirmRecluster = (bool) ($this->confirmRecluster ?? false);
     $canRecluster = $this->canReclusterTopicClusters();
+    $topicMutationsLocked = $reclusterRunning || $this->isTopicMutationLocked();
+    $canEditPermission = $this->hasTopicClusterMutationPermission();
     $canDissolve = $this->canDissolveCluster();
     $canEditCanonical = $this->canEditClusterCanonical();
     $reclusterStatus = is_array($this->reclusterResult ?? null)
@@ -87,7 +89,7 @@
         <x-seo-content-ai::list-table-loading-shell
             class="space-y-4"
             preset="livewire-page"
-            targets="clusterSearch,coverageFilter,clusterSort,clusterProjection,hasArticles,keywordLanguageFilter,updatedKeywordLanguageFilter,keywordWorkspaceSiteId,onKeywordWorkspaceSiteFilterChanged"
+            targets="clusterSearch,coverageFilter,clusterSort,clusterProjection,hasArticles,keywordLanguageFilter,updatedKeywordLanguageFilter,keywordWorkspaceSiteId,onKeywordWorkspaceSiteFilterChanged,applyClusterSearch,clearClusterSearch,updatedCoverageFilter,updatedHasArticles,updatedClusterSort,updatedClusterProjection"
         >
         <div class="topic-index-context" wire:key="topic-index-context-{{ $this->clusterDataEpoch }}">
             <div class="topic-index-context-card">
@@ -194,19 +196,21 @@
             @endif
         </div>
 
-        <div class="topic-index-toolbar" x-data="{ exists: @js($this->quickCreateClusterExists()) }">
+        <div
+            class="topic-index-toolbar"
+            x-data="{ phrase: @entangle('clusterSearchInput') }"
+        >
             <div class="topic-index-toolbar__primary">
                 <form wire:submit="applyClusterSearch" class="contents">
                     <input
                         type="search"
-                        wire:model="clusterSearchInput"
-                        x-on:input="exists = false"
+                        x-model="phrase"
                         class="topic-index-input topic-index-input--search"
                         placeholder="{{ __('seo-content-ai::filament.keyword.topic_search_or_create_cluster') }}"
                         autocomplete="off"
                     >
                 </form>
-                @if ($canEditCanonical)
+                @if ($canEditPermission)
                     <x-filament::button
                         type="button"
                         size="sm"
@@ -214,24 +218,18 @@
                         wire:click="quickCreateCluster"
                         wire:loading.attr="disabled"
                         wire:target="quickCreateCluster"
-                        x-bind:disabled="exists"
+                        x-bind:disabled="!String(phrase || '').trim() || @js($topicMutationsLocked)"
+                        :disabled="$topicMutationsLocked"
+                        :title="$topicMutationsLocked ? __('seo-content-ai::filament.keyword.topic_recluster_mutations_locked') : null"
                     >
                         <span wire:loading.remove wire:target="quickCreateCluster">
                             {{ __('seo-content-ai::filament.keyword.topic_quick_create_action') }}
                         </span>
-                        <span wire:loading wire:target="quickCreateCluster">
-                            {{ __('seo-content-ai::filament.keyword.topic_quick_create_resolving') }}
+                        <span wire:loading wire:target="quickCreateCluster" class="inline-flex items-center gap-1">
+                            <x-filament::loading-indicator class="h-4 w-4" />
+                            {{ __('seo-content-ai::filament.keyword.topic_quick_create_action') }}
                         </span>
                     </x-filament::button>
-                    <span
-                        wire:loading.remove
-                        wire:target="clusterSearchInput,applyClusterSearch,quickCreateCluster"
-                        x-show="exists"
-                        x-cloak
-                        class="text-xs text-gray-500"
-                    >
-                        {{ __('seo-content-ai::filament.keyword.topic_quick_create_exists') }}
-                    </span>
                 @endif
             </div>
             <div class="topic-index-filters topic-index-toolbar__filters">
@@ -263,10 +261,14 @@
             </div>
         </div>
 
-        @if ($reclusterStatus === 'queued' || $reclusterStatus === 'running' || $reclusterRunning)
-            <p class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
-                {{ __('seo-content-ai::filament.keyword.topic_recluster_running') }}
-            </p>
+        @if ($reclusterStatus === 'queued' || $reclusterStatus === 'running' || $reclusterRunning || $topicMutationsLocked)
+            <div class="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-800 dark:bg-amber-950 dark:text-amber-100">
+                <div class="font-medium">{{ __('seo-content-ai::filament.keyword.topic_recluster_lock_banner_title') }}</div>
+                <p class="mt-1 opacity-90">{{ __('seo-content-ai::filament.keyword.topic_recluster_lock_banner_body') }}</p>
+                @if ($reclusterStatus === 'queued' || $reclusterStatus === 'running')
+                    <p class="mt-1 opacity-75">{{ __('seo-content-ai::filament.keyword.topic_recluster_running') }}</p>
+                @endif
+            </div>
         @elseif ($reclusterStatus === 'completed')
             @php $m = $this->reclusterResult['metrics'] ?? []; @endphp
             <p class="rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-900 dark:border-emerald-800 dark:bg-emerald-950 dark:text-emerald-100">
@@ -656,7 +658,9 @@
                     </div>
                 @endforeach
             </div>
-            <div>{{ $clusters->links() }}</div>
+            <div wire:key="topic-cluster-pagination-{{ $clusters->currentPage() }}-{{ $this->clusterDataEpoch }}">
+                {{ $clusters->links() }}
+            </div>
         @endif
         </x-seo-content-ai::list-table-loading-shell>
 

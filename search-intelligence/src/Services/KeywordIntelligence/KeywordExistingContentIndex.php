@@ -10,7 +10,7 @@ use Omnichannel\Addons\Content\Models\SeoArticleHeading;
 
 /**
  * Xây compact index nội dung hiện có của site (title/slug/seo meta/heading) để phục vụ
- * mapping keyword <-> bài viết, cannibalization và cluster suggestion.
+ * mapping keyword <-> bài viết và cluster suggestion.
  * KHÔNG lưu full body — chỉ các trường "surface" gọn nhẹ + search_text ghép sẵn.
  */
 final class KeywordExistingContentIndex

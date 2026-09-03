@@ -13,9 +13,14 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Comma
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RestoreNewContentSuggestionsCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectActionCodes;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectCommandBus;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\AuditNoteDnaNormalizer;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\AuditNoteTargetAllocator;
+use Omnichannel\Addons\ContentProjects\Jobs\GenerateNewContentSuggestionsJob;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\NewContent\NewContentGenerationBatchPolicy;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\NewContent\NewContentGenerationReadiness;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\NewContent\NewContentGenerationReadinessService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\NewContent\NewContentSuggestionOptions;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\NewContent\NewContentSuggestionPlannerService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Planner\ContentProjectPlannerRunService;
 use Omnichannel\Addons\SearchFoundation\Filament\Resources\DomainResource;
 use Omnichannel\Addons\WordPress\Services\SitePrimaryLanguageService;
@@ -105,8 +110,7 @@ trait InteractsWithNewContentSuggestions
             return;
         }
 
-        $siteId = (int) ($project->site_id ?? 0);
-        $site = $siteId > 0 ? Site::query()->find($siteId) : null;
+        $site = $this->resolveNewContentWorkingSite();
         if (! $site instanceof Site) {
             $this->newContentPlanningPreview = null;
 
@@ -128,8 +132,12 @@ trait InteractsWithNewContentSuggestions
         }
     }
 
-    public function generateNewContentSuggestions(): void
+    public function generateNewContentSuggestions(?array $noteItems = null): void
     {
+        if ($noteItems !== null && method_exists($this, 'applyAuditNoteItems')) {
+            $this->applyAuditNoteItems($noteItems);
+        }
+
         $project = $this->resolveNewContentProject();
         if (! $project instanceof SeoProject) {
             $this->notifyNewContentProjectRequired();
@@ -159,18 +167,76 @@ trait InteractsWithNewContentSuggestions
         }
 
         $options = $this->buildNewContentOptions();
-        $idemKey = 'new-content:'.$project->getKey().':'.Str::uuid()->toString();
+        $noteItems = is_array($options['note_items'] ?? null) ? $options['note_items'] : [];
+        $requestedFromTargets = AuditNoteDnaNormalizer::totalTargetDnaCount($noteItems);
+
+        if ($requestedFromTargets <= 0 || $noteItems === []) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.planner_generate_blocked'))
+                ->body((string) __('seo-content-ai::filament.projects.audit_notes_empty_plan'))
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        $batchPolicy = new NewContentGenerationBatchPolicy;
+        if ($batchPolicy->exceedsHardCeiling($requestedFromTargets)) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.planner_generate_blocked'))
+                ->body((string) __('seo-content-ai::filament.projects.planner_plan_too_large'))
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        // Sticky pool = SUM(targets). Allocator may redistribute AUTO topics by MCP within that pool.
+        $allocation = AuditNoteTargetAllocator::apply($noteItems, $requestedFromTargets);
+        if ($allocation['code'] === AuditNoteTargetAllocator::CODE_TOO_MANY_TOPICS) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.planner_generate_blocked'))
+                ->body((string) __('seo-content-ai::filament.projects.audit_notes_too_many_topics', [
+                    'topics' => $allocation['topic_count'],
+                    'quantity' => $allocation['requested_quantity'],
+                ]))
+                ->warning()
+                ->send();
+
+            return;
+        }
+        if (method_exists($this, 'applyAuditNoteItems')) {
+            $this->applyAuditNoteItems($allocation['items']);
+        }
+        $options['note_items'] = $allocation['items'];
+        $options['quantity'] = max(1, (int) $allocation['total_target']);
+        $this->newContentQuantity = $options['quantity'];
+
+        $workingSite = $this->resolveNewContentWorkingSite();
+        $workingSiteId = $workingSite instanceof Site ? (int) $workingSite->getKey() : 0;
+        if ($workingSiteId <= 0) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.planner_primary_language_missing'))
+                ->body((string) __('seo-content-ai::filament.projects.planner_readiness_language_missing'))
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        $idemKey = 'new-content:'.$project->getKey().':'.$workingSiteId.':'.Str::uuid()->toString();
 
         try {
             $result = app(ContentProjectCommandBus::class)->dispatch(
                 new GenerateNewContentSuggestionsCommand(
                     (int) $project->getKey(),
+                    $workingSiteId,
                     $options['quantity'],
                     $options,
                 ),
                 ActorContext::user(
                     auth()->id() !== null ? (int) auth()->id() : null,
-                    (int) ($project->site_id ?? 0) ?: null,
+                    $workingSiteId,
                     $idemKey,
                 ),
             );
@@ -178,6 +244,7 @@ trait InteractsWithNewContentSuggestions
             RuntimeLogger::report($e, [
                 'endpoint' => 'content_project.generate_new_content_suggestions',
                 'project_id' => (int) $project->getKey(),
+                'site_id' => $workingSiteId,
             ]);
             Notification::make()
                 ->title(__('seo-content-ai::filament.projects.planner_generate_failed'))
@@ -216,7 +283,7 @@ trait InteractsWithNewContentSuggestions
         $this->refreshNewContentRunState();
         $after = $this->newContentActiveStatus;
 
-        if ($before !== '' && $before !== $after && in_array($after, ['completed', 'failed', ''], true)) {
+        if ($before !== '' && $before !== $after && in_array($after, ['completed', 'partial', 'failed', ''], true)) {
             if (method_exists($this, 'dispatch')) {
                 $this->dispatch('cp-ops-refresh');
             }
@@ -225,14 +292,18 @@ trait InteractsWithNewContentSuggestions
                     && (preg_match('/\b0 added\b/i', $this->newContentLastResult) === 1
                         || preg_match('/·\s*0\s+added/i', $this->newContentLastResult) === 1);
 
+                $titleKey = match ($after) {
+                    'failed' => 'seo-content-ai::filament.projects.planner_generate_failed',
+                    'partial' => 'seo-content-ai::filament.projects.planner_generate_partial',
+                    default => $emptySuccess
+                        ? 'seo-content-ai::filament.projects.planner_generate_empty'
+                        : 'seo-content-ai::filament.projects.planner_generate_done',
+                };
+
                 Notification::make()
-                    ->title($after === 'failed'
-                        ? __('seo-content-ai::filament.projects.planner_generate_failed')
-                        : ($emptySuccess
-                            ? __('seo-content-ai::filament.projects.planner_generate_empty')
-                            : __('seo-content-ai::filament.projects.planner_generate_done')))
+                    ->title(__($titleKey))
                     ->body($this->newContentLastResult)
-                    ->{$after === 'failed' || $emptySuccess ? 'warning' : 'success'}()
+                    ->{in_array($after, ['failed'], true) ? 'danger' : ($after === 'partial' ? 'warning' : 'success')}()
                     ->send();
             }
         }
@@ -271,7 +342,7 @@ trait InteractsWithNewContentSuggestions
             new RestoreNewContentSuggestionsCommand((int) $project->getKey(), [$fingerprint]),
             ActorContext::user(
                 auth()->id() !== null ? (int) auth()->id() : null,
-                (int) ($project->site_id ?? 0) ?: null,
+                $this->resolveNewContentWorkingSiteId() ?: null,
             ),
         );
 
@@ -313,14 +384,37 @@ trait InteractsWithNewContentSuggestions
             $this->newContentActiveRunId = (int) ($readiness->generation['run_id'] ?? 0) ?: null;
             $this->newContentActiveStatus = (string) ($readiness->generation['status'] ?? 'queued');
         } elseif ($this->newContentActiveRunId !== null
-            && ! in_array($this->newContentActiveStatus, ['queued', 'running'], true)
+            && ! in_array($this->newContentActiveStatus, SeoContentProjectPlannerRun::activeStatuses(), true)
         ) {
             $this->newContentActiveRunId = null;
         }
 
-        if ($this->newContentLastResult === '') {
+        $workingSiteId = $this->resolveNewContentWorkingSiteId();
+
+        // Last result must be site-scoped — never show another domain's partial/completion banner.
+        if (! $generating) {
+            $latestForSite = app(ContentProjectPlannerRunService::class)
+                ->listExecuted(
+                    $project,
+                    SeoContentProjectPlannerRun::SOURCE_AI_NEW_CONTENT,
+                    1,
+                    $workingSiteId > 0 ? $workingSiteId : null,
+                )
+                ->first();
+            if ($latestForSite instanceof SeoContentProjectPlannerRun) {
+                $summary = is_array($latestForSite->result_summary) ? $latestForSite->result_summary : [];
+                $this->newContentLastResult = trim((string) ($summary['message'] ?? ''));
+            } else {
+                $this->newContentLastResult = '';
+            }
+        } elseif ($this->newContentLastResult === '') {
             $latest = app(ContentProjectPlannerRunService::class)
-                ->listExecuted($project, SeoContentProjectPlannerRun::SOURCE_AI_NEW_CONTENT, 1)
+                ->listExecuted(
+                    $project,
+                    SeoContentProjectPlannerRun::SOURCE_AI_NEW_CONTENT,
+                    1,
+                    $workingSiteId > 0 ? $workingSiteId : null,
+                )
                 ->first();
             if ($latest instanceof SeoContentProjectPlannerRun) {
                 $summary = is_array($latest->result_summary) ? $latest->result_summary : [];
@@ -328,6 +422,44 @@ trait InteractsWithNewContentSuggestions
                 if ($message !== '') {
                     $this->newContentLastResult = $message;
                 }
+            }
+        }
+
+        $progressAdded = 0;
+        $progressRequested = 0;
+        if ($generating && $this->newContentActiveRunId) {
+            $activeRun = app(ContentProjectPlannerRunService::class)
+                ->findForProject($project, (int) $this->newContentActiveRunId);
+            if ($activeRun instanceof SeoContentProjectPlannerRun) {
+                $summary = is_array($activeRun->result_summary) ? $activeRun->result_summary : [];
+                $progressAdded = max(0, (int) ($summary['added'] ?? 0));
+                $progressRequested = max(0, (int) ($summary['requested'] ?? $activeRun->requested_quantity ?? 0));
+                $msg = trim((string) ($summary['message'] ?? ''));
+                if ($msg !== '') {
+                    $this->newContentLastResult = $msg;
+                }
+            }
+        }
+
+        $plannedTotal = 0;
+        if (method_exists($this, 'auditNoteItemsForOptions')) {
+            $plannedTotal = AuditNoteDnaNormalizer::totalTargetDnaCount($this->auditNoteItemsForOptions());
+        }
+
+        $partialFill = $this->resolveNewContentPartialFill($project);
+        $activeStatus = (string) ($readiness->generation['status'] ?? '');
+        $progressPhase = $activeStatus !== '' ? $activeStatus : 'running';
+        $progressUserMessage = '';
+        if ($generating) {
+            $summaryMsg = trim((string) ($this->newContentLastResult ?? ''));
+            if ($summaryMsg !== '') {
+                $progressUserMessage = $summaryMsg;
+            } elseif ($progressRequested > 0) {
+                $progressUserMessage = (string) __('seo-content-ai::filament.projects.planner_auto_progress', [
+                    'added' => $progressAdded,
+                    'requested' => $progressRequested,
+                    'remaining' => max(0, $progressRequested - $progressAdded),
+                ]);
             }
         }
 
@@ -344,19 +476,192 @@ trait InteractsWithNewContentSuggestions
             'active_run_id' => $this->newContentActiveRunId,
             'active_status' => $this->newContentActiveStatus,
             'last_result' => $this->newContentLastResult,
+            'progress_added' => $progressAdded,
+            'progress_requested' => $progressRequested,
+            'progress_phase' => $progressPhase,
+            'progress_user_message' => $progressUserMessage,
+            'planned_total' => $plannedTotal,
+            'partial_run_id' => $partialFill['run_id'],
+            'partial_remaining' => $partialFill['remaining'],
+            'partial_requested' => $partialFill['requested'],
+            'partial_added' => $partialFill['added'],
+            'can_fill_remaining' => $partialFill['can_fill'] && $readiness->generateEnabled && ! $generating,
             'supports_product' => $this->newContentSiteSupportsProduct($project),
             'content_type_options' => $this->newContentContentTypeOptions($project),
             'block_reasons' => $readiness->blockReasons,
             'readiness' => $readiness->toArray(),
+            'working_site_id' => $this->resolveNewContentWorkingSiteId() ?: null,
         ];
+    }
+
+    /**
+     * @return array{can_fill: bool, run_id: ?int, remaining: int, requested: int, added: int}
+     */
+    protected function resolveNewContentPartialFill(SeoProject $project): array
+    {
+        $workingSiteId = $this->resolveNewContentWorkingSiteId();
+        $latest = app(ContentProjectPlannerRunService::class)
+            ->listExecuted(
+                $project,
+                SeoContentProjectPlannerRun::SOURCE_AI_NEW_CONTENT,
+                1,
+                $workingSiteId > 0 ? $workingSiteId : null,
+            )
+            ->first();
+        if (! $latest instanceof SeoContentProjectPlannerRun) {
+            return ['can_fill' => false, 'run_id' => null, 'remaining' => 0, 'requested' => 0, 'added' => 0];
+        }
+        $summary = is_array($latest->result_summary) ? $latest->result_summary : [];
+        if ((string) ($summary['status'] ?? '') !== SeoContentProjectPlannerRun::STATUS_PARTIAL) {
+            return ['can_fill' => false, 'run_id' => null, 'remaining' => 0, 'requested' => 0, 'added' => 0];
+        }
+        $requested = max(0, (int) ($summary['requested'] ?? $latest->requested_quantity ?? 0));
+        $added = max(0, (int) ($summary['added'] ?? 0));
+        $remaining = max(0, (int) ($summary['remaining'] ?? ($requested - $added)));
+
+        return [
+            'can_fill' => $remaining > 0,
+            'run_id' => (int) $latest->getKey(),
+            'remaining' => $remaining,
+            'requested' => $requested,
+            'added' => $added,
+        ];
+    }
+
+    public function fillRemainingNewContentSuggestions(): void
+    {
+        $project = $this->resolveNewContentProject();
+        if (! $project instanceof SeoProject || ! $project->isDraftPlanning()) {
+            $this->notifyNewContentProjectRequired();
+
+            return;
+        }
+
+        $partial = $this->resolveNewContentPartialFill($project);
+        if (! $partial['can_fill'] || $partial['run_id'] === null) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.planner_generate_blocked'))
+                ->body((string) __('seo-content-ai::filament.projects.planner_fill_remaining_unavailable'))
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        $workingSite = $this->resolveNewContentWorkingSite();
+        if (! $workingSite instanceof Site) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.planner_primary_language_missing'))
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        $partialRun = app(ContentProjectPlannerRunService::class)
+            ->findForProject($project, (int) $partial['run_id']);
+        if (! $partialRun instanceof SeoContentProjectPlannerRun) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.planner_generate_blocked'))
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        $runSiteId = (int) ($partialRun->site_id ?? 0);
+        if ($runSiteId <= 0) {
+            $snap = is_array($partialRun->configuration_snapshot) ? $partialRun->configuration_snapshot : [];
+            $runSiteId = (int) ($snap['site_id'] ?? 0);
+        }
+        if ($runSiteId > 0 && $runSiteId !== (int) $workingSite->getKey()) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.planner_generate_blocked'))
+                ->body((string) __('seo-content-ai::filament.projects.planner_fill_remaining_unavailable'))
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        try {
+            $queued = app(NewContentSuggestionPlannerService::class)->queueFillRemaining(
+                $project,
+                $workingSite,
+                $partialRun,
+                auth()->id() !== null ? (int) auth()->id() : null,
+            );
+            $runId = (int) ($queued['planner_run_id'] ?? 0);
+            if (! (bool) ($queued['already_active'] ?? false) && $runId > 0) {
+                GenerateNewContentSuggestionsJob::dispatch(
+                    $runId,
+                    (int) $project->getKey(),
+                    auth()->id() !== null ? (int) auth()->id() : 0,
+                );
+            }
+            $this->newContentActiveRunId = $runId ?: null;
+            $this->newContentActiveStatus = (string) ($queued['status'] ?? 'queued');
+            $this->newContentLastResult = sprintf(
+                'Đang tạo tiếp %d ý tưởng còn thiếu…',
+                (int) ($queued['requested'] ?? $partial['remaining']),
+            );
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.planner_generate_started'))
+                ->body($this->newContentLastResult)
+                ->success()
+                ->send();
+        } catch (\Throwable $e) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.planner_generate_failed'))
+                ->body($e->getMessage())
+                ->danger()
+                ->send();
+        }
     }
 
     protected function resolveNewContentReadiness(?SeoProject $project): NewContentGenerationReadiness
     {
         return app(NewContentGenerationReadinessService::class)->evaluate(
             $project,
+            $this->resolveNewContentWorkingSite(),
             auth()->id() !== null ? (int) auth()->id() : null,
         );
+    }
+
+    /**
+     * Explicit working Site for AI New Content (Project Planner filterSiteId, else legacy project.site_id).
+     */
+    protected function resolveNewContentWorkingSite(): ?Site
+    {
+        if (method_exists($this, 'resolvePlanningSite')) {
+            /** @var callable $resolver */
+            $resolver = [$this, 'resolvePlanningSite'];
+            $site = $resolver();
+            if ($site instanceof Site) {
+                return $site;
+            }
+        }
+
+        $project = $this->resolveNewContentProject();
+        if (! $project instanceof SeoProject) {
+            return null;
+        }
+
+        $siteId = (int) ($project->site_id ?? 0);
+        if ($siteId <= 0 || ! \Omnichannel\Addons\Seo\Support\SeoAccessControl::canAccessSite($siteId)) {
+            return null;
+        }
+
+        $site = $project->site instanceof Site ? $project->site : Site::query()->find($siteId);
+
+        return $site instanceof Site ? $site : null;
+    }
+
+    protected function resolveNewContentWorkingSiteId(): int
+    {
+        $site = $this->resolveNewContentWorkingSite();
+
+        return $site instanceof Site ? (int) $site->getKey() : 0;
     }
 
     /**
@@ -440,7 +745,7 @@ trait InteractsWithNewContentSuggestions
                 $this->newContentActiveStatus = (string) ($summary['status'] ?? '');
                 $this->newContentLastResult = (string) ($summary['message'] ?? $this->newContentLastResult);
             }
-            if (! in_array($this->newContentActiveStatus, ['queued', 'running'], true)) {
+            if (! in_array($this->newContentActiveStatus, SeoContentProjectPlannerRun::activeStatuses(), true)) {
                 $this->newContentActiveRunId = null;
             }
         }
@@ -463,7 +768,23 @@ trait InteractsWithNewContentSuggestions
 
     protected function newContentSiteSupportsProduct(SeoProject $project): bool
     {
+        $site = $this->resolveNewContentWorkingSite();
+        if ($site instanceof Site) {
+            return $this->newContentSiteSupportsProductForSite($site);
+        }
+
+        // Legacy fallback for callers without working-site context.
         $siteId = (int) ($project->site_id ?? 0);
+        if ($siteId <= 0) {
+            return false;
+        }
+
+        return $this->newContentSiteSupportsProductForSite($siteId);
+    }
+
+    protected function newContentSiteSupportsProductForSite(Site|int $site): bool
+    {
+        $siteId = $site instanceof Site ? (int) $site->getKey() : (int) $site;
         if ($siteId <= 0) {
             return false;
         }
@@ -499,11 +820,8 @@ trait InteractsWithNewContentSuggestions
      */
     protected function newContentPrimaryLanguagePayload(SeoProject $project): array
     {
-        $siteId = (int) ($project->site_id ?? 0);
-        $site = $project->site instanceof Site ? $project->site : null;
-        if (! $site instanceof Site && $siteId > 0) {
-            $site = Site::query()->find($siteId);
-        }
+        unset($project);
+        $site = $this->resolveNewContentWorkingSite();
         if (! $site instanceof Site) {
             return [
                 'primary_configured' => false,
@@ -513,6 +831,7 @@ trait InteractsWithNewContentSuggestions
             ];
         }
 
+        $siteId = (int) $site->getKey();
         $svc = app(SitePrimaryLanguageService::class);
         $code = $svc->resolvePrimaryLanguage($site);
         $configured = $code !== null && trim($code) !== '';

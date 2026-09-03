@@ -149,7 +149,7 @@ final class DraftAiCallHistoryContractTest extends TestCase
         self::assertStringNotContainsString('planner_load_options', $card);
         self::assertStringNotContainsString('planner_generate_again', $card);
         self::assertStringNotContainsString('planner_view_results', $card);
-        self::assertStringContainsString('planner_planning_context', $card);
+        self::assertStringContainsString('data-planning-intelligence', $card);
         self::assertStringContainsString('draft_ai_history_link', $card);
         self::assertStringNotContainsString('planner_options', $card);
         self::assertStringNotContainsString('planner_save_options', $card);

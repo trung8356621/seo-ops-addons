@@ -132,21 +132,6 @@ final class KeywordIntelligencePublicRef
         return self::resolveStrict('tmv', $ref, fn (string $r): int => self::decodeMapVersion($r));
     }
 
-    public static function cannibalizationIssue(int $id): string
-    {
-        return self::encode('kci', $id);
-    }
-
-    public static function decodeCannibalizationIssue(string $ref): int
-    {
-        return self::decode('kci', $ref);
-    }
-
-    public static function resolveCannibalizationIssueIdStrict(string $ref): int
-    {
-        return self::resolveStrict('kci', $ref, fn (string $r): int => self::decodeCannibalizationIssue($r));
-    }
-
     public static function linkSuggestion(int $id): string
     {
         return self::encode('ktls', $id);

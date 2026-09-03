@@ -25,10 +25,33 @@ class SeoContentProjectPlannerRun extends Model
 
     public const STATUS_RUNNING = 'running';
 
+    /** Automatic recovery in progress — same logical run, not terminal. */
+    public const STATUS_RECOVERING = 'recovering';
+
+    /** Waiting bounded backoff before automatic provider retry. */
+    public const STATUS_WAITING_RETRY = 'waiting_retry';
+
     public const STATUS_COMPLETED = 'completed';
+
+    /** Target not met after automatic recovery exhausted; accepted items preserved. */
+    public const STATUS_PARTIAL = 'partial';
 
     public const STATUS_FAILED = 'failed';
 
+    public const STATUS_CANCELLED = 'cancelled';
+
+    /**
+     * @return list<string>
+     */
+    public static function activeStatuses(): array
+    {
+        return [
+            self::STATUS_QUEUED,
+            self::STATUS_RUNNING,
+            self::STATUS_RECOVERING,
+            self::STATUS_WAITING_RETRY,
+        ];
+    }
     protected $connection = 'omi_seo_ai';
 
     protected $table = 'seo_content_project_planner_runs';

@@ -99,7 +99,6 @@ final class ContentProjectMcpToolCatalog
             $this->readTool('keyword_intelligence.list_map_versions', 'List topical map versions for a workspace.', ['workspace_ref']),
             $this->readTool('keyword_intelligence.compare_map_versions', 'Compare two topical map versions.', ['workspace_ref', 'left_map_version_ref', 'right_map_version_ref']),
             $this->readTool('keyword_intelligence.get_conversion', 'Get a keyword→content-project conversion by conversion_ref.', ['conversion_ref']),
-            $this->readTool('keyword_intelligence.get_cannibalization', 'Get cannibalization risks for a workspace.', ['workspace_ref']),
             $this->readTool('keyword_intelligence.get_analysis_operation', 'Get keyword analysis operation by operation_ref.', ['operation_ref']),
 
             // SERP Intelligence — additive read surface.
@@ -138,7 +137,6 @@ final class ContentProjectMcpToolCatalog
             $this->readTool('domain.keyword_cluster_detail', 'Drill-down one cluster with representative variants only.', ['site_ref']),
             $this->readTool('domain.keyword_generation_context', 'Compact AI generation context with hard budget.', ['site_ref']),
             $this->readTool('domain.keyword_opportunities', 'Prepared keyword opportunities or unavailable/stale.', ['site_ref']),
-            $this->readTool('domain.keyword_cannibalization', 'Prepared keyword cannibalization or unavailable/stale.', ['site_ref']),
             $this->readTool('domain.keyword_near_top', 'Keywords near top positions when rank data is reliable.', ['site_ref']),
             $this->readTool('domain.rewrite_candidates', 'Prepared rewrite candidates (no full-site AI).', ['site_ref']),
             $this->readTool('domain.content_opportunities', 'Prepared content opportunities from snapshots.', ['site_ref']),

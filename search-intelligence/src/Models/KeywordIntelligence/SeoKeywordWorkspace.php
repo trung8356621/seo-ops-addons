@@ -71,10 +71,4 @@ class SeoKeywordWorkspace extends Model
     {
         return $this->hasMany(SeoKeywordAnalysisOperation::class, 'workspace_id');
     }
-
-    /** @return HasMany<SeoKeywordCannibalizationIssue, $this> */
-    public function cannibalizationIssues(): HasMany
-    {
-        return $this->hasMany(SeoKeywordCannibalizationIssue::class, 'workspace_id');
-    }
 }

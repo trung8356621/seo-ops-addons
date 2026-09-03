@@ -68,7 +68,7 @@ final class ContentProjectArchivedMonthSocialExportTest extends TestCase
         self::assertStringContainsString('facebook.com', $expanded[1]['title']);
         self::assertStringContainsString('↳', $expanded[1]['title']);
         self::assertSame('https://facebook.com/post/abc', $expanded[1]['hyperlink_url']);
-        self::assertSame('01/09/2026', $expanded[1]['archived_at']);
+        self::assertSame('01/09/2026', $expanded[1]['reviewed_at']);
         self::assertSame('', $expanded[1]['keyword']);
 
         self::assertSame('social', $expanded[2]['row_kind']);
@@ -154,7 +154,7 @@ final class ContentProjectArchivedMonthSocialExportTest extends TestCase
             'post_type' => 'Post',
             'plan' => 'Create',
             'index_status' => 'Chưa index',
-            'archived_at' => '31/08/2026',
+            'reviewed_at' => '31/08/2026',
             'archived_by' => 'Admin',
         ];
     }

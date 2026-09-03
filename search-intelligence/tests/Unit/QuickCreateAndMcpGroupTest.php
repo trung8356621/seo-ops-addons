@@ -49,20 +49,25 @@ final class QuickCreateAndMcpGroupTest extends TestCase
         $this->seedEligibleKeyword('May balo học sinh');
 
         $createSource = (string) file_get_contents(dirname(__DIR__, 2).'/src/Services/KeywordIntelligence/CreateManualTopicClusterService.php');
-        self::assertStringContainsString('reevaluateMembershipForCanonical', $createSource);
+        $jobSource = (string) file_get_contents(dirname(__DIR__, 2).'/src/Jobs/ReconcileTopicMembershipJob.php');
+        self::assertStringContainsString('prepareManualTopic', $createSource);
+        self::assertStringNotContainsString('reevaluateMembershipForCanonical', $createSource);
         self::assertStringNotContainsString('ReclusterTopicClustersService', $createSource);
         self::assertStringNotContainsString('ReclusterTopicClustersJob', $createSource);
+        self::assertStringContainsString('reconcileMembership', $jobSource);
 
-        $created = app(CreateManualTopicClusterService::class)->create(self::SITE_ID, 'Balo anh văn');
+        $prepared = app(CreateManualTopicClusterService::class)->prepareManualTopic(self::SITE_ID, 'Balo anh văn');
+        self::assertTrue($prepared['created']);
+        self::assertNotSame('', $prepared['cluster_key']);
 
-        self::assertGreaterThanOrEqual(2, (int) $created['keyword_count']);
-        self::assertSame('manual', $created['canonical_source']);
-        self::assertSame('active', $created['state']);
-        self::assertGreaterThanOrEqual(2, (int) $created['attached']);
+        $stats = app(UpdateClusterCanonicalService::class)
+            ->reconcileMembership(self::SITE_ID, $prepared['cluster_key']);
+
+        self::assertGreaterThanOrEqual(2, (int) $stats['attached']);
 
         $attachedPhrases = Keyword::query()
             ->whereIn('id', SeoKeywordClassification::query()
-                ->where('cluster_key', $created['cluster_key'])
+                ->where('cluster_key', $prepared['cluster_key'])
                 ->pluck('keyword_id'))
             ->pluck('phrase')
             ->all();
@@ -80,17 +85,22 @@ final class QuickCreateAndMcpGroupTest extends TestCase
     {
         $this->seedEligibleKeyword('túi canvas thường');
 
-        $created = app(CreateManualTopicClusterService::class)->create(self::SITE_ID, 'May túi canvas đặc biệt');
+        $prepared = app(CreateManualTopicClusterService::class)->prepareManualTopic(self::SITE_ID, 'May túi canvas đặc biệt');
 
-        self::assertSame(0, (int) $created['keyword_count']);
-        self::assertSame('planned', $created['state']);
-        self::assertSame('manual', $created['canonical_source']);
+        self::assertTrue($prepared['created']);
+        self::assertSame('May túi canvas đặc biệt', $prepared['canonical_phrase']);
         self::assertTrue(
             SeoTopicClusterMeta::query()
                 ->where('site_id', self::SITE_ID)
-                ->where('cluster_key', $created['cluster_key'])
+                ->where('cluster_key', $prepared['cluster_key'])
                 ->exists(),
         );
+
+        app(UpdateClusterCanonicalService::class)->reconcileMembership(self::SITE_ID, $prepared['cluster_key']);
+        $memberCount = SeoKeywordClassification::query()
+            ->where('cluster_key', $prepared['cluster_key'])
+            ->count();
+        self::assertSame(0, $memberCount);
     }
 
     public function test_rename_and_quick_create_share_same_resolver_method(): void
@@ -98,9 +108,9 @@ final class QuickCreateAndMcpGroupTest extends TestCase
         $method = new ReflectionMethod(UpdateClusterCanonicalService::class, 'reevaluateMembershipForCanonical');
         self::assertTrue($method->isPublic());
 
-        $create = (string) file_get_contents(dirname(__DIR__, 2).'/src/Services/KeywordIntelligence/CreateManualTopicClusterService.php');
+        $job = (string) file_get_contents(dirname(__DIR__, 2).'/src/Jobs/ReconcileTopicMembershipJob.php');
         $rename = (string) file_get_contents(dirname(__DIR__, 2).'/src/Services/KeywordIntelligence/UpdateClusterCanonicalService.php');
-        self::assertStringContainsString('reevaluateMembershipForCanonical', $create);
+        self::assertStringContainsString('reconcileMembership', $job);
         self::assertStringContainsString('reevaluateMembershipForCanonical', $rename);
         self::assertStringContainsString('function reconcileMembership', $rename);
         self::assertSame(2, substr_count($rename, '$this->reevaluateMembershipForCanonical('));

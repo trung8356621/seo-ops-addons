@@ -9,6 +9,7 @@ use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\DissolveTopicClusterService;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterDetailBuilder;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterQuery;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\TopicClusterReclusterState;
 use Omnichannel\Addons\Seo\Support\DomainContextResolver;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 
@@ -28,11 +29,17 @@ trait DissolvesTopicClusters
             && SeoAccessControl::canMutateInSeoPanel()
             && $siteId !== null
             && $siteId > 0
-            && SeoAccessControl::canAccessSite($siteId);
+            && SeoAccessControl::canAccessSite($siteId)
+            && ! TopicClusterReclusterState::isMutationLocked((int) $siteId);
     }
 
     public function openDissolveConfirm(string $clusterKey): void
     {
+        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+        if (! TopicClusterReclusterState::assertMutationAllowed($siteId)) {
+            return;
+        }
+
         if (! $this->canDissolveCluster()) {
             Notification::make()
                 ->title(__('seo-content-ai::filament.keyword.workspace_save_denied'))
@@ -47,8 +54,7 @@ trait DissolvesTopicClusters
             return;
         }
 
-        $siteId = $this->resolveKeywordWorkspaceSiteId();
-        $detail = app(KeywordClusterDetailBuilder::class)->build($siteId, $clusterKey);
+        $detail = app(KeywordClusterDetailBuilder::class)->build($siteId > 0 ? $siteId : null, $clusterKey);
         $keywordCount = is_array($detail) ? (int) ($detail['keyword_count'] ?? 0) : 0;
         if ($keywordCount < 1) {
             $counts = app(KeywordClusterQuery::class)->countsForKeys($siteId, [$clusterKey]);
@@ -71,6 +77,11 @@ trait DissolvesTopicClusters
 
     public function confirmDissolveCluster(): void
     {
+        $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
+        if (! TopicClusterReclusterState::assertMutationAllowed($siteId)) {
+            return;
+        }
+
         if (! $this->canDissolveCluster() || $this->dissolveClusterKey === null || trim($this->dissolveClusterKey) === '') {
             Notification::make()
                 ->title(__('seo-content-ai::filament.keyword.workspace_save_denied'))
@@ -80,7 +91,6 @@ trait DissolvesTopicClusters
             return;
         }
 
-        $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
         $clusterKey = trim((string) $this->dissolveClusterKey);
         $clusterLabel = $this->dissolveClusterLabel;
         $shouldRedirect = $this->shouldRedirectAfterDissolve();

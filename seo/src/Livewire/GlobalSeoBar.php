@@ -31,7 +31,7 @@ class GlobalSeoBar extends Component
         SeoAccessControl::forgetLegacyGlobalSitePersistence();
 
         $resolver = app(DomainContextResolver::class);
-        if ($this->shouldPreferFirstAccessibleDomain()) {
+        if ($this->shouldPreferFirstAccessibleDomain() || SeoPanelRoutes::isProjectPlannerSeoAudit()) {
             $this->applyContext($this->resolvePreferredKeywordIntelligenceContext($resolver));
         } else {
             $this->applyContext($resolver->current());
@@ -57,6 +57,10 @@ class GlobalSeoBar extends Component
             && ($context->siteId === null || ! $this->resolveSitesQuery()->whereKey($context->siteId)->exists())
         ) {
             $context = DomainContext::all();
+        }
+
+        if ($context->isAllDomains && SeoPanelRoutes::isProjectPlannerSeoAudit()) {
+            $context = $this->resolvePreferredKeywordIntelligenceContext(app(DomainContextResolver::class));
         }
 
         $previousKey = $this->domainKey;
@@ -141,6 +145,7 @@ class GlobalSeoBar extends Component
                 ->all(),
             'roleOptions' => $roleOptions,
             'showDomainPicker' => SeoAccessControl::shouldShowGlobalSitePicker(),
+            'hideAllDomainsOption' => SeoAccessControl::shouldRequireConcreteGlobalDomain(),
             'showContentProjectPicker' => $showContentProjectPicker && SeoAccessControl::shouldShowGlobalSitePicker(),
             'contentProjectOptions' => $contentProjectOptions,
         ]);
@@ -187,7 +192,6 @@ class GlobalSeoBar extends Component
             'filament.seo.resources.keywords.cluster',
             'filament.seo.resources.keywords.focus',
             'filament.seo.resources.keywords.anchor-audit',
-            'filament.seo.resources.keywords.cannibalization',
             'filament.seo.resources.keywords.workspace-2',
         );
     }

@@ -103,6 +103,24 @@ final class OpenAiCompatibleProtocolAdapter
             $payload['max_tokens'] = (int) $options['max_output'];
         }
 
+        if (function_exists('app') && app()->bound(\Omnichannel\Addons\AiPrompt\Services\PromptBudgetPreflightService::class)) {
+            $gate = new \Omnichannel\Addons\AiPrompt\Services\AiOutboundBudgetGate(
+                app(\Omnichannel\Addons\AiPrompt\Services\PromptBudgetPreflightService::class),
+            );
+            $plan = $gate->verifyCompiled(
+                null,
+                $connection,
+                $prompt,
+                $model,
+                (string) $connection->provider,
+                is_string($options['hook_key'] ?? null) ? (string) $options['hook_key'] : null,
+                $options,
+            );
+            if ($plan->requestedMaxOutputTokens > 0 && ! isset($payload['max_tokens'])) {
+                $payload['max_tokens'] = $plan->requestedMaxOutputTokens;
+            }
+        }
+
         $response = $this->http->request(
             $template,
             'text',
