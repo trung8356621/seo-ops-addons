@@ -33,11 +33,10 @@ final class VocabularyResearchPersistenceContractTest extends TestCase
         self::assertSame(['post_title', 'outline'], $spec['metadata']['required_inputs'] ?? null);
     }
 
-    public function test_default_vocabulary_markdown_binds_article_title_anchor(): void
+    public function test_default_vocabulary_markdown_binds_input_anchor(): void
     {
         $md = DefaultSplitOutlinePromptsInstaller::VOCABULARY_MARKDOWN;
-        self::assertStringContainsString('{{post_title}}', $md);
-        self::assertStringContainsString('{{outline}}', $md);
+        self::assertStringContainsString('{{input}}', $md);
         self::assertStringNotContainsString('cho chủ đề trên', $md);
     }
 
@@ -46,13 +45,13 @@ final class VocabularyResearchPersistenceContractTest extends TestCase
         $executor = (new ReflectionClass(ArticleOutlineVocabularySplitExecutor::class))
             ->newInstanceWithoutConstructor();
 
-        $missingTitle = $executor->bindVocabularyVariables(
-            ['keyword' => 'balo'],
+        $missingInput = $executor->bindVocabularyVariables(
+            [],
             [],
             '## Outline body',
         );
-        self::assertArrayHasKey('__error', $missingTitle);
-        self::assertStringContainsString('post_title', (string) $missingTitle['__error']);
+        self::assertArrayHasKey('__error', $missingInput);
+        self::assertStringContainsString('input', (string) $missingInput['__error']);
 
         $missingOutline = $executor->bindVocabularyVariables(
             ['post_title' => 'May Túi Đeo Chéo Canvas Camel'],
@@ -63,11 +62,12 @@ final class VocabularyResearchPersistenceContractTest extends TestCase
         self::assertStringContainsString('outline', (string) $missingOutline['__error']);
 
         $ok = $executor->bindVocabularyVariables(
-            ['post_title' => 'May Túi Đeo Chéo Canvas Camel', 'focus_keyword' => 'túi đeo chéo'],
+            ['input' => 'túi đeo chéo', 'post_title' => 'May Túi Đeo Chéo Canvas Camel', 'focus_keyword' => 'túi đeo chéo'],
             [],
             '## H2 Intro',
         );
         self::assertArrayNotHasKey('__error', $ok);
+        self::assertSame('túi đeo chéo', $ok['input']);
         self::assertSame('May Túi Đeo Chéo Canvas Camel', $ok['post_title']);
         self::assertSame('## H2 Intro', $ok['outline']);
         self::assertSame('túi đeo chéo', $ok['keyword']);

@@ -218,9 +218,10 @@ final class ContentProjectTaskExecutionService
             return;
         }
 
+        $itemSiteId = (int) ($task->site_id ?? $project->site_id ?? 0);
         $articleExists = SeoArticle::query()
             ->whereKey($linkedArticleId)
-            ->where('site_id', (int) $project->site_id)
+            ->when($itemSiteId > 0, static fn ($q) => $q->where('site_id', $itemSiteId))
             ->exists();
 
         if (! $articleExists) {
@@ -231,7 +232,7 @@ final class ContentProjectTaskExecutionService
             $task,
             $linkedArticleId,
             auth()->id() !== null ? (int) auth()->id() : null,
-            (int) ($project->site_id ?? 0),
+            $itemSiteId,
         );
         $task->refresh();
     }

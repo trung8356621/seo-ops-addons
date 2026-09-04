@@ -109,8 +109,13 @@ final class PromptHookPromptAssembler
         }
 
         $inputBlock = $this->serializeHookInput($exposedInput);
-        $variables['input'] = $inputBlock;
         $variables['hook_input'] = $inputBlock;
+
+        // Prefer explicit scalar {{input}} (Content Project canonical subject) over HOOK_INPUT dump.
+        $scalarInput = isset($exposedInput['input']) && is_scalar($exposedInput['input'])
+            ? trim((string) $exposedInput['input'])
+            : '';
+        $variables['input'] = $scalarInput !== '' ? $scalarInput : $inputBlock;
 
         return $variables;
     }

@@ -629,6 +629,98 @@ final class ViewSeoProject extends Page
                 ->color('gray')
                 ->action(fn () => $this->settingsOpen = ! $this->settingsOpen),
             Actions\ActionGroup::make([
+                Actions\Action::make('move_next_month')
+                    ->label(__('seo-content-ai::filament.projects.move_next_month'))
+                    ->icon('heroicon-o-arrow-right-circle')
+                    ->color('gray')
+                    ->visible(fn (): bool => SeoAccessControl::canManageContentProjectWorkflow()
+                        && ! $project->isDraftPlanning()
+                        && ! $project->isProjectArchived()
+                        && ! $project->isArchive())
+                    ->disabled(function () use ($project): bool {
+                        $preview = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\MoveContentProjectToNextMonthService::class)
+                            ->preview($project);
+
+                        return ! (bool) ($preview['can_move'] ?? false);
+                    })
+                    ->tooltip(function () use ($project): ?string {
+                        $preview = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\MoveContentProjectToNextMonthService::class)
+                            ->preview($project);
+
+                        return (bool) ($preview['can_move'] ?? false)
+                            ? null
+                            : (string) ($preview['blocked_reason'] ?? '');
+                    })
+                    ->requiresConfirmation()
+                    ->modalHeading(function () use ($project): string {
+                        $preview = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\MoveContentProjectToNextMonthService::class)
+                            ->preview($project);
+
+                        return (string) __('seo-content-ai::filament.projects.move_next_month_heading', [
+                            'month' => (string) ($preview['target_month_label'] ?? ''),
+                        ]);
+                    })
+                    ->modalDescription(function () use ($project): HtmlString {
+                        $preview = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\MoveContentProjectToNextMonthService::class)
+                            ->preview($project);
+                        $domains = '';
+                        foreach (($preview['by_domain'] ?? []) as $row) {
+                            if (! is_array($row)) {
+                                continue;
+                            }
+                            $domains .= '<li>'.e((string) ($row['domain'] ?? '')).' '
+                                .e((string) ((int) ($row['count'] ?? 0))).'</li>';
+                        }
+
+                        $html = '<p>'.e((string) __('seo-content-ai::filament.projects.move_next_month_body', [
+                            'count' => (int) ($preview['item_count'] ?? 0),
+                        ])).'</p>'
+                            .'<p class="mt-2"><strong>'.e((string) __('seo-content-ai::filament.projects.move_next_month_writer')).':</strong> '
+                            .e((string) ($preview['writer_name'] ?? '')).'</p>'
+                            .'<p class="mt-2"><strong>'.e((string) __('seo-content-ai::filament.projects.move_next_month_by_domain')).':</strong></p>'
+                            .'<ul class="list-disc pl-5">'.$domains.'</ul>';
+
+                        return new HtmlString($html);
+                    })
+                    ->modalSubmitActionLabel(function () use ($project): string {
+                        $preview = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\MoveContentProjectToNextMonthService::class)
+                            ->preview($project);
+
+                        return (string) __('seo-content-ai::filament.projects.move_next_month_submit', [
+                            'count' => (int) ($preview['item_count'] ?? 0),
+                        ]);
+                    })
+                    ->action(function () use ($project): void {
+                        try {
+                            abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+                            $result = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\MoveContentProjectToNextMonthService::class)
+                                ->move($project);
+
+                            Notification::make()
+                                ->title(__('seo-content-ai::filament.projects.move_next_month_success', [
+                                    'count' => (int) ($result['moved_count'] ?? 0),
+                                    'month' => (string) ($result['target_month_label'] ?? ''),
+                                ]))
+                                ->success()
+                                ->send();
+
+                            $this->project = null;
+                            $this->cachedOperationsPayload = null;
+                            $this->cachedOperationsKey = '';
+                            $this->opsTableEpoch++;
+                        } catch (Throwable $exception) {
+                            RuntimeLogger::report($exception, [
+                                'endpoint' => 'content_project.move_next_month',
+                                'project_id' => (int) $project->getKey(),
+                            ]);
+
+                            Notification::make()
+                                ->title(__('seo-content-ai::filament.projects.move_next_month_failed'))
+                                ->body($exception->getMessage())
+                                ->danger()
+                                ->send();
+                        }
+                    }),
                 Actions\Action::make('archive_project')
                     ->label(__('seo-content-ai::filament.projects.archive_project'))
                     ->icon('heroicon-o-archive-box')
@@ -752,6 +844,7 @@ final class ViewSeoProject extends Page
                     && ! $project->isArchive()
                     && (
                         SeoAccessControl::canArchiveContentProjects()
+                        || SeoAccessControl::canManageContentProjectWorkflow()
                         || SeoProjectResource::allowsDevTestGenerateUi()
                     )),
         ];

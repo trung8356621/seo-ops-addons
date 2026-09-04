@@ -118,6 +118,9 @@ final class DraftPlanningItemsUxFinalizeTest extends TestCase
         self::assertStringContainsString('@dblclick', $items);
         self::assertStringContainsString('toggleReview', $items);
         self::assertStringContainsString('skipRow', $items);
+        self::assertStringContainsString('bulkMarkReviewed', $items);
+        self::assertStringContainsString('bulkArchive', $items);
+        self::assertStringContainsString('data-draft-bulk-toolbar', $items);
         self::assertStringContainsString('item_action_edit_article', $items);
         self::assertStringContainsString('target="_blank"', $items);
         self::assertStringContainsString('planning_col_post_type', $items);

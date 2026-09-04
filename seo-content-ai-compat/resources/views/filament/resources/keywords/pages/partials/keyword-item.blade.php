@@ -225,27 +225,88 @@
                         <button type="button" role="menuitem" class="keyword-item__menu-item" wire:click="openKeywordLinkedArticles({{ $item['keyword_id'] }})" @click="menuOpen = false">
                             {{ __('seo-content-ai::filament.keyword.keyword_item_view_linked_articles') }}
                         </button>
-                        <button type="button" role="menuitem" class="keyword-item__menu-item" wire:click="openMoveClusterModal({{ $item['keyword_id'] }})" @click="menuOpen = false">
+                        <button
+                            type="button"
+                            role="menuitem"
+                            class="keyword-item__menu-item"
+                            @click="menuOpen = false; $dispatch('open-modal', { id: 'keyword-move-cluster-modal' }); $wire.prepareMoveClusterModal({{ $item['keyword_id'] }})"
+                        >
                             {{ __('seo-content-ai::filament.keyword.keyword_item_move_cluster') }}
                         </button>
                         @if ($item['can_skip_mcp'])
-                            <button type="button" role="menuitem" class="keyword-item__menu-item" wire:click="skipKeywordFromMcp({{ $item['keyword_id'] }})" @click="menuOpen = false">
-                                {{ __('seo-content-ai::filament.keyword.keyword_item_skip_mcp') }}
+                            <button
+                                type="button"
+                                role="menuitem"
+                                class="keyword-item__menu-item"
+                                wire:click="skipKeywordFromMcp({{ $item['keyword_id'] }})"
+                                wire:loading.attr="disabled"
+                                wire:target="skipKeywordFromMcp({{ $item['keyword_id'] }})"
+                                @click="menuOpen = false"
+                            >
+                                <span wire:loading.remove wire:target="skipKeywordFromMcp({{ $item['keyword_id'] }})">
+                                    {{ __('seo-content-ai::filament.keyword.keyword_item_skip_mcp') }}
+                                </span>
+                                <span wire:loading wire:target="skipKeywordFromMcp({{ $item['keyword_id'] }})" class="inline-flex items-center gap-1.5">
+                                    <x-filament::loading-indicator class="h-4 w-4" />
+                                    {{ __('seo-content-ai::filament.keyword.keyword_item_skip_mcp') }}
+                                </span>
                             </button>
                         @endif
                         @if ($item['can_restore_mcp'])
-                            <button type="button" role="menuitem" class="keyword-item__menu-item" wire:click="restoreKeywordMcp({{ $item['keyword_id'] }})" @click="menuOpen = false">
-                                {{ __('seo-content-ai::filament.keyword.keyword_item_restore_mcp') }}
+                            <button
+                                type="button"
+                                role="menuitem"
+                                class="keyword-item__menu-item"
+                                wire:click="restoreKeywordMcp({{ $item['keyword_id'] }})"
+                                wire:loading.attr="disabled"
+                                wire:target="restoreKeywordMcp({{ $item['keyword_id'] }})"
+                                @click="menuOpen = false"
+                            >
+                                <span wire:loading.remove wire:target="restoreKeywordMcp({{ $item['keyword_id'] }})">
+                                    {{ __('seo-content-ai::filament.keyword.keyword_item_restore_mcp') }}
+                                </span>
+                                <span wire:loading wire:target="restoreKeywordMcp({{ $item['keyword_id'] }})" class="inline-flex items-center gap-1.5">
+                                    <x-filament::loading-indicator class="h-4 w-4" />
+                                    {{ __('seo-content-ai::filament.keyword.keyword_item_restore_mcp') }}
+                                </span>
                             </button>
                         @endif
                         @if ($item['can_hide'])
-                            <button type="button" role="menuitem" class="keyword-item__menu-item" wire:click="hideKeywordFromSeo({{ $item['keyword_id'] }})" @click="menuOpen = false">
-                                {{ __('seo-content-ai::filament.keyword.keyword_item_exclude_seo') }}
+                            <button
+                                type="button"
+                                role="menuitem"
+                                class="keyword-item__menu-item"
+                                wire:click="hideKeywordFromSeo({{ $item['keyword_id'] }})"
+                                wire:loading.attr="disabled"
+                                wire:target="hideKeywordFromSeo({{ $item['keyword_id'] }})"
+                                @click="menuOpen = false"
+                            >
+                                <span wire:loading.remove wire:target="hideKeywordFromSeo({{ $item['keyword_id'] }})">
+                                    {{ __('seo-content-ai::filament.keyword.keyword_item_exclude_seo') }}
+                                </span>
+                                <span wire:loading wire:target="hideKeywordFromSeo({{ $item['keyword_id'] }})" class="inline-flex items-center gap-1.5">
+                                    <x-filament::loading-indicator class="h-4 w-4" />
+                                    {{ __('seo-content-ai::filament.keyword.keyword_item_exclude_seo') }}
+                                </span>
                             </button>
                         @endif
                         @if ($item['can_restore'])
-                            <button type="button" role="menuitem" class="keyword-item__menu-item" wire:click="restoreHiddenKeyword({{ $item['keyword_id'] }})" @click="menuOpen = false">
-                                {{ __('seo-content-ai::filament.keyword.keyword_item_restore_seo') }}
+                            <button
+                                type="button"
+                                role="menuitem"
+                                class="keyword-item__menu-item"
+                                wire:click="restoreHiddenKeyword({{ $item['keyword_id'] }})"
+                                wire:loading.attr="disabled"
+                                wire:target="restoreHiddenKeyword({{ $item['keyword_id'] }})"
+                                @click="menuOpen = false"
+                            >
+                                <span wire:loading.remove wire:target="restoreHiddenKeyword({{ $item['keyword_id'] }})">
+                                    {{ __('seo-content-ai::filament.keyword.keyword_item_restore_seo') }}
+                                </span>
+                                <span wire:loading wire:target="restoreHiddenKeyword({{ $item['keyword_id'] }})" class="inline-flex items-center gap-1.5">
+                                    <x-filament::loading-indicator class="h-4 w-4" />
+                                    {{ __('seo-content-ai::filament.keyword.keyword_item_restore_seo') }}
+                                </span>
                             </button>
                         @endif
                     </div>

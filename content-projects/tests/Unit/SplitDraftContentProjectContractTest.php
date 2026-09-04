@@ -200,23 +200,28 @@ final class SplitDraftContentProjectContractTest extends TestCase
         self::assertStringContainsString('draft_split_new', $draftPlanner);
         self::assertStringContainsString('draft_split_result', $draftPlanner);
         self::assertStringContainsString('draft_split_projects_hint', $draftPlanner);
-        self::assertStringContainsString("\$writer['project_count']", $draftPlanner);
+        self::assertStringContainsString('project_count', $draftPlanner);
         self::assertStringNotContainsString('draft_split_insufficient', $draftPlanner);
         self::assertStringNotContainsString('draft_split_full', $draftPlanner);
         self::assertStringContainsString('wire:model.live.debounce.300ms="draftSplitQuantity"', $draftPlanner);
-        self::assertStringContainsString('excludeDraftSplitWriter', $draftPlanner);
-        self::assertStringContainsString('includeDraftSplitWriter', $draftPlanner);
+        self::assertStringContainsString('cpDraftSplitWriters', $draftPlanner);
+        self::assertStringContainsString('excludeWriter', $draftPlanner);
+        self::assertStringContainsString('includeWriter', $draftPlanner);
+        self::assertStringContainsString('draftSplitIncludedUserIds', $draftPlanner);
         self::assertStringContainsString('data-split-writers', $draftPlanner);
         self::assertStringContainsString('data-split-writer-included', $draftPlanner);
         self::assertStringContainsString('data-split-excluded', $draftPlanner);
         self::assertStringContainsString('cp-draft-split-layout', $draftPlanner);
-        self::assertStringContainsString('wire:target="draftSplitQuantity,draftSplitMode,draftSplitTargetMonth,excludeDraftSplitWriter,includeDraftSplitWriter"', $draftPlanner);
+        self::assertStringContainsString('wire:target="draftSplitQuantity,draftSplitMode,draftSplitTargetMonth"', $draftPlanner);
+        self::assertStringNotContainsString('wire:click="excludeDraftSplitWriter', $draftPlanner);
+        self::assertStringNotContainsString('wire:click="includeDraftSplitWriter', $draftPlanner);
+        self::assertStringContainsString('wire:ignore', $draftPlanner);
         self::assertStringContainsString('wire:model.live="draftSplitTargetMonth"', $draftPlanner);
         self::assertStringContainsString('data-split-field="target_month"', $draftPlanner);
         self::assertStringContainsString('draft_split_target_month', $draftPlanner);
         self::assertStringContainsString('getDraftSplitTargetMonthOptions', $draftPlanner);
         self::assertStringContainsString('cp-ops-dialog--split', $draftPlanner);
-        self::assertStringContainsString("\$writer['new_allocation']", $draftPlanner);
+        self::assertStringContainsString('new_allocation', $draftPlanner);
         self::assertStringNotContainsString('draftSplitWriterIds', $draftPlanner);
         self::assertStringNotContainsString('data-split-preview', $draftPlanner);
         self::assertStringNotContainsString('cp-draft-split-preview', $draftPlanner);
@@ -255,6 +260,11 @@ final class SplitDraftContentProjectContractTest extends TestCase
         self::assertStringContainsString('includeDraftSplitWriter', $trait);
         self::assertStringContainsString('MAX_EXECUTION_PROJECT_ITEMS', $trait);
         self::assertStringContainsString('currentReviewedDraftItemCount', $trait);
+        self::assertStringContainsString('$this->draftSplitQuantity = max(1, $reviewed)', $trait);
+        self::assertStringNotContainsString(
+            'ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS,'.PHP_EOL.'            $reviewed',
+            $trait,
+        );
         self::assertStringContainsString('assigneeIds:', $trait);
         self::assertStringContainsString('targetMonth:', $trait);
         self::assertStringContainsString('draftSplitTargetMonth', $trait);

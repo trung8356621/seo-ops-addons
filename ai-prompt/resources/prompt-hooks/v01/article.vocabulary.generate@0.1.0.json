@@ -26,6 +26,14 @@
   },
 
   "input_schema": {
+    "input": {
+      "type": "string",
+      "required": false,
+      "nullable": true,
+      "max_length": 8000,
+      "allowed_source": ["runtime", "task"],
+      "label": "Canonical task subject ({{input}})"
+    },
     "post_title": {
       "type": "string",
       "required": true,
@@ -85,33 +93,11 @@
   },
 
   "output_schema": {
-    "type": "markdown_sections",
-    "sections": [
-      {
-        "key": "vocabulary",
-        "label": "Từ vựng",
-        "task": 2,
-        "content_type": "markdown",
-        "start_marker": "[START_TASK_2_VOCABULARY]",
-        "end_marker": "[END_TASK_2_VOCABULARY]",
-        "required": true,
-        "output_port": "task_2_vocabulary",
-        "validation": {
-          "not_empty": true,
-          "min_length": 100,
-          "reject_nested_task_markers": true
-        },
-        "normalize": ["trim", "strip_markdown_fence"]
-      }
-    ],
-    "combined_output": {
-      "enabled": false
-    },
+    "type": "markdown",
+    "normalize": ["trim", "strip_markdown_fence"],
     "validation": {
-      "reject_unknown_task_markers": true,
-      "reject_duplicate_sections": true,
-      "require_declared_order": true,
-      "allow_text_outside_sections": false
+      "not_empty": true,
+      "min_length": 100
     }
   },
 
@@ -125,9 +111,10 @@
     "description": "Generate semantic vocabulary from article title + outline — not outline summarization.",
     "default_instructions": [],
     "output_format": [
-      "Vocabulary only — wrapped in [START_TASK_2_VOCABULARY] / [END_TASK_2_VOCABULARY]."
+      "Vocabulary markdown only — direct output, no START/END task markers."
     ],
     "variables": [
+      { "key": "input", "required": false },
       { "key": "post_title", "required": true },
       { "key": "outline", "required": true },
       { "key": "keyword", "required": false },

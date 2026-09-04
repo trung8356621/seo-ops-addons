@@ -401,7 +401,8 @@ final class ArticleExecutionHistoryService
             'status_label' => $this->statusLabel($status, $skipReason),
             'skip_reason' => $skipReason,
             'skip_reason_label' => $this->skipReasonLabel($skipReason),
-            'message' => is_array($traceRow) ? ($traceRow['message'] ?? null) : null,
+            // Aggregate split message must not overwrite child AI call errors in the inspector.
+            'message' => $this->nodeInspectorMessage($traceRow, $type),
             'hook_key' => is_array($traceRow) ? ($traceRow['hook_key'] ?? null) : null,
             'execution_role' => is_array($traceRow) ? ($traceRow['execution_role'] ?? null) : null,
             'ai_model' => is_array($traceRow) ? ($traceRow['ai_model'] ?? null) : null,
@@ -420,7 +421,36 @@ final class ArticleExecutionHistoryService
                     is_array($traceRow['prompt_result_ids'] ?? null) ? $traceRow['prompt_result_ids'] : [],
                 ), static fn (int $id): bool => $id > 0))
                 : [],
+            'outline_result_id' => is_array($traceRow) ? (($id = (int) ($traceRow['outline_result_id'] ?? 0)) > 0 ? $id : null) : null,
+            'vocabulary_result_id' => is_array($traceRow) ? (($id = (int) ($traceRow['vocabulary_result_id'] ?? 0)) > 0 ? $id : null) : null,
+            'outline_status' => is_array($traceRow) ? ($traceRow['outline_status'] ?? null) : null,
+            'vocabulary_status' => is_array($traceRow) ? ($traceRow['vocabulary_status'] ?? null) : null,
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $traceRow
+     */
+    private function nodeInspectorMessage(?array $traceRow, string $type): ?string
+    {
+        if (! is_array($traceRow)) {
+            return null;
+        }
+
+        $message = trim((string) ($traceRow['message'] ?? ''));
+        if ($message === '') {
+            return null;
+        }
+
+        // Split outline node: child AI calls carry per-subtask errors; hide aggregate overwrite.
+        $hasSplitChildren = (int) ($traceRow['outline_result_id'] ?? 0) > 0
+            || (int) ($traceRow['vocabulary_result_id'] ?? 0) > 0
+            || count(is_array($traceRow['prompt_result_ids'] ?? null) ? $traceRow['prompt_result_ids'] : []) > 1;
+        if ($type === 'prompt' && $hasSplitChildren) {
+            return null;
+        }
+
+        return $message;
     }
 
     /**
@@ -461,6 +491,12 @@ final class ArticleExecutionHistoryService
                     $candidateIds[] = $id;
                 }
             }
+            foreach (['outline_result_id', 'vocabulary_result_id'] as $key) {
+                $id = (int) ($traceRow[$key] ?? 0);
+                if ($id > 0) {
+                    $candidateIds[] = $id;
+                }
+            }
             $single = (int) ($traceRow['result_id'] ?? 0);
             if ($single > 0) {
                 $candidateIds[] = $single;
@@ -486,16 +522,50 @@ final class ArticleExecutionHistoryService
                 : null;
 
             $subtask = trim((string) ($snapshot['outline_subtask'] ?? ''));
+            if ($subtask === '' && is_array($traceRow)) {
+                if ((int) ($traceRow['outline_result_id'] ?? 0) === $resultId) {
+                    $subtask = 'outline';
+                } elseif ((int) ($traceRow['vocabulary_result_id'] ?? 0) === $resultId) {
+                    $subtask = 'vocabulary';
+                }
+            }
+
+            $rawStatus = strtolower(trim((string) $result->status));
+            $statusLabel = match (true) {
+                in_array($rawStatus, ['failed', 'error'], true) => 'FAILED',
+                in_array($rawStatus, ['success', 'completed'], true) => 'SUCCESS',
+                in_array($rawStatus, ['pending', 'processing', 'running'], true) => 'RUNNING',
+                default => strtoupper($rawStatus !== '' ? $rawStatus : 'UNKNOWN'),
+            };
+
+            $message = trim((string) ($result->error_message ?? ''));
+            if ($message === '' && is_array($traceRow)) {
+                if ($subtask === 'outline') {
+                    $message = trim((string) ($traceRow['outline_message'] ?? ''));
+                } elseif ($subtask === 'vocabulary') {
+                    $message = trim((string) ($traceRow['vocabulary_message'] ?? ''));
+                }
+            }
+
+            $displayName = trim((string) ($result->prompt?->name ?? ''));
+            if ($subtask === 'outline') {
+                $displayName = ($displayName !== '' ? $displayName.' — ' : '').'Outline';
+            } elseif ($subtask === 'vocabulary') {
+                $displayName = ($displayName !== '' ? $displayName.' — ' : '').'Vocabulary';
+            }
+
             $calls[] = [
                 'result_id' => $resultId,
                 'prompt_result_id' => $resultId,
                 'artifact_ref' => ArticleAiHistoryArtifactRef::encodePromptResult($resultId),
-                'prompt_name' => trim((string) ($result->prompt?->name ?? '')),
+                'prompt_name' => $displayName,
                 'hook_key' => $hookKey !== '' ? $hookKey : null,
                 'execution_profile' => $profile,
                 'model' => trim((string) ($snapshot['raw_model_used'] ?? $snapshot['render_model'] ?? '')),
                 'provider' => trim((string) ($snapshot['provider'] ?? '')),
                 'status' => (string) $result->status,
+                'status_label' => $statusLabel,
+                'message' => $message !== '' ? $message : null,
                 'outline_subtask' => $subtask !== '' ? $subtask : null,
                 'mapping_confidence' => $nodeId !== '' ? 'workflow_node_id' : 'legacy',
                 'route_position' => $snapshot['route_position'] ?? null,

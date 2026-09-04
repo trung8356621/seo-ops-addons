@@ -114,9 +114,10 @@ class SeoProjectResource extends SeoPanelResource
 
         $siteId = (int) ($record->site_id ?? 0);
 
-        // Draft pool is domain-neutral (null site_id). Other rows authorize by item/project site.
+        // Domain-neutral rows (null site_id): Shared Draft AND execution projects created
+        // by Publish/Split (packing sets site_id null; domain lives on items).
         if ($siteId <= 0) {
-            return $record->isDraftPlanning();
+            return true;
         }
 
         return SeoAccessControl::canAccessSite($siteId);
@@ -134,6 +135,11 @@ class SeoProjectResource extends SeoPanelResource
                 return static::getUrl('archive');
             }
 
+            return static::getUrl('view', ['record' => $record]);
+        }
+
+        // Canonical workspace is View (items/ops). Edit is settings-only.
+        if (static::canView($record)) {
             return static::getUrl('view', ['record' => $record]);
         }
 
@@ -1543,10 +1549,12 @@ class SeoProjectResource extends SeoPanelResource
             ->color('success')
             ->visible(fn (): bool => SeoAccessControl::canAccessContentProjectRun($project)
                 && ! $project->isDraftPlanning())
+            // Never use silent disabled clicks in overflow menus — gate inside action + tooltip.
             ->disabled(fn (): bool => ! static::canGeneratePendingItems($project))
             ->tooltip(fn (): ?string => static::generatePendingDisabledReason($project))
             ->modalHeading(__('seo-content-ai::filament.projects.generate_pending_preview_heading'))
             ->modalDescription(fn () => static::generatePendingPreviewHtml($project))
+            ->modalSubmitActionLabel(__('seo-content-ai::filament.projects.generate_working_items'))
             ->form([
                 Forms\Components\Checkbox::make('technical_confirm_full_rerun')
                     ->label(__('seo-content-ai::filament.projects.generate_pending_technical_confirm'))
@@ -1561,6 +1569,17 @@ class SeoProjectResource extends SeoPanelResource
             ])
             ->action(function (array $data) use ($project, $launchSettings): void {
                 try {
+                    if (! static::canGeneratePendingItems($project)) {
+                        Notification::make()
+                            ->title(__('seo-content-ai::filament.projects.run_failed'))
+                            ->body((string) (static::generatePendingDisabledReason($project)
+                                ?? __('seo-content-ai::filament.projects.generate_pending_disabled_no_eligible')))
+                            ->danger()
+                            ->send();
+
+                        return;
+                    }
+
                     $preview = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectItemGenerationClassifier::class)
                         ->preview($project);
 

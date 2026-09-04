@@ -158,6 +158,7 @@ final class GlobalSeoBarDomainContextTest extends TestCase
         $this->assertStringContainsString('SITE_ID_QUERY_KEY', $store);
         $this->assertStringContainsString('isDomainNeutralPanelPath', $store);
         $this->assertStringContainsString('isDomainNeutralPanelPath', $boot);
+        $this->assertStringContainsString('content-projects\\/seo-audit', $store);
         $this->assertStringNotContainsString('siteId: null', $boot);
         $this->assertStringNotContainsString("addEventListener('storage'", $boot);
         $this->assertStringNotContainsString('location.reload', $boot);

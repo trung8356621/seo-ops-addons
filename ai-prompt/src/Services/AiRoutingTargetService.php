@@ -14,6 +14,7 @@ use Omnichannel\Addons\AiPrompt\Support\AiCostPolicy;
 use Omnichannel\Addons\AiPrompt\Support\AiCostPolicyScope;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
 use Omnichannel\Addons\AiPrompt\Support\AiModelLabelPresenter;
+use Omnichannel\Addons\AiPrompt\Support\AiProductionRouteEligibility;
 use Omnichannel\Addons\AiPrompt\Support\AiUsageMode;
 use Omnichannel\Addons\Seo\Support\GeminiModelVersionPolicy;
 use App\Models\ApiConnection;
@@ -164,6 +165,8 @@ final class AiRoutingTargetService
                 $context,
             )
             : $this->liveCompatibleCandidates($userId, $profile);
+
+        $canonical = (new AiProductionRouteEligibility())->filter($canonical, $profile, $context);
 
         $policy = $context->costPolicy ?? AiCostPolicyScope::current();
         if (! $profile->isMedia() && $policy === AiCostPolicy::FreeOnly) {

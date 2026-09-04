@@ -440,17 +440,18 @@ final class ContentProjectExistingArticleReconciler
 
     private function resolveSiteId(SeoProjectTask $task, ?int $siteId): ?int
     {
-        $task->loadMissing('project');
-        $fromProject = (int) ($task->project?->site_id ?? 0);
-        if ($fromProject > 0) {
-            return $fromProject;
+        // Prefer item domain — project.site_id may be null on domain-neutral execution.
+        $fromTask = (int) ($task->site_id ?? 0);
+        if ($fromTask > 0) {
+            return $fromTask;
         }
         if ($siteId !== null && $siteId > 0) {
             return $siteId;
         }
-        $resolved = (int) ($task->site_id ?? 0);
+        $task->loadMissing('project');
+        $fromProject = (int) ($task->project?->site_id ?? 0);
 
-        return $resolved > 0 ? $resolved : null;
+        return $fromProject > 0 ? $fromProject : null;
     }
 
     private function tableExists(string $table): bool

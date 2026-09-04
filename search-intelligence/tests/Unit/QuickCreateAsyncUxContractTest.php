@@ -53,7 +53,9 @@ final class QuickCreateAsyncUxContractTest extends LaravelTestCase
         self::assertStringNotContainsString('topic_quick_create_resolving', $index);
         self::assertStringContainsString('topic_quick_create_action', $index);
         self::assertStringContainsString("!String(phrase || '').trim()", $index);
-        self::assertStringContainsString('topicMutationsLocked', $index);
+        self::assertStringContainsString('mutationsLocked: @js($topicMutationsLocked)', $index);
+        self::assertStringContainsString('x-bind:disabled="!String(phrase || \'\').trim() || mutationsLocked"', $index);
+        self::assertStringNotContainsString("|| @js(\$topicMutationsLocked)", $index);
     }
 
     public function test_prepare_new_phrase_creates_and_create_dispatches_job(): void

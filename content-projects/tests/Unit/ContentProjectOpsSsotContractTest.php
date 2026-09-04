@@ -256,8 +256,9 @@ final class ContentProjectOpsSsotContractTest extends TestCase
             LegacyAddonPath::resolve('resources/views/components/content-project-items-list.blade.php'),
         );
         self::assertStringContainsString('ops_col_workflow', $itemsList);
-        self::assertStringContainsString('ops_col_generation', $itemsList);
-        self::assertStringContainsString('workflow_badge', $itemsList);
+        self::assertStringNotContainsString('ops_col_generation', $itemsList);
+        self::assertStringContainsString('generation_badge', $itemsList);
+        self::assertStringNotContainsString('workflow_badge', $itemsList);
         self::assertStringContainsString("'card' => 'normal'", $view);
         self::assertStringNotContainsString("'card' => 'total'", $view);
         self::assertStringNotContainsString("'card' => 'approved'", $view);
@@ -276,7 +277,7 @@ final class ContentProjectOpsSsotContractTest extends TestCase
             LegacyAddonPath::resolve('resources/views/components/content-project-filter-toolbar.blade.php'),
         );
         self::assertStringContainsString('workflowFilter', $toolbar);
-        self::assertStringContainsString('ops_workflow_all', $toolbar);
+        self::assertStringContainsString('ops_lifecycle_all', $toolbar);
         self::assertStringNotContainsString('value="approved"', $toolbar);
         preg_match_all('/wire:model\.live="generationFilter"[\s\S]*?<\/x-select>/', $toolbar, $genSelects);
         self::assertNotSame([], $genSelects[0]);

@@ -2577,8 +2577,10 @@ body.keyword-drawer-open {
     background: rgb(15 23 42);
 }
 
-.cluster-index-row.is-recalculating {
+.cluster-index-row.is-recalculating,
+.cluster-index-row.is-dissolving {
     opacity: 0.7;
+    pointer-events: none;
 }
 
 .cluster-index-row__title {
@@ -2606,10 +2608,30 @@ body.keyword-drawer-open {
     color: rgb(15 23 42);
     min-width: 3.5rem;
     text-align: right;
+    display: inline-flex;
+    align-items: baseline;
+    justify-content: flex-end;
+    gap: 0.35rem;
 }
 
 .dark .cluster-index-row__share {
     color: rgb(248 250 252);
+}
+
+.cluster-index-row__planning-plus {
+    font-size: 0.75rem;
+    font-weight: 700;
+    line-height: 1;
+    padding: 0.15rem 0.35rem;
+    border-radius: 0.375rem;
+    background: rgb(224 242 254);
+    color: rgb(3 105 161);
+    white-space: nowrap;
+}
+
+.dark .cluster-index-row__planning-plus {
+    background: rgb(12 74 110 / 0.45);
+    color: rgb(125 211 252);
 }
 
 .cluster-index-row__actions {

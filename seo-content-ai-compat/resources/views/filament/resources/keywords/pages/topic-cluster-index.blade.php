@@ -198,7 +198,7 @@
 
         <div
             class="topic-index-toolbar"
-            x-data="{ phrase: @entangle('clusterSearchInput') }"
+            x-data="{ phrase: @entangle('clusterSearchInput'), mutationsLocked: @js($topicMutationsLocked) }"
         >
             <div class="topic-index-toolbar__primary">
                 <form wire:submit="applyClusterSearch" class="contents">
@@ -218,7 +218,7 @@
                         wire:click="quickCreateCluster"
                         wire:loading.attr="disabled"
                         wire:target="quickCreateCluster"
-                        x-bind:disabled="!String(phrase || '').trim() || @js($topicMutationsLocked)"
+                        x-bind:disabled="!String(phrase || '').trim() || mutationsLocked"
                         :disabled="$topicMutationsLocked"
                         :title="$topicMutationsLocked ? __('seo-content-ai::filament.keyword.topic_recluster_mutations_locked') : null"
                     >
@@ -298,6 +298,7 @@
                         $rowLabel = KeywordPhrasePresentation::present((string) ($row['label'] ?? $rowKey));
                         $share = (float) ($row['topical_share'] ?? 0);
                         $shareDisplay = rtrim(rtrim(number_format($share, 1, '.', ''), '0'), '.');
+                        $planningPending = (int) ($row['planning_pending_count'] ?? 0);
                         $mcpExcluded = (bool) ($row['mcp_excluded'] ?? false);
                         $seoExcluded = (bool) ($row['seo_excluded'] ?? false);
                         $isMcpGroup = (bool) ($row['is_mcp_group'] ?? false);
@@ -307,7 +308,8 @@
                     @endphp
                     <div
                         class="cluster-index-row {{ $mcpExcluded || $seoExcluded ? 'is-excluded' : '' }}"
-                        wire:key="cluster-row-{{ $rowKey }}-{{ $this->clusterDataEpoch }}"
+                        data-cluster-key="{{ $rowKey }}"
+                        wire:key="cluster-row-{{ $rowKey }}"
                         @if ($isMcpGroup && $canEditCanonical)
                             x-data="{
                                 editing: false,
@@ -571,7 +573,7 @@
                                         <button
                                             type="button"
                                             class="keyword-item-tag keyword-item-tag--planning topic-mcp-group-tag"
-                                            wire:click="openMcpGroupModal({{ \Illuminate\Support\Js::from($rowKey) }})"
+                                            @click="$dispatch('mcp-group-modal-open', { clusterKey: {{ \Illuminate\Support\Js::from($rowKey) }} })"
                                         >{{ __('seo-content-ai::filament.keyword.topic_mcp_group_tag', ['label' => KeywordPhrasePresentation::present((string) ($mcpGroup['mask_name'] ?? ''))]) }}</button>
                                     @else
                                         <span class="keyword-item-tag keyword-item-tag--planning">{{ __('seo-content-ai::filament.keyword.topic_mcp_group_tag', ['label' => KeywordPhrasePresentation::present((string) ($mcpGroup['mask_name'] ?? ''))]) }}</span>
@@ -626,6 +628,12 @@
                             @else
                                 {{ $shareDisplay }}%
                             @endif
+                            @if ($planningPending > 0)
+                                <span
+                                    class="cluster-index-row__planning-plus"
+                                    title="{{ __('seo-content-ai::filament.keyword.topic_mcp_planning_pending_tooltip', ['count' => $planningPending]) }}"
+                                >+{{ $planningPending }}</span>
+                            @endif
                         </div>
 
                         <div class="cluster-index-row__actions">
@@ -664,7 +672,6 @@
         @endif
         </x-seo-content-ai::list-table-loading-shell>
 
-        @include('seo-content-ai::filament.resources.keywords.pages.partials.dissolve-cluster-modal')
         @include('seo-content-ai::filament.resources.keywords.pages.partials.mcp-group-modal')
     </div>
 </x-filament-panels::page>

@@ -102,6 +102,12 @@ final class DraftDomainFilterUrlContractTest extends TestCase
             $page,
         );
         self::assertStringContainsString("\$params['draft_domain'] = \$draftDomain;", $page);
+        // F5 must not redirect to inject first-site site_id before client hydrate.
+        self::assertStringContainsString('return request()->has(\'site\');', $page);
+        self::assertStringNotContainsString(
+            'return ! request()->has(DomainContext::SITE_ID_QUERY_KEY)',
+            $page,
+        );
     }
 
     public function test_domain_filter_select_boots_selected_from_draft_domain(): void

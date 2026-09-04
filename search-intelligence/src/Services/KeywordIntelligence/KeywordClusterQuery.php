@@ -97,6 +97,9 @@ final class KeywordClusterQuery
         $shareMap = ($siteId !== null && $siteId > 0)
             ? app(SiteMcpClusterTopicalProfileBuilder::class)->topicalShareMap($siteId)
             : [];
+        $planningMap = ($siteId !== null && $siteId > 0)
+            ? $this->mcpPlanningCountMap($siteId)
+            : [];
         $exclusionMap = ($siteId !== null && $siteId > 0)
             ? app(ClusterExclusionService::class)->flagsMapForSite($siteId)
             : [];
@@ -155,6 +158,7 @@ final class KeywordClusterQuery
                 seoExcluded: (bool) ($flags['seo_excluded'] ?? false),
                 internalLinkCount: (int) ($row->internal_link_count ?? 0),
                 mcpGroup: $mcpGroupMap[$key] ?? null,
+                planningPendingCount: (int) ($planningMap[$key] ?? 0),
             );
         }
 
@@ -190,6 +194,7 @@ final class KeywordClusterQuery
                 (bool) ($flags['seo_excluded'] ?? false),
                 0,
                 $mcpGroupMap[$key] ?? null,
+                planningPendingCount: (int) ($planningMap[$key] ?? 0),
             );
         }
 
@@ -297,6 +302,10 @@ final class KeywordClusterQuery
                 $intent !== '' ? 1 : 0,
             );
             $share = (float) ($members[0]['topical_share'] ?? 0.0);
+            $planningPending = 0;
+            foreach ($members as $memberRow) {
+                $planningPending += (int) ($memberRow['planning_pending_count'] ?? 0);
+            }
             $maskName = trim((string) ($group['mask_name'] ?? ''));
             if ($maskName === '') {
                 $maskName = (string) ($members[0]['label'] ?? $group['group_ref']);
@@ -328,6 +337,7 @@ final class KeywordClusterQuery
                 seoExcluded: false,
                 internalLinkCount: $internalLinkCount,
                 mcpGroup: null,
+                planningPendingCount: $planningPending,
             );
             $item['is_mcp_group'] = true;
             $item['mcp_member_count'] = count($memberCards);
@@ -938,6 +948,7 @@ final class KeywordClusterQuery
         bool $seoExcluded = false,
         int $internalLinkCount = 0,
         ?array $mcpGroup = null,
+        int $planningPendingCount = 0,
     ): array {
         return [
             'cluster_key' => $clusterKey,
@@ -948,6 +959,7 @@ final class KeywordClusterQuery
             'intent' => $intent,
             'coverage' => $coverage,
             'topical_share' => $topicalShare,
+            'planning_pending_count' => max(0, $planningPendingCount),
             'canonical_source' => $canonicalSource,
             'state' => $state,
             'mcp_excluded' => $mcpExcluded,
@@ -958,6 +970,28 @@ final class KeywordClusterQuery
             'mcp_members' => [],
             'groups' => [],
         ];
+    }
+
+    /**
+     * Soft dependency on content-projects MCP planning signal (UI +N only).
+     *
+     * @return array<string, int>
+     */
+    private function mcpPlanningCountMap(int $siteId): array
+    {
+        $class = 'Omnichannel\\Addons\\ContentProjects\\Services\\ContentProject\\McpPlanning\\McpPlanningSignalService';
+        if ($siteId <= 0 || ! class_exists($class)) {
+            return [];
+        }
+
+        try {
+            /** @var array<string, int> $map */
+            $map = app($class)->countsByClusterKey($siteId);
+
+            return is_array($map) ? $map : [];
+        } catch (\Throwable) {
+            return [];
+        }
     }
 
     private function canonicalSourceForKey(?int $siteId, string $clusterKey): string

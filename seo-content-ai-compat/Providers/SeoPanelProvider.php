@@ -848,6 +848,7 @@ class SeoPanelProvider extends PanelProvider
             'agent' => 'Agent',
             'commerce' => 'Commerce',
             'social' => 'Social',
+            'seeding' => 'Seeding',
         ];
 
         $out = [];

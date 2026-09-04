@@ -216,8 +216,9 @@ final class NewContentPlannerContractTest extends TestCase
         self::assertStringNotContainsString('planner_options', $card);
         self::assertStringNotContainsString('planner_save_options', $card);
         self::assertStringNotContainsString('planner_history', $card);
-        self::assertStringContainsString('draft_ai_history_link', $card);
+        self::assertStringNotContainsString('draft_ai_history_link', $card);
         self::assertStringContainsString('data-planner-content-type="1"', $card);
+        self::assertStringContainsString('cp-plan-sticky-cta__split--with-type', $card);
         self::assertStringContainsString('data-planner-notes="new-content"', $card);
         self::assertStringContainsString('content-project-audit-notes', $card);
         self::assertStringNotContainsString('wire:model="newContentNotes"', $card);

@@ -102,10 +102,14 @@
         'domainEditHint' => (string) __('seo-content-ai::filament.projects.planning_domain_edit_hint'),
         'confirmSkip' => (string) __('seo-content-ai::filament.projects.seo_audit_skip_confirm'),
         'confirmArchive' => (string) __('seo-content-ai::filament.projects.item_action_remove_from_draft_confirm'),
+        'confirmBulkArchive' => (string) __('seo-content-ai::filament.projects.planning_bulk_remove_confirm'),
         'labelReviewed' => (string) __('seo-content-ai::filament.projects.planning_reviewed'),
         'labelUnreviewed' => (string) __('seo-content-ai::filament.projects.planning_unreviewed'),
         'markReviewed' => (string) __('seo-content-ai::filament.projects.planning_mark_reviewed'),
         'markUnreviewed' => (string) __('seo-content-ai::filament.projects.planning_mark_unreviewed'),
+        'labelBulkSelected' => (string) __('seo-content-ai::filament.projects.planning_bulk_selected_count'),
+        'labelBulkMarkReviewed' => (string) __('seo-content-ai::filament.projects.planning_bulk_mark_reviewed'),
+        'labelBulkRemove' => (string) __('seo-content-ai::filament.projects.planning_bulk_remove'),
         'labelEditArticle' => (string) __('seo-content-ai::filament.projects.item_action_edit_article'),
         'labelOpenPublic' => (string) __('seo-content-ai::filament.projects.item_action_open_public'),
         'labelCheckIndex' => (string) __('seo-content-ai::filament.projects.suggestions_check_index'),
@@ -143,10 +147,14 @@
                 domainEditHint: cfg.domainEditHint || 'Double-click to change Domain',
                 confirmSkip: cfg.confirmSkip || '',
                 confirmArchive: cfg.confirmArchive || '',
+                confirmBulkArchive: cfg.confirmBulkArchive || '',
                 markReviewed: cfg.markReviewed || '',
                 markUnreviewed: cfg.markUnreviewed || '',
                 labelReviewed: cfg.labelReviewed || '',
                 labelUnreviewed: cfg.labelUnreviewed || '',
+                labelBulkSelected: cfg.labelBulkSelected || ':count selected',
+                labelBulkMarkReviewed: cfg.labelBulkMarkReviewed || 'Review',
+                labelBulkRemove: cfg.labelBulkRemove || 'Delete',
                 labelEditArticle: cfg.labelEditArticle || 'Edit article',
                 labelOpenPublic: cfg.labelOpenPublic || 'Open public',
                 labelCheckIndex: cfg.labelCheckIndex || 'Check index',
@@ -165,6 +173,7 @@
                 draft: '',
                 blurGuardUntil: 0,
                 alpineReady: false,
+                bulkBusy: false,
 
                 /** Livewire morph-safe root — never assume $root exists. */
                 rootEl() {
@@ -472,7 +481,158 @@
                     } else {
                         this.selected.push(n);
                     }
+                    this.syncSelectedToWire();
+                },
+
+                visibleIds() {
+                    return this.rows.filter((r) => r.visible).map((r) => Number(r.id));
+                },
+
+                allVisibleSelected() {
+                    const visible = this.visibleIds();
+
+                    return visible.length > 0 && visible.every((id) => this.selected.includes(id));
+                },
+
+                someVisibleSelected() {
+                    const visible = this.visibleIds();
+                    if (visible.length === 0) {
+                        return false;
+                    }
+                    const hit = visible.filter((id) => this.selected.includes(id)).length;
+
+                    return hit > 0 && hit < visible.length;
+                },
+
+                toggleSelectAllVisible() {
+                    const visible = this.visibleIds();
+                    if (visible.length === 0) {
+                        return;
+                    }
+                    if (this.allVisibleSelected()) {
+                        const drop = new Set(visible);
+                        this.selected = this.selected.filter((id) => ! drop.has(id));
+                    } else {
+                        this.selected = Array.from(new Set([...this.selected, ...visible]));
+                    }
+                    this.syncSelectedToWire();
+                },
+
+                syncSelectedToWire() {
                     this.$wire.set('selectedTaskIds', this.selected.slice());
+                },
+
+                selectedCountLabel() {
+                    return String(this.labelBulkSelected || ':count selected')
+                        .replace(':count', String(this.selected.length));
+                },
+
+                async bulkMarkReviewed() {
+                    if (this.bulkBusy || this.selected.length === 0) {
+                        return;
+                    }
+                    const eligible = this.rows.filter((row) =>
+                        this.selected.includes(row.id)
+                        && ! row.planning_reviewed
+                        && row.site_id
+                        && Number(row.site_id) > 0
+                    );
+                    const missingDomain = this.rows.filter((row) =>
+                        this.selected.includes(row.id)
+                        && ! row.planning_reviewed
+                        && (! row.site_id || Number(row.site_id) <= 0)
+                    );
+                    if (eligible.length === 0) {
+                        if (missingDomain.length > 0) {
+                            window.alert(this.domainRequired);
+                        }
+
+                        return;
+                    }
+
+                    const prevById = {};
+                    eligible.forEach((row) => {
+                        prevById[row.id] = true;
+                        row.planning_reviewed = true;
+                        this.counts.unreviewed = Math.max(0, this.counts.unreviewed - 1);
+                        this.counts.reviewed += 1;
+                    });
+                    this.applyVisibility();
+                    this.bulkBusy = true;
+                    try {
+                        const result = await this.$wire.markReviewedSelected();
+                        const okIds = Array.isArray(result && result.reviewed_ids)
+                            ? result.reviewed_ids.map((id) => Number(id))
+                            : [];
+                        const okSet = new Set(okIds);
+                        Object.keys(prevById).forEach((rawId) => {
+                            const id = Number(rawId);
+                            if (okSet.has(id)) {
+                                return;
+                            }
+                            const row = this.rows.find((r) => r.id === id);
+                            if (! row) {
+                                return;
+                            }
+                            row.planning_reviewed = false;
+                            this.counts.reviewed = Math.max(0, this.counts.reviewed - 1);
+                            this.counts.unreviewed += 1;
+                        });
+                        if (result && result.ok) {
+                            this.selected = this.selected.filter((id) => ! okSet.has(id));
+                            this.syncSelectedToWire();
+                        }
+                        this.applyVisibility();
+                    } catch (e) {
+                        Object.keys(prevById).forEach((rawId) => {
+                            const id = Number(rawId);
+                            const row = this.rows.find((r) => r.id === id);
+                            if (! row || ! row.planning_reviewed) {
+                                return;
+                            }
+                            row.planning_reviewed = false;
+                            this.counts.reviewed = Math.max(0, this.counts.reviewed - 1);
+                            this.counts.unreviewed += 1;
+                        });
+                        this.applyVisibility();
+                    } finally {
+                        this.bulkBusy = false;
+                    }
+                },
+
+                async bulkArchive() {
+                    if (this.bulkBusy || this.selected.length === 0) {
+                        return;
+                    }
+                    const msg = String(this.confirmBulkArchive || this.confirmArchive || '')
+                        .replace(':count', String(this.selected.length));
+                    if (! window.confirm(msg)) {
+                        return;
+                    }
+                    const ids = this.selected.slice();
+                    const snapshots = [];
+                    ids.forEach((id) => {
+                        const snap = this.removeLocal(id);
+                        if (snap) {
+                            snapshots.push(snap);
+                        }
+                    });
+                    this.syncSelectedToWire();
+                    this.bulkBusy = true;
+                    try {
+                        const ok = await this.$wire.archiveSelected();
+                        if (! ok) {
+                            snapshots.reverse().forEach((snap) => this.restoreLocal(snap));
+                            this.selected = ids.slice();
+                            this.syncSelectedToWire();
+                        }
+                    } catch (e) {
+                        snapshots.reverse().forEach((snap) => this.restoreLocal(snap));
+                        this.selected = ids.slice();
+                        this.syncSelectedToWire();
+                    } finally {
+                        this.bulkBusy = false;
+                    }
                 },
 
                 toggleReview(row) {
@@ -807,12 +967,56 @@
                 @endforeach
             </div>
         </div>
+
+        <div
+            class="cp-plan-draft__bulk"
+            data-draft-bulk-toolbar="1"
+            x-show="selected.length > 0"
+            x-cloak
+            style="display:none"
+        >
+            <span class="cp-plan-draft__bulk-count" x-text="selectedCountLabel()"></span>
+            <div class="cp-plan-draft__bulk-actions">
+                <button
+                    type="button"
+                    class="cp-plan-btn cp-plan-btn--improve"
+                    style="width:auto;flex:0 0 auto;"
+                    :class="{ 'opacity-50 pointer-events-none': bulkBusy }"
+                    :disabled="bulkBusy"
+                    wire:loading.attr="disabled"
+                    wire:target="markReviewedSelected"
+                    @click="bulkMarkReviewed()"
+                    data-draft-bulk-action="review"
+                >
+                    <span wire:loading.remove wire:target="markReviewedSelected" x-text="labelBulkMarkReviewed"></span>
+                    <span wire:loading wire:target="markReviewedSelected" class="inline-flex items-center gap-1">
+                        <svg class="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
+                    </span>
+                </button>
+                <button
+                    type="button"
+                    class="cp-plan-btn cp-plan-btn--danger"
+                    style="width:auto;flex:0 0 auto;"
+                    :class="{ 'opacity-50 pointer-events-none': bulkBusy }"
+                    :disabled="bulkBusy"
+                    wire:loading.attr="disabled"
+                    wire:target="archiveSelected"
+                    @click="bulkArchive()"
+                    data-draft-bulk-action="remove"
+                >
+                    <span wire:loading.remove wire:target="archiveSelected" x-text="labelBulkRemove"></span>
+                    <span wire:loading wire:target="archiveSelected" class="inline-flex items-center gap-1">
+                        <svg class="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
+                    </span>
+                </button>
+            </div>
+        </div>
     @endif
 
     <x-seo-content-ai::list-table-loading-shell
         class="cp-plan-draft__body"
         preset="livewire-page"
-        targets="setDraftReviewFilter,setDraftTypeFilter,setDraftDomainFilter,draftReviewFilter,draftTypeFilter,draftDomainFilter,onDomainContextChanged"
+        targets="setDraftReviewFilter,setDraftTypeFilter,setDraftDomainFilter,draftReviewFilter,draftTypeFilter,draftDomainFilter,onDomainContextChanged,markReviewedSelected,archiveSelected"
     >
         @if (! $hasDraft)
             <div class="cp-plan-draft__empty text-sm text-gray-500 dark:text-gray-400">
@@ -849,7 +1053,18 @@
                 <table class="cp-plan-draft-table min-w-full divide-y divide-gray-200 text-sm dark:divide-white/10">
                     <thead class="bg-gray-50 text-left text-xs font-medium text-gray-500 dark:bg-gray-950/50 dark:text-gray-400">
                         <tr>
-                            <th class="w-10 px-4 py-2.5"></th>
+                            <th class="w-10 px-4 py-2.5">
+                                <input
+                                    type="checkbox"
+                                    class="rounded border-gray-300 text-primary-600"
+                                    :checked="allVisibleSelected()"
+                                    :indeterminate.prop="someVisibleSelected()"
+                                    @change="toggleSelectAllVisible()"
+                                    :disabled="bulkBusy || visibleIds().length === 0"
+                                    aria-label="{{ __('seo-content-ai::filament.projects.planning_bulk_select_all') }}"
+                                    data-draft-select-all="1"
+                                >
+                            </th>
                             <th class="cp-plan-draft-table__col-stt px-2 py-2.5 text-center">{{ __('seo-content-ai::filament.projects.planning_col_stt') }}</th>
                             <th class="px-3 py-2.5">{{ __('seo-content-ai::filament.projects.suggestions_col_article') }}</th>
                             <th class="px-3 py-2.5 cp-plan-draft-table__col-domain">{{ __('seo-content-ai::filament.projects.planning_col_domain') }}</th>
@@ -913,6 +1128,7 @@
                                         type="checkbox"
                                         class="rounded border-gray-300 text-primary-600"
                                         :checked="selected.includes(row.id)"
+                                        :disabled="bulkBusy"
                                         @change="toggleSelect(row.id)"
                                     >
                                 </td>

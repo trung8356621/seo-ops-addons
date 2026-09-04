@@ -107,7 +107,7 @@ final class ArticleOutlineVocabularySplitExecutorTest extends TestCase
 
     public function test_split_prompt_markdown_is_canonical_from_installer(): void
     {
-        self::assertStringContainsString('{{post_title}}', DefaultSplitOutlinePromptsInstaller::OUTLINE_MARKDOWN);
+        self::assertStringContainsString('{{input}}', DefaultSplitOutlinePromptsInstaller::OUTLINE_MARKDOWN);
         self::assertStringContainsString('Holonymy', DefaultSplitOutlinePromptsInstaller::VOCABULARY_MARKDOWN);
     }
 

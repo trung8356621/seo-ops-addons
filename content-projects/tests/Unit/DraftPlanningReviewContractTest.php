@@ -39,6 +39,8 @@ final class DraftPlanningReviewContractTest extends TestCase
         );
 
         self::assertStringContainsString('function setPlanningReviewed', $page);
+        self::assertStringContainsString('function markReviewedSelected', $page);
+        self::assertStringContainsString('function archiveSelected', $page);
         self::assertStringContainsString('planning_reviewed_at', $page);
         self::assertStringContainsString('planning_reviewed_by', $page);
         self::assertStringNotContainsString('content_manager_reviewed_at', $page);
@@ -69,6 +71,10 @@ final class DraftPlanningReviewContractTest extends TestCase
         self::assertStringContainsString('setPlanningReviewed', $items);
         self::assertStringContainsString('planning_reviewed', $items);
         self::assertStringContainsString('data-draft-type-filter', $items);
+        self::assertStringContainsString('data-draft-bulk-toolbar', $items);
+        self::assertStringContainsString('bulkMarkReviewed', $items);
+        self::assertStringContainsString('bulkArchive', $items);
+        self::assertStringContainsString('toggleSelectAllVisible', $items);
         self::assertStringContainsString("tab === 'unreviewed'", $items);
         self::assertStringNotContainsString('data-inline-edit=\"', $items);
     }

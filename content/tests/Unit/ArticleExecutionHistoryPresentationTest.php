@@ -379,6 +379,19 @@ final class ArticleExecutionHistoryPresentationTest extends TestCase
         );
         self::assertStringContainsString("\$snapshot['outline_subtask']", $source);
         self::assertStringContainsString("'outline' => 0, 'vocabulary' => 1", $source);
+        self::assertStringContainsString('nodeInspectorMessage', $source);
+        self::assertStringContainsString('outline_result_id', $source);
+        self::assertStringContainsString('vocabulary_result_id', $source);
+    }
+
+    public function test_execution_history_js_hides_aggregate_message_when_child_ai_calls_exist(): void
+    {
+        $jsx = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/article-execution-history.jsx',
+        );
+        self::assertStringContainsString('!(isPrompt && aiCalls.length > 0)', $jsx);
+        self::assertStringContainsString('call.message', $jsx);
+        self::assertStringContainsString('call.status_label', $jsx);
     }
 
     /**

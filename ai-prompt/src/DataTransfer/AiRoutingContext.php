@@ -23,6 +23,7 @@ final class AiRoutingContext
         public readonly ?int $preferredModelId = null,
         public readonly bool $requirePreferredModel = false,
         public readonly ?string $itemGenerationMode = null,
+        public readonly ?string $hookKey = null,
     ) {}
 
     public function costPolicy(): AiCostPolicy

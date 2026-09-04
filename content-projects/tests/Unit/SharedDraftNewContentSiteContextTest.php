@@ -112,9 +112,9 @@ final class SharedDraftNewContentSiteContextTest extends TestCase
         $src = (string) file_get_contents(
             (string) (new ReflectionClass(ContentProjectTenantGuard::class))->getFileName(),
         );
-        self::assertStringContainsString('isDraftPlanning()', $src);
         self::assertStringContainsString('function assertCanAccessSite', $src);
-        self::assertStringContainsString('Shared / domain-neutral Draft', $src);
+        self::assertStringContainsString('Domain-neutral project', $src);
+        self::assertStringNotContainsString('Project thiếu site_id.', $src);
 
         $project = new SeoProject;
         $project->status = SeoProject::STATUS_DRAFT;

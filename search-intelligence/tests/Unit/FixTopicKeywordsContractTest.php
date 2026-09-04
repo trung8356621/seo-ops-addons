@@ -76,7 +76,7 @@ final class FixTopicKeywordsContractTest extends TestCase
         self::assertStringContainsString('topic_fix_keywords_action', $blade);
         self::assertStringContainsString('topic_dissolve_action', $blade);
         $fixPos = strpos($blade, 'fixTopicKeywords');
-        $dissolvePos = strpos($blade, 'openDissolveConfirm');
+        $dissolvePos = strpos($blade, 'dissolveTopicCluster');
         self::assertNotFalse($fixPos);
         self::assertNotFalse($dissolvePos);
         self::assertLessThan($dissolvePos, $fixPos);

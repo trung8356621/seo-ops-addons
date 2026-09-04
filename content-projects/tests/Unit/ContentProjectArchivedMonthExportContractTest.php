@@ -71,7 +71,8 @@ final class ContentProjectArchivedMonthExportContractTest extends TestCase
             (string) (new ReflectionClass(ContentProjectArchivedMonthExportService::class))->getFileName(),
         );
 
-        self::assertStringContainsString('archive_export_sheet_summary', $src);
+        self::assertStringContainsString('writeStatsSheet', $src);
+        self::assertStringContainsString('ArchivedMonthExcelStatsDocument', $src);
         self::assertStringContainsString('writeWriterSheet', $src);
         self::assertStringContainsString('writer_sheets', $src);
         self::assertStringContainsString('Archived-', $src);
@@ -79,9 +80,8 @@ final class ContentProjectArchivedMonthExportContractTest extends TestCase
         self::assertStringContainsString('ContentProjectArchivedMonthlyWorkloadService', $src);
         self::assertStringContainsString('ContentProjectArchivedMonthExportAssembler', $src);
         self::assertStringContainsString('userSheetHeaders', $src);
-        self::assertStringContainsString('archive_export_col_index', $src);
-        self::assertStringContainsString('archive_export_col_reviewed_at', $src);
-        self::assertStringContainsString('chart_articles_by_domain', $src);
+        self::assertStringContainsString('ExcelDetailColumnRegistry', $src);
+        self::assertStringContainsString('writeDualHeaderRows', $src);
         self::assertStringContainsString('ExcelHyperlinkHelper', $src);
         self::assertStringContainsString('ExcelSheetColumnAutoSizer', $src);
     }

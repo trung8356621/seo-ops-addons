@@ -52,6 +52,9 @@ use Omnichannel\Addons\AiPrompt\Support\WorkflowGraphReachability;
 
 final class TaskWorkflowTestRunner
 {
+    /** Durable checkpoint: successful structure outline when vocabulary still failed. */
+    public const SPLIT_OUTLINE_CHECKPOINT_META = 'seo_split_outline_structure';
+
     public function __construct(
         private readonly PromptRunnerService $promptRunner,
         private readonly WorkflowParserService $workflowParser,
@@ -970,11 +973,39 @@ final class TaskWorkflowTestRunner
                         'site_id' => $this->resolveMediaContextSiteId($context, $state),
                         'article_id' => $state->article?->id ?? $context->article?->id,
                         'node_id' => $nodeId,
-                        'task_id' => null,
+                        'task_id' => isset($context->variables['project_task_id'])
+                            ? (int) $context->variables['project_task_id']
+                            : (isset($context->variables['task_id']) ? (int) $context->variables['task_id'] : null),
+                        'project_task_id' => isset($context->variables['project_task_id'])
+                            ? (int) $context->variables['project_task_id']
+                            : (isset($context->variables['task_id']) ? (int) $context->variables['task_id'] : null),
+                        'run_id' => isset($context->variables['run_id'])
+                            ? (int) $context->variables['run_id']
+                            : (isset($context->variables['project_run_id']) ? (int) $context->variables['project_run_id'] : null),
+                        'project_run_id' => isset($context->variables['project_run_id'])
+                            ? (int) $context->variables['project_run_id']
+                            : (isset($context->variables['run_id']) ? (int) $context->variables['run_id'] : null),
+                        'run_item_id' => isset($context->variables['run_item_id'])
+                            ? (int) $context->variables['run_item_id']
+                            : null,
+                        'attempt' => isset($context->variables['attempt'])
+                            ? (int) $context->variables['attempt']
+                            : null,
+                        'project_id' => isset($context->variables['project_id'])
+                            ? (int) $context->variables['project_id']
+                            : null,
                         'locale' => $variables['language'] ?? $variables['locale'] ?? null,
                     ];
 
                     if ($this->isOutlineRoleNode($node, $hookBinding->hookKey)) {
+                        $checkpoint = $this->resolveSplitOutlineCheckpoint($state);
+                        if ($checkpoint['body'] !== '') {
+                            $contextExtras['reused_outline_markdown'] = $checkpoint['body'];
+                            if ($checkpoint['prompt_result_id'] !== null) {
+                                $contextExtras['reused_outline_prompt_result_id'] = $checkpoint['prompt_result_id'];
+                            }
+                        }
+
                         $splitResult = $this->outlineSplitExecutor->execute(
                             $nodeData,
                             $prompt,
@@ -983,6 +1014,35 @@ final class TaskWorkflowTestRunner
                         );
 
                         if (($splitResult['status'] ?? '') !== 'completed') {
+                            $outlineBody = trim((string) ($splitResult['sections']['outline']
+                                ?? $splitResult['outline_result']['output']
+                                ?? ''));
+                            $outlineSubtask = (string) ($splitResult['outline_subtask']
+                                ?? (isset($splitResult['vocabulary_result']) ? 'vocabulary_failed' : 'outline_failed'));
+                            if ($outlineBody !== '' && $outlineSubtask === 'vocabulary_failed') {
+                                $this->persistSplitOutlineCheckpoint(
+                                    $state,
+                                    $outlineBody,
+                                    isset($splitResult['outline_result']['prompt_result_id'])
+                                        ? (int) $splitResult['outline_result']['prompt_result_id']
+                                        : null,
+                                );
+                            }
+
+                            $vocabResultId = $splitResult['vocabulary_result']['prompt_result_id']
+                                ?? $splitResult['vocabulary_result']['result_id']
+                                ?? null;
+                            $outlineResultId = $splitResult['outline_result']['prompt_result_id']
+                                ?? $splitResult['outline_result']['result_id']
+                                ?? null;
+
+                            $failedPromptResultIds = is_array($splitResult['prompt_result_ids'] ?? null)
+                                ? $splitResult['prompt_result_ids']
+                                : array_values(array_filter([
+                                    $outlineResultId,
+                                    $vocabResultId,
+                                ]));
+
                             return [
                                 'node_id' => $nodeId,
                                 'type' => $type,
@@ -995,13 +1055,29 @@ final class TaskWorkflowTestRunner
                                 'execution_source' => $splitResult['execution_source'] ?? 'split_outline_vocabulary',
                                 'execution_role' => $this->nodeExecutionRoleValue($node),
                                 'message' => (string) ($splitResult['message'] ?? 'Outline split failed.'),
-                                'result_id' => $splitResult['outline_result']['prompt_result_id']
-                                    ?? ($splitResult['prompt_result_ids'][0] ?? null),
-                                'outline_subtask' => isset($splitResult['vocabulary_result'])
-                                    ? 'vocabulary_failed'
-                                    : 'outline_failed',
+                                'result_id' => $vocabResultId ?? $outlineResultId
+                                    ?? ($failedPromptResultIds[0] ?? null),
+                                'prompt_result_ids' => $failedPromptResultIds,
+                                'outline_result_id' => $outlineResultId,
+                                'vocabulary_result_id' => $vocabResultId,
+                                'outline_status' => (string) ($splitResult['outline_status']
+                                    ?? ($outlineBody !== '' ? 'completed' : 'failed')),
+                                'vocabulary_status' => (string) ($splitResult['vocabulary_status'] ?? 'failed'),
+                                'outline_message' => $outlineSubtask === 'vocabulary_failed'
+                                    ? null
+                                    : (string) ($splitResult['message'] ?? ''),
+                                'vocabulary_message' => $outlineSubtask === 'vocabulary_failed'
+                                    ? (string) ($splitResult['message'] ?? '')
+                                    : null,
+                                'outline_subtask' => $outlineSubtask,
+                                'outline_ai_invoked' => (bool) ($splitResult['outline_ai_invoked'] ?? false),
+                                'vocabulary_ai_invoked' => (bool) ($splitResult['vocabulary_ai_invoked'] ?? false),
+                                'execution_sequence' => 1,
+                                'sections' => is_array($splitResult['sections'] ?? null) ? $splitResult['sections'] : [],
                             ];
                         }
+
+                        $this->clearSplitOutlineCheckpoint($state);
 
                         $output = trim((string) ($splitResult['output'] ?? ''));
                         $outlinePersistedMarkdown = '';
@@ -1046,6 +1122,13 @@ final class TaskWorkflowTestRunner
                                 ?? $splitResult['prompt_result_ids'][0]
                                 ?? null,
                             'prompt_result_ids' => $splitResult['prompt_result_ids'],
+                            'outline_result_id' => $splitResult['outline_result']['prompt_result_id'] ?? null,
+                            'vocabulary_result_id' => $splitResult['vocabulary_result']['prompt_result_id'] ?? null,
+                            'outline_status' => 'completed',
+                            'vocabulary_status' => 'completed',
+                            'outline_ai_invoked' => (bool) ($splitResult['outline_ai_invoked'] ?? true),
+                            'vocabulary_ai_invoked' => (bool) ($splitResult['vocabulary_ai_invoked'] ?? true),
+                            'execution_sequence' => 1,
                             'duration_ms' => $splitResult['duration_ms'],
                             'message' => (string) ($splitResult['message'] ?? 'Split outline completed.'),
                         ];
@@ -2209,6 +2292,95 @@ final class TaskWorkflowTestRunner
         $prompt = $this->resolvePrompt($promptId);
 
         return $prompt !== null && $this->promptSupportsMergeOutlineSave($prompt);
+    }
+
+    /**
+     * @return array{body: string, prompt_result_id: ?int}
+     */
+    private function resolveSplitOutlineCheckpoint(WorkflowExecutionState $state): array
+    {
+        $fromMeta = trim((string) ($state->meta['split_structure_outline'] ?? ''));
+        $resultId = isset($state->meta['split_structure_outline_result_id'])
+            ? (int) $state->meta['split_structure_outline_result_id']
+            : null;
+        if ($fromMeta !== '') {
+            return [
+                'body' => $fromMeta,
+                'prompt_result_id' => $resultId > 0 ? $resultId : null,
+            ];
+        }
+
+        $article = $state->article;
+        if ($article === null) {
+            return ['body' => '', 'prompt_result_id' => null];
+        }
+
+        $article->loadMissing('articleMetas');
+        $raw = trim((string) (
+            $article->articleMetas->firstWhere('meta_key', self::SPLIT_OUTLINE_CHECKPOINT_META)?->meta_value ?? ''
+        ));
+        if ($raw === '') {
+            return ['body' => '', 'prompt_result_id' => null];
+        }
+
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded)) {
+            $body = trim((string) ($decoded['body'] ?? ''));
+            $id = isset($decoded['prompt_result_id']) ? (int) $decoded['prompt_result_id'] : 0;
+
+            return [
+                'body' => $body,
+                'prompt_result_id' => $id > 0 ? $id : null,
+            ];
+        }
+
+        return ['body' => $raw, 'prompt_result_id' => null];
+    }
+
+    private function persistSplitOutlineCheckpoint(
+        WorkflowExecutionState $state,
+        string $outlineBody,
+        ?int $promptResultId = null,
+    ): void {
+        $body = trim($outlineBody);
+        if ($body === '') {
+            return;
+        }
+
+        $state->meta['split_structure_outline'] = $body;
+        if ($promptResultId !== null && $promptResultId > 0) {
+            $state->meta['split_structure_outline_result_id'] = $promptResultId;
+        }
+
+        $article = $state->article;
+        if ($article === null) {
+            return;
+        }
+
+        $payload = json_encode([
+            'body' => $body,
+            'prompt_result_id' => $promptResultId,
+            'saved_at' => now()->toIso8601String(),
+        ], JSON_UNESCAPED_UNICODE);
+
+        $article->articleMetas()->updateOrCreate(
+            ['meta_key' => self::SPLIT_OUTLINE_CHECKPOINT_META],
+            ['meta_value' => $payload !== false ? $payload : $body],
+        );
+        $article->unsetRelation('articleMetas');
+    }
+
+    private function clearSplitOutlineCheckpoint(WorkflowExecutionState $state): void
+    {
+        unset($state->meta['split_structure_outline'], $state->meta['split_structure_outline_result_id']);
+
+        $article = $state->article;
+        if ($article === null) {
+            return;
+        }
+
+        $article->articleMetas()->where('meta_key', self::SPLIT_OUTLINE_CHECKPOINT_META)->delete();
+        $article->unsetRelation('articleMetas');
     }
 
     /**

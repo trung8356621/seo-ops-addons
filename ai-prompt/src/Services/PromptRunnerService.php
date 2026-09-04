@@ -1549,6 +1549,8 @@ class PromptRunnerService
         $modelMode = strtolower(trim((string) ($variables['_item_model_override_mode'] ?? '')));
         $generationMode = trim((string) ($variables['_item_generation_mode'] ?? ''));
 
+        $hookKey = trim((string) ($prompt->hook_key ?? ''));
+
         return new AiRoutingContext(
             userId: app(AiRoutingOwnerResolver::class)->resolve(
                 explicitUserId: null,
@@ -1563,6 +1565,7 @@ class PromptRunnerService
             preferredModelId: $preferredModelId > 0 ? $preferredModelId : null,
             requirePreferredModel: $preferredModelId > 0 && $modelMode === 'required',
             itemGenerationMode: $generationMode !== '' ? $generationMode : null,
+            hookKey: $hookKey !== '' ? $hookKey : null,
         );
     }
 

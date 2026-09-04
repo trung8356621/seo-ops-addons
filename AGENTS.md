@@ -3,7 +3,7 @@
 Peer-addon monorepo — **one Git repo**, many peer folders. No parent/child hierarchy.
 
 ## Peers
-search-foundation · seo · search-intelligence · ai-prompt · content · content-projects · media · wordpress · publishing · site-sync · agent · social · commerce · seo-content-ai-compat
+search-foundation · seo · search-intelligence · ai-prompt · content · content-projects · media · wordpress · publishing · site-sync · agent · social · commerce · seeding · seo-content-ai-compat
 
 ## Rules
 1. Addon cannot add business columns to another addon's table.
@@ -25,6 +25,7 @@ search-foundation · seo · search-intelligence · ai-prompt · content · conte
 | Site Sync | `site-sync/` |
 | Agent/MCP | `agent/` |
 | Social Profile / manual share | `social/` |
+| Seeding Topic V2 / Link Intelligence | `seeding/` |
 
 ## EDITOR WIDGET LOCKS
 

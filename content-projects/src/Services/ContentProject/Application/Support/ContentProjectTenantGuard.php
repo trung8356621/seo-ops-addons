@@ -21,14 +21,15 @@ final class ContentProjectTenantGuard
     {
         $siteId = (int) ($project->site_id ?? 0);
 
-        // Shared / domain-neutral Draft: site lives on items + working filter, not project.site_id.
+        // Domain-neutral project (null site_id): Shared Draft OR execution from Publish/Split.
+        // Domain lives on items — do not require project.site_id.
         if ($siteId <= 0) {
-            if (! $project->isDraftPlanning()) {
-                throw new RuntimeException('Project thiếu site_id.');
-            }
-
             if (in_array($actor->actorType, ['user', 'api', 'agent'], true)
                 && ! SeoAccessControl::canManageContentProjectWorkflow()
+                && ! (
+                    SeoAccessControl::isContentManager()
+                    && (int) ($project->user_id ?? 0) === (int) (auth()->id() ?? 0)
+                )
             ) {
                 throw new RuntimeException('Không có quyền truy cập project.');
             }

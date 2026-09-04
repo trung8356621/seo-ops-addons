@@ -6,6 +6,8 @@ namespace Omnichannel\Addons\AiPrompt;
 
 use App\Core\Capability\CapabilityRegistry;
 use Illuminate\Support\ServiceProvider;
+use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookBindingRunner;
+use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookExplicitBindingExecutor;
 use Omnichannel\Addons\AiPrompt\Services\AiCenterModelPresenter;
 use Omnichannel\Addons\AiPrompt\Services\AiModelInventory;
 use Omnichannel\Addons\AiPrompt\Services\AiModelPriorityService;
@@ -31,6 +33,7 @@ final class AiPromptServiceProvider extends ServiceProvider
         $this->app->bind(WordPressSiteProfileSource::class, WordPressSiteProfileReader::class);
         $this->app->bind(DomainPromptContextFieldPatcher::class, SiteDomainPromptContextService::class);
         $this->app->bind(WordPressFieldSyncAccessChecker::class, WordPressFieldSyncAccessGate::class);
+        $this->app->bind(PromptHookBindingRunner::class, PromptHookExplicitBindingExecutor::class);
         $this->app->scoped(AiModelPriorityService::class);
         $this->app->scoped(AiRoutingTargetService::class);
         $this->app->scoped(\Omnichannel\Addons\AiPrompt\Services\CanonicalAiRouteResolver::class);

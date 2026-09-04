@@ -180,25 +180,53 @@
         <div class="cp-ai-topic-column__head">
             <div class="cp-audit-notes__selected-head">
                 <div class="cp-audit-notes__selected-title-wrap">
-                    <h5 class="cp-audit-notes__selected-title">{{ __('seo-content-ai::filament.projects.audit_notes_selected_heading') }}</h5>
-                    <span
-                        class="cp-audit-notes__ideas-total"
-                        data-planner-ideas-total="1"
-                        x-text="'{{ __('seo-content-ai::filament.projects.planner_ideas_total') }} ' + stickyTotal()"
-                    >
-                        {{ __('seo-content-ai::filament.projects.planner_ideas_total') }} 0
-                    </span>
+                    <h5 class="cp-audit-notes__selected-title">
+                        {{ __('seo-content-ai::filament.projects.audit_notes_selected_heading') }}
+                        <span class="cp-audit-notes__selected-sep" aria-hidden="true">·</span>
+                        <span
+                            class="cp-audit-notes__ideas-total"
+                            data-planner-ideas-total="1"
+                            x-text="'{{ __('seo-content-ai::filament.projects.planner_ideas_total') }} ' + stickyTotal()"
+                        >
+                            {{ __('seo-content-ai::filament.projects.planner_ideas_total') }} 0
+                        </span>
+                    </h5>
                 </div>
-                <button
-                    type="button"
-                    class="cp-audit-notes__add-topic"
-                    x-show="!manualOpen"
-                    x-cloak
-                    @click="openManualSeed()"
-                    @disabled(! $canWrite)
-                >
-                    + {{ __('seo-content-ai::filament.projects.audit_notes_add_topic') }}
-                </button>
+                <div class="cp-audit-notes__selected-actions">
+                    @if ($canWrite)
+                        <button
+                            type="button"
+                            class="cp-audit-notes__icon-btn"
+                            data-planner-clone-open="1"
+                            title="{{ __('seo-content-ai::filament.projects.planner_clone_button') }}"
+                            aria-label="{{ __('seo-content-ai::filament.projects.planner_clone_button') }}"
+                            @click.prevent="$dispatch('open-planner-plan-clone')"
+                        >
+                            <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5.2A2.2 2.2 0 0013.8 3H7.5A2.2 2.2 0 005.3 5.2V11.5A2.2 2.2 0 007.5 13.7H10"/></svg>
+                        </button>
+                    @endif
+                    <button
+                        type="button"
+                        class="cp-audit-notes__add-topic"
+                        x-show="!manualOpen"
+                        x-cloak
+                        @click="openManualSeed()"
+                        @disabled(! $canWrite)
+                    >
+                        + {{ __('seo-content-ai::filament.projects.audit_notes_add_topic') }}
+                    </button>
+                    <button
+                        type="button"
+                        class="cp-audit-notes__clear-all"
+                        data-audit-notes-clear-all="1"
+                        x-show="topicList().length > 0"
+                        x-cloak
+                        @click="clearAllSelected()"
+                        @disabled(! $canWrite)
+                    >
+                        {{ __('seo-content-ai::filament.projects.audit_notes_clear_all') }}
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -758,6 +786,14 @@
                     this.drafts = drafts;
                     this.rebalanceAutoTargets();
                 },
+                clearAllTopicsLocal() {
+                    this.topics = {};
+                    this.drafts = {};
+                    this.allocationWarning = '';
+                    this.rebalanceAutoTargets();
+                    this.persistSoon();
+                    this.bump();
+                },
                 snapshot() {
                     return this.topicList().map((item) => ({
                         source_type: isManualSeedItem(item) ? 'manual_seed' : 'cluster',
@@ -971,6 +1007,16 @@
                 removeTopic(ref) {
                     this.store.removeTopicLocal(ref);
                     if (this.$wire && typeof this.$wire.removeAuditNoteItem === 'function') this.$wire.removeAuditNoteItem(ref);
+                },
+                clearAllSelected() {
+                    const confirmMsg = @js(__('seo-content-ai::filament.projects.audit_notes_clear_all_confirm'));
+                    if (! window.confirm(confirmMsg)) {
+                        return;
+                    }
+                    this.store.clearAllTopicsLocal();
+                    if (this.$wire && typeof this.$wire.applyAuditNoteItems === 'function') {
+                        this.$wire.applyAuditNoteItems([]);
+                    }
                 },
                 snapshot() { return this.store.snapshot(); },
             }));

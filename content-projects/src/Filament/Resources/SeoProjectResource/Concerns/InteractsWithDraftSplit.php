@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResour
 
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
+use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ActorContext;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SplitDraftContentProjectCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectCommandBus;
@@ -78,10 +79,9 @@ trait InteractsWithDraftSplit
             : SplitDraftContentProjectCommand::MODE_FIRST_N;
 
         $this->draftSplitMode = $mode;
-        $this->draftSplitQuantity = min(
-            ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS,
-            $reviewed,
-        );
+        // Quantity = reviewed pool size (user may lower). MAX_EXECUTION_PROJECT_ITEMS is
+        // packing per project (overflow -2/-3), NOT the Publish batch ceiling.
+        $this->draftSplitQuantity = max(1, $reviewed);
         $this->draftSplitTargetMonth = ContentProjectMonthContext::current();
         $this->draftSplitIncludedUserIds = $this->defaultEligibleIncludedUserIds();
         $this->draftSplitModalOpen = true;
@@ -358,6 +358,11 @@ trait InteractsWithDraftSplit
             'excluded_writers' => [],
             'can_create' => false,
             'max' => ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS,
+            'domain_rows' => [],
+            'domain_count' => 0,
+            'domain_warning' => null,
+            'writer_count' => 0,
+            'target_month_days' => (int) $targetCarbon->daysInMonth,
         ];
 
         if (! $project instanceof SeoProject || ! $project->isDraftPlanning()) {
@@ -455,6 +460,8 @@ trait InteractsWithDraftSplit
             }
         }
 
+        $domainPreview = $this->publishDomainDistributionPreview($project, $selectedCount, $targetCarbon);
+
         return [
             'count' => $reviewed,
             'reviewed_count' => $reviewed,
@@ -472,6 +479,120 @@ trait InteractsWithDraftSplit
                 && $writerIds !== []
                 && $hasPositiveAllocation,
             'max' => ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS,
+            'domain_rows' => $domainPreview['rows'],
+            'domain_count' => $domainPreview['domain_count'],
+            'domain_warning' => $domainPreview['warning'],
+            'writer_count' => count($includedWriters),
+            'target_month_days' => (int) $targetCarbon->daysInMonth,
+        ];
+    }
+
+    /**
+     * Domain distribution for the Publish selection (reviewed pool / first-N slice).
+     *
+     * @return array{
+     *     rows: list<array{site_id: int, domain: string, count: int, percent: float, articles_per_day: float}>,
+     *     domain_count: int,
+     *     warning: array{domain: string, count: int, total: int, percent: float, articles_per_day: float}|null
+     * }
+     */
+    protected function publishDomainDistributionPreview(SeoProject $project, int $selectedCount, Carbon $targetMonth): array
+    {
+        $empty = ['rows' => [], 'domain_count' => 0, 'warning' => null];
+        if ($selectedCount < 1) {
+            return $empty;
+        }
+
+        $eligible = $this->resolvePublishEligibleTaskIds($project);
+        if ($eligible === []) {
+            return $empty;
+        }
+
+        $mode = strtolower(trim($this->draftSplitMode));
+        $ids = $mode === SplitDraftContentProjectCommand::MODE_ALL
+            ? $eligible
+            : array_slice($eligible, 0, max(1, $selectedCount));
+
+        if ($ids === []) {
+            return $empty;
+        }
+
+        $counts = SeoProjectTask::query()
+            ->whereIn('id', $ids)
+            ->selectRaw('COALESCE(site_id, 0) as site_id, COUNT(*) as item_count')
+            ->groupByRaw('COALESCE(site_id, 0)')
+            ->orderByDesc('item_count')
+            ->get();
+
+        $siteIds = [];
+        foreach ($counts as $row) {
+            $sid = (int) ($row->site_id ?? 0);
+            if ($sid > 0) {
+                $siteIds[] = $sid;
+            }
+        }
+
+        $domains = [];
+        if ($siteIds !== []) {
+            foreach (\App\Models\Site::query()->whereIn('id', $siteIds)->get(['id', 'domain']) as $site) {
+                $domains[(int) $site->getKey()] = trim((string) ($site->domain ?? ''));
+            }
+        }
+
+        $total = max(1, array_sum(array_map(
+            static fn ($row): int => (int) ($row->item_count ?? 0),
+            $counts->all(),
+        )));
+        $days = max(1, (int) $targetMonth->daysInMonth);
+        $rows = [];
+        $top = null;
+
+        foreach ($counts as $row) {
+            $siteId = (int) ($row->site_id ?? 0);
+            $count = (int) ($row->item_count ?? 0);
+            if ($count < 1) {
+                continue;
+            }
+            $domain = $siteId > 0 ? ($domains[$siteId] ?? '') : '';
+            if ($domain === '') {
+                $domain = $siteId > 0 ? '#'.$siteId : '(no site)';
+            }
+            $percent = round(($count / $total) * 100, 1);
+            $perDay = round($count / $days, 1);
+            $entry = [
+                'site_id' => $siteId,
+                'domain' => $domain,
+                'count' => $count,
+                'percent' => $percent,
+                'articles_per_day' => $perDay,
+            ];
+            $rows[] = $entry;
+            if ($top === null || $count > (int) $top['count']) {
+                $top = $entry;
+            }
+        }
+
+        $warning = null;
+        // Multi-domain concentration: ≥2 domains, top ≥60%, top ≥30 items.
+        if (
+            $top !== null
+            && count($rows) >= 2
+            && (int) $top['count'] >= 30
+            && (float) $top['percent'] >= 60.0
+        ) {
+            $warning = [
+                'domain' => (string) $top['domain'],
+                'count' => (int) $top['count'],
+                'total' => $total,
+                'percent' => (float) $top['percent'],
+                'articles_per_day' => (float) $top['articles_per_day'],
+            ];
+        }
+
+        return [
+            'rows' => $rows,
+            'domain_count' => count($rows),
+            'warning' => $warning,
         ];
     }
 

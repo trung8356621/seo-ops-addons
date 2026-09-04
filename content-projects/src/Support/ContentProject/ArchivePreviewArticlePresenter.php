@@ -58,6 +58,10 @@ use Throwable;
  */
 final class ArchivePreviewArticlePresenter
 {
+    public function __construct(
+        private readonly ArchiveArticleHistoricalFieldResolver $historicalFields = new ArchiveArticleHistoricalFieldResolver(),
+    ) {}
+
     /**
      * @param  Collection<int, SeoProjectArchiveItem>  $items
      * @param  Collection<int, SeoArticle>|null  $articlesById  optional preloaded map; null = dùng $item->article
@@ -97,18 +101,14 @@ final class ArchivePreviewArticlePresenter
             $article = $item->article instanceof SeoArticle ? $item->article : null;
         }
 
-        $title = $this->firstNonEmpty([
-            $snapshot['title'] ?? null,
-            $article?->title,
-        ]);
+        $historical = $this->historicalFields->resolve($article, $snapshot);
+
+        $title = $historical['title'];
         $slug = $this->firstNonEmpty([
             $snapshot['slug'] ?? null,
             $article?->slug,
         ]);
-        $keyword = $this->firstNonEmpty([
-            $snapshot['primary_keyword'] ?? null,
-            $this->articleMeta($article, 'seo_focus_keyword'),
-        ]);
+        $keyword = $historical['keyword'];
         $metaTitle = $this->firstNonEmpty([
             $snapshot['meta_title'] ?? null,
             $article?->title,
@@ -142,10 +142,7 @@ final class ArchivePreviewArticlePresenter
                 ? $article->wordpressLink?->wp_post_id
                 : null,
         ]);
-        $wpUrlString = $this->firstPublicHttpUrl([
-            $this->articleMeta($article, 'wp_permalink'),
-            $snapshot['wordpress_url'] ?? null,
-        ]);
+        $wpUrlString = $historical['wordpress_url'];
         $hasPublicWordpressUrl = $wpUrlString !== '';
 
         if ($article instanceof SeoArticle && $article->relationLoaded('indexHealth') && $article->indexHealth !== null) {
@@ -229,8 +226,8 @@ final class ArchivePreviewArticlePresenter
             'item_id' => (int) $item->getKey(),
             'article_id' => $articleId,
             'position' => (int) ($item->position ?? 0),
-            'title' => is_string($title) ? $title : '',
-            'keyword' => is_string($keyword) ? $keyword : '',
+            'title' => $title,
+            'keyword' => $keyword,
             'slug' => is_string($slug) ? $slug : '',
             'meta_title' => is_string($metaTitle) ? $metaTitle : '',
             'meta_description' => is_string($metaDescription) ? $metaDescription : '',

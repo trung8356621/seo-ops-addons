@@ -14,6 +14,8 @@ use Omnichannel\Addons\ContentProjects\Services\SeoProjectRunItemService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectWorkflowRunService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectWorkflowStepRetryService;
 use Omnichannel\Addons\Content\Support\RunEngine\ArticleExecutionResult;
+use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectBatchCircuitBreakerState;
+use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectBatchFailureSignature;
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectRunEngineFeature;
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectRunHealthReport;
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectRunStatusMapper;
@@ -136,6 +138,10 @@ final class ContentProjectRunEngine
     {
         $run->refresh();
 
+        if ($this->tryResumeAfterCircuitBreaker($run)) {
+            return;
+        }
+
         if (! $this->cancellationGuard->allowsDispatch($run)) {
             $this->finalizeIfDone($run);
 
@@ -143,6 +149,64 @@ final class ContentProjectRunEngine
         }
 
         $this->dispatchNextArticle($run);
+    }
+
+    /**
+     * Resume a run halted by consecutive identical failures — pending items stay pending.
+     */
+    private function tryResumeAfterCircuitBreaker(SeoProjectRun $run): bool
+    {
+        $engine = $this->engineBag($run);
+        $breaker = is_array($engine['circuit_breaker'] ?? null) ? $engine['circuit_breaker'] : null;
+        if ($breaker === null || empty($breaker['stopped'])) {
+            return false;
+        }
+
+        $pending = SeoProjectRunItem::query()
+            ->where('run_id', (int) $run->id)
+            ->articleExecution()
+            ->where('status', SeoProjectRunItemStatus::Pending->value)
+            ->count();
+        if ($pending <= 0) {
+            return false;
+        }
+
+        $status = $this->statusMapper->runFromDb((string) $run->status);
+        if (! $status->isTerminal() && $status !== ContentProjectRunSemanticStatus::Running) {
+            return false;
+        }
+
+        DB::connection('omi_seo_ai')->transaction(function () use ($run): void {
+            /** @var SeoProjectRun|null $locked */
+            $locked = SeoProjectRun::query()
+                ->whereKey((int) $run->id)
+                ->lockForUpdate()
+                ->first();
+            if (! $locked instanceof SeoProjectRun) {
+                return;
+            }
+
+            $settings = is_array($locked->settings) ? $locked->settings : [];
+            $engine = is_array($settings[self::SETTINGS_ENGINE_KEY] ?? null)
+                ? $settings[self::SETTINGS_ENGINE_KEY]
+                : [];
+            unset($engine['circuit_breaker'], $engine['finalized_at'], $engine['final_status']);
+            $engine = ContentProjectBatchCircuitBreakerState::clearForResume($engine);
+            $settings[self::SETTINGS_ENGINE_KEY] = $engine;
+            $locked->update([
+                'status' => $this->statusMapper->runToDb(ContentProjectRunSemanticStatus::Running),
+                'finished_at' => null,
+                'settings' => $settings,
+            ]);
+        });
+
+        $run->refresh();
+        RuntimeLogger::info('content_project_run.circuit_breaker_resumed', [
+            'run_id' => (int) $run->id,
+        ]);
+        $this->dispatchNextArticle($run);
+
+        return true;
     }
 
     public function requestStop(
@@ -263,6 +327,10 @@ final class ContentProjectRunEngine
 
             $status = $this->statusMapper->runFromDb((string) $locked->status);
             if (! $status->allowsDispatch()) {
+                return null;
+            }
+
+            if ($this->isCircuitBreakerStopped($locked)) {
                 return null;
             }
 
@@ -389,6 +457,10 @@ final class ContentProjectRunEngine
         $run = $this->runItemService->syncMirrorAndCounters($run, false);
         $this->events->runProgressUpdated($run);
 
+        if ($this->recordConsecutiveFailureAndMaybeTrip($run, $result)) {
+            return;
+        }
+
         if ($this->cancellationGuard->isStopRequested($run) || ! $result->mayDispatchNext()) {
             RuntimeLogger::info('content_project_run.next_dispatch_skipped', [
                 'run_id' => (int) $run->id,
@@ -405,6 +477,176 @@ final class ContentProjectRunEngine
         }
 
         $this->dispatchNextArticle($run);
+    }
+
+    /**
+     * @return bool true when batch was stopped by circuit breaker
+     */
+    private function recordConsecutiveFailureAndMaybeTrip(SeoProjectRun $run, ArticleExecutionResult $result): bool
+    {
+        if ($result->isSuccess() || $result->isCancelled()) {
+            $this->resetConsecutiveFailure($run);
+
+            return false;
+        }
+
+        if (! $result->isFailed()) {
+            return false;
+        }
+
+        $signature = ContentProjectBatchFailureSignature::fromResult($result);
+        $tripped = false;
+        $count = 0;
+
+        DB::connection('omi_seo_ai')->transaction(function () use ($run, $signature, &$tripped, &$count): void {
+            /** @var SeoProjectRun|null $locked */
+            $locked = SeoProjectRun::query()
+                ->whereKey((int) $run->id)
+                ->lockForUpdate()
+                ->first();
+            if (! $locked instanceof SeoProjectRun) {
+                return;
+            }
+
+            $settings = is_array($locked->settings) ? $locked->settings : [];
+            $engine = is_array($settings[self::SETTINGS_ENGINE_KEY] ?? null)
+                ? $settings[self::SETTINGS_ENGINE_KEY]
+                : [];
+            $recorded = ContentProjectBatchCircuitBreakerState::recordFailure($engine, $signature);
+            $engine = $recorded['engine'];
+            $count = $recorded['count'];
+            $tripped = $recorded['tripped'];
+
+            if ($tripped) {
+                $engine['circuit_breaker'] = [
+                    'stopped' => true,
+                    'signature' => $signature,
+                    'count' => $count,
+                    'stopped_at' => now()->toIso8601String(),
+                    'reason' => $this->circuitBreakerUserMessage($signature),
+                ];
+                $engine['stop_reason'] = $engine['circuit_breaker']['reason'];
+                $engine['finalized_at'] = now()->toIso8601String();
+                $engine['final_status'] = 'failed_circuit_breaker';
+                unset($engine['active_dispatch']);
+                $settings[self::SETTINGS_ENGINE_KEY] = $engine;
+                $locked->update([
+                    'status' => $this->statusMapper->runToDb(ContentProjectRunSemanticStatus::Failed),
+                    'finished_at' => now(),
+                    'settings' => $settings,
+                ]);
+
+                return;
+            }
+
+            $settings[self::SETTINGS_ENGINE_KEY] = $engine;
+            $locked->update(['settings' => $settings]);
+        });
+
+        $run->refresh();
+
+        if (! $tripped) {
+            return false;
+        }
+
+        $message = $this->circuitBreakerUserMessage($signature);
+        RuntimeLogger::warning('content_project_run.circuit_breaker_tripped', [
+            'run_id' => (int) $run->id,
+            'signature' => $signature,
+            'count' => $count,
+            'message' => $message,
+        ]);
+        $this->events->runFailed($run, $message);
+        $this->logRunMetrics($run, 'failed_circuit_breaker');
+
+        return true;
+    }
+
+    private function resetConsecutiveFailure(SeoProjectRun $run): void
+    {
+        DB::connection('omi_seo_ai')->transaction(function () use ($run): void {
+            /** @var SeoProjectRun|null $locked */
+            $locked = SeoProjectRun::query()
+                ->whereKey((int) $run->id)
+                ->lockForUpdate()
+                ->first();
+            if (! $locked instanceof SeoProjectRun) {
+                return;
+            }
+
+            $settings = is_array($locked->settings) ? $locked->settings : [];
+            $engine = is_array($settings[self::SETTINGS_ENGINE_KEY] ?? null)
+                ? $settings[self::SETTINGS_ENGINE_KEY]
+                : [];
+            $settings[self::SETTINGS_ENGINE_KEY] = ContentProjectBatchCircuitBreakerState::recordSuccess($engine);
+            $locked->update(['settings' => $settings]);
+        });
+        $run->refresh();
+    }
+
+    public function isCircuitBreakerStopped(SeoProjectRun $run): bool
+    {
+        return ContentProjectBatchCircuitBreakerState::isStopped($this->engineBag($run));
+    }
+
+    /**
+     * Queued job arrived after circuit breaker — release reservation, keep item Pending.
+     * If the item was falsely claimed as Processing without a real in-flight worker, reconcile to Pending.
+     */
+    public function releaseSkippedDispatch(SeoProjectRun $run, int $runItemId, string $dispatchToken): void
+    {
+        $settings = is_array($run->settings) ? $run->settings : [];
+        $engine = is_array($settings[self::SETTINGS_ENGINE_KEY] ?? null)
+            ? $settings[self::SETTINGS_ENGINE_KEY]
+            : [];
+        $active = is_array($engine['active_dispatch'] ?? null) ? $engine['active_dispatch'] : null;
+        if ($active !== null
+            && (int) ($active['run_item_id'] ?? 0) === $runItemId
+            && (string) ($active['token'] ?? '') === $dispatchToken
+        ) {
+            unset($engine['active_dispatch']);
+            $settings[self::SETTINGS_ENGINE_KEY] = $engine;
+            $run->update(['settings' => $settings]);
+            $run->refresh();
+        }
+
+        $item = SeoProjectRunItem::query()->find($runItemId);
+        if ($item instanceof SeoProjectRunItem
+            && (int) $item->run_id === (int) $run->id
+            && (string) $item->status === SeoProjectRunItemStatus::Processing->value
+        ) {
+            $item->update([
+                'status' => SeoProjectRunItemStatus::Pending->value,
+                'started_at' => null,
+                'finished_at' => null,
+                'message' => 'Deferred: batch circuit breaker stopped further articles.',
+            ]);
+        }
+    }
+
+    private function circuitBreakerUserMessage(string $signature): string
+    {
+        if ($signature === ContentProjectBatchFailureSignature::SYSTEMIC_ROUTING
+            || str_starts_with($signature, 'ai_routing|')
+        ) {
+            return 'Đã dừng Generate: hết AI route hợp lệ 3 lần liên tiếp (systemic routing).';
+        }
+
+        $parts = explode('|', $signature);
+        $node = $parts[0] ?? 'article';
+        $classification = $parts[1] ?? 'error';
+        $provider = $parts[2] ?? '';
+
+        $detail = match (true) {
+            $classification === 'empty_response' && $provider !== '' => ucfirst($provider).' · empty response',
+            $classification === 'empty_response' => 'empty response',
+            $provider !== '' => ucfirst($provider).' · '.$classification,
+            default => $classification,
+        };
+
+        $nodeLabel = str_contains($node, 'outline') ? 'Outline' : ucfirst(str_replace('_', ' ', $node));
+
+        return 'Đã dừng Generate: '.$nodeLabel.' gặp cùng lỗi 3 lần liên tiếp. '.$detail;
     }
 
     public function finalizeIfDone(SeoProjectRun $run): void

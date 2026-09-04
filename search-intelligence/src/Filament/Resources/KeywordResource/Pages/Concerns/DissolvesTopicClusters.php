@@ -5,9 +5,9 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource\Pages\Concerns;
 
 use Filament\Notifications\Notification;
+use Livewire\Attributes\Renderless;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\DissolveTopicClusterService;
-use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterDetailBuilder;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterQuery;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\TopicClusterReclusterState;
 use Omnichannel\Addons\Seo\Support\DomainContextResolver;
@@ -15,12 +15,6 @@ use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 
 trait DissolvesTopicClusters
 {
-    public ?string $dissolveClusterKey = null;
-
-    public string $dissolveClusterLabel = '';
-
-    public int $dissolveClusterKeywordCount = 0;
-
     public function canDissolveCluster(): bool
     {
         $siteId = $this->resolveKeywordWorkspaceSiteId();
@@ -33,11 +27,17 @@ trait DissolvesTopicClusters
             && ! TopicClusterReclusterState::isMutationLocked((int) $siteId);
     }
 
-    public function openDissolveConfirm(string $clusterKey): void
+    /**
+     * Immediate dissolve — no confirm UI. Renderless so list pagination / scroll stay put.
+     *
+     * @return array{ok: bool, cluster_key?: string, label?: string, affected_count?: int}
+     */
+    #[Renderless]
+    public function dissolveTopicCluster(string $clusterKey): array
     {
         $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
         if (! TopicClusterReclusterState::assertMutationAllowed($siteId)) {
-            return;
+            return ['ok' => false];
         }
 
         if (! $this->canDissolveCluster()) {
@@ -46,71 +46,32 @@ trait DissolvesTopicClusters
                 ->danger()
                 ->send();
 
-            return;
+            return ['ok' => false];
         }
 
         $clusterKey = trim($clusterKey);
         if ($clusterKey === '') {
-            return;
+            return ['ok' => false];
         }
 
-        $detail = app(KeywordClusterDetailBuilder::class)->build($siteId > 0 ? $siteId : null, $clusterKey);
-        $keywordCount = is_array($detail) ? (int) ($detail['keyword_count'] ?? 0) : 0;
-        if ($keywordCount < 1) {
-            $counts = app(KeywordClusterQuery::class)->countsForKeys($siteId, [$clusterKey]);
-            $keywordCount = (int) ($counts[$clusterKey] ?? 0);
-        }
-
-        $this->dissolveClusterKey = $clusterKey;
-        $this->dissolveClusterLabel = is_array($detail)
-            ? (string) ($detail['label'] ?? $clusterKey)
-            : app(KeywordClusterQuery::class)->displayLabel($clusterKey, '', $siteId);
-        $this->dissolveClusterKeywordCount = max(0, $keywordCount);
-    }
-
-    public function cancelDissolveConfirm(): void
-    {
-        $this->dissolveClusterKey = null;
-        $this->dissolveClusterLabel = '';
-        $this->dissolveClusterKeywordCount = 0;
-    }
-
-    public function confirmDissolveCluster(): void
-    {
-        $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
-        if (! TopicClusterReclusterState::assertMutationAllowed($siteId)) {
-            return;
-        }
-
-        if (! $this->canDissolveCluster() || $this->dissolveClusterKey === null || trim($this->dissolveClusterKey) === '') {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.keyword.workspace_save_denied'))
-                ->danger()
-                ->send();
-
-            return;
-        }
-
-        $clusterKey = trim((string) $this->dissolveClusterKey);
-        $clusterLabel = $this->dissolveClusterLabel;
-        $shouldRedirect = $this->shouldRedirectAfterDissolve();
-
+        $clusterLabel = app(KeywordClusterQuery::class)->displayLabel($clusterKey, '', $siteId);
         $result = app(DissolveTopicClusterService::class)->dissolve($siteId, $clusterKey, $clusterLabel);
 
         if (! $result->success) {
-            $this->cancelDissolveConfirm();
             Notification::make()
                 ->title(__('seo-content-ai::filament.keyword.topic_dissolve_failed'))
                 ->danger()
                 ->send();
 
-            return;
+            return ['ok' => false, 'cluster_key' => $clusterKey];
         }
 
         $count = max(0, $result->affectedKeywordCount);
+        $label = $clusterLabel !== '' ? $clusterLabel : $clusterKey;
+
         Notification::make()
             ->title(__('seo-content-ai::filament.keyword.topic_dissolve_success_title', [
-                'label' => $clusterLabel !== '' ? $clusterLabel : $clusterKey,
+                'label' => $label,
             ]))
             ->body(trans_choice(
                 'seo-content-ai::filament.keyword.topic_dissolve_success_body',
@@ -120,23 +81,22 @@ trait DissolvesTopicClusters
             ->success()
             ->send();
 
-        $this->cancelDissolveConfirm();
-
-        if (method_exists($this, 'refreshClusterSummaryCounters')) {
-            $this->refreshClusterSummaryCounters();
-        }
-
-        if (method_exists($this, 'resetPage')) {
-            $this->resetPage();
-        }
-
-        if ($shouldRedirect) {
+        if ($this->shouldRedirectAfterDissolve()) {
             $this->redirect($this->dissolveClustersListUrl(), navigate: false);
-
-            return;
         }
+
+        return [
+            'ok' => true,
+            'cluster_key' => $clusterKey,
+            'label' => $label,
+            'affected_count' => $count,
+        ];
     }
 
+    /**
+     * List page: stay on current paginator page (never resetPage / never bump clusterDataEpoch).
+     * Detail page overrides to redirect back to the list after dissolve.
+     */
     protected function shouldRedirectAfterDissolve(): bool
     {
         return false;

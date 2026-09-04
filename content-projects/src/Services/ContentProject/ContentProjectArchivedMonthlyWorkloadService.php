@@ -8,6 +8,7 @@ use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectArchiveItem;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterMonthlyCapacityService;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ArchiveArticleHistoricalFieldResolver;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExportReviewedAtResolver;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\WordPress\Support\WordPressPermalinkBuilder;
@@ -29,8 +30,13 @@ final class ContentProjectArchivedMonthlyWorkloadService
         private readonly ContentProjectWriterMonthlyCapacityService $writerCapacity,
         private readonly WordPressPermalinkBuilder $permalinkBuilder,
         private readonly ContentProjectExportReviewedAtResolver $reviewedAtResolver = new ContentProjectExportReviewedAtResolver(),
-    ) {}
-
+        private ?ArchiveArticleHistoricalFieldResolver $historicalFields = null,
+    ) {
+        $this->historicalFields ??= new ArchiveArticleHistoricalFieldResolver(
+            $this->permalinkBuilder,
+            $this->reviewedAtResolver,
+        );
+    }
     /**
      * @return array{
      *     month: string,
@@ -157,7 +163,7 @@ final class ContentProjectArchivedMonthlyWorkloadService
 
         $writerNames = $this->writerCapacity->displayNamesByUserId(array_values($writerIds));
         $archivedByNames = $this->userNames(array_values($archivedByIds));
-        $resolvedArticleIds = $this->resolveArticleIdsForIndex($taskIds, $articleIds);
+        $resolvedArticleIds = $this->hydrateArchiveItemMaps($taskIds, $articleIds);
         $indexedByArticle = $this->indexedArticleIds($resolvedArticleIds);
         $articles = $this->loadArticles($resolvedArticleIds);
 
@@ -175,7 +181,14 @@ final class ContentProjectArchivedMonthlyWorkloadService
             $article = $resolvedArticleId > 0
                 ? $articles->get($resolvedArticleId)
                 : null;
-            $articleFields = $this->resolveArticleExportFields($article);
+            $snapshot = $this->snapshotsByTaskId[$taskId] ?? [];
+            $articleFields = $this->historicalFields->resolve(
+                $article instanceof SeoArticle ? $article : null,
+                $snapshot,
+            );
+
+            $isIndexed = isset($indexedByArticle[$resolvedArticleId])
+                || $this->isIndexedFromHistorical($articleFields['indexed_at'] ?? null);
 
             $rows[] = [
                 'writer_id' => $writerId,
@@ -188,12 +201,10 @@ final class ContentProjectArchivedMonthlyWorkloadService
                 'wordpress_url' => $articleFields['wordpress_url'],
                 'post_type' => $this->postTypeLabel((string) ($row->post_type ?? '')),
                 'plan' => $this->planLabel((string) ($row->plan_type ?? '')),
-                'index_status' => isset($indexedByArticle[$resolvedArticleId])
+                'index_status' => $isIndexed
                     ? (string) __('seo-content-ai::filament.projects.indexed')
                     : (string) __('seo-content-ai::filament.projects.not_indexed'),
-                'reviewed_at' => $this->formatReportDate(
-                    $this->reviewedAtResolver->resolve($articleFields, $article),
-                ),
+                'reviewed_at' => $this->formatReportDate($articleFields['reviewed_at'] ?? null),
                 'archived_by' => $archivedByNames[$archivedBy] ?? '',
             ];
         }
@@ -204,35 +215,60 @@ final class ContentProjectArchivedMonthlyWorkloadService
     /** @var array<int, int> task_id => article_id from archive items */
     private array $taskArticleMap = [];
 
+    /** @var array<int, array<string, mixed>> task_id => article_snapshot */
+    private array $snapshotsByTaskId = [];
+
     /**
      * @param  list<int>  $taskIds
      * @param  array<int, int>  $articleIds
      * @return list<int>
      */
-    private function resolveArticleIdsForIndex(array $taskIds, array $articleIds): array
+    private function hydrateArchiveItemMaps(array $taskIds, array $articleIds): array
     {
         $this->taskArticleMap = [];
+        $this->snapshotsByTaskId = [];
 
-        if ($taskIds !== []) {
-            $archiveItems = SeoProjectArchiveItem::query()
-                ->whereIn('task_id', $taskIds)
-                ->whereNotNull('article_id')
-                ->get(['task_id', 'article_id']);
+        if ($taskIds === []) {
+            return array_values($articleIds);
+        }
 
-            foreach ($archiveItems as $item) {
-                if (! $item instanceof SeoProjectArchiveItem) {
-                    continue;
-                }
-                $taskId = (int) ($item->task_id ?? 0);
-                $articleId = (int) ($item->article_id ?? 0);
-                if ($taskId > 0 && $articleId > 0) {
-                    $this->taskArticleMap[$taskId] = $articleId;
-                    $articleIds[$articleId] = $articleId;
-                }
+        $archiveItems = SeoProjectArchiveItem::query()
+            ->whereIn('task_id', $taskIds)
+            ->get(['task_id', 'article_id', 'article_snapshot']);
+
+        foreach ($archiveItems as $item) {
+            if (! $item instanceof SeoProjectArchiveItem) {
+                continue;
+            }
+            $taskId = (int) ($item->task_id ?? 0);
+            if ($taskId <= 0) {
+                continue;
+            }
+            $articleId = (int) ($item->article_id ?? 0);
+            if ($articleId > 0) {
+                $this->taskArticleMap[$taskId] = $articleId;
+                $articleIds[$articleId] = $articleId;
+            }
+            $snapshot = is_array($item->article_snapshot) ? $item->article_snapshot : [];
+            if ($snapshot !== []) {
+                $this->snapshotsByTaskId[$taskId] = $snapshot;
             }
         }
 
         return array_values($articleIds);
+    }
+
+    private function isIndexedFromHistorical(mixed $indexedAt): bool
+    {
+        if ($indexedAt === null || $indexedAt === '') {
+            return false;
+        }
+
+        if (is_string($indexedAt) && trim($indexedAt) === '') {
+            return false;
+        }
+
+        return true;
     }
 
     /**
@@ -257,41 +293,6 @@ final class ContentProjectArchivedMonthlyWorkloadService
             ->keyBy(static fn (SeoArticle $article): int => (int) $article->getKey());
     }
 
-    /**
-     * Final published article fields only — never task planning title/keyword.
-     *
-     * @return array{title: string, keyword: string, wordpress_url: string, reviewed_at: mixed, last_update_wp: mixed, wp_created_at: mixed}
-     */
-    private function resolveArticleExportFields(?SeoArticle $article): array
-    {
-        if (! $article instanceof SeoArticle) {
-            return [
-                'title' => '',
-                'keyword' => '',
-                'wordpress_url' => '',
-                'reviewed_at' => null,
-                'last_update_wp' => null,
-                'wp_created_at' => null,
-            ];
-        }
-
-        $title = trim((string) ($article->title ?? ''));
-        $keyword = trim((string) ($this->articleMeta($article, 'seo_focus_keyword') ?? ''));
-        $permalink = trim((string) ($this->articleMeta($article, 'wp_permalink') ?? ''));
-        $wordpressUrl = trim($this->permalinkBuilder->resolve(
-            $article,
-            $permalink,
-            trim((string) ($article->slug ?? '')) !== '' ? (string) $article->slug : null,
-        ));
-
-        return [
-            'title' => $title,
-            'keyword' => $keyword,
-            'wordpress_url' => $wordpressUrl,
-            ...$this->reviewedAtResolver->exportFields($article),
-        ];
-    }
-
     private function formatReportDate(mixed $value): string
     {
         if ($value === null || $value === '') {
@@ -307,23 +308,6 @@ final class ContentProjectArchivedMonthlyWorkloadService
         } catch (\Throwable) {
             return is_scalar($value) ? (string) $value : '';
         }
-    }
-
-    private function articleMeta(?SeoArticle $article, string $key): ?string
-    {
-        if (! $article instanceof SeoArticle) {
-            return null;
-        }
-
-        $article->loadMissing('articleMetas');
-        $value = $article->articleMetas->firstWhere('meta_key', $key)?->meta_value;
-        if (! is_string($value)) {
-            return null;
-        }
-
-        $trimmed = trim($value);
-
-        return $trimmed !== '' ? $trimmed : null;
     }
 
     /**

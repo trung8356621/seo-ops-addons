@@ -46,9 +46,7 @@ final class SplitOutlineHookVerticalSliceTest extends TestCase
 
     private function outlineOnlyOutput(): string
     {
-        $body = $this->pad('# Outline H1 with enough length for validation');
-
-        return "[START_TASK_1_OUTLINE]\n{$body}\n[END_TASK_1_OUTLINE]";
+        return $this->pad('# Outline H1 with enough length for validation');
     }
 
     private function vocabularyOnlyOutput(): string
@@ -66,9 +64,8 @@ final class SplitOutlineHookVerticalSliceTest extends TestCase
                 $lines[] = "- {$group} item {$i} with enough length for validation";
             }
         }
-        $body = implode("\n", $lines);
 
-        return "[START_TASK_2_VOCABULARY]\n{$body}\n[END_TASK_2_VOCABULARY]";
+        return implode("\n", $lines);
     }
 
     /**
@@ -149,8 +146,7 @@ final class SplitOutlineHookVerticalSliceTest extends TestCase
         ]);
 
         self::assertStringContainsString('Outline H1', $result['output'] ?? '');
-        self::assertStringContainsString('Outline H1', $result['ports']['task_1_outline'] ?? '');
-        self::assertStringNotContainsString('[START_TASK_1_OUTLINE]', $result['ports']['task_1_outline'] ?? '');
+        self::assertStringNotContainsString('[START_TASK_1_OUTLINE]', $result['output'] ?? '');
         self::assertStringNotContainsString('START_TASK_2_VOCABULARY', $result['output'] ?? '');
     }
 
@@ -182,8 +178,7 @@ final class SplitOutlineHookVerticalSliceTest extends TestCase
         ]);
 
         self::assertStringContainsString('### Holonymy', $result['output'] ?? '');
-        self::assertStringContainsString('Holonymy', $result['ports']['task_2_vocabulary'] ?? '');
-        self::assertStringNotContainsString('[START_TASK_2_VOCABULARY]', $result['ports']['task_2_vocabulary'] ?? '');
+        self::assertStringNotContainsString('[START_TASK_2_VOCABULARY]', $result['output'] ?? '');
         self::assertStringNotContainsString('START_TASK_1_OUTLINE', $result['output'] ?? '');
     }
 

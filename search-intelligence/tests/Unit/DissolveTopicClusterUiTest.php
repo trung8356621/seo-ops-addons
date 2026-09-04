@@ -9,46 +9,52 @@ use Tests\Support\LegacyAddonPath;
 
 final class DissolveTopicClusterUiTest extends TestCase
 {
-    public function test_cluster_list_has_dissolve_row_action(): void
+    public function test_cluster_list_has_immediate_dissolve_row_action(): void
     {
         $index = (string) file_get_contents(LegacyAddonPath::resolve(
             'resources/views/filament/resources/keywords/pages/topic-cluster-index.blade.php',
+        ));
+        $menu = (string) file_get_contents(LegacyAddonPath::resolve(
+            'resources/views/filament/resources/keywords/pages/partials/cluster-row-actions-menu.blade.php',
         ));
         $partial = (string) file_get_contents(LegacyAddonPath::resolve(
             'resources/views/filament/resources/keywords/pages/partials/dissolve-cluster-row-action.blade.php',
         ));
 
         self::assertStringContainsString('dissolve-cluster-row-action', $index);
-        self::assertStringContainsString('topic_dissolve_action', $partial);
-        self::assertStringContainsString('openDissolveConfirm(', $partial);
-        self::assertStringContainsString('Illuminate\\Support\\Js::from', $partial);
-        self::assertStringContainsString('seo-content-ai::content-project-action-menu-shell', $partial);
-        self::assertStringContainsString('content-project-ops-styles', $index);
-        self::assertStringContainsString('cluster-index-row__actions', $index);
-        self::assertStringContainsString('clusterDataEpoch', $index);
-        self::assertStringContainsString('canDissolveCluster', $index);
-        self::assertStringContainsString('dissolve-cluster-modal', $index);
+        self::assertStringContainsString('topic_dissolve_action', $menu);
+        self::assertStringContainsString('dissolveTopic()', $menu);
+        self::assertStringContainsString('dissolveTopicCluster(', $menu);
+        self::assertStringContainsString('row?.remove()', $menu);
+        self::assertStringContainsString('dissolveTopic()', $partial);
+        self::assertStringContainsString('row?.remove()', $partial);
+        self::assertStringContainsString('data-cluster-key=', $index);
+        self::assertStringContainsString('wire:key="cluster-row-{{ $rowKey }}"', $index);
+        self::assertStringNotContainsString('dissolve-cluster-modal', $index);
+        self::assertStringNotContainsString('openDissolveConfirm', $index);
+        self::assertStringNotContainsString('openDissolveConfirm', $menu);
+        self::assertStringNotContainsString('openDissolveConfirm', $partial);
+        self::assertStringNotContainsString('window.confirm', $menu);
+        self::assertStringNotContainsString('confirm(', $menu);
+        self::assertFileDoesNotExist(
+            dirname(__DIR__, 3).'/seo-content-ai-compat/resources/views/filament/resources/keywords/pages/partials/dissolve-cluster-modal.blade.php',
+        );
     }
 
-    public function test_cluster_detail_has_dissolve_header_action(): void
+    public function test_cluster_detail_dissolves_immediately_without_modal(): void
     {
         $detail = (string) file_get_contents(LegacyAddonPath::resolve(
             'resources/views/filament/resources/keywords/pages/topic-cluster-detail.blade.php',
         ));
 
         self::assertStringContainsString('topic_dissolve_action', $detail);
-        self::assertStringContainsString('openDissolveConfirm(', $detail);
+        self::assertStringContainsString('dissolveTopicCluster(', $detail);
         self::assertStringContainsString('Illuminate\\Support\\Js::from', $detail);
         self::assertStringContainsString('canDissolveCluster', $detail);
-        self::assertStringContainsString('dissolve-cluster-modal', $detail);
-        // Modal must stay mounted after dissolve clears detail members (outside @if ($detail)).
-        $emptyPos = strpos($detail, 'topic_empty_clusters');
-        $modalPos = strpos($detail, 'partials.dissolve-cluster-modal');
-        self::assertNotFalse($emptyPos);
-        self::assertNotFalse($modalPos);
-        $endifAfterElse = strpos($detail, '@endif', $emptyPos);
-        self::assertNotFalse($endifAfterElse);
-        self::assertGreaterThan($endifAfterElse, $modalPos);
+        self::assertStringContainsString('topic_dissolve_working', $detail);
+        self::assertStringNotContainsString('openDissolveConfirm', $detail);
+        self::assertStringNotContainsString('dissolve-cluster-modal', $detail);
+        self::assertStringNotContainsString('window.confirm', $detail);
     }
 
     public function test_index_title_is_not_navigation_link(): void
@@ -78,33 +84,22 @@ final class DissolveTopicClusterUiTest extends TestCase
         self::assertStringContainsString('DissolvesTopicClusters', $detailPage);
         self::assertStringContainsString('DissolveTopicClusterService', $trait);
         self::assertStringContainsString('TopicClusterDissolveSideEffects', (string) file_get_contents(dirname(__DIR__, 2).'/src/Services/KeywordIntelligence/DissolveTopicClusterService.php'));
-        self::assertStringContainsString('confirmDissolveCluster', $trait);
+        self::assertStringContainsString('dissolveTopicCluster', $trait);
         self::assertStringContainsString('TopicClusterDerivedCleanup', (string) file_get_contents(dirname(__DIR__, 2).'/src/Services/KeywordIntelligence/DissolveTopicClusterService.php'));
     }
 
-    public function test_confirmation_modal_is_required_before_mutation(): void
-    {
-        $modal = (string) file_get_contents(LegacyAddonPath::resolve(
-            'resources/views/filament/resources/keywords/pages/partials/dissolve-cluster-modal.blade.php',
-        ));
-
-        self::assertStringContainsString('dissolveClusterKey', $modal);
-        self::assertStringContainsString('confirmDissolveCluster', $modal);
-        self::assertStringContainsString('cancelDissolveConfirm', $modal);
-        self::assertStringContainsString('topic_dissolve_confirm', $modal);
-        self::assertStringContainsString('topic_dissolve_cancel', $modal);
-
-        $index = (string) file_get_contents(LegacyAddonPath::resolve(
-            'resources/views/filament/resources/keywords/pages/topic-cluster-index.blade.php',
-        ));
-        self::assertStringNotContainsString('wire:click="confirmDissolveCluster"', $index);
-    }
-
-    public function test_list_dissolve_does_not_force_full_page_reload(): void
+    public function test_list_dissolve_is_renderless_and_preserves_pagination(): void
     {
         $trait = (string) file_get_contents(dirname(__DIR__, 2).'/src/Filament/Resources/KeywordResource/Pages/Concerns/DissolvesTopicClusters.php');
         $detailPage = (string) file_get_contents(dirname(__DIR__, 2).'/src/Filament/Resources/KeywordResource/Pages/KeywordTopicClusterDetail.php');
 
+        self::assertStringContainsString('#[Renderless]', $trait);
+        self::assertStringContainsString('function dissolveTopicCluster', $trait);
+        self::assertStringNotContainsString('resetPage()', $trait);
+        self::assertStringNotContainsString('refreshClusterSummaryCounters', $trait);
+        self::assertStringNotContainsString('openDissolveConfirm', $trait);
+        self::assertStringNotContainsString('confirmDissolveCluster', $trait);
+        self::assertStringNotContainsString('dissolveClusterKey', $trait);
         self::assertStringContainsString('shouldRedirectAfterDissolve', $trait);
         self::assertStringContainsString('return true', $detailPage);
         self::assertStringNotContainsString('return true', $trait);

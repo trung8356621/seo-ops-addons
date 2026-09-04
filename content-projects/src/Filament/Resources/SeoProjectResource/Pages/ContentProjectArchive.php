@@ -16,12 +16,15 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Comma
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectActionResultNotifier;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectCommandBus;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectArchivedMonthExportService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectExcelRawTemplateDownloadService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectExcelTemplateSettingsService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectMonthlyWorkloadService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectArchiveExportService;
 use Omnichannel\Addons\Content\Exceptions\ArticleReviewException;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectArchiveVaultListPresenter;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthChartPresenter;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ExcelTemplate\ExcelDataLayoutMode;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use App\Models\User;
 use App\Support\RuntimeLogger;
@@ -32,6 +35,8 @@ use Filament\Support\Enums\MaxWidth;
 use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Database\Eloquent\Builder;
+use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
+use Livewire\WithFileUploads;
 use Livewire\WithPagination;
 use RuntimeException;
 use Symfony\Component\HttpFoundation\StreamedResponse;
@@ -39,6 +44,7 @@ use Throwable;
 
 final class ContentProjectArchive extends Page
 {
+    use WithFileUploads;
     use WithPagination;
 
     protected static string $resource = SeoProjectResource::class;
@@ -76,6 +82,11 @@ final class ContentProjectArchive extends Page
     /** Execution month SoT for archived charts + list (YYYY-MM). */
     public string $planningMonth = '';
 
+    /** @var TemporaryUploadedFile|null */
+    public $excelTemplateUpload = null;
+
+    public string $excelDataLayoutMode = '';
+
     /** @var array<string, mixed>|null Request-local cache for archived forMonth(). */
     private ?array $archivedMonthWorkloadCache = null;
 
@@ -105,6 +116,9 @@ final class ContentProjectArchive extends Page
         $this->searchInput = $this->search;
         $this->planningMonth = $this->resolvePlanningMonth();
         $this->syncPlanningMonthToLegacyFilters();
+        $this->excelDataLayoutMode = app(ContentProjectExcelTemplateSettingsService::class)
+            ->dataLayoutMode()
+            ->value;
     }
 
     public function updatedPlanningMonth(mixed $value): void
@@ -543,6 +557,132 @@ final class ContentProjectArchive extends Page
 
             abort(500, $exception->getMessage());
         }
+    }
+
+    /**
+     * @return array{data_layout_mode: string, template_path: string|null, has_template: bool}
+     */
+    public function getExcelTemplateSettings(): array
+    {
+        return app(ContentProjectExcelTemplateSettingsService::class)->getSettings();
+    }
+
+    public function saveExcelDataLayoutMode(): void
+    {
+        abort_unless(SeoAccessControl::canViewProjectArchives(), 403);
+
+        $mode = ExcelDataLayoutMode::tryFromMixed($this->excelDataLayoutMode)
+            ?? ExcelDataLayoutMode::default();
+        app(ContentProjectExcelTemplateSettingsService::class)->saveDataLayoutMode($mode);
+        $this->excelDataLayoutMode = $mode->value;
+
+        Notification::make()
+            ->title(__('seo-content-ai::filament.projects.excel_tpl_layout_saved'))
+            ->success()
+            ->send();
+    }
+
+    public function downloadRawTemplate(): StreamedResponse
+    {
+        abort_unless(SeoAccessControl::canViewProjectArchives(), 403);
+
+        try {
+            $mode = ExcelDataLayoutMode::tryFromMixed($this->excelDataLayoutMode)
+                ?? ExcelDataLayoutMode::default();
+            app(ContentProjectExcelTemplateSettingsService::class)->saveDataLayoutMode($mode);
+            $this->excelDataLayoutMode = $mode->value;
+
+            return app(ContentProjectExcelRawTemplateDownloadService::class)->streamDownload($mode);
+        } catch (Throwable $exception) {
+            RuntimeLogger::report($exception, [
+                'endpoint' => 'content_project_archive.download_raw_template',
+                'data_layout_mode' => $this->excelDataLayoutMode,
+            ]);
+
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.archive_failed'))
+                ->body($exception->getMessage())
+                ->danger()
+                ->send();
+
+            abort(500, $exception->getMessage());
+        }
+    }
+
+    public function updatedExcelTemplateUpload(): void
+    {
+        abort_unless(SeoAccessControl::canViewProjectArchives(), 403);
+
+        if (! $this->excelTemplateUpload instanceof TemporaryUploadedFile) {
+            return;
+        }
+
+        $ext = strtolower((string) $this->excelTemplateUpload->getClientOriginalExtension());
+        if ($ext !== 'xlsx') {
+            $this->excelTemplateUpload = null;
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.excel_tpl_invalid'))
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        try {
+            app(ContentProjectExcelTemplateSettingsService::class)->storeTemplate($this->excelTemplateUpload);
+            $this->excelTemplateUpload = null;
+
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.excel_tpl_uploaded'))
+                ->success()
+                ->send();
+        } catch (Throwable $exception) {
+            RuntimeLogger::report($exception, [
+                'endpoint' => 'content_project_archive.excel_template_upload',
+            ]);
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.archive_failed'))
+                ->body($exception->getMessage())
+                ->danger()
+                ->send();
+        }
+    }
+
+    public function downloadExcelTemplate(): StreamedResponse
+    {
+        abort_unless(SeoAccessControl::canViewProjectArchives(), 403);
+
+        $path = app(ContentProjectExcelTemplateSettingsService::class)->absoluteTemplatePath();
+        if ($path === null || ! is_file($path)) {
+            abort(404);
+        }
+
+        return response()->streamDownload(
+            static function () use ($path): void {
+                $handle = fopen($path, 'rb');
+                if ($handle === false) {
+                    return;
+                }
+                fpassthru($handle);
+                fclose($handle);
+            },
+            ContentProjectExcelTemplateSettingsService::TEMPLATE_FILENAME,
+            [
+                'Content-Type' => 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            ],
+        );
+    }
+
+    public function deleteExcelTemplate(): void
+    {
+        abort_unless(SeoAccessControl::canViewProjectArchives(), 403);
+
+        app(ContentProjectExcelTemplateSettingsService::class)->deleteTemplate();
+
+        Notification::make()
+            ->title(__('seo-content-ai::filament.projects.excel_tpl_removed'))
+            ->success()
+            ->send();
     }
 
     public function reopenArticle(int $articleId): void

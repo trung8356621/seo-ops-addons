@@ -11,6 +11,7 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProjectRunItem;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SplitDraftContentProjectCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectExecutionPackingService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\McpPlanning\McpPlanningSignalService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Planner\ContentProjectPlannerRunService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterMonthlyCapacityService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectArticleOwnerSyncService;
@@ -40,6 +41,7 @@ final class SplitDraftContentProjectService
         private readonly SeoProjectArticleOwnerSyncService $articleOwnerSync,
         private readonly ContentProjectWriterMonthlyCapacityService $capacity,
         private readonly ContentProjectExecutionPackingService $packing,
+        private readonly McpPlanningSignalService $mcpPlanning = new McpPlanningSignalService,
     ) {}
 
     /**
@@ -308,6 +310,8 @@ final class SplitDraftContentProjectService
 
                     $execution->syncTotalTasksCounter();
                     $this->articleOwnerSync->syncProjectArticles($execution->fresh() ?? $execution);
+                    // Draft reviewed → execution: MCP +N source switches to project.meta.mcp_planning.
+                    $this->mcpPlanning->recordSplitToExecution($execution->fresh() ?? $execution, $chunkIds);
 
                     $row = [
                         'execution_project_id' => (int) $execution->getKey(),

@@ -107,6 +107,10 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
         $this->app->singleton(\Omnichannel\Addons\Commerce\Services\ProductGallery\ProductGalleryPromptHookRuntime::class);
         $this->app->singleton(\Omnichannel\Addons\Commerce\Services\ProductGallery\ProductGalleryPromptsDoctorService::class);
         $this->app->singleton(\Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookUiFailureMapper::class);
+        $this->app->bind(
+            \Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookBindingRunner::class,
+            \Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookExplicitBindingExecutor::class,
+        );
 
         $this->app->bind(
             \Omnichannel\Addons\Seo\Contracts\ProductGalleryParentChildAiPort::class,

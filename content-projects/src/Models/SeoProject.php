@@ -51,6 +51,7 @@ class SeoProject extends Model
         'source_draft_project_id' => 'integer',
         'archived_at' => 'datetime',
         'archived_by' => 'integer',
+        'meta' => 'array',
     ];
 
     public function site(): BelongsTo

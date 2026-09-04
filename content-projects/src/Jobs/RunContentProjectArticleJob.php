@@ -156,6 +156,18 @@ final class RunContentProjectArticleJob implements ShouldBeUnique, ShouldQueue
             return;
         }
 
+        // Circuit breaker: leave item pending — do not execute or mark error.
+        if ($engine->isCircuitBreakerStopped($run)) {
+            RuntimeLogger::info('content_project_run.stale_job_ignored', [
+                'run_id' => $this->runId,
+                'run_item_id' => $this->runItemId,
+                'reason' => 'circuit_breaker_stopped',
+            ]);
+            $engine->releaseSkippedDispatch($run, $this->runItemId, $this->dispatchToken);
+
+            return;
+        }
+
         // Boundary: cancel before execute
         if ($cancellationGuard->isStopRequested($run) || $cancellationGuard->isTerminal($run)) {
             $this->markItemCancelled($item, $statusMapper);

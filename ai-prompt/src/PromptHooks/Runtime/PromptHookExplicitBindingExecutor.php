@@ -20,7 +20,7 @@ use InvalidArgumentException;
  * Editor/workflow execution when SeoPrompt has explicit versioned hook binding.
  * Does not use global migration mode. Never falls back to legacy after provider call.
  */
-final class PromptHookExplicitBindingExecutor
+final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
 {
     public function __construct(
         private readonly PromptHookRuntimeEngine $engine,
@@ -107,7 +107,7 @@ final class PromptHookExplicitBindingExecutor
             'locale' => isset($contextExtras['locale']) ? (string) $contextExtras['locale'] : ($variables['language'] ?? null),
             'language' => $variables['language'] ?? ($contextExtras['locale'] ?? null),
         ];
-        foreach (['team_id', 'connection_id', 'article_id', 'actor_id'] as $key) {
+        foreach (['team_id', 'connection_id', 'article_id', 'actor_id', 'run_id', 'project_run_id', 'run_item_id', 'attempt', 'project_task_id', 'task_id', 'project_id', 'outline_subtask'] as $key) {
             if (array_key_exists($key, $contextExtras) && $contextExtras[$key] !== null) {
                 $context[$key] = $contextExtras[$key];
             }
@@ -381,6 +381,17 @@ final class PromptHookExplicitBindingExecutor
             if (ContentProjectItemIdentity::normalize(isset($out['title']) ? (string) $out['title'] : null) === '') {
                 $out['title'] = $title;
             }
+        }
+
+        // Canonical {{input}} for split Outline/Vocabulary prompts.
+        $canonicalInput = ContentProjectItemIdentity::normalize(
+            isset($out['input']) ? (string) $out['input'] : null,
+        );
+        if ($canonicalInput === '') {
+            $canonicalInput = $keyword !== '' ? $keyword : $title;
+        }
+        if ($canonicalInput !== '') {
+            $out['input'] = $canonicalInput;
         }
 
         $site = ContentProjectItemIdentity::normalize(

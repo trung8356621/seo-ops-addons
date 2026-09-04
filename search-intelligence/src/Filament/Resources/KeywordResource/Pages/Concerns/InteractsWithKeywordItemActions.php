@@ -24,6 +24,11 @@ trait InteractsWithKeywordItemActions
     /** @var array<string, string> */
     public array $moveClusterOptions = [];
 
+    /** idle|loading|ready|error */
+    public string $moveClusterModalPhase = 'idle';
+
+    public string $moveClusterModalError = '';
+
     public function openKeywordLinkedArticles(int $keywordId): void
     {
         if ($keywordId <= 0) {
@@ -171,23 +176,73 @@ trait InteractsWithKeywordItemActions
 
     public function openMoveClusterModal(int $keywordId): void
     {
-        $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
-        if (! TopicClusterReclusterState::assertMutationAllowed($siteId)) {
-            return;
-        }
-
-        if ($keywordId <= 0 || $siteId <= 0) {
-            return;
-        }
-
-        $this->moveClusterKeywordId = $keywordId;
-        $this->moveClusterTargetKey = '';
-        $this->moveClusterOptions = $this->buildMoveClusterOptions($siteId);
         $this->dispatch('open-modal', id: 'keyword-move-cluster-modal');
+        $this->prepareMoveClusterModal($keywordId);
+    }
+
+    /**
+     * Prepare move-cluster options. Prefer opening the Filament modal shell on the client
+     * before awaiting this method so the user sees immediate feedback.
+     */
+    public function prepareMoveClusterModal(int $keywordId): void
+    {
+        $this->moveClusterModalPhase = 'loading';
+        $this->moveClusterModalError = '';
+        $this->moveClusterKeywordId = $keywordId > 0 ? $keywordId : null;
+        $this->moveClusterTargetKey = '';
+        $this->moveClusterOptions = [];
+
+        try {
+            $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
+            if (! TopicClusterReclusterState::assertMutationAllowed($siteId)) {
+                $this->resetMoveClusterModal();
+                $this->dispatch('close-modal', id: 'keyword-move-cluster-modal');
+
+                return;
+            }
+
+            if ($keywordId <= 0 || $siteId <= 0) {
+                $this->failMoveClusterModalLoad(__('seo-content-ai::filament.keyword.keyword_item_move_cluster_loading_failed'));
+
+                return;
+            }
+
+            $this->moveClusterOptions = $this->buildMoveClusterOptions($siteId);
+            $this->moveClusterModalPhase = 'ready';
+        } catch (\Throwable $e) {
+            $this->failMoveClusterModalLoad(
+                $e->getMessage() !== ''
+                    ? $e->getMessage()
+                    : __('seo-content-ai::filament.keyword.keyword_item_move_cluster_loading_failed')
+            );
+        }
+    }
+
+    public function resetMoveClusterModal(): void
+    {
+        $this->moveClusterKeywordId = null;
+        $this->moveClusterTargetKey = '';
+        $this->moveClusterOptions = [];
+        $this->moveClusterModalPhase = 'idle';
+        $this->moveClusterModalError = '';
+    }
+
+    public function retryMoveClusterModal(): void
+    {
+        $keywordId = (int) ($this->moveClusterKeywordId ?? 0);
+        if ($keywordId <= 0) {
+            return;
+        }
+
+        $this->prepareMoveClusterModal($keywordId);
     }
 
     public function confirmMoveKeywordCluster(): void
     {
+        if ($this->moveClusterModalPhase !== 'ready') {
+            return;
+        }
+
         $keywordId = (int) ($this->moveClusterKeywordId ?? 0);
         $clusterKey = trim($this->moveClusterTargetKey);
         $siteId = (int) ($this->resolveKeywordWorkspaceSiteId() ?? 0);
@@ -217,10 +272,16 @@ trait InteractsWithKeywordItemActions
             ->success()
             ->send();
 
-        $this->moveClusterKeywordId = null;
-        $this->moveClusterTargetKey = '';
+        $this->resetMoveClusterModal();
         $this->dispatch('close-modal', id: 'keyword-move-cluster-modal');
         $this->afterKeywordItemMutation();
+    }
+
+    private function failMoveClusterModalLoad(string $message): void
+    {
+        $this->moveClusterModalPhase = 'error';
+        $this->moveClusterModalError = $message;
+        $this->moveClusterOptions = [];
     }
 
     /**

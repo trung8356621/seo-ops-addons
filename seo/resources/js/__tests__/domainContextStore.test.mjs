@@ -137,6 +137,15 @@ describe('site_id URL ↔ domain key', () => {
             '/seo/keywords/clusters?site_id=6',
         );
     });
+
+    it('SEO Audit stays domain-scoped and preserves draft_domain when writing site_id', () => {
+        assert.equal(isDomainNeutralPanelPath('/seo/content-projects/seo-audit'), false);
+        assert.equal(isDomainNeutralPanelPath('/seo/abc/content-projects/seo-audit?draft_domain=6'), false);
+        assert.equal(
+            buildUrlWithDomain('/seo/content-projects/seo-audit?draft_domain=6', 'mayhopphat.com'),
+            '/seo/content-projects/seo-audit?draft_domain=6&site_id=6',
+        );
+    });
 });
 
 describe('URL representation', () => {
@@ -161,5 +170,6 @@ describe('URL representation', () => {
         assert.equal(isDomainNeutralPanelPath('/seo/abc/publishing-queue'), true);
         assert.equal(isDomainNeutralPanelPath('/seo/abc/articles'), false);
         assert.equal(isDomainNeutralPanelPath('/seo/abc/keywords'), false);
+        assert.equal(isDomainNeutralPanelPath('/seo/content-projects/seo-audit'), false);
     });
 });

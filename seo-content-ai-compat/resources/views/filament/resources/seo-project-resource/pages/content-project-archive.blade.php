@@ -127,6 +127,115 @@
                     </div>
                 </div>
 
+                @php
+                    $excelTplSettings = $this->getExcelTemplateSettings();
+                    $excelTplName = $excelTplSettings['has_template']
+                        ? \Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectExcelTemplateSettingsService::TEMPLATE_FILENAME
+                        : null;
+                @endphp
+                <div
+                    class="rounded-xl border border-gray-200 bg-white p-3 dark:border-gray-700 dark:bg-gray-900"
+                    x-data="{ open: false }"
+                >
+                    <button
+                        type="button"
+                        class="flex w-full items-center justify-between gap-2 text-left text-sm font-medium text-gray-800 dark:text-gray-100"
+                        @click="open = !open"
+                    >
+                        <span>{{ __('seo-content-ai::filament.projects.excel_tpl_panel_toggle') }}</span>
+                        <x-filament::icon
+                            icon="heroicon-m-chevron-down"
+                            class="h-4 w-4 transition-transform"
+                            x-bind:class="open ? 'rotate-180' : ''"
+                        />
+                    </button>
+
+                    <div x-show="open" x-cloak class="mt-3 space-y-4 border-t border-gray-100 pt-3 dark:border-gray-800">
+                        <div>
+                            <h3 class="text-sm font-semibold text-gray-800 dark:text-gray-100">
+                                {{ __('seo-content-ai::filament.projects.excel_tpl_panel_title') }}
+                            </h3>
+                            <p class="mt-1 text-xs text-gray-600 dark:text-gray-300">
+                                {{ __('seo-content-ai::filament.projects.excel_tpl_current_label') }}:
+                                <span class="font-medium">{{ $excelTplName ?? __('seo-content-ai::filament.projects.excel_tpl_none_file') }}</span>
+                            </p>
+                            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                                {{ __('seo-content-ai::filament.projects.excel_tpl_sample_help') }}
+                            </p>
+                        </div>
+
+                        <div class="flex flex-wrap items-center gap-2">
+                            <label class="inline-flex cursor-pointer items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50 dark:text-gray-200 dark:ring-gray-600">
+                                <input type="file" class="sr-only" wire:model="excelTemplateUpload" accept=".xlsx,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+                                <x-filament::loading-indicator class="h-4 w-4" wire:loading wire:target="excelTemplateUpload" />
+                                <span>{{ __('seo-content-ai::filament.projects.excel_tpl_upload') }}</span>
+                            </label>
+                            @if ($excelTplSettings['has_template'])
+                                <button
+                                    type="button"
+                                    wire:click="downloadExcelTemplate"
+                                    wire:loading.attr="disabled"
+                                    wire:target="downloadExcelTemplate"
+                                    class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-200 dark:ring-gray-600"
+                                >
+                                    <x-filament::loading-indicator class="h-4 w-4" wire:loading wire:target="downloadExcelTemplate" />
+                                    <span>{{ __('seo-content-ai::filament.projects.excel_tpl_download') }}</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    wire:click="deleteExcelTemplate"
+                                    wire:loading.attr="disabled"
+                                    wire:target="deleteExcelTemplate"
+                                    class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-danger-700 ring-1 ring-danger-300 hover:bg-danger-50 disabled:opacity-50 dark:text-danger-300"
+                                >
+                                    <x-filament::loading-indicator class="h-4 w-4" wire:loading wire:target="deleteExcelTemplate" />
+                                    <span>{{ __('seo-content-ai::filament.projects.excel_tpl_remove') }}</span>
+                                </button>
+                            @endif
+                        </div>
+
+                        <div>
+                            <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-300">
+                                {{ __('seo-content-ai::filament.projects.excel_tpl_layout_mode') }}
+                            </label>
+                            <div class="flex flex-col gap-2 text-sm text-gray-800 dark:text-gray-100">
+                                <label class="inline-flex items-center gap-2">
+                                    <input type="radio" wire:model="excelDataLayoutMode" value="BY_WRITER_SHEET" class="rounded-full border-gray-300 text-primary-600 focus:ring-primary-500">
+                                    <span>{{ __('seo-content-ai::filament.projects.excel_tpl_layout_by_writer') }}</span>
+                                </label>
+                                <label class="inline-flex items-center gap-2">
+                                    <input type="radio" wire:model="excelDataLayoutMode" value="SINGLE_DATA_SHEET" class="rounded-full border-gray-300 text-primary-600 focus:ring-primary-500">
+                                    <span>{{ __('seo-content-ai::filament.projects.excel_tpl_layout_single_data') }}</span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="flex flex-wrap items-center gap-2">
+                            <button
+                                type="button"
+                                wire:click="saveExcelDataLayoutMode"
+                                wire:loading.attr="disabled"
+                                wire:target="saveExcelDataLayoutMode"
+                                class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-primary-700 ring-1 ring-primary-300 hover:bg-primary-50 disabled:opacity-50 dark:text-primary-300 dark:ring-primary-500/40"
+                            >
+                                <x-filament::loading-indicator class="h-4 w-4" wire:loading wire:target="saveExcelDataLayoutMode" />
+                                <span>{{ __('seo-content-ai::filament.projects.excel_tpl_layout_save') }}</span>
+                            </button>
+                            <button
+                                type="button"
+                                wire:click="downloadRawTemplate"
+                                wire:loading.attr="disabled"
+                                wire:target="downloadRawTemplate"
+                                class="inline-flex items-center gap-1.5 rounded-lg px-3 py-2 text-sm font-medium text-gray-700 ring-1 ring-gray-300 hover:bg-gray-50 disabled:opacity-50 dark:text-gray-200 dark:ring-gray-600"
+                            >
+                                <x-filament::loading-indicator class="h-4 w-4" wire:loading wire:target="downloadRawTemplate" />
+                                <span wire:loading.remove wire:target="downloadRawTemplate">{{ __('seo-content-ai::filament.projects.excel_tpl_download_raw') }}</span>
+                                <span wire:loading wire:target="downloadRawTemplate">{{ __('seo-content-ai::filament.projects.excel_tpl_download_raw_running') }}</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
                 <div
                     x-show="filtersOpen"
                     x-cloak
@@ -216,7 +325,7 @@
 
                 <x-seo-content-ai::list-table-loading-shell
                     preset="livewire-page"
-                    targets="search,applySearch,clearSearch,siteFilter,monthFilter,yearFilter,ownerFilter,archivedByFilter,clearFilters,setActiveTab,exportMonth"
+                    targets="search,applySearch,clearSearch,siteFilter,monthFilter,yearFilter,ownerFilter,archivedByFilter,clearFilters,setActiveTab,exportMonth,saveExcelDataLayoutMode,excelTemplateUpload,downloadExcelTemplate,deleteExcelTemplate,downloadRawTemplate"
                 >
                 <div class="w-full overflow-x-auto rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
                     <table class="w-full min-w-full table-fixed divide-y divide-gray-200 text-sm dark:divide-gray-700">

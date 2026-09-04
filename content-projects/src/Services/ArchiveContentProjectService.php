@@ -14,6 +14,7 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\Content\Services\ArticleEditor\ArticleEditorSessionService;
 use Omnichannel\Addons\Content\Services\ArticleLastSavedTimestampService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\McpPlanning\McpPlanningMetaStore;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\ContentProjectAiWorkspaceDestroyer;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\ContentProjectWorkspaceCleanupContext;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExportReviewedAtResolver;
@@ -40,6 +41,7 @@ final class ArchiveContentProjectService
         private readonly ContentProjectAiWorkspaceDestroyer $workspaceDestroyer,
         private readonly ArticleEditorSessionService $editorSessions,
         private readonly ContentProjectExportReviewedAtResolver $reviewedAtResolver = new ContentProjectExportReviewedAtResolver(),
+        private readonly McpPlanningMetaStore $mcpPlanningMeta = new McpPlanningMetaStore,
     ) {}
 
     /**
@@ -294,6 +296,9 @@ final class ArchiveContentProjectService
                 'archived_at' => $archivedAt,
                 'archived_by' => $userId,
             ])->saveQuietly();
+
+            // Drop MCP pipeline signal only — do not wipe other project.meta keys.
+            $this->mcpPlanningMeta->clear($lockedProject);
 
             RuntimeLogger::info('content_project_archived', [
                 'project_id' => (int) $lockedProject->getKey(),

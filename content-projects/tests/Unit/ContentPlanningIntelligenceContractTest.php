@@ -196,9 +196,8 @@ final class ContentPlanningIntelligenceContractTest extends TestCase
     {
         $card = \Tests\Support\LegacyAddonPath::read('resources/views/components/content-project-new-content-card.blade.php');
         $detail = \Tests\Support\LegacyAddonPath::read('resources/views/filament/pages/content-project-planner-run-detail.blade.php');
-        self::assertStringContainsString('content_planning_chip_kw_clusters', $card);
-        self::assertStringContainsString('newContentPlanningPreview', $card);
-        self::assertStringContainsString('data-planning-intelligence="1"', $card);
+        self::assertStringNotContainsString('content_planning_chip_kw_clusters', $card);
+        self::assertStringNotContainsString('data-planning-intelligence="1"', $card);
         self::assertStringContainsString('suggestion_reason', $detail);
         self::assertStringContainsString('planner_decision', $detail);
     }

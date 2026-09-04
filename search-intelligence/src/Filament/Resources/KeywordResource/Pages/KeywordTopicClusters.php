@@ -69,6 +69,11 @@ final class KeywordTopicClusters extends Page
 
     public bool $mcpGroupModalOpen = false;
 
+    /** idle|loading|ready|error */
+    public string $mcpGroupModalPhase = 'idle';
+
+    public string $mcpGroupModalError = '';
+
     /** Cluster that opened the modal (seed / context only). */
     public string $mcpGroupAnchorKey = '';
 
@@ -272,57 +277,103 @@ final class KeywordTopicClusters extends Page
 
     public function openMcpGroupModal(string $clusterKey): void
     {
-        $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
-        if (! TopicClusterReclusterState::assertMutationAllowed($siteId)) {
-            return;
-        }
+        $this->prepareMcpGroupModal($clusterKey);
+    }
 
-        if (! $this->canEditClusterCanonical()) {
-            return;
-        }
-
+    /**
+     * Prepare MCP group modal data. Caller must open the shell immediately on the client
+     * (Alpine) before awaiting this method.
+     */
+    public function prepareMcpGroupModal(string $clusterKey): void
+    {
         $clusterKey = trim($clusterKey);
-        if ($siteId <= 0 || $clusterKey === '') {
-            return;
-        }
 
-        $svc = app(McpTopicGroupService::class);
-        $map = $svc->membershipMapForSite($siteId);
-        $existing = $map[$clusterKey] ?? null;
-
+        $this->mcpGroupModalOpen = true;
+        $this->mcpGroupModalPhase = 'loading';
+        $this->mcpGroupModalError = '';
         $this->mcpGroupAnchorKey = $clusterKey;
         $this->mcpGroupSearch = '';
-        $this->mcpGroupModalOpen = true;
+        $this->mcpGroupMode = 'create';
+        $this->mcpGroupGroupRef = '';
+        $this->mcpGroupMaskName = '';
+        $this->mcpGroupMaskManual = false;
+        $this->mcpGroupMemberKeys = [];
 
-        if (is_array($existing)) {
-            $this->mcpGroupMode = 'manage';
-            $this->mcpGroupGroupRef = (string) ($existing['group_ref'] ?? '');
-            $this->mcpGroupMaskName = (string) ($existing['mask_name'] ?? '');
-            $this->mcpGroupMaskManual = true;
-            $members = [];
-            foreach ($map as $key => $row) {
-                if (($row['group_ref'] ?? '') === $this->mcpGroupGroupRef) {
-                    $members[] = (string) $key;
+        try {
+            $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
+            if (! TopicClusterReclusterState::assertMutationAllowed($siteId)) {
+                $this->closeMcpGroupModal();
+
+                return;
+            }
+
+            if (! $this->canEditClusterCanonical()) {
+                $this->closeMcpGroupModal();
+                Notification::make()
+                    ->title(__('seo-content-ai::filament.keyword.topic_canonical_edit_denied'))
+                    ->danger()
+                    ->send();
+
+                return;
+            }
+
+            if ($siteId <= 0 || $clusterKey === '') {
+                $this->failMcpGroupModalLoad(__('seo-content-ai::filament.keyword.topic_mcp_group_modal_load_failed'));
+
+                return;
+            }
+
+            $svc = app(McpTopicGroupService::class);
+            $map = $svc->membershipMapForSite($siteId);
+            $existing = $map[$clusterKey] ?? null;
+
+            if (is_array($existing)) {
+                $this->mcpGroupMode = 'manage';
+                $this->mcpGroupGroupRef = (string) ($existing['group_ref'] ?? '');
+                $this->mcpGroupMaskName = (string) ($existing['mask_name'] ?? '');
+                $this->mcpGroupMaskManual = true;
+                $members = [];
+                foreach ($map as $key => $row) {
+                    if (($row['group_ref'] ?? '') === $this->mcpGroupGroupRef) {
+                        $members[] = (string) $key;
+                    }
                 }
-            }
-            $this->mcpGroupMemberKeys = array_values(array_unique(array_filter($members)));
-            if (! in_array($clusterKey, $this->mcpGroupMemberKeys, true)) {
-                $this->mcpGroupMemberKeys[] = $clusterKey;
+                $this->mcpGroupMemberKeys = array_values(array_unique(array_filter($members)));
+                if (! in_array($clusterKey, $this->mcpGroupMemberKeys, true)) {
+                    $this->mcpGroupMemberKeys[] = $clusterKey;
+                }
+            } else {
+                $this->mcpGroupMode = 'create';
+                $this->mcpGroupGroupRef = '';
+                $this->mcpGroupMaskManual = false;
+                $this->mcpGroupMemberKeys = [$clusterKey];
+                $this->refreshMcpGroupMaskSuggestion();
             }
 
+            $this->mcpGroupModalPhase = 'ready';
+        } catch (\Throwable $e) {
+            $this->failMcpGroupModalLoad(
+                $e->getMessage() !== ''
+                    ? $e->getMessage()
+                    : __('seo-content-ai::filament.keyword.topic_mcp_group_modal_load_failed')
+            );
+        }
+    }
+
+    public function retryMcpGroupModal(): void
+    {
+        if ($this->mcpGroupAnchorKey === '') {
             return;
         }
 
-        $this->mcpGroupMode = 'create';
-        $this->mcpGroupGroupRef = '';
-        $this->mcpGroupMaskManual = false;
-        $this->mcpGroupMemberKeys = [$clusterKey];
-        $this->refreshMcpGroupMaskSuggestion();
+        $this->prepareMcpGroupModal($this->mcpGroupAnchorKey);
     }
 
     public function closeMcpGroupModal(): void
     {
         $this->mcpGroupModalOpen = false;
+        $this->mcpGroupModalPhase = 'idle';
+        $this->mcpGroupModalError = '';
         $this->mcpGroupAnchorKey = '';
         $this->mcpGroupMode = 'create';
         $this->mcpGroupGroupRef = '';
@@ -332,12 +383,20 @@ final class KeywordTopicClusters extends Page
         $this->mcpGroupSearch = '';
     }
 
+    private function failMcpGroupModalLoad(string $message): void
+    {
+        $this->mcpGroupModalPhase = 'error';
+        $this->mcpGroupModalError = $message;
+        $this->mcpGroupMemberKeys = [];
+        $this->mcpGroupMaskName = '';
+    }
+
     /**
      * @return list<array<string, mixed>>
      */
     public function getMcpGroupSuggestionsProperty(): array
     {
-        if (! $this->mcpGroupModalOpen) {
+        if (! $this->mcpGroupModalOpen || $this->mcpGroupModalPhase !== 'ready') {
             return [];
         }
         $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
@@ -358,7 +417,7 @@ final class KeywordTopicClusters extends Page
      */
     public function getMcpGroupMemberCardsProperty(): array
     {
-        if (! $this->mcpGroupModalOpen) {
+        if (! $this->mcpGroupModalOpen || $this->mcpGroupModalPhase !== 'ready') {
             return [];
         }
         $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
@@ -374,7 +433,7 @@ final class KeywordTopicClusters extends Page
      */
     public function getMcpGroupPreviewProperty(): array
     {
-        if (! $this->mcpGroupModalOpen) {
+        if (! $this->mcpGroupModalOpen || $this->mcpGroupModalPhase !== 'ready') {
             return [
                 'ready' => false,
                 'name' => '',
@@ -465,6 +524,10 @@ final class KeywordTopicClusters extends Page
 
     public function confirmMcpGroup(): void
     {
+        if ($this->mcpGroupModalPhase !== 'ready') {
+            return;
+        }
+
         $siteId = (int) $this->resolveKeywordWorkspaceSiteId();
         if (! TopicClusterReclusterState::assertMutationAllowed($siteId)) {
             return;

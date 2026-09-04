@@ -59,7 +59,9 @@ final class ContentProjectGenerationCapabilityResolver
 
         $articleResult = $this->articleReconciler->reconcileTask(
             $task,
-            (int) ($project->site_id ?? 0) > 0 ? (int) $project->site_id : null,
+            (int) ($task->site_id ?? 0) > 0
+                ? (int) $task->site_id
+                : ((int) ($project->site_id ?? 0) > 0 ? (int) $project->site_id : null),
             persist: $persistRepair,
         );
         if ($articleResult->persisted) {
@@ -118,7 +120,13 @@ final class ContentProjectGenerationCapabilityResolver
                 'reason' => $reason,
                 'article_status' => $articleResult->status,
                 'matched_by' => $articleResult->matchedBy,
-                'diagnose' => $this->articleReconciler->diagnose($task, (int) ($project->site_id ?? 0) ?: null, persist: false),
+                'diagnose' => $this->articleReconciler->diagnose(
+                    $task,
+                    (int) ($task->site_id ?? 0) > 0
+                        ? (int) $task->site_id
+                        : ((int) ($project->site_id ?? 0) ?: null),
+                    persist: false,
+                ),
             ]);
 
             return new ContentProjectGenerationRecoveryDecision(

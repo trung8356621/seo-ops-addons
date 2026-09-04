@@ -1,0 +1,17 @@
+{
+    "name": "Seeding",
+    "slug": "seeding",
+    "version": "0.1.0",
+    "description": "Peer addon — Seeding Topic V2 (social seeding). Equal-level; no parent/child ownership.",
+    "provider": "Omnichannel\\Addons\\Seeding\\SeedingServiceProvider",
+    "register_early": false,
+    "legacy": false,
+    "provides": [
+        "seeding.topic",
+        "link.intelligence"
+    ],
+    "requires": [],
+    "optional": [
+        "social.profile"
+    ]
+}

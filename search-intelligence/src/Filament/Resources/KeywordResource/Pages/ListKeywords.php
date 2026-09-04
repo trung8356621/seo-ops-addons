@@ -331,7 +331,10 @@ class ListKeywords extends ListRecords
                     ->action(fn (Keyword $record): mixed => $this->openKeywordLinkedArticles((int) $record->id)),
                 Tables\Actions\Action::make('item_move_cluster')
                     ->label(__('seo-content-ai::filament.keyword.keyword_item_move_cluster'))
-                    ->action(fn (Keyword $record): mixed => $this->openMoveClusterModal((int) $record->id)),
+                    ->extraAttributes(fn (Keyword $record): array => [
+                        'x-on:click' => "\$dispatch('open-modal', { id: 'keyword-move-cluster-modal' })",
+                    ])
+                    ->action(fn (Keyword $record): mixed => $this->prepareMoveClusterModal((int) $record->id)),
                 Tables\Actions\Action::make('item_skip_mcp')
                     ->label(__('seo-content-ai::filament.keyword.keyword_item_skip_mcp'))
                     ->visible(function (Keyword $record): bool {

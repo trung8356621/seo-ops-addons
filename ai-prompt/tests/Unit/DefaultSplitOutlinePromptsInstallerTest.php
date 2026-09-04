@@ -28,20 +28,20 @@ final class DefaultSplitOutlinePromptsInstallerTest extends TestCase
     public function test_outline_markdown_contains_only_task_1(): void
     {
         $markdown = DefaultSplitOutlinePromptsInstaller::OUTLINE_MARKDOWN;
-        self::assertStringContainsString('{{post_title}}', $markdown);
-        self::assertStringContainsString('[START_TASK_1_OUTLINE]', $markdown);
-        self::assertStringContainsString('[END_TASK_1_OUTLINE]', $markdown);
+        self::assertStringContainsString('{{input}}', $markdown);
+        self::assertStringContainsString('Nhiệm vụ: Dàn ý', $markdown);
+        self::assertStringNotContainsString('START_TASK_1_OUTLINE', $markdown);
         self::assertStringNotContainsString('START_TASK_2_VOCABULARY', $markdown);
         self::assertStringNotContainsString('Holonymy', $markdown);
+        self::assertStringNotContainsString('2 loại đầu ra riêng biệt', $markdown);
     }
 
     public function test_vocabulary_markdown_contains_only_task_2(): void
     {
         $markdown = DefaultSplitOutlinePromptsInstaller::VOCABULARY_MARKDOWN;
-        self::assertStringContainsString('{{post_title}}', $markdown);
-        self::assertStringContainsString('{{outline}}', $markdown);
+        self::assertStringContainsString('{{input}}', $markdown);
         self::assertStringContainsString('Holonymy', $markdown);
-        self::assertStringContainsString('[START_TASK_2_VOCABULARY]', $markdown);
+        self::assertStringNotContainsString('START_TASK_2_VOCABULARY', $markdown);
         self::assertStringNotContainsString('START_TASK_1_OUTLINE', $markdown);
         self::assertStringNotContainsString('Nhiệm vụ: Dàn ý', $markdown);
     }
@@ -64,7 +64,7 @@ final class DefaultSplitOutlinePromptsInstallerTest extends TestCase
         self::assertStringNotContainsString('normalizeOutlinePromptHook', $source);
         self::assertStringNotContainsString('normalizeOutlinePromptHook($fallbackPrompt', $source);
         self::assertStringContainsString('bindVocabularyVariables', $source);
-        self::assertStringContainsString("missing required post_title", $source);
+        self::assertStringContainsString("missing required input", $source);
         self::assertStringContainsString("missing required outline", $source);
         self::assertStringContainsString("\$out['outline'] = \$outlineMarkdown", $source);
     }
@@ -77,12 +77,15 @@ final class DefaultSplitOutlinePromptsInstallerTest extends TestCase
         self::assertFileExists(
             ProjectRoot::addonsPath().'/ai-prompt/database/migrations/2026_08_23_120000_install_split_outline_vocabulary_prompt_bindings.php',
         );
+        self::assertFileExists(
+            ProjectRoot::addonsPath().'/ai-prompt/database/migrations/2026_09_04_140000_refresh_split_outline_vocabulary_markerless_contract.php',
+        );
 
         $provider = (string) file_get_contents(LegacyAddonPath::resolve('SeoContentAiServiceProvider.php'));
         self::assertStringContainsString('InstallDefaultSplitOutlinePromptsCommand::class', $provider);
     }
 
-    public function test_split_hook_specs_validate_with_markers(): void
+    public function test_split_hook_specs_validate_markerless_markdown(): void
     {
         $validator = new PromptHookSpecV01Validator;
         $loader = new PromptHookDefinitionLoader(
@@ -96,6 +99,7 @@ final class DefaultSplitOutlinePromptsInstallerTest extends TestCase
             $path = ProjectRoot::addonsPath()."/ai-prompt/resources/prompt-hooks/v01/{$hook}@0.1.0.json";
             $spec = json_decode((string) file_get_contents($path), true);
             self::assertIsArray($spec);
+            self::assertSame('markdown', $spec['output_schema']['type'] ?? null);
             self::assertSame([], $validator->validate($spec));
             $registry->get($hook, '0.1.0');
         }

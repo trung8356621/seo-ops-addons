@@ -9,7 +9,9 @@
     $tid = (int) ($row['task_id'] ?? 0);
     $articleId = $row['article_id'] ?? null;
     $type = (string) ($row['type_label'] ?? '');
-    $url = $row['article_edit_url'] ?? null;
+    // Title → WordPress/source permalink only (internal editor stays on Actions icon).
+    $publicUrl = trim((string) ($row['article_public_url'] ?? ''));
+    $wpUrl = $publicUrl !== '' && filter_var($publicUrl, FILTER_VALIDATE_URL) ? $publicUrl : null;
     $message = $row['message'] ?? null;
     $showKeyword = $keyword !== '' && $keyword !== '—' && $keyword !== $primary && $keyword !== $title;
     $isNeedsReview = ! empty($row['is_recently_completed']);
@@ -17,19 +19,22 @@
 
 <div {{ $attributes->class(['min-w-0']) }}>
     <div class="line-clamp-2 text-sm font-semibold leading-snug text-gray-950 dark:text-white">
-        @if ($url)
+        @if ($wpUrl)
             <a
-                href="{{ $url }}"
+                href="{{ $wpUrl }}"
                 target="_blank"
                 rel="noopener noreferrer"
                 @click="typeof claimNeedsReviewArticle === 'function' && claimNeedsReviewArticle({{ $tid }}, {{ $isNeedsReview ? 'true' : 'false' }})"
-                class="hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded"
-            >{{ $primary }}</a>
+                class="inline-flex max-w-full items-start gap-1 hover:underline focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 rounded"
+            >
+                <span class="min-w-0">{{ $primary }}</span>
+                <x-filament::icon icon="heroicon-o-arrow-top-right-on-square" class="mt-0.5 h-3 w-3 shrink-0 text-gray-400" />
+            </a>
         @else
             {{ $primary }}
         @endif
     </div>
-    @if (! $url)
+    @if (! $wpUrl && empty($row['article_edit_url']))
         <div class="mt-0.5 text-[11px] font-medium text-gray-500 dark:text-gray-400">
             {{ $row['article_empty_label'] ?? __('seo-content-ai::filament.projects.item_article_unlinked') }}
         </div>

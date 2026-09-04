@@ -366,7 +366,7 @@
                                 $previewResult = $normalized !== '' ? $normalized : $resultText;
                                 $previewMeta = trim(implode(' · ', array_filter([
                                     filled($promptItem['message'] ?? null) ? (string) $promptItem['message'] : null,
-                                    ($promptItem['has_raw_prompt'] ?? false) ? 'RAW PROMPT' : null,
+                                    ($promptItem['has_raw_prompt'] ?? false) ? 'RENDERED PROMPT' : null,
                                     ($promptItem['has_raw_output'] ?? false) ? 'RAW OUTPUT' : null,
                                     ($promptItem['has_normalized_artifact'] ?? false) ? 'NORMALIZED ARTIFACT' : null,
                                 ])));
@@ -429,10 +429,10 @@
                                             type="button"
                                             class="fi-btn fi-btn-color-gray fi-btn-size-sm rounded-lg px-2 py-1 text-xs"
                                             x-on:click="openTwoCol(
-                                                {{ \Illuminate\Support\Js::from($drawerTitle.' · RAW') }},
+                                                {{ \Illuminate\Support\Js::from($drawerTitle.' · RENDERED') }},
                                                 {{ \Illuminate\Support\Js::from($promptText) }},
                                                 {{ \Illuminate\Support\Js::from($resultText) }},
-                                                'RAW PROMPT · RAW OUTPUT'
+                                                'RENDERED PROMPT · RAW OUTPUT'
                                             )"
                                         >
                                             {{ __('seo-content-ai::filament.article_ai_history.view_prompt') }} / {{ __('seo-content-ai::filament.article_ai_history.view_output') }}

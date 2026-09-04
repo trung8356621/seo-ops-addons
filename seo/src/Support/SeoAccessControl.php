@@ -448,7 +448,19 @@ final class SeoAccessControl
 
     public static function accountSiteOwnerId(): int
     {
-        return self::accountOwnerId() ?? (int) auth()->id();
+        $fromAuth = self::accountOwnerId();
+        if ($fromAuth !== null && $fromAuth > 0) {
+            return $fromAuth;
+        }
+
+        $authId = auth()->id();
+        if ($authId !== null && (int) $authId > 0) {
+            return (int) $authId;
+        }
+
+        // Queue / system actors: fall back to SEO connection panel owner so
+        // article/site scope is not empty (whereRaw 1=0) during rewrite runs.
+        return self::panelOwnerId() ?? 0;
     }
 
     /**

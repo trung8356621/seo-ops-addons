@@ -234,10 +234,6 @@ trait ReclustersTopicClusters
             $this->closeMcpGroupModal();
         }
 
-        if (method_exists($this, 'cancelDissolveConfirm')) {
-            $this->cancelDissolveConfirm();
-        }
-
         if (property_exists($this, 'moveClusterKeywordId')) {
             $this->moveClusterKeywordId = null;
             $this->moveClusterTargetKey = '';

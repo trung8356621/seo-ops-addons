@@ -9,6 +9,11 @@ use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectArch
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ExcelHyperlinkHelper;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ExcelSheetColumnAutoSizer;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ExcelTemplate\ArchivedMonthExcelStatsBuilder;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ExcelTemplate\ArchivedMonthExcelStatsDocument;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ExcelTemplate\ExcelDataLayoutMode;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ExcelTemplate\ExcelDetailColumnRegistry;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ExcelTemplate\ExcelDetailRowValueResolver;
 use Omnichannel\Addons\Social\Services\ArticleSocialLinkService;
 use Omnichannel\Addons\Seo\Support\ExcelFormulaEscaper;
 use App\Support\RuntimeLogger;
@@ -20,7 +25,7 @@ use OpenSpout\Writer\XLSX\Writer;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
- * Month workbook: Summary + one sheet per writer.
+ * Month workbook: STATS + writers|DATA (or template prefix + managed sheets).
  * Detail Domain always from item.site_id.
  */
 final class ContentProjectArchivedMonthExportService
@@ -29,25 +34,33 @@ final class ContentProjectArchivedMonthExportService
         private readonly ContentProjectArchivedMonthlyWorkloadService $workload,
         private readonly ContentProjectArchivedMonthExportAssembler $assembler,
         private readonly ArticleSocialLinkService $socialLinks,
+        private readonly ContentProjectExcelTemplateSettingsService $templateSettings,
+        private readonly ContentProjectArchivedMonthTemplateExportService $templateExport,
         private readonly ContentProjectArchiveSocialExportRowExpander $socialRowExpander = new ContentProjectArchiveSocialExportRowExpander(),
     ) {}
 
     /**
+     * Display labels for writer-sheet columns (registry order). Prefer system codes for mapping.
+     *
      * @return list<string>
      */
-    private function userSheetHeaders(): array
+    public function userSheetHeaders(): array
     {
-        return [
-            (string) __('seo-content-ai::filament.projects.archive_export_col_project'),
-            (string) __('seo-content-ai::filament.projects.archive_export_col_domain'),
-            (string) __('seo-content-ai::filament.projects.archive_export_col_article'),
-            (string) __('seo-content-ai::filament.projects.archive_export_col_keyword'),
-            (string) __('seo-content-ai::filament.projects.archive_export_col_post_type'),
-            (string) __('seo-content-ai::filament.projects.archive_export_col_plan'),
-            (string) __('seo-content-ai::filament.projects.archive_export_col_index'),
-            (string) __('seo-content-ai::filament.projects.archive_export_col_reviewed_at'),
-            (string) __('seo-content-ai::filament.projects.archive_export_col_archived_by'),
-        ];
+        return array_map(
+            static fn ($col): string => $col->label,
+            (new ExcelDetailColumnRegistry())->writerSheetColumns(),
+        );
+    }
+
+    /**
+     * Default-order values for writer sheets (registry codes). Prefer code-based writers.
+     *
+     * @param  array<string, mixed>  $row
+     * @return list<mixed>
+     */
+    public function writerRowValues(array $row): array
+    {
+        return (new ExcelDetailRowValueResolver())->defaultWriterSheetValues($row);
     }
 
     public function streamDownload(string $month): StreamedResponse
@@ -187,11 +200,20 @@ final class ContentProjectArchivedMonthExportService
      */
     private function writeWorkbook(array $payload, string $path): void
     {
+        $layoutMode = $this->templateSettings->dataLayoutMode();
+
+        if ($this->templateExport->canExportWithTemplate()) {
+            $this->templateExport->writeWorkbook($payload, $path, $layoutMode);
+
+            return;
+        }
+
         RuntimeLogger::info('content_project_archived_month_exported', [
             'month' => $payload['month'] ?? '',
             'total_articles' => (int) ($payload['total_articles'] ?? 0),
             'writer_sheets' => count($payload['writer_sheets'] ?? []),
             'unresolved_site_id_count' => (int) ($payload['unresolved_site_id_count'] ?? 0),
+            'data_layout_mode' => $layoutMode->value,
             'user_id' => auth()->id(),
         ]);
 
@@ -202,123 +224,56 @@ final class ContentProjectArchivedMonthExportService
         $writer->openToFile($path);
 
         $headerStyle = (new Style())->setFontBold();
-        $titleStyle = (new Style())->setFontBold();
+        $stats = (new ArchivedMonthExcelStatsBuilder($this->workload))->build($payload, true);
+        $this->writeStatsSheet($writer, $stats, $headerStyle);
 
-        $this->writeSummarySheet($writer, $payload, $headerStyle, $titleStyle);
-
-        foreach ($payload['writer_sheets'] ?? [] as $sheet) {
-            if (! is_array($sheet)) {
-                continue;
+        if ($layoutMode === ExcelDataLayoutMode::SingleDataSheet) {
+            $this->writeCombinedDataSheet($writer, $payload, $headerStyle);
+        } else {
+            foreach ($payload['writer_sheets'] ?? [] as $sheet) {
+                if (! is_array($sheet)) {
+                    continue;
+                }
+                $this->writeWriterSheet($writer, $sheet, $headerStyle);
             }
-            $this->writeWriterSheet($writer, $sheet, $headerStyle);
         }
 
         $writer->close();
     }
 
+    private function writeStatsSheet(Writer $writer, ArchivedMonthExcelStatsDocument $stats, Style $headerStyle): void
+    {
+        $sheet = $writer->getCurrentSheet();
+        $sheet->setName(ArchivedMonthExcelStatsDocument::SHEET_NAME);
+        $this->applySheetFreeze($sheet, 2);
+
+        $columnSizer = new ExcelSheetColumnAutoSizer();
+        foreach ($stats->toSheetRows() as $row) {
+            $values = [];
+            foreach ($row as $cell) {
+                $values[] = is_scalar($cell) || $cell === null ? $cell : (string) $cell;
+            }
+            /** @var list<mixed> $values */
+            $isHeader = isset($values[0]) && is_string($values[0]) && (
+                str_starts_with($values[0], '[') || $values[0] === 'metric' || $values[0] === 'writer' || $values[0] === 'domain'
+            );
+            $writer->addRow(Row::fromValues(
+                ExcelFormulaEscaper::escapeRow($values),
+                $isHeader ? $headerStyle : null,
+            ));
+            $columnSizer->trackRow(array_map(static fn ($v) => (string) ($v ?? ''), $values));
+        }
+        $columnSizer->apply($sheet);
+    }
+
     /**
+     * @deprecated kept for contract tests referencing summary — redirected conceptually to STATS
      * @param  array<string, mixed>  $payload
      */
     private function writeSummarySheet(Writer $writer, array $payload, Style $headerStyle, Style $titleStyle): void
     {
-        $sheet = $writer->getCurrentSheet();
-        $summaryName = (string) __('seo-content-ai::filament.projects.archive_export_sheet_summary');
-        $sheet->setName($summaryName !== '' ? $summaryName : 'Summary');
-        $this->applySheetFreeze($sheet, 2);
-
-        $columnSizer = new ExcelSheetColumnAutoSizer();
-        $monthLabel = (string) ($payload['month_label'] ?? '');
-        $total = (int) ($payload['total_articles'] ?? 0);
-        $unresolved = (int) ($payload['unresolved_site_id_count'] ?? 0);
-
-        $summaryRows = [
-            [
-                (string) __('seo-content-ai::filament.projects.archive_export_summary_month'),
-                $monthLabel,
-            ],
-            [
-                (string) __('seo-content-ai::filament.projects.archive_export_summary_total'),
-                (string) $total,
-            ],
-        ];
-        if ($unresolved > 0) {
-            $summaryRows[] = [
-                (string) __('seo-content-ai::filament.projects.archive_export_summary_unresolved'),
-                (string) $unresolved,
-            ];
-        }
-
-        foreach ($summaryRows as $summaryRow) {
-            $writer->addRow(Row::fromValues(
-                ExcelFormulaEscaper::escapeRow($summaryRow),
-                $summaryRow === $summaryRows[0] ? $titleStyle : null,
-            ));
-            $columnSizer->trackRow($summaryRow);
-        }
-
-        $writer->addRow(Row::fromValues(ExcelFormulaEscaper::escapeRow(['', ''])));
-        $columnSizer->trackRow(['', '']);
-
-        $writer->addRow(Row::fromValues(
-            ExcelFormulaEscaper::escapeRow([(string) __('seo-content-ai::filament.projects.chart_articles_by_domain')]),
-            $titleStyle,
-        ));
-        $columnSizer->trackRow([(string) __('seo-content-ai::filament.projects.chart_articles_by_domain')]);
-
-        $domainHeader = [
-            (string) __('seo-content-ai::filament.projects.archive_export_col_domain'),
-            (string) __('seo-content-ai::filament.projects.archive_export_summary_articles'),
-        ];
-        $writer->addRow(Row::fromValues(
-            ExcelFormulaEscaper::escapeRow($domainHeader),
-            $headerStyle,
-        ));
-        $columnSizer->trackRow($domainHeader);
-
-        foreach ($payload['by_domain'] ?? [] as $row) {
-            if (! is_array($row)) {
-                continue;
-            }
-            $dataRow = [
-                (string) ($row['domain'] ?? ''),
-                (string) (int) ($row['item_count'] ?? 0),
-            ];
-            $writer->addRow(Row::fromValues(ExcelFormulaEscaper::escapeRow($dataRow)));
-            $columnSizer->trackRow($dataRow);
-        }
-
-        $writer->addRow(Row::fromValues(ExcelFormulaEscaper::escapeRow(['', ''])));
-        $columnSizer->trackRow(['', '']);
-
-        $writer->addRow(Row::fromValues(
-            ExcelFormulaEscaper::escapeRow([(string) __('seo-content-ai::filament.projects.chart_articles_by_writer')]),
-            $titleStyle,
-        ));
-        $columnSizer->trackRow([(string) __('seo-content-ai::filament.projects.chart_articles_by_writer')]);
-
-        $writerHeader = [
-            (string) __('seo-content-ai::filament.projects.archive_export_summary_writer'),
-            (string) __('seo-content-ai::filament.projects.archive_export_summary_articles'),
-        ];
-        $writer->addRow(Row::fromValues(
-            ExcelFormulaEscaper::escapeRow($writerHeader),
-            $headerStyle,
-        ));
-        $columnSizer->trackRow($writerHeader);
-
-        foreach ($payload['by_writer'] ?? [] as $row) {
-            if (! is_array($row)) {
-                continue;
-            }
-            $dataRow = [
-                (string) ($row['writer_name'] ?? ''),
-                (string) (int) ($row['item_count'] ?? 0),
-            ];
-            $writer->addRow(Row::fromValues(ExcelFormulaEscaper::escapeRow($dataRow)));
-            $columnSizer->trackRow($dataRow);
-        }
-
-        $columnSizer->apply($sheet);
+        $stats = (new ArchivedMonthExcelStatsBuilder($this->workload))->build($payload, false);
+        $this->writeStatsSheet($writer, $stats, $headerStyle);
     }
 
     /**
@@ -332,41 +287,25 @@ final class ContentProjectArchivedMonthExportService
             $name = 'Sheet';
         }
         $sheet->setName($name);
-        $this->applySheetFreeze($sheet, 2);
+        $this->applySheetFreeze($sheet, ExcelDetailColumnRegistry::DATA_START_ROW);
 
-        $headers = $this->userSheetHeaders();
-        $writer->addRow(Row::fromValues(
-            ExcelFormulaEscaper::escapeRow($headers),
-            $headerStyle,
-        ));
+        $columns = (new ExcelDetailColumnRegistry())->writerSheetColumns();
+        $this->writeDualHeaderRows($writer, $columns, $headerStyle);
 
         $columnSizer = new ExcelSheetColumnAutoSizer();
-        $columnSizer->trackRow($headers);
+        $columnSizer->trackRow(array_map(static fn ($c) => $c->label, $columns));
+        $columnSizer->trackRow(array_map(static fn ($c) => $c->code, $columns));
 
+        $resolver = new ExcelDetailRowValueResolver();
         foreach ($sheetPayload['rows'] ?? [] as $row) {
             if (! is_array($row)) {
                 continue;
             }
 
-            $title = (string) ($row['title'] ?? '');
-            $hyperlinkUrl = trim((string) ($row['hyperlink_url'] ?? ''));
-            $wordpressUrl = trim((string) ($row['wordpress_url'] ?? ''));
-            $linkUrl = $hyperlinkUrl !== '' ? $hyperlinkUrl : $wordpressUrl;
-            $titleCell = $linkUrl !== '' && $title !== ''
-                ? ExcelHyperlinkHelper::formula($linkUrl, $title)
-                : $title;
-
-            $values = [
-                (string) ($row['project'] ?? ''),
-                (string) ($row['domain'] ?? ''),
-                $titleCell,
-                (string) ($row['keyword'] ?? ''),
-                (string) ($row['post_type'] ?? ''),
-                (string) ($row['plan'] ?? ''),
-                (string) ($row['index_status'] ?? ''),
-                (string) ($row['reviewed_at'] ?? ''),
-                (string) ($row['archived_by'] ?? ''),
-            ];
+            $values = [];
+            foreach ($columns as $column) {
+                $values[] = $resolver->resolve($row, $column->code);
+            }
 
             $writer->addRow(Row::fromValues(
                 ExcelHyperlinkHelper::escapeRowPreservingFormulas($values),
@@ -375,6 +314,67 @@ final class ContentProjectArchivedMonthExportService
         }
 
         $columnSizer->apply($sheet);
+    }
+
+    /**
+     * SINGLE_DATA_SHEET: same writer rows, flattened with writer_name as first column.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function writeCombinedDataSheet(Writer $writer, array $payload, Style $headerStyle): void
+    {
+        $sheet = $writer->addNewSheetAndMakeItCurrent();
+        $sheet->setName('DATA');
+        $this->applySheetFreeze($sheet, ExcelDetailColumnRegistry::DATA_START_ROW);
+
+        $columns = (new ExcelDetailColumnRegistry())->dataSheetColumns();
+        $this->writeDualHeaderRows($writer, $columns, $headerStyle);
+
+        $columnSizer = new ExcelSheetColumnAutoSizer();
+        $columnSizer->trackRow(array_map(static fn ($c) => $c->label, $columns));
+        $columnSizer->trackRow(array_map(static fn ($c) => $c->code, $columns));
+
+        $resolver = new ExcelDetailRowValueResolver();
+        foreach ($payload['writer_sheets'] ?? [] as $sheetPayload) {
+            if (! is_array($sheetPayload)) {
+                continue;
+            }
+            $writerName = (string) ($sheetPayload['writer_name'] ?? '');
+            foreach ($sheetPayload['rows'] ?? [] as $row) {
+                if (! is_array($row)) {
+                    continue;
+                }
+                $values = [];
+                foreach ($columns as $column) {
+                    $values[] = $resolver->resolve($row, $column->code, $writerName);
+                }
+                $writer->addRow(Row::fromValues(
+                    ExcelHyperlinkHelper::escapeRowPreservingFormulas($values),
+                ));
+                $columnSizer->trackRow($values);
+            }
+        }
+
+        $columnSizer->apply($sheet);
+    }
+
+    /**
+     * @param  list<\Omnichannel\Addons\ContentProjects\Support\ContentProject\ExcelTemplate\ExcelDetailColumnDefinition>  $columns
+     */
+    private function writeDualHeaderRows(Writer $writer, array $columns, Style $headerStyle): void
+    {
+        $labels = array_map(static fn ($c) => $c->label, $columns);
+        $codes = array_map(static fn ($c) => $c->code, $columns);
+        $codeStyle = (new Style())->setFontSize(9)->setFontItalic();
+
+        $writer->addRow(Row::fromValues(
+            ExcelFormulaEscaper::escapeRow($labels),
+            $headerStyle,
+        ));
+        $writer->addRow(Row::fromValues(
+            ExcelFormulaEscaper::escapeRow($codes),
+            $codeStyle,
+        ));
     }
 
     private function tryApplyOptionsFreeze(Options $options): void

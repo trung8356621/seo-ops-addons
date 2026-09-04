@@ -289,7 +289,7 @@ final class PlannerPlanCloneContractTest extends TestCase
         self::assertStringContainsString('PlannerPlanCloneService', $trait);
 
         $card = LegacyAddonPath::read('resources/views/components/content-project-new-content-card.blade.php');
-        self::assertStringContainsString('planner_clone_button', $card);
+        self::assertStringContainsString('open-planner-plan-clone', $card);
         self::assertStringContainsString('data-planner-clone-modal', $card);
         self::assertStringContainsString('clonePlannerPlan', $card);
         self::assertStringContainsString('writeItemsForSite', $card);
@@ -298,6 +298,11 @@ final class PlannerPlanCloneContractTest extends TestCase
         $notes = LegacyAddonPath::read('resources/views/components/content-project-audit-notes.blade.php');
         self::assertStringContainsString('writeItemsForSite', $notes);
         self::assertStringContainsString('hasPlanForSite', $notes);
+        self::assertStringContainsString('planner_clone_button', $notes);
+        self::assertStringContainsString('data-planner-clone-open', $notes);
+        self::assertStringContainsString('data-audit-notes-clear-all', $notes);
+        self::assertStringContainsString('clearAllSelected', $notes);
+        self::assertStringContainsString('clearAllTopicsLocal', $notes);
     }
 
     public function test_fuzzy_not_used_exact_normalized_only(): void

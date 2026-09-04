@@ -19,6 +19,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Comma
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\UpdateContentProjectItemCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectCommandBus;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectDraftPlanningItemsReadModel;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SplitDraftContentProjectCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftIntakeService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftResolver;
 use Omnichannel\Addons\Seo\Filament\Concerns\HidesFilamentPageHeader;
@@ -92,6 +93,9 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
      * Bumped on cp-ops-refresh so Alpine Draft snapshot remounts with fresh read-model rows.
      */
     public int $draftPlanningRefreshNonce = 0;
+
+    /** Site Planning selected domain (internal tab). */
+    public ?int $sitePlanningSiteId = null;
 
     public static function getNavigationLabel(): string
     {
@@ -236,17 +240,11 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
 
     private function shouldCanonicalizePlannerUrl(): bool
     {
-        if (request()->has('site')) {
-            return true;
-        }
-
-        $globalSiteId = (int) (SeoAccessControl::globalSiteId() ?? 0);
-        if ($globalSiteId <= 0) {
-            return false;
-        }
-
-        return ! request()->has(DomainContext::SITE_ID_QUERY_KEY)
-            && ! request()->has(DomainContext::QUERY_KEY);
+        // Legacy Working Site query (?site=) → rewrite to ?site_id=.
+        // Do NOT redirect merely to inject site_id when missing: GlobalSeoBar may
+        // briefly bind the first accessible site before client domain-context.js
+        // hydrates sessionStorage/last-used and syncs ?site_id= (same as Keywords).
+        return request()->has('site');
     }
 
     /**
@@ -442,13 +440,7 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
     {
         abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
 
-        if (! Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'planning_reviewed_at')) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.projects.planning_review_unavailable'))
-                ->body(__('seo-content-ai::filament.projects.planning_review_migration_required'))
-                ->danger()
-                ->send();
-
+        if (! $this->ensurePlanningReviewColumnAvailable()) {
             throw new Halt;
         }
 
@@ -478,6 +470,107 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
             $task->planning_reviewed_by = null;
         }
         $task->save();
+    }
+
+    /**
+     * Bulk mark selected Draft rows as planning-reviewed (Duyệt).
+     *
+     * @return array{ok: bool, reviewed_ids: list<int>, skipped_no_domain: int}
+     */
+    public function markReviewedSelected(): array
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+
+        $empty = ['ok' => false, 'reviewed_ids' => [], 'skipped_no_domain' => 0];
+
+        if (! $this->ensurePlanningReviewColumnAvailable()) {
+            return $empty;
+        }
+
+        try {
+            $project = $this->requireProject();
+        } catch (Halt) {
+            return $empty;
+        }
+
+        $ids = $this->normalizeSelectedIds($this->selectedTaskIds);
+        if ($ids === []) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.queue_select_required'))
+                ->warning()
+                ->send();
+
+            return $empty;
+        }
+
+        /** @var list<SeoProjectTask> $tasks */
+        $tasks = SeoProjectTask::query()
+            ->where('project_id', (int) $project->getKey())
+            ->whereIn('id', $ids)
+            ->get()
+            ->all();
+
+        $reviewedIds = [];
+        $skippedNoDomain = 0;
+        $actorId = auth()->id() !== null ? (int) auth()->id() : null;
+        $now = now();
+
+        foreach ($tasks as $task) {
+            if ($task->planning_reviewed_at !== null) {
+                continue;
+            }
+            if ((int) ($task->site_id ?? 0) <= 0) {
+                $skippedNoDomain++;
+
+                continue;
+            }
+            $task->planning_reviewed_at = $now;
+            $task->planning_reviewed_by = $actorId;
+            $task->save();
+            $reviewedIds[] = (int) $task->getKey();
+        }
+
+        if ($reviewedIds === [] && $skippedNoDomain > 0) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.planning_domain_required_before_review'))
+                ->danger()
+                ->send();
+
+            return ['ok' => false, 'reviewed_ids' => [], 'skipped_no_domain' => $skippedNoDomain];
+        }
+
+        if ($reviewedIds === []) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.queue_select_required'))
+                ->warning()
+                ->send();
+
+            return $empty;
+        }
+
+        Notification::make()
+            ->title(__('seo-content-ai::filament.projects.planning_bulk_mark_reviewed_completed'))
+            ->body($skippedNoDomain > 0
+                ? __('seo-content-ai::filament.projects.planning_bulk_mark_reviewed_body_with_skip', [
+                    'count' => count($reviewedIds),
+                    'skipped' => $skippedNoDomain,
+                ])
+                : __('seo-content-ai::filament.projects.planning_bulk_mark_reviewed_body', [
+                    'count' => count($reviewedIds),
+                ]))
+            ->success()
+            ->send();
+
+        return [
+            'ok' => true,
+            'reviewed_ids' => $reviewedIds,
+            'skipped_no_domain' => $skippedNoDomain,
+        ];
+    }
+
+    public function archiveSelected(): bool
+    {
+        return $this->dispatchDraftArchive($this->selectedTaskIds);
     }
 
     /**
@@ -752,6 +845,21 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         return ContentProjectDraftAiHistory::urlForProject($project);
     }
 
+    public function selectSitePlanningSite(int $siteId): void
+    {
+        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+        $this->sitePlanningSiteId = $siteId > 0 ? $siteId : null;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function sitePlanningPayload(): array
+    {
+        return app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\SitePlanningReadModel::class)
+            ->overview($this->sitePlanningSiteId);
+    }
+
     private function applyPlanningKeyword(SeoProjectTask $task, string $keyword): void
     {
         if ($keyword === '') {
@@ -789,7 +897,8 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
 
     public function openPublishFromPlanner(): void
     {
-        $this->openDraftSplitModal();
+        // Publish = all reviewed in scope; packing creates overflow -2/-3 (not first_n capped at 30).
+        $this->openDraftSplitModal(SplitDraftContentProjectCommand::MODE_ALL);
     }
 
     /**
@@ -964,6 +1073,21 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         }
 
         return $params;
+    }
+
+    private function ensurePlanningReviewColumnAvailable(): bool
+    {
+        if (Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'planning_reviewed_at')) {
+            return true;
+        }
+
+        Notification::make()
+            ->title(__('seo-content-ai::filament.projects.planning_review_unavailable'))
+            ->body(__('seo-content-ai::filament.projects.planning_review_migration_required'))
+            ->danger()
+            ->send();
+
+        return false;
     }
 
     /**

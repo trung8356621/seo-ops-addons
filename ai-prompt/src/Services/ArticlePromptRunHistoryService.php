@@ -172,7 +172,17 @@ final class ArticlePromptRunHistoryService
                     'is_array',
                 )),
             )
-            ->map(fn (array $step): int => (int) ($step['result_id'] ?? 0))
+            ->flatMap(function (array $step): array {
+                $ids = [(int) ($step['result_id'] ?? 0)];
+                foreach (['outline_result_id', 'vocabulary_result_id'] as $key) {
+                    $ids[] = (int) ($step[$key] ?? 0);
+                }
+                foreach (is_array($step['prompt_result_ids'] ?? null) ? $step['prompt_result_ids'] : [] as $rid) {
+                    $ids[] = (int) $rid;
+                }
+
+                return $ids;
+            })
             ->filter()
             ->unique()
             ->values();
@@ -245,14 +255,7 @@ final class ArticlePromptRunHistoryService
 
                         return collect($steps)
                             ->filter(fn (array $step): bool => ! $this->isHiddenWorkflowStep($step))
-                            ->map(function (array $step, int $index) use ($item, $run, $results, &$seenResultIds): array {
-                                $resultId = (int) ($step['result_id'] ?? 0);
-                                $result = $resultId > 0 ? $results->get($resultId) : null;
-
-                                if ($resultId > 0) {
-                                    $seenResultIds[$resultId] = true;
-                                }
-
+                            ->flatMap(function (array $step, int $index) use ($item, $run, $results, &$seenResultIds): array {
                                 $step['execution_type'] = $step['execution_type']
                                     ?? $item['execution_type']
                                     ?? null;
@@ -265,15 +268,25 @@ final class ArticlePromptRunHistoryService
                                 $step['run_item_id'] = $step['run_item_id'] ?? ($item['run_item_id'] ?? null);
                                 $step['attempt'] = $step['attempt'] ?? ($item['attempt'] ?? null);
 
-                                $normalized = $this->normalizePromptItem(
-                                    $step,
-                                    $result instanceof PromptResult ? $result : null,
-                                    (int) $run->id,
-                                    (int) ($item['task_id'] ?? 0),
-                                    $index,
-                                );
+                                $children = $this->expandSplitChildSteps($step);
+                                $normalizedChildren = [];
+                                foreach ($children as $childIndex => $childStep) {
+                                    $resultId = (int) ($childStep['result_id'] ?? 0);
+                                    $result = $resultId > 0 ? $results->get($resultId) : null;
+                                    if ($resultId > 0) {
+                                        $seenResultIds[$resultId] = true;
+                                    }
 
-                                return $normalized;
+                                    $normalizedChildren[] = $this->normalizePromptItem(
+                                        $childStep,
+                                        $result instanceof PromptResult ? $result : null,
+                                        (int) $run->id,
+                                        (int) ($item['task_id'] ?? 0),
+                                        ($index * 10) + $childIndex,
+                                    );
+                                }
+
+                                return $normalizedChildren;
                             })
                             ->all();
                     })
@@ -593,6 +606,10 @@ final class ArticlePromptRunHistoryService
             'hook_key' => $debug['hook_key'] ?? null,
             'workflow_node_title' => $debug['workflow_node_title'] ?? null,
             'execution_role' => $debug['execution_role'] ?? null,
+            'outline_subtask' => $this->trimmedOrNull($step['outline_subtask'] ?? $snapshot['outline_subtask'] ?? null),
+            'execution_sequence' => isset($step['execution_sequence']) && is_numeric($step['execution_sequence'])
+                ? (int) $step['execution_sequence']
+                : null,
             'article_length' => $debug['article_length'] ?? null,
             'actual_word_count' => $debug['actual_word_count'] ?? null,
             'minimum_acceptable_words' => $debug['minimum_acceptable_words'] ?? null,
@@ -654,7 +671,127 @@ final class ArticlePromptRunHistoryService
     }
 
     /**
-     * Ẩn node hệ thống + mới nhất lên đầu.
+     * Expand aggregate outline+vocabulary split steps into child cards so
+     * Outline never displays Vocabulary errors (and vice versa).
+     *
+     * @param  array<string, mixed>  $step
+     * @return list<array<string, mixed>>
+     */
+    private function expandSplitChildSteps(array $step): array
+    {
+        $outlineId = (int) ($step['outline_result_id'] ?? 0);
+        $vocabId = (int) ($step['vocabulary_result_id'] ?? 0);
+        $ids = array_values(array_filter(
+            is_array($step['prompt_result_ids'] ?? null) ? $step['prompt_result_ids'] : [],
+            static fn (mixed $id): bool => (int) $id > 0,
+        ));
+
+        $isSplit = $outlineId > 0
+            || $vocabId > 0
+            || count($ids) > 1
+            || in_array((string) ($step['execution_source'] ?? ''), ['split_outline_vocabulary'], true)
+            || str_contains(strtolower((string) ($step['hook_key'] ?? '')), 'outline.structure');
+
+        if (! $isSplit) {
+            if (! isset($step['execution_sequence'])) {
+                $step['execution_sequence'] = 10;
+            }
+
+            return [$step];
+        }
+
+        if ($outlineId <= 0 && $vocabId <= 0 && count($ids) >= 2) {
+            $outlineId = (int) $ids[0];
+            $vocabId = (int) $ids[1];
+        }
+
+        $primaryId = (int) ($step['result_id'] ?? 0);
+        $outlineSubtask = strtolower(trim((string) ($step['outline_subtask'] ?? '')));
+        $aggregateMessage = trim((string) ($step['message'] ?? ''));
+        $vocabFailed = $outlineSubtask === 'vocabulary_failed'
+            || str_contains(strtolower($aggregateMessage), 'vocabulary');
+
+        // Legacy bug: vocab fail stored outline_result_id=result_id and left vocabulary_result_id null.
+        if ($vocabId <= 0 && $vocabFailed && $primaryId > 0 && $primaryId !== $outlineId) {
+            $vocabId = $primaryId;
+        }
+        if ($outlineId <= 0 && $vocabFailed && $primaryId > 0 && count($ids) === 1) {
+            // Only one id and vocab failed → that id is usually outline success in older payloads.
+            $outlineId = $primaryId;
+        }
+
+        $baseTitle = trim((string) ($step['title'] ?? $step['prompt_name'] ?? 'Workflow step'));
+        $baseTitle = preg_replace('/\s*[—-]\s*Outline\s*$/u', '', $baseTitle) ?? $baseTitle;
+        $children = [];
+
+        if ($outlineId > 0 || ($vocabFailed && trim((string) ($step['outline_status'] ?? '')) === 'completed')) {
+            if ($outlineId <= 0) {
+                $outlineId = $primaryId;
+            }
+            $outlineStatus = trim((string) ($step['outline_status'] ?? ''));
+            if ($outlineStatus === '') {
+                $outlineStatus = $vocabFailed ? 'completed' : (string) ($step['status'] ?? '');
+            }
+            $outlineMessage = trim((string) ($step['outline_message'] ?? ''));
+            if (in_array(strtolower($outlineStatus), ['completed', 'success'], true)) {
+                $outlineMessage = '';
+            } elseif ($outlineMessage === '' && strtolower($outlineStatus) === 'failed') {
+                $msg = $aggregateMessage;
+                if (! str_contains(strtolower($msg), 'vocabulary')) {
+                    $outlineMessage = $msg;
+                }
+            } elseif (str_contains(strtolower($outlineMessage), 'vocabulary')) {
+                $outlineMessage = '';
+            }
+
+            $children[] = array_merge($step, [
+                'result_id' => $outlineId > 0 ? $outlineId : null,
+                'title' => $baseTitle.' — Outline',
+                'prompt_name' => $baseTitle.' — Outline',
+                'status' => $outlineStatus !== '' ? $outlineStatus : (string) ($step['status'] ?? ''),
+                'message' => $outlineMessage,
+                'outline_subtask' => 'outline',
+                'execution_sequence' => 1,
+                'hook_key' => $step['hook_key'] ?? 'article.outline.structure.generate',
+            ]);
+        }
+
+        if ($vocabId > 0 || $vocabFailed) {
+            $vocabStatus = trim((string) ($step['vocabulary_status'] ?? ''));
+            if ($vocabStatus === '') {
+                $vocabStatus = $vocabFailed ? 'failed' : (string) ($step['status'] ?? '');
+            }
+            $vocabMessage = trim((string) ($step['vocabulary_message'] ?? ''));
+            if ($vocabMessage === '' && strtolower($vocabStatus) === 'failed') {
+                $vocabMessage = $aggregateMessage;
+            }
+
+            $children[] = array_merge($step, [
+                'result_id' => $vocabId > 0 ? $vocabId : null,
+                'title' => $baseTitle.' — Vocabulary',
+                'prompt_name' => $baseTitle.' — Vocabulary',
+                'status' => $vocabStatus !== '' ? $vocabStatus : (string) ($step['status'] ?? ''),
+                'message' => $vocabMessage,
+                'outline_subtask' => 'vocabulary',
+                'execution_sequence' => 2,
+                'hook_key' => 'article.vocabulary.generate',
+            ]);
+        }
+
+        if ($children === []) {
+            if (! isset($step['execution_sequence'])) {
+                $step['execution_sequence'] = 10;
+            }
+
+            return [$step];
+        }
+
+        return $children;
+    }
+
+    /**
+     * Ẩn node hệ thống. Trong cùng run/attempt: ASC theo execution_sequence
+     * (Outline → Vocabulary → Writer). Không sort chỉ bằng created_at DESC.
      *
      * @param  list<array<string, mixed>>  $prompts
      * @return list<array<string, mixed>>
@@ -663,7 +800,44 @@ final class ArticlePromptRunHistoryService
     {
         return collect($prompts)
             ->filter(fn (array $item): bool => ! $this->isHiddenPromptItem($item))
-            ->sortByDesc(fn (array $item): int => $item['ran_at']?->getTimestamp() ?? 0)
+            ->sort(function (array $a, array $b): int {
+                $attemptA = (int) ($a['attempt'] ?? 0);
+                $attemptB = (int) ($b['attempt'] ?? 0);
+                if ($attemptA !== $attemptB) {
+                    // Newer attempts first within a run group.
+                    return $attemptB <=> $attemptA;
+                }
+
+                $seqA = $a['execution_sequence'] ?? null;
+                $seqB = $b['execution_sequence'] ?? null;
+                $hasSeqA = is_numeric($seqA);
+                $hasSeqB = is_numeric($seqB);
+                if ($hasSeqA && $hasSeqB && (int) $seqA !== (int) $seqB) {
+                    return (int) $seqA <=> (int) $seqB;
+                }
+                if ($hasSeqA !== $hasSeqB) {
+                    return $hasSeqA ? -1 : 1;
+                }
+
+                $subOrder = ['outline' => 0, 'vocabulary' => 1];
+                $subA = $subOrder[strtolower((string) ($a['outline_subtask'] ?? ''))] ?? 50;
+                $subB = $subOrder[strtolower((string) ($b['outline_subtask'] ?? ''))] ?? 50;
+                if ($subA !== $subB) {
+                    return $subA <=> $subB;
+                }
+
+                $stepA = (int) ($a['step_index'] ?? 0);
+                $stepB = (int) ($b['step_index'] ?? 0);
+                if ($stepA !== $stepB) {
+                    return $stepA <=> $stepB;
+                }
+
+                // Fallback: oldest first when no explicit sequence.
+                $tsA = $a['ran_at']?->getTimestamp() ?? 0;
+                $tsB = $b['ran_at']?->getTimestamp() ?? 0;
+
+                return $tsA <=> $tsB;
+            })
             ->values()
             ->all();
     }

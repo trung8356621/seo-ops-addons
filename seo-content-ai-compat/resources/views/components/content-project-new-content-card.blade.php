@@ -13,12 +13,10 @@
     $primaryLanguageLabel = $payload['primary_language_label'] ?? null;
     $blockReasons = is_array($payload['block_reasons'] ?? null) ? $payload['block_reasons'] : [];
     $lastResult = (string) ($payload['last_result'] ?? $this->newContentLastResult ?? '');
-    $planningPreview = $this->newContentPlanningPreview ?? null;
     $contentTypeOptions = is_array($payload['content_type_options'] ?? null)
         ? $payload['content_type_options']
         : ['post' => (string) __('seo-content-ai::filament.projects.planner_content_type_post')];
     $supportsProduct = (bool) ($payload['supports_product'] ?? false);
-    $aiHistoryUrl = method_exists($this, 'newContentDraftAiHistoryUrl') ? $this->newContentDraftAiHistoryUrl() : '#';
     $canClonePlan = method_exists($this, 'canShowPlannerPlanClone') && $this->canShowPlannerPlanClone();
     $cloneSourceDomain = method_exists($this, 'getPlannerPlanCloneSourceDomainProperty')
         ? (string) $this->plannerPlanCloneSourceDomain
@@ -45,6 +43,7 @@
         'canWrite' => $canWrite && $canClonePlan,
     ]))"
     @planner-plan-cloned.window="onCloneResult($event.detail?.result || $event.detail || null)"
+    @open-planner-plan-clone.window="if (canClone) openCloneModal()"
     @if ($isGenerating)
         wire:poll.3s="refreshNewContentRun"
     @endif
@@ -81,62 +80,6 @@
                 @endforeach
             </div>
         @endif
-
-        <div class="cp-plan-ai-meta">
-            <div class="cp-plan-type cp-plan-type--compact" data-planner-content-type="1">
-                <label class="cp-plan-qty__label">{{ __('seo-content-ai::filament.projects.planner_content_type') }}</label>
-                @if (! $supportsProduct)
-                    <div class="rounded-md border border-gray-200 bg-gray-50 px-2.5 py-1.5 text-xs dark:border-white/10 dark:bg-gray-950" data-content-type-readonly="post">
-                        {{ $contentTypeOptions['post'] ?? __('seo-content-ai::filament.projects.planner_content_type_post') }}
-                    </div>
-                @else
-                    <x-select wire:model="newContentPostType" wrapClass="cp-ops-select" :disabled="! $quantityEnabled">
-                        @foreach ($contentTypeOptions as $value => $label)
-                            <option value="{{ $value }}">{{ $label }}</option>
-                        @endforeach
-                    </x-select>
-                @endif
-            </div>
-
-            @if (is_array($planningPreview))
-                <div class="cp-plan-chips cp-plan-chips--compact" data-planning-intelligence="1">
-                    <span class="cp-plan-chip">
-                        {{ __('seo-content-ai::filament.projects.content_planning_chip_kw_clusters', [
-                            'keywords' => (int) ($planningPreview['principal_keywords_count'] ?? 0),
-                            'clusters' => (int) ($planningPreview['cluster_count'] ?? 0),
-                        ]) }}
-                    </span>
-                    @if (($planningPreview['mcp_period'] ?? null) !== null && (string) $planningPreview['mcp_period'] !== '')
-                        <span class="cp-plan-chip">MCP {{ $planningPreview['mcp_period'] }}</span>
-                    @endif
-                </div>
-            @endif
-
-            @if ($aiHistoryUrl !== '#')
-                <a
-                    href="{{ $aiHistoryUrl }}"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    class="cp-plan-link cp-plan-link--create"
-                    data-new-content-ai-history="1"
-                >
-                    {{ __('seo-content-ai::filament.projects.draft_ai_history_link') }}
-                </a>
-            @endif
-
-            @if ($canWrite && $canClonePlan)
-                <button
-                    type="button"
-                    class="cp-plan-link cp-plan-link--create cp-plan-clone-trigger"
-                    data-planner-clone-open="1"
-                    x-show="canClone"
-                    x-cloak
-                    @click.prevent="openCloneModal()"
-                >
-                    {{ __('seo-content-ai::filament.projects.planner_clone_button') }}
-                </button>
-            @endif
-        </div>
 
         @if ($isGenerating)
             @php
@@ -191,9 +134,9 @@
 
     <div class="cp-plan-sticky-cta" data-planner-sticky-cta="1">
         @if ($embedded)
-            {{-- AI focus: bottom 30/70 actions (not header / not card-width split) --}}
+            {{-- AI focus: Green CTA · Content type · Blue CTA --}}
             <div
-                class="cp-plan-sticky-cta__split"
+                class="cp-plan-sticky-cta__split cp-plan-sticky-cta__split--with-type"
                 x-show="plannerLayout === 'ai-focused'"
                 x-cloak
                 data-planner-ai-focus-actions="1"
@@ -207,6 +150,28 @@
                     <svg class="h-4 w-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M3 17l6-6 4 4 7-7"/><path d="M14 8h7v7"/></svg>
                     <span>{{ __('seo-content-ai::filament.projects.planner_improve_heading') }}</span>
                 </button>
+
+                <div class="cp-plan-sticky-cta__type" data-planner-content-type="1">
+                    <label class="sr-only" for="cp-planner-content-type">{{ __('seo-content-ai::filament.projects.planner_content_type') }}</label>
+                    @if (! $supportsProduct)
+                        <div class="cp-plan-sticky-cta__type-readonly" data-content-type-readonly="post" title="{{ __('seo-content-ai::filament.projects.planner_content_type') }}">
+                            {{ $contentTypeOptions['post'] ?? __('seo-content-ai::filament.projects.planner_content_type_post') }}
+                        </div>
+                    @else
+                        <x-select
+                            id="cp-planner-content-type"
+                            wire:model="newContentPostType"
+                            wrapClass="cp-ops-select cp-plan-sticky-cta__type-select"
+                            :disabled="! $quantityEnabled"
+                            aria-label="{{ __('seo-content-ai::filament.projects.planner_content_type') }}"
+                        >
+                            @foreach ($contentTypeOptions as $value => $label)
+                                <option value="{{ $value }}">{{ $label }}</option>
+                            @endforeach
+                        </x-select>
+                    @endif
+                </div>
+
                 <button
                     type="button"
                     x-data
@@ -247,50 +212,74 @@
             </div>
         @endif
 
-        <button
-            type="button"
+        <div
+            class="cp-plan-sticky-cta__balanced"
             @if ($embedded)
                 x-show="plannerLayout !== 'ai-focused'"
                 x-cloak
             @endif
-            x-data
-            @click.prevent="
-                const store = Alpine.store('cpAuditNotes');
-                const items = store && typeof store.snapshot === 'function' ? store.snapshot() : null;
-                if (items !== null) {
-                    $wire.generateNewContentSuggestions(items);
-                } else {
-                    $wire.generateNewContentSuggestions();
-                }
-            "
-            wire:loading.attr="disabled"
-            wire:target="generateNewContentSuggestions"
-            @disabled(! $generateEnabled)
-            @class(['cp-plan-btn cp-plan-btn--create', 'is-disabled' => ! $generateEnabled])
-            data-planner-generate="new-content"
-            @if ($embedded)
-                data-planner-generate-balanced="1"
-            @endif
         >
-            <span
-                wire:loading.class="opacity-50 pointer-events-none"
+            <div class="cp-plan-sticky-cta__type cp-plan-sticky-cta__type--balanced" data-planner-content-type="1">
+                <label class="sr-only" for="cp-planner-content-type-balanced">{{ __('seo-content-ai::filament.projects.planner_content_type') }}</label>
+                @if (! $supportsProduct)
+                    <div class="cp-plan-sticky-cta__type-readonly" data-content-type-readonly="post">
+                        {{ $contentTypeOptions['post'] ?? __('seo-content-ai::filament.projects.planner_content_type_post') }}
+                    </div>
+                @else
+                    <x-select
+                        id="cp-planner-content-type-balanced"
+                        wire:model="newContentPostType"
+                        wrapClass="cp-ops-select cp-plan-sticky-cta__type-select"
+                        :disabled="! $quantityEnabled"
+                        aria-label="{{ __('seo-content-ai::filament.projects.planner_content_type') }}"
+                    >
+                        @foreach ($contentTypeOptions as $value => $label)
+                            <option value="{{ $value }}">{{ $label }}</option>
+                        @endforeach
+                    </x-select>
+                @endif
+            </div>
+            <button
+                type="button"
+                x-data
+                @click.prevent="
+                    const store = Alpine.store('cpAuditNotes');
+                    const items = store && typeof store.snapshot === 'function' ? store.snapshot() : null;
+                    if (items !== null) {
+                        $wire.generateNewContentSuggestions(items);
+                    } else {
+                        $wire.generateNewContentSuggestions();
+                    }
+                "
+                wire:loading.attr="disabled"
                 wire:target="generateNewContentSuggestions"
-                class="inline-flex items-center gap-2"
+                @disabled(! $generateEnabled)
+                @class(['cp-plan-btn cp-plan-btn--create', 'is-disabled' => ! $generateEnabled])
+                data-planner-generate="new-content"
+                @if ($embedded)
+                    data-planner-generate-balanced="1"
+                @endif
             >
-                <svg wire:loading.remove wire:target="generateNewContentSuggestions" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.2 3.6L17 8l-3.8 1.4L12 13l-1.2-3.6L7 8l3.8-1.4L12 3z"/><path d="M19 14l.6 1.8L21.5 16.5l-1.9.7L19 19l-.6-1.8L16.5 16.5l1.9-.7L19 14z"/></svg>
-                <svg wire:loading wire:target="generateNewContentSuggestions" class="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
-                <span wire:loading.remove wire:target="generateNewContentSuggestions">
-                    @if ($isGenerating)
+                <span
+                    wire:loading.class="opacity-50 pointer-events-none"
+                    wire:target="generateNewContentSuggestions"
+                    class="inline-flex items-center gap-2"
+                >
+                    <svg wire:loading.remove wire:target="generateNewContentSuggestions" class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3l1.2 3.6L17 8l-3.8 1.4L12 13l-1.2-3.6L7 8l3.8-1.4L12 3z"/><path d="M19 14l.6 1.8L21.5 16.5l-1.9.7L19 19l-.6-1.8L16.5 16.5l1.9-.7L19 14z"/></svg>
+                    <svg wire:loading wire:target="generateNewContentSuggestions" class="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>
+                    <span wire:loading.remove wire:target="generateNewContentSuggestions">
+                        @if ($isGenerating)
+                            {{ __('seo-content-ai::filament.projects.planner_generating_ideas') }}
+                        @else
+                            {{ __('seo-content-ai::filament.projects.planner_generate_with_ai') }}
+                        @endif
+                    </span>
+                    <span wire:loading wire:target="generateNewContentSuggestions">
                         {{ __('seo-content-ai::filament.projects.planner_generating_ideas') }}
-                    @else
-                        {{ __('seo-content-ai::filament.projects.planner_generate_with_ai') }}
-                    @endif
+                    </span>
                 </span>
-                <span wire:loading wire:target="generateNewContentSuggestions">
-                    {{ __('seo-content-ai::filament.projects.planner_generating_ideas') }}
-                </span>
-            </span>
-        </button>
+            </button>
+        </div>
     </div>
 
     <template x-teleport="body">

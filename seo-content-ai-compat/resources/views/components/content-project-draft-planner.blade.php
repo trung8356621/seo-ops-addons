@@ -37,6 +37,11 @@
     $splitCanCreate = (bool) ($splitUi['can_create'] ?? false);
     $splitMax = (int) ($splitUi['max'] ?? 30);
     $splitHasWriters = $splitIncludedWriters !== [] || $splitExcludedWriters !== [];
+    $splitDomainRows = is_array($splitUi['domain_rows'] ?? null) ? $splitUi['domain_rows'] : [];
+    $splitDomainCount = (int) ($splitUi['domain_count'] ?? count($splitDomainRows));
+    $splitDomainWarning = is_array($splitUi['domain_warning'] ?? null) ? $splitUi['domain_warning'] : null;
+    $splitWriterCount = (int) ($splitUi['writer_count'] ?? count($splitIncludedWriters));
+    $splitTargetMonthLabel = (string) ($splitUi['target_month_label'] ?? $splitStartMonthLabel);
     $ideaPayload = $this->ideaCandidatesPayload ?? [];
     $ideaPaginator = $ideaPayload['paginator'] ?? null;
     $ideaTotal = $ideaPaginator instanceof \Illuminate\Contracts\Pagination\LengthAwarePaginator
@@ -299,6 +304,37 @@
                 >
                     {{ __('seo-content-ai::filament.projects.idea_candidate_tab_ai') }}
                 </button>
+                <button
+                    type="button"
+                    role="tab"
+                    class="cp-plan-create-tab"
+                    :class="createTab === 'site-planning' && 'is-active'"
+                    :aria-selected="createTab === 'site-planning'"
+                    @click="createTab = 'site-planning'; plannerLayout = 'balanced'"
+                    data-create-tab="site-planning"
+                >
+                    {{ __('seo-content-ai::filament.projects.site_planning_tab') }}
+                </button>
+                @php
+                    $aiHistoryTabUrl = method_exists($this, 'draftAiHistoryUrl')
+                        ? $this->draftAiHistoryUrl()
+                        : (method_exists($this, 'newContentDraftAiHistoryUrl') ? $this->newContentDraftAiHistoryUrl() : '#');
+                @endphp
+                @if ($aiHistoryTabUrl !== '#')
+                    <a
+                        href="{{ $aiHistoryTabUrl }}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        role="tab"
+                        class="cp-plan-create-tab cp-plan-create-tab--external"
+                        data-create-tab="ai-history"
+                        data-new-content-ai-history="1"
+                        title="{{ __('seo-content-ai::filament.projects.draft_ai_history_nav') }}"
+                    >
+                        {{ __('seo-content-ai::filament.projects.draft_ai_history_nav') }}
+                        <svg class="h-3.5 w-3.5 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg>
+                    </a>
+                @endif
             </div>
 
             <div class="cp-plan-tab-panels">
@@ -317,6 +353,14 @@
                     :aria-hidden="createTab !== 'ai'"
                 >
                     <x-seo-content-ai::content-project-new-content-card :embedded="true" />
+                </div>
+                <div
+                    class="cp-plan-tab-panel"
+                    data-create-panel="site-planning"
+                    :class="createTab === 'site-planning' ? 'is-active' : 'is-inactive'"
+                    :aria-hidden="createTab !== 'site-planning'"
+                >
+                    <x-seo-content-ai::content-project-site-planning />
                 </div>
             </div>
         </div>
@@ -416,7 +460,7 @@
 
                                 <div
                                     wire:loading.flex
-                                    wire:target="draftSplitQuantity,draftSplitMode,draftSplitTargetMonth,excludeDraftSplitWriter,includeDraftSplitWriter"
+                                    wire:target="draftSplitQuantity,draftSplitMode,draftSplitTargetMonth"
                                     class="cp-draft-split-writers min-h-[12rem] flex-col justify-center gap-1.5"
                                     data-split-writers-loading="1"
                                     aria-live="polite"
@@ -427,145 +471,180 @@
                                     <span class="sr-only">{{ __('seo-content-ai::filament.projects.draft_split_preview_loading') }}</span>
                                 </div>
 
+                                {{-- Alpine local include/exclude — no Livewire remorph on X / Thêm lại (scroll-safe). --}}
                                 <div
                                     wire:loading.remove
-                                    wire:target="draftSplitQuantity,draftSplitMode,draftSplitTargetMonth,excludeDraftSplitWriter,includeDraftSplitWriter"
+                                    wire:target="draftSplitQuantity,draftSplitMode,draftSplitTargetMonth"
+                                    wire:ignore
+                                    wire:key="cp-split-writers-{{ $this->draftSplitTargetMonth }}-{{ $this->draftSplitMode }}-{{ (int) $this->draftSplitQuantity }}"
                                     class="cp-draft-split-writers min-h-[12rem]"
                                     data-split-writers="1"
+                                    x-data="cpDraftSplitWriters(@js([
+                                        'writers' => $splitUi['writers'] ?? [],
+                                        'includedIds' => array_values(array_map('intval', $this->draftSplitIncludedUserIds ?? [])),
+                                        'labels' => [
+                                            'existing' => (string) __('seo-content-ai::filament.projects.draft_split_existing'),
+                                            'capacity' => (string) __('seo-content-ai::filament.projects.draft_split_capacity_label'),
+                                            'remaining' => (string) __('seo-content-ai::filament.projects.draft_split_remaining'),
+                                            'new' => (string) __('seo-content-ai::filament.projects.draft_split_new'),
+                                            'projects' => (string) __('seo-content-ai::filament.projects.draft_split_projects_hint'),
+                                            'result' => (string) __('seo-content-ai::filament.projects.draft_split_result_capacity'),
+                                            'capacityZero' => (string) __('seo-content-ai::filament.projects.draft_split_capacity_zero'),
+                                            'capacityFull' => (string) __('seo-content-ai::filament.projects.draft_split_capacity_exhausted'),
+                                            'exclude' => (string) __('seo-content-ai::filament.projects.draft_split_exclude'),
+                                            'addBack' => (string) __('seo-content-ai::filament.projects.draft_split_add_back'),
+                                            'excludedHeading' => (string) __('seo-content-ai::filament.projects.draft_split_excluded_heading'),
+                                            'noStaff' => (string) __('seo-content-ai::filament.projects.draft_split_no_staff'),
+                                            'noWriters' => (string) __('seo-content-ai::filament.projects.draft_split_no_writers'),
+                                        ],
+                                    ]))"
                                 >
-                                    @forelse ($splitIncludedWriters as $writer)
-                                        @php
-                                            $writerId = (int) ($writer['id'] ?? 0);
-                                            $writerCurrent = (int) ($writer['current'] ?? 0);
-                                            $writerCapacity = max(0, (int) ($writer['capacity'] ?? 0));
-                                            $writerRemaining = (int) ($writer['remaining'] ?? ($writerCapacity - $writerCurrent));
-                                            $writerNew = (int) ($writer['new_allocation'] ?? 0);
-                                            $writerResult = (int) ($writer['resulting'] ?? ($writerCurrent + $writerNew));
-                                            $writerProjects = (int) ($writer['project_count'] ?? 0);
-                                            $capacityZero = (bool) ($writer['capacity_zero'] ?? ($writerCapacity === 0));
-                                            $capacityFull = (bool) ($writer['capacity_full'] ?? ($writerCapacity > 0 && $writerRemaining <= 0));
-                                        @endphp
+                                    <template x-for="writer in includedWriters()" :key="'in-' + writer.id">
                                         <div
-                                            class="cp-draft-split-writer-row{{ $capacityZero || $capacityFull ? ' is-capacity-limited' : '' }}"
-                                            data-split-writer="{{ $writerId }}"
+                                            class="cp-draft-split-writer-row"
+                                            :class="{ 'is-capacity-limited': writer.capacity_zero || writer.capacity_full }"
+                                            :data-split-writer="writer.id"
                                             data-split-writer-included="1"
                                         >
                                             <div class="min-w-0 flex-1">
-                                                <p class="truncate text-sm font-medium text-gray-900 dark:text-gray-100">
-                                                    {{ $writer['name'] ?? '' }}
-                                                </p>
+                                                <p class="truncate text-sm font-medium text-gray-900 dark:text-gray-100" x-text="writer.name"></p>
                                                 <div class="cp-draft-split-writer-metrics mt-1">
-                                                    <span class="cp-draft-split-metric cp-draft-split-metric--existing" data-split-existing="1">
-                                                        {{ __('seo-content-ai::filament.projects.draft_split_existing', ['count' => $writerCurrent]) }}
-                                                    </span>
-                                                    <span class="cp-draft-split-metric" data-split-capacity="1">
-                                                        {{ __('seo-content-ai::filament.projects.draft_split_capacity_label', ['count' => $writerCapacity]) }}
-                                                    </span>
-                                                    @if ($capacityZero)
-                                                        <span class="cp-draft-split-metric text-amber-700 dark:text-amber-300" data-split-capacity-zero="1">
-                                                            {{ __('seo-content-ai::filament.projects.draft_split_capacity_zero') }}
+                                                    <span class="cp-draft-split-metric cp-draft-split-metric--existing" x-text="fmt(labels.existing, writer.current)"></span>
+                                                    <span class="cp-draft-split-metric" x-text="fmt(labels.capacity, writer.capacity)"></span>
+                                                    <template x-if="writer.capacity_zero">
+                                                        <span class="cp-draft-split-metric text-amber-700 dark:text-amber-300" x-text="labels.capacityZero"></span>
+                                                    </template>
+                                                    <template x-if="!writer.capacity_zero && writer.capacity_full">
+                                                        <span class="cp-draft-split-metric text-amber-700 dark:text-amber-300" x-text="labels.capacityFull"></span>
+                                                    </template>
+                                                    <template x-if="!writer.capacity_zero && !writer.capacity_full">
+                                                        <span class="cp-draft-split-metric" x-text="fmt(labels.remaining, Math.max(0, writer.remaining))"></span>
+                                                    </template>
+                                                    <template x-if="!writer.capacity_zero && !writer.capacity_full">
+                                                        <span class="cp-draft-split-metric cp-draft-split-metric--new">
+                                                            <span x-text="fmt(labels.new, writer.new_allocation)"></span>
+                                                            <span class="cp-draft-split-metric--projects" x-show="writer.project_count > 1" x-text="' · ' + fmt(labels.projects, writer.project_count)"></span>
                                                         </span>
-                                                    @elseif ($capacityFull)
-                                                        <span class="cp-draft-split-metric text-amber-700 dark:text-amber-300" data-split-capacity-full="1">
-                                                            {{ __('seo-content-ai::filament.projects.draft_split_capacity_exhausted') }}
-                                                        </span>
-                                                    @else
-                                                        <span class="cp-draft-split-metric" data-split-remaining="1">
-                                                            {{ __('seo-content-ai::filament.projects.draft_split_remaining', ['count' => max(0, $writerRemaining)]) }}
-                                                        </span>
-                                                        <span class="cp-draft-split-metric cp-draft-split-metric--new" data-split-new="1">
-                                                            {{ __('seo-content-ai::filament.projects.draft_split_new', ['count' => $writerNew]) }}
-                                                            @if ($writerProjects > 1)
-                                                                <span class="cp-draft-split-metric--projects" data-split-projects="1">
-                                                                    · {{ __('seo-content-ai::filament.projects.draft_split_projects_hint', ['count' => $writerProjects]) }}
-                                                                </span>
-                                                            @endif
-                                                        </span>
-                                                        <span class="cp-draft-split-metric cp-draft-split-metric--result" data-split-result="1">
-                                                            {{ __('seo-content-ai::filament.projects.draft_split_result_capacity', [
-                                                                'result' => $writerResult,
-                                                                'capacity' => $writerCapacity,
-                                                            ]) }}
-                                                        </span>
-                                                    @endif
+                                                    </template>
+                                                    <template x-if="!writer.capacity_zero && !writer.capacity_full">
+                                                        <span class="cp-draft-split-metric cp-draft-split-metric--result" x-text="fmtResult(writer)"></span>
+                                                    </template>
                                                 </div>
                                             </div>
                                             <button
                                                 type="button"
                                                 class="cp-draft-split-exclude"
-                                                wire:click="excludeDraftSplitWriter({{ $writerId }})"
-                                                wire:loading.attr="disabled"
-                                                wire:target="excludeDraftSplitWriter({{ $writerId }})"
-                                                title="{{ __('seo-content-ai::filament.projects.draft_split_exclude') }}"
-                                                aria-label="{{ __('seo-content-ai::filament.projects.draft_split_exclude') }}"
-                                                data-split-exclude="{{ $writerId }}"
+                                                @click="excludeWriter(writer.id)"
+                                                :title="labels.exclude"
+                                                :aria-label="labels.exclude"
+                                                :data-split-exclude="writer.id"
                                             >
                                                 <svg class="h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
                                             </button>
                                         </div>
-                                    @empty
-                                        @if (! $splitHasWriters)
-                                            <p class="text-xs text-gray-400">{{ __('seo-content-ai::filament.projects.draft_split_no_staff') }}</p>
-                                        @elseif ($splitExcludedWriters === [])
-                                            <p class="text-xs text-amber-700 dark:text-amber-200" data-split-no-included="1">
-                                                {{ __('seo-content-ai::filament.projects.draft_split_no_writers') }}
-                                            </p>
-                                        @endif
-                                    @endforelse
+                                    </template>
 
-                                    @if ($splitExcludedWriters !== [])
+                                    <template x-if="writers.length === 0">
+                                        <p class="text-xs text-gray-400" x-text="labels.noStaff"></p>
+                                    </template>
+                                    <template x-if="writers.length > 0 && includedWriters().length === 0 && excludedWriters().length === 0">
+                                        <p class="text-xs text-amber-700 dark:text-amber-200" data-split-no-included="1" x-text="labels.noWriters"></p>
+                                    </template>
+                                    <template x-if="writers.length > 0 && includedWriters().length === 0 && excludedWriters().length > 0">
+                                        <p class="text-xs text-amber-700 dark:text-amber-200" data-split-no-included="1" x-text="labels.noWriters"></p>
+                                    </template>
+
+                                    <template x-if="excludedWriters().length > 0">
                                         <div class="cp-draft-split-excluded" data-split-excluded="1">
-                                            <p class="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400">
-                                                {{ __('seo-content-ai::filament.projects.draft_split_excluded_heading') }}
-                                            </p>
-                                            @foreach ($splitExcludedWriters as $writer)
-                                                @php
-                                                    $writerId = (int) ($writer['id'] ?? 0);
-                                                    $writerCurrent = (int) ($writer['current'] ?? 0);
-                                                    $writerCapacity = max(0, (int) ($writer['capacity'] ?? 0));
-                                                    $capacityZero = (bool) ($writer['capacity_zero'] ?? ($writerCapacity === 0));
-                                                @endphp
+                                            <p class="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-gray-400" x-text="labels.excludedHeading"></p>
+                                            <template x-for="writer in excludedWriters()" :key="'ex-' + writer.id">
                                                 <div
                                                     class="cp-draft-split-writer-row is-excluded"
-                                                    data-split-writer="{{ $writerId }}"
+                                                    :data-split-writer="writer.id"
                                                     data-split-writer-excluded="1"
                                                 >
                                                     <div class="min-w-0 flex-1">
-                                                        <p class="truncate text-sm font-medium text-gray-500 dark:text-gray-400">
-                                                            {{ $writer['name'] ?? '' }}
-                                                        </p>
+                                                        <p class="truncate text-sm font-medium text-gray-500 dark:text-gray-400" x-text="writer.name"></p>
                                                         <div class="cp-draft-split-writer-metrics mt-1">
-                                                            <span class="cp-draft-split-metric cp-draft-split-metric--existing">
-                                                                {{ __('seo-content-ai::filament.projects.draft_split_existing', ['count' => $writerCurrent]) }}
-                                                            </span>
-                                                            <span class="cp-draft-split-metric">
-                                                                {{ __('seo-content-ai::filament.projects.draft_split_capacity_label', ['count' => $writerCapacity]) }}
-                                                            </span>
-                                                            @if ($capacityZero)
-                                                                <span class="cp-draft-split-metric text-amber-700 dark:text-amber-300">
-                                                                    {{ __('seo-content-ai::filament.projects.draft_split_capacity_zero') }}
-                                                                </span>
-                                                            @endif
+                                                            <span class="cp-draft-split-metric cp-draft-split-metric--existing" x-text="fmt(labels.existing, writer.current)"></span>
+                                                            <span class="cp-draft-split-metric" x-text="fmt(labels.capacity, writer.capacity)"></span>
+                                                            <template x-if="writer.capacity_zero">
+                                                                <span class="cp-draft-split-metric text-amber-700 dark:text-amber-300" x-text="labels.capacityZero"></span>
+                                                            </template>
                                                         </div>
                                                     </div>
                                                     <button
                                                         type="button"
                                                         class="cp-draft-split-add-back"
-                                                        wire:click="includeDraftSplitWriter({{ $writerId }})"
-                                                        wire:loading.attr="disabled"
-                                                        wire:target="includeDraftSplitWriter({{ $writerId }})"
-                                                        data-split-add-back="{{ $writerId }}"
-                                                        @disabled($capacityZero)
-                                                    >
-                                                        {{ __('seo-content-ai::filament.projects.draft_split_add_back') }}
-                                                    </button>
+                                                        @click="includeWriter(writer.id)"
+                                                        :data-split-add-back="writer.id"
+                                                        :disabled="writer.capacity_zero"
+                                                        x-text="labels.addBack"
+                                                    ></button>
                                                 </div>
-                                            @endforeach
+                                            </template>
                                         </div>
-                                    @endif
+                                    </template>
                                 </div>
                             </fieldset>
                         </div>
+
+                        @if ($splitSelectedCount > 0)
+                            <div
+                                class="mt-4 rounded-lg border border-gray-200 bg-gray-50/80 p-3 dark:border-white/10 dark:bg-white/5"
+                                wire:loading.class="opacity-50"
+                                wire:target="draftSplitQuantity,draftSplitMode,draftSplitTargetMonth"
+                                data-split-domain-summary="1"
+                            >
+                                <p class="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
+                                    {{ __('seo-content-ai::filament.projects.draft_split_summary_heading') }}
+                                </p>
+                                <p class="mt-1 text-sm text-gray-700 dark:text-gray-200">
+                                    {{ __('seo-content-ai::filament.projects.draft_split_summary_line', [
+                                        'month' => $splitTargetMonthLabel,
+                                        'selected' => $splitSelectedCount,
+                                        'domains' => $splitDomainCount,
+                                        'writers' => $splitWriterCount,
+                                    ]) }}
+                                </p>
+                                @if ($splitDomainRows !== [])
+                                    <p class="mt-3 text-xs font-medium text-gray-600 dark:text-gray-300">
+                                        {{ __('seo-content-ai::filament.projects.draft_split_domain_heading') }}
+                                    </p>
+                                    <ul class="mt-1.5 space-y-1">
+                                        @foreach ($splitDomainRows as $domainRow)
+                                            <li class="flex items-baseline justify-between gap-3 text-sm text-gray-800 dark:text-gray-100">
+                                                <span class="min-w-0 truncate">{{ $domainRow['domain'] ?? '' }}</span>
+                                                <span class="shrink-0 tabular-nums text-gray-600 dark:text-gray-300">
+                                                    {{ (int) ($domainRow['count'] ?? 0) }}
+                                                    <span class="text-xs text-gray-400">({{ number_format((float) ($domainRow['percent'] ?? 0), 1) }}%)</span>
+                                                </span>
+                                            </li>
+                                        @endforeach
+                                    </ul>
+                                @endif
+                                @if ($splitDomainWarning)
+                                    <div class="mt-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-950 dark:border-amber-500/40 dark:bg-amber-500/10 dark:text-amber-100" data-split-domain-warning="1" role="status">
+                                        <p class="font-semibold">
+                                            {{ __('seo-content-ai::filament.projects.draft_split_domain_warning_title') }}
+                                        </p>
+                                        <p class="mt-1">
+                                            {{ __('seo-content-ai::filament.projects.draft_split_domain_warning_body', [
+                                                'domain' => (string) ($splitDomainWarning['domain'] ?? ''),
+                                                'count' => (int) ($splitDomainWarning['count'] ?? 0),
+                                                'total' => (int) ($splitDomainWarning['total'] ?? 0),
+                                                'percent' => number_format((float) ($splitDomainWarning['percent'] ?? 0), 1),
+                                                'per_day' => number_format((float) ($splitDomainWarning['articles_per_day'] ?? 0), 1),
+                                                'month' => $splitTargetMonthLabel,
+                                            ]) }}
+                                        </p>
+                                        <p class="mt-1 text-xs opacity-90">
+                                            {{ __('seo-content-ai::filament.projects.draft_split_domain_warning_hint') }}
+                                        </p>
+                                    </div>
+                                @endif
+                            </div>
+                        @endif
                     </div>
 
                     <div class="cp-ops-dialog__footer flex items-center justify-end gap-2">
@@ -593,3 +672,109 @@
     @endif
 
 </div>
+
+@once
+    <script>
+        window.cpDraftSplitWriters = window.cpDraftSplitWriters || function (boot) {
+            const cfg = boot && typeof boot === 'object' ? boot : {};
+            const writers = (Array.isArray(cfg.writers) ? cfg.writers : []).map((row) => {
+                const capacity = Math.max(0, Number(row.capacity || 0));
+                const current = Number(row.current || 0);
+                const remaining = Number(row.remaining != null ? row.remaining : (capacity - current));
+
+                return {
+                    id: Number(row.id || 0),
+                    name: String(row.name || ''),
+                    current,
+                    capacity,
+                    remaining,
+                    new_allocation: Number(row.new_allocation || 0),
+                    resulting: Number(row.resulting != null ? row.resulting : (current + Number(row.new_allocation || 0))),
+                    project_count: Number(row.project_count || 0),
+                    capacity_zero: !!row.capacity_zero || capacity === 0,
+                    capacity_full: !!row.capacity_full || (capacity > 0 && remaining <= 0),
+                };
+            }).filter((row) => row.id > 0);
+
+            return {
+                writers,
+                includedIds: (Array.isArray(cfg.includedIds) ? cfg.includedIds : [])
+                    .map((id) => Number(id))
+                    .filter((id) => id > 0),
+                labels: cfg.labels || {},
+                syncTimer: null,
+
+                includedWriters() {
+                    const set = new Set(this.includedIds);
+
+                    return this.writers.filter((w) => set.has(w.id));
+                },
+                excludedWriters() {
+                    const set = new Set(this.includedIds);
+
+                    return this.writers.filter((w) => ! set.has(w.id));
+                },
+                fmt(template, count) {
+                    return String(template || ':count').replace(':count', String(count));
+                },
+                fmtResult(writer) {
+                    return String(this.labels.result || 'Result: :result / :capacity')
+                        .replace(':result', String(writer.resulting))
+                        .replace(':capacity', String(writer.capacity));
+                },
+                excludeWriter(id) {
+                    const n = Number(id);
+                    if (n <= 0) {
+                        return;
+                    }
+                    this.includedIds = this.includedIds.filter((x) => x !== n);
+                    this.scheduleSync();
+                },
+                includeWriter(id) {
+                    const n = Number(id);
+                    if (n <= 0) {
+                        return;
+                    }
+                    const hit = this.writers.find((w) => w.id === n);
+                    if (! hit || hit.capacity_zero) {
+                        return;
+                    }
+                    if (! this.includedIds.includes(n)) {
+                        this.includedIds = this.writers
+                            .map((w) => w.id)
+                            .filter((wid) => wid === n || this.includedIds.includes(wid));
+                    }
+                    this.scheduleSync();
+                },
+                scheduleSync() {
+                    if (this.syncTimer) {
+                        clearTimeout(this.syncTimer);
+                    }
+                    this.syncTimer = setTimeout(() => this.syncToWire(), 0);
+                },
+                syncToWire() {
+                    if (! this.$wire || typeof this.$wire.set !== 'function') {
+                        return;
+                    }
+                    const scroller = this.$el && this.$el.closest
+                        ? this.$el.closest('.cp-ops-dialog__scroll')
+                        : null;
+                    const top = scroller ? scroller.scrollTop : 0;
+                    const restore = () => {
+                        if (scroller) {
+                            scroller.scrollTop = top;
+                        }
+                    };
+                    const result = this.$wire.set('draftSplitIncludedUserIds', this.includedIds.slice());
+                    if (result && typeof result.then === 'function') {
+                        result.then(restore).catch(restore);
+                    } else {
+                        this.$nextTick(restore);
+                        setTimeout(restore, 0);
+                        setTimeout(restore, 50);
+                    }
+                },
+            };
+        };
+    </script>
+@endonce

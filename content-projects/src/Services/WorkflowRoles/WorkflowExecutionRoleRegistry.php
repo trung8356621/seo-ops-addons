@@ -64,7 +64,10 @@ final class WorkflowExecutionRoleRegistry
     public function allowedHooks(WorkflowExecutionRole $role): array
     {
         return match ($role) {
-            WorkflowExecutionRole::ArticleOutlineGenerate => ['article.outline.generate'],
+            WorkflowExecutionRole::ArticleOutlineGenerate => [
+                'article.outline.generate',
+                'article.outline.structure.generate',
+            ],
             WorkflowExecutionRole::ArticleContentGenerate => [
                 'article.content.generate',
                 // Legacy rewrite remapped at runtime — cho phép gán role generate.
@@ -107,7 +110,8 @@ final class WorkflowExecutionRoleRegistry
 
         // Exact / canonical matches only — migration confidence cao.
         return match ($hookKey) {
-            'article.outline.generate' => WorkflowExecutionRole::ArticleOutlineGenerate,
+            'article.outline.generate',
+            'article.outline.structure.generate' => WorkflowExecutionRole::ArticleOutlineGenerate,
             'article.content.generate',
             'article.content.rewrite' => WorkflowExecutionRole::ArticleContentGenerate,
             'article.content.improve' => WorkflowExecutionRole::ArticleContentImprove,

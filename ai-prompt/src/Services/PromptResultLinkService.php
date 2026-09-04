@@ -22,25 +22,47 @@ final class PromptResultLinkService
         int $taskId,
         string $source = 'workflow_run',
     ): void {
-        $resultId = (int) ($step['result_id'] ?? 0);
-        if ($resultId <= 0 || $articleId <= 0) {
+        $resultIds = [];
+        $primary = (int) ($step['result_id'] ?? 0);
+        if ($primary > 0) {
+            $resultIds[] = $primary;
+        }
+        foreach (['outline_result_id', 'vocabulary_result_id'] as $key) {
+            $id = (int) ($step[$key] ?? 0);
+            if ($id > 0) {
+                $resultIds[] = $id;
+            }
+        }
+        foreach (is_array($step['prompt_result_ids'] ?? null) ? $step['prompt_result_ids'] : [] as $rid) {
+            $id = (int) $rid;
+            if ($id > 0) {
+                $resultIds[] = $id;
+            }
+        }
+
+        $resultIds = array_values(array_unique(array_filter($resultIds)));
+        if ($resultIds === [] || $articleId <= 0) {
             return;
         }
 
-        $this->linkPromptResult(
-            promptResultId: $resultId,
-            articleId: $articleId,
-            source: $source,
-            runId: $runId > 0 ? $runId : null,
-            taskId: $taskId > 0 ? $taskId : null,
-            workflowNodeId: trim((string) ($step['node_id'] ?? '')) ?: null,
-            workflowStepTitle: trim((string) ($step['title'] ?? '')) ?: null,
-            meta: [
-                'status' => (string) ($step['status'] ?? ''),
-                'type' => (string) ($step['type'] ?? ''),
-                'prompt_name' => (string) ($step['prompt_name'] ?? ''),
-            ],
-        );
+        foreach ($resultIds as $resultId) {
+            $this->linkPromptResult(
+                promptResultId: $resultId,
+                articleId: $articleId,
+                source: $source,
+                runId: $runId > 0 ? $runId : null,
+                taskId: $taskId > 0 ? $taskId : null,
+                workflowNodeId: trim((string) ($step['node_id'] ?? '')) ?: null,
+                workflowStepTitle: trim((string) ($step['title'] ?? '')) ?: null,
+                meta: [
+                    'status' => (string) ($step['status'] ?? ''),
+                    'type' => (string) ($step['type'] ?? ''),
+                    'prompt_name' => (string) ($step['prompt_name'] ?? ''),
+                    'outline_subtask' => (string) ($step['outline_subtask'] ?? ''),
+                    'execution_sequence' => $step['execution_sequence'] ?? null,
+                ],
+            );
+        }
     }
 
     /**

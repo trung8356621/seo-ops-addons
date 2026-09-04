@@ -76,7 +76,6 @@
                                 <x-seo-content-ai::content-project-status-badge :badge="$row['publish_badge'] ?? null" />
                             @else
                                 <x-seo-content-ai::content-project-status-badge :badge="$row['generation_badge']" />
-                                <x-seo-content-ai::content-project-status-badge :badge="$row['workflow_badge'] ?? $row['lifecycle_badge']" />
                             @endif
                         </div>
                         <div class="cp-ops-mobile-card__meta">
@@ -132,9 +131,8 @@
                             <th class="cp-ops-col-gen" scope="col">Publish state</th>
                             <th class="cp-ops-col-life" scope="col">Schedule</th>
                         @else
-                            <th class="cp-ops-col-gen" scope="col">{{ __('seo-content-ai::filament.projects.ops_col_generation') }}</th>
                             <th class="cp-ops-col-keywords" scope="col">{{ __('seo-content-ai::filament.projects.ops_col_keywords') }}</th>
-                            <th class="cp-ops-col-life" scope="col">{{ __('seo-content-ai::filament.projects.ops_col_workflow') }}</th>
+                            <th class="cp-ops-col-workflow" scope="col">{{ __('seo-content-ai::filament.projects.ops_col_workflow') }}</th>
                         @endif
                         <th class="cp-ops-col-activity" scope="col">Last activity</th>
                         <th class="cp-ops-col-actions" scope="col">Actions</th>
@@ -229,7 +227,10 @@
                                     @endif
                                 </td>
                             @else
-                                <td>
+                                <td class="cp-ops-kw">
+                                    <x-seo-content-ai::content-project-keyword-cell :row="$row" />
+                                </td>
+                                <td class="cp-ops-col-workflow">
                                     <div
                                         x-show="typeof isRowProcessing === 'function' && isRowProcessing({{ $tid }}) && rowProcessingKind({{ $tid }}) === 'generation'"
                                         x-cloak
@@ -245,16 +246,6 @@
                                     </div>
                                     @if (! empty($row['current_step']) && in_array($row['generation_badge']['key'] ?? '', ['running', 'failed'], true))
                                         <div class="cp-ops-step" title="{{ $row['current_step'] }}">{{ $row['current_step'] }}</div>
-                                    @endif
-                                </td>
-                                <td class="cp-ops-kw">
-                                    <x-seo-content-ai::content-project-keyword-cell :row="$row" />
-                                </td>
-                                <td>
-                                    @if (! empty($row['workflow_badge']))
-                                        <x-seo-content-ai::content-project-status-badge :badge="$row['workflow_badge']" />
-                                    @else
-                                        <span class="text-xs text-gray-400 dark:text-gray-500">—</span>
                                     @endif
                                 </td>
                             @endif

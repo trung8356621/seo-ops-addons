@@ -6,7 +6,7 @@ namespace Omnichannel\Addons\AiPrompt\Services;
 
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\PromptHookFailure;
-use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookExplicitBindingExecutor;
+use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookBindingRunner;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Services\ArticleGenerationInputResolver;
 use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
@@ -14,6 +14,9 @@ use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
 /**
  * Split outline logical step: two provider calls (structure + vocabulary),
  * then assemble legacy marker artifact for downstream compatibility.
+ *
+ * Provider contract is markerless: validate direct final content.
+ * Markers exist only in PHP-assembled legacy total.
  */
 final class ArticleOutlineVocabularySplitExecutor
 {
@@ -21,8 +24,10 @@ final class ArticleOutlineVocabularySplitExecutor
 
     public const VOCABULARY_HOOK = 'article.vocabulary.generate';
 
+    public const MIN_DIRECT_BODY_LENGTH = 100;
+
     public function __construct(
-        private readonly PromptHookExplicitBindingExecutor $hookBindingExecutor,
+        private readonly PromptHookBindingRunner $hookBindingExecutor,
         private readonly SeoCreateArticleSettingsService $settings,
     ) {}
 
@@ -37,14 +42,19 @@ final class ArticleOutlineVocabularySplitExecutor
      *   ports: array<string, string>,
      *   sections: array<string, string>,
      *   outline_result: array<string, mixed>,
-     *   vocabulary_result?: array<string, mixed>,
+     *   vocabulary_result?: array<string, mixed>|null,
      *   prompt_result_ids: list<int>,
      *   hook_key: string,
      *   hook_version: string,
      *   execution_source: string,
      *   correlation_id: string,
      *   ai_model: ?string,
-     *   duration_ms: int
+     *   duration_ms: int,
+     *   outline_subtask?: string,
+     *   outline_ai_invoked?: bool,
+     *   vocabulary_ai_invoked?: bool,
+     *   outline_status?: string,
+     *   vocabulary_status?: string
      * }
      */
     public function execute(
@@ -70,28 +80,77 @@ final class ArticleOutlineVocabularySplitExecutor
             );
         }
 
-        $baseContext = $this->enrichContext($contextExtras, 'outline');
-        $outlineStarted = (int) round(microtime(true) * 1000);
+        $started = (int) round(microtime(true) * 1000);
+        $outlineAiInvoked = false;
+        $vocabularyAiInvoked = false;
 
-        try {
-            $outlineResult = $this->hookBindingExecutor->execute(
-                $outlinePrompt,
-                $variables,
-                $baseContext,
-            );
-        } catch (PromptHookFailure $exception) {
-            return $this->fail(
-                'Outline generation failed: '.$exception->getMessage(),
-                outlineResult: ['error' => $exception->getMessage(), 'result_id' => $exception->promptResultId()],
-            );
-        }
+        $reusedOutline = $this->normalizeDirectBody(
+            (string) ($contextExtras['reused_outline_markdown'] ?? $nodeData['reused_outline_markdown'] ?? ''),
+        );
 
-        $outlineMarkdown = trim((string) ($outlineResult['output'] ?? ''));
-        if ($outlineMarkdown === '') {
-            return $this->fail(
-                'Outline generation failed: empty output.',
-                outlineResult: $outlineResult,
-            );
+        if ($reusedOutline !== '') {
+            $outlineMarkdown = $reusedOutline;
+            $outlineResult = [
+                'output' => $outlineMarkdown,
+                'reused' => true,
+                'prompt_result_id' => $this->positiveInt($contextExtras['reused_outline_prompt_result_id'] ?? null),
+                'correlation_id' => (string) ($contextExtras['reused_outline_correlation_id'] ?? ''),
+                'model' => $contextExtras['reused_outline_model'] ?? null,
+            ];
+        } else {
+            $baseContext = $this->enrichContext($contextExtras, 'outline');
+            try {
+                $outlineResult = $this->hookBindingExecutor->execute(
+                    $outlinePrompt,
+                    $variables,
+                    $baseContext,
+                );
+                $outlineAiInvoked = true;
+            } catch (PromptHookFailure $exception) {
+                return $this->fail(
+                    'Outline generation failed: '.$exception->getMessage(),
+                    outlineResult: [
+                        'error' => $exception->getMessage(),
+                        'result_id' => $exception->promptResultId(),
+                        'prompt_result_id' => $exception->promptResultId(),
+                    ],
+                    outlineAiInvoked: true,
+                    durationMs: (int) round(microtime(true) * 1000) - $started,
+                );
+            } catch (\Throwable $exception) {
+                $promptResultId = $this->exceptionPromptResultId($exception);
+
+                return $this->fail(
+                    'Outline generation failed: '.$exception->getMessage(),
+                    outlineResult: [
+                        'error' => $exception->getMessage(),
+                        'result_id' => $promptResultId,
+                        'prompt_result_id' => $promptResultId,
+                    ],
+                    outlineAiInvoked: true,
+                    durationMs: (int) round(microtime(true) * 1000) - $started,
+                );
+            }
+
+            $outlineMarkdown = $this->normalizeDirectBody((string) ($outlineResult['output'] ?? ''));
+            if ($outlineMarkdown === '') {
+                return $this->fail(
+                    'Outline generation failed: empty output.',
+                    outlineResult: $outlineResult,
+                    outlineAiInvoked: true,
+                    durationMs: (int) round(microtime(true) * 1000) - $started,
+                );
+            }
+
+            $outlineLengthError = $this->validateDirectBody($outlineMarkdown, 'Outline');
+            if ($outlineLengthError !== null) {
+                return $this->fail(
+                    $outlineLengthError,
+                    outlineResult: $outlineResult,
+                    outlineAiInvoked: true,
+                    durationMs: (int) round(microtime(true) * 1000) - $started,
+                );
+            }
         }
 
         $vocabContext = $this->enrichContext($contextExtras, 'vocabulary');
@@ -100,6 +159,10 @@ final class ArticleOutlineVocabularySplitExecutor
             return $this->fail(
                 (string) $vocabularyVariables['__error'],
                 outlineResult: $outlineResult,
+                sections: ['outline' => $outlineMarkdown],
+                outlineSubtask: 'vocabulary_failed',
+                outlineAiInvoked: $outlineAiInvoked,
+                durationMs: (int) round(microtime(true) * 1000) - $started,
             );
         }
 
@@ -109,25 +172,71 @@ final class ArticleOutlineVocabularySplitExecutor
                 $vocabularyVariables,
                 $vocabContext,
             );
+            $vocabularyAiInvoked = true;
         } catch (PromptHookFailure $exception) {
             return $this->fail(
                 'Vocabulary generation failed: '.$exception->getMessage(),
                 outlineResult: $outlineResult,
-                vocabularyResult: ['error' => $exception->getMessage(), 'result_id' => $exception->promptResultId()],
+                vocabularyResult: [
+                    'error' => $exception->getMessage(),
+                    'result_id' => $exception->promptResultId(),
+                    'prompt_result_id' => $exception->promptResultId(),
+                ],
+                sections: ['outline' => $outlineMarkdown],
+                outlineSubtask: 'vocabulary_failed',
+                outlineAiInvoked: $outlineAiInvoked,
+                vocabularyAiInvoked: true,
+                durationMs: (int) round(microtime(true) * 1000) - $started,
+            );
+        } catch (\Throwable $exception) {
+            $promptResultId = $this->exceptionPromptResultId($exception);
+
+            return $this->fail(
+                'Vocabulary generation failed: '.$exception->getMessage(),
+                outlineResult: $outlineResult,
+                vocabularyResult: [
+                    'error' => $exception->getMessage(),
+                    'result_id' => $promptResultId,
+                    'prompt_result_id' => $promptResultId,
+                ],
+                sections: ['outline' => $outlineMarkdown],
+                outlineSubtask: 'vocabulary_failed',
+                outlineAiInvoked: $outlineAiInvoked,
+                vocabularyAiInvoked: true,
+                durationMs: (int) round(microtime(true) * 1000) - $started,
             );
         }
 
-        $vocabularyMarkdown = trim((string) ($vocabularyResult['output'] ?? ''));
+        $vocabularyMarkdown = $this->normalizeDirectBody((string) ($vocabularyResult['output'] ?? ''));
         if ($vocabularyMarkdown === '') {
             return $this->fail(
                 'Vocabulary generation failed: empty output.',
                 outlineResult: $outlineResult,
                 vocabularyResult: $vocabularyResult,
+                sections: ['outline' => $outlineMarkdown],
+                outlineSubtask: 'vocabulary_failed',
+                outlineAiInvoked: $outlineAiInvoked,
+                vocabularyAiInvoked: true,
+                durationMs: (int) round(microtime(true) * 1000) - $started,
+            );
+        }
+
+        $vocabLengthError = $this->validateDirectBody($vocabularyMarkdown, 'Vocabulary');
+        if ($vocabLengthError !== null) {
+            return $this->fail(
+                $vocabLengthError,
+                outlineResult: $outlineResult,
+                vocabularyResult: $vocabularyResult,
+                sections: ['outline' => $outlineMarkdown],
+                outlineSubtask: 'vocabulary_failed',
+                outlineAiInvoked: $outlineAiInvoked,
+                vocabularyAiInvoked: true,
+                durationMs: (int) round(microtime(true) * 1000) - $started,
             );
         }
 
         $ports = $this->assemblePorts($outlineMarkdown, $vocabularyMarkdown);
-        $durationMs = (int) round(microtime(true) * 1000) - $outlineStarted;
+        $durationMs = (int) round(microtime(true) * 1000) - $started;
         $resultIds = array_values(array_filter([
             isset($outlineResult['prompt_result_id']) ? (int) $outlineResult['prompt_result_id'] : null,
             isset($vocabularyResult['prompt_result_id']) ? (int) $vocabularyResult['prompt_result_id'] : null,
@@ -151,7 +260,46 @@ final class ArticleOutlineVocabularySplitExecutor
             'correlation_id' => (string) ($outlineResult['correlation_id'] ?? $vocabularyResult['correlation_id'] ?? ''),
             'ai_model' => $vocabularyResult['model'] ?? $outlineResult['model'] ?? null,
             'duration_ms' => $durationMs,
+            'outline_ai_invoked' => $outlineAiInvoked,
+            'vocabulary_ai_invoked' => $vocabularyAiInvoked,
+            'outline_status' => 'completed',
+            'vocabulary_status' => 'completed',
         ];
+    }
+
+    /**
+     * Strip accidental marker wrappers; never require markers for validation.
+     */
+    public function normalizeDirectBody(string $raw): string
+    {
+        $text = trim($raw);
+        if ($text === '') {
+            return '';
+        }
+
+        $pairs = [
+            [ArticleGenerationInputResolver::OUTLINE_START, ArticleGenerationInputResolver::OUTLINE_END],
+            [ArticleGenerationInputResolver::VOCABULARY_START, ArticleGenerationInputResolver::VOCABULARY_END],
+        ];
+
+        foreach ($pairs as [$start, $end]) {
+            if (! str_starts_with($text, $start)) {
+                continue;
+            }
+            $endPos = strrpos($text, $end);
+            if ($endPos === false) {
+                continue;
+            }
+            $inner = trim(substr($text, strlen($start), $endPos - strlen($start)));
+            if ($inner !== '') {
+                return $inner;
+            }
+        }
+
+        $text = (string) preg_replace('/^\s*\[START_TASK_[^\]]+\]\s*/u', '', $text);
+        $text = (string) preg_replace('/\s*\[END_TASK_[^\]]+\]\s*$/u', '', $text);
+
+        return trim($text);
     }
 
     /**
@@ -179,8 +327,12 @@ final class ArticleOutlineVocabularySplitExecutor
     /**
      * @param  array<string, mixed>  $nodeData
      */
-    private function resolveOutlinePrompt(array $nodeData): ?SeoPrompt
+    protected function resolveOutlinePrompt(array $nodeData): ?SeoPrompt
     {
+        if (($nodeData['outline_prompt'] ?? null) instanceof SeoPrompt) {
+            return $nodeData['outline_prompt'];
+        }
+
         $fromNode = $this->loadPrompt($nodeData['outline_prompt_id'] ?? null);
         if ($fromNode !== null) {
             return $fromNode;
@@ -192,8 +344,12 @@ final class ArticleOutlineVocabularySplitExecutor
     /**
      * @param  array<string, mixed>  $nodeData
      */
-    private function resolveVocabularyPrompt(array $nodeData): ?SeoPrompt
+    protected function resolveVocabularyPrompt(array $nodeData): ?SeoPrompt
     {
+        if (($nodeData['vocabulary_prompt'] ?? null) instanceof SeoPrompt) {
+            return $nodeData['vocabulary_prompt'];
+        }
+
         $fromNode = $this->loadPrompt($nodeData['vocabulary_prompt_id'] ?? null);
         if ($fromNode !== null) {
             return $fromNode;
@@ -215,8 +371,8 @@ final class ArticleOutlineVocabularySplitExecutor
     }
 
     /**
-     * Canonical Vocabulary inputs: current article title + outline from structure step.
-     * Prompt history is never the source of post_title.
+     * Canonical Vocabulary inputs: {{input}} subject + outline from structure step.
+     * Does not depend on prior Outline conversation history.
      *
      * @param  array<string, mixed>  $variables
      * @param  array<string, mixed>  $contextExtras
@@ -229,23 +385,34 @@ final class ArticleOutlineVocabularySplitExecutor
             return ['__error' => 'Vocabulary generation failed: missing required outline.'];
         }
 
-        $postTitle = trim((string) ($variables['post_title'] ?? $variables['title'] ?? ''));
-        if ($postTitle === '') {
+        $input = trim((string) ($variables['input'] ?? ''));
+        if ($input === '') {
+            $input = trim((string) ($variables['focus_keyword'] ?? $variables['keyword'] ?? ''));
+        }
+        if ($input === '') {
+            $input = trim((string) ($variables['post_title'] ?? $variables['title'] ?? ''));
+        }
+        if ($input === '') {
             $articleId = (int) ($contextExtras['article_id'] ?? 0);
             if ($articleId > 0) {
                 $fromArticle = SeoArticle::query()->whereKey($articleId)->value('title');
-                $postTitle = trim((string) $fromArticle);
+                $input = trim((string) $fromArticle);
             }
         }
 
-        if ($postTitle === '') {
-            return ['__error' => 'Vocabulary generation failed: missing required post_title.'];
+        if ($input === '') {
+            return ['__error' => 'Vocabulary generation failed: missing required input.'];
         }
 
         $out = $variables;
-        $out['post_title'] = $postTitle;
-        $out['title'] = $postTitle;
+        $out['input'] = $input;
         $out['outline'] = $outlineMarkdown;
+
+        $postTitle = trim((string) ($out['post_title'] ?? $out['title'] ?? ''));
+        if ($postTitle === '') {
+            $out['post_title'] = $input;
+            $out['title'] = $input;
+        }
 
         $focus = trim((string) ($out['focus_keyword'] ?? $out['keyword'] ?? ''));
         if ($focus !== '') {
@@ -272,27 +439,52 @@ final class ArticleOutlineVocabularySplitExecutor
         return $context;
     }
 
+    private function validateDirectBody(string $body, string $label): ?string
+    {
+        $len = mb_strlen($body);
+        if ($len < self::MIN_DIRECT_BODY_LENGTH) {
+            return "{$label} generation failed: output shorter than minimum_length ({$len} chars < ".self::MIN_DIRECT_BODY_LENGTH.').';
+        }
+
+        return null;
+    }
+
     /**
      * @param  array<string, mixed>  $outlineResult
      * @param  array<string, mixed>|null  $vocabularyResult
+     * @param  array<string, string>  $sections
      * @return array<string, mixed>
      */
     private function fail(
         string $message,
         array $outlineResult = [],
         ?array $vocabularyResult = null,
+        array $sections = [],
+        ?string $outlineSubtask = null,
+        bool $outlineAiInvoked = false,
+        bool $vocabularyAiInvoked = false,
+        int $durationMs = 0,
     ): array {
         $resultIds = array_values(array_filter([
             isset($outlineResult['prompt_result_id']) ? (int) $outlineResult['prompt_result_id'] : null,
             isset($vocabularyResult['prompt_result_id']) ? (int) $vocabularyResult['prompt_result_id'] : null,
         ], static fn (?int $id): bool => $id !== null && $id > 0));
 
+        $hasOutline = trim((string) ($sections['outline'] ?? $outlineResult['output'] ?? '')) !== ''
+            && ! isset($outlineResult['error']);
+        $subtask = $outlineSubtask;
+        if ($subtask === null) {
+            $subtask = ($vocabularyResult !== null || str_starts_with($message, 'Vocabulary'))
+                ? 'vocabulary_failed'
+                : 'outline_failed';
+        }
+
         return [
             'status' => 'failed',
             'message' => $message,
             'output' => '',
             'ports' => [],
-            'sections' => [],
+            'sections' => $sections,
             'outline_result' => $outlineResult,
             'vocabulary_result' => $vocabularyResult,
             'prompt_result_ids' => $resultIds,
@@ -301,7 +493,12 @@ final class ArticleOutlineVocabularySplitExecutor
             'execution_source' => 'split_outline_vocabulary',
             'correlation_id' => (string) ($outlineResult['correlation_id'] ?? ''),
             'ai_model' => $outlineResult['model'] ?? null,
-            'duration_ms' => 0,
+            'duration_ms' => $durationMs,
+            'outline_subtask' => $subtask,
+            'outline_ai_invoked' => $outlineAiInvoked,
+            'vocabulary_ai_invoked' => $vocabularyAiInvoked,
+            'outline_status' => $hasOutline ? 'completed' : 'failed',
+            'vocabulary_status' => 'failed',
         ];
     }
 
@@ -310,8 +507,22 @@ final class ArticleOutlineVocabularySplitExecutor
         if (! is_numeric($value)) {
             return null;
         }
+
         $id = (int) $value;
 
         return $id > 0 ? $id : null;
+    }
+
+    private function exceptionPromptResultId(\Throwable $exception): ?int
+    {
+        if ($exception instanceof \Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException) {
+            return $this->positiveInt($exception->context['prompt_result_id'] ?? null);
+        }
+
+        if ($exception instanceof PromptHookFailure) {
+            return $this->positiveInt($exception->promptResultId());
+        }
+
+        return null;
     }
 }

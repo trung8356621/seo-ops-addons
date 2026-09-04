@@ -227,8 +227,11 @@ export function isSeoPanelPath(href) {
 }
 
 /**
- * Projects / Runs / publishing queue — domain-neutral.
+ * Projects list / Runs / publishing queue — domain-neutral.
  * Do not inject or keep ?domain= / ?site_id= on these paths.
+ *
+ * Exception: Project Planner (SEO Audit) is domain-scoped via the Global Domain
+ * bar and must keep/sync ?site_id= like Keywords pages.
  *
  * @param {string} href
  * @returns {boolean}
@@ -237,6 +240,10 @@ export function isDomainNeutralPanelPath(href) {
     try {
         const url = new URL(href, 'http://local.test');
         const path = url.pathname;
+
+        if (/\/content-projects\/seo-audit(?:\/|$)/.test(path)) {
+            return false;
+        }
 
         return /\/content-projects(?:\/|$)/.test(path) || /\/publishing-queue(?:\/|$)/.test(path);
     } catch {

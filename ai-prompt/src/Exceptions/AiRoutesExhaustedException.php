@@ -30,11 +30,20 @@ final class AiRoutesExhaustedException extends PromptRunException
         }
 
         parent::__construct(
-            message: self::CLASSIFICATION.': '.$attemptCount.' AI attempts failed.',
+            message: self::CLASSIFICATION.': '.self::technicalAttemptPhrase($attemptCount),
             code: 0,
             previous: $previous,
             context: $context,
         );
+    }
+
+    public static function technicalAttemptPhrase(int $attemptCount): string
+    {
+        if ($attemptCount <= 0) {
+            return 'No eligible AI route was attempted';
+        }
+
+        return $attemptCount.' AI attempt(s) failed';
     }
 
     /**
@@ -60,6 +69,10 @@ final class AiRoutesExhaustedException extends PromptRunException
                 default => $failure !== '' ? $model.' ('.$failure.')' : $model.' failed',
             };
             $parts[] = $label;
+        }
+
+        if ($attemptCount <= 0) {
+            return 'AI routes exhausted: no eligible AI route was attempted. Check AI Center routing/keys, then retry.';
         }
 
         if ($parts !== []) {

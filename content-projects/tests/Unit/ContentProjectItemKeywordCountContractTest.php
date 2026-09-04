@@ -33,34 +33,37 @@ final class ContentProjectItemKeywordCountContractTest extends TestCase
         self::assertSame('seo_article_keywords', ArticleKeywordDistinctCounter::META_KEY);
     }
 
-    public function test_ops_table_renders_keywords_column_between_generation_and_workflow(): void
+    public function test_ops_table_renders_keywords_column_before_workflow(): void
     {
         $list = (string) file_get_contents(
             LegacyAddonPath::resolve('resources/views/components/content-project-items-list.blade.php'),
         );
+        $cell = (string) file_get_contents(
+            LegacyAddonPath::resolve('resources/views/components/content-project-keyword-cell.blade.php'),
+        );
 
-        $gen = strpos($list, "ops_col_generation");
-        $kw = strpos($list, "ops_col_keywords");
-        $wf = strpos($list, "ops_col_workflow");
-        self::assertNotFalse($gen);
+        $kw = strpos($list, 'ops_col_keywords');
+        $wf = strpos($list, 'ops_col_workflow');
         self::assertNotFalse($kw);
         self::assertNotFalse($wf);
-        self::assertLessThan($kw, $gen);
         self::assertLessThan($wf, $kw);
-        self::assertStringContainsString('keywords_count', $list);
-        self::assertStringContainsString('(int) ($row[\'keywords_count\'] ?? 0)', $list);
+        self::assertStringNotContainsString('ops_col_generation', $list);
+        self::assertStringContainsString('generation_badge', $list);
+        self::assertStringContainsString('content-project-keyword-cell', $list);
+        self::assertStringContainsString('cp-ops-kw-cell', $cell);
     }
 
     public function test_missing_keywords_display_zero_not_dash(): void
     {
+        $src = $this->source(ContentProjectItemOperationsReadModel::class);
+        self::assertStringContainsString('keywords_count', $src);
+
         $list = (string) file_get_contents(
             LegacyAddonPath::resolve('resources/views/components/content-project-items-list.blade.php'),
         );
-        $kwPos = strpos($list, 'cp-ops-kw-count');
-        self::assertNotFalse($kwPos);
-        $chunk = substr($list, $kwPos, 400);
-        self::assertStringNotContainsString("'—'", $chunk);
-        self::assertStringContainsString('(int) ($row[\'keywords_count\'] ?? 0)', $list);
+        self::assertStringContainsString('content-project-keyword-cell', $list);
+        // Count must not fall back to em-dash in the ops table.
+        self::assertStringNotContainsString("keywords_count'] ?? 0) ?: '—'", $list);
     }
 
     /**

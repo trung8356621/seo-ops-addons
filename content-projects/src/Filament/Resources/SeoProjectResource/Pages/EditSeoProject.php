@@ -225,13 +225,17 @@ class EditSeoProject extends SeoEditRecord
 
         return [
             Actions\ActionGroup::make([
+                Actions\Action::make('open_project_workspace')
+                    ->label(__('seo-content-ai::filament.projects.view_project_short'))
+                    ->icon('heroicon-o-eye')
+                    ->url(fn (): string => SeoProjectResource::getProjectWorkspaceUrl($this->getRecord()))
+                    ->visible(fn (): bool => SeoProjectResource::canView($this->getRecord())),
                 SeoProjectResource::makeArchiveProjectPageAction($record),
                 Actions\Action::make('open_scheduled_filter')
                     ->label(__('seo-content-ai::filament.projects.open_scheduled_filter'))
                     ->icon('heroicon-o-calendar-days')
                     ->color('gray')
                     ->url(fn (): string => SeoProjectResource::getPublishingQueueUrl($this->getRecord())),
-                SeoProjectResource::makeGeneratePendingItemsAction($record),
                 SeoProjectResource::makeDevTestGeneratePendingItemsAction($record),
                 Actions\DeleteAction::make()
                     ->visible(fn (): bool => SeoProjectResource::canDelete($this->getRecord()))

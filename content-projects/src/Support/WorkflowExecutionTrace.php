@@ -48,15 +48,21 @@ final class WorkflowExecutionTrace
             }
 
             $resultIds = [];
-            $single = (int) ($step['result_id'] ?? 0);
-            if ($single > 0) {
-                $resultIds[] = $single;
+            foreach (['outline_result_id', 'vocabulary_result_id'] as $key) {
+                $id = (int) ($step[$key] ?? 0);
+                if ($id > 0 && ! in_array($id, $resultIds, true)) {
+                    $resultIds[] = $id;
+                }
             }
             foreach (is_array($step['prompt_result_ids'] ?? null) ? $step['prompt_result_ids'] : [] as $rid) {
                 $id = (int) $rid;
                 if ($id > 0 && ! in_array($id, $resultIds, true)) {
                     $resultIds[] = $id;
                 }
+            }
+            $single = (int) ($step['result_id'] ?? 0);
+            if ($single > 0 && ! in_array($single, $resultIds, true)) {
+                $resultIds[] = $single;
             }
 
             $trace[] = [
@@ -70,6 +76,12 @@ final class WorkflowExecutionTrace
                 'execution_role' => self::nullableString($step['execution_role'] ?? null),
                 'result_id' => $single > 0 ? $single : null,
                 'prompt_result_ids' => $resultIds,
+                'outline_result_id' => (($oid = (int) ($step['outline_result_id'] ?? 0)) > 0) ? $oid : null,
+                'vocabulary_result_id' => (($vid = (int) ($step['vocabulary_result_id'] ?? 0)) > 0) ? $vid : null,
+                'outline_status' => self::nullableString($step['outline_status'] ?? null),
+                'vocabulary_status' => self::nullableString($step['vocabulary_status'] ?? null),
+                'outline_message' => self::nullableString($step['outline_message'] ?? null),
+                'vocabulary_message' => self::nullableString($step['vocabulary_message'] ?? null),
                 'prompt_id' => isset($step['prompt_id']) && (int) $step['prompt_id'] > 0
                     ? (int) $step['prompt_id']
                     : null,
@@ -78,6 +90,9 @@ final class WorkflowExecutionTrace
                     ? (int) $step['duration_ms']
                     : null,
                 'outline_subtask' => self::nullableString($step['outline_subtask'] ?? null),
+                'execution_sequence' => isset($step['execution_sequence']) && is_numeric($step['execution_sequence'])
+                    ? (int) $step['execution_sequence']
+                    : null,
                 'action' => self::nullableString($step['action'] ?? null),
                 'filter_type' => self::nullableString($step['filter_type'] ?? null),
             ];

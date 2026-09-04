@@ -15,6 +15,10 @@ final class PromptHookEnvelopeValidator
         'locale', 'site_locale', 'article_locale', 'caller_locale',
         'language', 'language_name', 'prompt_id', 'legacy_compiled_prompt',
         'connection_id',
+        // Content Project run association — needed so PromptResults link into the active run.
+        'run_id', 'project_run_id', 'run_item_id', 'attempt',
+        'project_task_id', 'task_id', 'project_id',
+        'outline_subtask',
     ];
 
     public function __construct(

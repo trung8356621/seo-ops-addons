@@ -22,6 +22,7 @@
 @endphp
 
 <x-filament-panels::page class="keyword-workspace-page topic-cluster-index-page max-w-full">
+    <x-seo-content-ai::content-project-ops-styles />
     @if (is_readable($workspaceCss))
         <style>{!! file_get_contents($workspaceCss) !!}</style>
     @endif
@@ -194,11 +195,20 @@
                             type="button"
                             color="danger"
                             outlined
-                            wire:click="openDissolveConfirm({{ \Illuminate\Support\Js::from((string) ($detail['cluster_key'] ?? '')) }})"
+                            wire:click="dissolveTopicCluster({{ \Illuminate\Support\Js::from((string) ($detail['cluster_key'] ?? '')) }})"
+                            wire:loading.attr="disabled"
+                            wire:loading.class="opacity-50 pointer-events-none"
+                            wire:target="dissolveTopicCluster"
                             :disabled="$topicMutationsLocked || ! $this->canDissolveCluster()"
                             :title="$topicMutationsLocked ? __('seo-content-ai::filament.keyword.topic_recluster_mutations_locked') : null"
                         >
-                            {{ __('seo-content-ai::filament.keyword.topic_dissolve_action') }}
+                            <span wire:loading.remove wire:target="dissolveTopicCluster">
+                                {{ __('seo-content-ai::filament.keyword.topic_dissolve_action') }}
+                            </span>
+                            <span wire:loading wire:target="dissolveTopicCluster" class="inline-flex items-center gap-1.5">
+                                <x-filament::loading-indicator class="h-4 w-4" />
+                                {{ __('seo-content-ai::filament.keyword.topic_dissolve_working') }}
+                            </span>
                         </x-filament::button>
                     @endif
                 </div>
@@ -252,7 +262,6 @@
             ])
         </div>
 
-        @include('seo-content-ai::filament.resources.keywords.pages.partials.dissolve-cluster-modal')
         @include('seo-content-ai::filament.resources.keywords.pages.partials.keyword-move-cluster-modal')
     </div>
 </x-filament-panels::page>

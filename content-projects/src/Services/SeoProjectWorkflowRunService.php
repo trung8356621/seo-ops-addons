@@ -483,11 +483,12 @@ final class SeoProjectWorkflowRunService
             ?? $this->runItemService->prepareOperation($run, $project, $task);
 
         $resolvedArticleId = $articleId ?: (int) ($runItem->article_id ?? 0) ?: (int) ($task->article_id ?? 0);
-        $articleExists = $resolvedArticleId > 0
-            && SeoArticle::query()
-                ->whereKey($resolvedArticleId)
-                ->where('site_id', (int) $project->site_id)
-                ->exists();
+        $taskSiteId = (int) ($task->site_id ?? $project->site_id ?? 0);
+        $articleQuery = SeoArticle::query()->whereKey($resolvedArticleId);
+        if ($taskSiteId > 0) {
+            $articleQuery->where('site_id', $taskSiteId);
+        }
+        $articleExists = $resolvedArticleId > 0 && $articleQuery->exists();
 
         if (! $articleExists) {
             throw new \InvalidArgumentException('Không tìm thấy bài viết đã sửa để đánh dấu hoàn thành.');
@@ -634,14 +635,17 @@ final class SeoProjectWorkflowRunService
             $this->runItemService->markFailed(
                 $runItem,
                 ContentProjectErrorCode::ExternalWorkflowFailed,
-                'Thiếu site_id.',
+                'Item #'.$task->id.' thiếu site_id/domain.',
             );
             $this->safeTaskEvent($task, SeoProjectTaskEventType::TaskFailed, SeoProjectTask::STATUS_WRITING, SeoProjectTask::STATUS_FAILED, $run, $runItem);
 
-            return $this->finalizeFailedJson($run, $task, $runItem, $this->errorFormatter->fromPlainDetail('Thiếu site_id.'));
+            return $this->finalizeFailedJson($run, $task, $runItem, $this->errorFormatter->fromPlainDetail(
+                'Item #'.$task->id.' thiếu site_id/domain.',
+            ));
         }
 
-        $scope = $this->articleScopeForProject($projectSiteId);
+        // Scope articles by item domain — never require project.site_id for domain-neutral projects.
+        $scope = $this->articleScopeForProject($taskSiteId);
 
         $runSettings = is_array($run->settings) ? $run->settings : [];
         $fromStepRaw = $runSettings['rerun_from_step'] ?? null;
@@ -674,6 +678,35 @@ final class SeoProjectWorkflowRunService
                 }
             }
 
+            try {
+                $context = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectRewriteKeywordCanonicalizer::class)
+                    ->canonicalize($task, $context);
+                $type = SeoProjectTask::normalizeType((string) ($task->type ?? ''));
+                $context = $context->withVariables(
+                    \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectTaskCanonicalInputBuilder::stamp(
+                        $context->variables,
+                        $type,
+                        $task,
+                    ),
+                );
+            } catch (\RuntimeException $exception) {
+                if ($exception->getMessage() === \Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectRewriteKeywordCanonicalizer::ERROR_MESSAGE) {
+                    $this->markTaskFailed($task);
+                    $this->runItemService->markFailed(
+                        $runItem,
+                        ContentProjectErrorCode::ExternalWorkflowFailed,
+                        $exception->getMessage(),
+                    );
+                    $this->safeTaskEvent($task, SeoProjectTaskEventType::TaskFailed, SeoProjectTask::STATUS_WRITING, SeoProjectTask::STATUS_FAILED, $run, $runItem);
+
+                    return $this->finalizeFailedJson($run, $task, $runItem, $this->errorFormatter->fromPlainDetail(
+                        $exception->getMessage(),
+                    ));
+                }
+
+                throw $exception;
+            }
+
             Log::info('seo.project_run.task.start', [
                 'run_id' => (int) $run->id,
                 'task_id' => (int) $task->id,
@@ -683,6 +716,20 @@ final class SeoProjectWorkflowRunService
                 'attempt' => (int) $runItem->attempt,
                 'rerun_from_step' => $fromStep?->value,
             ]);
+
+            // Stamp run/attempt into workflow variables BEFORE AI so PromptResults link into this run.
+            $context = $context->withVariables(array_merge($context->variables, [
+                'run_id' => (string) (int) $run->id,
+                'project_run_id' => (string) (int) $run->id,
+                'run_item_id' => (string) (int) $runItem->id,
+                'project_task_id' => (string) (int) $task->id,
+                'task_id' => (string) (int) $task->id,
+                'attempt' => (string) (int) ($runItem->attempt ?? 1),
+                'project_id' => (string) (int) ($task->project_id ?? $run->project_id ?? 0),
+            ]));
+            if ((int) ($task->article_id ?? 0) > 0) {
+                $this->storeArticleRunMeta((int) $task->article_id, $run, $task);
+            }
 
             if ($fromStep instanceof \Omnichannel\Addons\ContentProjects\Enums\ContentProjectRerunFromStep) {
                 $result = $this->articleRunner->runRerunFromStepForContext(

@@ -163,7 +163,7 @@ function ExecutionInspector({ node, execution, labels, workflow, run, onPreview,
         </div>
       )}
 
-      {execution?.message && !isAction && (
+      {execution?.message && !isAction && !(isPrompt && aiCalls.length > 0) && (
         <p className="text-xs text-slate-600 dark:text-slate-400">{execution.message}</p>
       )}
 
@@ -175,12 +175,20 @@ function ExecutionInspector({ node, execution, labels, workflow, run, onPreview,
           <ul className="space-y-2">
             {aiCalls.map((call) => (
               <li key={call.result_id} className="rounded border border-slate-200 p-2 text-xs dark:border-slate-700">
-                <p className="font-medium">{call.prompt_name || call.hook_key || `#${call.result_id}`}</p>
+                <div className="flex items-start justify-between gap-2">
+                  <p className="font-medium">{call.prompt_name || call.hook_key || `#${call.result_id}`}</p>
+                  {call.status_label && (
+                    <span className="shrink-0 text-[10px] uppercase tracking-wide text-slate-500">{call.status_label}</span>
+                  )}
+                </div>
                 {call.hook_key && <p className="font-mono text-[10px] text-slate-500">{call.hook_key}</p>}
+                {call.outline_subtask && <p>Subtask: {call.outline_subtask}</p>}
                 {call.execution_profile && <p>Profile: {call.execution_profile}</p>}
                 {call.model && <p>Model: {call.model}{call.provider ? ` · ${call.provider}` : ''}</p>}
                 {call.route_position != null && <p>Route position #{call.route_position}</p>}
-                {call.outline_subtask && <p>Subtask: {call.outline_subtask}</p>}
+                {call.message && (
+                  <p className="mt-1 text-red-700 dark:text-red-400">{call.message}</p>
+                )}
                 {call.result_id && onPreview && (
                   <button
                     type="button"

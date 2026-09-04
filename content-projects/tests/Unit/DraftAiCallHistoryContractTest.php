@@ -14,6 +14,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\ContentProj
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 use ReflectionProperty;
+use Tests\Support\LegacyAddonPath;
 use Tests\Support\ProjectRoot;
 
 final class DraftAiCallHistoryContractTest extends TestCase
@@ -82,9 +83,12 @@ final class DraftAiCallHistoryContractTest extends TestCase
         $card = (string) file_get_contents(
             ProjectRoot::addonsPath().'/seo-content-ai-compat/resources/views/components/content-project-new-content-card.blade.php',
         );
-        self::assertStringContainsString('draft_ai_history_link', $card);
-        self::assertStringContainsString('data-new-content-ai-history="1"', $card);
-        self::assertStringContainsString('target="_blank"', $card);
+        $planner = LegacyAddonPath::read('resources/views/components/content-project-draft-planner.blade.php');
+        self::assertStringNotContainsString('data-new-content-ai-history="1"', $card);
+        self::assertStringContainsString('data-new-content-ai-history="1"', $planner);
+        self::assertStringContainsString('data-create-tab="ai-history"', $planner);
+        self::assertStringContainsString('target="_blank"', $planner);
+        self::assertStringContainsString('draft_ai_history_nav', $planner);
     }
 
     public function test_planner_run_detail_page_and_view_results_link(): void
@@ -149,8 +153,8 @@ final class DraftAiCallHistoryContractTest extends TestCase
         self::assertStringNotContainsString('planner_load_options', $card);
         self::assertStringNotContainsString('planner_generate_again', $card);
         self::assertStringNotContainsString('planner_view_results', $card);
-        self::assertStringContainsString('data-planning-intelligence', $card);
-        self::assertStringContainsString('draft_ai_history_link', $card);
+        self::assertStringNotContainsString('data-planning-intelligence', $card);
+        self::assertStringNotContainsString('data-new-content-ai-history', $card);
         self::assertStringNotContainsString('planner_options', $card);
         self::assertStringNotContainsString('planner_save_options', $card);
         self::assertStringNotContainsString('saveNewContentOptions', (string) file_get_contents(

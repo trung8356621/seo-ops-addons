@@ -37,8 +37,8 @@
                     <option value="needs_attention">Cần xử lý</option>
                 </x-select>
             @else
-                <x-select wire:model.live="workflowFilter" wrapClass="cp-ops-select" aria-label="{{ __('seo-content-ai::filament.projects.ops_workflow_filter') }}">
-                    <option value="">{{ __('seo-content-ai::filament.projects.ops_workflow_all') }}</option>
+                <x-select wire:model.live="workflowFilter" wrapClass="cp-ops-select" aria-label="{{ __('seo-content-ai::filament.projects.ops_lifecycle_filter') }}">
+                    <option value="">{{ __('seo-content-ai::filament.projects.ops_lifecycle_all') }}</option>
                     <option value="normal">{{ __('seo-content-ai::filament.projects.ops_normal') }}</option>
                     @unless ($contentManager)
                         <option value="pending">{{ __('seo-content-ai::filament.projects.ops_pending') }}</option>
@@ -50,8 +50,8 @@
                     @endunless
                 </x-select>
                 @unless ($contentManager)
-                    <x-select wire:model.live="generationFilter" wrapClass="cp-ops-select" aria-label="{{ __('seo-content-ai::filament.projects.ops_col_generation') }}">
-                        <option value="">{{ __('seo-content-ai::filament.projects.ops_col_generation') }}</option>
+                    <x-select wire:model.live="generationFilter" wrapClass="cp-ops-select" aria-label="{{ __('seo-content-ai::filament.projects.ops_col_workflow') }}">
+                        <option value="">{{ __('seo-content-ai::filament.projects.ops_col_workflow') }}</option>
                         <option value="pending">pending</option>
                         <option value="running">running</option>
                         <option value="success">generated</option>
@@ -112,8 +112,8 @@
                         <option value="failed">Failed</option>
                     </x-select>
                 @else
-                    <x-select wire:model.live="workflowFilter" class="!w-full">
-                        <option value="">{{ __('seo-content-ai::filament.projects.ops_workflow_all') }}</option>
+                    <x-select wire:model.live="workflowFilter" class="!w-full" aria-label="{{ __('seo-content-ai::filament.projects.ops_lifecycle_filter') }}">
+                        <option value="">{{ __('seo-content-ai::filament.projects.ops_lifecycle_all') }}</option>
                         <option value="normal">{{ __('seo-content-ai::filament.projects.ops_normal') }}</option>
                         @unless ($contentManager)
                             <option value="pending">{{ __('seo-content-ai::filament.projects.ops_pending') }}</option>
@@ -125,8 +125,8 @@
                         @endunless
                     </x-select>
                     @unless ($contentManager)
-                        <x-select wire:model.live="generationFilter" class="!w-full">
-                            <option value="">{{ __('seo-content-ai::filament.projects.ops_col_generation') }}</option>
+                        <x-select wire:model.live="generationFilter" class="!w-full" aria-label="{{ __('seo-content-ai::filament.projects.ops_col_workflow') }}">
+                            <option value="">{{ __('seo-content-ai::filament.projects.ops_col_workflow') }}</option>
                             <option value="pending">pending</option>
                             <option value="running">running</option>
                             <option value="success">generated</option>

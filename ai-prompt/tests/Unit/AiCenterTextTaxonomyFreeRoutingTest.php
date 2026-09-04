@@ -390,8 +390,14 @@ final class AiCenterTextTaxonomyFreeRoutingTest extends TestCase
             ['google/gemma-3-27b-it:free'],
             array_map(static fn ($c): string => $c->model, $this->targets->eligibleCandidates(29, AiExecutionProfile::TextLongform, $freeOnly)),
         );
+        // Inventory still lists DeepSeek on reasoning area…
         $this->assertSame(
             ['deepseek/deepseek-r1:free'],
+            array_map(static fn ($c): string => $c->model, $this->targets->liveCompatibleCandidates(29, AiExecutionProfile::TextReasoning)),
+        );
+        // …but production eligibility excludes DeepSeek from TextReasoning (Outline/Vocabulary).
+        $this->assertSame(
+            [],
             array_map(static fn ($c): string => $c->model, $this->targets->eligibleCandidates(29, AiExecutionProfile::TextReasoning, $freeOnly)),
         );
     }

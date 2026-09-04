@@ -16,6 +16,7 @@ use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGenerationKeyword;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectFreshKeywordRestart;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemIdentity;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectTaskCanonicalInputBuilder;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ContentProjectItemGenerationPolicyApplier;
 use Omnichannel\Addons\ContentProjects\Support\ProjectTaskOriginVariables;
 use Omnichannel\Addons\ContentProjects\Support\TaskTestContext;
@@ -586,7 +587,16 @@ final class TaskTestInputResolver
             ),
         );
 
-        return app(ContentProjectItemGenerationPolicyApplier::class)->apply($stamped, $task);
+        $withPolicy = app(ContentProjectItemGenerationPolicyApplier::class)->apply($stamped, $task);
+
+        $type = SeoProjectTask::normalizeType((string) ($task->type ?? $withPolicy->projectTaskType ?? ''));
+        $variables = ContentProjectTaskCanonicalInputBuilder::stamp(
+            $withPolicy->variables,
+            $type,
+            $task,
+        );
+
+        return $withPolicy->withVariables($variables);
     }
 
     /**

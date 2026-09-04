@@ -251,6 +251,8 @@ final class SeoPanelRoutes
             'filament.seo.pages.performance-hub',
             'filament.seo.pages.mcp-intelligence',
             'filament.seo.pages.social',
+            'filament.seo.pages.seeding-topics',
+            'filament.seo.pages.seeding-topic-manage',
         );
     }
 
@@ -267,6 +269,14 @@ final class SeoPanelRoutes
     public static function isSocialNav(?string $route = null): bool
     {
         return self::check($route, 'filament.seo.pages.social');
+    }
+
+    public static function isSeedingTopicsNav(?string $route = null): bool
+    {
+        return self::check($route,
+            'filament.seo.pages.seeding-topics',
+            'filament.seo.pages.seeding-topic-manage',
+        );
     }
 
     // ─── Hệ thống ────────────────────────────────────────────────────────

@@ -35,6 +35,37 @@ final class ContentProjectArticleRunner
             return $this->cancelledResult($run, $taskId, $runItemId, 'Run đã stopping/cancelled trước khi chạy article.');
         }
 
+        if (app(ContentProjectRunEngine::class)->isCircuitBreakerStopped($run)) {
+            RuntimeLogger::info('seo.content_project_run.article.skipped_circuit_breaker', [
+                'run_id' => (int) $run->id,
+                'task_id' => $taskId,
+                'run_item_id' => $runItemId,
+            ]);
+
+            if ($runItemId !== null && $runItemId > 0) {
+                $item = SeoProjectRunItem::query()->find($runItemId);
+                if ($item instanceof SeoProjectRunItem
+                    && (string) $item->status === \Omnichannel\Addons\ContentProjects\Enums\SeoProjectRunItemStatus::Processing->value
+                ) {
+                    $item->update([
+                        'status' => \Omnichannel\Addons\ContentProjects\Enums\SeoProjectRunItemStatus::Pending->value,
+                        'started_at' => null,
+                        'finished_at' => null,
+                        'message' => 'Deferred: batch circuit breaker stopped further articles.',
+                    ]);
+                }
+            }
+
+            return new ArticleExecutionResult(
+                runId: (int) $run->id,
+                taskId: $taskId,
+                runItemId: $runItemId,
+                status: ContentProjectArticleSemanticStatus::Cancelled,
+                message: 'Skipped: circuit breaker stopped batch.',
+                mayDispatchNextOverride: false,
+            );
+        }
+
         $this->cancellationGuard->assertAllowsArticleExecution($run);
 
         $this->events->articleStarted($run, $taskId, $runItemId);
