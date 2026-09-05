@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\Seo\Filament\Pages;
 use Omnichannel\Addons\Content\Services\ArticleEditorHistoryService;
 use Omnichannel\Addons\Seo\Services\SeoOverviewSettingsService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\Seo\Support\SeoStackAvailability;
 use App\Help\HelpUi;
 use Filament\Forms;
 use Filament\Forms\Concerns\InteractsWithForms;
@@ -122,6 +123,17 @@ class SeoSettingsEditor extends Page implements HasForms
 
     public static function canAccess(): bool
     {
+        if (! SeoStackAvailability::enabled()) {
+            return false;
+        }
+
+        $user = auth()->user();
+        if ($user instanceof \App\Models\User
+            && in_array((string) $user->role, [\App\Models\User::ROLE_OWNER, \App\Models\User::ROLE_ADMIN], true)
+        ) {
+            return true;
+        }
+
         return SeoAccessControl::canAccessManagerFeatures();
     }
 }

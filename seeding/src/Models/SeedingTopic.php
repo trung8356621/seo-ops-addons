@@ -14,6 +14,10 @@ use Omnichannel\Addons\Seeding\Enums\SeedingSocialPlatform;
 use Omnichannel\Addons\Seeding\Enums\SeedingTopicStatus;
 use Omnichannel\Addons\Seeding\LinkIntelligence\Models\LinkResource;
 
+/**
+ * @deprecated Experimental V2 Eloquent persistence on omi_seo_ai.
+ * Canonical workspace is localStorage; do not use for new code.
+ */
 class SeedingTopic extends Model
 {
     use BelongsToOnDefaultConnection;

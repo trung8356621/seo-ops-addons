@@ -5,6 +5,10 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Seo;
 
 use App\Core\Capability\CapabilityRegistry;
+use App\Core\Members\MembersSectionRegistry;
+use App\Core\Settings\SettingsSectionRegistry;
+use Omnichannel\Addons\SearchFoundation\Members\SeoMembersSectionContributor;
+use Omnichannel\Addons\Seo\Settings\SeoSettingsSectionContributor;
 use Omnichannel\Addons\Seo\Support\DomainContextResolver;
 use Illuminate\Support\ServiceProvider;
 
@@ -20,6 +24,8 @@ final class SeoServiceProvider extends ServiceProvider
     {
         $this->app->singleton(DomainContextResolver::class);
         $this->registerCapabilities();
+        $this->app->singleton(SeoSettingsSectionContributor::class);
+        $this->app->singleton(SeoMembersSectionContributor::class);
         $this->app->singleton(
             \Omnichannel\Addons\Seo\Services\MonthlyMcp\MonthlyMcpSourceRegistry::class,
             static function ($app): \Omnichannel\Addons\Seo\Services\MonthlyMcp\MonthlyMcpSourceRegistry {
@@ -35,6 +41,23 @@ final class SeoServiceProvider extends ServiceProvider
     public function boot(): void
     {
         $this->loadViewsFrom(dirname(__DIR__).'/resources/views', 'seo');
+
+        // Members capacity contributor must register whenever SEO boots (Admin panel included).
+        // SearchFoundation alone is not register_early — do not rely on it for Admin requests.
+        if ($this->app->bound(MembersSectionRegistry::class)) {
+            $members = $this->app->make(MembersSectionRegistry::class);
+            $contributor = $this->app->make(SeoMembersSectionContributor::class);
+            if (! $members->has($contributor->addonSlug())) {
+                $members->register($contributor);
+            }
+        }
+
+        if ($this->app->bound(SettingsSectionRegistry::class)) {
+            $settings = $this->app->make(SettingsSectionRegistry::class);
+            if (! $settings->hasContributor('seo')) {
+                $settings->register($this->app->make(SeoSettingsSectionContributor::class));
+            }
+        }
     }
 
     private function registerCapabilities(): void

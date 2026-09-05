@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AiPrompt;
 
 use App\Core\Capability\CapabilityRegistry;
+use App\Core\Settings\SettingsSectionRegistry;
 use Illuminate\Support\ServiceProvider;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookBindingRunner;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookExplicitBindingExecutor;
@@ -16,6 +17,7 @@ use Omnichannel\Addons\AiPrompt\Services\Contracts\DomainPromptContextFieldPatch
 use Omnichannel\Addons\AiPrompt\Services\Contracts\WordPressFieldSyncAccessChecker;
 use Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService;
 use Omnichannel\Addons\AiPrompt\Services\WordPressFieldSyncAccessGate;
+use Omnichannel\Addons\AiPrompt\Settings\AiCoreSettingsContributor;
 use Omnichannel\Addons\SiteSync\Services\Profile\Contracts\WordPressSiteProfileSource;
 use Omnichannel\Addons\SiteSync\Services\Profile\WordPressSiteProfileReader;
 
@@ -41,11 +43,26 @@ final class AiPromptServiceProvider extends ServiceProvider
         $this->app->scoped(AiModelInventory::class);
         $this->app->scoped(\Omnichannel\Addons\AiPrompt\Services\AiConnectionPresenter::class);
         $this->app->scoped(\Omnichannel\Addons\AiPrompt\Services\AiExecutionTargetPresenter::class);
+        $this->app->singleton(AiCoreSettingsContributor::class);
     }
 
     public function boot(): void
     {
-        // Routes/migrations attach as extraction progresses.
+        // Ensure AI Center Blade/lang resolve even when seo-content-ai panel provider is skipped.
+        $compatRoot = dirname(__DIR__, 2).DIRECTORY_SEPARATOR.'seo-content-ai-compat';
+        $views = $compatRoot.DIRECTORY_SEPARATOR.'resources'.DIRECTORY_SEPARATOR.'views';
+        $lang = $compatRoot.DIRECTORY_SEPARATOR.'lang';
+        if (is_dir($views)) {
+            $this->loadViewsFrom($views, 'seo-content-ai');
+        }
+        if (is_dir($lang)) {
+            $this->loadTranslationsFrom($lang, 'seo-content-ai');
+        }
+
+        if ($this->app->bound(SettingsSectionRegistry::class)) {
+            $this->app->make(SettingsSectionRegistry::class)
+                ->register($this->app->make(AiCoreSettingsContributor::class));
+        }
     }
 
     private function registerCapabilities(): void

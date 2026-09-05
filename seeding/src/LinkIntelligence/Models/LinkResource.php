@@ -8,6 +8,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Omnichannel\Addons\Seeding\Models\SeedingTopic;
 
+/**
+ * @deprecated Experimental V2 Link Intelligence persistence on omi_seo_ai.
+ * Canonical workspace does not query this model.
+ */
 class LinkResource extends Model
 {
     protected $connection = 'omi_seo_ai';

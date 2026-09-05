@@ -20,8 +20,8 @@ function boot() {
     createRoot(el).render(
         <SeedingWorkspace
             siteId={props.siteId ?? null}
-            apiBase={props.apiBase ?? '/api/seo/seeding-topics'}
             canMutate={props.canMutate !== false}
+            bootstrap={props.bootstrap ?? null}
         />,
     );
 }

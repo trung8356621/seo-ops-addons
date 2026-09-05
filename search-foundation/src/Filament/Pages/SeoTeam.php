@@ -41,6 +41,17 @@ class SeoTeam extends SeoPanelPage implements HasTable
 
     protected static string $view = 'seo-content-ai::filament.pages.seo-team';
 
+    /**
+     * SEO sidebar keeps Members menu; Owners are sent to canonical Core Admin Members.
+     * Non-owners keep this SEO-panel team UI (same users.name / seo_role storage).
+     */
+    public function mount(): void
+    {
+        if (\App\Filament\Resources\UserResource::canAccess()) {
+            $this->redirect(\App\Filament\Resources\UserResource::getUrl(panel: 'admin'), navigate: false);
+        }
+    }
+
     public function table(Table $table): Table
     {
         $readOnly = $this->isPanelReadOnly();

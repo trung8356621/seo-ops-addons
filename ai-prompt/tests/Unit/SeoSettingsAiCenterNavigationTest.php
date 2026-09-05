@@ -61,9 +61,9 @@ final class SeoSettingsAiCenterNavigationTest extends TestCase
         $this->assertStringNotContainsString('tab_prompts', $view);
 
         $menu = (string) file_get_contents(ProjectRoot::addonsPath().'/seo/src/Support/SeoSettingsMenu.php');
-        $this->assertStringContainsString('SeoSettingsAiCenter', $menu);
-        $this->assertStringContainsString('AiConnectionResource::getUrl()', $menu);
-        $this->assertStringContainsString("'id' => 'api'", $menu);
+        $this->assertStringContainsString('SettingsSectionRegistry', $menu);
+        $this->assertStringContainsString('menuItems()', $menu);
+        $this->assertStringContainsString('fallbackItems', $menu);
 
         $list = (string) file_get_contents((new \ReflectionClass(ListAiConnections::class))->getFileName());
         $this->assertStringNotContainsString('SeoSettingsAiCenter::getUrl()', $list);

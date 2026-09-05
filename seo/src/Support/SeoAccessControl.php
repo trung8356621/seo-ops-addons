@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\Seo\Support;
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
+use App\Core\Sites\SiteAccess;
 use App\Models\SeoDatabaseConnection;
 use App\Models\Site;
 use App\Models\User;
@@ -172,18 +173,7 @@ final class SeoAccessControl
             return false;
         }
 
-        if ((string) ($user->status ?? '') === User::STATUS_BLOCK) {
-            return false;
-        }
-
-        // Owner luôn vào SEO panel (kể cả khi seo_role trống).
-        if ((string) $user->role === User::ROLE_OWNER) {
-            return true;
-        }
-
-        return $user->isStaff()
-            && (int) $user->parent_id > 0
-            && filled($user->seo_role);
+        return $user->canAccessSeoPanel();
     }
 
     public static function canManageWordPressPlugin(): bool
@@ -402,11 +392,9 @@ final class SeoAccessControl
      */
     public static function accessibleSiteIds(): array
     {
-        return self::accessibleSitesQuery()
-            ->pluck('id')
-            ->map(static fn (mixed $id): int => (int) $id)
-            ->values()
-            ->all();
+        return self::siteAccess()->accessibleSiteIds(
+            fallbackOwnerId: self::seoFallbackOwnerId(),
+        );
     }
 
     /**
@@ -414,16 +402,11 @@ final class SeoAccessControl
      */
     public static function applyAccessibleSiteScope(Builder $query, string $column = 'site_id'): Builder
     {
-        if (! self::shouldScopeToAccountOwner()) {
-            return $query;
-        }
-
-        $siteIds = self::accessibleSiteIds();
-        if ($siteIds === []) {
-            return $query->whereRaw('1 = 0');
-        }
-
-        return $query->whereIn($column, $siteIds);
+        return self::siteAccess()->applyAccessibleSiteScope(
+            $query,
+            $column,
+            fallbackOwnerId: self::seoFallbackOwnerId(),
+        );
     }
 
     /**
@@ -432,35 +415,18 @@ final class SeoAccessControl
      */
     public static function applyAccessibleSiteScopeAllowingUnassigned(Builder $query, string $column = 'site_id'): Builder
     {
-        if (! self::shouldScopeToAccountOwner()) {
-            return $query;
-        }
-
-        $siteIds = self::accessibleSiteIds();
-        if ($siteIds === []) {
-            return $query->whereNull($column);
-        }
-
-        return $query->where(function (Builder $builder) use ($column, $siteIds): void {
-            $builder->whereIn($column, $siteIds)->orWhereNull($column);
-        });
+        return self::siteAccess()->applyAccessibleSiteScopeAllowingUnassigned(
+            $query,
+            $column,
+            fallbackOwnerId: self::seoFallbackOwnerId(),
+        );
     }
 
     public static function accountSiteOwnerId(): int
     {
-        $fromAuth = self::accountOwnerId();
-        if ($fromAuth !== null && $fromAuth > 0) {
-            return $fromAuth;
-        }
-
-        $authId = auth()->id();
-        if ($authId !== null && (int) $authId > 0) {
-            return (int) $authId;
-        }
-
-        // Queue / system actors: fall back to SEO connection panel owner so
-        // article/site scope is not empty (whereRaw 1=0) during rewrite runs.
-        return self::panelOwnerId() ?? 0;
+        return self::siteAccess()->accountSiteOwnerId(
+            fallbackOwnerId: self::seoFallbackOwnerId(),
+        );
     }
 
     /**
@@ -468,22 +434,35 @@ final class SeoAccessControl
      */
     public static function accessibleSitesQuery(): Builder
     {
-        $query = Site::query();
-
-        if (! self::shouldScopeToAccountOwner()) {
-            return $query;
-        }
-
-        return $query->where('user_id', self::accountSiteOwnerId());
+        return self::siteAccess()->accessibleSitesQuery(
+            fallbackOwnerId: self::seoFallbackOwnerId(),
+        );
     }
 
     public static function canAccessSite(int $siteId): bool
     {
-        if ($siteId <= 0) {
-            return false;
+        return self::siteAccess()->canAccessSite(
+            $siteId,
+            fallbackOwnerId: self::seoFallbackOwnerId(),
+        );
+    }
+
+    private static function siteAccess(): SiteAccess
+    {
+        return app(SiteAccess::class);
+    }
+
+    /**
+     * Queue / system actors: fall back to SEO connection panel owner so
+     * article/site scope is not empty during rewrite runs.
+     */
+    private static function seoFallbackOwnerId(): ?int
+    {
+        if (auth()->user() instanceof User) {
+            return null;
         }
 
-        return self::accessibleSitesQuery()->whereKey($siteId)->exists();
+        return self::panelOwnerId();
     }
 
     public static function canAccessArticle(SeoArticle $article): bool

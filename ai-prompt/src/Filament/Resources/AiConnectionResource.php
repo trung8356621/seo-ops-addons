@@ -45,18 +45,36 @@ class AiConnectionResource extends SeoPanelResource
 
     public static function canViewAny(): bool
     {
-        return SeoAccessControl::canAccessManagerFeatures();
+        $user = auth()->user();
+        if ($user instanceof \App\Models\User
+            && in_array((string) $user->role, [\App\Models\User::ROLE_OWNER, \App\Models\User::ROLE_ADMIN], true)
+        ) {
+            return true;
+        }
+
+        return class_exists(SeoAccessControl::class) && SeoAccessControl::canAccessManagerFeatures();
     }
 
     public static function canCreate(): bool
     {
-        return static::allowsSeoPanelMutation()
-            && SeoAccessControl::canAccessManagerFeatures();
+        if (! static::canViewAny()) {
+            return false;
+        }
+
+        if (class_exists(SeoAccessControl::class)) {
+            return static::allowsSeoPanelMutation();
+        }
+
+        return true;
     }
 
     public static function canEdit(Model $record): bool
     {
-        if (! static::allowsSeoPanelMutation() || ! SeoAccessControl::canAccessManagerFeatures()) {
+        if (! static::canViewAny()) {
+            return false;
+        }
+
+        if (class_exists(SeoAccessControl::class) && ! static::allowsSeoPanelMutation()) {
             return false;
         }
 

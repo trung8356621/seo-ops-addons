@@ -15,16 +15,14 @@ use Tests\Support\ProjectRoot;
 
 final class SeoSettingsGeneralNavTest extends TestCase
 {
-    public function test_menu_has_general_not_overview_or_date_time(): void
+    public function test_menu_is_registry_driven_with_general(): void
     {
         $menu = (string) file_get_contents((new \ReflectionClass(SeoSettingsMenu::class))->getFileName());
 
-        $this->assertStringContainsString("'id' => 'general'", $menu);
-        $this->assertStringContainsString('SeoSettingsGeneral::getUrl()', $menu);
-        $this->assertStringContainsString('settings_general.nav', $menu);
+        $this->assertStringContainsString('SettingsSectionRegistry', $menu);
+        $this->assertStringContainsString('menuItems()', $menu);
+        $this->assertStringContainsString('fallbackItems', $menu);
         $this->assertStringNotContainsString("'id' => 'overview'", $menu);
-        $this->assertStringNotContainsString("'id' => 'date-time'", $menu);
-        $this->assertStringNotContainsString("'id' => 'recommendations'", $menu);
         $this->assertStringNotContainsString('SeoSettingsOverview::getUrl()', $menu);
         $this->assertStringNotContainsString('SeoSettingsDateTime::getUrl()', $menu);
         $this->assertStringNotContainsString('SeoSettingsRecommendations::getUrl()', $menu);
@@ -33,7 +31,8 @@ final class SeoSettingsGeneralNavTest extends TestCase
     public function test_settings_hub_and_legacy_pages_redirect_to_general(): void
     {
         $hub = (string) file_get_contents((new \ReflectionClass(SeoSettings::class))->getFileName());
-        $this->assertStringContainsString('SeoSettingsGeneral::getUrl()', $hub);
+        $this->assertStringContainsString('SeoSettingsGeneral::getUrl', $hub);
+        $this->assertStringContainsString("panel: 'admin'", $hub);
 
         $overview = (string) file_get_contents((new \ReflectionClass(SeoSettingsOverview::class))->getFileName());
         $this->assertStringContainsString("protected static ?string \$slug = 'settings/overview'", $overview);
@@ -46,11 +45,12 @@ final class SeoSettingsGeneralNavTest extends TestCase
         $this->assertStringContainsString('redirect', $dateTime);
     }
 
-    public function test_general_page_merges_datetime_content_language_and_team_chat_saves(): void
+    public function test_general_page_keeps_full_legacy_fields_without_core_mini_redirect(): void
     {
         $page = (string) file_get_contents((new \ReflectionClass(SeoSettingsGeneral::class))->getFileName());
         $this->assertStringContainsString("protected static ?string \$slug = 'settings/general'", $page);
         $this->assertStringContainsString('shouldRegisterNavigation = false', $page);
+        $this->assertStringNotContainsString('CoreGeneralSettings', $page);
         $this->assertStringContainsString('saveTeamChatSettings', $page);
         $this->assertStringContainsString('SeoDateTimeSettingsService', $page);
         $this->assertStringContainsString('SeoContentLanguageSettingsService', $page);

@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\Seo\Filament\Pages;
 
 use Omnichannel\Addons\Seo\Services\SeoScoringSettingsService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\Seo\Support\SeoStackAvailability;
 use Omnichannel\Addons\Seo\Support\SeoScoringRuleMessageResolver;
 use Omnichannel\Addons\Seo\Support\SeoScoringRulesRegistry;
 use App\Help\HelpUi;
@@ -123,6 +124,17 @@ class SeoSettingsScoring extends Page implements HasForms
 
     public static function canAccess(): bool
     {
+        if (! SeoStackAvailability::enabled()) {
+            return false;
+        }
+
+        $user = auth()->user();
+        if ($user instanceof \App\Models\User
+            && in_array((string) $user->role, [\App\Models\User::ROLE_OWNER, \App\Models\User::ROLE_ADMIN], true)
+        ) {
+            return true;
+        }
+
         return SeoAccessControl::canAccessManagerFeatures();
     }
 }

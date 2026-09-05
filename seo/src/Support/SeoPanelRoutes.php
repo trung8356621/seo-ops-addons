@@ -251,8 +251,6 @@ final class SeoPanelRoutes
             'filament.seo.pages.performance-hub',
             'filament.seo.pages.mcp-intelligence',
             'filament.seo.pages.social',
-            'filament.seo.pages.seeding-topics',
-            'filament.seo.pages.seeding-topic-manage',
         );
     }
 
@@ -271,9 +269,22 @@ final class SeoPanelRoutes
         return self::check($route, 'filament.seo.pages.social');
     }
 
+    /**
+     * Seeding lives on its own panel (/seeding). SEO menu only links there.
+     */
     public static function isSeedingTopicsNav(?string $route = null): bool
     {
+        if ($route === null && app()->bound('request')) {
+            $req = request();
+            if ($req->is('seeding') || $req->is('seeding/*')) {
+                return true;
+            }
+        }
+
         return self::check($route,
+            'filament.seeding.pages.workspace',
+            'filament.seeding.pages.topic-manage',
+            // Legacy SEO-hosted route names (pre-extraction); kept for string checks only.
             'filament.seo.pages.seeding-topics',
             'filament.seo.pages.seeding-topic-manage',
         );

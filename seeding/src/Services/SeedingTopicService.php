@@ -13,6 +13,9 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
+/**
+ * @deprecated Experimental V2 server persistence. Canonical SoT is localStorage.
+ */
 final class SeedingTopicService
 {
     public function __construct(

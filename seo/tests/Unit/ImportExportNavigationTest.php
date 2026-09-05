@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\Seo\Tests\Unit;
 
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsConfigurationTransfer;
 use Omnichannel\Addons\Seo\Filament\Pages\SeoSettingsOverview;
+use Omnichannel\Addons\Seo\Settings\SeoSettingsSectionContributor;
 use Omnichannel\Addons\Seo\Support\SeoSettingsMenu;
 use PHPUnit\Framework\TestCase;
 use Tests\Support\ProjectRoot;
@@ -15,11 +16,19 @@ final class ImportExportNavigationTest extends TestCase
     public function test_import_export_is_settings_submenu_not_overview_action(): void
     {
         $menu = (string) file_get_contents((new \ReflectionClass(SeoSettingsMenu::class))->getFileName());
-        $this->assertStringContainsString('import-export', $menu);
-        $this->assertStringContainsString('SeoSettingsConfigurationTransfer', $menu);
-        $this->assertStringContainsString('SeoSettingsAiCenter', $menu);
-        $this->assertStringContainsString('AiConnectionResource::getUrl()', $menu);
-        $this->assertStringContainsString("'id' => 'api'", $menu);
+        $this->assertStringContainsString('SettingsSectionRegistry', $menu);
+        $this->assertStringContainsString('menuItems()', $menu);
+
+        $seoSections = (string) file_get_contents((new \ReflectionClass(SeoSettingsSectionContributor::class))->getFileName());
+        $this->assertStringContainsString("id: 'import-export'", $seoSections);
+        $this->assertStringContainsString('SeoSettingsConfigurationTransfer', $seoSections);
+        $this->assertStringContainsString("id: 'workflows'", $seoSections);
+
+        $coreBootstrap = (string) file_get_contents(
+            ProjectRoot::path().'/app/Core/Settings/CoreSettingsBootstrap.php'
+        );
+        $this->assertStringContainsString("id: 'ai-center'", $coreBootstrap);
+        $this->assertStringContainsString("id: 'api'", $coreBootstrap);
 
         $overview = (string) file_get_contents(ProjectRoot::addonsPath().'/seo-content-ai-compat/resources/views/filament/pages/seo-settings-overview.blade.php');
         $this->assertStringNotContainsString('seo-settings-transfer-actions', $overview);

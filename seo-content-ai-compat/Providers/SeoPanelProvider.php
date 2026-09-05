@@ -14,7 +14,6 @@ use Omnichannel\Addons\Commerce\Http\Controllers\ArticleProductReviewReconcileCo
 use Omnichannel\Addons\Commerce\Http\Controllers\ArticleProductReviewStatusController;
 use Omnichannel\Addons\Content\Http\Controllers\ArticleReviewActionController;
 use Omnichannel\Addons\Social\Http\Controllers\ArticleSocialLinkController;
-use Omnichannel\Addons\Seeding\Http\Controllers\SeedingTopicController;
 use Omnichannel\Addons\WordPress\Http\Controllers\ArticleWordPressProductReviewsController;
 use Omnichannel\Addons\Media\Http\Controllers\ArticleMediaPickerController;
 use Omnichannel\Addons\Content\Http\Controllers\ArticleOutlineController;
@@ -626,24 +625,6 @@ class SeoPanelProvider extends PanelProvider
             });
 
         Route::middleware($seoWebApiMiddleware)
-            ->prefix('api/seo/seeding-topics')
-            ->group(function (): void {
-                Route::get('/', [SeedingTopicController::class, 'index'])
-                    ->name('seo.seeding-topics.index');
-                Route::post('/', [SeedingTopicController::class, 'store'])
-                    ->name('seo.seeding-topics.store');
-                Route::get('/{topic}', [SeedingTopicController::class, 'show'])
-                    ->whereNumber('topic')
-                    ->name('seo.seeding-topics.show');
-                Route::patch('/{topic}', [SeedingTopicController::class, 'update'])
-                    ->whereNumber('topic')
-                    ->name('seo.seeding-topics.update');
-                Route::delete('/{topic}', [SeedingTopicController::class, 'destroy'])
-                    ->whereNumber('topic')
-                    ->name('seo.seeding-topics.destroy');
-            });
-
-        Route::middleware($seoWebApiMiddleware)
             ->prefix('api/seo/watermark')
             ->group(function (): void {
                 Route::get('/settings', [SeoWatermarkController::class, 'showSettings'])
@@ -867,7 +848,7 @@ class SeoPanelProvider extends PanelProvider
             'agent' => 'Agent',
             'commerce' => 'Commerce',
             'social' => 'Social',
-            'seeding' => 'Seeding',
+            // Seeding owns its own Filament panel at /seeding — not discovered into SEO.
         ];
 
         $out = [];

@@ -14,6 +14,7 @@ use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
 use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsOptionsService;
 use Omnichannel\Addons\ContentProjects\Services\WorkflowRoles\WorkflowAssignmentValidator;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\Seo\Support\SeoStackAvailability;
 use App\Help\HelpUi;
 use Filament\Forms;
 use Filament\Forms\Concerns\InteractsWithForms;
@@ -496,6 +497,17 @@ class SeoSettingsWorkflows extends Page implements HasForms
 
     public static function canAccess(): bool
     {
+        if (! SeoStackAvailability::enabled()) {
+            return false;
+        }
+
+        $user = auth()->user();
+        if ($user instanceof \App\Models\User
+            && in_array((string) $user->role, [\App\Models\User::ROLE_OWNER, \App\Models\User::ROLE_ADMIN], true)
+        ) {
+            return true;
+        }
+
         return SeoAccessControl::canAccessManagerFeatures();
     }
 }

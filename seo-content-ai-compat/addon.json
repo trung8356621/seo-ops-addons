@@ -10,8 +10,7 @@
     "providers": [
         "App\\Providers\\Filament\\SeoToolsPanelProvider",
         "Omnichannel\\Addons\\Seo\\SeoServiceProvider",
-        "Omnichannel\\Addons\\Content\\ContentServiceProvider",
-        "Omnichannel\\Addons\\Seeding\\SeedingServiceProvider"
+        "Omnichannel\\Addons\\Content\\ContentServiceProvider"
     ],
     "register_early": true,
     "legacy": true,

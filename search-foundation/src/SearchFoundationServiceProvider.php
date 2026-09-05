@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchFoundation;
 
 use App\Core\Capability\CapabilityRegistry;
+use App\Core\Members\MembersSectionRegistry;
 use Illuminate\Support\ServiceProvider;
+use Omnichannel\Addons\SearchFoundation\Members\SeoMembersSectionContributor;
 
 /**
  * Peer addon skeleton: registers capabilities into Client Core.
@@ -18,11 +20,19 @@ final class SearchFoundationServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->registerCapabilities();
+
+        $this->app->singleton(SeoMembersSectionContributor::class);
     }
 
     public function boot(): void
     {
-        // Routes/migrations attach as extraction progresses.
+        if ($this->app->bound(MembersSectionRegistry::class)) {
+            $registry = $this->app->make(MembersSectionRegistry::class);
+            $contributor = $this->app->make(SeoMembersSectionContributor::class);
+            if (! $registry->has($contributor->addonSlug())) {
+                $registry->register($contributor);
+            }
+        }
     }
 
     private function registerCapabilities(): void

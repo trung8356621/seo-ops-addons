@@ -36,7 +36,6 @@ use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
 use Omnichannel\Addons\AiPrompt\Support\AiModelArea;
 use Omnichannel\Addons\AiPrompt\Support\AiUsageMode;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
-use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
@@ -136,7 +135,6 @@ class SeoSettingsAiCenter extends Page
     public function mount(
         AiRoutingBootstrapService $bootstrap,
         AiRoutingTargetService $targets,
-        SeoCreateArticleSettingsService $articleSettings,
     ): void {
         $aliases = [
             'overview' => 'models',
@@ -174,7 +172,7 @@ class SeoSettingsAiCenter extends Page
         $userId = (int) auth()->id();
         app(AiModelPrimaryTypeClassifier::class)->classifyForUser($userId);
         $bootstrap->bootstrapForUser($userId);
-        $this->globalUsageMode = $articleSettings->getDefaultAiUsageMode();
+        $this->globalUsageMode = $this->resolveArticleDefaultUsageMode();
         $this->fillRouting($targets, $userId);
         $this->fillResilience($userId);
     }
@@ -217,13 +215,11 @@ class SeoSettingsAiCenter extends Page
         $this->routingGroup = AiModelArea::tryFromMixed($value)->routingGroup();
     }
 
-    public function updatedGlobalUsageMode(SeoCreateArticleSettingsService $articleSettings): void
+    public function updatedGlobalUsageMode(): void
     {
         $this->assertManager();
         $mode = AiUsageMode::tryFromMixed($this->globalUsageMode) ?? AiUsageMode::Economy;
-        $articleSettings->saveSettings([
-            SeoCreateArticleSettingsService::KEY_DEFAULT_AI_USAGE_MODE => $mode->value,
-        ]);
+        $this->persistArticleDefaultUsageMode($mode->value);
         $this->globalUsageMode = $mode->value;
     }
 
@@ -882,14 +878,12 @@ class SeoSettingsAiCenter extends Page
         $this->routingUnsaved = true;
     }
 
-    public function saveRouting(AiRoutingTargetService $targets, SeoCreateArticleSettingsService $settings): void
+    public function saveRouting(AiRoutingTargetService $targets): void
     {
         $this->assertManager();
         $userId = (int) auth()->id();
         $mode = AiUsageMode::tryFromMixed($this->globalUsageMode) ?? AiUsageMode::Economy;
-        $settings->saveSettings([
-            SeoCreateArticleSettingsService::KEY_DEFAULT_AI_USAGE_MODE => $mode->value,
-        ]);
+        $this->persistArticleDefaultUsageMode($mode->value);
         $inventory = app(AiModelInventory::class);
 
         try {
@@ -940,7 +934,14 @@ class SeoSettingsAiCenter extends Page
 
     public static function canAccess(): bool
     {
-        return SeoAccessControl::canAccessManagerFeatures();
+        $user = auth()->user();
+        if ($user instanceof \App\Models\User
+            && in_array((string) $user->role, [\App\Models\User::ROLE_OWNER, \App\Models\User::ROLE_ADMIN], true)
+        ) {
+            return true;
+        }
+
+        return class_exists(SeoAccessControl::class) && SeoAccessControl::canAccessManagerFeatures();
     }
 
     public static function shouldRegisterNavigation(array $parameters = []): bool
@@ -1175,10 +1176,50 @@ class SeoSettingsAiCenter extends Page
         Notification::make()->title(__('seo-content-ai::filament.ai_center.paid_routes_enabled'))->success()->send();
     }
 
+    /**
+     * Article default usage mode is SEO-owned. Soft-resolve so AI Center boots without SEO.
+     */
+    private function resolveArticleDefaultUsageMode(): string
+    {
+        $class = 'Omnichannel\\Addons\\Seo\\Services\\SeoCreateArticleSettingsService';
+        if (! class_exists($class)) {
+            return AiUsageMode::Economy->value;
+        }
+
+        /** @var object{getDefaultAiUsageMode(): string} $service */
+        $service = app($class);
+
+        return (string) $service->getDefaultAiUsageMode();
+    }
+
+    private function persistArticleDefaultUsageMode(string $mode): void
+    {
+        $class = 'Omnichannel\\Addons\\Seo\\Services\\SeoCreateArticleSettingsService';
+        if (! class_exists($class)) {
+            return;
+        }
+
+        /** @var object{saveSettings(array): void} $service */
+        $service = app($class);
+        $key = defined($class.'::KEY_DEFAULT_AI_USAGE_MODE')
+            ? (string) constant($class.'::KEY_DEFAULT_AI_USAGE_MODE')
+            : 'default_ai_usage_mode';
+        $service->saveSettings([$key => $mode]);
+    }
+
     private function assertManager(): void
     {
-        if (! SeoAccessControl::canAccessManagerFeatures()) {
-            abort(403);
+        $user = auth()->user();
+        if ($user instanceof \App\Models\User
+            && in_array((string) $user->role, [\App\Models\User::ROLE_OWNER, \App\Models\User::ROLE_ADMIN], true)
+        ) {
+            return;
         }
+
+        if (class_exists(SeoAccessControl::class) && SeoAccessControl::canAccessManagerFeatures()) {
+            return;
+        }
+
+        abort(403);
     }
 }

@@ -289,13 +289,12 @@ final class SeoPerformanceHub extends SeoPanelPage
                 ->isActiveWhen(fn (): bool => \Omnichannel\Addons\Seo\Support\SeoPanelRoutes::isSocialNav());
         }
 
-        if (\Omnichannel\Addons\Seeding\Filament\Pages\SeedingTopicsPage::canAccess()) {
-            $children[] = \Filament\Navigation\NavigationItem::make(
-                \Omnichannel\Addons\Seeding\Filament\Pages\SeedingTopicsPage::getNavigationLabel()
-            )
+        $seedingPage = \Omnichannel\Addons\Seeding\Filament\Pages\SeedingTopicsPage::class;
+        if (class_exists($seedingPage) && $seedingPage::canAccess()) {
+            $children[] = \Filament\Navigation\NavigationItem::make($seedingPage::getNavigationLabel())
                 ->parentItem($parentLabel)
-                ->url(\Omnichannel\Addons\Seeding\Filament\Pages\SeedingTopicsPage::getUrl())
-                ->isActiveWhen(fn (): bool => \Omnichannel\Addons\Seo\Support\SeoPanelRoutes::isSeedingTopicsNav());
+                ->url(url('/seeding'))
+                ->isActiveWhen(fn (): bool => request()->is('seeding') || request()->is('seeding/*'));
         }
 
         return [

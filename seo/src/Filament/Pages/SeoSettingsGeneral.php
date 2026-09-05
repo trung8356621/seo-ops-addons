@@ -288,7 +288,14 @@ class SeoSettingsGeneral extends Page implements HasForms
 
     public static function canAccess(): bool
     {
-        return SeoAccessControl::canAccessManagerFeatures();
+        $user = auth()->user();
+        if ($user instanceof \App\Models\User
+            && in_array((string) $user->role, [\App\Models\User::ROLE_OWNER, \App\Models\User::ROLE_ADMIN], true)
+        ) {
+            return true;
+        }
+
+        return class_exists(SeoAccessControl::class) && SeoAccessControl::canAccessManagerFeatures();
     }
 
     public function getTitle(): string

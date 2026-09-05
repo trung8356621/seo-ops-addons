@@ -1,12 +1,18 @@
 {
     "name": "Seeding",
     "slug": "seeding",
-    "version": "0.1.0",
-    "description": "Peer addon — Seeding Topic V2 (social seeding). Equal-level; no parent/child ownership.",
+    "version": "0.2.0",
+    "description": "Independent Seeding service — local-first workspace, dedicated omi_seeding DB plane.",
     "provider": "Omnichannel\\Addons\\Seeding\\SeedingServiceProvider",
-    "register_early": false,
+    "panel_provider": "Omnichannel\\Addons\\Seeding\\Providers\\SeedingPanelProvider",
+    "providers": [
+        "Omnichannel\\Addons\\Seeding\\SeedingServiceProvider"
+    ],
+    "db_connection": "omi_seeding",
+    "register_early": true,
     "legacy": false,
     "provides": [
+        "seeding.workspace",
         "seeding.topic",
         "link.intelligence"
     ],

@@ -94,9 +94,12 @@ final class SettingsTransferContractTest extends TestCase
         $page = (string) file_get_contents((new \ReflectionClass(SeoSettingsConfigurationTransfer::class))->getFileName());
         $this->assertStringContainsString('shouldRegisterNavigation = false', $page);
         $menu = (string) file_get_contents((new \ReflectionClass(SeoSettingsMenu::class))->getFileName());
-        $this->assertStringContainsString('SeoSettingsConfigurationTransfer', $menu);
-        $this->assertStringContainsString('SeoSettingsAiCenter', $menu);
-        $this->assertStringContainsString('AiConnectionResource::getUrl()', $menu);
+        $this->assertStringContainsString('SettingsSectionRegistry', $menu);
+        $contributor = (string) file_get_contents(
+            (new \ReflectionClass(\Omnichannel\Addons\Seo\Settings\SeoSettingsSectionContributor::class))->getFileName()
+        );
+        $this->assertStringContainsString('SeoSettingsConfigurationTransfer', $contributor);
+        $this->assertStringContainsString("id: 'import-export'", $contributor);
         unset($page);
         $this->assertDirectoryExists(ProjectRoot::addonsPath().'/seo/src/Filament/Pages');
     }

@@ -9,10 +9,10 @@ use App\Models\User;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use InvalidArgumentException;
-use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\Seeding\Http\Requests\SeedingTopicStoreRequest;
 use Omnichannel\Addons\Seeding\Http\Requests\SeedingTopicUpdateRequest;
 use Omnichannel\Addons\Seeding\Services\SeedingTopicService;
+use Omnichannel\Addons\Seeding\Support\SeedingAccess;
 use Omnichannel\Addons\Seeding\Support\SeedingTopicPresenter;
 use Throwable;
 
@@ -20,14 +20,15 @@ final class SeedingTopicController extends Controller
 {
     public function __construct(
         private readonly SeedingTopicService $topics,
+        private readonly SeedingAccess $access,
     ) {}
 
     public function index(Request $request): JsonResponse
     {
-        $this->assertPlanner();
+        $this->access->assertCanAccess();
 
         $siteId = (int) $request->query('site_id', 0);
-        abort_unless($siteId > 0 && SeoAccessControl::canAccessSite($siteId), 403);
+        $this->access->assertCanAccessSite($siteId);
 
         $archived = filter_var($request->query('archived', false), FILTER_VALIDATE_BOOL);
 
@@ -42,10 +43,10 @@ final class SeedingTopicController extends Controller
 
     public function show(Request $request, int $topic): JsonResponse
     {
-        $this->assertPlanner();
+        $this->access->assertCanAccess();
 
         $siteId = (int) $request->query('site_id', 0);
-        abort_unless($siteId > 0 && SeoAccessControl::canAccessSite($siteId), 403);
+        $this->access->assertCanAccessSite($siteId);
 
         $model = $this->topics->findForSite($siteId, $topic);
         abort_if($model === null, 404);
@@ -58,11 +59,10 @@ final class SeedingTopicController extends Controller
 
     public function store(SeedingTopicStoreRequest $request): JsonResponse
     {
-        $this->assertPlanner();
-        abort_unless(SeoAccessControl::canMutateInSeoPanel(), 403);
+        $this->access->assertCanMutate();
 
         $siteId = (int) $request->validated('site_id');
-        abort_unless(SeoAccessControl::canAccessSite($siteId), 403);
+        $this->access->assertCanAccessSite($siteId);
 
         try {
             $topic = $this->topics->create([
@@ -87,11 +87,10 @@ final class SeedingTopicController extends Controller
 
     public function update(SeedingTopicUpdateRequest $request, int $topic): JsonResponse
     {
-        $this->assertPlanner();
-        abort_unless(SeoAccessControl::canMutateInSeoPanel(), 403);
+        $this->access->assertCanMutate();
 
         $siteId = (int) $request->input('site_id', $request->query('site_id', 0));
-        abort_unless($siteId > 0 && SeoAccessControl::canAccessSite($siteId), 403);
+        $this->access->assertCanAccessSite($siteId);
 
         $model = $this->topics->findForSite($siteId, $topic);
         abort_if($model === null, 404);
@@ -121,11 +120,10 @@ final class SeedingTopicController extends Controller
 
     public function destroy(Request $request, int $topic): JsonResponse
     {
-        $this->assertPlanner();
-        abort_unless(SeoAccessControl::canMutateInSeoPanel(), 403);
+        $this->access->assertCanMutate();
 
         $siteId = (int) $request->query('site_id', $request->input('site_id', 0));
-        abort_unless($siteId > 0 && SeoAccessControl::canAccessSite($siteId), 403);
+        $this->access->assertCanAccessSite($siteId);
 
         $model = $this->topics->findForSite($siteId, $topic);
         abort_if($model === null, 404);
@@ -140,11 +138,5 @@ final class SeedingTopicController extends Controller
             'ok' => true,
             'archived_count' => $this->topics->archivedCountForSite($siteId),
         ]);
-    }
-
-    private function assertPlanner(): void
-    {
-        abort_unless(SeoAccessControl::canAccessPlannerFeatures(), 403);
-        abort_unless(request()->user() instanceof User, 403);
     }
 }

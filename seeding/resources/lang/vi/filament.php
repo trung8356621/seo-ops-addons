@@ -44,4 +44,8 @@ return [
         'status_active' => 'ACTIVE',
         'platform' => 'Platform',
     ],
+    'service' => [
+        'nav' => 'Seeding service',
+        'title' => 'Seeding service',
+    ],
 ];

@@ -1,19 +1,18 @@
 {
-    "name":  "AI Prompt",
-    "slug":  "ai-prompt",
-    "version":  "0.1.0",
-    "description":  "Peer addon — AI Prompt. Equal-level; no parent/child ownership.",
-    "provider":  "Omnichannel\\Addons\\AiPrompt\\AiPromptServiceProvider",
-    "register_early":  false,
-    "legacy":  false,
-    "provides":  [
-                     "ai.prompt",
-                     "ai.runner"
-                 ],
-    "requires":  [
-
-                 ],
-    "optional":  [
-
-                 ]
+    "name": "AI Prompt",
+    "slug": "ai-prompt",
+    "version": "0.1.0",
+    "description": "Peer addon — AI Prompt / Core AI inventory. Equal-level; no parent/child ownership.",
+    "provider": "Omnichannel\\Addons\\AiPrompt\\AiPromptServiceProvider",
+    "providers": [
+        "Omnichannel\\Addons\\AiPrompt\\AiPromptServiceProvider"
+    ],
+    "register_early": true,
+    "legacy": false,
+    "provides": [
+        "ai.prompt",
+        "ai.runner"
+    ],
+    "requires": [],
+    "optional": []
 }

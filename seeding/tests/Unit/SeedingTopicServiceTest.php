@@ -24,8 +24,7 @@ final class SeedingTopicServiceTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        $this->ensureTables();
-        $this->service = app(SeedingTopicService::class);
+        self::markTestSkipped('Experimental V2 DB persistence retired — canonical SoT is localStorage.');
     }
 
     public function test_create_without_social_url_is_draft(): void

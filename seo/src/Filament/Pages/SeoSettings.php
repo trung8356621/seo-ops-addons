@@ -25,16 +25,31 @@ class SeoSettings extends Page
 
     public static function getNavigationUrl(): string
     {
-        return SeoSettingsGeneral::getUrl();
+        try {
+            return SeoSettingsGeneral::getUrl(panel: 'admin');
+        } catch (\Throwable) {
+            return SeoSettingsGeneral::getUrl();
+        }
     }
 
     public function mount(): void
     {
-        $this->redirect(SeoSettingsGeneral::getUrl(), navigate: false);
+        try {
+            $this->redirect(SeoSettingsGeneral::getUrl(panel: 'admin'), navigate: false);
+        } catch (\Throwable) {
+            $this->redirect(SeoSettingsGeneral::getUrl(), navigate: false);
+        }
     }
 
     public static function canAccess(): bool
     {
+        $user = auth()->user();
+        if ($user instanceof \App\Models\User
+            && in_array((string) $user->role, [\App\Models\User::ROLE_OWNER, \App\Models\User::ROLE_ADMIN], true)
+        ) {
+            return true;
+        }
+
         return SeoAccessControl::canAccessManagerFeatures();
     }
 

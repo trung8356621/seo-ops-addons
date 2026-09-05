@@ -265,6 +265,13 @@ final class SeoDatabaseConnectionService
 
     public function bootstrapLegacySharedConnection(): void
     {
+        // Prefer Core ServiceDatabaseConnection (canonical 1:1 Service → DB).
+        if (class_exists(\App\Services\ServiceDatabaseConnectionResolver::class)
+            && app(\App\Services\ServiceDatabaseConnectionResolver::class)->tryBootstrap('seo', forceReconnect: false)
+        ) {
+            return;
+        }
+
         $record = $this->resolveDefaultSharedConnectionRecord();
         if ($record !== null) {
             $this->bootstrapFromConnection($record);

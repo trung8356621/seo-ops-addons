@@ -15,6 +15,7 @@ use Omnichannel\Addons\AiPrompt\Services\ConfigurationPackages\ConfigurationPack
 use Omnichannel\Addons\AiPrompt\Services\PromptPack\PromptPackService;
 use Omnichannel\Addons\Seo\Services\SettingsTransfer\SeoSettingsBundleService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\Seo\Support\SeoStackAvailability;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 class SeoSettingsConfigurationTransfer extends Page
@@ -211,6 +212,17 @@ class SeoSettingsConfigurationTransfer extends Page
 
     public static function canAccess(): bool
     {
+        if (! SeoStackAvailability::enabled()) {
+            return false;
+        }
+
+        $user = auth()->user();
+        if ($user instanceof \App\Models\User
+            && in_array((string) $user->role, [\App\Models\User::ROLE_OWNER, \App\Models\User::ROLE_ADMIN], true)
+        ) {
+            return true;
+        }
+
         if (request()->query('focus') === 'prompts') {
             return SeoAccessControl::canAccessPlannerFeatures();
         }

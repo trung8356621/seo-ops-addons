@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\SearchIntelligence\Filament\Pages;
 use Omnichannel\Addons\SearchFoundation\Services\CtaKeywordBlacklistDebugService;
 use Omnichannel\Addons\Seo\Services\SeoKeywordSettingsService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use App\Core\Addon\AddonEnablement;
 use App\Help\HelpUi;
 use App\Models\Site;
 use Filament\Forms;
@@ -113,6 +114,17 @@ class SeoSettingsKeywords extends Page implements HasForms
 
     public static function canAccess(): bool
     {
+        if (! AddonEnablement::seoStackEnabled()) {
+            return false;
+        }
+
+        $user = auth()->user();
+        if ($user instanceof \App\Models\User
+            && in_array((string) $user->role, [\App\Models\User::ROLE_OWNER, \App\Models\User::ROLE_ADMIN], true)
+        ) {
+            return true;
+        }
+
         return SeoAccessControl::canAccessManagerFeatures();
     }
 }

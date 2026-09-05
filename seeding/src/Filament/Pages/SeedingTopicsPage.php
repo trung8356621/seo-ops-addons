@@ -5,24 +5,27 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Seeding\Filament\Pages;
 
 use App\Models\Site;
+use Filament\Pages\Page;
 use Illuminate\Contracts\Support\Htmlable;
 use Livewire\Attributes\On;
 use Livewire\Attributes\Url;
-use Omnichannel\Addons\Seo\Filament\Pages\SeoPanelPage;
-use Omnichannel\Addons\Seo\Support\SeoAccessControl;
+use Omnichannel\Addons\Seeding\Support\SeedingAccess;
+use Omnichannel\Addons\Seeding\Support\SeedingServiceHealth;
 
 /**
- * Seeding Topic V2 workspace shell — mounts React island; no classic CRUD flow.
+ * Canonical Seeding workspace shell at GET /seeding.
+ *
+ * Mounts React island; business state is 100% localStorage (bootstrap props only).
  */
-final class SeedingTopicsPage extends SeoPanelPage
+final class SeedingTopicsPage extends Page
 {
     protected static ?string $navigationIcon = 'heroicon-o-chat-bubble-left-right';
 
     protected static ?string $navigationGroup = null;
 
-    protected static ?int $navigationSort = \Omnichannel\Addons\Seo\Support\SeoUserNavigation::SORT_SEO + 3;
+    protected static ?int $navigationSort = 1;
 
-    protected static ?string $slug = 'seeding-topics';
+    protected static ?string $slug = 'workspace';
 
     protected static string $view = 'seeding::filament.pages.seeding-topics-page';
 
@@ -31,9 +34,29 @@ final class SeedingTopicsPage extends SeoPanelPage
     #[Url(as: 'site_id')]
     public ?int $siteId = null;
 
+    /**
+     * Panel root — Filament route path `/` under panel path `seeding` ⇒ `/seeding`.
+     */
+    public static function getRoutePath(): string
+    {
+        return '/';
+    }
+
+    /**
+     * @param  array<string, mixed>  $parameters
+     */
+    public static function getUrl(
+        array $parameters = [],
+        bool $isAbsolute = true,
+        ?string $panel = null,
+        ?\Illuminate\Database\Eloquent\Model $tenant = null,
+    ): string {
+        return parent::getUrl($parameters, $isAbsolute, $panel ?? 'seeding', $tenant);
+    }
+
     public static function canAccess(array $parameters = []): bool
     {
-        return SeoAccessControl::canAccessPlannerFeatures();
+        return app(SeedingAccess::class)->canAccess();
     }
 
     public static function shouldRegisterNavigation(array $parameters = []): bool
@@ -57,11 +80,11 @@ final class SeedingTopicsPage extends SeoPanelPage
 
     public function mount(): void
     {
-        $globalSiteId = SeoAccessControl::globalSiteId();
-        if ($globalSiteId !== null) {
-            $this->siteId = $globalSiteId;
-        } elseif ($this->siteId === null || $this->siteId <= 0) {
-            $first = SeoAccessControl::accessibleSitesQuery()->orderBy('domain')->first();
+        $access = app(SeedingAccess::class);
+        $access->assertCanAccess();
+
+        if ($this->siteId === null || $this->siteId <= 0) {
+            $first = $access->accessibleSitesQuery()->orderBy('domain')->first();
             $this->siteId = $first instanceof Site ? (int) $first->id : null;
         }
 
@@ -69,10 +92,9 @@ final class SeedingTopicsPage extends SeoPanelPage
     }
 
     #[On('domain-context-changed')]
-    #[On('seoGlobalSiteChanged')]
     public function onDomainContextChanged(mixed $domain = null, mixed $siteId = null): void
     {
-        $resolved = is_numeric($siteId) ? (int) $siteId : SeoAccessControl::globalSiteId();
+        $resolved = is_numeric($siteId) ? (int) $siteId : null;
         if ($resolved !== null && $resolved > 0) {
             $this->siteId = $resolved;
             $this->js(
@@ -83,10 +105,6 @@ final class SeedingTopicsPage extends SeoPanelPage
 
     public function updatedSiteId(): void
     {
-        $global = SeoAccessControl::globalSiteId();
-        if ($global !== null) {
-            $this->siteId = $global;
-        }
         $this->assertSiteAccess();
 
         $siteId = (int) ($this->siteId ?? 0);
@@ -103,12 +121,14 @@ final class SeedingTopicsPage extends SeoPanelPage
     public function workspaceProps(): array
     {
         $siteId = (int) ($this->siteId ?? 0);
+        $access = app(SeedingAccess::class);
+        $bootstrap = app(SeedingServiceHealth::class)->bootstrap();
 
         return [
             'siteId' => $siteId > 0 ? $siteId : null,
-            'apiBase' => url('/api/seo/seeding-topics'),
-            'canMutate' => SeoAccessControl::canMutateInSeoPanel(),
+            'canMutate' => $access->canMutate(),
             'domain' => $this->currentSiteDomain(),
+            'bootstrap' => $bootstrap,
         ];
     }
 
@@ -124,7 +144,7 @@ final class SeedingTopicsPage extends SeoPanelPage
 
     public function hasLockedGlobalSite(): bool
     {
-        return SeoAccessControl::globalSiteId() !== null;
+        return false;
     }
 
     /**
@@ -132,7 +152,8 @@ final class SeedingTopicsPage extends SeoPanelPage
      */
     public function sites(): array
     {
-        return SeoAccessControl::accessibleSitesQuery()
+        return app(SeedingAccess::class)
+            ->accessibleSitesQuery()
             ->orderBy('domain')
             ->get()
             ->all();
@@ -145,6 +166,6 @@ final class SeedingTopicsPage extends SeoPanelPage
             return;
         }
 
-        abort_unless(SeoAccessControl::canAccessSite($siteId), 403);
+        app(SeedingAccess::class)->assertCanAccessSite($siteId);
     }
 }
