@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client';
 import SeedingWorkspace from './seeding/SeedingWorkspace';
 import '../css/seeding-workspace.css';
 
+/**
+ * Standalone Seeding surface — feed workspace, no site/domain gate.
+ */
 function boot() {
     const el = document.getElementById('seeding-workspace-root');
     if (!el || el.dataset.booted === '1') {
@@ -19,7 +22,6 @@ function boot() {
     el.dataset.booted = '1';
     createRoot(el).render(
         <SeedingWorkspace
-            siteId={props.siteId ?? null}
             canMutate={props.canMutate !== false}
             bootstrap={props.bootstrap ?? null}
         />,
@@ -31,11 +33,3 @@ if (document.readyState === 'loading') {
 } else {
     boot();
 }
-
-document.addEventListener('livewire:navigated', () => {
-    const el = document.getElementById('seeding-workspace-root');
-    if (el) {
-        delete el.dataset.booted;
-    }
-    boot();
-});

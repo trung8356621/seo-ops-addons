@@ -550,20 +550,12 @@ final class AiModelPriorityService
             'priority' => $priority,
             'source' => $resolvedSource !== '' ? $resolvedSource : null,
         ], static fn (mixed $value): bool => $value !== null);
+        // Text models may belong to multiple text capability areas (Fast / Longform /
+        // Reasoning). PROFILE_MODELS and Models UI order are the SSOT — enabling one
+        // area must NOT silently disable the others (that collapsed Reasoning to 1 candidate).
         if ($enabled && $area->isTextPrimary() && $source === AiModelArea::SOURCE_MANUAL) {
             $caps[AiModelArea::PRIMARY_TYPE_KEY] = $area->value;
             $caps[AiModelArea::PRIMARY_TYPE_SOURCE_KEY] = AiModelArea::SOURCE_MANUAL;
-            foreach (AiModelArea::textPrimaryCases() as $other) {
-                if ($other === $area) {
-                    continue;
-                }
-                $otherBag = is_array($areas[$other->value] ?? null) ? $areas[$other->value] : [];
-                $areas[$other->value] = array_filter([
-                    'enabled' => false,
-                    'priority' => $otherBag['priority'] ?? null,
-                    'source' => AiModelArea::SOURCE_MANUAL,
-                ], static fn (mixed $value): bool => $value !== null);
-            }
         }
         $caps[self::AREAS_KEY] = $areas;
         $model->capabilities = $caps;

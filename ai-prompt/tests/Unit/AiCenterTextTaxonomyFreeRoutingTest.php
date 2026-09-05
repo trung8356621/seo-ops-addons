@@ -36,7 +36,7 @@ final class AiCenterTextTaxonomyFreeRoutingTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        foreach (['ai_routing_targets', 'ai_routing_profiles', 'ai_model_capabilities', 'seo_ai_models', 'api_connections', 'ai_provider_templates'] as $table) {
+        foreach (['ai_routing_targets', 'ai_routing_profiles', 'ai_model_capabilities', 'seo_ai_models', 'api_connections', 'ai_provider_templates', 'wp_options'] as $table) {
             Schema::dropIfExists($table);
         }
         Schema::create('api_connections', function (Blueprint $table): void {
@@ -110,6 +110,13 @@ final class AiCenterTextTaxonomyFreeRoutingTest extends TestCase
             $table->boolean('enabled')->default(true);
             $table->unsignedInteger('revision')->default(1);
             $table->unsignedBigInteger('updated_by')->nullable();
+            $table->timestamps();
+        });
+        Schema::create('wp_options', function (Blueprint $table): void {
+            $table->id();
+            $table->string('option_name')->unique();
+            $table->longText('option_value')->nullable();
+            $table->string('autoload')->default('no');
             $table->timestamps();
         });
         $this->priorities = new AiModelPriorityService();

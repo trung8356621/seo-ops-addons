@@ -17,11 +17,13 @@ use Illuminate\Support\ServiceProvider;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 use Omnichannel\Addons\Seeding\Console\SeedingDbCheckCommand;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingBootstrapController;
+use Omnichannel\Addons\Seeding\Http\Controllers\SeedingCommentGenerateController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingHealthController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingTopicController;
 use Omnichannel\Addons\Seeding\LinkIntelligence\LinkExtractor;
 use Omnichannel\Addons\Seeding\LinkIntelligence\LinkResourceService;
 use Omnichannel\Addons\Seeding\LinkIntelligence\UrlNormalizer;
+use Omnichannel\Addons\Seeding\Services\SeedingCommentGenerateService;
 use Omnichannel\Addons\Seeding\Services\SeedingDatabaseConnectionService;
 use Omnichannel\Addons\Seeding\Services\SeedingSocialPlatformDetector;
 use Omnichannel\Addons\Seeding\Services\SeedingTopicService;
@@ -30,6 +32,7 @@ use Omnichannel\Addons\Seeding\Support\SeedingAccess;
 use Omnichannel\Addons\Seeding\Support\SeedingDatabaseHealth;
 use Omnichannel\Addons\Seeding\Support\SeedingServiceHealth;
 use Omnichannel\Addons\Seeding\Support\SeedingServiceResolver;
+use Omnichannel\Addons\Seeding\Support\SeedingVite;
 use Throwable;
 
 final class SeedingServiceProvider extends ServiceProvider
@@ -43,12 +46,14 @@ final class SeedingServiceProvider extends ServiceProvider
         $this->app->singleton(LinkResourceService::class);
         $this->app->singleton(SeedingSocialPlatformDetector::class);
         $this->app->singleton(SeedingTopicService::class);
+        $this->app->singleton(SeedingCommentGenerateService::class);
         $this->app->singleton(SeedingAccess::class);
         $this->app->singleton(SeedingServiceResolver::class);
         $this->app->singleton(SeedingDatabaseConnectionService::class);
         $this->app->singleton(SeedingDatabaseHealth::class);
         $this->app->singleton(SeedingServiceHealth::class);
         $this->app->singleton(SeedingSettingsSectionContributor::class);
+        $this->app->singleton(SeedingVite::class);
 
         $this->registerCapabilities();
     }
@@ -104,6 +109,8 @@ final class SeedingServiceProvider extends ServiceProvider
                     ->name('seeding.bootstrap');
                 Route::get('/health', SeedingHealthController::class)
                     ->name('seeding.health');
+                Route::post('/comments/generate', SeedingCommentGenerateController::class)
+                    ->name('seeding.comments.generate');
             });
 
         // Deprecated experimental CRUD — unused by canonical localStorage workspace.

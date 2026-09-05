@@ -40,10 +40,12 @@ final class SeedingPanelProvider extends PanelProvider
             ->brandLogoHeight('2.5rem')
             ->favicon(asset('favicon.ico'))
             ->colors([
-                'primary' => Color::Teal,
+                'primary' => Color::Orange,
             ])
             ->maxContentWidth(MaxWidth::Full)
             ->navigation(false)
+            ->topbar(false)
+            ->sidebarCollapsibleOnDesktop(false)
             ->pages([
                 SeedingTopicsPage::class,
                 ManageSeedingTopicPage::class,

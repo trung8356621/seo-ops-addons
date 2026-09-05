@@ -166,7 +166,9 @@ final class AiRoutingTargetService
             )
             : $this->liveCompatibleCandidates($userId, $profile);
 
+        $beforeEligibility = $canonical;
         $canonical = (new AiProductionRouteEligibility())->filter($canonical, $profile, $context);
+        $this->logProductionEligibilitySkips($userId, $profile, $context, $beforeEligibility, $canonical);
 
         $policy = $context->costPolicy ?? AiCostPolicyScope::current();
         if (! $profile->isMedia() && $policy === AiCostPolicy::FreeOnly) {
@@ -174,6 +176,52 @@ final class AiRoutingTargetService
         }
 
         return $canonical;
+    }
+
+    /**
+     * @param  list<RoutedAiCandidate>  $before
+     * @param  list<RoutedAiCandidate>  $after
+     */
+    private function logProductionEligibilitySkips(
+        int $userId,
+        AiExecutionProfile $profile,
+        AiRoutingContext $context,
+        array $before,
+        array $after,
+    ): void {
+        if ($before === [] || count($before) === count($after)) {
+            return;
+        }
+        $kept = [];
+        foreach ($after as $candidate) {
+            $kept[$candidate->connection->id.'|'.$candidate->model] = true;
+        }
+        $skipped = [];
+        foreach ($before as $candidate) {
+            $key = $candidate->connection->id.'|'.$candidate->model;
+            if (isset($kept[$key])) {
+                continue;
+            }
+            $skipped[] = [
+                'connection_id' => (int) $candidate->connection->id,
+                'model' => $candidate->model,
+                'provider' => $candidate->provider,
+                'reason' => 'production_eligibility',
+            ];
+        }
+        if ($skipped === []) {
+            return;
+        }
+        logger()->info('AI production eligibility filtered candidates', [
+            'user_id' => $userId,
+            'profile' => $profile->value,
+            'hook_key' => $context->hookKey,
+            'eligible' => array_map(
+                static fn (RoutedAiCandidate $c): string => $c->model,
+                $after,
+            ),
+            'skipped_by_production_eligibility' => $skipped,
+        ]);
     }
 
     /**

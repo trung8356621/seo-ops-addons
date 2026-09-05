@@ -191,12 +191,17 @@ final class AiModelRouterService
             try {
                 if (function_exists('app')) {
                     $routeRevision = app(CanonicalAiRouteResolver::class)
-                        ->routeRevision($context->userId ?? 0, $parsed);
+                        ->routeRevision($userId > 0 ? $userId : 0, $parsed);
                 }
             } catch (\Throwable) {
                 $routeRevision = null;
             }
         }
+
+        $eligibleModels = array_map(
+            static fn (RoutedAiCandidate $candidate): string => $candidate->model,
+            $candidates,
+        );
 
         foreach ($candidates as $index => $candidate) {
             $attemptNumber = $index + 1;
@@ -283,6 +288,8 @@ final class AiModelRouterService
                         'fallback_allowed' => $decision->fallbackAllowed(),
                         'failure_stage' => $decision->failureStage,
                         'next' => $decision->fallbackAllowed() && isset($candidates[$index + 1]),
+                        'routing_owner_user_id' => $userId,
+                        'eligible_models' => $eligibleModels,
                     ],
                     $this->qualityAttemptMeta($exception),
                 ));
@@ -293,6 +300,13 @@ final class AiModelRouterService
             attemptCount: $actualAttempts,
             routingAttempts: $routingAttempts,
             previous: $lastException instanceof \Throwable ? $lastException : null,
+            diagnostics: [
+                'routing_owner_user_id' => $userId,
+                'eligible_models' => $eligibleModels,
+                'eligible_count' => count($candidates),
+                'max_ai_attempts' => $maxAiAttempts,
+                'max_free_attempts' => $maxFreeAttempts,
+            ],
         );
     }
 

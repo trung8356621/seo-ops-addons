@@ -186,14 +186,25 @@ final class OpenRouterTextRoutingCatalog
         }
 
         $userId = (int) $connection->user_id;
-        foreach (self::MODELS as $raw => $displayName) {
-            unset($displayName);
-            $model = SeoAiModel::query()
-                ->where('api_connection_id', (int) $connection->id)
-                ->where('raw_model_name', $raw)
-                ->first();
-            if ($model instanceof SeoAiModel) {
-                $area = $this->primaryAreaForRaw($raw);
+        // Enable each curated model in EVERY text area listed in PROFILE_MODELS.
+        // Skip areas already explicitly enabled so manual order is preserved.
+        $areaProfiles = [
+            [AiModelArea::TextFast, AiExecutionProfile::TextFast],
+            [AiModelArea::TextLongform, AiExecutionProfile::TextLongform],
+            [AiModelArea::TextReasoning, AiExecutionProfile::TextReasoning],
+        ];
+        foreach ($areaProfiles as [$area, $profile]) {
+            foreach (self::PROFILE_MODELS[$profile->value] ?? [] as $raw) {
+                $model = SeoAiModel::query()
+                    ->where('api_connection_id', (int) $connection->id)
+                    ->where('raw_model_name', $raw)
+                    ->first();
+                if (! $model instanceof SeoAiModel) {
+                    continue;
+                }
+                if ($priorities->isExplicitlyAreaEnabled($model, $area)) {
+                    continue;
+                }
                 $priorities->appendToArea($userId, $area, [(int) $model->id]);
             }
         }
@@ -405,24 +416,38 @@ final class OpenRouterTextRoutingCatalog
             ->all();
     }
 
-    private function primaryAreaForRaw(string $raw): AiModelArea
+    /**
+     * Text capability areas where a curated OpenRouter raw id is a PROFILE_MODELS member.
+     *
+     * @return list<AiModelArea>
+     */
+    public static function membershipAreasForRaw(string $raw): array
     {
-        $inFast = in_array($raw, self::PROFILE_MODELS[AiExecutionProfile::TextFast->value] ?? [], true);
-        $inLong = in_array($raw, self::PROFILE_MODELS[AiExecutionProfile::TextLongform->value] ?? [], true);
-        $inReason = in_array($raw, self::PROFILE_MODELS[AiExecutionProfile::TextReasoning->value] ?? [], true);
-        if ($inFast && ! $inLong && ! $inReason) {
-            return AiModelArea::TextFast;
+        $out = [];
+        if (in_array($raw, self::PROFILE_MODELS[AiExecutionProfile::TextFast->value] ?? [], true)) {
+            $out[] = AiModelArea::TextFast;
         }
-        if ($inLong && ! $inFast) {
-            return AiModelArea::TextLongform;
+        if (in_array($raw, self::PROFILE_MODELS[AiExecutionProfile::TextLongform->value] ?? [], true)) {
+            $out[] = AiModelArea::TextLongform;
         }
-        if ($inReason && ! $inFast && ! $inLong) {
+        if (in_array($raw, self::PROFILE_MODELS[AiExecutionProfile::TextReasoning->value] ?? [], true)) {
+            $out[] = AiModelArea::TextReasoning;
+        }
+
+        return $out !== [] ? $out : [AiModelArea::TextFast];
+    }
+
+    /**
+     * Preferred primary-type metadata only (display / classifier). Runtime membership
+     * uses all PROFILE_MODELS areas — do not treat this as exclusive route membership.
+     */
+    public static function primaryAreaForRaw(string $raw): AiModelArea
+    {
+        $areas = self::membershipAreasForRaw($raw);
+        if (in_array(AiModelArea::TextReasoning, $areas, true)) {
             return AiModelArea::TextReasoning;
         }
-        if ($inFast) {
-            return AiModelArea::TextFast;
-        }
-        if ($inLong) {
+        if (in_array(AiModelArea::TextLongform, $areas, true)) {
             return AiModelArea::TextLongform;
         }
 

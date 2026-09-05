@@ -507,7 +507,13 @@ class PromptRunnerService
             'attempt_number' => $fallbackCount + 1,
             'route_revision' => function_exists('app')
                 ? app(CanonicalAiRouteResolver::class)->routeRevision(
-                    (int) (auth()->id() ?? 0),
+                    (int) ($context->userId ?? 0) > 0
+                        ? (int) $context->userId
+                        : app(AiRoutingOwnerResolver::class)->resolve(
+                            explicitUserId: null,
+                            prompt: $prompt,
+                            connection: $candidate->connection ?? $connection,
+                        ),
                     $profile,
                 )
                 : null,
@@ -1687,6 +1693,22 @@ class PromptRunnerService
     private function rethrowWithPromptResultId(\Throwable $exception, int $promptResultId): PromptRunException
     {
         if ($exception instanceof AiRoutesExhaustedException) {
+            $diagnostics = [];
+            foreach ($exception->context as $key => $value) {
+                if (! is_string($key) || in_array($key, [
+                    'classification',
+                    'user_message',
+                    'technical_details',
+                    'retryable',
+                    'attempt_count',
+                    'routing_attempts',
+                    'prompt_result_id',
+                ], true)) {
+                    continue;
+                }
+                $diagnostics[$key] = $value;
+            }
+
             return new AiRoutesExhaustedException(
                 attemptCount: (int) ($exception->context['attempt_count'] ?? 0),
                 routingAttempts: is_array($exception->context['routing_attempts'] ?? null)
@@ -1694,6 +1716,7 @@ class PromptRunnerService
                     : [],
                 previous: $exception,
                 promptResultId: $promptResultId > 0 ? $promptResultId : null,
+                diagnostics: $diagnostics,
             );
         }
 

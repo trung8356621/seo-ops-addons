@@ -1,6 +1,6 @@
 /**
- * Optional helpers for Seeding service endpoints (bootstrap / health).
- * Canonical workspace does NOT use topic CRUD.
+ * Optional helpers for Seeding service endpoints (bootstrap / health / AI generate).
+ * Canonical workspace does NOT use topic CRUD persistence.
  */
 
 function csrfToken() {
@@ -47,10 +47,15 @@ export async function seedingApiFetch(url, options = {}) {
     return data;
 }
 
-export function seedingBootstrapUrl() {
-    return '/api/seeding/bootstrap';
-}
-
-export function seedingHealthUrl() {
-    return '/api/seeding/health';
+/**
+ * Stateless AI comment generation — no Seeding DB writes.
+ * @param {{ full_text: string, social_url?: string, count?: number, platform?: string|null }} payload
+ * @returns {Promise<{ comments: string[] }>}
+ */
+export async function generateSampleComments(payload) {
+    return seedingApiFetch('/api/seeding/comments/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
 }

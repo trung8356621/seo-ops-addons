@@ -136,13 +136,19 @@ final class AiModelPriorityServiceTest extends TestCase
         $this->model($deepseek, 'deepseek-reasoner', AiModelCategory::DEEPSEEK_REASONER, 20);
         $flash = $this->model($gemini, 'gemini-3-flash-preview', AiModelCategory::GEMINI_FLASH, 10);
         $this->grantText($gemini, $flash);
-        $resolved = $this->targets->eligibleCandidates(3, AiExecutionProfile::TextReasoning, new AiRoutingContext(userId: 3));
+        $resolved = $this->targets->eligibleCandidates(
+            3,
+            AiExecutionProfile::TextReasoning,
+            new AiRoutingContext(userId: 3, hookKey: 'article.outline.structure.generate'),
+        );
         $models = array_map(static fn ($candidate): string => $candidate->model, $resolved);
+        // Production: DeepSeek is never eligible for Outline/Vocabulary TextReasoning.
         $this->assertNotContains('deepseek-chat', $models);
-        $this->assertSame('deepseek-reasoner', $models[0] ?? null);
+        $this->assertNotContains('deepseek-reasoner', $models);
+        $this->assertSame(['gemini-3-flash-preview'], $models);
     }
 
-    public function test_custom_filters_without_using_selection_click_order(): void
+    public function test_custom_selection_does_not_filter_text_runtime_area_order(): void
     {
         $deepseek = $this->connection(4, ApiConnectionProviders::DEEPSEEK, 'DeepSeek');
         $gemini = $this->connection(4, ApiConnectionProviders::GEMINI, 'Gemini');
@@ -163,8 +169,14 @@ final class AiModelPriorityServiceTest extends TestCase
             true,
             true,
         );
+        // Text runtime SSOT = capability-area order; Custom membership is not a runtime filter.
         $resolved = $this->targets->eligibleCandidates(4, AiExecutionProfile::TextFast, new AiRoutingContext(userId: 4));
-        $this->assertSame(['deepseek-chat', 'gemini-3.1-pro-preview'], array_map(
+        $this->assertSame([
+            'deepseek-chat',
+            'deepseek-reasoner',
+            'gemini-3-flash-preview',
+            'gemini-3.1-pro-preview',
+        ], array_map(
             static fn ($candidate): string => $candidate->model,
             $resolved,
         ));
@@ -243,8 +255,14 @@ final class AiModelPriorityServiceTest extends TestCase
             (int) $flash->id,
             (int) $pro->id,
         ]);
-        $resolved = $this->targets->eligibleCandidates(8, AiExecutionProfile::TextReasoning, new AiRoutingContext(userId: 8));
-        $this->assertNotContains('deepseek-chat', array_map(static fn ($c): string => $c->model, $resolved));
+        $resolved = $this->targets->eligibleCandidates(
+            8,
+            AiExecutionProfile::TextReasoning,
+            new AiRoutingContext(userId: 8, hookKey: 'article.outline.structure.generate'),
+        );
+        $reasoningModels = array_map(static fn ($c): string => $c->model, $resolved);
+        $this->assertNotContains('deepseek-chat', $reasoningModels);
+        $this->assertNotContains('deepseek-reasoner', $reasoningModels);
         $this->targets->saveSimplifiedSelection(
             8,
             AiExecutionProfile::TextFast,
@@ -254,7 +272,13 @@ final class AiModelPriorityServiceTest extends TestCase
             true,
         );
         $custom = $this->targets->eligibleCandidates(8, AiExecutionProfile::TextFast, new AiRoutingContext(userId: 8));
-        $this->assertSame(['deepseek-chat', 'gemini-3.1-pro-preview'], array_map(
+        // Legacy Text area enable + capability filter; Custom click order is not runtime SSOT.
+        $this->assertSame([
+            'deepseek-chat',
+            'deepseek-reasoner',
+            'gemini-3-flash-preview',
+            'gemini-3.1-pro-preview',
+        ], array_map(
             static fn ($candidate): string => $candidate->model,
             $custom,
         ));

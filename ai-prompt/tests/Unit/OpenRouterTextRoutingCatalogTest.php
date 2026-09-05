@@ -69,5 +69,22 @@ final class OpenRouterTextRoutingCatalogTest extends TestCase
 
         $this->assertCount(10, OpenRouterTextRoutingCatalog::MODELS);
         $this->assertSame('GPT-5.4 Mini', OpenRouterTextRoutingCatalog::MODELS['openai/gpt-5.4-mini']);
+
+        $this->assertSame(
+            [
+                \Omnichannel\Addons\AiPrompt\Support\AiModelArea::TextFast,
+                \Omnichannel\Addons\AiPrompt\Support\AiModelArea::TextLongform,
+                \Omnichannel\Addons\AiPrompt\Support\AiModelArea::TextReasoning,
+            ],
+            OpenRouterTextRoutingCatalog::membershipAreasForRaw('google/gemini-3.5-flash'),
+        );
+        $this->assertSame(
+            \Omnichannel\Addons\AiPrompt\Support\AiModelArea::TextReasoning,
+            OpenRouterTextRoutingCatalog::primaryAreaForRaw('openai/gpt-5.4'),
+        );
+        $this->assertContains(
+            \Omnichannel\Addons\AiPrompt\Support\AiModelArea::TextReasoning,
+            OpenRouterTextRoutingCatalog::membershipAreasForRaw('openai/gpt-5.4'),
+        );
     }
 }

@@ -10,12 +10,14 @@ final class AiRoutesExhaustedException extends PromptRunException
 
     /**
      * @param  list<array<string, mixed>>  $routingAttempts
+     * @param  array<string, mixed>  $diagnostics
      */
     public function __construct(
         int $attemptCount,
         array $routingAttempts = [],
         ?\Throwable $previous = null,
         ?int $promptResultId = null,
+        array $diagnostics = [],
     ) {
         $context = [
             'classification' => self::CLASSIFICATION,
@@ -25,6 +27,12 @@ final class AiRoutesExhaustedException extends PromptRunException
             'attempt_count' => $attemptCount,
             'routing_attempts' => $routingAttempts,
         ];
+        foreach ($diagnostics as $key => $value) {
+            if (! is_string($key) || $key === '' || array_key_exists($key, $context)) {
+                continue;
+            }
+            $context[$key] = $value;
+        }
         if ($promptResultId !== null && $promptResultId > 0) {
             $context['prompt_result_id'] = $promptResultId;
         }
