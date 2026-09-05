@@ -300,25 +300,159 @@ final class AiRuntimeFallbackTest extends TestCase
         $this->assertSame(['paid/claude', 'free/gemma:free'], $calls);
     }
 
-    public function test_schema_parse_error_stops_without_second_route(): void
+    public function test_schema_parse_error_falls_back_to_second_route(): void
     {
         $this->seedTwoModelRoute(56, 'paid/claude', 'free/gemma:free', false, true);
+        $calls = [];
+        [$output, , , , , $routingAttempts] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextLongform->value,
+            new AiRoutingContext(userId: 56),
+            function ($candidate) use (&$calls): array {
+                $calls[] = $candidate->model;
+                if ($candidate->model === 'paid/claude') {
+                    throw new PromptRunException('Planner structured output invalid after repair (schema validation failed)');
+                }
+
+                return ["# Valid markdown\n\nBody.", null];
+            },
+        );
+        $this->assertSame("# Valid markdown\n\nBody.", $output);
+        $this->assertSame(['paid/claude', 'free/gemma:free'], $calls);
+        $this->assertSame('failed', $routingAttempts[0]['result'] ?? null);
+        $this->assertSame('success', $routingAttempts[1]['result'] ?? null);
+    }
+
+    public function test_provider_empty_content_falls_back_to_next_candidate(): void
+    {
+        $this->seedTwoModelRoute(59, 'model/a', 'model/b', false, false);
+        $calls = [];
+        [$output, , , , , $routingAttempts] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextLongform->value,
+            new AiRoutingContext(userId: 59),
+            function ($candidate) use (&$calls): array {
+                $calls[] = $candidate->model;
+                if ($candidate->model === 'model/a') {
+                    throw new PromptRunException('Provider returned empty content.');
+                }
+
+                return ["# Outline from B\n\n## Section", null];
+            },
+        );
+
+        $this->assertSame(['model/a', 'model/b'], $calls);
+        $this->assertSame("# Outline from B\n\n## Section", $output);
+        $this->assertSame('failed', $routingAttempts[0]['result'] ?? null);
+        $this->assertSame('provider_empty_output', $routingAttempts[0]['failure_class'] ?? null);
+        $this->assertSame('success', $routingAttempts[1]['result'] ?? null);
+    }
+
+    public function test_empty_refusal_invalid_then_success_records_routing_attempts(): void
+    {
+        (new AiResilienceSettingsService())->save(60, ['max_ai_attempts' => 4, 'max_free_attempts' => 4]);
+        $this->seedOrderedLongform(60, [
+            ['a', 'model/a', ApiConnectionProviders::OPENROUTER, false],
+            ['b', 'model/b', ApiConnectionProviders::OPENROUTER, false],
+            ['c', 'model/c', ApiConnectionProviders::OPENROUTER, false],
+            ['d', 'model/d', ApiConnectionProviders::OPENROUTER, false],
+        ]);
+        $calls = [];
+        [$output, , , , , $routingAttempts] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextLongform->value,
+            new AiRoutingContext(userId: 60),
+            function ($candidate) use (&$calls): array {
+                $calls[] = $candidate->model;
+                return match ($candidate->model) {
+                    'model/a' => throw new PromptRunException('Provider returned empty content.'),
+                    'model/b' => throw new PromptRunException('Model refused due to safety content policy'),
+                    'model/c' => throw new PromptRunException('Provider output invalid: malformed JSON'),
+                    default => ["# Success from D\n\nOK", null],
+                };
+            },
+        );
+
+        $this->assertSame(['model/a', 'model/b', 'model/c', 'model/d'], $calls);
+        $this->assertSame("# Success from D\n\nOK", $output);
+        $this->assertCount(4, $routingAttempts);
+        $this->assertSame('failed', $routingAttempts[0]['result']);
+        $this->assertSame('failed', $routingAttempts[1]['result']);
+        $this->assertSame('failed', $routingAttempts[2]['result']);
+        $this->assertSame('success', $routingAttempts[3]['result']);
+    }
+
+    public function test_provider_output_failures_exhaust_routes(): void
+    {
+        (new AiResilienceSettingsService())->save(61, ['max_ai_attempts' => 3, 'max_free_attempts' => 3]);
+        $this->seedOrderedLongform(61, [
+            ['a', 'model/a', ApiConnectionProviders::OPENROUTER, false],
+            ['b', 'model/b', ApiConnectionProviders::OPENROUTER, false],
+            ['c', 'model/c', ApiConnectionProviders::OPENROUTER, false],
+            ['d', 'model/d', ApiConnectionProviders::OPENROUTER, false],
+        ]);
         $calls = [];
         try {
             $this->router->executeWithProfile(
                 AiExecutionProfile::TextLongform->value,
-                new AiRoutingContext(userId: 56),
+                new AiRoutingContext(userId: 61),
                 function ($candidate) use (&$calls): array {
                     $calls[] = $candidate->model;
-                    throw new PromptRunException('Planner structured output invalid after repair (schema validation failed)');
+                    return match ($candidate->model) {
+                        'model/a' => throw new PromptRunException('Provider returned empty content.'),
+                        'model/b' => throw new PromptRunException('Model refused due to safety'),
+                        default => throw new PromptRunException('Provider output invalid: truncated response'),
+                    };
                 },
             );
-            $this->fail('Expected parse/schema stop');
-        } catch (PromptRunException $exception) {
-            $this->assertSame(['paid/claude'], $calls);
-            $this->assertStringContainsString('schema validation', strtolower($exception->getMessage()));
-            $this->assertStringNotContainsString('AI_ROUTES_EXHAUSTED', $exception->getMessage());
+            $this->fail('Expected AI_ROUTES_EXHAUSTED');
+        } catch (AiRoutesExhaustedException $exception) {
+            $this->assertSame(['model/a', 'model/b', 'model/c'], $calls);
+            $this->assertSame(3, $exception->context['attempt_count'] ?? null);
+            $attempts = $exception->context['routing_attempts'] ?? [];
+            $this->assertCount(3, $attempts);
+            $this->assertStringContainsString('AI_ROUTES_EXHAUSTED', $exception->getMessage());
         }
+    }
+
+    public function test_outline_then_vocabulary_empty_fallback_acceptance(): void
+    {
+        // Acceptance: Outline A empty→B ok; Vocabulary A empty→B ok (two independent route cycles).
+        $this->seedTwoModelRoute(62, 'outline/a', 'outline/b', false, false);
+        $outlineCalls = [];
+        [$outlineOut, , , , , $outlineAttempts] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextLongform->value,
+            new AiRoutingContext(userId: 62),
+            function ($candidate) use (&$outlineCalls): array {
+                $outlineCalls[] = $candidate->model;
+                if ($candidate->model === 'outline/a') {
+                    throw new PromptRunException('Provider returned empty content.');
+                }
+
+                return ["# Outline markdown\n\n## Intro", null];
+            },
+        );
+        $this->assertSame(['outline/a', 'outline/b'], $outlineCalls);
+        $this->assertStringContainsString('# Outline markdown', $outlineOut);
+        $this->assertSame('failed', $outlineAttempts[0]['result']);
+        $this->assertSame('success', $outlineAttempts[1]['result']);
+
+        $this->seedTwoModelRoute(63, 'vocab/a', 'vocab/b', false, false);
+        $vocabCalls = [];
+        [$vocabOut, , , , , $vocabAttempts] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextLongform->value,
+            new AiRoutingContext(userId: 63),
+            function ($candidate) use (&$vocabCalls): array {
+                $vocabCalls[] = $candidate->model;
+                if ($candidate->model === 'vocab/a') {
+                    throw new PromptRunException('Provider returned empty content.');
+                }
+
+                return ["### Holonymy\n- bag\n", null];
+            },
+        );
+        $this->assertSame(['vocab/a', 'vocab/b'], $vocabCalls);
+        $this->assertStringContainsString('Holonymy', $vocabOut);
+        $this->assertSame('failed', $vocabAttempts[0]['result']);
+        $this->assertSame('success', $vocabAttempts[1]['result']);
+        $this->assertStringNotContainsString('Provider returned empty content', $vocabOut);
     }
 
     public function test_context_length_stops_without_exhausting_routes(): void

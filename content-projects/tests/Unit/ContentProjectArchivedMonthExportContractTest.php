@@ -345,7 +345,7 @@ final class ContentProjectArchivedMonthExportContractTest extends TestCase
         self::assertStringContainsString('filament.projects.not_indexed', $workloadSrc);
         self::assertStringContainsString('archive_export_plan_', $workloadSrc);
         self::assertStringContainsString('post_type_product', $workloadSrc);
-        self::assertStringContainsString('resolveArticleExportFields', $workloadSrc);
+        self::assertStringContainsString('ArchiveArticleHistoricalFieldResolver', $workloadSrc);
         self::assertStringContainsString('wordpress_url', $workloadSrc);
         self::assertStringContainsString('ContentProjectExportReviewedAtResolver', $workloadSrc);
         self::assertStringContainsString("'reviewed_at'", $workloadSrc);
@@ -353,16 +353,16 @@ final class ContentProjectArchivedMonthExportContractTest extends TestCase
         self::assertStringNotContainsString("'title' => trim((string) (\$row->title", $workloadSrc);
     }
 
-    public function test_item_rows_use_article_not_task_planning_fields(): void
+    public function test_item_rows_use_article_snapshot_not_task_planning_fields(): void
     {
         $src = (string) file_get_contents(
             (string) (new ReflectionClass(ContentProjectArchivedMonthlyWorkloadService::class))->getFileName(),
         );
 
-        self::assertStringContainsString('resolveArticleExportFields', $src);
-        self::assertStringContainsString('$article->title', $src);
-        self::assertStringContainsString('seo_focus_keyword', $src);
-        self::assertStringContainsString('Final published article fields only', $src);
+        self::assertStringContainsString('ArchiveArticleHistoricalFieldResolver', $src);
+        self::assertStringContainsString('article_snapshot', $src);
+        self::assertStringContainsString('hydrateArchiveItemMaps', $src);
+        self::assertStringNotContainsString('resolveArticleExportFields', $src);
     }
 
     public function test_hyperlink_helper_builds_formula_and_preserves_escape(): void

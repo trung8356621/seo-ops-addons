@@ -101,6 +101,19 @@ final class McpPlanningAndSitePlanningContractTest extends TestCase
         self::assertStringContainsString('planning_reviewed_at', $src);
     }
 
+    public function test_site_planning_ideas_new_uses_source_type_and_result_summary_status(): void
+    {
+        $src = (string) file_get_contents(
+            (string) (new ReflectionClass(SitePlanningReadModel::class))->getFileName(),
+        );
+        self::assertStringContainsString("where('source_type', SeoContentProjectPlannerRun::SOURCE_AI_NEW_CONTENT)", $src);
+        self::assertStringNotContainsString("where('source', SeoContentProjectPlannerRun::SOURCE_AI_NEW_CONTENT)", $src);
+        self::assertStringContainsString("\$summary['status']", $src);
+        self::assertStringContainsString('STATUS_COMPLETED', $src);
+        self::assertStringContainsString('STATUS_PARTIAL', $src);
+        self::assertStringContainsString('KIND_EXECUTED', $src);
+    }
+
     public function test_site_planning_month_window_crosses_year(): void
     {
         $readModel = new ReflectionClass(SitePlanningReadModel::class);

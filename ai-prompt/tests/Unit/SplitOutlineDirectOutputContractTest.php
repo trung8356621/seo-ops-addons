@@ -323,6 +323,8 @@ final class SplitOutlineDirectOutputContractTest extends TestCase
         self::assertStringContainsString('reused_outline_markdown', $runnerSource);
         self::assertStringContainsString('persistSplitOutlineCheckpoint', $runnerSource);
         self::assertStringContainsString('clearSplitOutlineCheckpoint', $runnerSource);
+        self::assertStringContainsString('input_fingerprint', $runnerSource);
+        self::assertStringContainsString('splitOutlineCheckpointIdentity', $runnerSource);
         self::assertStringContainsString("'outline_status'", $runnerSource);
         self::assertStringContainsString("'vocabulary_status'", $runnerSource);
     }

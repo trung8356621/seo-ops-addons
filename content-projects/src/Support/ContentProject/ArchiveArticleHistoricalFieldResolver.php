@@ -18,7 +18,7 @@ use Omnichannel\Addons\WordPress\Support\WordPressPermalinkBuilder;
 final class ArchiveArticleHistoricalFieldResolver
 {
     public function __construct(
-        private readonly WordPressPermalinkBuilder $permalinkBuilder = new WordPressPermalinkBuilder(),
+        private readonly ?WordPressPermalinkBuilder $permalinkBuilder = null,
         private readonly ContentProjectExportReviewedAtResolver $reviewedAtResolver = new ContentProjectExportReviewedAtResolver(),
     ) {}
 
@@ -71,7 +71,7 @@ final class ArchiveArticleHistoricalFieldResolver
             'title' => $title,
             'keyword' => $keyword,
             'wordpress_url' => $wordpressUrl,
-            'reviewed_at' => $this->reviewedAtResolver->resolve($reviewedBag, $article),
+            'reviewed_at' => $this->reviewedAtResolver->resolve($reviewedBag),
             'last_update_wp' => $reviewedBag['last_update_wp'],
             'wp_created_at' => $reviewedBag['wp_created_at'],
             'indexed_at' => $indexedAt,
@@ -109,11 +109,16 @@ final class ArchiveArticleHistoricalFieldResolver
         $title = trim((string) ($article->title ?? ''));
         $keyword = trim((string) ($this->articleMeta($article, 'seo_focus_keyword') ?? ''));
         $permalink = trim((string) ($this->articleMeta($article, 'wp_permalink') ?? ''));
-        $wordpressUrl = trim($this->permalinkBuilder->resolve(
-            $article,
-            $permalink,
-            trim((string) ($article->slug ?? '')) !== '' ? (string) $article->slug : null,
-        ));
+        $wordpressUrl = '';
+        if ($this->permalinkBuilder instanceof WordPressPermalinkBuilder) {
+            $wordpressUrl = trim($this->permalinkBuilder->resolve(
+                $article,
+                $permalink,
+                trim((string) ($article->slug ?? '')) !== '' ? (string) $article->slug : null,
+            ));
+        } elseif ($permalink !== '' && filter_var($permalink, FILTER_VALIDATE_URL) !== false) {
+            $wordpressUrl = $permalink;
+        }
 
         $indexedAt = null;
         $previousIndexedAt = null;
@@ -126,16 +131,34 @@ final class ArchiveArticleHistoricalFieldResolver
             'title' => $title,
             'keyword' => $keyword,
             'wordpress_url' => $wordpressUrl,
-            ...$this->reviewedAtResolver->exportFields($article),
+            'reviewed_at' => $article->getAttribute('reviewed_at'),
+            'last_update_wp' => $this->safeLastUpdateWp($article),
+            'wp_created_at' => $article->getAttribute('wp_created_at'),
             'indexed_at' => $indexedAt,
             'previous_indexed_at' => $previousIndexedAt,
         ];
     }
 
+    private function safeLastUpdateWp(SeoArticle $article): mixed
+    {
+        $explicit = $article->getAttribute('last_update_wp');
+        if ($explicit !== null && $explicit !== '') {
+            return $explicit;
+        }
+
+        if (! $article->relationLoaded('wordpressLink')) {
+            return null;
+        }
+
+        $link = $article->wordpressLink;
+
+        return $link?->observed_modified_at ?? $link?->external_modified_at;
+    }
+
     private function articleMeta(SeoArticle $article, string $key): ?string
     {
         if (! $article->relationLoaded('articleMetas')) {
-            $article->loadMissing('articleMetas');
+            return null;
         }
 
         $value = $article->articleMetas->firstWhere('meta_key', $key)?->meta_value;

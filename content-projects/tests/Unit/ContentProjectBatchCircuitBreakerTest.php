@@ -105,6 +105,7 @@ final class ContentProjectBatchCircuitBreakerTest extends TestCase
             runItemId: 1,
             status: ContentProjectArticleSemanticStatus::Failed,
             message: 'Outline generation failed: output shorter than minimum_length (40 chars < 100).',
+            errorCode: \Omnichannel\Addons\ContentProjects\Enums\ContentProjectErrorCode::ExternalWorkflowFailed->value,
             payload: ['failed_node' => 'outline'],
         );
         $vocab = new ArticleExecutionResult(
@@ -113,16 +114,36 @@ final class ContentProjectBatchCircuitBreakerTest extends TestCase
             runItemId: 2,
             status: ContentProjectArticleSemanticStatus::Failed,
             message: 'Vocabulary generation failed: Section shorter than min_length',
+            errorCode: 'content_project_external_workflow_failed',
             payload: ['failed_node' => 'vocabulary'],
         );
 
         $sigOutline = ContentProjectBatchFailureSignature::fromResult($outline);
         $sigVocab = ContentProjectBatchFailureSignature::fromResult($vocab);
-        self::assertStringContainsString('outline', $sigOutline);
-        self::assertStringContainsString('min_length', $sigOutline);
+        self::assertSame('outline|min_length', $sigOutline);
         self::assertStringContainsString('vocabulary', $sigVocab);
+        self::assertStringContainsString('min_length', $sigVocab);
+        self::assertStringNotContainsString('content_project_external_workflow_failed', $sigOutline);
         self::assertNotSame($sigOutline, $sigVocab);
         self::assertNotSame(ContentProjectBatchFailureSignature::SYSTEMIC_ROUTING, $sigOutline);
+    }
+
+    public function test_external_workflow_wrapper_classifies_from_message(): void
+    {
+        $result = new ArticleExecutionResult(
+            runId: 1,
+            taskId: 1,
+            runItemId: 1,
+            status: ContentProjectArticleSemanticStatus::Failed,
+            message: 'Outline generation failed: output shorter than minimum_length (40 chars < 100).',
+            errorCode: 'CONTENT_PROJECT_EXTERNAL_WORKFLOW_FAILED',
+            payload: ['failed_node' => 'outline'],
+        );
+
+        self::assertTrue(ContentProjectBatchFailureSignature::isExternalWorkflowWrapperCode(
+            'CONTENT_PROJECT_EXTERNAL_WORKFLOW_FAILED',
+        ));
+        self::assertSame('outline|min_length', ContentProjectBatchFailureSignature::fromResult($result));
     }
 
     public function test_three_identical_failures_trip_before_fourth_item(): void

@@ -1,0 +1,368 @@
+.seeding-workspace-shell {
+    min-height: 70vh;
+}
+
+.seeding-ws {
+    display: grid;
+    grid-template-columns: 260px minmax(0, 1fr);
+    gap: 0;
+    min-height: 70vh;
+    border: 1px solid rgb(229 231 235);
+    border-radius: 0.75rem;
+    background: #fff;
+    overflow: hidden;
+}
+
+.dark .seeding-ws {
+    border-color: rgb(55 65 81);
+    background: rgb(17 24 39);
+}
+
+.seeding-ws__sidebar {
+    border-right: 1px solid rgb(229 231 235);
+    display: flex;
+    flex-direction: column;
+    min-height: 70vh;
+    max-height: calc(100vh - 12rem);
+}
+
+.dark .seeding-ws__sidebar {
+    border-right-color: rgb(55 65 81);
+}
+
+.seeding-ws__sidebar-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.75rem 0.75rem 0.5rem;
+}
+
+.seeding-ws__sidebar-head h2 {
+    margin: 0;
+    font-size: 0.8125rem;
+    font-weight: 650;
+}
+
+.seeding-ws__btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.25rem;
+    border-radius: 0.5rem;
+    border: 1px solid transparent;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1.2;
+    padding: 0.35rem 0.55rem;
+    cursor: pointer;
+    background: transparent;
+    color: inherit;
+}
+
+.seeding-ws__btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+}
+
+.seeding-ws__btn--primary {
+    background: rgb(37 99 235);
+    color: #fff;
+}
+
+.seeding-ws__btn--ghost {
+    border-color: rgb(209 213 219);
+}
+
+.dark .seeding-ws__btn--ghost {
+    border-color: rgb(75 85 99);
+}
+
+.seeding-ws__btn--danger {
+    color: rgb(185 28 28);
+}
+
+.seeding-ws__search {
+    padding: 0 0.75rem 0.5rem;
+}
+
+.seeding-ws__search input,
+.seeding-ws__field,
+.seeding-ws__textarea {
+    width: 100%;
+    border-radius: 0.5rem;
+    border: 1px solid rgb(209 213 219);
+    background: #fff;
+    color: inherit;
+    font-size: 0.8125rem;
+    padding: 0.4rem 0.55rem;
+}
+
+.dark .seeding-ws__search input,
+.dark .seeding-ws__field,
+.dark .seeding-ws__textarea {
+    border-color: rgb(75 85 99);
+    background: rgb(31 41 55);
+}
+
+.seeding-ws__list {
+    flex: 1;
+    overflow: auto;
+    padding: 0.25rem 0.5rem 0.75rem;
+}
+
+.seeding-ws__section-label {
+    font-size: 0.6875rem;
+    font-weight: 650;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: rgb(107 114 128);
+    padding: 0.5rem 0.35rem 0.25rem;
+}
+
+.seeding-ws__row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0.35rem;
+    align-items: start;
+    width: 100%;
+    text-align: left;
+    border: 0;
+    background: transparent;
+    border-radius: 0.5rem;
+    padding: 0.4rem 0.45rem;
+    cursor: pointer;
+    color: inherit;
+}
+
+.seeding-ws__row:hover {
+    background: rgb(243 244 246);
+}
+
+.dark .seeding-ws__row:hover {
+    background: rgb(31 41 55);
+}
+
+.seeding-ws__row.is-active {
+    background: rgb(239 246 255);
+}
+
+.dark .seeding-ws__row.is-active {
+    background: rgb(30 58 138 / 0.35);
+}
+
+.seeding-ws__row-title {
+    font-size: 0.8125rem;
+    font-weight: 550;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.seeding-ws__row-meta {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin-top: 0.15rem;
+}
+
+.seeding-ws__badge {
+    font-size: 0.625rem;
+    font-weight: 700;
+    border-radius: 0.25rem;
+    padding: 0.1rem 0.3rem;
+    text-transform: uppercase;
+}
+
+.seeding-ws__badge--draft {
+    background: rgb(254 243 199);
+    color: rgb(146 64 14);
+}
+
+.seeding-ws__badge--active {
+    background: rgb(220 252 231);
+    color: rgb(22 101 52);
+}
+
+.seeding-ws__badge--done {
+    background: rgb(229 231 235);
+    color: rgb(55 65 81);
+}
+
+.seeding-ws__icon-btn {
+    border: 0;
+    background: transparent;
+    color: rgb(107 114 128);
+    cursor: pointer;
+    border-radius: 0.35rem;
+    padding: 0.15rem;
+    line-height: 0;
+}
+
+.seeding-ws__icon-btn:hover {
+    background: rgb(229 231 235);
+    color: rgb(17 24 39);
+}
+
+.dark .seeding-ws__icon-btn:hover {
+    background: rgb(55 65 81);
+    color: #fff;
+}
+
+.seeding-ws__archived-toggle {
+    border-top: 1px solid rgb(229 231 235);
+    padding: 0.55rem 0.75rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-align: left;
+    background: transparent;
+    border-left: 0;
+    border-right: 0;
+    border-bottom: 0;
+    cursor: pointer;
+    color: inherit;
+}
+
+.dark .seeding-ws__archived-toggle {
+    border-top-color: rgb(55 65 81);
+}
+
+.seeding-ws__main {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    padding: 0.85rem 1rem 1rem;
+    gap: 0.75rem;
+}
+
+.seeding-ws__main-head {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 0.75rem;
+}
+
+.seeding-ws__main-title {
+    margin: 0;
+    font-size: 0.9375rem;
+    font-weight: 650;
+}
+
+.seeding-ws__empty {
+    color: rgb(107 114 128);
+    font-size: 0.875rem;
+    padding: 2rem 0.5rem;
+}
+
+.seeding-ws__textarea {
+    min-height: 220px;
+    resize: vertical;
+    font-family: ui-sans-serif, system-ui, sans-serif;
+    line-height: 1.45;
+}
+
+.seeding-ws__links {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    align-items: center;
+    font-size: 0.75rem;
+    color: rgb(75 85 99);
+}
+
+.dark .seeding-ws__links {
+    color: rgb(156 163 175);
+}
+
+.seeding-ws__chip {
+    display: inline-flex;
+    max-width: 220px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    border-radius: 999px;
+    border: 1px solid rgb(209 213 219);
+    padding: 0.12rem 0.45rem;
+    color: rgb(37 99 235);
+    text-decoration: none;
+}
+
+.dark .seeding-ws__chip {
+    border-color: rgb(75 85 99);
+    color: rgb(147 197 253);
+}
+
+.seeding-ws__social {
+    display: grid;
+    gap: 0.35rem;
+}
+
+.seeding-ws__social-label {
+    font-size: 0.75rem;
+    font-weight: 650;
+}
+
+.seeding-ws__footer {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+}
+
+.seeding-ws__status {
+    font-size: 0.75rem;
+    color: rgb(107 114 128);
+}
+
+.seeding-ws__warn {
+    font-size: 0.75rem;
+    color: rgb(146 64 14);
+    background: rgb(255 251 235);
+    border: 1px solid rgb(253 230 138);
+    border-radius: 0.5rem;
+    padding: 0.4rem 0.55rem;
+}
+
+.dark .seeding-ws__warn {
+    background: rgb(120 53 15 / 0.25);
+    border-color: rgb(180 83 9 / 0.45);
+    color: rgb(253 230 138);
+}
+
+.seeding-ws__toast {
+    position: fixed;
+    right: 1rem;
+    bottom: 1rem;
+    z-index: 80;
+    background: rgb(17 24 39);
+    color: #fff;
+    border-radius: 0.6rem;
+    padding: 0.55rem 0.75rem;
+    font-size: 0.8125rem;
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    box-shadow: 0 10px 25px rgb(0 0 0 / 0.2);
+}
+
+.seeding-ws__toast button {
+    border: 0;
+    background: transparent;
+    color: rgb(147 197 253);
+    font-weight: 650;
+    cursor: pointer;
+    font-size: 0.8125rem;
+}
+
+@media (max-width: 900px) {
+    .seeding-ws {
+        grid-template-columns: 1fr;
+    }
+
+    .seeding-ws__sidebar {
+        max-height: 240px;
+        border-right: 0;
+        border-bottom: 1px solid rgb(229 231 235);
+    }
+}

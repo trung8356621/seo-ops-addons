@@ -95,30 +95,40 @@ final class AiProviderFailureClassifierTest extends TestCase
         $this->assertFalse($decision->recoverable);
     }
 
-    public function test_malformed_json_output_denies_fallback(): void
+    public function test_malformed_json_output_allows_fallback(): void
     {
         $decision = $this->classifier->classify(new PromptRunException(
             'Provider output invalid: malformed JSON / truncated response',
         ));
         $this->assertSame(AiFailureClass::ProviderInvalidOutput, $decision->category);
-        $this->assertFalse($decision->fallbackAllowed());
+        $this->assertTrue($decision->fallbackAllowed());
+        $this->assertSame(AiFailureRuntimeAction::Continue, $decision->runtimeAction);
+        $this->assertFalse($decision->affectsRuntimeHealth);
         $this->assertSame('parse', $decision->failureStage);
     }
 
-    public function test_schema_validation_denies_fallback(): void
+    public function test_schema_validation_allows_fallback(): void
     {
         $decision = $this->classifier->classify(new PromptRunException(
             'Planner structured output invalid after repair (schema validation failed)',
         ));
         $this->assertSame(AiFailureClass::ProviderInvalidOutput, $decision->category);
-        $this->assertFalse($decision->fallbackAllowed());
+        $this->assertTrue($decision->fallbackAllowed());
+        $this->assertFalse($decision->affectsRuntimeHealth);
     }
 
-    public function test_empty_output_denies_fallback(): void
+    public function test_empty_output_allows_fallback(): void
     {
-        $decision = $this->classifier->classify(new PromptRunException('DeepSeek không trả về nội dung.'));
+        $decision = $this->classifier->classify(new PromptRunException('Provider returned empty content.'));
         $this->assertSame(AiFailureClass::ProviderEmptyOutput, $decision->category);
-        $this->assertFalse($decision->fallbackAllowed());
+        $this->assertSame(AiFailureRuntimeAction::Continue, $decision->runtimeAction);
+        $this->assertTrue($decision->fallbackAllowed());
+        $this->assertFalse($decision->affectsRuntimeHealth);
+
+        $vi = $this->classifier->classify(new PromptRunException('DeepSeek không trả về nội dung.'));
+        $this->assertSame(AiFailureClass::ProviderEmptyOutput, $vi->category);
+        $this->assertTrue($vi->fallbackAllowed());
+        $this->assertFalse($vi->affectsRuntimeHealth);
     }
 
     public function test_output_quality_denies_fallback(): void
@@ -134,11 +144,13 @@ final class AiProviderFailureClassifierTest extends TestCase
         $this->assertFalse($decision->affectsRuntimeHealth);
     }
 
-    public function test_refusal_denies_fallback(): void
+    public function test_refusal_allows_fallback(): void
     {
         $decision = $this->classifier->classify(new PromptRunException('Model refused due to safety content policy'));
         $this->assertSame(AiFailureClass::ProviderRefusal, $decision->category);
-        $this->assertFalse($decision->fallbackAllowed());
+        $this->assertSame(AiFailureRuntimeAction::Continue, $decision->runtimeAction);
+        $this->assertTrue($decision->fallbackAllowed());
+        $this->assertFalse($decision->affectsRuntimeHealth);
     }
 
     public function test_context_length_exceeded_denies_fallback(): void

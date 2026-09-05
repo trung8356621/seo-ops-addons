@@ -40,13 +40,9 @@ final class ContentProjectBatchFailureSignature
         $classification = self::normalizeToken(
             (string) ($result->errorCode ?? $payload['failure_class'] ?? $payload['classification'] ?? ''),
         );
-        if ($classification === '' || $classification === 'external_workflow_failed') {
+        if ($classification === '' || self::isExternalWorkflowWrapperCode($classification)) {
             $fromMessage = self::classifyFromMessage($result->message);
-            if ($fromMessage !== 'error') {
-                $classification = $fromMessage;
-            } elseif ($classification === '') {
-                $classification = 'error';
-            }
+            $classification = $fromMessage !== 'error' ? $fromMessage : 'error';
         }
 
         // Content failures keep node; provider only when a real attempt/provider is known.
@@ -89,6 +85,19 @@ final class ContentProjectBatchFailureSignature
             || str_contains($lower, 'all candidates unavailable')
             || str_contains($lower, 'connection unavailable')
             || str_contains($lower, 'no ai route was attempted');
+    }
+
+    /**
+     * Wrapper codes from ContentProjectErrorCode / legacy aliases — not a real failure class.
+     */
+    public static function isExternalWorkflowWrapperCode(string $code): bool
+    {
+        $normalized = strtolower(trim($code));
+        $normalized = str_replace(['-', ' '], '_', $normalized);
+
+        return $normalized === 'external_workflow_failed'
+            || $normalized === 'content_project_external_workflow_failed'
+            || str_ends_with($normalized, '_external_workflow_failed');
     }
 
     private static function nodeFromMessage(string $message): string

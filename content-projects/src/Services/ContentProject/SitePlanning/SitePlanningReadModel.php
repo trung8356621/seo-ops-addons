@@ -156,15 +156,33 @@ final class SitePlanningReadModel
             return 0;
         }
 
-        $run = SeoContentProjectPlannerRun::query()
+        // Column is source_type; status lives in result_summary JSON (see ContentProjectPlannerRunService).
+        $runs = SeoContentProjectPlannerRun::query()
             ->where('site_id', $siteId)
-            ->where('source', SeoContentProjectPlannerRun::SOURCE_AI_NEW_CONTENT)
-            ->whereIn('status', [
+            ->where('source_type', SeoContentProjectPlannerRun::SOURCE_AI_NEW_CONTENT)
+            ->orderByDesc('id')
+            ->limit(20)
+            ->get(['id', 'result_summary', 'requested_quantity']);
+
+        $run = null;
+        foreach ($runs as $candidate) {
+            if (! $candidate instanceof SeoContentProjectPlannerRun) {
+                continue;
+            }
+            $summary = is_array($candidate->result_summary) ? $candidate->result_summary : [];
+            $kind = (string) ($summary['kind'] ?? SeoContentProjectPlannerRun::KIND_EXECUTED);
+            if ($kind !== SeoContentProjectPlannerRun::KIND_EXECUTED) {
+                continue;
+            }
+            $status = (string) ($summary['status'] ?? '');
+            if (in_array($status, [
                 SeoContentProjectPlannerRun::STATUS_COMPLETED,
                 SeoContentProjectPlannerRun::STATUS_PARTIAL,
-            ])
-            ->orderByDesc('id')
-            ->first(['id', 'result_summary', 'requested_quantity']);
+            ], true)) {
+                $run = $candidate;
+                break;
+            }
+        }
 
         if (! $run instanceof SeoContentProjectPlannerRun) {
             return 0;

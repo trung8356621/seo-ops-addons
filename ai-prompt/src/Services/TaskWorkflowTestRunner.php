@@ -998,7 +998,7 @@ final class TaskWorkflowTestRunner
                     ];
 
                     if ($this->isOutlineRoleNode($node, $hookBinding->hookKey)) {
-                        $checkpoint = $this->resolveSplitOutlineCheckpoint($state);
+                        $checkpoint = $this->resolveSplitOutlineCheckpoint($state, $context);
                         if ($checkpoint['body'] !== '') {
                             $contextExtras['reused_outline_markdown'] = $checkpoint['body'];
                             if ($checkpoint['prompt_result_id'] !== null) {
@@ -1026,6 +1026,7 @@ final class TaskWorkflowTestRunner
                                     isset($splitResult['outline_result']['prompt_result_id'])
                                         ? (int) $splitResult['outline_result']['prompt_result_id']
                                         : null,
+                                    $context,
                                 );
                             }
 
@@ -2297,13 +2298,14 @@ final class TaskWorkflowTestRunner
     /**
      * @return array{body: string, prompt_result_id: ?int}
      */
-    private function resolveSplitOutlineCheckpoint(WorkflowExecutionState $state): array
+    private function resolveSplitOutlineCheckpoint(WorkflowExecutionState $state, ?TaskTestContext $context = null): array
     {
         $fromMeta = trim((string) ($state->meta['split_structure_outline'] ?? ''));
         $resultId = isset($state->meta['split_structure_outline_result_id'])
             ? (int) $state->meta['split_structure_outline_result_id']
             : null;
         if ($fromMeta !== '') {
+            // In-memory checkpoint for the same execution — always reusable.
             return [
                 'body' => $fromMeta,
                 'prompt_result_id' => $resultId > 0 ? $resultId : null,
@@ -2324,23 +2326,46 @@ final class TaskWorkflowTestRunner
         }
 
         $decoded = json_decode($raw, true);
-        if (is_array($decoded)) {
-            $body = trim((string) ($decoded['body'] ?? ''));
-            $id = isset($decoded['prompt_result_id']) ? (int) $decoded['prompt_result_id'] : 0;
-
-            return [
-                'body' => $body,
-                'prompt_result_id' => $id > 0 ? $id : null,
-            ];
+        if (! is_array($decoded)) {
+            // Legacy plain-text durable checkpoint — never reuse across executions.
+            return ['body' => '', 'prompt_result_id' => null];
         }
 
-        return ['body' => $raw, 'prompt_result_id' => null];
+        $body = trim((string) ($decoded['body'] ?? ''));
+        if ($body === '') {
+            return ['body' => '', 'prompt_result_id' => null];
+        }
+
+        $checkpointRunId = (int) ($decoded['run_id'] ?? 0);
+        $checkpointRunItemId = (int) ($decoded['run_item_id'] ?? 0);
+        $checkpointFingerprint = trim((string) ($decoded['input_fingerprint'] ?? ''));
+
+        // Durable Article meta requires full identity; legacy payloads without it must not reuse.
+        if ($checkpointRunId <= 0 || $checkpointRunItemId <= 0 || $checkpointFingerprint === '') {
+            return ['body' => '', 'prompt_result_id' => null];
+        }
+
+        $identity = $this->splitOutlineCheckpointIdentity($context);
+        if ($identity['run_id'] !== $checkpointRunId
+            || $identity['run_item_id'] !== $checkpointRunItemId
+            || $identity['input_fingerprint'] !== $checkpointFingerprint
+        ) {
+            return ['body' => '', 'prompt_result_id' => null];
+        }
+
+        $id = isset($decoded['prompt_result_id']) ? (int) $decoded['prompt_result_id'] : 0;
+
+        return [
+            'body' => $body,
+            'prompt_result_id' => $id > 0 ? $id : null,
+        ];
     }
 
     private function persistSplitOutlineCheckpoint(
         WorkflowExecutionState $state,
         string $outlineBody,
         ?int $promptResultId = null,
+        ?TaskTestContext $context = null,
     ): void {
         $body = trim($outlineBody);
         if ($body === '') {
@@ -2357,10 +2382,14 @@ final class TaskWorkflowTestRunner
             return;
         }
 
+        $identity = $this->splitOutlineCheckpointIdentity($context);
         $payload = json_encode([
             'body' => $body,
             'prompt_result_id' => $promptResultId,
             'saved_at' => now()->toIso8601String(),
+            'run_id' => $identity['run_id'] > 0 ? $identity['run_id'] : null,
+            'run_item_id' => $identity['run_item_id'] > 0 ? $identity['run_item_id'] : null,
+            'input_fingerprint' => $identity['input_fingerprint'] !== '' ? $identity['input_fingerprint'] : null,
         ], JSON_UNESCAPED_UNICODE);
 
         $article->articleMetas()->updateOrCreate(
@@ -2368,6 +2397,45 @@ final class TaskWorkflowTestRunner
             ['meta_value' => $payload !== false ? $payload : $body],
         );
         $article->unsetRelation('articleMetas');
+    }
+
+    /**
+     * @return array{run_id: int, run_item_id: int, input_fingerprint: string}
+     */
+    private function splitOutlineCheckpointIdentity(?TaskTestContext $context): array
+    {
+        $variables = is_array($context?->variables) ? $context->variables : [];
+        $runId = (int) ($variables['run_id'] ?? $variables['project_run_id'] ?? 0);
+        $runItemId = (int) ($variables['run_item_id'] ?? 0);
+        $fingerprint = trim((string) ($variables['input_fingerprint'] ?? ''));
+        if ($fingerprint === '') {
+            $fingerprint = $this->buildSplitOutlineInputFingerprint($variables);
+        }
+
+        return [
+            'run_id' => $runId,
+            'run_item_id' => $runItemId,
+            'input_fingerprint' => $fingerprint,
+        ];
+    }
+
+    /**
+     * Deterministic subject fingerprint — no secrets.
+     *
+     * @param  array<string, mixed>  $variables
+     */
+    private function buildSplitOutlineInputFingerprint(array $variables): string
+    {
+        $canonical = implode("\n", [
+            'focus_keyword='.trim((string) ($variables['focus_keyword'] ?? '')),
+            'post_title='.trim((string) ($variables['post_title'] ?? '')),
+            'input='.trim((string) ($variables['input'] ?? '')),
+            'article_id='.(string) (int) ($variables['article_id'] ?? 0),
+            'site_id='.(string) (int) ($variables['site_id'] ?? 0),
+            'project_id='.(string) (int) ($variables['project_id'] ?? 0),
+        ]);
+
+        return hash('sha256', $canonical);
     }
 
     private function clearSplitOutlineCheckpoint(WorkflowExecutionState $state): void

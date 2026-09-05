@@ -303,36 +303,6 @@ final class ArchivePreviewArticlePresenter
             ->keyBy(static fn (SeoArticle $article): int => (int) $article->getKey());
     }
 
-    /**
-     * @param  list<mixed>  $values
-     */
-    private function firstPublicHttpUrl(array $values): string
-    {
-        foreach ($values as $value) {
-            if (! is_string($value)) {
-                continue;
-            }
-
-            $url = trim($value);
-            if ($this->isPublicHttpUrl($url)) {
-                return $url;
-            }
-        }
-
-        return '';
-    }
-
-    private function isPublicHttpUrl(string $url): bool
-    {
-        if ($url === '' || filter_var($url, FILTER_VALIDATE_URL) === false) {
-            return false;
-        }
-
-        $scheme = strtolower((string) parse_url($url, PHP_URL_SCHEME));
-
-        return in_array($scheme, ['http', 'https'], true);
-    }
-
     public static function formatIndexDate(mixed $value): ?string
     {
         if ($value === null || $value === '') {

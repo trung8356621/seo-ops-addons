@@ -152,6 +152,70 @@ final class SeedingTopicServiceTest extends TestCase
         self::assertSame(1, $topic->linkResources()->count());
     }
 
+    public function test_create_allows_empty_full_text_for_workspace_draft(): void
+    {
+        $topic = $this->service->create([
+            'site_id' => 1,
+            'full_text' => '',
+        ]);
+
+        self::assertSame('', $topic->full_text);
+        self::assertSame(SeedingTopicStatus::Draft, $topic->status);
+    }
+
+    public function test_partial_patch_content_resyncs_links(): void
+    {
+        $topic = $this->service->create([
+            'site_id' => 1,
+            'full_text' => 'https://example.com/old',
+        ]);
+
+        $updated = $this->service->update($topic, [
+            'full_text' => 'https://example.com/new',
+            'source_html' => null,
+        ]);
+
+        self::assertSame(['https://example.com/new'], $updated->linkResources()->pluck('normalized_url')->all());
+    }
+
+    public function test_partial_patch_social_url_only_does_not_drop_links(): void
+    {
+        $topic = $this->service->create([
+            'site_id' => 1,
+            'full_text' => 'Keep https://example.com/keep',
+        ]);
+
+        $updated = $this->service->update($topic, [
+            'social_url' => 'https://www.threads.net/@u/post/9',
+        ]);
+
+        self::assertSame(SeedingTopicStatus::Active, $updated->status);
+        self::assertSame(1, $updated->linkResources()->count());
+        self::assertSame('https://example.com/keep', $updated->linkResources()->first()?->normalized_url);
+    }
+
+    public function test_archive_and_restore_do_not_change_status_or_delete_link_resources(): void
+    {
+        $topic = $this->service->create([
+            'site_id' => 1,
+            'full_text' => 'Archive me https://example.com/a',
+            'social_url' => 'https://facebook.com/posts/1',
+        ]);
+        $linkId = (int) $topic->linkResources()->first()?->id;
+
+        $archived = $this->service->archive($topic);
+        self::assertTrue($archived->isArchived());
+        self::assertSame(SeedingTopicStatus::Active, $archived->status);
+        self::assertSame(0, $this->service->listForSite(1, false)->count());
+        self::assertSame(1, $this->service->listForSite(1, true)->count());
+        self::assertTrue(LinkResource::query()->whereKey($linkId)->exists());
+
+        $restored = $this->service->restore($archived);
+        self::assertFalse($restored->isArchived());
+        self::assertSame(SeedingTopicStatus::Active, $restored->status);
+        self::assertSame(1, $this->service->listForSite(1, false)->count());
+    }
+
     private function ensureTables(): void
     {
         $schema = Schema::connection('omi_seo_ai');
@@ -183,7 +247,12 @@ final class SeedingTopicServiceTest extends TestCase
                 $table->string('social_platform', 32)->nullable();
                 $table->string('status', 16)->default('draft');
                 $table->timestamp('published_at')->nullable();
+                $table->timestamp('archived_at')->nullable();
                 $table->timestamps();
+            });
+        } elseif (! $schema->hasColumn('seeding_topics', 'archived_at')) {
+            $schema->table('seeding_topics', function (Blueprint $table): void {
+                $table->timestamp('archived_at')->nullable();
             });
         }
 

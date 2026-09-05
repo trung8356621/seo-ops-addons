@@ -32,6 +32,7 @@ class SeedingTopic extends Model
         'social_platform',
         'status',
         'published_at',
+        'archived_at',
     ];
 
     protected $casts = [
@@ -40,6 +41,7 @@ class SeedingTopic extends Model
         'status' => SeedingTopicStatus::class,
         'social_platform' => SeedingSocialPlatform::class,
         'published_at' => 'datetime',
+        'archived_at' => 'datetime',
     ];
 
     /** @return BelongsTo<Site, $this> */
@@ -65,9 +67,24 @@ class SeedingTopic extends Model
         return $query->where('site_id', $siteId);
     }
 
+    /** @param  Builder<static>  $query */
+    public function scopeNotArchived(Builder $query): Builder
+    {
+        return $query->whereNull('archived_at');
+    }
+
+    /** @param  Builder<static>  $query */
+    public function scopeArchived(Builder $query): Builder
+    {
+        return $query->whereNotNull('archived_at');
+    }
+
     public function preview(int $max = 80): string
     {
         $text = trim(preg_replace('/\s+/u', ' ', $this->full_text) ?? $this->full_text);
+        if ($text === '') {
+            return 'Chủ đề mới';
+        }
         if (mb_strlen($text) <= $max) {
             return $text;
         }
@@ -83,5 +100,10 @@ class SeedingTopic extends Model
     public function isActive(): bool
     {
         return $this->status === SeedingTopicStatus::Active;
+    }
+
+    public function isArchived(): bool
+    {
+        return $this->archived_at !== null;
     }
 }

@@ -10,7 +10,8 @@
     "providers": [
         "App\\Providers\\Filament\\SeoToolsPanelProvider",
         "Omnichannel\\Addons\\Seo\\SeoServiceProvider",
-        "Omnichannel\\Addons\\Content\\ContentServiceProvider"
+        "Omnichannel\\Addons\\Content\\ContentServiceProvider",
+        "Omnichannel\\Addons\\Seeding\\SeedingServiceProvider"
     ],
     "register_early": true,
     "legacy": true,
@@ -31,6 +32,8 @@
         "site-sync.v2",
         "agent.workspace",
         "social.publish",
-        "commerce.product"
+        "commerce.product",
+        "seeding.topic",
+        "link.intelligence"
     ]
 }

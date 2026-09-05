@@ -136,9 +136,32 @@ final class OpenAiCompatibleProtocolAdapter
         }
 
         $json = $response->json();
-        $text = (string) data_get($json, 'choices.0.message.content', '');
+        if (! is_array($json)) {
+            throw new PromptRunException(
+                "Provider returned empty content.\nfinish_reason=\ncontent_type=null\nresponse_shape=non_array",
+            );
+        }
+
+        $text = $this->extractTextResponse($json);
         if (trim($text) === '') {
-            throw new PromptRunException('Provider returned empty content.');
+            $content = data_get($json, 'choices.0.message.content');
+            $contentType = match (true) {
+                is_string($content) => 'string',
+                is_array($content) => 'array',
+                $content === null => 'null',
+                default => gettype($content),
+            };
+            $finishReason = trim((string) data_get($json, 'choices.0.finish_reason', ''));
+            $shape = data_get($json, 'choices.0.message') !== null
+                ? 'choices.message'
+                : (data_get($json, 'choices.0.text') !== null ? 'choices.text' : 'unknown');
+
+            throw new PromptRunException(
+                "Provider returned empty content.\n"
+                .'finish_reason='.$finishReason."\n"
+                .'content_type='.$contentType."\n"
+                .'response_shape='.$shape,
+            );
         }
         $usage = data_get($json, 'usage');
         $usageBag = is_array($usage) ? $usage : [];
@@ -149,6 +172,63 @@ final class OpenAiCompatibleProtocolAdapter
         }
 
         return [$text, $usageBag !== [] ? $usageBag : null];
+    }
+
+    /**
+     * Extract final assistant text from OpenAI-compatible JSON.
+     * Does not treat reasoning/thinking blocks as the article body.
+     *
+     * @param  array<string, mixed>  $json
+     */
+    public function extractTextResponse(array $json): string
+    {
+        $messageContent = data_get($json, 'choices.0.message.content');
+        if (is_string($messageContent) && trim($messageContent) !== '') {
+            return trim($messageContent);
+        }
+
+        if (is_array($messageContent)) {
+            $parts = [];
+            foreach ($messageContent as $block) {
+                if (! is_array($block)) {
+                    if (is_string($block) && trim($block) !== '') {
+                        $parts[] = trim($block);
+                    }
+                    continue;
+                }
+
+                $type = strtolower(trim((string) ($block['type'] ?? '')));
+                if (in_array($type, ['reasoning', 'thinking', 'thought'], true)) {
+                    continue;
+                }
+
+                foreach (['text', 'content', 'value'] as $key) {
+                    $chunk = $block[$key] ?? null;
+                    if (is_string($chunk) && trim($chunk) !== '') {
+                        $parts[] = trim($chunk);
+                        break;
+                    }
+                }
+            }
+
+            $joined = trim(implode("\n", $parts));
+            if ($joined !== '') {
+                return $joined;
+            }
+        }
+
+        $legacyText = data_get($json, 'choices.0.text');
+        if (is_string($legacyText) && trim($legacyText) !== '') {
+            return trim($legacyText);
+        }
+
+        // Some OpenAI-compatible templates expose a top-level response string.
+        $topLevel = $json['output_text'] ?? $json['text'] ?? null;
+        if (is_string($topLevel) && trim($topLevel) !== '') {
+            return trim($topLevel);
+        }
+
+        return '';
     }
 
     /**

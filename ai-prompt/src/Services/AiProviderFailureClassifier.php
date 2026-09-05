@@ -18,12 +18,18 @@ use Throwable;
 /**
  * Central AI failure → fallback decision.
  *
- * Default: fallback_allowed = false (Stop).
- * Allow Continue (cross-route fallback) ONLY for:
- *   A) BILLING / exhausted balance
- *   B) PROVIDER API REQUEST failures (transport / provider HTTP)
+ * STOP (no further candidates):
+ *   - system/config/invariant / TypeError / LogicException
+ *   - invalid workflow/hook definition
+ *   - tenant/permission/database/internal serialization
+ *   - deterministic application request bugs (400/422 unsupported parameter)
+ *   - application output-quality / business validation (not provider transport)
  *
- * HTTP 200 + output/parse/schema/business/quality → Stop. Never AI_ROUTES_EXHAUSTED for those.
+ * CONTINUE (try next candidate; do not treat as connection health failure):
+ *   - provider empty output / refusal / invalid|malformed|truncated provider output
+ *   - billing / credential / rate-limit / transient provider HTTP failures
+ *
+ * Only when all eligible routes fail → AiRoutesExhaustedException.
  */
 final class AiProviderFailureClassifier
 {
@@ -244,9 +250,9 @@ final class AiProviderFailureClassifier
             );
         }
 
-        // --- POST-RESPONSE / APPLICATION (deny fallback) ---
+        // --- POST-RESPONSE PROVIDER OUTPUT (allow fallback; do not lock connection health) ---
         if ($this->matchesProviderRefusal($lower)) {
-            return $this->deny(
+            return $this->allow(
                 category: AiFailureClass::ProviderRefusal,
                 scope: AiFailureScope::Model,
                 safeMessage: 'Provider refused the request.',
@@ -260,7 +266,7 @@ final class AiProviderFailureClassifier
         }
 
         if ($this->matchesEmptyOutput($lower)) {
-            return $this->deny(
+            return $this->allow(
                 category: AiFailureClass::ProviderEmptyOutput,
                 scope: AiFailureScope::Model,
                 safeMessage: 'Provider returned empty output.',
@@ -274,7 +280,7 @@ final class AiProviderFailureClassifier
         }
 
         if ($this->matchesInvalidOutput($lower)) {
-            return $this->deny(
+            return $this->allow(
                 category: AiFailureClass::ProviderInvalidOutput,
                 scope: AiFailureScope::Model,
                 safeMessage: 'Provider output invalid for expected contract.',
@@ -596,6 +602,7 @@ final class AiProviderFailureClassifier
     {
         return str_contains($lower, 'empty content')
             || str_contains($lower, 'returned empty')
+            || str_contains($lower, 'provider returned empty')
             || str_contains($lower, 'không trả về nội dung');
     }
 
@@ -604,11 +611,12 @@ final class AiProviderFailureClassifier
         return str_contains($lower, 'output invalid')
             || str_contains($lower, 'malformed')
             || str_contains($lower, 'truncated response')
+            || str_contains($lower, 'truncated output')
             || str_contains($lower, 'json decode')
             || str_contains($lower, 'schema validation')
             || str_contains($lower, 'structured output')
             || str_contains($lower, 'planner structured output')
-            || str_contains($lower, 'validation failed');
+            || (str_contains($lower, 'validation failed') && ! str_contains($lower, 'business validation'));
     }
 
     private function sanitizeMessage(string $message): string

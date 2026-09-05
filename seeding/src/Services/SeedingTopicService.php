@@ -9,6 +9,7 @@ use Omnichannel\Addons\Seeding\LinkIntelligence\LinkResourceService;
 use Omnichannel\Addons\Seeding\LinkIntelligence\UrlNormalizer;
 use Omnichannel\Addons\Seeding\Models\SeedingTopic;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -21,26 +22,61 @@ final class SeedingTopicService
     ) {}
 
     /**
+     * @return Collection<int, SeedingTopic>
+     */
+    public function listForSite(int $siteId, bool $archived = false): Collection
+    {
+        if ($siteId <= 0) {
+            return collect();
+        }
+
+        $query = SeedingTopic::query()
+            ->forSite($siteId)
+            ->with('linkResources')
+            ->orderByDesc('id');
+
+        if ($archived) {
+            $query->archived();
+        } else {
+            $query->notArchived();
+        }
+
+        return $query->get();
+    }
+
+    public function findForSite(int $siteId, int $topicId): ?SeedingTopic
+    {
+        if ($siteId <= 0 || $topicId <= 0) {
+            return null;
+        }
+
+        return SeedingTopic::query()
+            ->forSite($siteId)
+            ->with('linkResources')
+            ->whereKey($topicId)
+            ->first();
+    }
+
+    /**
      * @param  array{
      *     site_id: int,
      *     created_by?: int|null,
-     *     full_text: string,
+     *     full_text?: string,
      *     source_html?: string|null,
      *     social_url?: string|null,
      * }  $data
      */
     public function create(array $data): SeedingTopic
     {
-        $fullText = trim((string) ($data['full_text'] ?? ''));
-        if ($fullText === '') {
-            throw new InvalidArgumentException('full_text is required');
-        }
-
         $siteId = (int) ($data['site_id'] ?? 0);
         if ($siteId <= 0) {
             throw new InvalidArgumentException('site_id is required');
         }
 
+        // Empty full_text allowed for workspace local-first drafts.
+        $fullText = array_key_exists('full_text', $data)
+            ? (string) $data['full_text']
+            : '';
         $socialUrl = $this->normalizeOptionalSocialUrl($data['social_url'] ?? null);
         $sourceHtml = $this->nullableString($data['source_html'] ?? null);
 
@@ -62,25 +98,28 @@ final class SeedingTopicService
     }
 
     /**
+     * Partial update — only provided keys are applied.
+     *
      * @param  array{
      *     full_text?: string,
      *     source_html?: string|null,
      *     social_url?: string|null,
+     *     archived?: bool,
      * }  $data
      */
     public function update(SeedingTopic $topic, array $data): SeedingTopic
     {
         return DB::connection('omi_seo_ai')->transaction(function () use ($topic, $data): SeedingTopic {
+            $contentTouched = false;
+
             if (array_key_exists('full_text', $data)) {
-                $fullText = trim((string) $data['full_text']);
-                if ($fullText === '') {
-                    throw new InvalidArgumentException('full_text is required');
-                }
-                $topic->full_text = $fullText;
+                $topic->full_text = (string) $data['full_text'];
+                $contentTouched = true;
             }
 
             if (array_key_exists('source_html', $data)) {
                 $topic->source_html = $this->nullableString($data['source_html']);
+                $contentTouched = true;
             }
 
             if (array_key_exists('social_url', $data)) {
@@ -88,8 +127,19 @@ final class SeedingTopicService
                 $this->applySocialUrl($topic, $socialUrl);
             }
 
+            if (array_key_exists('archived', $data)) {
+                if ((bool) $data['archived']) {
+                    $topic->archived_at ??= Carbon::now();
+                } else {
+                    $topic->archived_at = null;
+                }
+            }
+
             $topic->save();
-            $this->linkResources->syncTopicLinks($topic, $topic->full_text, $topic->source_html);
+
+            if ($contentTouched) {
+                $this->linkResources->syncTopicLinks($topic, $topic->full_text, $topic->source_html);
+            }
 
             return $topic->fresh(['linkResources']) ?? $topic;
         });
@@ -100,6 +150,16 @@ final class SeedingTopicService
         return $this->update($topic, [
             'social_url' => $socialUrl,
         ]);
+    }
+
+    public function archive(SeedingTopic $topic): SeedingTopic
+    {
+        return $this->update($topic, ['archived' => true]);
+    }
+
+    public function restore(SeedingTopic $topic): SeedingTopic
+    {
+        return $this->update($topic, ['archived' => false]);
     }
 
     public function deleteDraft(SeedingTopic $topic): void
@@ -120,6 +180,15 @@ final class SeedingTopicService
     public function copyPayload(SeedingTopic $topic): string
     {
         return (string) $topic->full_text;
+    }
+
+    public function archivedCountForSite(int $siteId): int
+    {
+        if ($siteId <= 0) {
+            return 0;
+        }
+
+        return (int) SeedingTopic::query()->forSite($siteId)->archived()->count();
     }
 
     private function applySocialUrl(SeedingTopic $topic, ?string $socialUrl): void
