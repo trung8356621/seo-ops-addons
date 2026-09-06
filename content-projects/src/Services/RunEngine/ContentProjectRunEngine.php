@@ -19,6 +19,7 @@ use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectBatchFail
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectRunEngineFeature;
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectRunHealthReport;
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectRunStatusMapper;
+use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectTransientAiRetryPolicy;
 use Omnichannel\Addons\ContentProjects\Support\SeoProjectRunItemClassifier;
 use App\Support\RuntimeLogger;
 use Illuminate\Support\Carbon;
@@ -440,6 +441,7 @@ final class ContentProjectRunEngine
             ContentProjectArticleSemanticStatus::Completed,
             ContentProjectArticleSemanticStatus::Skipped => $this->events->articleCompleted($run, $result),
             ContentProjectArticleSemanticStatus::Cancelled => $this->events->articleCancelled($run, $result),
+            ContentProjectArticleSemanticStatus::Pending => null,
             default => $this->events->articleFailed($run, $result),
         };
 
@@ -453,6 +455,13 @@ final class ContentProjectRunEngine
             'may_dispatch_next' => $result->mayDispatchNext(),
             'duration_ms' => (int) round((microtime(true) - $started) * 1000),
         ]);
+
+        if ($this->scheduleTransientAiRetryIfNeeded($run, $result)) {
+            $run = $this->runItemService->syncMirrorAndCounters($run, false);
+            $this->events->runProgressUpdated($run);
+
+            return;
+        }
 
         $run = $this->runItemService->syncMirrorAndCounters($run, false);
         $this->events->runProgressUpdated($run);
@@ -480,6 +489,147 @@ final class ContentProjectRunEngine
     }
 
     /**
+     * Deferred transient AI exhaustion: reset item pending, bump attempt, delayed re-dispatch.
+     * Does not trip circuit breaker and does not advance to the next article.
+     */
+    private function scheduleTransientAiRetryIfNeeded(SeoProjectRun $run, ArticleExecutionResult $result): bool
+    {
+        if (! ContentProjectTransientAiRetryPolicy::isTransientResult($result)) {
+            return false;
+        }
+        if ($this->cancellationGuard->isStopRequested($run) || $this->cancellationGuard->isTerminal($run)) {
+            return false;
+        }
+        if ($this->isCircuitBreakerStopped($run)) {
+            return false;
+        }
+
+        $runItemId = (int) ($result->runItemId ?? 0);
+        if ($runItemId <= 0) {
+            return false;
+        }
+
+        $item = SeoProjectRunItem::query()->find($runItemId);
+        if (! $item instanceof SeoProjectRunItem) {
+            return false;
+        }
+
+        $currentAttempt = max(1, (int) ($result->payload['current_attempt'] ?? $item->attempt ?? 1));
+        $nextAttempt = max(1, (int) ($result->payload['next_attempt'] ?? ($currentAttempt + 1)));
+        if ($currentAttempt >= ContentProjectTransientAiRetryPolicy::MAX_TRANSIENT_ARTICLE_ATTEMPTS) {
+            return false;
+        }
+
+        $delay = ContentProjectTransientAiRetryPolicy::delaySeconds(
+            $nextAttempt,
+            isset($result->payload['retry_after_seconds']) ? (int) $result->payload['retry_after_seconds'] : null,
+        );
+
+        $dispatch = DB::connection('omi_seo_ai')->transaction(function () use ($run, $item, $nextAttempt, $delay, $result): ?array {
+            /** @var SeoProjectRun|null $locked */
+            $locked = SeoProjectRun::query()
+                ->whereKey((int) $run->id)
+                ->lockForUpdate()
+                ->first();
+            if (! $locked instanceof SeoProjectRun) {
+                return null;
+            }
+            if ($this->cancellationGuard->isStopRequested($locked) || $this->cancellationGuard->isTerminal($locked)) {
+                return null;
+            }
+
+            /** @var SeoProjectRunItem|null $lockedItem */
+            $lockedItem = SeoProjectRunItem::query()
+                ->whereKey((int) $item->id)
+                ->lockForUpdate()
+                ->first();
+            if (! $lockedItem instanceof SeoProjectRunItem) {
+                return null;
+            }
+
+            $lockedItem->update([
+                'status' => SeoProjectRunItemStatus::Pending->value,
+                'attempt' => $nextAttempt,
+                'started_at' => null,
+                'finished_at' => null,
+                'message' => ContentProjectTransientAiRetryPolicy::deferMessage($delay),
+                'error_message' => null,
+            ]);
+
+            $dispatchToken = hash('sha256', implode('|', [
+                (int) $locked->id,
+                (int) $lockedItem->id,
+                $nextAttempt,
+                (string) microtime(true),
+            ]));
+
+            $settings = is_array($locked->settings) ? $locked->settings : [];
+            $engine = is_array($settings[self::SETTINGS_ENGINE_KEY] ?? null)
+                ? $settings[self::SETTINGS_ENGINE_KEY]
+                : [];
+            unset($engine['active_dispatch']);
+            $engine[ContentProjectTransientAiRetryPolicy::SETTINGS_KEY] = [
+                'run_item_id' => (int) $lockedItem->id,
+                'task_id' => (int) $lockedItem->task_id,
+                'attempt' => $nextAttempt,
+                'delay_seconds' => $delay,
+                'scheduled_at' => now()->toIso8601String(),
+                'exhaustion_kind' => $result->payload['exhaustion_kind'] ?? null,
+            ];
+            $engine['active_dispatch'] = [
+                'task_id' => (int) $lockedItem->task_id,
+                'run_item_id' => (int) $lockedItem->id,
+                'article_id' => $lockedItem->article_id !== null ? (int) $lockedItem->article_id : null,
+                'attempt' => $nextAttempt,
+                'token' => $dispatchToken,
+                'dispatched_at' => now()->toIso8601String(),
+                'last_heartbeat_at' => now()->toIso8601String(),
+                'claimed_at' => null,
+                'current_step' => 'ai_retry_delayed',
+            ];
+            $settings[self::SETTINGS_ENGINE_KEY] = $engine;
+            $locked->update(['settings' => $settings]);
+
+            return [
+                'run_id' => (int) $locked->id,
+                'task_id' => (int) $lockedItem->task_id,
+                'run_item_id' => (int) $lockedItem->id,
+                'attempt' => $nextAttempt,
+                'token' => $dispatchToken,
+                'delay' => $delay,
+            ];
+        });
+
+        if ($dispatch === null) {
+            return false;
+        }
+
+        $pending = RunContentProjectArticleJob::dispatch(
+            runId: $dispatch['run_id'],
+            taskId: $dispatch['task_id'],
+            runItemId: $dispatch['run_item_id'],
+            attempt: $dispatch['attempt'],
+            dispatchToken: $dispatch['token'],
+        )->onQueue(ContentProjectRunEngineFeature::queueName())
+            ->delay(now()->addSeconds((int) $dispatch['delay']));
+
+        if (! app()->runningInConsole()) {
+            $pending->afterResponse();
+        }
+
+        RuntimeLogger::info('content_project.ai_retry_scheduled', [
+            'run_id' => $dispatch['run_id'],
+            'task_id' => $dispatch['task_id'],
+            'run_item_id' => $dispatch['run_item_id'],
+            'current_attempt' => $currentAttempt,
+            'next_attempt' => $dispatch['attempt'],
+            'delay_seconds' => $dispatch['delay'],
+        ]);
+
+        return true;
+    }
+
+    /**
      * @return bool true when batch was stopped by circuit breaker
      */
     private function recordConsecutiveFailureAndMaybeTrip(SeoProjectRun $run, ArticleExecutionResult $result): bool
@@ -491,6 +641,11 @@ final class ContentProjectRunEngine
         }
 
         if (! $result->isFailed()) {
+            return false;
+        }
+
+        // Deferred / pending transient AI must never count toward the breaker.
+        if (ContentProjectTransientAiRetryPolicy::isTransientResult($result)) {
             return false;
         }
 

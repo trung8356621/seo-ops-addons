@@ -8,10 +8,12 @@ use Omnichannel\Addons\AiPrompt\Support\AiCostPolicy;
 use Omnichannel\Addons\AiPrompt\Support\AiCostPolicyScope;
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectArticleSemanticStatus;
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectErrorCode;
+use Omnichannel\Addons\ContentProjects\Enums\SeoProjectRunItemStatus;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRunItem;
 use Omnichannel\Addons\Content\Support\RunEngine\ArticleExecutionResult;
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectRunStatusMapper;
+use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectTransientAiRetryPolicy;
 use App\Support\RuntimeLogger;
 
 /**
@@ -97,6 +99,36 @@ final class ContentProjectArticleRunner
                 'class' => $exception::class,
             ]);
 
+            // #region agent log
+            try {
+                $ctx = $exception instanceof \Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException
+                    ? $exception->context
+                    : [];
+                file_put_contents(
+                    'D:\\work\\omnichannel-addons\\debug-eb722e.log',
+                    json_encode([
+                        'sessionId' => 'eb722e',
+                        'hypothesisId' => 'H4_H5_terminal',
+                        'location' => 'ContentProjectArticleRunner.php:catch',
+                        'message' => 'article marked failed from exception',
+                        'timestamp' => (int) round(microtime(true) * 1000),
+                        'data' => [
+                            'run_id' => (int) $run->id,
+                            'task_id' => $taskId,
+                            'run_item_id' => $runItemId,
+                            'exception_class' => $exception::class,
+                            'message' => $exception->getMessage(),
+                            'retryable_context' => $ctx['retryable'] ?? null,
+                            'attempt_count' => $ctx['attempt_count'] ?? null,
+                            'classification' => $ctx['classification'] ?? null,
+                        ],
+                    ], JSON_UNESCAPED_UNICODE)."\n",
+                    FILE_APPEND,
+                );
+            } catch (\Throwable) {
+            }
+            // #endregion
+
             $run->refresh();
             if ($this->cancellationGuard->isStopRequested($run)) {
                 return $this->cancelledResult(
@@ -105,6 +137,11 @@ final class ContentProjectArticleRunner
                     $runItemId,
                     'Cancelled during article execution.',
                 );
+            }
+
+            $retryMeta = ContentProjectTransientAiRetryPolicy::fromException($exception);
+            if ($retryMeta !== null) {
+                return $this->deferredTransientResult($run, $taskId, $runItemId, $exception->getMessage(), $retryMeta);
             }
 
             return new ArticleExecutionResult(
@@ -148,6 +185,20 @@ final class ContentProjectArticleRunner
             );
         }
 
+        if (! $execution->success && ! $execution->cancelled) {
+            $retryMeta = ContentProjectTransientAiRetryPolicy::fromFailedItemRow($itemRow);
+            if ($retryMeta !== null) {
+                return $this->deferredTransientResult(
+                    $run,
+                    $taskId,
+                    $resolvedItemId,
+                    $execution->message !== '' ? $execution->message : (string) ($itemRow['message'] ?? ''),
+                    $retryMeta,
+                    $itemRow,
+                );
+            }
+        }
+
         return new ArticleExecutionResult(
             runId: (int) $run->id,
             taskId: $taskId,
@@ -157,6 +208,123 @@ final class ContentProjectArticleRunner
             message: $execution->message,
             errorCode: $execution->errorCode,
             payload: $itemRow,
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $retryMeta
+     * @param  array<string, mixed>  $itemRow
+     */
+    private function deferredTransientResult(
+        SeoProjectRun $run,
+        int $taskId,
+        ?int $runItemId,
+        string $message,
+        array $retryMeta,
+        array $itemRow = [],
+    ): ArticleExecutionResult {
+        $item = $runItemId !== null && $runItemId > 0
+            ? SeoProjectRunItem::query()->find($runItemId)
+            : null;
+        $currentAttempt = $item instanceof SeoProjectRunItem ? max(1, (int) $item->attempt) : 1;
+        $nextAttempt = $currentAttempt + 1;
+
+        if ($currentAttempt >= ContentProjectTransientAiRetryPolicy::MAX_TRANSIENT_ARTICLE_ATTEMPTS) {
+            RuntimeLogger::warning('content_project.ai_retry_exhausted', [
+                'run_id' => (int) $run->id,
+                'task_id' => $taskId,
+                'run_item_id' => $runItemId,
+                'attempts' => $currentAttempt,
+                'message' => $message,
+            ]);
+
+            return new ArticleExecutionResult(
+                runId: (int) $run->id,
+                taskId: $taskId,
+                runItemId: $runItemId,
+                status: ContentProjectArticleSemanticStatus::Failed,
+                articleId: $item instanceof SeoProjectRunItem && $item->article_id !== null
+                    ? (int) $item->article_id
+                    : null,
+                message: $message,
+                errorCode: ContentProjectErrorCode::ExternalWorkflowFailed->value,
+                payload: array_merge($itemRow, $retryMeta, [
+                    ContentProjectTransientAiRetryPolicy::PAYLOAD_FLAG => false,
+                    'ai_transient_retry_exhausted' => true,
+                    'attempts' => $currentAttempt,
+                ]),
+            );
+        }
+
+        $delay = ContentProjectTransientAiRetryPolicy::delaySeconds(
+            $nextAttempt,
+            isset($retryMeta['retry_after_seconds']) ? (int) $retryMeta['retry_after_seconds'] : null,
+        );
+        $deferMessage = ContentProjectTransientAiRetryPolicy::deferMessage($delay);
+
+        if ($item instanceof SeoProjectRunItem) {
+            $item->update([
+                'status' => SeoProjectRunItemStatus::Pending->value,
+                'started_at' => null,
+                'finished_at' => null,
+                'message' => $deferMessage,
+                'error_message' => null,
+            ]);
+        }
+
+        RuntimeLogger::info('content_project.ai_retry_scheduled', [
+            'run_id' => (int) $run->id,
+            'task_id' => $taskId,
+            'run_item_id' => $runItemId,
+            'current_attempt' => $currentAttempt,
+            'next_attempt' => $nextAttempt,
+            'delay_seconds' => $delay,
+            'exhaustion_kind' => $retryMeta['exhaustion_kind'] ?? null,
+            'failed_hook' => $retryMeta['failed_hook'] ?? null,
+        ]);
+
+        // #region agent log
+        try {
+            file_put_contents(
+                'D:\\work\\omnichannel-addons\\debug-eb722e.log',
+                json_encode([
+                    'sessionId' => 'eb722e',
+                    'runId' => 'post-fix',
+                    'hypothesisId' => 'H4_defer',
+                    'location' => 'ContentProjectArticleRunner.php:deferredTransientResult',
+                    'message' => 'article deferred for transient AI',
+                    'timestamp' => (int) round(microtime(true) * 1000),
+                    'data' => [
+                        'run_id' => (int) $run->id,
+                        'run_item_id' => $runItemId,
+                        'current_attempt' => $currentAttempt,
+                        'next_attempt' => $nextAttempt,
+                        'delay_seconds' => $delay,
+                    ],
+                ], JSON_UNESCAPED_UNICODE)."\n",
+                FILE_APPEND,
+            );
+        } catch (\Throwable) {
+        }
+        // #endregion
+
+        return new ArticleExecutionResult(
+            runId: (int) $run->id,
+            taskId: $taskId,
+            runItemId: $runItemId,
+            status: ContentProjectArticleSemanticStatus::Pending,
+            articleId: $item instanceof SeoProjectRunItem && $item->article_id !== null
+                ? (int) $item->article_id
+                : null,
+            message: $deferMessage,
+            errorCode: null,
+            payload: array_merge($itemRow, $retryMeta, [
+                ContentProjectTransientAiRetryPolicy::PAYLOAD_FLAG => true,
+                'retry_after_seconds' => $delay,
+                'current_attempt' => $currentAttempt,
+                'next_attempt' => $nextAttempt,
+            ]),
+            mayDispatchNextOverride: false,
         );
     }
 

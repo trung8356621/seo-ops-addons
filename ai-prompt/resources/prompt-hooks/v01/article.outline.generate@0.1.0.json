@@ -3,14 +3,14 @@
   "key": "article.outline.generate",
   "version": "0.1.0",
   "status": "experimental",
-  "settings_visible": true,
+  "settings_visible": false,
   "category": "article_editor",
   "name": "Generate article outline and vocabulary",
-  "description": "Generate an SEO article outline and semantic vocabulary in one provider call, then expose each task through separate workflow output ports.",
+  "description": "LEGACY combined outline+vocabulary hook. Canonical runtime uses article.outline.structure.generate + article.vocabulary.generate. Kept for old workflows/executions only.",
   "enabled": true,
   "classification": "NORMALIZE_NOW",
 
-  "legacy_binding": "outline_heading_regenerator_prompt_id | publish workflow prompt→parse_outline",
+  "legacy_binding": "outline_heading_regenerator_prompt_id fallback | publish workflow prompt→parse_outline",
 
   "model": {
     "provider": "prompt_connection",
@@ -202,6 +202,7 @@
   },
 
   "metadata": {
+    "ownership": "legacy_compat",
     "prompt_concern": "outline and semantic vocabulary in structured markdown sections",
     "workflow_concern": "split provider output into Task 1, Task 2 and Total output ports",
     "domain_action_concern": "none",

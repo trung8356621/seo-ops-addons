@@ -2024,6 +2024,7 @@ return [
         'typography_pass_threshold_hint' => '0–1. Empty = follow validation level.',
         'typography_allow_general_fallback' => 'Fallback to general Image models without typography_supported',
         'typography_allow_general_fallback_hint' => 'Enable only if you accept typography quality warnings.',
+        'source_none' => 'Not used',
         'source_prompt' => 'Prompt',
         'source_workflow' => 'Workflow',
         'workflow_extract_hint' => 'Phase 1: extract last image prompt from the workflow (full graph execution comes later).',

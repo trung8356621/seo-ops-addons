@@ -3058,7 +3058,8 @@ class EditArticle extends SeoEditRecord
 
     public function canGenerateQuickPostReviews(): bool
     {
-        return app(SeoCreateArticleSettingsService::class)->getPostReviewTaskId() !== null;
+        return app(SeoCreateArticleSettingsService::class)
+            ->getBoundPromptId('article.comment.generate') !== null;
     }
 
     /**

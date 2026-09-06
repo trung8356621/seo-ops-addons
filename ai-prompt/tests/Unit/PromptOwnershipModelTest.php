@@ -26,19 +26,24 @@ final class PromptOwnershipModelTest extends TestCase
         return new PromptHookEditorCatalog(new PromptHookRuntimeRegistry($loader));
     }
 
-    public function test_settings_visible_hooks_include_title_meta_comment_gallery(): void
+    public function test_settings_visible_hooks_include_title_meta_comment_not_gallery(): void
     {
         $keys = array_column($this->catalog()->settingsVisibleHooks(), 'hook_key');
 
         self::assertContains('article.title_suggestion', $keys);
         self::assertContains('article.meta_description_suggestion', $keys);
         self::assertContains('article.comment.generate', $keys);
-        self::assertContains('product.gallery.generate', $keys);
+        self::assertNotContains('product.gallery.generate', $keys);
+        self::assertNotContains('product.gallery.plan', $keys);
+        self::assertNotContains('product.gallery.parent.generate', $keys);
+        self::assertNotContains('product.gallery.child.generate', $keys);
+        self::assertNotContains('article.featured_image.generate', $keys);
         self::assertContains('article.content.translate', $keys);
         self::assertContains('article.faq.generate', $keys);
         self::assertContains('article.featured_snippet.generate', $keys);
-        self::assertContains('article.featured_image.generate', $keys);
-        self::assertContains('article.outline.generate', $keys);
+        self::assertNotContains('article.outline.generate', $keys);
+        self::assertContains('article.outline.structure.generate', $keys);
+        self::assertContains('article.vocabulary.generate', $keys);
         self::assertContains('keyword.discovery.structured', $keys);
         self::assertContains('article.content.improve', $keys);
     }
@@ -135,7 +140,7 @@ final class PromptOwnershipModelTest extends TestCase
         $service = new PromptHookPresentationService($this->catalog());
 
         foreach ([
-            'article.outline.generate',
+            'article.outline.structure.generate',
             'article.content.translate',
             'article.comment.generate',
             'product.gallery.generate',

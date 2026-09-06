@@ -6,7 +6,7 @@
   "description": "Plan product gallery shot angles as JSON only. Does not generate images.",
   "enabled": true,
   "status": "experimental",
-  "settings_visible": true,
+  "settings_visible": false,
   "category": "media",
   "model": {
     "provider": "prompt_connection",
@@ -69,5 +69,5 @@
   "logging": { "store_full_prompt": false, "redact_sensitive": true },
   "side_effects": [],
   "strict_template_variables": true,
-  "metadata": { "ownership": "settings_binding", "gallery_mode": "parent_child" }
+  "metadata": { "ownership": "system_managed", "gallery_mode": "parent_child" }
 }

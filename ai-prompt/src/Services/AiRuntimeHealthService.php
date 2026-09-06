@@ -10,6 +10,7 @@ use Omnichannel\Addons\AiPrompt\Models\AiRuntimeHealthState;
 use Omnichannel\Addons\AiPrompt\Models\SeoAiModel;
 use Omnichannel\Addons\AiPrompt\Support\AiFailureClass;
 use Omnichannel\Addons\AiPrompt\Support\AiFailureScope;
+use Omnichannel\Addons\AiPrompt\Support\AiRoutesExhaustionClassifier;
 use Omnichannel\Addons\AiPrompt\Support\AiRuntimeHealthStatus;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
@@ -58,6 +59,30 @@ final class AiRuntimeHealthService
             $modelHealth = $this->findSubject($userId, AiRuntimeHealthState::SUBJECT_MODEL, $modelId);
             if ($modelHealth !== null) {
                 if ($modelHealth->health_status === AiRuntimeHealthStatus::Unavailable->value) {
+                    // #region agent log
+                    try {
+                        file_put_contents(
+                            'D:\\work\\omnichannel-addons\\debug-eb722e.log',
+                            json_encode([
+                                'sessionId' => 'eb722e',
+                                'hypothesisId' => 'H1_poison',
+                                'location' => 'AiRuntimeHealthService.php:skipReason',
+                                'message' => 'skip model_unavailable',
+                                'timestamp' => (int) round(microtime(true) * 1000),
+                                'data' => [
+                                    'user_id' => $userId,
+                                    'model_id' => (int) $modelId,
+                                    'model' => $candidate->model,
+                                    'last_failure_class' => $modelHealth->last_failure_class,
+                                    'consecutive_failures' => (int) $modelHealth->consecutive_failures,
+                                ],
+                            ], JSON_UNESCAPED_UNICODE)."\n",
+                            FILE_APPEND,
+                        );
+                    } catch (\Throwable) {
+                    }
+                    // #endregion
+
                     return 'model_unavailable';
                 }
 
@@ -104,10 +129,9 @@ final class AiRuntimeHealthService
                     $row->success_count++;
                     $row->consecutive_failures = 0;
                     $row->last_success_at = $now;
-                    if ($row->health_status !== AiRuntimeHealthStatus::Unavailable->value) {
-                        $row->health_status = AiRuntimeHealthStatus::Healthy->value;
-                        $row->cooldown_until = null;
-                    }
+                    // Success recovers hard Unavailable too (probe / post-repair path).
+                    $row->health_status = AiRuntimeHealthStatus::Healthy->value;
+                    $row->cooldown_until = null;
                     $this->updateModelLastError($candidate, null);
                     $this->maybeNotifyRecovery($userId, $row, $previous, $candidate);
                 },
@@ -164,10 +188,40 @@ final class AiRuntimeHealthService
                         $row->health_status = AiRuntimeHealthStatus::Unavailable->value;
                     } elseif ($decision->applyCooldown) {
                         $row->cooldown_until = now()->addMinutes(self::COOLDOWN_MINUTES);
-                        $row->health_status = $this->statusFromConsecutiveFailures($row)->value;
+                        // Soft/transient failures stay Degraded — never permanent Unavailable.
+                        $row->health_status = $this->statusAfterProviderFailure($row, $decision)->value;
                     } else {
-                        $row->health_status = $this->statusFromConsecutiveFailures($row)->value;
+                        $row->health_status = $this->statusAfterProviderFailure($row, $decision)->value;
                     }
+
+                    // #region agent log
+                    try {
+                        file_put_contents(
+                            'D:\\work\\omnichannel-addons\\debug-eb722e.log',
+                            json_encode([
+                                'sessionId' => 'eb722e',
+                                'hypothesisId' => 'H1_poison',
+                                'location' => 'AiRuntimeHealthService.php:recordFailure:model',
+                                'message' => 'model health after failure',
+                                'timestamp' => (int) round(microtime(true) * 1000),
+                                'data' => [
+                                    'user_id' => $userId,
+                                    'model_id' => (int) ($candidate->seoAiModelId ?? 0),
+                                    'model' => $candidate->model,
+                                    'failure_class' => $decision->category->value,
+                                    'apply_cooldown' => $decision->applyCooldown,
+                                    'mark_unavailable' => $decision->markModelUnavailable,
+                                    'consecutive_failures' => (int) $row->consecutive_failures,
+                                    'health_status' => (string) $row->health_status,
+                                    'cooldown_until' => (string) $row->cooldown_until,
+                                    'threshold_unavailable' => self::UNAVAILABLE_THRESHOLD,
+                                ],
+                            ], JSON_UNESCAPED_UNICODE)."\n",
+                            FILE_APPEND,
+                        );
+                    } catch (\Throwable) {
+                    }
+                    // #endregion
 
                     $this->updateModelLastError($candidate, $decision);
                     $this->maybeNotifyFailure($userId, $row, $previous, $decision, $candidate);
@@ -465,6 +519,10 @@ final class AiRuntimeHealthService
 
     private function statusFromConsecutiveFailures(AiRuntimeHealthState $row): AiRuntimeHealthStatus
     {
+        if (AiRoutesExhaustionClassifier::isSoftProviderFailureClass((string) ($row->last_failure_class ?? ''))) {
+            return AiRuntimeHealthStatus::Degraded;
+        }
+
         if ($row->consecutive_failures >= self::UNAVAILABLE_THRESHOLD) {
             return AiRuntimeHealthStatus::Unavailable;
         }
@@ -474,6 +532,75 @@ final class AiRuntimeHealthService
         }
 
         return AiRuntimeHealthStatus::Degraded;
+    }
+
+    private function statusAfterProviderFailure(AiRuntimeHealthState $row, AiFailureDecision $decision): AiRuntimeHealthStatus
+    {
+        if (AiRoutesExhaustionClassifier::isSoftProviderFailureClass($decision->category->value)
+            || $decision->applyCooldown) {
+            return AiRuntimeHealthStatus::Degraded;
+        }
+
+        return $this->statusFromConsecutiveFailures($row);
+    }
+
+    /**
+     * Earliest future cooldown among candidates (model or connection). Null if none.
+     *
+     * @param  list<RoutedAiCandidate>  $candidates
+     */
+    public function nextAvailableAt(int $userId, array $candidates): ?\Illuminate\Support\Carbon
+    {
+        if (! $this->tableReady() || $candidates === []) {
+            return null;
+        }
+
+        $earliest = null;
+        $now = now();
+        foreach ($candidates as $candidate) {
+            if (! $candidate instanceof RoutedAiCandidate) {
+                continue;
+            }
+            $connectionId = (int) $candidate->connection->id;
+            $connectionHealth = $this->findSubject($userId, AiRuntimeHealthState::SUBJECT_CONNECTION, $connectionId);
+            if ($connectionHealth !== null && $this->isOnCooldown($connectionHealth) && $connectionHealth->cooldown_until !== null) {
+                $until = $connectionHealth->cooldown_until instanceof \Illuminate\Support\Carbon
+                    ? $connectionHealth->cooldown_until
+                    : \Illuminate\Support\Carbon::parse((string) $connectionHealth->cooldown_until);
+                if ($until->gt($now) && ($earliest === null || $until->lt($earliest))) {
+                    $earliest = $until->copy();
+                }
+            }
+            $modelId = $candidate->seoAiModelId;
+            if ($modelId === null) {
+                continue;
+            }
+            $modelHealth = $this->findSubject($userId, AiRuntimeHealthState::SUBJECT_MODEL, (int) $modelId);
+            if ($modelHealth !== null && $this->isOnCooldown($modelHealth) && $modelHealth->cooldown_until !== null) {
+                $until = $modelHealth->cooldown_until instanceof \Illuminate\Support\Carbon
+                    ? $modelHealth->cooldown_until
+                    : \Illuminate\Support\Carbon::parse((string) $modelHealth->cooldown_until);
+                if ($until->gt($now) && ($earliest === null || $until->lt($earliest))) {
+                    $earliest = $until->copy();
+                }
+            }
+        }
+
+        return $earliest;
+    }
+
+    /**
+     * @param  list<RoutedAiCandidate>  $candidates
+     */
+    public function retryAfterSeconds(int $userId, array $candidates, int $minimumSeconds = 10, int $maximumSeconds = 300): ?int
+    {
+        $at = $this->nextAvailableAt($userId, $candidates);
+        if ($at === null) {
+            return null;
+        }
+        $seconds = max(0, (int) now()->diffInSeconds($at, false));
+
+        return max($minimumSeconds, min($maximumSeconds, $seconds));
     }
 
     private function degradedOrExisting(AiRuntimeHealthState $row): AiRuntimeHealthStatus

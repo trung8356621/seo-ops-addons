@@ -4,16 +4,12 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Services;
 
-
 use Omnichannel\Addons\Seo\Services\SeoAnalyzerService;
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\AiPrompt\Models\PromptResult;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Models\SeoArticleHeading;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
-use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookCallerBridge;
-use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookExecutionInput;
-use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Str;
 use RuntimeException;
@@ -23,9 +19,11 @@ use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
 use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
 use Omnichannel\Addons\AiPrompt\Services\ArticleFaqPromptVariablesService;
 use Omnichannel\Addons\AiPrompt\Services\PromptResultLinkService;
+use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
 
 /**
- * Sinh lại text heading Outline bằng prompt cấu hình tại SEO → Tùy chỉnh → Quy trình.
+ * Regenerate a single Outline heading via dedicated outline_heading_regenerator_prompt_id.
+ * Does not use the legacy combined article.outline.generate operator Settings binding.
  */
 final class ArticleHeadingAiGenerateService
 {
@@ -37,7 +35,6 @@ final class ArticleHeadingAiGenerateService
         private readonly SiteDomainPromptContextService $sitePromptContext,
         private readonly ArticleFaqPromptVariablesService $articlePromptVariables,
         private readonly PromptResultLinkService $promptResultLinks,
-        private readonly PromptHookCallerBridge $promptHookBridge,
     ) {
     }
 
@@ -75,51 +72,15 @@ final class ArticleHeadingAiGenerateService
             $promptVars['tone'] ?? '',
         );
 
-        $envelope = PromptHookExecutionInput::fromArray([
-            'context' => [
-                'site_id' => (int) ($article->site_id ?? 0),
-                'article_id' => (int) $article->id,
-                'locale' => (string) ($article->language ?? ''),
-            ],
-            'input' => [
-                'keyword' => $focusKeyword !== '' ? $focusKeyword : null,
-                'heading_context' => trim((string) ($variables['heading_text'] ?? '')),
-                'language' => (string) ($variables['language'] ?? ''),
-            ],
-            'previous_outputs' => [],
-            'settings' => [],
-        ]);
+        try {
+            $result = $this->promptRunner->run($prompt, $variables);
+        } catch (PromptRunException $exception) {
+            throw new RuntimeException($exception->getMessage(), 0, $exception);
+        }
 
-        /** @var string $text */
-        $text = $this->promptHookBridge->run(
-            hookKey: 'article.outline.generate',
-            version: '0.1.0',
-            envelope: $envelope,
-            legacyExecute: function () use ($prompt, $variables, $article, $heading): string {
-                try {
-                    $result = $this->promptRunner->run($prompt, $variables);
-                } catch (PromptRunException $exception) {
-                    throw new RuntimeException($exception->getMessage(), 0, $exception);
-                }
+        $this->linkPromptResultToArticle($article, $prompt, $result, $heading);
 
-                $this->linkPromptResultToArticle($article, $prompt, $result, $heading);
-
-                $parsed = $this->parseHeadingOutput((string) ($result->output_text ?? ''));
-                if ($parsed === '') {
-                    throw new RuntimeException(
-                        'AI không trả về heading hợp lệ. Kiểm tra prompt — đầu ra nên là một dòng tiêu đề (plain text hoặc Markdown H2–H4).',
-                    );
-                }
-
-                return $parsed;
-            },
-            mapHookResult: static function ($runtimeResult): string {
-                $value = $runtimeResult->output['value'] ?? '';
-
-                return is_string($value) ? trim($value) : trim((string) json_encode($value));
-            },
-        );
-
+        $text = $this->parseHeadingOutput((string) ($result->output_text ?? ''));
         if ($text === '') {
             throw new RuntimeException(
                 'AI không trả về heading hợp lệ. Kiểm tra prompt — đầu ra nên là một dòng tiêu đề (plain text hoặc Markdown H2–H4).',

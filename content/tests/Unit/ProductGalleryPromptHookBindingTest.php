@@ -28,7 +28,9 @@ final class ProductGalleryPromptHookBindingTest extends TestCase
             $this->assertIsArray($json);
             $this->assertSame('0.1', $json['spec_version'] ?? null);
             $this->assertSame('legacy_prompt_content', $json['template']['source'] ?? null);
-            $this->assertTrue((bool) ($json['settings_visible'] ?? false));
+            $this->assertTrue((bool) ($json['enabled'] ?? false));
+            $this->assertFalse((bool) ($json['settings_visible'] ?? true));
+            $this->assertSame('system_managed', $json['metadata']['ownership'] ?? null);
         }
     }
 
@@ -46,7 +48,7 @@ final class ProductGalleryPromptHookBindingTest extends TestCase
     public function test_installer_does_not_overwrite_existing_binding(): void
     {
         $source = (string) file_get_contents(
-            ProjectRoot::addonsPath().'/ai-prompt'.'/Services/PromptOwnership/DefaultProductGalleryPromptsInstaller.php',
+            ProjectRoot::addonsPath().'/ai-prompt/src/Services/PromptOwnership/DefaultProductGalleryPromptsInstaller.php',
         );
         $this->assertStringContainsString('if (! isset($bindings[$hookKey]))', $source);
         $this->assertStringContainsString('savePromptHookBindings', $source);

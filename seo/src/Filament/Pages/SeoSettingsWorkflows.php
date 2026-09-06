@@ -28,6 +28,7 @@ use Illuminate\Validation\ValidationException;
 
 /**
  * Workflows (Task) + dynamic Prompt Hook bindings + Editor Media (typography/video).
+ * Product Gallery + news thumbnail are system-managed (not on this form).
  */
 class SeoSettingsWorkflows extends Page implements HasForms
 {
@@ -64,10 +65,7 @@ class SeoSettingsWorkflows extends Page implements HasForms
                             __('seo-content-ai::filament.settings_workflows.publish_article'),
                         ),
                         // KEY_REWRITE_ARTICLE: legacy DB field giữ tạm — không đọc runtime / không hiện UI.
-                        $this->taskSelect(
-                            SeoCreateArticleSettingsService::KEY_POST_REVIEW,
-                            __('seo-content-ai::filament.settings_workflows.post_review'),
-                        ),
+                        // KEY_POST_REVIEW: legacy DB — Quick Review dùng article.comment.generate; không hiện UI.
                         Forms\Components\Placeholder::make('workflow_health_publish')
                             ->label('')
                             ->content(fn (Get $get, WorkflowAssignmentValidator $validator): HtmlString => $this->workflowHealthHtml(
@@ -87,7 +85,7 @@ class SeoSettingsWorkflows extends Page implements HasForms
                             label: __('seo-content-ai::filament.settings_workflows.create_typography_image'),
                             promptOptions: fn (SeoPromptSettingsOptionsService $options): array => $options->promptOptionsForTools(['image_typography']),
                         ),
-                        ...$this->productGallerySourceFields(),
+                        // Product Gallery is system-managed — no operator Prompt/Workflow controls.
                         ...$this->editorMediaSourceFields(
                             sourceKey: SeoCreateArticleSettingsService::KEY_CREATE_VIDEO_SOURCE,
                             promptKey: SeoCreateArticleSettingsService::KEY_CREATE_VIDEO,
@@ -192,76 +190,6 @@ class SeoSettingsWorkflows extends Page implements HasForms
         return $fields;
     }
 
-    /**
-     * Product Gallery: mode only in media section. Prompt ownership = Hook card.
-     *
-     * @return list<Forms\Components\Component>
-     */
-    private function productGallerySourceFields(): array
-    {
-        return [
-            Forms\Components\Radio::make(SeoCreateArticleSettingsService::KEY_CREATE_PRODUCT_GALLERY_SOURCE)
-                ->label(__('seo-content-ai::filament.settings_workflows.create_product_gallery_source'))
-                ->options([
-                    SeoCreateArticleSettingsService::SOURCE_PROMPT => __('seo-content-ai::filament.settings_workflows.source_prompt'),
-                    SeoCreateArticleSettingsService::SOURCE_WORKFLOW => __('seo-content-ai::filament.settings_workflows.source_workflow'),
-                ])
-                ->inline()
-                ->live(),
-            Forms\Components\Placeholder::make('product_gallery_prompt_status')
-                ->label(__('seo-content-ai::filament.settings_workflows.product_gallery_prompt_status_label'))
-                ->content(fn (Get $get): HtmlString => $this->productGalleryPromptStatusHtml($get))
-                ->visible(fn (Get $get): bool => ($get(SeoCreateArticleSettingsService::KEY_CREATE_PRODUCT_GALLERY_SOURCE) ?? '')
-                    === SeoCreateArticleSettingsService::SOURCE_PROMPT),
-            Forms\Components\Select::make(SeoCreateArticleSettingsService::KEY_CREATE_PRODUCT_GALLERY_TASK)
-                ->label(__('seo-content-ai::filament.settings_workflows.choose_workflow'))
-                ->options(function (CreateArticlesFromTaskService $service, Get $get): array {
-                    $selected = (int) ($get(SeoCreateArticleSettingsService::KEY_CREATE_PRODUCT_GALLERY_TASK) ?? 0);
-
-                    return $service->taskOptionsForSettings($selected > 0 ? $selected : null);
-                })
-                ->getOptionLabelUsing(fn (mixed $value): ?string => app(CreateArticlesFromTaskService::class)->taskLabel($value))
-                ->searchable()
-                ->native(false)
-                ->position('auto')
-                ->placeholder(__('seo-content-ai::filament.settings_workflows.choose_workflow'))
-                ->visible(fn (Get $get): bool => ($get(SeoCreateArticleSettingsService::KEY_CREATE_PRODUCT_GALLERY_SOURCE) ?? '')
-                    === SeoCreateArticleSettingsService::SOURCE_WORKFLOW),
-        ];
-    }
-
-    private function productGalleryPromptStatusHtml(Get $get): HtmlString
-    {
-        $encoded = SeoCreateArticleSettingsService::encodeHookKeyForForm('product.gallery.generate');
-        $anchor = '#seo-hook-card-'.$encoded;
-        $bindings = is_array($get(SeoCreateArticleSettingsService::KEY_PROMPT_HOOK_BINDINGS) ?? null)
-            ? $get(SeoCreateArticleSettingsService::KEY_PROMPT_HOOK_BINDINGS)
-            : [];
-        $promptId = isset($bindings[$encoded]) ? (int) $bindings[$encoded] : 0;
-        if ($promptId <= 0) {
-            return new HtmlString(
-                '<p class="text-sm text-amber-700 dark:text-amber-300">'
-                .e((string) __('seo-content-ai::filament.settings_workflows.product_gallery_prompt_missing'))
-                .' <a href="'.e($anchor).'" class="font-medium underline">'
-                .e((string) __('seo-content-ai::filament.settings_workflows.product_gallery_open_hook_card'))
-                .'</a></p>'
-            );
-        }
-
-        $name = \Omnichannel\Addons\AiPrompt\Models\SeoPrompt::query()->whereKey($promptId)->value('name');
-        $label = is_string($name) && trim($name) !== '' ? trim($name) : ('#'.$promptId);
-
-        return new HtmlString(
-            '<p class="text-sm text-gray-700 dark:text-gray-200">'
-            .e((string) __('seo-content-ai::filament.settings_workflows.product_gallery_prompt_using', ['name' => $label]))
-            .'</p>'
-            .'<p class="mt-1 text-sm">'
-            .'<a href="'.e($anchor).'" class="font-medium text-primary-600 underline dark:text-primary-400">'
-            .e((string) __('seo-content-ai::filament.settings_workflows.product_gallery_manage_at_hook'))
-            .'</a></p>'
-        );
-    }
-
     private function taskSelect(
         string $field,
         string $label,
@@ -331,11 +259,13 @@ class SeoSettingsWorkflows extends Page implements HasForms
         $radio = Forms\Components\Radio::make($sourceKey)
             ->label($label)
             ->options([
+                SeoCreateArticleSettingsService::SOURCE_NONE => __('seo-content-ai::filament.settings_workflows.source_none'),
                 SeoCreateArticleSettingsService::SOURCE_PROMPT => __('seo-content-ai::filament.settings_workflows.source_prompt'),
                 SeoCreateArticleSettingsService::SOURCE_WORKFLOW => __('seo-content-ai::filament.settings_workflows.source_workflow'),
             ])
             ->inline()
-            ->live();
+            ->live()
+            ->default(SeoCreateArticleSettingsService::SOURCE_NONE);
 
         return [
             $radio,
@@ -360,7 +290,7 @@ class SeoSettingsWorkflows extends Page implements HasForms
                 ->placeholder($isVideo
                     ? __('seo-content-ai::filament.settings_workflows.choose_video_prompt')
                     : __('seo-content-ai::filament.settings_workflows.choose_image_prompt'))
-                ->visible(fn (Get $get): bool => ($get($sourceKey) ?? SeoCreateArticleSettingsService::SOURCE_PROMPT)
+                ->visible(fn (Get $get): bool => ($get($sourceKey) ?? SeoCreateArticleSettingsService::SOURCE_NONE)
                     === SeoCreateArticleSettingsService::SOURCE_PROMPT),
             Forms\Components\Select::make($taskKey)
                 ->label(__('seo-content-ai::filament.settings_workflows.choose_workflow'))
@@ -400,7 +330,6 @@ class SeoSettingsWorkflows extends Page implements HasForms
 
         try {
             $settings->assertValidPromptHookBindings($bindings);
-            $this->assertProductGalleryModeConfigured($data, $bindings);
             $assignmentErrors = app(WorkflowAssignmentValidator::class)->validatePendingSettings($data);
             if ($assignmentErrors !== []) {
                 throw ValidationException::withMessages([
@@ -417,14 +346,15 @@ class SeoSettingsWorkflows extends Page implements HasForms
             throw $exception;
         }
 
-        $settings->saveSettings([
+        // Merge: form only owns settings_visible USER hooks; SYSTEM/legacy bindings stay untouched.
+        $bindings = $settings->mergePreservingNonUserEditableBindings($bindings);
+
+        $settings->saveWorkflowsOperatorSettings([
             SeoCreateArticleSettingsService::KEY_PUBLISH_ARTICLE => $data[SeoCreateArticleSettingsService::KEY_PUBLISH_ARTICLE] ?? null,
-            // Legacy field: giữ giá trị cũ (rollback), không nhận từ UI đã ẩn.
+            // Legacy fields: giữ giá trị cũ (rollback), không nhận từ UI đã ẩn.
             SeoCreateArticleSettingsService::KEY_REWRITE_ARTICLE => $settings->getSettings()[SeoCreateArticleSettingsService::KEY_REWRITE_ARTICLE] ?? null,
-            SeoCreateArticleSettingsService::KEY_POST_REVIEW => $data[SeoCreateArticleSettingsService::KEY_POST_REVIEW] ?? null,
+            SeoCreateArticleSettingsService::KEY_POST_REVIEW => $settings->getSettings()[SeoCreateArticleSettingsService::KEY_POST_REVIEW] ?? null,
             SeoCreateArticleSettingsService::KEY_PROMPT_HOOK_BINDINGS => $bindings,
-            SeoCreateArticleSettingsService::KEY_CREATE_PRODUCT_GALLERY_SOURCE => $data[SeoCreateArticleSettingsService::KEY_CREATE_PRODUCT_GALLERY_SOURCE] ?? null,
-            SeoCreateArticleSettingsService::KEY_CREATE_PRODUCT_GALLERY_TASK => $data[SeoCreateArticleSettingsService::KEY_CREATE_PRODUCT_GALLERY_TASK] ?? null,
             SeoCreateArticleSettingsService::KEY_CREATE_TYPOGRAPHY_IMAGE_SOURCE => $data[SeoCreateArticleSettingsService::KEY_CREATE_TYPOGRAPHY_IMAGE_SOURCE] ?? null,
             SeoCreateArticleSettingsService::KEY_CREATE_TYPOGRAPHY_IMAGE_PROMPT => $data[SeoCreateArticleSettingsService::KEY_CREATE_TYPOGRAPHY_IMAGE_PROMPT] ?? null,
             SeoCreateArticleSettingsService::KEY_CREATE_TYPOGRAPHY_IMAGE_TASK => $data[SeoCreateArticleSettingsService::KEY_CREATE_TYPOGRAPHY_IMAGE_TASK] ?? null,
@@ -441,37 +371,6 @@ class SeoSettingsWorkflows extends Page implements HasForms
             ->title(__('seo-content-ai::filament.settings_workflows.saved'))
             ->success()
             ->send();
-    }
-
-    /**
-     * @param  array<string, mixed>  $data
-     * @param  array<string, int>  $bindings
-     */
-    private function assertProductGalleryModeConfigured(array $data, array $bindings): void
-    {
-        $source = (string) ($data[SeoCreateArticleSettingsService::KEY_CREATE_PRODUCT_GALLERY_SOURCE] ?? '');
-        if ($source === SeoCreateArticleSettingsService::SOURCE_PROMPT) {
-            if (! isset($bindings['product.gallery.generate'])) {
-                throw ValidationException::withMessages([
-                    SeoCreateArticleSettingsService::KEY_CREATE_PRODUCT_GALLERY_SOURCE => [
-                        (string) __('seo-content-ai::filament.settings_workflows.product_gallery_prompt_required'),
-                    ],
-                ]);
-            }
-
-            return;
-        }
-
-        if ($source === SeoCreateArticleSettingsService::SOURCE_WORKFLOW) {
-            $taskId = (int) ($data[SeoCreateArticleSettingsService::KEY_CREATE_PRODUCT_GALLERY_TASK] ?? 0);
-            if ($taskId <= 0) {
-                throw ValidationException::withMessages([
-                    SeoCreateArticleSettingsService::KEY_CREATE_PRODUCT_GALLERY_TASK => [
-                        (string) __('seo-content-ai::filament.settings_workflows.product_gallery_workflow_required'),
-                    ],
-                ]);
-            }
-        }
     }
 
     private function formatWorkflowValidationBody(ValidationException $exception): string

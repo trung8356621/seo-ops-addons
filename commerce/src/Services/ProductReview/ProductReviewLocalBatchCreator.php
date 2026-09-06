@@ -15,6 +15,11 @@ use Illuminate\Support\Str;
 /**
  * Create local pending product reviews only (no WordPress).
  *
+ * COMPATIBILITY DEBT (2026-09): automatic WordPress business sequence still uses
+ * PHP CONTENT_TEMPLATES for bulk create. Manual / Quick Create uses
+ * ProductReviewGenerateService → article.comment.generate Prompt.
+ * Do not reintroduce a Settings Workflow solely for this template path.
+ *
  * Generation continues across Create runs: template slot does not reset to 0,
  * and content fingerprints already present for the article are skipped.
  */

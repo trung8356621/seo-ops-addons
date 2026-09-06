@@ -51,7 +51,7 @@ final class DefaultNewsThumbnailPromptInstallerTest extends TestCase
         self::assertStringContainsString('InstallDefaultNewsThumbnailPromptCommand::class', $provider);
     }
 
-    public function test_hook_spec_is_settings_visible_image_capability_without_model_settings(): void
+    public function test_hook_spec_is_system_managed_image_capability_without_model_settings(): void
     {
         $path = ProjectRoot::addonsPath().'/ai-prompt/resources/prompt-hooks/v01/article.featured_image.generate@0.1.0.json';
         self::assertFileExists($path);
@@ -59,11 +59,12 @@ final class DefaultNewsThumbnailPromptInstallerTest extends TestCase
         $spec = json_decode((string) file_get_contents($path), true);
         self::assertIsArray($spec);
         self::assertSame([], (new PromptHookSpecV01Validator)->validate($spec));
-        self::assertTrue($spec['settings_visible']);
+        self::assertFalse($spec['settings_visible']);
         self::assertSame('image', $spec['model']['capability']);
         self::assertSame([], $spec['model']['settings']);
         self::assertSame('legacy_prompt_content', $spec['template']['source']);
         self::assertArrayHasKey('title', $spec['input_schema']);
+        self::assertSame('system_managed', $spec['metadata']['ownership'] ?? null);
 
         $loader = new PromptHookDefinitionLoader(
             PromptHookDefinitionLoader::defaultV01Directory(),
@@ -71,7 +72,9 @@ final class DefaultNewsThumbnailPromptInstallerTest extends TestCase
         );
         $loader->clearCache();
         $definition = (new PromptHookRuntimeRegistry($loader))->get('article.featured_image.generate', '0.1.0');
-        self::assertTrue($definition->settingsVisible);
+        self::assertNotNull($definition);
+        self::assertTrue((bool) ($spec['enabled'] ?? false));
+        self::assertFalse($definition->settingsVisible);
         self::assertSame('image', $definition->model->capability);
     }
 

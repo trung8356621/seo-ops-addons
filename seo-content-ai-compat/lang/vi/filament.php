@@ -2015,6 +2015,7 @@ return [
         'typography_pass_threshold_hint' => '0–1. Để trống = theo mức kiểm tra.',
         'typography_allow_general_fallback' => 'Fallback model Image thường khi thiếu typography_supported',
         'typography_allow_general_fallback_hint' => 'Bật chỉ khi chấp nhận cảnh báo chất lượng typography.',
+        'source_none' => 'Không dùng',
         'source_prompt' => 'Prompt',
         'source_workflow' => 'Workflow',
         'workflow_extract_hint' => 'Phase 1: lấy Prompt hình ảnh cuối trong workflow (chưa chạy full graph).',

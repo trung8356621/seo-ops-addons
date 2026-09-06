@@ -27,8 +27,16 @@ final class SeoCreateArticleSettingsService implements \Omnichannel\Addons\Conte
     /** @deprecated Đọc để tương thích wp_options cũ (trước khi chuyển sang task workflow) */
     public const KEY_LEGACY_CREATE_IMAGE_PROMPT = 'create_image_prompt_id';
 
+    /**
+     * @deprecated LEGACY COMPAT — Product Gallery is system-managed; do not expose in Workflows UI.
+     * Retained for rollback/audit; runtime may still mirror via LEGACY_PROMPT_FIELD_TO_HOOK.
+     */
     public const KEY_CREATE_PRODUCT_GALLERY_IMAGE = 'create_product_gallery_image_prompt_id';
 
+    /**
+     * @deprecated LEGACY COMPAT — no longer written from Workflows Settings UI.
+     * Stored value preserved for rollback; prefer system Prompt hook bindings.
+     */
     public const KEY_CREATE_PRODUCT_GALLERY_TASK = 'create_product_gallery_image_task_id';
 
     public const KEY_CREATE_TYPOGRAPHY_IMAGE_PROMPT = 'create_typography_image_prompt_id';
@@ -42,6 +50,10 @@ final class SeoCreateArticleSettingsService implements \Omnichannel\Addons\Conte
     /** prompt | workflow — một nguồn duy nhất sau migrate-on-load */
     public const KEY_CREATE_IMAGE_SOURCE = 'create_image_source';
 
+    /**
+     * @deprecated LEGACY COMPAT — Product Gallery source is system-managed (canonical: prompt + hook bindings).
+     * Not written from Workflows UI; stored value still honored by runtime readers for compatibility.
+     */
     public const KEY_CREATE_PRODUCT_GALLERY_SOURCE = 'create_product_gallery_source';
 
     public const KEY_CREATE_TYPOGRAPHY_IMAGE_SOURCE = 'create_typography_image_source';
@@ -51,6 +63,23 @@ final class SeoCreateArticleSettingsService implements \Omnichannel\Addons\Conte
     public const SOURCE_PROMPT = 'prompt';
 
     public const SOURCE_WORKFLOW = 'workflow';
+
+    /** Optional media unconfigured — valid save state; do not coerce to workflow. */
+    public const SOURCE_NONE = 'none';
+
+    /**
+     * Hooks owned by the system — enabled at runtime, not operator-configurable in Workflows Settings.
+     * Manifests use settings_visible=false; this list is the ownership contract for save-merge + tests.
+     *
+     * @var list<string>
+     */
+    public const SYSTEM_MANAGED_HOOK_KEYS = [
+        'article.featured_image.generate',
+        'product.gallery.generate',
+        'product.gallery.plan',
+        'product.gallery.parent.generate',
+        'product.gallery.child.generate',
+    ];
 
     public const KEY_RENEW_FAQ_PROMPT_ID = 'renew_faq_prompt_id';
 
@@ -581,8 +610,20 @@ final class SeoCreateArticleSettingsService implements \Omnichannel\Addons\Conte
         return app(SeoPromptSettingsService::class)->getFeaturedSnippetPromptId();
     }
 
+    /**
+     * Dedicated heading-regenerator Prompt (KEY_OUTLINE_HEADING_REGENERATOR_PROMPT_ID).
+     * Not the legacy combined article.outline.generate Settings card.
+     */
     public function getOutlineHeadingRegeneratorPromptId(): ?int
     {
+        $direct = $this->positiveIntOrNull(
+            $this->getSettings()[self::KEY_OUTLINE_HEADING_REGENERATOR_PROMPT_ID] ?? null,
+        );
+        if ($direct !== null) {
+            return $direct;
+        }
+
+        // Compat: historical installs only stored the heading Prompt via outline.generate binding.
         return $this->getBoundPromptId('article.outline.generate');
     }
 
@@ -612,6 +653,10 @@ final class SeoCreateArticleSettingsService implements \Omnichannel\Addons\Conte
         return $this->getSettings()[self::KEY_REWRITE_ARTICLE];
     }
 
+    /**
+     * @deprecated LEGACY — Workflows UI no longer exposes Đăng bình luận.
+     * Stored post_review_task_id preserved for rollback; Quick Review uses article.comment.generate.
+     */
     public function getPostReviewTaskId(): ?int
     {
         return $this->getSettings()[self::KEY_POST_REVIEW];
@@ -636,10 +681,25 @@ final class SeoCreateArticleSettingsService implements \Omnichannel\Addons\Conte
     public function hasCreateTypographyImageConfiguration(): bool
     {
         $source = $this->getCreateTypographyImageSource();
+        if ($source === self::SOURCE_NONE || $source === '') {
+            return false;
+        }
 
         return $source === self::SOURCE_WORKFLOW
             ? $this->getCreateTypographyImageTaskId() !== null
             : $this->getCreateTypographyImagePromptId() !== null;
+    }
+
+    public function hasCreateVideoConfiguration(): bool
+    {
+        $source = $this->getCreateVideoSource();
+        if ($source === self::SOURCE_NONE || $source === '') {
+            return false;
+        }
+
+        return $source === self::SOURCE_WORKFLOW
+            ? $this->getCreateVideoWorkflowTaskId() !== null
+            : $this->getCreateVideoPromptId() !== null;
     }
 
     /**
@@ -655,19 +715,121 @@ final class SeoCreateArticleSettingsService implements \Omnichannel\Addons\Conte
         return (string) $this->getSettings()[self::KEY_CREATE_IMAGE_SOURCE];
     }
 
+    /**
+     * @deprecated Prefer system-managed binding product.gallery.generate via getBoundPromptId().
+     * Compatibility adapter — still resolves the hook binding.
+     */
     public function getCreateProductGalleryImagePromptId(): ?int
     {
         return $this->getBoundPromptId('product.gallery.generate');
     }
 
+    /**
+     * @deprecated LEGACY — Workflows UI no longer configures gallery workflow task.
+     * Still returns stored value for rollback / alternate path compatibility.
+     */
     public function getCreateProductGalleryImageTaskId(): ?int
     {
         return $this->getSettings()[self::KEY_CREATE_PRODUCT_GALLERY_TASK];
     }
 
+    /**
+     * @deprecated LEGACY COMPAT — honors stored source when present.
+     * Canonical system path is prompt + system hook bindings (installers).
+     * Do not invent a new path; existing ArticleEditorMediaAiService readers keep working.
+     */
     public function getCreateProductGallerySource(): string
     {
         return (string) $this->getSettings()[self::KEY_CREATE_PRODUCT_GALLERY_SOURCE];
+    }
+
+    /**
+     * Hook keys operators may bind in Workflows Settings (settings_visible=true).
+     *
+     * @return list<string>
+     */
+    public function userEditableHookKeys(): array
+    {
+        try {
+            $catalog = $this->promptHookEditorCatalog();
+            $keys = array_column($catalog->settingsVisibleHooks(), 'hook_key');
+        } catch (\Throwable) {
+            $keys = [];
+        }
+
+        $system = array_fill_keys(self::SYSTEM_MANAGED_HOOK_KEYS, true);
+        $out = [];
+        foreach ($keys as $key) {
+            $key = trim((string) $key);
+            if ($key === '' || isset($system[$key])) {
+                continue;
+            }
+            $out[] = $key;
+        }
+
+        return $out;
+    }
+
+    private function promptHookEditorCatalog(): \Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookEditorCatalog
+    {
+        try {
+            if (function_exists('app') && app()->bound(\Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookEditorCatalog::class)) {
+                return app(\Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookEditorCatalog::class);
+            }
+        } catch (\Throwable) {
+            // fall through to filesystem catalog
+        }
+
+        $loader = new \Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookDefinitionLoader(
+            \Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookDefinitionLoader::defaultV01Directory(),
+            \Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookDefinitionLoader::defaultPhase1Directory(),
+        );
+        $loader->clearCache();
+
+        return new \Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookEditorCatalog(
+            new \Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookRuntimeRegistry($loader),
+        );
+    }
+
+    public function isSystemManagedHookKey(string $hookKey): bool
+    {
+        return in_array(trim($hookKey), self::SYSTEM_MANAGED_HOOK_KEYS, true);
+    }
+
+    /**
+     * Workflows Settings save: replace only USER-editable bindings; preserve SYSTEM + unknown/legacy.
+     *
+     * @param  array<string, int>  $incomingFromForm  decoded form bindings (settings_visible hooks only)
+     * @param  array<string, int>|null  $existingBindings  inject for tests; default = stored bindings
+     * @return array<string, int>
+     */
+    public function mergePreservingNonUserEditableBindings(array $incomingFromForm, ?array $existingBindings = null): array
+    {
+        $existing = $existingBindings ?? $this->getPromptHookBindings();
+        $userKeys = $this->userEditableHookKeys();
+        $userSet = array_fill_keys($userKeys, true);
+
+        $merged = [];
+        foreach ($existing as $hookKey => $promptId) {
+            if (! isset($userSet[$hookKey])) {
+                $merged[$hookKey] = $promptId;
+            }
+        }
+
+        foreach ($userKeys as $hookKey) {
+            if (isset($incomingFromForm[$hookKey])) {
+                $merged[$hookKey] = $incomingFromForm[$hookKey];
+            }
+        }
+
+        // Defense: never drop explicitly system-managed keys even if catalog misfires.
+        foreach (self::SYSTEM_MANAGED_HOOK_KEYS as $hookKey) {
+            if (! isset($merged[$hookKey]) && isset($existing[$hookKey])) {
+                $merged[$hookKey] = $existing[$hookKey];
+            }
+        }
+
+        return $merged;
     }
 
     public function getCreateTypographyImagePromptId(): ?int
@@ -953,6 +1115,24 @@ final class SeoCreateArticleSettingsService implements \Omnichannel\Addons\Conte
     }
 
     /**
+     * Workflows Settings POST — never writes Product Gallery legacy source/task keys
+     * (preserves stored LEGACY values). Bindings must already be merge-preserved.
+     *
+     * @param  array<string, mixed>  $settings
+     */
+    public function saveWorkflowsOperatorSettings(array $settings): void
+    {
+        // Explicitly omit gallery LEGACY keys even if a caller passes them.
+        unset(
+            $settings[self::KEY_CREATE_PRODUCT_GALLERY_SOURCE],
+            $settings[self::KEY_CREATE_PRODUCT_GALLERY_TASK],
+            $settings[self::KEY_CREATE_PRODUCT_GALLERY_IMAGE],
+        );
+
+        $this->saveSettings($settings);
+    }
+
+    /**
      * Partial merge: chỉ ghi key có trong $settings — không xóa Advanced khi lưu Editor Media và ngược lại.
      *
      * @param  array<string, mixed>  $settings
@@ -1000,17 +1180,19 @@ final class SeoCreateArticleSettingsService implements \Omnichannel\Addons\Conte
         if (array_key_exists(self::KEY_PROMPT_HOOK_BINDINGS, $settings)) {
             $incoming = $this->normalizePromptHookBindings($settings[self::KEY_PROMPT_HOOK_BINDINGS]);
             $existingBindings = $this->normalizePromptHookBindings($merged[self::KEY_PROMPT_HOOK_BINDINGS] ?? null);
-            // Full replace of map when key present (Settings form owns the map).
+            // Full replace of map when key present. Workflows must call
+            // mergePreservingNonUserEditableBindings() first so SYSTEM keys are not wiped.
             $patch[self::KEY_PROMPT_HOOK_BINDINGS] = $incoming !== [] || is_array($settings[self::KEY_PROMPT_HOOK_BINDINGS])
                 ? $incoming
                 : $existingBindings;
 
-            // Mirror into legacy fields for rollback (single source still bindings at runtime).
+            // Mirror into legacy fields for rollback (use final map, not a partial form payload).
+            $finalBindings = $patch[self::KEY_PROMPT_HOOK_BINDINGS];
             foreach (self::LEGACY_PROMPT_FIELD_TO_HOOK as $legacyField => $hookKey) {
-                $patch[$legacyField] = $incoming[$hookKey] ?? null;
+                $patch[$legacyField] = $finalBindings[$hookKey] ?? null;
             }
 
-            $this->healEmptyPromptHookKeys($incoming);
+            $this->healEmptyPromptHookKeys($finalBindings);
         }
 
         if (array_key_exists(self::KEY_LEGACY_CREATE_IMAGE_PROMPT, $settings)
@@ -1173,10 +1355,10 @@ final class SeoCreateArticleSettingsService implements \Omnichannel\Addons\Conte
             self::KEY_CREATE_TYPOGRAPHY_IMAGE_TASK => null,
             self::KEY_CREATE_VIDEO => null,
             self::KEY_CREATE_VIDEO_TASK => null,
-            self::KEY_CREATE_IMAGE_SOURCE => self::SOURCE_WORKFLOW,
+            self::KEY_CREATE_IMAGE_SOURCE => self::SOURCE_NONE,
             self::KEY_CREATE_PRODUCT_GALLERY_SOURCE => self::SOURCE_PROMPT,
-            self::KEY_CREATE_TYPOGRAPHY_IMAGE_SOURCE => self::SOURCE_PROMPT,
-            self::KEY_CREATE_VIDEO_SOURCE => self::SOURCE_PROMPT,
+            self::KEY_CREATE_TYPOGRAPHY_IMAGE_SOURCE => self::SOURCE_NONE,
+            self::KEY_CREATE_VIDEO_SOURCE => self::SOURCE_NONE,
             self::KEY_RENEW_FAQ_PROMPT_ID => null,
             self::KEY_PROJECT_KEYWORDS_PROMPT_ID => null,
             self::KEY_FEATURED_SNIPPET_PROMPT_ID => null,
@@ -1205,11 +1387,15 @@ final class SeoCreateArticleSettingsService implements \Omnichannel\Addons\Conte
     private function normalizeSource(mixed $stored, ?int $taskId, ?int $promptId): string
     {
         $explicit = strtolower(trim((string) ($stored ?? '')));
-        if ($explicit === self::SOURCE_PROMPT || $explicit === self::SOURCE_WORKFLOW) {
+        if (
+            $explicit === self::SOURCE_PROMPT
+            || $explicit === self::SOURCE_WORKFLOW
+            || $explicit === self::SOURCE_NONE
+        ) {
             return $explicit;
         }
 
-        // Migrate-on-load: task ưu tiên → workflow; chỉ có prompt → prompt.
+        // Migrate-on-load: task → workflow; prompt only → prompt; empty → none (never coerce to workflow).
         if ($taskId !== null) {
             return self::SOURCE_WORKFLOW;
         }
@@ -1218,7 +1404,7 @@ final class SeoCreateArticleSettingsService implements \Omnichannel\Addons\Conte
             return self::SOURCE_PROMPT;
         }
 
-        return self::SOURCE_WORKFLOW;
+        return self::SOURCE_NONE;
     }
 
     /**

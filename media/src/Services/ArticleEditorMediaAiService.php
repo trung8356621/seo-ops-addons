@@ -1239,6 +1239,12 @@ final class ArticleEditorMediaAiService
         string $label,
         bool $imagePipeline,
     ): SeoPrompt {
+        if ($source === SeoCreateArticleSettingsService::SOURCE_NONE || $source === '') {
+            throw new \InvalidArgumentException(
+                "«{$label}» chưa được cấu hình. Vào SEO → Settings → Workflows → chọn Prompt hoặc Workflow (hoặc để «Không dùng»).",
+            );
+        }
+
         if ($source === SeoCreateArticleSettingsService::SOURCE_WORKFLOW) {
             if ($taskId === null) {
                 throw new \InvalidArgumentException(

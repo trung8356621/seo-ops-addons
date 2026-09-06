@@ -6,7 +6,7 @@
   "description": "Generate product gallery images from the selected Prompt.",
   "enabled": true,
   "status": "experimental",
-  "settings_visible": true,
+  "settings_visible": false,
   "category": "media",
   "model": {
     "provider": "prompt_connection",
@@ -51,5 +51,5 @@
   "logging": { "store_full_prompt": false, "redact_sensitive": true },
   "side_effects": [],
   "strict_template_variables": false,
-  "metadata": { "ownership": "settings_binding" }
+  "metadata": { "ownership": "system_managed" }
 }

@@ -72,24 +72,36 @@ final class WorkflowAssignmentValidator
 
         $mediaChecks = [
             [
-                'source' => SeoCreateArticleSettingsService::KEY_CREATE_PRODUCT_GALLERY_SOURCE,
-                'task' => SeoCreateArticleSettingsService::KEY_CREATE_PRODUCT_GALLERY_TASK,
-                'capability' => WorkflowCapability::ProductGallery,
-            ],
-            [
                 'source' => SeoCreateArticleSettingsService::KEY_CREATE_TYPOGRAPHY_IMAGE_SOURCE,
                 'task' => SeoCreateArticleSettingsService::KEY_CREATE_TYPOGRAPHY_IMAGE_TASK,
+                'prompt' => SeoCreateArticleSettingsService::KEY_CREATE_TYPOGRAPHY_IMAGE_PROMPT,
                 'capability' => WorkflowCapability::TypographyImage,
             ],
             [
                 'source' => SeoCreateArticleSettingsService::KEY_CREATE_VIDEO_SOURCE,
                 'task' => SeoCreateArticleSettingsService::KEY_CREATE_VIDEO_TASK,
+                'prompt' => SeoCreateArticleSettingsService::KEY_CREATE_VIDEO,
                 'capability' => WorkflowCapability::CreateVideo,
             ],
         ];
 
         foreach ($mediaChecks as $check) {
-            $source = (string) ($pendingSettings[$check['source']] ?? '');
+            $source = (string) ($pendingSettings[$check['source']] ?? SeoCreateArticleSettingsService::SOURCE_NONE);
+            if (
+                $source === ''
+                || $source === SeoCreateArticleSettingsService::SOURCE_NONE
+            ) {
+                continue;
+            }
+
+            if ($source === SeoCreateArticleSettingsService::SOURCE_PROMPT) {
+                if ($this->positiveInt($pendingSettings[$check['prompt']] ?? null) === null) {
+                    $errors[] = $check['capability']->labelVi().': đã chọn nguồn Prompt nhưng chưa chọn Prompt.';
+                }
+
+                continue;
+            }
+
             if ($source !== SeoCreateArticleSettingsService::SOURCE_WORKFLOW) {
                 continue;
             }

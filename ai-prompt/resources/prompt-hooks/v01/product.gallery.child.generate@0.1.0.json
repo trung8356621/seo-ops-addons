@@ -6,7 +6,7 @@
   "description": "Generate one child product image from parent reference and a shot definition.",
   "enabled": true,
   "status": "experimental",
-  "settings_visible": true,
+  "settings_visible": false,
   "category": "media",
   "model": {
     "provider": "prompt_connection",
@@ -76,7 +76,7 @@
   "side_effects": [],
   "strict_template_variables": true,
   "metadata": {
-    "ownership": "settings_binding",
+    "ownership": "system_managed",
     "gallery_mode": "parent_child",
     "one_image_only": true,
     "reference_attachment": "provider_runtime_inline_data"

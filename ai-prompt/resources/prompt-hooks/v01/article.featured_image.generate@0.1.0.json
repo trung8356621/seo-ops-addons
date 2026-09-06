@@ -6,7 +6,7 @@
   "description": "Generate a news/article thumbnail using the bound image Prompt and the normal featured-image pipeline.",
   "enabled": true,
   "status": "experimental",
-  "settings_visible": true,
+  "settings_visible": false,
   "category": "media",
   "model": {
     "provider": "prompt_connection",
@@ -38,7 +38,8 @@
       "Image output from the selected Prompt's image tool (tools=image) using the existing featured/thumbnail pipeline."
     ],
     "notes": [
-      "Operators may edit the Prompt Markdown in Prompt settings.",
+      "System-managed Prompt — not configurable on Workflows Settings.",
+      "Operators may still inspect/edit Markdown in Prompt Management if needed.",
       "Automation can select this Prompt on an article.image.generate / featured-image workflow step.",
       "This Hook does not add a dedicated image-settings card."
     ],
@@ -50,5 +51,5 @@
   "logging": { "store_full_prompt": false, "redact_sensitive": true },
   "side_effects": [],
   "strict_template_variables": false,
-  "metadata": { "ownership": "settings_binding" }
+  "metadata": { "ownership": "system_managed" }
 }
