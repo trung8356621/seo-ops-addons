@@ -118,6 +118,9 @@ class CreateAiConnection extends SeoCreateRecord
         if ($this->record instanceof \App\Models\ApiConnection && ApiConnectionProviders::isAi((string) $this->record->provider)) {
             app(\Omnichannel\Addons\AiPrompt\Services\AiModelPriorityService::class)
                 ->assignBottomProviderPriority((int) auth()->id(), $this->record);
+            app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionInventoryService::class)->forgetCache();
+            app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionCoverageService::class)
+                ->reconcileAllTextAreas((int) auth()->id());
         }
     }
 

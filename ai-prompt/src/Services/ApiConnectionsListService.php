@@ -19,6 +19,7 @@ final class ApiConnectionsListService
         private readonly DataForSeoConnectionService $dataForSeo,
         private readonly SeoSerpProviderConnectionService $serpConnections,
         private readonly SeoExtendedProviderConnectionService $extendedConnections,
+        private readonly AiConnectionInventoryService $aiInventory = new AiConnectionInventoryService(),
     ) {}
 
     /**
@@ -27,13 +28,18 @@ final class ApiConnectionsListService
     public function recordsForUser(int $userId): Collection
     {
         /** @var Collection<int, Model> $records */
-        $records = ApiConnection::query()
-            ->where(function ($query) use ($userId): void {
-                $query->where('user_id', $userId)
-                    ->orWhere('is_global', true);
-            })
-            ->orderBy('name')
-            ->get();
+        $records = new Collection();
+
+        foreach ($this->aiInventory->configuredAiConnections($userId) as $connection) {
+            // Ensure type filter/sort never treats AI rows as missing connection_type.
+            if ($connection->getAttribute('connection_type') === null) {
+                $connection->setAttribute(
+                    'connection_type',
+                    \Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders::connectionType((string) $connection->provider)->value,
+                );
+            }
+            $records->push($connection);
+        }
 
         foreach ($this->gscConnection->allForUser($userId) as $gscConnection) {
             $records->push(ApiConnectionListRow::fromGsc($gscConnection));
@@ -52,6 +58,6 @@ final class ApiConnectionsListService
             $records->push(ApiConnectionListRow::fromExtendedProvider($extendedConnection));
         }
 
-        return $records;
+        return $records->sortBy(static fn (Model $row): string => (string) $row->getAttribute('name'))->values();
     }
 }

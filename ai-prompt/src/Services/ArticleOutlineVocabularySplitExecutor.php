@@ -143,7 +143,7 @@ final class ArticleOutlineVocabularySplitExecutor
                 $outlineAiInvoked = true;
             } catch (PromptHookFailure $exception) {
                 return $this->fail(
-                    'Outline generation failed: '.$exception->getMessage(),
+                    'Outline generation failed: '.$this->publicFacingErrorMessage($exception),
                     outlineResult: [
                         'error' => $exception->getMessage(),
                         'result_id' => $exception->promptResultId(),
@@ -158,7 +158,7 @@ final class ArticleOutlineVocabularySplitExecutor
                 $promptResultId = $this->exceptionPromptResultId($exception);
 
                 return $this->fail(
-                    'Outline generation failed: '.$exception->getMessage(),
+                    'Outline generation failed: '.$this->publicFacingErrorMessage($exception),
                     outlineResult: [
                         'error' => $exception->getMessage(),
                         'result_id' => $promptResultId,
@@ -214,7 +214,7 @@ final class ArticleOutlineVocabularySplitExecutor
             $vocabularyAiInvoked = true;
         } catch (PromptHookFailure $exception) {
             return $this->fail(
-                'Vocabulary generation failed: '.$exception->getMessage(),
+                'Vocabulary generation failed: '.$this->publicFacingErrorMessage($exception),
                 outlineResult: $outlineResult,
                 vocabularyResult: [
                     'error' => $exception->getMessage(),
@@ -233,7 +233,7 @@ final class ArticleOutlineVocabularySplitExecutor
             $promptResultId = $this->exceptionPromptResultId($exception);
 
             return $this->fail(
-                'Vocabulary generation failed: '.$exception->getMessage(),
+                'Vocabulary generation failed: '.$this->publicFacingErrorMessage($exception),
                 outlineResult: $outlineResult,
                 vocabularyResult: [
                     'error' => $exception->getMessage(),
@@ -605,6 +605,20 @@ final class ArticleOutlineVocabularySplitExecutor
         $out['exception_class'] = $source::class;
 
         return $out;
+    }
+
+    private function publicFacingErrorMessage(\Throwable $exception): string
+    {
+        for ($current = $exception; $current !== null; $current = $current->getPrevious()) {
+            if ($current instanceof PromptRunException) {
+                $user = trim($current->userMessage());
+                if ($user !== '') {
+                    return $user;
+                }
+            }
+        }
+
+        return $exception->getMessage();
     }
 
     private function positiveInt(mixed $value): ?int

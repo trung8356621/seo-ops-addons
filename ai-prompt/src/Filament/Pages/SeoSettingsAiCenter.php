@@ -231,19 +231,20 @@ class SeoSettingsAiCenter extends Page
     {
         $userId = (int) auth()->id();
         $rows = [];
-        foreach (app(AiModelPriorityService::class)->aiConnections($userId) as $connection) {
-            if (ApiConnectionProviders::isExternal((string) $connection->provider)
-                || ApiConnectionProviders::isSeo((string) $connection->provider)) {
-                continue;
-            }
+        $inventory = app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionInventoryService::class);
+        foreach ($inventory->configuredAiConnections($userId) as $connection) {
+            $usable = \Omnichannel\Addons\AiPrompt\Support\AiConnectionCredential::isUsable($connection->api_key);
             $rows[] = [
                 'id' => (int) $connection->id,
                 'name' => ApiConnectionProviders::label((string) $connection->provider),
                 'connection_key' => (string) $connection->provider,
                 'connection_name' => (string) $connection->name,
-                'status' => filled($connection->api_key) && (string) $connection->status === 'active'
-                    ? 'connected'
-                    : 'not_configured',
+                // Configured ≠ healthy. Unusable key still counts as configured.
+                'status' => (string) $connection->status === 'inactive'
+                    ? 'inactive'
+                    : ($usable ? 'connected' : 'needs_attention'),
+                'configured' => true,
+                'credential_usable' => $usable,
                 'enabled' => (string) $connection->status !== 'inactive',
                 'model_count' => SeoAiModel::query()->where('api_connection_id', $connection->id)->count(),
                 'edit_url' => AiConnectionResource::getUrl('edit', ['record' => $connection]),
@@ -253,6 +254,15 @@ class SeoSettingsAiCenter extends Page
         }
 
         return $rows;
+    }
+
+    /**
+     * @return array{configured: int, active: int, inactive: int, credential_usable: int, credential_unusable: int}
+     */
+    public function apiConnectionCounts(): array
+    {
+        return app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionInventoryService::class)
+            ->counts((int) auth()->id());
     }
 
     /**
@@ -294,6 +304,26 @@ class SeoSettingsAiCenter extends Page
                 'cost' => $this->modelCost,
             ],
         );
+    }
+
+    /**
+     * Connection coverage for the active model area (fallback guard status).
+     *
+     * @return list<array<string, mixed>>
+     */
+    public function connectionCoverageRows(?string $area = null): array
+    {
+        return app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionCoverageService::class)
+            ->coverageReport((int) auth()->id(), AiModelArea::tryFromMixed($area ?? $this->modelArea));
+    }
+
+    public function reconcileConnectionCoverage(?string $area = null): void
+    {
+        $this->assertManager();
+        $areaEnum = AiModelArea::tryFromMixed($area ?? $this->modelArea);
+        app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionCoverageService::class)
+            ->reconcileArea((int) auth()->id(), $areaEnum);
+        $this->bustInventoryCache();
     }
 
     /**

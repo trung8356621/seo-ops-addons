@@ -4,11 +4,12 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Models;
 
+use App\Models\Concerns\UsesCoreDatabaseConnection;
 use Illuminate\Database\Eloquent\Model;
 
 class AiProviderTemplate extends Model
 {
-    protected $connection = 'mysql';
+    use UsesCoreDatabaseConnection;
 
     protected $table = 'ai_provider_templates';
 

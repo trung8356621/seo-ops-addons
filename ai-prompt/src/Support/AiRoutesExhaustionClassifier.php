@@ -28,6 +28,8 @@ final class AiRoutesExhaustionClassifier
         'model_unavailable',
         'connection_locked',
         'connection_paid_locked',
+        'connection_suppressed',
+        'paid_lane_suppressed',
     ];
 
     /** @var list<string> */

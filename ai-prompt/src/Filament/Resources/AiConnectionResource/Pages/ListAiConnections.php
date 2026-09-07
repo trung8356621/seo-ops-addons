@@ -106,7 +106,14 @@ class ListAiConnections extends ListRecords
 
         if ($this->connectionTypeFilter !== 'all') {
             $records = $records
-                ->filter(fn (Model $record): bool => (string) $record->getAttribute('connection_type') === $this->connectionTypeFilter)
+                ->filter(function (Model $record): bool {
+                    $type = (string) $record->getAttribute('connection_type');
+                    if ($type === '' && $record instanceof \App\Models\ApiConnection) {
+                        $type = ApiConnectionProviders::connectionType((string) $record->getAttribute('provider'))->value;
+                    }
+
+                    return $type === $this->connectionTypeFilter;
+                })
                 ->values();
         }
 

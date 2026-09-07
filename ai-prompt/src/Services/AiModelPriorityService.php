@@ -194,18 +194,9 @@ final class AiModelPriorityService
         if (isset($this->connectionsMemo[$userId])) {
             return $this->connectionsMemo[$userId];
         }
-        $out = [];
-        foreach (ApiConnection::query()
-            ->where(function ($query) use ($userId): void {
-                $query->where('user_id', $userId)->orWhere('is_global', true);
-            })
-            ->get() as $connection) {
-            if (ApiConnectionProviders::isExternal((string) $connection->provider)
-                || ApiConnectionProviders::isSeo((string) $connection->provider)) {
-                continue;
-            }
-            $out[] = $connection;
-        }
+        $out = app(AiConnectionInventoryService::class)
+            ->configuredAiConnections($userId)
+            ->all();
 
         return $this->connectionsMemo[$userId] = $this->sortConnections($out);
     }
@@ -391,11 +382,15 @@ final class AiModelPriorityService
     public function reorderArea(int $userId, AiModelArea $area, array $orderedModelIds): void
     {
         $pivots = $this->ownedModels($userId, $orderedModelIds);
-        $connectionIds = $pivots->pluck('api_connection_id')->unique()->all();
-        $all = SeoAiModel::query()
-            ->whereIn('api_connection_id', $connectionIds !== [] ? $connectionIds : [0])
-            ->get()
-            ->keyBy(static fn (SeoAiModel $model): int => (int) $model->id);
+        $all = collect();
+        foreach ($this->aiConnections($userId) as $connection) {
+            foreach (SeoAiModel::query()->where('api_connection_id', $connection->id)->get() as $model) {
+                $all->put((int) $model->id, $model);
+            }
+        }
+        foreach ($pivots as $id => $model) {
+            $all->put((int) $id, $model);
+        }
         $rank = 1;
         $seen = [];
         foreach ($orderedModelIds as $id) {

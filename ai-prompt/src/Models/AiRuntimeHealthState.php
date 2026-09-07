@@ -4,18 +4,18 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Models;
 
+use App\Models\Concerns\UsesCoreDatabaseConnection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use App\Models\ApiConnection;
 
 final class AiRuntimeHealthState extends Model
 {
+    use UsesCoreDatabaseConnection;
+
     public const SUBJECT_CONNECTION = 'connection';
 
     public const SUBJECT_MODEL = 'model';
-
-    /** Core mysql — same physical DB as api_connections / seo_ai_models. */
-    protected $connection = 'mysql';
 
     protected $table = 'ai_runtime_health_states';
 

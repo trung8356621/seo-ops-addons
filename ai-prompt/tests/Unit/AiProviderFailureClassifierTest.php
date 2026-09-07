@@ -57,10 +57,28 @@ final class AiProviderFailureClassifierTest extends TestCase
     {
         $decision = $this->classifier->classify(new PromptRunException('429 rate limit', 429));
         $this->assertSame(AiFailureClass::RateLimited, $decision->category);
+        $this->assertSame(AiFailureScope::Model, $decision->scope);
         $this->assertTrue($decision->applyCooldown);
         $this->assertFalse($decision->manualUnlockRequired);
         $this->assertFalse($decision->lockConnectionPaid);
         $this->assertTrue($decision->fallbackAllowed());
+    }
+
+    public function test_429_account_quota_is_connection_scoped(): void
+    {
+        $decision = $this->classifier->classify(new PromptRunException('organization quota exceeded', 429));
+        $this->assertSame(AiFailureClass::RateLimited, $decision->category);
+        $this->assertSame(AiFailureScope::Connection, $decision->scope);
+        $this->assertTrue($decision->applyCooldown);
+        $this->assertFalse($decision->lockConnection);
+    }
+
+    public function test_403_account_restriction_locks_connection(): void
+    {
+        $decision = $this->classifier->classify(new PromptRunException('forbidden: account disabled', 403));
+        $this->assertSame(AiFailureClass::AccountRestricted, $decision->category);
+        $this->assertSame(AiFailureScope::Connection, $decision->scope);
+        $this->assertTrue($decision->lockConnection);
     }
 
     public function test_503_transient_allows_fallback(): void

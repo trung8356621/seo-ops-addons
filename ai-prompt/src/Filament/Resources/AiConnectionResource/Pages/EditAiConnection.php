@@ -156,5 +156,8 @@ class EditAiConnection extends SeoEditRecord
         }
 
         app(AiModelRouterService::class)->syncModelsForConnection((int) $this->record->id);
+        app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionInventoryService::class)->forgetCache();
+        app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionCoverageService::class)
+            ->reconcileAllTextAreas((int) auth()->id());
     }
 }

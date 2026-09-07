@@ -306,13 +306,10 @@ class AiConnectionResource extends SeoPanelResource
 
     public static function getEloquentQuery(): Builder
     {
-        $userId = auth()->id();
+        $userId = (int) (auth()->id() ?? 0);
 
-        return parent::getEloquentQuery()
-            ->where(function (Builder $query) use ($userId): void {
-                $query->where('user_id', $userId)
-                    ->orWhere('is_global', true);
-            });
+        return app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionInventoryService::class)
+            ->queryForViewer($userId);
     }
 
     public static function getPages(): array

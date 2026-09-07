@@ -216,6 +216,22 @@ final class AiProviderFailureClassifier
         }
 
         if ($httpStatus === 429 || $this->matchesRateLimit($lower, $providerCode)) {
+            if ($this->matchesAccountWideQuota($lower, $providerCode) || $this->matchesBilling($lower, $providerCode)) {
+                return $this->allow(
+                    category: AiFailureClass::RateLimited,
+                    scope: AiFailureScope::Connection,
+                    safeMessage: 'Account or API-key quota exhausted.',
+                    errorCode: '429',
+                    httpStatus: 429,
+                    healthStatus: AiRuntimeHealthStatus::Degraded,
+                    applyCooldown: true,
+                    failureStage: 'provider_http',
+                    providerErrorCode: $providerCode,
+                    requestSent: true,
+                    responseReceived: true,
+                );
+            }
+
             return $this->allow(
                 category: AiFailureClass::RateLimited,
                 scope: AiFailureScope::Model,
@@ -502,6 +518,36 @@ final class AiProviderFailureClassifier
             || str_contains($lower, 'rate_limit')
             || str_contains($lower, 'too many requests')
             || str_contains($lower, 'quota temporarily');
+    }
+
+    /**
+     * Account / organization / API-key quota (connection-scoped), not a single-model limit.
+     */
+    private function matchesAccountWideQuota(string $lower, ?string $providerCode): bool
+    {
+        if ($providerCode !== null && in_array($providerCode, [
+            'insufficient_quota',
+            'billing_hard_limit_reached',
+            'organization_quota',
+            'account_quota',
+            'key_limit_exceeded',
+        ], true)) {
+            return true;
+        }
+
+        return str_contains($lower, 'organization quota')
+            || str_contains($lower, 'account quota')
+            || str_contains($lower, 'api key quota')
+            || str_contains($lower, 'key quota')
+            || str_contains($lower, 'quota exceeded')
+            || str_contains($lower, 'monthly limit')
+            || str_contains($lower, 'usage limit')
+            || (str_contains($lower, 'quota') && (
+                str_contains($lower, 'account')
+                || str_contains($lower, 'organization')
+                || str_contains($lower, 'billing')
+                || str_contains($lower, 'credits')
+            ));
     }
 
     private function matchesTransientProvider(int $httpStatus, string $lower, ?string $providerCode): bool

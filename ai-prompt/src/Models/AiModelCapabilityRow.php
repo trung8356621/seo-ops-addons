@@ -4,11 +4,14 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Models;
 
+use App\Models\Concerns\UsesCoreDatabaseConnection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class AiModelCapabilityRow extends Model
 {
+    use UsesCoreDatabaseConnection;
+
     protected $table = 'ai_model_capabilities';
 
     protected $guarded = [];

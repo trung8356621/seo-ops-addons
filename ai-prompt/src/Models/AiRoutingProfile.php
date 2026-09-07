@@ -4,12 +4,15 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Models;
 
+use App\Models\Concerns\UsesCoreDatabaseConnection;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class AiRoutingProfile extends Model
 {
+    use UsesCoreDatabaseConnection;
+
     protected $table = 'ai_routing_profiles';
 
     protected $guarded = [];

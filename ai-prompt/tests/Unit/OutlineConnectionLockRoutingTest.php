@@ -56,6 +56,7 @@ final class OutlineConnectionLockRoutingTest extends TestCase
         foreach (['ai_routing_targets', 'ai_routing_profiles', 'ai_model_capabilities', 'seo_ai_models', 'api_connections', 'users', 'wp_options'] as $table) {
             Schema::dropIfExists($table);
         }
+        Schema::dropIfExists('ai_runtime_health_states');
         Schema::connection('mysql')->dropIfExists('ai_runtime_health_states');
         Schema::create('users', function (Blueprint $table): void {
             $table->id();
@@ -121,7 +122,7 @@ final class OutlineConnectionLockRoutingTest extends TestCase
             $table->json('options')->nullable();
             $table->timestamps();
         });
-        Schema::connection('mysql')->create('ai_runtime_health_states', function (Blueprint $table): void {
+        Schema::create('ai_runtime_health_states', function (Blueprint $table): void {
             $table->id();
             $table->unsignedBigInteger('user_id')->index();
             $table->string('subject_type', 32);
@@ -250,7 +251,9 @@ final class OutlineConnectionLockRoutingTest extends TestCase
             $this->assertSame(0, (int) ($exception->context['attempt_count'] ?? -1));
             $this->assertStringContainsString('connection lock', $exception->getMessage());
             $this->assertStringNotContainsString('No eligible AI route was attempted', $exception->getMessage());
-            $this->assertSame(2, (int) (($exception->context['skip_counts']['connection_locked'] ?? 0)));
+            $skipCounts = $exception->context['skip_counts'] ?? [];
+            $this->assertSame(1, (int) ($skipCounts['connection_locked'] ?? 0));
+            $this->assertSame(1, (int) ($skipCounts['connection_suppressed'] ?? 0));
         }
         unset($models);
     }

@@ -86,6 +86,10 @@ final class AiRuntimeHealthService
             $row->success_count++;
             $row->consecutive_failures = 0;
             $row->last_success_at = $now;
+            $counts = is_array($row->failure_counts) ? $row->failure_counts : [];
+            $counts['consecutive_connection'] = 0;
+            $counts['consecutive_paid_lane'] = 0;
+            $row->failure_counts = $counts;
             if (! $row->manual_unlock_required && ! $row->paid_locked) {
                 $row->health_status = AiRuntimeHealthStatus::Healthy->value;
                 $row->cooldown_until = null;
@@ -132,11 +136,16 @@ final class AiRuntimeHealthService
         $this->mutateSubject($userId, AiRuntimeHealthState::SUBJECT_CONNECTION, $connectionId, $connectionId, function (AiRuntimeHealthState $row) use ($decision, $now, $errorCode, $userId): void {
             $previous = AiRuntimeHealthStatus::tryFrom($row->health_status) ?? AiRuntimeHealthStatus::NoData;
             $this->incrementFailureCounters($row, $errorCode, $decision, $now);
+            $this->bumpScopedConsecutiveCounters($row, $decision);
 
-            if ($decision->lockConnection) {
+            if ($decision->lockConnection
+                || (($this->scopedConsecutive($row, 'consecutive_connection') >= self::DEGRADED_THRESHOLD)
+                    && $decision->scope === AiFailureScope::Connection)) {
                 $row->health_status = AiRuntimeHealthStatus::ConnectionLocked->value;
                 $row->manual_unlock_required = true;
-            } elseif ($decision->lockConnectionPaid) {
+            } elseif ($decision->lockConnectionPaid
+                || (($this->scopedConsecutive($row, 'consecutive_paid_lane') >= self::DEGRADED_THRESHOLD)
+                    && ($decision->scope === AiFailureScope::ConnectionPaid || $decision->lockConnectionPaid))) {
                 $row->health_status = AiRuntimeHealthStatus::BudgetLimited->value;
                 $row->paid_locked = true;
                 $row->manual_unlock_required = true;
@@ -443,10 +452,15 @@ final class AiRuntimeHealthService
     private function tableReady(): bool
     {
         try {
-            return Schema::connection(self::CONNECTION_NAME)->hasTable('ai_runtime_health_states');
+            return Schema::connection($this->connectionName())->hasTable('ai_runtime_health_states');
         } catch (\Throwable) {
             return false;
         }
+    }
+
+    private function connectionName(): string
+    {
+        return (string) config('database.core_connection', self::CONNECTION_NAME);
     }
 
     private function findSubject(int $userId, string $subjectType, int $subjectId): ?AiRuntimeHealthState
@@ -478,7 +492,7 @@ final class AiRuntimeHealthService
             return;
         }
 
-        DB::connection(self::CONNECTION_NAME)->transaction(function () use ($userId, $subjectType, $subjectId, $connectionId, $mutator): void {
+        DB::connection($this->connectionName())->transaction(function () use ($userId, $subjectType, $subjectId, $connectionId, $mutator): void {
             $row = AiRuntimeHealthState::query()
                 ->lockForUpdate()
                 ->firstOrCreate(
@@ -521,6 +535,30 @@ final class AiRuntimeHealthService
             $counts[$errorCode] = (int) ($counts[$errorCode] ?? 0) + 1;
         }
         $row->failure_counts = $counts;
+    }
+
+    private function bumpScopedConsecutiveCounters(AiRuntimeHealthState $row, AiFailureDecision $decision): void
+    {
+        $counts = is_array($row->failure_counts) ? $row->failure_counts : [];
+        if ($decision->scope === AiFailureScope::Model || $decision->scope === AiFailureScope::System) {
+            $row->failure_counts = $counts;
+
+            return;
+        }
+        if ($decision->lockConnectionPaid || $decision->scope === AiFailureScope::ConnectionPaid) {
+            $counts['consecutive_paid_lane'] = (int) ($counts['consecutive_paid_lane'] ?? 0) + 1;
+            // Paid-lane failure must not inflate connection breaker.
+        } elseif ($decision->lockConnection || $decision->scope === AiFailureScope::Connection) {
+            $counts['consecutive_connection'] = (int) ($counts['consecutive_connection'] ?? 0) + 1;
+        }
+        $row->failure_counts = $counts;
+    }
+
+    private function scopedConsecutive(AiRuntimeHealthState $row, string $key): int
+    {
+        $counts = is_array($row->failure_counts) ? $row->failure_counts : [];
+
+        return (int) ($counts[$key] ?? 0);
     }
 
     private function statusFromConsecutiveFailures(AiRuntimeHealthState $row): AiRuntimeHealthStatus
@@ -626,8 +664,8 @@ final class AiRuntimeHealthService
 
     private function cooldownAppliesToConnection(AiFailureDecision $decision): bool
     {
-        return $decision->scope === AiFailureScope::Connection
-            || $decision->scope === AiFailureScope::ConnectionPaid;
+        // Paid-lane failures must not cooldown the whole connection (free lane stays usable).
+        return $decision->scope === AiFailureScope::Connection;
     }
 
     /**

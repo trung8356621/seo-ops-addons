@@ -150,11 +150,90 @@ final class AiCenterModelPresenter
             if ($cost === 'paid' && $row['is_free']) {
                 continue;
             }
+            $row['canonical_model_key'] = (string) ($row['family_key'] ?? '');
+            $row['routes'] = [[
+                'connection_id' => (int) ($row['connection_id'] ?? 0),
+                'provider_key' => (string) ($row['provider_key'] ?? ''),
+                'provider' => (string) ($row['provider'] ?? ''),
+                'is_aggregator' => ApiConnectionProviders::isAggregator((string) ($row['provider_key'] ?? '')),
+                'ids' => array_values(array_map('intval', $row['ids'] ?? [])),
+            ]];
             $rows[] = $row;
         }
+        $rows = $this->snapLogicalModelRows($rows);
         usort($rows, static fn (array $a, array $b): int => ((int) ($a['area_priority'] ?? 0)) <=> ((int) ($b['area_priority'] ?? 0)));
 
         return array_values($rows);
+    }
+
+    /**
+     * Collapse same canonical/family key across connections into one drag card.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @return list<array<string, mixed>>
+     */
+    private function snapLogicalModelRows(array $rows): array
+    {
+        /** @var array<string, array<string, mixed>> $byKey */
+        $byKey = [];
+        /** @var list<string> $order */
+        $order = [];
+
+        foreach ($rows as $row) {
+            $key = (string) ($row['canonical_model_key'] ?? $row['family_key'] ?? '');
+            if ($key === '' || str_starts_with($key, 'unknown.')) {
+                // Unknown / no family: never snap by display name.
+                $unique = 'singleton:'.(string) ($row['identity'] ?? (((string) ($row['connection_id'] ?? '0')).'|'.(string) (($row['ids'][0] ?? 'x'))));
+                $byKey[$unique] = $row;
+                $order[] = $unique;
+                continue;
+            }
+            if (! isset($byKey[$key])) {
+                $byKey[$key] = $row;
+                $order[] = $key;
+                continue;
+            }
+            $existing = $byKey[$key];
+            $routes = array_merge(
+                is_array($existing['routes'] ?? null) ? $existing['routes'] : [],
+                is_array($row['routes'] ?? null) ? $row['routes'] : [],
+            );
+            usort($routes, static function (array $a, array $b): int {
+                $ra = ! empty($a['is_aggregator']) ? 2 : 1;
+                $rb = ! empty($b['is_aggregator']) ? 2 : 1;
+
+                return $ra <=> $rb;
+            });
+            $existing['routes'] = array_values($routes);
+            $existingIds = array_values(array_map('intval', $existing['ids'] ?? []));
+            $rowIds = array_values(array_map('intval', $row['ids'] ?? []));
+            $existing['ids'] = array_values(array_unique(array_merge($existingIds, $rowIds)));
+            $existing['area_priority'] = min(
+                (int) ($existing['area_priority'] ?? PHP_INT_MAX),
+                (int) ($row['area_priority'] ?? PHP_INT_MAX),
+            );
+            $providers = [];
+            foreach ($existing['routes'] as $route) {
+                $label = (string) ($route['provider'] ?? '');
+                if ($label !== '') {
+                    $providers[$label] = true;
+                }
+            }
+            $existing['provider'] = implode(' · ', array_keys($providers));
+            $existing['provider_key'] = 'logical';
+            $existing['connection_id'] = (int) (($existing['routes'][0]['connection_id'] ?? $existing['connection_id']) ?: 0);
+            $existing['identity'] = 'logical|'.$key;
+            $byKey[$key] = $existing;
+        }
+
+        $out = [];
+        foreach ($order as $key) {
+            if (isset($byKey[$key])) {
+                $out[] = $byKey[$key];
+            }
+        }
+
+        return $out;
     }
 
     /**

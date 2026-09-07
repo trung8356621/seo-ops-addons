@@ -197,10 +197,10 @@ final class AiRoutingTargetService
             $resolved = (new FreeRoutingResolver())->resolve($canonical);
             $this->lastEligibilityDiagnostics['candidates_after_free_only'] = count($resolved);
 
-            return $resolved;
+            return (new LogicalModelRouteOrder())->apply($resolved);
         }
 
-        return $canonical;
+        return (new LogicalModelRouteOrder())->apply($canonical);
     }
 
     /**

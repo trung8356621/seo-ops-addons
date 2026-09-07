@@ -49,6 +49,7 @@ final class AiRuntimeHealthRecoveryAndExhaustionTest extends TestCase
         foreach (['ai_routing_targets', 'ai_routing_profiles', 'ai_model_capabilities', 'seo_ai_models', 'api_connections', 'wp_options'] as $table) {
             Schema::dropIfExists($table);
         }
+        Schema::dropIfExists('ai_runtime_health_states');
         Schema::connection('mysql')->dropIfExists('ai_runtime_health_states');
         Schema::create('api_connections', function (Blueprint $table): void {
             $table->id();
@@ -109,7 +110,7 @@ final class AiRuntimeHealthRecoveryAndExhaustionTest extends TestCase
             $table->json('options')->nullable();
             $table->timestamps();
         });
-        Schema::connection('mysql')->create('ai_runtime_health_states', function (Blueprint $table): void {
+        Schema::create('ai_runtime_health_states', function (Blueprint $table): void {
             $table->id();
             $table->unsignedBigInteger('user_id')->index();
             $table->string('subject_type', 32);

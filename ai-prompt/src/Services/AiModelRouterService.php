@@ -15,6 +15,7 @@ use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\Services\Ai\DeepSeekChatClient;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
 use Omnichannel\Addons\AiPrompt\Support\AiFailureClass;
+use Omnichannel\Addons\AiPrompt\Support\AiFailureScope;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
 use Omnichannel\Addons\Seo\Support\AiModelCategory;
 use Omnichannel\Addons\Seo\Support\GeminiModelVersionPolicy;
@@ -203,11 +204,43 @@ final class AiModelRouterService
             $candidates,
         );
 
+        /** @var array<int, true> full connection suppress (credential / account) */
+        $suppressedConnections = [];
+        /** @var array<int, true> paid billing-lane suppress — free routes on same connection remain eligible */
+        $suppressedPaidLanes = [];
+
         foreach ($candidates as $index => $candidate) {
             $attemptNumber = $index + 1;
+            $connectionId = (int) $candidate->connection->id;
+
+            if (isset($suppressedConnections[$connectionId])) {
+                $routingAttempts[] = $this->attemptLog(
+                    $candidate,
+                    $attemptNumber,
+                    'skipped',
+                    'connection_suppressed',
+                );
+                continue;
+            }
+
+            if (! $candidate->isFree && isset($suppressedPaidLanes[$connectionId])) {
+                $routingAttempts[] = $this->attemptLog(
+                    $candidate,
+                    $attemptNumber,
+                    'skipped',
+                    'paid_lane_suppressed',
+                );
+                continue;
+            }
+
             $skipReason = $health->skipReason($userId, $candidate);
             if ($skipReason !== null) {
                 $routingAttempts[] = $this->attemptLog($candidate, $attemptNumber, 'skipped', $skipReason);
+                if ($skipReason === 'connection_locked' || $skipReason === 'connection_cooldown') {
+                    $suppressedConnections[$connectionId] = true;
+                } elseif ($skipReason === 'connection_paid_locked') {
+                    $suppressedPaidLanes[$connectionId] = true;
+                }
                 continue;
             }
 
@@ -264,6 +297,12 @@ final class AiModelRouterService
                 $health->recordFailure($userId, $candidate, $decision);
                 $this->applyLegacyHealthSideEffects($candidate, $decision);
 
+                if ($this->isFullConnectionSuppressDecision($decision)) {
+                    $suppressedConnections[$connectionId] = true;
+                } elseif ($this->isPaidLaneSuppressDecision($decision)) {
+                    $suppressedPaidLanes[$connectionId] = true;
+                }
+
                 $fallbackCount++;
                 $reasons[] = 'position '.$candidate->priority.' attempt '.$attemptNumber.' '
                     .$candidate->provider.'/'.$candidate->model.': '.$decision->safeMessage;
@@ -276,6 +315,12 @@ final class AiModelRouterService
                     array_merge(
                         $this->qualityAttemptMeta($exception),
                         $decision->toAttemptDiagnostics(),
+                        [
+                            'failure_scope' => $decision->scope->value,
+                            'billing_lane' => $candidate->isFree ? 'free' : 'paid',
+                            'connection_suppressed' => $this->isFullConnectionSuppressDecision($decision),
+                            'paid_lane_suppressed' => $this->isPaidLaneSuppressDecision($decision),
+                        ],
                     ),
                 );
 
@@ -283,10 +328,13 @@ final class AiModelRouterService
                     $candidate->toAttemptLogContext($attemptNumber, $routeRevision),
                     [
                         'failure_class' => $decision->category->value,
+                        'failure_scope' => $decision->scope->value,
                         'http_status' => $decision->httpStatus,
                         'error' => $decision->safeMessage,
                         'fallback_allowed' => $decision->fallbackAllowed(),
                         'failure_stage' => $decision->failureStage,
+                        'connection_suppressed' => $this->isFullConnectionSuppressDecision($decision),
+                        'paid_lane_suppressed' => $this->isPaidLaneSuppressDecision($decision),
                         'next' => $decision->fallbackAllowed() && isset($candidates[$index + 1]),
                         'routing_owner_user_id' => $userId,
                         'eligible_models' => $eligibleModels,
@@ -315,6 +363,19 @@ final class AiModelRouterService
             $providerKeys[(string) $candidate->provider] = true;
         }
 
+        $failCounts = $this->attemptCounts($routingAttempts, 'failed', 'failure_class');
+        $lastFailureClass = null;
+        foreach (array_reverse($routingAttempts) as $row) {
+            if (! is_array($row) || (string) ($row['result'] ?? '') !== 'failed') {
+                continue;
+            }
+            $cls = (string) ($row['failure_class'] ?? '');
+            if ($cls !== '') {
+                $lastFailureClass = $cls;
+                break;
+            }
+        }
+
         $diagnostics = array_merge($this->eligibilityDiagnostics(), [
             'routing_owner_user_id' => $userId,
             'profile' => $profile,
@@ -336,7 +397,9 @@ final class AiModelRouterService
             'hard_failure_count' => $classified['hard_failure_count'],
             'free_budget_skip_count' => $classified['free_budget_skip_count'],
             'skip_counts' => $this->attemptCounts($routingAttempts, 'skipped', 'skip_reason'),
-            'fail_counts' => $this->attemptCounts($routingAttempts, 'failed', 'failure_class'),
+            'fail_counts' => $failCounts,
+            'last_failure_class' => $lastFailureClass,
+            'connection_lock_reason' => $lastFailureClass,
         ]);
 
         if (function_exists('logger')) {
@@ -361,6 +424,31 @@ final class AiModelRouterService
      * @param  list<array<string, mixed>>  $routingAttempts
      * @return array<string, int>
      */
+    /**
+     * Full connection suppress (credential / account) — blocks paid and free on that connection.
+     */
+    private function isFullConnectionSuppressDecision(AiFailureDecision $decision): bool
+    {
+        return $decision->lockConnection
+            || $decision->scope === AiFailureScope::Connection;
+    }
+
+    /**
+     * Paid billing-lane suppress — free routes on the same connection stay eligible.
+     */
+    private function isPaidLaneSuppressDecision(AiFailureDecision $decision): bool
+    {
+        return $decision->lockConnectionPaid
+            || $decision->scope === AiFailureScope::ConnectionPaid;
+    }
+
+    /** @deprecated Use isFullConnectionSuppressDecision / isPaidLaneSuppressDecision */
+    private function isConnectionScopedDecision(AiFailureDecision $decision): bool
+    {
+        return $this->isFullConnectionSuppressDecision($decision)
+            || $this->isPaidLaneSuppressDecision($decision);
+    }
+
     private function attemptCounts(array $routingAttempts, string $result, string $detailKey): array
     {
         $counts = [];
