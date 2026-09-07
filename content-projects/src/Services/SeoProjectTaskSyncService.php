@@ -48,6 +48,7 @@ final class SeoProjectTaskSyncService
         'content_length_override',
         'content_length_target_words',
         'generation_mode_override',
+        'generation_strategy_override',
         'model_override_id',
         'model_override_mode',
         'title_protection',
@@ -64,6 +65,7 @@ final class SeoProjectTaskSyncService
         'content_length_override',
         'content_length_target_words',
         'generation_mode_override',
+        'generation_strategy_override',
         'model_override_id',
         'model_override_mode',
         'title_protection',
@@ -506,7 +508,7 @@ final class SeoProjectTaskSyncService
             'description' => $row->description,
             'loai_san_pham' => $row->loaiSanPham,
             'target_date' => $targetDate,
-            ...$row->generationPolicyColumns(),
+            ...$this->filterExistingPolicyColumns($row->generationPolicyColumns()),
             'title_protection' => $this->resolveTitleProtection($row, $task),
         ];
 
@@ -601,6 +603,7 @@ final class SeoProjectTaskSyncService
                 'title_protection' => $this->resolveTitleProtection($row, null),
             ]
             : [];
+        $policy = $this->filterExistingPolicyColumns($policy);
 
         $task = $this->uniqueWriter->createStrict([
             'project_id' => (int) $project->id,
@@ -717,10 +720,55 @@ final class SeoProjectTaskSyncService
     private function editableFields(): array
     {
         if ($this->policyColumnsAvailable()) {
-            return self::EDITABLE_FIELDS;
+            return array_values(array_filter(
+                self::EDITABLE_FIELDS,
+                fn (string $field): bool => ! in_array($field, self::GENERATION_POLICY_FIELDS, true)
+                    || $this->hasPolicyColumn($field),
+            ));
         }
 
         return array_values(array_diff(self::EDITABLE_FIELDS, self::GENERATION_POLICY_FIELDS));
+    }
+
+    /**
+     * Drop policy keys whose DB column is not migrated yet (e.g. generation_strategy_override).
+     *
+     * @param  array<string, mixed>  $policy
+     * @return array<string, mixed>
+     */
+    private function filterExistingPolicyColumns(array $policy): array
+    {
+        $out = [];
+        foreach ($policy as $key => $value) {
+            if (! is_string($key)) {
+                continue;
+            }
+            if (in_array($key, self::GENERATION_POLICY_FIELDS, true) && ! $this->hasPolicyColumn($key)) {
+                continue;
+            }
+            $out[$key] = $value;
+        }
+
+        return $out;
+    }
+
+    private function hasPolicyColumn(string $column): bool
+    {
+        static $cache = [];
+        if (array_key_exists($column, $cache)) {
+            return $cache[$column];
+        }
+
+        $task = new SeoProjectTask;
+
+        try {
+            $cache[$column] = Schema::connection($task->getConnectionName())
+                ->hasColumn($task->getTable(), $column);
+        } catch (Throwable) {
+            $cache[$column] = false;
+        }
+
+        return $cache[$column];
     }
 
     private function policyColumnsAvailable(): bool
@@ -729,14 +777,7 @@ final class SeoProjectTaskSyncService
             return $this->policyColumnsAvailable;
         }
 
-        $task = new SeoProjectTask;
-
-        try {
-            $this->policyColumnsAvailable = Schema::connection($task->getConnectionName())
-                ->hasColumn($task->getTable(), 'tone_override');
-        } catch (Throwable) {
-            $this->policyColumnsAvailable = false;
-        }
+        $this->policyColumnsAvailable = $this->hasPolicyColumn('tone_override');
 
         return $this->policyColumnsAvailable;
     }
@@ -871,6 +912,7 @@ final class SeoProjectTaskSyncService
             'content_length_override' => $raw('content_length_override'),
             'content_length_target_words' => $raw('content_length_target_words'),
             'generation_mode_override' => $raw('generation_mode_override'),
+            'generation_strategy_override' => $raw('generation_strategy_override'),
             'model_override_id' => $modelOverrideId > 0 ? $modelOverrideId : null,
             'model_fallback_enabled' => $modelOverrideMode !== ItemModelOverrideMode::Required,
             'title_protection' => $raw('title_protection'),

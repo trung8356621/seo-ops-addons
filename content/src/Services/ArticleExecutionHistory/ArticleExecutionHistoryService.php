@@ -506,7 +506,30 @@ final class ArticleExecutionHistoryService
             $candidateIds[] = (int) $link->prompt_result_id;
         }
 
-        foreach (array_values(array_unique(array_filter($candidateIds))) as $resultId) {
+        // Expand sectioned_free children from parent orchestrator snapshots before rendering.
+        $expanded = [];
+        $queue = array_values(array_unique(array_filter($candidateIds)));
+        while ($queue !== []) {
+            $resultId = (int) array_shift($queue);
+            if ($resultId <= 0 || isset($expanded[$resultId])) {
+                continue;
+            }
+            $expanded[$resultId] = true;
+            $parentResult = $results->get($resultId);
+            if (! $parentResult instanceof PromptResult) {
+                continue;
+            }
+            $parentSnap = is_array($parentResult->input_snapshot) ? $parentResult->input_snapshot : [];
+            foreach (is_array($parentSnap['child_prompt_result_ids'] ?? null) ? $parentSnap['child_prompt_result_ids'] : [] as $childId) {
+                $cid = (int) $childId;
+                if ($cid > 0 && ! isset($expanded[$cid])) {
+                    $queue[] = $cid;
+                }
+            }
+        }
+        $candidateIds = array_keys($expanded);
+
+        foreach ($candidateIds as $resultId) {
             if (isset($seen[$resultId])) {
                 continue;
             }
@@ -548,11 +571,29 @@ final class ArticleExecutionHistoryService
             }
 
             $displayName = trim((string) ($result->prompt?->name ?? ''));
-            if ($subtask === 'outline') {
+            $sectionId = trim((string) ($snapshot['section_id'] ?? ''));
+            if (! empty($snapshot['sectioned_free_section']) || $sectionId !== '') {
+                $label = trim((string) ($snapshot['display_name'] ?? ''));
+                if ($label !== '') {
+                    $displayName = $label;
+                } else {
+                    $order = (int) ($snapshot['section_order'] ?? 0);
+                    $displayName = ($displayName !== '' ? $displayName.' — ' : '')
+                        .'Section '.($order > 0 ? (string) $order : $sectionId);
+                }
+                if ($hookKey === '' || $hookKey === 'article.content.generate') {
+                    $hookKey = trim((string) ($snapshot['display_hook_key'] ?? $snapshot['hook_key'] ?? 'article.content.section.generate'));
+                }
+                if ($subtask === '') {
+                    $subtask = $sectionId !== '' ? $sectionId : 'section';
+                }
+            } elseif ($subtask === 'outline') {
                 $displayName = ($displayName !== '' ? $displayName.' — ' : '').'Outline';
             } elseif ($subtask === 'vocabulary') {
                 $displayName = ($displayName !== '' ? $displayName.' — ' : '').'Vocabulary';
             }
+
+            $attempt = (int) ($snapshot['attempt'] ?? $snapshot['attempt_number'] ?? 0);
 
             $calls[] = [
                 'result_id' => $resultId,
@@ -567,6 +608,8 @@ final class ArticleExecutionHistoryService
                 'status_label' => $statusLabel,
                 'message' => $message !== '' ? $message : null,
                 'outline_subtask' => $subtask !== '' ? $subtask : null,
+                'section_id' => $sectionId !== '' ? $sectionId : null,
+                'attempt' => $attempt > 0 ? $attempt : null,
                 'mapping_confidence' => $nodeId !== '' ? 'workflow_node_id' : 'legacy',
                 'route_position' => $snapshot['route_position'] ?? null,
                 'is_free' => $snapshot['is_free'] ?? null,
@@ -575,10 +618,22 @@ final class ArticleExecutionHistoryService
 
         usort($calls, static function (array $a, array $b): int {
             $order = ['outline' => 0, 'vocabulary' => 1];
-            $aRank = $order[$a['outline_subtask'] ?? ''] ?? 99;
-            $bRank = $order[$b['outline_subtask'] ?? ''] ?? 99;
+            $aSub = (string) ($a['outline_subtask'] ?? '');
+            $bSub = (string) ($b['outline_subtask'] ?? '');
+            $aRank = $order[$aSub] ?? (str_starts_with($aSub, 'section') ? 10 : 99);
+            $bRank = $order[$bSub] ?? (str_starts_with($bSub, 'section') ? 10 : 99);
             if ($aRank !== $bRank) {
                 return $aRank <=> $bRank;
+            }
+            $aSection = (string) ($a['section_id'] ?? $aSub);
+            $bSection = (string) ($b['section_id'] ?? $bSub);
+            if ($aSection !== $bSection) {
+                return $aSection <=> $bSection;
+            }
+            $aAttempt = (int) ($a['attempt'] ?? 0);
+            $bAttempt = (int) ($b['attempt'] ?? 0);
+            if ($aAttempt !== $bAttempt) {
+                return $aAttempt <=> $bAttempt;
             }
 
             return (int) ($a['result_id'] ?? 0) <=> (int) ($b['result_id'] ?? 0);

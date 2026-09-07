@@ -114,12 +114,18 @@ final class PromptHookRuntimeEngine
         );
 
         $correlationId ??= (string) ($validated['context']['correlation_id'] ?? Str::uuid()->toString());
+        $pipelineInput = is_array($validated['input'] ?? null) ? $validated['input'] : [];
+        foreach (['generation_strategy', 'resolved_generation_strategy'] as $strategyKey) {
+            if (isset($validated['context'][$strategyKey]) && $validated['context'][$strategyKey] !== '') {
+                $pipelineInput[$strategyKey] = $validated['context'][$strategyKey];
+            }
+        }
         try {
             $output = $this->outputPipeline->process(
                 $definition,
                 $pipelinePayload,
                 $correlationId,
-                is_array($validated['input'] ?? null) ? $validated['input'] : [],
+                $pipelineInput,
             );
         } catch (PromptHookFailure $failure) {
             // AI đã chạy (PromptResult tồn tại) — gắn id để workflow link /prompts dù validator fail.
@@ -129,7 +135,7 @@ final class PromptHookRuntimeEngine
                 $this->persistFailedLengthValidation(
                     $promptResultId,
                     (string) ($pipelinePayload['text'] ?? ''),
-                    is_array($validated['input'] ?? null) ? $validated['input'] : [],
+                    $pipelineInput,
                     $failure,
                 );
             }

@@ -24,6 +24,12 @@ final class AiRoutingContext
         public readonly bool $requirePreferredModel = false,
         public readonly ?string $itemGenerationMode = null,
         public readonly ?string $hookKey = null,
+        /**
+         * Per-execution free-only filter (sectioned_free). Never mutate global routing.
+         */
+        public readonly bool $freeOnly = false,
+        public readonly ?string $isolationMode = null,
+        public readonly ?string $generationStrategy = null,
     ) {}
 
     public function costPolicy(): AiCostPolicy

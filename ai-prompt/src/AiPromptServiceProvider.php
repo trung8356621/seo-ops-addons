@@ -59,6 +59,12 @@ final class AiPromptServiceProvider extends ServiceProvider
             $this->loadTranslationsFrom($lang, 'seo-content-ai');
         }
 
+        if ($this->app->runningInConsole()) {
+            $this->commands([
+                \Omnichannel\Addons\AiPrompt\Console\DebugArticleGenerationCommand::class,
+            ]);
+        }
+
         if ($this->app->bound(SettingsSectionRegistry::class)) {
             $this->app->make(SettingsSectionRegistry::class)
                 ->register($this->app->make(AiCoreSettingsContributor::class));

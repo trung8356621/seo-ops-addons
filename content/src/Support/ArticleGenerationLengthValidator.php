@@ -36,8 +36,10 @@ final class ArticleGenerationLengthValidator
     public function evaluate(string $text, int $targetArticleLength): array
     {
         $target = max(0, $targetArticleLength);
-        $actual = PromptTextMetrics::wordCount($text);
         $minimum = $this->minimumForTarget($target);
+        $this->assertNotSectionedFreeLegacyPath(__METHOD__, $target, $minimum);
+
+        $actual = PromptTextMetrics::wordCount($text);
         $accepted = $actual >= $minimum;
 
         return [
@@ -58,6 +60,10 @@ final class ArticleGenerationLengthValidator
      */
     public function assertAcceptable(string $text, int $targetArticleLength): array
     {
+        $target = max(0, $targetArticleLength);
+        $minimum = $this->minimumForTarget($target);
+        $this->assertNotSectionedFreeLegacyPath(__METHOD__, $target, $minimum);
+
         $result = $this->evaluate($text, $targetArticleLength);
         if ($result['length_validation_result'] !== 'accepted') {
             throw new OutputTruncated(sprintf(
@@ -69,6 +75,23 @@ final class ArticleGenerationLengthValidator
         }
 
         return $result;
+    }
+
+    /**
+     * Hard invariant: sectioned_free must never hit whole-article length gates.
+     * Surfaces SECTIONED_FREE_LEGACY_VALIDATOR_REACHED instead of OUTPUT_TRUNCATED 501/1000.
+     */
+    private function assertNotSectionedFreeLegacyPath(string $classMethod, int $target, int $minimum): void
+    {
+        if (! class_exists(\Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeExecutionGuard::class)) {
+            return;
+        }
+
+        \Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeExecutionGuard::assertLegacyValidatorNotReached(
+            $classMethod,
+            $target,
+            $minimum,
+        );
     }
 
     /**

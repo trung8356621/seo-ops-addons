@@ -66,6 +66,10 @@ class ArticleWritingExecutionService
             is_array($context->taskContext?->variables) ? $context->taskContext->variables : [],
         );
 
+        if ($context->generationStrategy !== null && trim($context->generationStrategy) !== '') {
+            $variables['generation_strategy'] = trim($context->generationStrategy);
+        }
+
         // First-run PublishGraph: outline artifact chưa có — để workflow edge cung cấp ở content node.
         $deferOutline = $context->mode === ArticleWritingExecutionMode::PublishGraph
             && $input->sourceType === ArticleWritingSourceType::Outline

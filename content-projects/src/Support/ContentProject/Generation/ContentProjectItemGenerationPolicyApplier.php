@@ -71,6 +71,11 @@ final class ContentProjectItemGenerationPolicyApplier
             $variables['_item_generation_mode'] = $policy->generationMode->value;
         }
 
+        if ($policy->generationStrategy !== null) {
+            $variables = (new \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategyResolver())
+                ->stamp($variables, $policy->generationStrategy);
+        }
+
         if ($policy->modelOverrideId !== null) {
             $variables['_item_model_override_id'] = (string) $policy->modelOverrideId;
             $variables['_item_model_override_mode'] = ($policy->modelOverrideMode ?? ItemModelOverrideMode::Preferred)->value;

@@ -166,6 +166,7 @@ final class PromptHookRuntimeOutputPipeline
         if ($unit === 'words') {
             $articleLength = $this->resolveArticleLengthWords($input);
             if ($articleLength !== null && $articleLength > 0) {
+                $this->assertSectionedFreeDidNotReachLegacyValidator($input, $articleLength);
                 $lengthMeta = $this->articleLengthValidator->assertAcceptable($parsed, $articleLength);
                 $min = $lengthMeta['minimum_acceptable_words'];
             }
@@ -217,6 +218,47 @@ final class PromptHookRuntimeOutputPipeline
         }
 
         return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $input
+     */
+    private function assertSectionedFreeDidNotReachLegacyValidator(array $input, int $target): void
+    {
+        $strategy = \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategy::tryFromMixed(
+            $input['resolved_generation_strategy'] ?? $input['generation_strategy'] ?? null,
+        );
+        if ($strategy === null || ! $strategy->isSectionedFree()) {
+            // Process-local guard still covers orchestrator-active cases without strategy on input.
+            if (class_exists(\Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeExecutionGuard::class)) {
+                \Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeExecutionGuard::assertLegacyValidatorNotReached(
+                    self::class.'::assertLengthConstraints',
+                    $target,
+                    (new ArticleGenerationLengthValidator)->minimumForTarget($target),
+                );
+            }
+
+            return;
+        }
+
+        $minimum = (new ArticleGenerationLengthValidator)->minimumForTarget($target);
+        throw new \Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException(
+            'SECTIONED_FREE_LEGACY_VALIDATOR_REACHED: whole-article length validator invoked while '
+            .'resolved_generation_strategy=sectioned_free. '
+            .'class/method='.self::class.'::assertLengthConstraints'
+            .' target='.$target
+            .' minimum='.$minimum,
+            0,
+            null,
+            [
+                'failure_code' => 'SECTIONED_FREE_LEGACY_VALIDATOR_REACHED',
+                'strategy' => 'sectioned_free',
+                'class_method' => self::class.'::assertLengthConstraints',
+                'target' => $target,
+                'minimum' => $minimum,
+                'retryable' => false,
+            ],
+        );
     }
 
     private function assertNoProviderPreamble(string $value): void

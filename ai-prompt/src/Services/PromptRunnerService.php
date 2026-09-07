@@ -19,6 +19,14 @@ use Omnichannel\Addons\AiPrompt\PromptBudget\HtmlSafeRewriteSplitStrategy;
 use Omnichannel\Addons\AiPrompt\PromptBudget\KeywordDiscoveryBudgetStrategy;
 use Omnichannel\Addons\AiPrompt\PromptBudget\LongFormArticleSplitStrategy;
 use Omnichannel\Addons\AiPrompt\PromptBudget\PromptChunkLedger;
+use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeArticleGenerator;
+use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeBreadcrumbBag;
+use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeExecutionGuard;
+use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeRunState;
+use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeSectionUnit;
+use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeSectionValidator;
+use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeTrackedProviderCall;
+use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategy;
 use Omnichannel\Addons\AiPrompt\Services\Ai\DeepSeekChatClient;
 use Omnichannel\Addons\AiPrompt\Services\Ai\GeminiGenerateContentClient;
 use Omnichannel\Addons\AiPrompt\Support\AiCostPolicyScope;
@@ -87,6 +95,18 @@ class PromptRunnerService
 
         $variables = Utf8Sanitizer::variablesForAi($variables);
         $variables = app(PromptLanguageVariableService::class)->mergeInto($variables);
+
+        $strategyResolver = new \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategyResolver();
+        $strategy = $strategyResolver->resolve($variables);
+        $hookKeyEarly = trim((string) ($prompt->hook_key ?? ''));
+        if (
+            $strategy->isSectionedFree()
+            && in_array($hookKeyEarly, ['article.content.generate', 'article.content.rewrite'], true)
+        ) {
+            $variables = $strategyResolver->stamp($variables, $strategy);
+
+            return $this->runSectionedFreeAsPromptResult($prompt, $variables, $isTaskMode, $reuseResultId);
+        }
 
         $connection = $prompt->aiConnection;
         $toolType = $this->normalizeToolType($prompt);
@@ -342,6 +362,19 @@ class PromptRunnerService
         $variables = Utf8Sanitizer::variablesForAi($variables);
         $variables = app(PromptLanguageVariableService::class)->mergeInto($variables);
 
+        $strategyResolver = new \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategyResolver();
+        $strategy = $strategyResolver->resolve($variables);
+        $hookKeyEarly = trim((string) ($prompt->hook_key ?? ''));
+        if (
+            $strategy->isSectionedFree()
+            && in_array($hookKeyEarly, ['article.content.generate', 'article.content.rewrite'], true)
+        ) {
+            // Ignore precompiled whole-article prompt — sectioned_free owns provider prompts.
+            $variables = $strategyResolver->stamp($variables, $strategy);
+
+            return $this->runSectionedFreeAsPromptResult($prompt, $variables, $isTaskMode, null);
+        }
+
         $connection = $prompt->aiConnection;
         $toolType = $this->normalizeToolType($prompt);
         $profile = $this->profileResolver->resolve($prompt, (string) ($prompt->hook_key ?? ''), $toolType);
@@ -480,6 +513,25 @@ class PromptRunnerService
                 (string) ($media['model_used'] ?? ''),
                 $media,
             ];
+        }
+
+        $generationStrategy = ArticleGenerationStrategy::resolve(
+            $variables['generation_strategy'] ?? null,
+        );
+        $hookKey = trim((string) ($prompt->hook_key ?? ''));
+        if (
+            $generationStrategy->isSectionedFree()
+            && in_array($hookKey, ['article.content.generate', 'article.content.rewrite'], true)
+        ) {
+            return $this->executeSectionedFreeGeneration(
+                $connection,
+                $prompt,
+                $variables,
+                $isTaskMode,
+                $toolType,
+                $profile,
+                $context,
+            );
         }
 
         [$output, $usage, $candidate, $fallbackCount, $reasons, $routingAttempts] = $this->aiModelRouter->executeWithProfile(
@@ -1276,6 +1328,392 @@ class PromptRunnerService
     private function sanitizeErrorMessage(string $message): string
     {
         return Utf8Sanitizer::string($message);
+    }
+
+    /**
+     * Persist sectioned_free as parent PromptResult with orchestrator summary (no whole-article compile).
+     *
+     * @param  array<string, mixed>  $variables
+     */
+    private function runSectionedFreeAsPromptResult(
+        SeoPrompt $prompt,
+        array $variables,
+        bool $isTaskMode,
+        ?int $reuseResultId,
+    ): PromptResult {
+        unset($isTaskMode);
+        $toolType = $this->normalizeToolType($prompt);
+        $profile = $this->profileResolver->resolve($prompt, (string) ($prompt->hook_key ?? ''), $toolType);
+        $baseContext = $this->routingContextForPrompt(
+            $prompt,
+            $prompt->aiConnection,
+            false,
+            $variables,
+        );
+
+        $summaryPrompt = "Strategy: sectioned_free\nParent node is an orchestrator — no whole-article provider prompt.";
+
+        if ($reuseResultId !== null && $reuseResultId > 0) {
+            $result = PromptResult::query()->find($reuseResultId);
+            if (! $result instanceof PromptResult) {
+                throw new PromptRunException('Không tìm thấy bản ghi Prompt History để tiếp tục chạy.');
+            }
+            $result->update([
+                'prompt_id' => $prompt->id,
+                'status' => 'running',
+                'input_snapshot' => $this->sanitizeInputSnapshot([
+                    'variables' => $variables,
+                    'compiled_prompt' => $summaryPrompt,
+                    'sectioned_free_orchestrator' => true,
+                    'tools' => $toolType,
+                ]),
+                'output_text' => null,
+                'error_message' => null,
+                'started_at' => now(),
+                'finished_at' => null,
+            ]);
+        } else {
+            $result = PromptResult::query()->create([
+                'prompt_id' => $prompt->id,
+                'user_id' => (int) auth()->id(),
+                'site_id' => 0,
+                'status' => 'running',
+                'input_snapshot' => $this->sanitizeInputSnapshot([
+                    'variables' => $variables,
+                    'compiled_prompt' => $summaryPrompt,
+                    'sectioned_free_orchestrator' => true,
+                    'tools' => $toolType,
+                ]),
+                'started_at' => now(),
+            ]);
+        }
+
+        $runId = trim((string) ($variables['_execution_run_id'] ?? ''));
+        if ($runId === '') {
+            $runId = uniqid('sf_', true);
+            $variables['_execution_run_id'] = $runId;
+        }
+
+        SectionedFreeExecutionGuard::enter([
+            'run_id' => $runId,
+            'parent_prompt_result_id' => (int) $result->id,
+        ]);
+
+        try {
+            [$output, $usage, $rawModel] = $this->executeSectionedFreeGeneration(
+                $prompt->aiConnection ?? throw new PromptRunException('NO_AI_CONNECTION'),
+                $prompt,
+                $variables,
+                true,
+                $toolType,
+                $profile,
+                $baseContext,
+                (int) $result->id,
+            );
+            $childIds = is_array($usage['child_prompt_result_ids'] ?? null)
+                ? array_values(array_map('intval', $usage['child_prompt_result_ids']))
+                : [];
+            $result->update([
+                'status' => 'completed',
+                'output_text' => $output,
+                'token_usage' => is_array($usage) ? $this->sanitizeTokenUsage($usage) : $usage,
+                'finished_at' => now(),
+                'input_snapshot' => $this->sanitizeInputSnapshot(array_merge(
+                    is_array($result->input_snapshot) ? $result->input_snapshot : [],
+                    [
+                        'sectioned_free_metrics' => is_array($usage['sectioned_free'] ?? null)
+                            ? $usage['sectioned_free']
+                            : [],
+                        'sectioned_free_trace' => $usage['sectioned_free_trace'] ?? [],
+                        'child_prompt_result_ids' => $childIds,
+                        'breadcrumbs' => $usage['breadcrumbs'] ?? [],
+                        'legacy_whole_article_calls' => 0,
+                        'legacy_validator_reached' => false,
+                        'compiled_prompt' => $this->formatSectionedFreeParentSummary(
+                            is_array($usage) ? $usage : [],
+                        ),
+                    ],
+                )),
+            ]);
+            unset($rawModel);
+        } catch (\Throwable $exception) {
+            $result->update([
+                'status' => 'failed',
+                'error_message' => $this->sanitizeErrorMessage($exception->getMessage()),
+                'finished_at' => now(),
+            ]);
+
+            throw $this->rethrowWithPromptResultId($exception, (int) $result->id);
+        } finally {
+            SectionedFreeExecutionGuard::leave();
+        }
+
+        return $result->fresh();
+    }
+
+    /**
+     * @param  array<string, mixed>  $usage
+     */
+    private function formatSectionedFreeParentSummary(array $usage): string
+    {
+        $metrics = is_array($usage['sectioned_free'] ?? null) ? $usage['sectioned_free'] : [];
+
+        return implode("\n", [
+            'Strategy: sectioned_free',
+            'Generation units: '.(string) ($metrics['generation_unit_count'] ?? 0),
+            'Provider calls: '.(string) ($usage['provider_calls'] ?? $metrics['total_attempts'] ?? 0),
+            'Final words: '.(string) ($usage['assembled_word_count'] ?? $metrics['final_assembled_word_count'] ?? 0),
+            '',
+            'Parent node is an orchestrator — it does not send a whole-article provider prompt.',
+        ]);
+    }
+
+    /**
+     * Public section provider call for sectioned_free orchestrator (hook path).
+     * Does not compile whole-article prompt and does not run whole-article quality/length gates.
+     *
+     * @param  array<string, mixed>  $variables
+     * @return array{0: string, 1: array<string, mixed>}
+     */
+    public function callProviderForSectionedFree(
+        RoutedAiCandidate $routed,
+        SeoPrompt $prompt,
+        string $sectionPrompt,
+        array $variables,
+        string $toolType,
+        SectionedFreeSectionUnit $unit,
+    ): array {
+        if (! \Omnichannel\Addons\AiPrompt\Support\AiConnectionCredential::isUsable(
+            $routed->connection->api_key ?? null,
+        )) {
+            throw new PromptRunException(
+                'NO_AI_CONNECTION: configured connection has no usable API key.',
+                0,
+                null,
+                [
+                    'failure_code' => 'NO_AI_CONNECTION',
+                    'connection_id' => (int) $routed->connection->id,
+                    'retryable' => false,
+                    'auto_create_credential' => false,
+                ],
+            );
+        }
+
+        $callOptions = array_merge($routed->options, [
+            'max_output' => 1200,
+            'hook_key' => (string) ($prompt->hook_key ?? ''),
+            'sectioned_free_section_id' => $unit->sectionId,
+        ]);
+
+        [$output, $usage] = $this->callProvider(
+            $routed->connection,
+            $prompt,
+            $sectionPrompt,
+            $routed->model,
+            $variables,
+            true,
+            $toolType,
+            $callOptions,
+        );
+
+        (new SectionedFreeSectionValidator())->assertAcceptable($output, $unit);
+
+        return [$output, is_array($usage) ? $usage : []];
+    }
+
+    /**
+     * Explicit sectioned_free branch — isolated from single-pass / paid routing.
+     *
+     * @param  array<string, mixed>  $variables
+     * @return array{0: string, 1: array<string, mixed>|null, 2: string}
+     */
+    private function executeSectionedFreeGeneration(
+        ApiConnection $connection,
+        SeoPrompt $prompt,
+        array $variables,
+        bool $isTaskMode,
+        string $toolType,
+        AiExecutionProfile $profile,
+        AiRoutingContext $baseContext,
+        ?int $parentPromptResultId = null,
+    ): array {
+        unset($connection, $isTaskMode);
+
+        $freeContext = new AiRoutingContext(
+            userId: $baseContext->userId,
+            legacyConnection: $baseContext->legacyConnection,
+            allowLegacyFallback: $baseContext->allowLegacyFallback,
+            usageModeOverride: $baseContext->usageModeOverride,
+            allowedFamilyKeys: $baseContext->allowedFamilyKeys,
+            costPolicy: $baseContext->costPolicy,
+            preferredModelId: $baseContext->preferredModelId,
+            requirePreferredModel: $baseContext->requirePreferredModel,
+            itemGenerationMode: $baseContext->itemGenerationMode,
+            hookKey: $baseContext->hookKey,
+            freeOnly: true,
+            isolationMode: 'free_test',
+            generationStrategy: ArticleGenerationStrategy::SectionedFree->value,
+        );
+
+        $outline = trim((string) (
+            $variables['outline']
+            ?? $variables['article_outline']
+            ?? $variables['article_writing_raw_input']
+            ?? $variables['input']
+            ?? ''
+        ));
+
+        // Do NOT pass raw vocabulary into writer context — generator splits artifact itself.
+        $articleContext = [
+            'title' => (string) ($variables['title'] ?? $variables['post_title'] ?? $variables['article_title'] ?? ''),
+            'primary_keyword' => (string) ($variables['primary_keyword'] ?? $variables['focus_keyword'] ?? $variables['keyword'] ?? ''),
+            'intent' => (string) ($variables['intent'] ?? $variables['search_intent'] ?? $variables['content_intent'] ?? ''),
+            'language' => (string) ($variables['language'] ?? $variables['content_language'] ?? 'vi'),
+            'outline' => $outline,
+            'input' => $outline,
+        ];
+
+        $priorState = SectionedFreeRunState::fromArray(
+            is_array($variables['_sectioned_free_state'] ?? null) ? $variables['_sectioned_free_state'] : null,
+        );
+        $rerunSectionId = trim((string) ($variables['_sectioned_free_rerun_section_id'] ?? ''));
+        $runId = trim((string) ($variables['_execution_run_id'] ?? ''));
+        if ($runId === '') {
+            $runId = uniqid('sf_', true);
+        }
+
+        $breadcrumbs = new SectionedFreeBreadcrumbBag();
+        $breadcrumbs->push('strategy_resolved', ['value' => ArticleGenerationStrategy::SectionedFree->value]);
+        $breadcrumbs->push('branch_entered', ['class' => self::class.'::executeSectionedFreeGeneration']);
+
+        $tracked = new SectionedFreeTrackedProviderCall($this);
+        /** @var list<int> $childPromptResultIds */
+        $childPromptResultIds = [];
+        $sectionAttemptCounters = [];
+        $sectionChildIds = [];
+
+        $sectionExecutor = function (
+            SectionedFreeSectionUnit $unit,
+            string $sectionPrompt,
+        ) use (
+            $prompt,
+            $variables,
+            $toolType,
+            $profile,
+            $freeContext,
+            $tracked,
+            $parentPromptResultId,
+            $runId,
+            $breadcrumbs,
+            &$childPromptResultIds,
+            &$sectionAttemptCounters,
+            &$sectionChildIds,
+        ): array {
+            $breadcrumbs->push('section_generation_started', [
+                'section_id' => $unit->sectionId,
+                'prompt_character_count' => mb_strlen($sectionPrompt),
+            ]);
+
+            [$output, $usage, $candidate, $fallbackCount, $reasons, $routingAttempts] = $this->aiModelRouter->executeWithProfile(
+                $profile->value,
+                $freeContext,
+                function (RoutedAiCandidate $routed) use (
+                    $prompt,
+                    $variables,
+                    $toolType,
+                    $sectionPrompt,
+                    $unit,
+                    $tracked,
+                    $parentPromptResultId,
+                    $runId,
+                    $breadcrumbs,
+                    &$childPromptResultIds,
+                    &$sectionAttemptCounters,
+                    &$sectionChildIds,
+                ): array {
+                    $sectionAttemptCounters[$unit->sectionId] = (int) ($sectionAttemptCounters[$unit->sectionId] ?? 0) + 1;
+                    $attemptNumber = $sectionAttemptCounters[$unit->sectionId];
+
+                    [$out, $callUsage, $child] = $tracked->call(
+                        $routed,
+                        $prompt,
+                        $sectionPrompt,
+                        $variables,
+                        $toolType,
+                        $unit,
+                        $attemptNumber,
+                        $parentPromptResultId,
+                        $runId,
+                    );
+
+                    $childId = (int) $child->id;
+                    $childPromptResultIds[] = $childId;
+                    $sectionChildIds[$unit->sectionId][] = $childId;
+                    $breadcrumbs->push('section_provider_call_created', [
+                        'section_id' => $unit->sectionId,
+                        'prompt_result_id' => $childId,
+                        'attempt' => $attemptNumber,
+                    ]);
+
+                    return [$out, $callUsage];
+                },
+            );
+
+            unset($reasons);
+
+            $breadcrumbs->push('section_generation_completed', [
+                'section_id' => $unit->sectionId,
+                'prompt_result_ids' => $sectionChildIds[$unit->sectionId] ?? [],
+            ]);
+
+            return [
+                'output' => $output,
+                'model' => $candidate->model,
+                'provider' => $candidate->provider,
+                'connection_id' => (int) $candidate->connection->id,
+                'attempt_count' => max(1, $fallbackCount + 1),
+                'fallback_count' => $fallbackCount,
+                'prompt_result_ids' => $sectionChildIds[$unit->sectionId] ?? [],
+                'usage' => array_merge(is_array($usage) ? $usage : [], [
+                    'routing_attempts' => $routingAttempts ?? [],
+                    'generation_strategy' => ArticleGenerationStrategy::SectionedFree->value,
+                    'isolation_mode' => 'free_test',
+                    'model_tier' => 'free',
+                    'section_id' => $unit->sectionId,
+                    'credential_source' => 'configured_connection',
+                    'connection_id' => (int) $candidate->connection->id,
+                    'prompt_character_count' => mb_strlen($sectionPrompt),
+                    'prompt_result_ids' => $sectionChildIds[$unit->sectionId] ?? [],
+                ]),
+            ];
+        };
+
+        $generator = new SectionedFreeArticleGenerator();
+        $result = $generator->run(
+            $articleContext,
+            $sectionExecutor,
+            $priorState,
+            $rerunSectionId !== '' ? $rerunSectionId : null,
+            $runId,
+        );
+
+        $breadcrumbs->push('assemble_completed', [
+            'words' => (int) ($result['metrics']['final_assembled_word_count'] ?? 0),
+        ]);
+
+        $usage = $result['usage'];
+        $usage['routing'] = [
+            'generation_strategy' => ArticleGenerationStrategy::SectionedFree->value,
+            'isolation_mode' => 'free_test',
+            'model_tier' => 'free',
+            'free_only' => true,
+            'credential_source' => 'configured_connection',
+        ];
+        $usage['child_prompt_result_ids'] = $childPromptResultIds;
+        $usage['breadcrumbs'] = $breadcrumbs->all();
+        $usage['parent_prompt_result_id'] = $parentPromptResultId;
+
+        return [$result['assembled'], $usage, $result['last_model']];
     }
 
     /**

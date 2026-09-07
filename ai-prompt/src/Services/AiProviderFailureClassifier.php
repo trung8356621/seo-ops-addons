@@ -54,6 +54,33 @@ final class AiProviderFailureClassifier
         }
 
         if ($this->isOutputQualityFailure($exception, $context)) {
+            $failureCode = (string) ($context['failure_code'] ?? '');
+            if ($exception instanceof PromptRunException) {
+                $failureCode = (string) ($exception->context['failure_code'] ?? $failureCode);
+            }
+            // sectioned_free section sanity checks: allow free-model fallback within the section.
+            if (
+                ($context['retryable'] ?? false) === true
+                || ($exception instanceof PromptRunException && $exception->isRetryable())
+            ) {
+                if (in_array($failureCode, [
+                    'SECTION_INCOMPLETE',
+                    'SECTION_EMPTY',
+                    'SECTION_TRUNCATED',
+                ], true)) {
+                    return $this->allow(
+                        category: AiFailureClass::OutputQuality,
+                        scope: AiFailureScope::Model,
+                        safeMessage: 'Section output incomplete — trying next free model.',
+                        errorCode: $failureCode !== '' ? $failureCode : 'section_incomplete',
+                        failureStage: 'validation',
+                        requestSent: true,
+                        responseReceived: true,
+                        affectsRuntimeHealth: false,
+                    );
+                }
+            }
+
             return $this->deny(
                 category: AiFailureClass::OutputQuality,
                 scope: AiFailureScope::Model,

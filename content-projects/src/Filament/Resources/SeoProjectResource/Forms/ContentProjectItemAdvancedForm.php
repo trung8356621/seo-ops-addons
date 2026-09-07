@@ -8,6 +8,7 @@ use Filament\Forms;
 use Filament\Forms\Get;
 use Omnichannel\Addons\AiPrompt\Models\SeoAiModel;
 use Omnichannel\Addons\AiPrompt\Services\SeoPromptSettingsService;
+use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategy;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemGenerationMode;
 use Throwable;
 
@@ -27,6 +28,7 @@ final class ContentProjectItemAdvancedForm
     private const OVERRIDE_FIELDS = [
         'tone_override',
         'generation_mode_override',
+        'generation_strategy_override',
         'model_override_id',
     ];
 
@@ -60,6 +62,16 @@ final class ContentProjectItemAdvancedForm
                             ->options([
                                 ItemGenerationMode::FastEconomy->value => __('seo-content-ai::filament.projects.item_generation_mode_fast'),
                                 ItemGenerationMode::BestQuality->value => __('seo-content-ai::filament.projects.item_generation_mode_best'),
+                            ])
+                            ->native(false)
+                            ->live(),
+
+                        Forms\Components\Select::make('generation_strategy_override')
+                            ->label(__('seo-content-ai::filament.projects.item_generation_strategy'))
+                            ->placeholder(__('seo-content-ai::filament.projects.item_generation_strategy_default'))
+                            ->helperText(__('seo-content-ai::filament.projects.item_generation_strategy_help'))
+                            ->options([
+                                ArticleGenerationStrategy::SectionedFree->value => __('seo-content-ai::filament.projects.item_generation_strategy_sectioned_free'),
                             ])
                             ->native(false)
                             ->live(),

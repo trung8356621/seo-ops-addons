@@ -33,6 +33,7 @@ final class ArticleWritingExecutionContext
         public readonly ?string $executionToken = null,
         public readonly array $baseVariables = [],
         public readonly bool $persistArticle = true,
+        public readonly ?string $generationStrategy = null,
     ) {}
 
     public function assertOwnerXor(): void

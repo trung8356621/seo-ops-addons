@@ -183,6 +183,8 @@ function ExecutionInspector({ node, execution, labels, workflow, run, onPreview,
                 </div>
                 {call.hook_key && <p className="font-mono text-[10px] text-slate-500">{call.hook_key}</p>}
                 {call.outline_subtask && <p>Subtask: {call.outline_subtask}</p>}
+                {call.section_id && <p>Section: {call.section_id}</p>}
+                {call.attempt != null && <p>Attempt #{call.attempt}</p>}
                 {call.execution_profile && <p>Profile: {call.execution_profile}</p>}
                 {call.model && <p>Model: {call.model}{call.provider ? ` · ${call.provider}` : ''}</p>}
                 {call.route_position != null && <p>Route position #{call.route_position}</p>}

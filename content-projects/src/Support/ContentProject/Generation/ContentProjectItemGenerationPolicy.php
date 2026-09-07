@@ -17,6 +17,7 @@ final class ContentProjectItemGenerationPolicy
         public readonly ?ItemContentLengthMode $contentLengthMode,
         public readonly ?int $contentLengthTargetWords,
         public readonly ?ItemGenerationMode $generationMode,
+        public readonly ?\Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategy $generationStrategy,
         public readonly ?int $modelOverrideId,
         public readonly ?ItemModelOverrideMode $modelOverrideMode,
         public readonly ?ItemTitleProtection $titleProtection,
@@ -86,6 +87,10 @@ final class ContentProjectItemGenerationPolicy
             $count++;
         }
 
+        if ($this->generationStrategy !== null) {
+            $count++;
+        }
+
         if ($this->hasModelOverride()) {
             $count++;
         }
@@ -103,6 +108,7 @@ final class ContentProjectItemGenerationPolicy
             'content_length_mode' => $this->contentLengthMode?->value,
             'content_length_target_words' => $this->contentLengthTargetWords,
             'generation_mode' => $this->generationMode?->value,
+            'generation_strategy' => $this->generationStrategy?->value,
             'model_override_id' => $this->modelOverrideId,
             'model_override_mode' => $this->modelOverrideMode?->value,
             'title_protection' => $this->titleProtection?->value,

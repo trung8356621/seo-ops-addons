@@ -9,6 +9,8 @@ use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\InvalidInput;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\PromptHookFailure;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Support\PromptHookRequireAnyOf;
+use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeHookOrchestrator;
+use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategyResolver;
 use Omnichannel\Addons\Content\Services\ArticleWritingLegacyRewriteAdapter;
 use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemIdentity;
@@ -28,6 +30,8 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
         private readonly PromptHookMigrationFlags $flags,
         private readonly PromptRunnerService $promptRunner,
         private readonly ArticleWritingLegacyRewriteAdapter $legacyRewriteAdapter,
+        private readonly ?SectionedFreeHookOrchestrator $sectionedFreeOrchestrator = null,
+        private readonly ArticleGenerationStrategyResolver $strategyResolver = new ArticleGenerationStrategyResolver(),
     ) {}
 
     /**
@@ -90,6 +94,25 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
             $this->flags->experimentalAllowlist(),
         );
 
+        // CRITICAL: branch BEFORE legacy whole-article compile / provider call.
+        $strategy = $this->strategyResolver->resolve($variables);
+        if (
+            $strategy->isSectionedFree()
+            && in_array($effectiveHookKey, ['article.content.generate', 'article.content.rewrite'], true)
+        ) {
+            $variables = $this->strategyResolver->stamp($variables, $strategy);
+            $orchestrator = $this->sectionedFreeOrchestrator
+                ?? app(SectionedFreeHookOrchestrator::class);
+
+            return $orchestrator->execute(
+                $prompt,
+                $variables,
+                $contextExtras,
+                $effectiveHookKey,
+                $effectiveVersion,
+            );
+        }
+
         $correlationId = (string) ($contextExtras['correlation_id'] ?? Str::uuid()->toString());
         $input = $this->mapInput($definition->inputSchema->fields, $variables, $previousOutputs);
         // Schema-safe generation title seed when post_title empty but subject known.
@@ -106,6 +129,9 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
             'site_id' => isset($contextExtras['site_id']) ? (int) $contextExtras['site_id'] : null,
             'locale' => isset($contextExtras['locale']) ? (string) $contextExtras['locale'] : ($variables['language'] ?? null),
             'language' => $variables['language'] ?? ($contextExtras['locale'] ?? null),
+            // Observability/invariant for length pipeline — not part of hook input schema.
+            'generation_strategy' => $strategy->value,
+            'resolved_generation_strategy' => $strategy->value,
         ];
         foreach (['team_id', 'connection_id', 'article_id', 'actor_id', 'run_id', 'project_run_id', 'run_item_id', 'attempt', 'project_task_id', 'task_id', 'project_id', 'outline_subtask'] as $key) {
             if (array_key_exists($key, $contextExtras) && $contextExtras[$key] !== null) {

@@ -153,6 +153,18 @@ final class AiModelRouterService
             throw AiRoutingException::noCandidate($profile, $capability);
         }
 
+        // Per-execution isolation for sectioned_free: free candidates only.
+        // Does not mutate global routing / cost policy / session state.
+        if ($context->freeOnly) {
+            $candidates = array_values(array_filter(
+                $candidates,
+                static fn (RoutedAiCandidate $candidate): bool => $candidate->isFree,
+            ));
+            if ($candidates === []) {
+                throw AiRoutingException::noValidFreeConnection($profile);
+            }
+        }
+
         if ($context->requirePreferredModel && $context->preferredModelId !== null && $context->preferredModelId > 0) {
             $preferredId = $context->preferredModelId;
             $candidates = array_values(array_filter(
@@ -160,6 +172,9 @@ final class AiModelRouterService
                 static fn (RoutedAiCandidate $candidate): bool => (int) ($candidate->seoAiModelId ?? 0) === $preferredId,
             ));
             if ($candidates === []) {
+                if ($context->freeOnly) {
+                    throw AiRoutingException::noValidFreeConnection($profile);
+                }
                 throw AiRoutingException::noCandidate($profile, 'model.override.'.$preferredId);
             }
         }
@@ -179,11 +194,14 @@ final class AiModelRouterService
         $maxFreeAttempts = (int) $settings[AiResilienceSettingsService::KEY_MAX_FREE_ATTEMPTS];
         // Free Pool + any paid route still listed → max ONE free attempt (UX one-shot).
         // Rescue Mode (no paid candidates) keeps configured MAX_FREE_ATTEMPTS rotation.
+        // freeOnly (sectioned_free) always uses full max_free_attempts — paid are already filtered out.
         $paidCandidatesExist = false;
-        foreach ($candidates as $probe) {
-            if (! $probe->isFree) {
-                $paidCandidatesExist = true;
-                break;
+        if (! $context->freeOnly) {
+            foreach ($candidates as $probe) {
+                if (! $probe->isFree) {
+                    $paidCandidatesExist = true;
+                    break;
+                }
             }
         }
         $effectiveMaxFreeAttempts = $paidCandidatesExist

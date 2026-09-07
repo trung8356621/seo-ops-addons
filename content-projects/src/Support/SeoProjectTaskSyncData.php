@@ -8,6 +8,7 @@ use Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemCon
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemGenerationMode;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemModelOverrideMode;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemTitleProtection;
+use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategy;
 
 /**
  * Normalized task row for Content Project sync (Phase 3C2).
@@ -36,6 +37,7 @@ final class SeoProjectTaskSyncData
         public readonly ?ItemContentLengthMode $contentLengthOverride = null,
         public readonly ?int $contentLengthTargetWords = null,
         public readonly ?ItemGenerationMode $generationModeOverride = null,
+        public readonly ?ArticleGenerationStrategy $generationStrategyOverride = null,
         public readonly ?int $modelOverrideId = null,
         public readonly ?ItemModelOverrideMode $modelOverrideMode = null,
         public readonly ?ItemTitleProtection $titleProtection = null,
@@ -53,6 +55,7 @@ final class SeoProjectTaskSyncData
             'content_length_override' => $this->contentLengthOverride?->value,
             'content_length_target_words' => $this->contentLengthTargetWords,
             'generation_mode_override' => $this->generationModeOverride?->value,
+            'generation_strategy_override' => $this->generationStrategyOverride?->value,
             'model_override_id' => $this->modelOverrideId,
             'model_override_mode' => $this->modelOverrideMode?->value,
             'title_protection' => $this->titleProtection?->value,

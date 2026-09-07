@@ -19,6 +19,8 @@ final class PromptHookEnvelopeValidator
         'run_id', 'project_run_id', 'run_item_id', 'attempt',
         'project_task_id', 'task_id', 'project_id',
         'outline_subtask',
+        'generation_strategy',
+        'resolved_generation_strategy',
     ];
 
     public function __construct(

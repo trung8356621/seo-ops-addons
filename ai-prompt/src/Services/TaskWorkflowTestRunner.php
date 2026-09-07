@@ -1173,6 +1173,32 @@ final class TaskWorkflowTestRunner
                             // AI đã chạy trước khi validator fail — giữ result_id để /prompts link được.
                             'result_id' => $exception->promptResultId(),
                         ];
+                    } catch (PromptRunException $exception) {
+                        $promptResultIds = is_array($exception->context['prompt_result_ids'] ?? null)
+                            ? array_values(array_map('intval', $exception->context['prompt_result_ids']))
+                            : [];
+                        $parentId = (int) ($exception->context['prompt_result_id'] ?? 0);
+                        if ($parentId <= 0 && $promptResultIds !== []) {
+                            $parentId = (int) $promptResultIds[0];
+                        }
+
+                        return [
+                            'node_id' => $nodeId,
+                            'type' => $type,
+                            'title' => $title,
+                            'status' => 'failed',
+                            'prompt_id' => $prompt->id,
+                            'prompt_name' => (string) $prompt->name,
+                            'hook_key' => $hookBinding->hookKey,
+                            'hook_version' => $hookBinding->hookVersion,
+                            'execution_source' => 'sectioned_free_orchestrator',
+                            'message' => $exception->userMessage(),
+                            'failure_category' => (string) ($exception->context['failure_code'] ?? 'SECTIONED_FREE_SECTION_FAILED'),
+                            'result_id' => $parentId > 0 ? $parentId : null,
+                            'prompt_result_ids' => $promptResultIds !== []
+                                ? $promptResultIds
+                                : ($parentId > 0 ? [$parentId] : []),
+                        ];
                     }
 
                     $output = trim((string) ($hookResult['output'] ?? ''));
@@ -1233,6 +1259,13 @@ final class TaskWorkflowTestRunner
                                 ? WorkflowArtifactType::ArticleContent->value
                                 : null),
                         'result_id' => $hookResult['prompt_result_id'],
+                        'prompt_result_ids' => is_array($hookResult['prompt_result_ids'] ?? null)
+                            ? $hookResult['prompt_result_ids']
+                            : (
+                                isset($hookResult['prompt_result_id'])
+                                    ? [(int) $hookResult['prompt_result_id']]
+                                    : []
+                            ),
                         'duration_ms' => $hookResult['duration_ms'],
                         'actual_word_count' => $hookResult['actual_word_count'] ?? null,
                         'minimum_acceptable_words' => $hookResult['minimum_acceptable_words'] ?? null,
