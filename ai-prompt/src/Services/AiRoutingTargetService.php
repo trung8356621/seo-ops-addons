@@ -171,6 +171,7 @@ final class AiRoutingTargetService
      */
     public function eligibleCandidates(int $userId, AiExecutionProfile $profile, AiRoutingContext $context): array
     {
+        $this->lastEligibilityDiagnostics = [];
         $canonical = $profile->isMedia()
             ? $this->applyMembershipFilter(
                 $this->liveCompatibleCandidates($userId, $profile),
@@ -184,18 +185,37 @@ final class AiRoutingTargetService
         $canonical = (new AiProductionRouteEligibility())->filter($canonical, $profile, $context);
         $this->logProductionEligibilitySkips($userId, $profile, $context, $beforeEligibility, $canonical);
 
-        $this->lastEligibilityDiagnostics = [
+        $previous = $this->lastEligibilityDiagnostics;
+        $this->lastEligibilityDiagnostics = array_merge($previous, [
             'candidates_before_production_eligibility' => count($beforeEligibility),
             'candidates_after_production_eligibility' => count($canonical),
             'production_eligibility_skip_count' => max(0, count($beforeEligibility) - count($canonical)),
-        ];
+        ]);
 
         $policy = $context->costPolicy ?? AiCostPolicyScope::current();
         if (! $profile->isMedia() && $policy === AiCostPolicy::FreeOnly) {
-            return (new FreeRoutingResolver())->resolve($canonical);
+            $resolved = (new FreeRoutingResolver())->resolve($canonical);
+            $this->lastEligibilityDiagnostics['candidates_after_free_only'] = count($resolved);
+
+            return $resolved;
         }
 
         return $canonical;
+    }
+
+    /**
+     * @param  list<array{rejected_reason?: string}>  $rejected
+     * @return array<string, int>
+     */
+    private function tallyRejectionReasons(array $rejected): array
+    {
+        $counts = [];
+        foreach ($rejected as $row) {
+            $reason = (string) ($row['rejected_reason'] ?? 'other');
+            $counts[$reason] = ($counts[$reason] ?? 0) + 1;
+        }
+
+        return $counts;
     }
 
     /**
@@ -298,21 +318,47 @@ final class AiRoutingTargetService
         }
         $area = \Omnichannel\Addons\AiPrompt\Support\AiModelArea::fromProfile($profile);
         $out = [];
+        $rejected = [];
         foreach ($this->priorities->areaEnabledModels($userId, $area) as $model) {
             $connection = $model->apiConnection;
-            if (! $connection instanceof ApiConnection
-                || (string) $connection->status !== 'active'
-                || blank($connection->api_key)) {
+            $modelKey = (string) $model->raw_model_name;
+            if (! $connection instanceof ApiConnection || (string) $connection->status !== 'active') {
+                $rejected[] = [
+                    'model' => $modelKey,
+                    'rejected_reason' => 'connection_disabled',
+                ];
                 continue;
             }
-            $modelKey = (string) $model->raw_model_name;
+            if (! \Omnichannel\Addons\AiPrompt\Support\AiConnectionCredential::isUsable($connection->api_key)) {
+                $rejected[] = [
+                    'model' => $modelKey,
+                    'connection_id' => (int) $connection->id,
+                    'rejected_reason' => 'missing_credentials',
+                ];
+                continue;
+            }
             if (! $this->capabilities->satisfiesAll($connection, $modelKey, $profile->requiredCapabilityKeys())) {
+                $rejected[] = [
+                    'model' => $modelKey,
+                    'connection_id' => (int) $connection->id,
+                    'rejected_reason' => 'unsupported_capability',
+                ];
                 continue;
             }
             if (! GeminiModelVersionPolicy::isEligibleForAutoRouting($modelKey)) {
+                $rejected[] = [
+                    'model' => $modelKey,
+                    'connection_id' => (int) $connection->id,
+                    'rejected_reason' => 'provider_unavailable',
+                ];
                 continue;
             }
             if ($this->families->aggregatorFamily($modelKey) === null) {
+                $rejected[] = [
+                    'model' => $modelKey,
+                    'connection_id' => (int) $connection->id,
+                    'rejected_reason' => 'unsupported_task',
+                ];
                 continue;
             }
             $out[] = new RoutedAiCandidate(
@@ -328,6 +374,11 @@ final class AiRoutingTargetService
                     || OpenRouterModelEconomics::isFree([], $modelKey),
             );
         }
+        $this->lastEligibilityDiagnostics = array_merge($this->lastEligibilityDiagnostics, [
+            'live_compatible_count' => count($out),
+            'live_compatible_rejections' => array_slice($rejected, 0, 40),
+            'live_compatible_rejection_counts' => $this->tallyRejectionReasons($rejected),
+        ]);
         usort($out, static function (RoutedAiCandidate $a, RoutedAiCandidate $b): int {
             $cmp = $a->priority <=> $b->priority;
             if ($cmp !== 0) {

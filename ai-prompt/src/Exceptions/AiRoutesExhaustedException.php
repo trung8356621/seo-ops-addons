@@ -50,7 +50,7 @@ final class AiRoutesExhaustedException extends PromptRunException
         }
 
         parent::__construct(
-            message: self::CLASSIFICATION.': '.self::technicalAttemptPhrase($attemptCount),
+            message: self::CLASSIFICATION.': '.self::technicalAttemptPhrase($attemptCount, $diagnostics),
             code: 0,
             previous: $previous,
             context: $context,
@@ -74,9 +74,29 @@ final class AiRoutesExhaustedException extends PromptRunException
         return is_numeric($value) ? max(0, (int) $value) : null;
     }
 
-    public static function technicalAttemptPhrase(int $attemptCount): string
+    public static function technicalAttemptPhrase(int $attemptCount, array $diagnostics = []): string
     {
         if ($attemptCount <= 0) {
+            $skipCounts = is_array($diagnostics['skip_counts'] ?? null) ? $diagnostics['skip_counts'] : [];
+            if ((int) ($skipCounts['connection_locked'] ?? 0) > 0) {
+                return 'All eligible routes blocked by connection lock (invalid credentials)';
+            }
+            if ((int) ($skipCounts['connection_paid_locked'] ?? 0) > 0) {
+                return 'All eligible routes blocked by paid-route lock';
+            }
+            if ((int) ($skipCounts['model_unavailable'] ?? 0) > 0
+                && (int) ($skipCounts['model_cooldown'] ?? 0) === 0
+                && (int) ($skipCounts['connection_cooldown'] ?? 0) === 0) {
+                return 'All eligible routes marked unavailable';
+            }
+            $rejectionCounts = is_array($diagnostics['live_compatible_rejection_counts'] ?? null)
+                ? $diagnostics['live_compatible_rejection_counts']
+                : [];
+            if ((int) ($rejectionCounts['missing_credentials'] ?? 0) > 0
+                && (int) ($diagnostics['live_compatible_count'] ?? 0) === 0) {
+                return 'No usable API credentials for eligible models';
+            }
+
             return 'No eligible AI route was attempted';
         }
 

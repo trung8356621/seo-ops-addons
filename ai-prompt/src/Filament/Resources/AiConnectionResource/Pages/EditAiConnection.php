@@ -149,6 +149,12 @@ class EditAiConnection extends SeoEditRecord
             return;
         }
 
+        // New credentials invalidate prior connection_locked / paid_locked health.
+        if (\Omnichannel\Addons\AiPrompt\Support\AiConnectionCredential::isUsable($this->record->api_key)) {
+            app(\Omnichannel\Addons\AiPrompt\Services\AiRuntimeHealthService::class)
+                ->unlockConnectionForApiConnection((int) $this->record->id);
+        }
+
         app(AiModelRouterService::class)->syncModelsForConnection((int) $this->record->id);
     }
 }

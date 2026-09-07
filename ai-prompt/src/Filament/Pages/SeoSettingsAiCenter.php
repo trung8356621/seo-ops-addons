@@ -26,6 +26,7 @@ use Omnichannel\Addons\AiPrompt\Services\AiResilienceSettingsService;
 use Omnichannel\Addons\AiPrompt\Services\AiHealthUiPresenter;
 use Omnichannel\Addons\AiPrompt\Services\AiRuntimeHealthService;
 use Omnichannel\Addons\AiPrompt\Services\AiRoutingBootstrapService;
+use Omnichannel\Addons\AiPrompt\Services\AiRoutingOwnerResolver;
 use Omnichannel\Addons\AiPrompt\Services\AiRoutingTargetService;
 use Omnichannel\Addons\AiPrompt\Services\CanonicalAiRouteResolver;
 use Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\AiProviderConnectionTester;
@@ -1165,6 +1166,16 @@ class SeoSettingsAiCenter extends Page
     public function unlockConnectionHealth(int $connectionId, AiRuntimeHealthService $health): void
     {
         $this->assertManager();
+        // Clear locks for every routing-owner health row on this connection.
+        // auth()->id() alone misses locks written under connection.user_id / orphaned owners.
+        $health->unlockConnectionForApiConnection($connectionId);
+        $connection = \App\Models\ApiConnection::query()->find($connectionId);
+        if ($connection instanceof \App\Models\ApiConnection) {
+            $owner = app(AiRoutingOwnerResolver::class)->forConnection($connection, (int) auth()->id());
+            if ($owner > 0) {
+                $health->unlockConnection($owner, $connectionId);
+            }
+        }
         $health->unlockConnection((int) auth()->id(), $connectionId);
         Notification::make()->title(__('seo-content-ai::filament.ai_center.connection_enabled'))->success()->send();
     }

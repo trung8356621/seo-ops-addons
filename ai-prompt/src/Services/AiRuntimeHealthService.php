@@ -197,6 +197,46 @@ final class AiRuntimeHealthService
         $this->maybeNotifyRecovery($userId, $row, $previous);
     }
 
+    /**
+     * Clear connection locks for every routing owner that recorded health on this API connection.
+     * Used after credentials are fixed — owner user_id on health rows can diverge from auth().
+     */
+    public function unlockConnectionForApiConnection(int $connectionId): int
+    {
+        if (! $this->tableReady() || $connectionId <= 0) {
+            return 0;
+        }
+
+        $cleared = 0;
+        $rows = AiRuntimeHealthState::query()
+            ->where('subject_type', AiRuntimeHealthState::SUBJECT_CONNECTION)
+            ->where(function ($query) use ($connectionId): void {
+                $query->where('subject_id', $connectionId)
+                    ->orWhere('api_connection_id', $connectionId);
+            })
+            ->get();
+
+        foreach ($rows as $row) {
+            $previous = AiRuntimeHealthStatus::tryFrom($row->health_status) ?? AiRuntimeHealthStatus::NoData;
+            $needsClear = $row->health_status === AiRuntimeHealthStatus::ConnectionLocked->value
+                || $row->manual_unlock_required
+                || $row->paid_locked
+                || $row->cooldown_until !== null;
+            if (! $needsClear) {
+                continue;
+            }
+            $row->health_status = AiRuntimeHealthStatus::Healthy->value;
+            $row->manual_unlock_required = false;
+            $row->paid_locked = false;
+            $row->cooldown_until = null;
+            $row->save();
+            $cleared++;
+            $this->maybeNotifyRecovery((int) $row->user_id, $row, $previous);
+        }
+
+        return $cleared;
+    }
+
     public function enablePaidRoutes(int $userId, int $connectionId): void
     {
         if (! $this->tableReady()) {
@@ -312,6 +352,25 @@ final class AiRuntimeHealthService
         ?int $fallbackId = null,
     ): array {
         $id = $connection !== null ? (int) $connection->id : (int) ($fallbackId ?? $row?->subject_id ?? 0);
+        // Prefer health row keyed by connection owner; fall back to any lock on this connection.
+        if ($row === null && $connection !== null && $this->tableReady()) {
+            $ownerId = app(AiRoutingOwnerResolver::class)->forConnection($connection);
+            if ($ownerId > 0) {
+                $row = $this->findSubject($ownerId, AiRuntimeHealthState::SUBJECT_CONNECTION, $id);
+            }
+            if ($row === null) {
+                $row = AiRuntimeHealthState::query()
+                    ->where('subject_type', AiRuntimeHealthState::SUBJECT_CONNECTION)
+                    ->where('subject_id', $id)
+                    ->where(function ($query): void {
+                        $query->where('health_status', AiRuntimeHealthStatus::ConnectionLocked->value)
+                            ->orWhere('manual_unlock_required', true)
+                            ->orWhere('paid_locked', true);
+                    })
+                    ->orderByDesc('updated_at')
+                    ->first();
+            }
+        }
         $status = $row !== null
             ? (AiRuntimeHealthStatus::tryFrom($row->health_status) ?? AiRuntimeHealthStatus::NoData)
             : AiRuntimeHealthStatus::NoData;
