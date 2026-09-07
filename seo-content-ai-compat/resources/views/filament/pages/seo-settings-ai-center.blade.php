@@ -58,10 +58,6 @@
                                 <x-filament::button wire:click="openImportModal" size="sm" color="gray" wire:loading.attr="disabled" wire:target="openImportModal">
                                     {{ __('seo-content-ai::filament.ai_center.import_template_short') }}
                                 </x-filament::button>
-                                <x-filament::button wire:click="syncAllModels" size="sm" icon="heroicon-o-arrow-path" wire:loading.attr="disabled" wire:target="syncAllModels">
-                                    <span wire:loading.remove wire:target="syncAllModels">{{ __('seo-content-ai::filament.ai_center.sync_all') }}</span>
-                                    <span wire:loading wire:target="syncAllModels">…</span>
-                                </x-filament::button>
                             </div>
                         </div>
 
@@ -114,6 +110,17 @@
                                 @click="await $wire.openModelPickerForArea(activeCapability)"
                             >
                                 <span x-text="addModelsLabel"></span>
+                            </x-filament::button>
+                            <x-filament::button
+                                type="button"
+                                size="sm"
+                                color="gray"
+                                wire:click="evaluateFreePoolLanguage"
+                                wire:loading.attr="disabled"
+                                wire:target="evaluateFreePoolLanguage"
+                            >
+                                <span wire:loading.remove wire:target="evaluateFreePoolLanguage">{{ __('seo-content-ai::filament.ai_center.free_pool_evaluate') }}</span>
+                                <span wire:loading wire:target="evaluateFreePoolLanguage">…</span>
                             </x-filament::button>
                         </div>
                         <div class="seo-ai-toolbar-extra">
@@ -656,7 +663,17 @@
                         <div class="seo-ai-picker-added__chips">
                             @forelse ($pickerEnabled as $enabledRow)
                                 <span class="seo-ai-chip seo-ai-chip--added" wire:key="picker-added-{{ $enabledRow['identity'] ?? ($enabledRow['ids'][0] ?? '') }}">
-                                    @if (! empty($enabledRow['short_code']))
+                                    @php($enabledRouteBadges = [])
+                                    @foreach (($enabledRow['routes'] ?? []) as $enabledRoute)
+                                        @if (is_array($enabledRoute) && filled($enabledRoute['short_code'] ?? null))
+                                            @php($enabledRouteBadges[] = $enabledRoute)
+                                        @endif
+                                    @endforeach
+                                    @if ($enabledRouteBadges !== [])
+                                        @foreach ($enabledRouteBadges as $enabledRouteBadge)
+                                            <span class="seo-ai-code seo-ai-code--{{ $enabledRouteBadge['badge_variant'] ?? 'badge-1' }}">{{ $enabledRouteBadge['short_code'] }}</span>
+                                        @endforeach
+                                    @elseif (! empty($enabledRow['short_code']))
                                         <span class="seo-ai-code seo-ai-code--{{ $enabledRow['badge_variant'] ?? 'badge-1' }}">{{ $enabledRow['short_code'] }}</span>
                                     @endif
                                     {{ $enabledRow['model_name'] ?? $enabledRow['label'] }}

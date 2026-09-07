@@ -44,6 +44,15 @@ final class AiConnectionInventoryService
 
                 return true;
             })
+            ->each(static function (ApiConnection $connection): void {
+                // Persist type on the model so Settings ?type=ai never treats AI rows as untyped.
+                if ($connection->getAttribute('connection_type') === null) {
+                    $connection->setAttribute(
+                        'connection_type',
+                        ApiConnectionProviders::connectionType((string) $connection->provider)->value,
+                    );
+                }
+            })
             ->values();
     }
 

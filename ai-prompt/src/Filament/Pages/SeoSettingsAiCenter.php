@@ -29,7 +29,10 @@ use Omnichannel\Addons\AiPrompt\Services\AiRoutingBootstrapService;
 use Omnichannel\Addons\AiPrompt\Services\AiRoutingOwnerResolver;
 use Omnichannel\Addons\AiPrompt\Services\AiRoutingTargetService;
 use Omnichannel\Addons\AiPrompt\Services\CanonicalAiRouteResolver;
+use Omnichannel\Addons\AiPrompt\Services\OpenRouterFreeLanguageGateService;
+use Omnichannel\Addons\AiPrompt\Services\OpenRouterFreePoolService;
 use Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\AiProviderConnectionTester;
+use Omnichannel\Addons\AiPrompt\Services\SyncAllAiConnectionModelsService;
 use Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\AiProviderTemplateCatalog;
 use Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\AiProviderTemplateParser;
 use Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\AiProviderTemplateStore;
@@ -530,12 +533,24 @@ class SeoSettingsAiCenter extends Page
         $this->assertManager();
         $connection = $this->ownedConnection($connectionId);
         $ok = $router->syncModelsForConnection((int) $connection->id);
+        $coverageAdded = 0;
+        if ($ok) {
+            try {
+                app(AiModelPrimaryTypeClassifier::class)->classifyForUser((int) auth()->id());
+            } catch (\Throwable) {
+            }
+            $coverageAdded = app(AiConnectionCoverageService::class)
+                ->reconcileRoutingCoverage((int) auth()->id());
+        }
         $notification = Notification::make()
             ->title($ok
                 ? __('seo-content-ai::filament.ai_center.sync_ok')
                 : __('seo-content-ai::filament.ai_center.sync_failed'));
         if ($ok) {
-            $notification->success()->send();
+            $notification
+                ->body(__('seo-content-ai::filament.ai_center.sync_coverage_body', ['count' => $coverageAdded]))
+                ->success()
+                ->send();
         } else {
             $notification->danger()->send();
         }
@@ -576,15 +591,85 @@ class SeoSettingsAiCenter extends Page
 
     public function syncAllModels(AiModelRouterService $router): void
     {
+        // Catalog sync ownership: Settings → API Connections (sync_all_models).
+        // Kept as no-op-safe delegate for any residual callers; UI button removed from AI Center.
         $this->assertManager();
-        $result = $router->syncAllConnectionsForUser();
-        app(AiModelPrimaryTypeClassifier::class)->classifyForUser((int) auth()->id());
+        unset($router);
+        $result = app(SyncAllAiConnectionModelsService::class)->run((int) auth()->id());
+        $body = implode("\n", array_slice($result['summary_lines'], 0, 12));
         $notification = Notification::make()
-            ->title($result['failed'] === 0
-                ? __('seo-content-ai::filament.ai_center.sync_ok')
-                : __('seo-content-ai::filament.ai_center.sync_failed'));
+            ->title(__('seo-content-ai::filament.ai_center.sync_all_done_title'))
+            ->body($body);
         $result['failed'] === 0 ? $notification->success()->send() : $notification->warning()->send();
         $this->bustInventoryCache();
+    }
+
+    /**
+     * Manual Free Pool language evaluation — never auto-run on provider sync.
+     */
+    public function evaluateFreePoolLanguage(): void
+    {
+        $this->assertManager();
+        $userId = (int) auth()->id();
+        $area = AiModelArea::tryFromMixed($this->modelArea);
+        $pool = app(OpenRouterFreePoolService::class);
+        $gate = app(OpenRouterFreeLanguageGateService::class);
+        if ($gate->isEnglishPrimary()) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.ai_center.free_pool_language_english_skip'))
+                ->success()
+                ->send();
+
+            return;
+        }
+        $pending = $pool->pendingLanguageModels($userId, $area);
+        if ($pending === []) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.ai_center.free_pool_language_none_pending'))
+                ->success()
+                ->send();
+
+            return;
+        }
+        $lang = $gate->primaryLanguage();
+        $supported = 0;
+        $rejected = 0;
+        foreach ($pending as $model) {
+            // Manual gate: language support only — no ranking mutation.
+            // Heuristic bootstrap uses model id / display hints; replaceable by paid LLM later.
+            $ok = $this->heuristicLanguageSupport((string) $model->raw_model_name, (string) $model->display_name, $lang);
+            $gate->recordEvaluation($model, $lang, $ok, $ok ? 0.6 : 0.7, $ok ? 'manual_heuristic_supported' : 'manual_heuristic_unsupported');
+            $ok ? $supported++ : $rejected++;
+        }
+        foreach ($pool->openRouterConnections($userId) as $connection) {
+            $pool->markLanguageEvalSnapshot($connection);
+        }
+        $this->bustInventoryCache();
+        Notification::make()
+            ->title(__('seo-content-ai::filament.ai_center.free_pool_language_done_title'))
+            ->body(__('seo-content-ai::filament.ai_center.free_pool_language_done_body', [
+                'supported' => $supported,
+                'rejected' => $rejected,
+            ]))
+            ->success()
+            ->send();
+    }
+
+    private function heuristicLanguageSupport(string $raw, string $display, string $language): bool
+    {
+        $hay = strtolower($raw.' '.$display);
+        // Conservative: well-known multilingual families pass; obscure code-only models fail.
+        if (str_contains($hay, 'code') && ! str_contains($hay, 'chat')) {
+            return false;
+        }
+        foreach (['gemma', 'qwen', 'llama', 'mistral', 'phi', 'nemotron', 'deepseek', 'gemma', 'minimax'] as $hint) {
+            if (str_contains($hay, $hint)) {
+                return true;
+            }
+        }
+
+        // Default pending unknowns → supported for major free chat models; exclude clear non-general.
+        return ! str_contains($hay, 'embed') && ! str_contains($hay, 'rerank');
     }
 
     /**

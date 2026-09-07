@@ -83,11 +83,21 @@ class EditAiConnection extends SeoEditRecord
                 ->visible(fn (): bool => ApiConnectionProviders::isAi((string) $this->record->provider))
                 ->action(function (): void {
                     $ok = app(AiModelRouterService::class)->syncModelsForConnection((int) $this->record->id);
+                    $coverageAdded = 0;
+                    if ($ok) {
+                        try {
+                            app(\Omnichannel\Addons\AiPrompt\Services\AiModelPrimaryTypeClassifier::class)
+                                ->classifyForUser((int) auth()->id());
+                        } catch (\Throwable) {
+                        }
+                        $coverageAdded = app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionCoverageService::class)
+                            ->reconcileRoutingCoverage((int) auth()->id());
+                    }
 
                     if ($ok) {
                         Notification::make()
                             ->title('Models synced')
-                            ->body('API model list has been updated in seo_ai_models.')
+                            ->body('API model list updated. Routing coverage +'.$coverageAdded.'.')
                             ->success()
                             ->send();
 
@@ -106,7 +116,14 @@ class EditAiConnection extends SeoEditRecord
 
     protected function mutateFormDataBeforeSave(array $data): array
     {
-        $data['default_model'] = null;
+        $schema = \Illuminate\Support\Facades\Schema::connection(
+            (string) ((new \App\Models\ApiConnection)->getConnectionName() ?? config('database.core_connection', 'mysql')),
+        );
+        if ($schema->hasColumn('api_connections', 'default_model')) {
+            $data['default_model'] = $data['default_model'] ?? null;
+        } else {
+            unset($data['default_model']);
+        }
         $provider = (string) ($data['provider'] ?? $this->record->provider ?? '');
         if (ApiConnectionProviders::isAi($provider)) {
             $data['metadata'] = app(\Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\ProviderConnectionResolver::class)
@@ -157,7 +174,7 @@ class EditAiConnection extends SeoEditRecord
 
         app(AiModelRouterService::class)->syncModelsForConnection((int) $this->record->id);
         app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionInventoryService::class)->forgetCache();
-        app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionCoverageService::class)
-            ->reconcileAllTextAreas((int) auth()->id());
+            app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionCoverageService::class)
+                ->reconcileAllAreas((int) auth()->id());
+        }
     }
-}

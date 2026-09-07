@@ -18,10 +18,25 @@ use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
 final class AiConnectionCoverageService
 {
     public function __construct(
-        private readonly AiModelPriorityService $priorities,
-        private readonly ModelCapabilityRegistry $capabilities,
+        private readonly ?AiModelPriorityService $priorities = null,
+        private readonly ?ModelCapabilityRegistry $capabilities = null,
         private readonly ?AiModelFamilyCatalog $families = null,
     ) {}
+
+    private function priorities(): AiModelPriorityService
+    {
+        return $this->priorities ?? app(AiModelPriorityService::class);
+    }
+
+    private function capabilities(): ModelCapabilityRegistry
+    {
+        return $this->capabilities ?? app(ModelCapabilityRegistry::class);
+    }
+
+    private function families(): AiModelFamilyCatalog
+    {
+        return $this->families ?? new AiModelFamilyCatalog();
+    }
 
     /**
      * @return list<array{
@@ -38,7 +53,7 @@ final class AiConnectionCoverageService
     {
         $profile = $this->profileForArea($area);
         $enabledIds = [];
-        foreach ($this->priorities->areaEnabledModels($userId, $area) as $model) {
+        foreach ($this->priorities()->areaEnabledModels($userId, $area) as $model) {
             $cid = (int) ($model->api_connection_id ?? 0);
             if ($cid > 0) {
                 $enabledIds[$cid] = true;
@@ -90,9 +105,12 @@ final class AiConnectionCoverageService
             if ($best === null) {
                 continue;
             }
-            $this->priorities->appendToArea($userId, $area, [(int) $best->id]);
+            // Coverage seed is automatic — append without destroying manual order.
+            $this->priorities()->appendToArea($userId, $area, [(int) $best->id]);
             $added++;
         }
+
+        $this->priorities()->forgetMemo();
 
         return $added;
     }
@@ -111,18 +129,39 @@ final class AiConnectionCoverageService
     }
 
     /**
+     * Reconcile every AI Center UI area (text + image + video when connection supports it).
+     */
+    public function reconcileAllAreas(int $userId): int
+    {
+        $total = 0;
+        foreach (AiModelArea::uiCases() as $area) {
+            $total += $this->reconcileArea($userId, $area);
+        }
+
+        return $total;
+    }
+
+    /**
+     * Alias used by Sync All / post-sync hooks.
+     */
+    public function reconcileRoutingCoverage(int $userId): int
+    {
+        return $this->reconcileAllAreas($userId);
+    }
+
+    /**
      * @return list<ApiConnection>
      */
     private function activeAiConnections(int $userId): array
     {
-        return ApiConnection::query()
-            ->where(function ($q) use ($userId): void {
-                $q->where('user_id', $userId)->orWhere('is_global', true);
+        // Same visibility as Settings / AI Center inventory (workspace for owner/admin).
+        return app(AiConnectionInventoryService::class)
+            ->configuredAiConnections($userId)
+            ->filter(static function (ApiConnection $c): bool {
+                return (string) $c->status === 'active'
+                    && ApiConnectionProviders::isAi((string) $c->provider);
             })
-            ->where('status', 'active')
-            ->orderBy('id')
-            ->get()
-            ->filter(static fn (ApiConnection $c): bool => ApiConnectionProviders::isAi((string) $c->provider))
+            ->sortBy(static fn (ApiConnection $c): int => (int) $c->id)
             ->values()
             ->all();
     }
@@ -136,7 +175,8 @@ final class AiConnectionCoverageService
             return null;
         }
 
-        $required = $profile->requiredCapabilityKeys();
+        $required = $area->requiredCapabilityKeys();
+        // Prefer area-native capability keys (Image/Video must not fall through to text profile).
         $models = SeoAiModel::query()
             ->where('api_connection_id', $connection->id)
             ->where('status', SeoAiModel::STATUS_ACTIVE)
@@ -148,11 +188,11 @@ final class AiConnectionCoverageService
         $bestScore = PHP_INT_MAX;
         foreach ($models as $model) {
             $key = (string) $model->raw_model_name;
-            if (! $this->capabilities->satisfiesAll($connection, $key, $required)) {
+            if (! $this->capabilities()->satisfiesAll($connection, $key, $required)) {
                 continue;
             }
             // Prefer known catalog families, then lower priority number, then lower id.
-            $family = ($this->families ?? new AiModelFamilyCatalog())->familyForModelId($key);
+            $family = $this->families()->familyForModelId($key);
             $score = ($family === null ? 1_000_000 : 0)
                 + (int) $model->priority * 1000
                 + (int) $model->id;
@@ -171,6 +211,8 @@ final class AiConnectionCoverageService
             AiModelArea::TextFast => AiExecutionProfile::TextFast,
             AiModelArea::TextLongform => AiExecutionProfile::TextLongform,
             AiModelArea::TextReasoning => AiExecutionProfile::TextReasoning,
+            AiModelArea::Image => AiExecutionProfile::ImageGeneral,
+            AiModelArea::Video => AiExecutionProfile::VideoGeneral,
             default => AiExecutionProfile::TextLongform,
         };
     }

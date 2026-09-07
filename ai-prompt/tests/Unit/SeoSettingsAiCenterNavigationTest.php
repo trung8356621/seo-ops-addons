@@ -25,10 +25,10 @@ final class SeoSettingsAiCenterNavigationTest extends TestCase
         $this->assertStringContainsString('openImportModal', $page);
         $this->assertStringContainsString('exportTemplate', $page);
         $this->assertStringContainsString('downloadTemplate', $page);
-        $this->assertStringContainsString('syncAllModels', $page);
         $this->assertStringContainsString('syncConnection', $page);
 
         $view = (string) file_get_contents(ProjectRoot::addonsPath().'/seo-content-ai-compat/resources/views/filament/pages/seo-settings-ai-center.blade.php');
+        $this->assertStringNotContainsString('wire:click="syncAllModels"', $view);
         $this->assertStringContainsString("'models', 'routing', 'resilience', 'health'", $view);
         $this->assertStringContainsString('ai-center-resilience', $view);
         $this->assertStringContainsString('ai-center-health', $view);
@@ -67,5 +67,6 @@ final class SeoSettingsAiCenterNavigationTest extends TestCase
 
         $list = (string) file_get_contents((new \ReflectionClass(ListAiConnections::class))->getFileName());
         $this->assertStringNotContainsString('SeoSettingsAiCenter::getUrl()', $list);
+        $this->assertStringContainsString('sync_all_models', $list);
     }
 }

@@ -40,10 +40,27 @@
                 <span class="seo-ai-sort-item__n">{{ $index + 1 }}</span>
                 <div class="seo-ai-sort-item__body">
                     <div class="seo-ai-sort-item__name">
-                        @if (! empty($row['short_code']))
+                        @php($routeBadges = [])
+                        @foreach (($row['routes'] ?? []) as $route)
+                            @if (is_array($route) && filled($route['short_code'] ?? null))
+                                @php($routeBadges[] = $route)
+                            @endif
+                        @endforeach
+                        @if ($routeBadges !== [])
+                            @foreach ($routeBadges as $routeBadge)
+                                <span class="seo-ai-code seo-ai-code--{{ $routeBadge['badge_variant'] ?? 'badge-1' }}">{{ $routeBadge['short_code'] }}</span>
+                            @endforeach
+                        @elseif (! empty($row['short_code']))
                             <span class="seo-ai-code seo-ai-code--{{ $row['badge_variant'] ?? 'badge-1' }}">{{ $row['short_code'] }}</span>
                         @endif
                         <span>{{ $row['model_name'] ?? $row['label'] }}</span>
+                        @if (! empty($row['is_free_pool']))
+                            <span class="seo-ai-muted" style="display:block;font-size:0.75rem;margin-top:0.15rem;">
+                                {{ $row['subtitle'] ?? ('Auto managed · '.((int) ($row['free_pool_count'] ?? $row['member_count'] ?? 0)).' models') }}
+                            </span>
+                        @elseif (count($routeBadges) >= 2)
+                            <span class="seo-ai-muted" style="margin-left:0.35rem;font-size:0.75rem;">{{ count($routeBadges) }} routes</span>
+                        @endif
                     </div>
                 </div>
                 @if (! empty($row['is_free']))

@@ -306,7 +306,7 @@ class AiConnectionResource extends SeoPanelResource
 
     public static function getEloquentQuery(): Builder
     {
-        $userId = (int) (auth()->id() ?? 0);
+        $userId = (int) (\Filament\Facades\Filament::auth()->id() ?? auth()->id() ?? 0);
 
         return app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionInventoryService::class)
             ->queryForViewer($userId);

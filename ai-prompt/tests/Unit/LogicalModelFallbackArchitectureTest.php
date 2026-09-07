@@ -367,11 +367,22 @@ final class LogicalModelFallbackArchitectureTest extends TestCase
         $rows = (new AiCenterModelPresenter())->areaRows(76, AiModelArea::TextReasoning);
         $snapped = array_values(array_filter(
             $rows,
-            static fn (array $r): bool => (string) ($r['family_key'] ?? '') === 'gemini.pro'
+            static fn (array $r): bool => (string) ($r['canonical_model_key'] ?? $r['family_key'] ?? '') === 'gemini.pro'
                 || str_contains((string) ($r['identity'] ?? ''), 'gemini.pro'),
         ));
-        $this->assertNotEmpty($snapped);
-        $this->assertGreaterThanOrEqual(2, count($snapped[0]['routes'] ?? []));
+        $this->assertCount(1, $snapped);
+        $routes = $snapped[0]['routes'] ?? [];
+        $this->assertGreaterThanOrEqual(2, count($routes));
+        $this->assertFalse((bool) ($routes[0]['is_aggregator'] ?? true), 'Direct route must be first');
+        $this->assertTrue((bool) ($routes[1]['is_aggregator'] ?? false), 'Aggregator route must follow Direct');
+        $codes = array_values(array_filter(array_map(
+            static fn (array $r): string => (string) ($r['short_code'] ?? ''),
+            $routes,
+        )));
+        $this->assertGreaterThanOrEqual(2, count($codes));
+        $this->assertNotSame('', $codes[0]);
+        $this->assertNotSame('', $codes[1]);
+        $this->assertNotSame($codes[0], $codes[1], 'Multi-route logical row must expose distinct connection badges');
     }
 
     private function connection(int $userId, string $provider, string $name): ApiConnection

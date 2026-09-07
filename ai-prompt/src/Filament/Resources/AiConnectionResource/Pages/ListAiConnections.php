@@ -102,7 +102,9 @@ class ListAiConnections extends ListRecords
 
     public function getTableRecords(): EloquentCollection|Paginator|CursorPaginator
     {
-        $records = $this->connectionsList->recordsForUser((int) auth()->id());
+        // Admin Settings must use Filament panel auth (same web guard), never a missing site/tenant id.
+        $userId = (int) (\Filament\Facades\Filament::auth()->id() ?? auth()->id() ?? 0);
+        $records = $this->connectionsList->recordsForUser($userId);
 
         if ($this->connectionTypeFilter !== 'all') {
             $records = $records
@@ -152,6 +154,9 @@ class ListAiConnections extends ListRecords
                 ->values();
         }
 
+        // Keep Filament count helpers aligned with the custom inventory (not raw Eloquent query).
+        $this->cachedTableRecords = $records;
+
         return $records;
     }
 
@@ -171,6 +176,21 @@ class ListAiConnections extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
+            Actions\Action::make('sync_all_models')
+                ->label(__('seo-content-ai::filament.api_connections.sync_all_models'))
+                ->icon('heroicon-o-arrow-path')
+                ->color('gray')
+                ->action(function (): void {
+                    $result = app(\Omnichannel\Addons\AiPrompt\Services\SyncAllAiConnectionModelsService::class)
+                        ->run((int) auth()->id());
+                    $body = implode("\n", array_slice($result['summary_lines'], 0, 12));
+                    $notification = Notification::make()
+                        ->title(__('seo-content-ai::filament.api_connections.sync_all_done_title'))
+                        ->body($body);
+                    $result['failed'] === 0
+                        ? $notification->success()->send()
+                        : $notification->warning()->send();
+                }),
             Actions\CreateAction::make()
                 ->label(__('seo-content-ai::filament.api_connections.add_connection')),
         ];

@@ -196,11 +196,28 @@ final class AiRoutingTargetService
         if (! $profile->isMedia() && $policy === AiCostPolicy::FreeOnly) {
             $resolved = (new FreeRoutingResolver())->resolve($canonical);
             $this->lastEligibilityDiagnostics['candidates_after_free_only'] = count($resolved);
+            $expanded = $this->expandFreePool($userId, $profile, $resolved);
 
-            return (new LogicalModelRouteOrder())->apply($resolved);
+            return (new LogicalModelRouteOrder())->apply($expanded);
         }
 
-        return (new LogicalModelRouteOrder())->apply($canonical);
+        $expanded = $this->expandFreePool($userId, $profile, $canonical);
+
+        return (new LogicalModelRouteOrder())->apply($expanded);
+    }
+
+    /**
+     * @param  list<\Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate>  $candidates
+     * @return list<\Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate>
+     */
+    private function expandFreePool(int $userId, AiExecutionProfile $profile, array $candidates): array
+    {
+        $area = \Omnichannel\Addons\AiPrompt\Support\AiModelArea::fromProfile($profile);
+        if (! $area->isTextPrimary()) {
+            return $candidates;
+        }
+
+        return (new OpenRouterFreePoolService())->expandFreeRouterCandidates($userId, $area, $candidates);
     }
 
     /**

@@ -177,6 +177,18 @@ final class AiModelRouterService
         $settings = $this->resilienceSettings()->get($userId);
         $maxAiAttempts = (int) $settings[AiResilienceSettingsService::KEY_MAX_AI_ATTEMPTS];
         $maxFreeAttempts = (int) $settings[AiResilienceSettingsService::KEY_MAX_FREE_ATTEMPTS];
+        // Free Pool + any paid route still listed → max ONE free attempt (UX one-shot).
+        // Rescue Mode (no paid candidates) keeps configured MAX_FREE_ATTEMPTS rotation.
+        $paidCandidatesExist = false;
+        foreach ($candidates as $probe) {
+            if (! $probe->isFree) {
+                $paidCandidatesExist = true;
+                break;
+            }
+        }
+        $effectiveMaxFreeAttempts = $paidCandidatesExist
+            ? min(1, max(0, $maxFreeAttempts))
+            : $maxFreeAttempts;
 
         $classifier = $this->failureClassifier();
         $health = $this->runtimeHealth();
@@ -244,8 +256,13 @@ final class AiModelRouterService
                 continue;
             }
 
-            if ($candidate->isFree && $freeAttempts >= $maxFreeAttempts) {
-                $routingAttempts[] = $this->attemptLog($candidate, $attemptNumber, 'skipped', 'free_attempt_budget_exhausted');
+            if ($candidate->isFree && $freeAttempts >= $effectiveMaxFreeAttempts) {
+                $routingAttempts[] = $this->attemptLog(
+                    $candidate,
+                    $attemptNumber,
+                    'skipped',
+                    $paidCandidatesExist ? 'free_oneshot_paid_available' : 'free_attempt_budget_exhausted',
+                );
                 continue;
             }
 
@@ -1446,7 +1463,7 @@ final class AiModelRouterService
             $seenRaw = [];
             foreach ($adapter->listModels($connection) as $row) {
                 $rawName = (string) ($row['id'] ?? '');
-                if ($rawName === '') {
+                if ($rawName === '' || MalformedAiModelRepairService::isMalformedProviderModelId($rawName)) {
                     continue;
                 }
                 $seenRaw[] = $rawName;
@@ -1500,6 +1517,12 @@ final class AiModelRouterService
             $this->deactivateMissingModels($connectionId, $seenRaw);
             if ($provider === ApiConnectionProviders::OPENROUTER) {
                 (new AiModelPrimaryTypeClassifier())->classifyConnection($connection);
+                try {
+                    $pool = new OpenRouterFreePoolService();
+                    $pool->refreshCatalogSnapshot($connection->fresh() ?? $connection);
+                    $pool->ensureRouterAnchors((int) ($connection->user_id ?: 0));
+                } catch (\Throwable) {
+                }
             }
 
             return true;
@@ -1528,7 +1551,7 @@ final class AiModelRouterService
             ],
             $this->mergeSyncPayload((int) $connection->id, $raw, [
                 'category' => AiModelCategory::GEMINI_FLASH,
-                'display_name' => OpenRouterModelEconomics::FREE_ROUTER_LABEL,
+                'display_name' => 'OpenRouter Free Pool',
                 'priority' => $existing?->priority ?: 999,
                 'status' => $existing?->status ?: SeoAiModel::STATUS_ACTIVE,
                 'capabilities' => [
@@ -1565,7 +1588,7 @@ final class AiModelRouterService
         try {
             foreach ($client->listModels($connection) as $row) {
                 $rawName = (string) ($row['id'] ?? '');
-                if ($rawName === '') {
+                if ($rawName === '' || MalformedAiModelRepairService::isMalformedProviderModelId($rawName)) {
                     continue;
                 }
                 $classified = $this->classifyDeepSeekModel($rawName);

@@ -63,6 +63,31 @@ final class AiPromptServiceProvider extends ServiceProvider
             $this->app->make(SettingsSectionRegistry::class)
                 ->register($this->app->make(AiCoreSettingsContributor::class));
         }
+
+        if (class_exists(\Filament\Support\Facades\FilamentView::class)
+            && class_exists(\Filament\View\PanelsRenderHook::class)
+        ) {
+            \Filament\Support\Facades\FilamentView::registerRenderHook(
+                \Filament\View\PanelsRenderHook::BODY_START,
+                function (): string {
+                    try {
+                        if (! auth()->check()) {
+                            return '';
+                        }
+                        $status = app(\Omnichannel\Addons\AiPrompt\Services\AiCapacityStatusService::class)->status();
+                        if (! in_array($status['state'] ?? '', ['rescue', 'critical'], true)) {
+                            return '';
+                        }
+
+                        return view('seo-content-ai::filament.components.ai-capacity-rail', [
+                            'status' => $status,
+                        ])->render();
+                    } catch (\Throwable) {
+                        return '';
+                    }
+                },
+            );
+        }
     }
 
     private function registerCapabilities(): void

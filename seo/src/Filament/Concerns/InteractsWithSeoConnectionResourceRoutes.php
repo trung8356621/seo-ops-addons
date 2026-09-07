@@ -30,7 +30,8 @@ trait InteractsWithSeoConnectionResourceRoutes
     ): string {
         $panelId = $panel ?? static::panelId();
 
-        if ($panelId === 'seo-main') {
+        // Admin Settings URLs are site/connection_hash-free. Do not inject SEO domain context.
+        if ($panelId === 'admin' || $panelId === 'seo-main') {
             return parent::getUrl($name, $parameters, $isAbsolute, $panelId, $tenant);
         }
 

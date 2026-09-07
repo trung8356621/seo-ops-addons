@@ -605,14 +605,18 @@ final class AiModelPriorityService
      */
     private function ownedModels(int $userId, array $ids): \Illuminate\Support\Collection
     {
+        $allowedConnectionIds = array_map(
+            static fn (ApiConnection $c): int => (int) $c->id,
+            $this->aiConnections($userId),
+        );
+        if ($allowedConnectionIds === []) {
+            return collect();
+        }
+
         return SeoAiModel::query()
             ->with('apiConnection')
             ->whereIn('id', $ids)
-            ->whereHas('apiConnection', function ($query) use ($userId): void {
-                $query->where(function ($inner) use ($userId): void {
-                    $inner->where('user_id', $userId)->orWhere('is_global', true);
-                });
-            })
+            ->whereIn('api_connection_id', $allowedConnectionIds)
             ->get()
             ->keyBy(static fn (SeoAiModel $model): int => (int) $model->id);
     }

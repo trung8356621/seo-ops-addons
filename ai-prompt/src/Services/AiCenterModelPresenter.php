@@ -18,6 +18,7 @@ final class AiCenterModelPresenter
         private readonly AiModelPriorityService $priorities = new AiModelPriorityService(),
         private readonly ModelCapabilityRegistry $capabilities = new ModelCapabilityRegistry(),
         private readonly AiExecutionTargetPresenter $executionLabels = new AiExecutionTargetPresenter(),
+        private readonly OpenRouterFreePoolService $freePool = new OpenRouterFreePoolService(),
     ) {}
 
     /** @var array<string, list<array<string, mixed>>> */
@@ -150,20 +151,85 @@ final class AiCenterModelPresenter
             if ($cost === 'paid' && $row['is_free']) {
                 continue;
             }
-            $row['canonical_model_key'] = (string) ($row['family_key'] ?? '');
+            $row['canonical_model_key'] = \Omnichannel\Addons\AiPrompt\Support\AiCanonicalModelKey::fromProviderModelId(
+                (string) $model->raw_model_name,
+                (string) ($row['provider_key'] ?? $connection->provider ?? ''),
+            );
+            if (($row['canonical_model_key'] ?? '') === '' || str_starts_with((string) $row['canonical_model_key'], 'unknown:')) {
+                $row['canonical_model_key'] = (string) ($row['family_key'] ?? $row['canonical_model_key']);
+            }
             $row['routes'] = [[
                 'connection_id' => (int) ($row['connection_id'] ?? 0),
                 'provider_key' => (string) ($row['provider_key'] ?? ''),
                 'provider' => (string) ($row['provider'] ?? ''),
                 'is_aggregator' => ApiConnectionProviders::isAggregator((string) ($row['provider_key'] ?? '')),
                 'ids' => array_values(array_map('intval', $row['ids'] ?? [])),
+                'short_code' => (string) ($presented['short_code'] ?? ''),
+                'badge_variant' => (string) ($presented['badge_variant'] ?? 'badge-1'),
             ]];
             $rows[] = $row;
         }
         $rows = $this->snapLogicalModelRows($rows);
+        // Hide individual OpenRouter free members from primary list; inject virtual Free Pool.
+        $rows = $this->stripIndividualOpenRouterFreeRows($rows);
+        if ($area->isTextPrimary()) {
+            $rows = $this->injectOpenRouterFreePoolRow($rows, $userId, $area);
+        }
         usort($rows, static fn (array $a, array $b): int => ((int) ($a['area_priority'] ?? 0)) <=> ((int) ($b['area_priority'] ?? 0)));
 
         return array_values($rows);
+    }
+
+    /**
+     * Paid/logical rows only — individual :free OpenRouter models belong inside Free Pool.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @return list<array<string, mixed>>
+     */
+    private function stripIndividualOpenRouterFreeRows(array $rows): array
+    {
+        $kept = [];
+        foreach ($rows as $row) {
+            if (! empty($row['is_free_pool'])) {
+                $kept[] = $row;
+                continue;
+            }
+            $providerKey = (string) ($row['provider_key'] ?? '');
+            $isFree = ! empty($row['is_free']);
+            $raw = strtolower((string) ($row['raw_model_name'] ?? ''));
+            if ($raw === '' && is_array($row['releases'][0] ?? null)) {
+                $raw = strtolower((string) ($row['releases'][0]['raw'] ?? ''));
+            }
+            if ($isFree && ApiConnectionProviders::isAggregator($providerKey)
+                && ! OpenRouterModelEconomics::isOpenRouterFreeRouter($raw)) {
+                continue;
+            }
+            // Free-router anchor is replaced by virtual Free Pool card.
+            if (OpenRouterModelEconomics::isOpenRouterFreeRouter($raw)
+                || (($row['family_key'] ?? '') === 'openrouter.free' && empty($row['is_free_pool']))) {
+                continue;
+            }
+            $kept[] = $row;
+        }
+
+        return $kept;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $rows
+     * @return list<array<string, mixed>>
+     */
+    private function injectOpenRouterFreePoolRow(array $rows, int $userId, AiModelArea $area): array
+    {
+        $anchor = $this->freePool->findRouterAnchor($userId, $area);
+        $pool = $this->freePool->presentPoolRow($userId, $area, $anchor);
+        if ($pool === null) {
+            return $rows;
+        }
+        // Prefer existing area priority from anchor when present.
+        $rows[] = $pool;
+
+        return $rows;
     }
 
     /**
@@ -222,6 +288,12 @@ final class AiCenterModelPresenter
             $existing['provider'] = implode(' · ', array_keys($providers));
             $existing['provider_key'] = 'logical';
             $existing['connection_id'] = (int) (($existing['routes'][0]['connection_id'] ?? $existing['connection_id']) ?: 0);
+            // Prefer Direct badge as primary short_code; keep all route badges for UI.
+            $primary = $existing['routes'][0] ?? [];
+            if ((string) ($primary['short_code'] ?? '') !== '') {
+                $existing['short_code'] = (string) $primary['short_code'];
+                $existing['badge_variant'] = (string) ($primary['badge_variant'] ?? $existing['badge_variant'] ?? 'badge-1');
+            }
             $existing['identity'] = 'logical|'.$key;
             $byKey[$key] = $existing;
         }
@@ -234,6 +306,86 @@ final class AiCenterModelPresenter
         }
 
         return $out;
+    }
+
+    /**
+     * @deprecated Prefer injectOpenRouterFreePoolRow — kept for reference tests that call via reflection.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @return list<array<string, mixed>>
+     */
+    private function snapOpenRouterFreePoolRows(array $rows, AiModelArea $area): array
+    {
+        if (! $area->isTextPrimary()) {
+            return $rows;
+        }
+
+        $poolMembers = [];
+        $kept = [];
+        $poolPriority = PHP_INT_MAX;
+        $poolConnectionId = 0;
+
+        foreach ($rows as $row) {
+            $isFree = ! empty($row['is_free']);
+            $raw = strtolower((string) ($row['raw_model_name'] ?? $row['model_name'] ?? ''));
+            $isFreeRouter = $raw === strtolower(OpenRouterModelEconomics::FREE_ROUTER_ID)
+                || str_contains(strtolower((string) ($row['label'] ?? '')), 'free pool')
+                || str_contains(strtolower((string) ($row['label'] ?? '')), 'free router');
+            $providerKey = (string) ($row['provider_key'] ?? '');
+            if ($isFree && (ApiConnectionProviders::isAggregator($providerKey) || $isFreeRouter)) {
+                $poolMembers[] = $row;
+                $poolPriority = min($poolPriority, (int) ($row['area_priority'] ?? PHP_INT_MAX));
+                if ($poolConnectionId <= 0) {
+                    $poolConnectionId = (int) ($row['connection_id'] ?? 0);
+                }
+                continue;
+            }
+            $kept[] = $row;
+        }
+
+        if ($poolMembers === []) {
+            return $rows;
+        }
+
+        $memberCount = 0;
+        $ids = [];
+        foreach ($poolMembers as $member) {
+            $memberIds = array_values(array_map('intval', $member['ids'] ?? []));
+            $ids = array_merge($ids, $memberIds);
+            $memberCount += max(1, count($memberIds));
+        }
+        $ids = array_values(array_unique($ids));
+
+        $kept[] = [
+            'identity' => 'free_pool|'.$area->value.'|'.$poolConnectionId,
+            'label' => 'OpenRouter Free Pool',
+            'model_name' => 'OpenRouter Free Pool',
+            'full_label' => 'OpenRouter Free Pool · Auto managed · '.$memberCount.' models',
+            'provider' => 'OpenRouter',
+            'provider_key' => ApiConnectionProviders::OPENROUTER,
+            'connection_id' => $poolConnectionId,
+            'ids' => $ids,
+            'area_priority' => $poolPriority === PHP_INT_MAX ? 9999 : $poolPriority,
+            'is_free' => true,
+            'is_free_pool' => true,
+            'free_pool_count' => $memberCount,
+            'canonical_model_key' => 'openrouter:free_pool:'.$area->value,
+            'routes' => [[
+                'connection_id' => $poolConnectionId,
+                'provider_key' => ApiConnectionProviders::OPENROUTER,
+                'provider' => 'OpenRouter',
+                'is_aggregator' => true,
+                'ids' => $ids,
+                'short_code' => 'OR',
+                'badge_variant' => 'free',
+            ]],
+            'short_code' => 'OR',
+            'badge_variant' => 'free',
+            'source' => 'openrouter',
+            'subtitle' => 'Auto managed · '.$memberCount.' models',
+        ];
+
+        return $kept;
     }
 
     /**

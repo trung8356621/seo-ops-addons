@@ -98,8 +98,16 @@ class CreateAiConnection extends SeoCreateRecord
         $provider = (string) ($data['provider'] ?? '');
         $data['user_id'] = auth()->id();
         $data['is_global'] = $data['is_global'] ?? false;
-        $data['default_model'] = null;
-        if (\Illuminate\Support\Facades\Schema::hasColumn('api_connections', 'connection_type')) {
+        // Live omi_client.api_connections has no default_model / connection_type columns.
+        $schema = \Illuminate\Support\Facades\Schema::connection(
+            (string) ((new \App\Models\ApiConnection)->getConnectionName() ?? config('database.core_connection', 'mysql')),
+        );
+        if ($schema->hasColumn('api_connections', 'default_model')) {
+            $data['default_model'] = $data['default_model'] ?? null;
+        } else {
+            unset($data['default_model']);
+        }
+        if ($schema->hasColumn('api_connections', 'connection_type')) {
             $data['connection_type'] = ApiConnectionProviders::connectionType($provider)->value;
         } else {
             unset($data['connection_type']);
@@ -120,7 +128,7 @@ class CreateAiConnection extends SeoCreateRecord
                 ->assignBottomProviderPriority((int) auth()->id(), $this->record);
             app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionInventoryService::class)->forgetCache();
             app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionCoverageService::class)
-                ->reconcileAllTextAreas((int) auth()->id());
+                ->reconcileAllAreas((int) auth()->id());
         }
     }
 
