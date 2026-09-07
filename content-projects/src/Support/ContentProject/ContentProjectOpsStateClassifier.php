@@ -103,7 +103,9 @@ final class ContentProjectOpsStateClassifier
         $draft = ContentProjectDraftOpsDefinition::matches($row);
         $needsReview = ContentProjectRecentlyCompletedDefinition::matches($row);
         $inReview = ContentProjectInReviewReportingDefinition::matches($row);
-        $running = ! empty($row['is_genuinely_running']) || $pending;
+        // Badge truth: only dispatch-backed evidence counts as running. Pending/queued
+        // still land in the Pending summary bucket, but must not paint "Đang chạy".
+        $running = ! empty($row['is_genuinely_running']);
 
         $summary = match (true) {
             $published => self::BUCKET_PUBLISHED,
@@ -221,7 +223,20 @@ final class ContentProjectOpsStateClassifier
      */
     private static function generationKey(array $row, bool $running, bool $failed): string
     {
-        if ($running) {
+        $runtimeState = strtolower(trim((string) ($row['runtime_status']['state'] ?? '')));
+        $runtimeKey = match ($runtimeState) {
+            ContentProjectArticleRuntimeStatus::STATE_ACTIVELY_PROCESSING => 'running',
+            ContentProjectArticleRuntimeStatus::STATE_QUEUED => 'queued',
+            ContentProjectArticleRuntimeStatus::STATE_WAITING_AI_RETRY => 'waiting_ai',
+            ContentProjectArticleRuntimeStatus::STATE_STALE_PROCESSING,
+            ContentProjectArticleRuntimeStatus::STATE_INCONSISTENT_PROCESSING => 'stale',
+            default => null,
+        };
+        if ($runtimeKey !== null) {
+            return $runtimeKey;
+        }
+
+        if ($runtimeState === '' && $running) {
             return 'running';
         }
         if ($failed) {

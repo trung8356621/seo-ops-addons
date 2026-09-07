@@ -4,6 +4,7 @@
     $stats = $payload['stats'] ?? [];
     $rows = $payload['rows'] ?? [];
     $paginator = $payload['paginator'] ?? null;
+    $activeRuntime = $payload['active_runtime'] ?? null;
     $project = $this->project;
     $totalItems = (int) ($stats['total_items'] ?? 0);
     $activeCard = $this->activeSummaryCard;
@@ -493,8 +494,7 @@
                     await this.doLazyRefresh(true);
                 } catch (e) {}
                 ids.forEach((id) => this.clearRowProcessing(Number(id)));
-                const running = Number(this.canonicalCounters?.running ?? 0);
-                if (running <= 0 && attempt >= 2) {
+                if (! this.shouldPollRuntime() && attempt >= 2) {
                     this.stopGenerationTablePoll();
                     return;
                 }
@@ -504,8 +504,38 @@
                 }
                 this.generationPollTimer = setTimeout(
                     () => this.runGenerationTablePoll(attempt + 1),
-                    attempt === 0 ? 600 : 2500,
+                    attempt === 0 ? 600 : 3000,
                 );
+            },
+            shouldPollRuntime() {
+                const counters = this.canonicalCounters || {};
+                // Backend runtime flag is authoritative: it stays true while any row is
+                // actively processing / queued / waiting for AI / stuck, or the run is live.
+                if (counters.should_poll_runtime != null) {
+                    return Number(counters.should_poll_runtime) > 0;
+                }
+                const live = Number(counters.runtime_active ?? 0)
+                    + Number(counters.runtime_waiting ?? 0)
+                    + Number(counters.runtime_stuck ?? 0);
+                if (live > 0) return true;
+                return Number(counters.running ?? 0) > 0;
+            },
+            startRuntimePoll() {
+                if (this.generationPollTimer) return;
+                this.generationPollTimer = setTimeout(() => {
+                    this.generationPollTimer = null;
+                    this.runRuntimePoll(0);
+                }, 3000);
+            },
+            async runRuntimePoll(attempt = 0) {
+                try {
+                    await this.doLazyRefresh(false);
+                } catch (e) {}
+                if (! this.shouldPollRuntime() || attempt >= 200) {
+                    this.stopGenerationTablePoll();
+                    return;
+                }
+                this.generationPollTimer = setTimeout(() => this.runRuntimePoll(attempt + 1), 4000);
             },
             startGenerationTablePoll(taskIds) {
                 this.stopGenerationTablePoll();
@@ -756,6 +786,12 @@
 
                 if (this.needsRefresh) {
                     this.maybeLazyRefresh(false);
+                }
+
+                // Reload-safe: keep the runtime poll alive when the backend reports
+                // in-flight generation, even without a client-initiated action.
+                if (this.shouldPollRuntime()) {
+                    this.startRuntimePoll();
                 }
             },
         }"
@@ -1358,6 +1394,21 @@
                     @endif
                 </div>
             @else
+                @if (is_array($activeRuntime))
+                    <div class="mb-2 flex items-center gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-800 dark:border-sky-800 dark:bg-sky-950/40 dark:text-sky-200" aria-live="polite">
+                        <svg class="h-3.5 w-3.5 shrink-0 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+                        <span class="truncate">
+                            {{ $activeRuntime['label'] ?: __('seo-content-ai::filament.projects.badge_generating_active') }}:
+                            {{ $activeRuntime['title'] }}
+                            @if (! empty($activeRuntime['step_label']))
+                                · {{ $activeRuntime['step_label'] }}
+                            @endif
+                            @if (! empty($activeRuntime['time_label']))
+                                · {{ $activeRuntime['time_label'] }}
+                            @endif
+                        </span>
+                    </div>
+                @endif
                 <x-seo-content-ai::content-project-items-list
                     variant="content_project"
                     :rows="$rows"

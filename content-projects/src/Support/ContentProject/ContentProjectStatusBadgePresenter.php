@@ -43,6 +43,28 @@ final class ContentProjectStatusBadgePresenter
     }
 
     /**
+     * Runtime-aware generation badge for the ops list.
+     *
+     * Distinguishes proven live work from queued / waiting / stuck so pending rows
+     * stop reading as "Đang chạy". `badge_running` stays available for legacy callers.
+     *
+     * @return Badge
+     */
+    public static function runtime(string $state): array
+    {
+        return match (strtolower(trim($state))) {
+            ContentProjectArticleRuntimeStatus::STATE_ACTIVELY_PROCESSING => self::badge('running', self::t('badge_generating_active', 'Generating'), 'heroicon-o-arrow-path', 'bg-info-100 text-info-800 ring-info-600/30 dark:bg-info-400/15 dark:text-info-300 dark:ring-info-400/40'),
+            ContentProjectArticleRuntimeStatus::STATE_QUEUED => self::badge('queued', self::t('badge_queued_worker', 'Waiting for worker'), 'heroicon-o-queue-list', 'bg-gray-200/80 text-gray-800 ring-gray-500/30 dark:bg-gray-500/20 dark:text-gray-200 dark:ring-gray-400/30'),
+            ContentProjectArticleRuntimeStatus::STATE_WAITING_AI_RETRY => self::badge('waiting_ai', self::t('badge_waiting_ai', 'Waiting for AI'), 'heroicon-o-clock', 'bg-warning-100 text-warning-900 ring-warning-600/30 dark:bg-warning-400/15 dark:text-warning-200 dark:ring-warning-400/40'),
+            ContentProjectArticleRuntimeStatus::STATE_STALE_PROCESSING,
+            ContentProjectArticleRuntimeStatus::STATE_INCONSISTENT_PROCESSING => self::badge('stale', self::t('badge_possibly_stuck', 'Possibly stuck'), 'heroicon-o-exclamation-triangle', 'bg-warning-50 text-warning-900 ring-warning-500/40 dark:bg-warning-400/10 dark:text-warning-200 dark:ring-warning-400/40'),
+            ContentProjectArticleRuntimeStatus::STATE_FAILED => self::generation('failed', 'failed'),
+            ContentProjectArticleRuntimeStatus::STATE_COMPLETED => self::generation('completed', 'success'),
+            default => self::generation('pending', null),
+        };
+    }
+
+    /**
      * @return Badge
      */
     public static function lifecycle(string $phase): array

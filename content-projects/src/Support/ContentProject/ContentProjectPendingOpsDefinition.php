@@ -38,6 +38,18 @@ final class ContentProjectPendingOpsDefinition
             return false;
         }
 
+        // Runtime resolver is authoritative when present — a stale "processing" row with
+        // no live dispatch is not Pending work, and sticky task.status=writing is not
+        // enough on its own.
+        $runtimeState = strtolower(trim((string) ($row['runtime_status']['state'] ?? '')));
+        if ($runtimeState !== '') {
+            return in_array($runtimeState, [
+                ContentProjectArticleRuntimeStatus::STATE_ACTIVELY_PROCESSING,
+                ContentProjectArticleRuntimeStatus::STATE_QUEUED,
+                ContentProjectArticleRuntimeStatus::STATE_WAITING_AI_RETRY,
+            ], true);
+        }
+
         if (! empty($row['is_genuinely_running'])) {
             return true;
         }

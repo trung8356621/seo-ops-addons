@@ -4107,6 +4107,11 @@ return [
         'item_action_regen_image' => 'Regenerate image (editor)',
         'item_action_improve_manual' => 'Improve · manual only',
         'badge_running' => 'Running',
+        // Runtime states (ops list) — only badge_generating_active means a live worker.
+        'badge_generating_active' => 'Generating',
+        'badge_queued_worker' => 'Waiting for worker',
+        'badge_waiting_ai' => 'Waiting for AI',
+        'badge_possibly_stuck' => 'Possibly stuck',
         'badge_retrying' => 'Retrying',
         'badge_failed' => 'Failed',
         'badge_generated' => 'Generated',

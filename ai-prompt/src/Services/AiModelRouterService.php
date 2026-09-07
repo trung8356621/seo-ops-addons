@@ -296,86 +296,16 @@ final class AiModelRouterService
             }
         }
 
-        // #region agent log
-        try {
-            $skipCounts = [];
-            $failCounts = [];
-            $connIds = [];
-            $providers = [];
-            foreach ($candidates as $c) {
-                $connIds[(int) $c->connection->id] = true;
-                $providers[(string) $c->provider] = true;
-            }
-            foreach ($routingAttempts as $row) {
-                if (! is_array($row)) {
-                    continue;
-                }
-                if (($row['result'] ?? '') === 'skipped') {
-                    $sr = (string) ($row['skip_reason'] ?? 'unknown');
-                    $skipCounts[$sr] = ($skipCounts[$sr] ?? 0) + 1;
-                }
-                if (($row['result'] ?? '') === 'failed') {
-                    $fc = (string) ($row['failure_class'] ?? 'unknown');
-                    $failCounts[$fc] = ($failCounts[$fc] ?? 0) + 1;
-                }
-            }
-            $classified = (new \Omnichannel\Addons\AiPrompt\Support\AiRoutesExhaustionClassifier())
-                ->classify($routingAttempts, $actualAttempts);
-            $retryAfter = $health->retryAfterSeconds($userId, $candidates) ?? (
-                $classified['retryable'] ? 30 : null
-            );
-            $payload = [
-                'sessionId' => 'eb722e',
-                'runId' => 'post-fix',
-                'hypothesisId' => 'H1_H2_H3',
-                'location' => 'AiModelRouterService.php:exhausted',
-                'message' => 'AI routes exhausted',
-                'timestamp' => (int) round(microtime(true) * 1000),
-                'data' => [
-                    'user_id' => $userId,
-                    'profile' => $profile,
-                    'attempt_count' => $actualAttempts,
-                    'eligible_count' => count($candidates),
-                    'eligible_models' => $eligibleModels,
-                    'eligible_connection_count' => count($connIds),
-                    'eligible_provider_count' => count($providers),
-                    'skip_counts' => $skipCounts,
-                    'fail_counts' => $failCounts,
-                    'routing_attempts' => $routingAttempts,
-                    'exhaustion_kind' => $classified['exhaustion_kind'],
-                    'retryable' => $classified['retryable'],
-                    'retry_after_seconds' => $retryAfter,
-                ],
-            ];
-            file_put_contents(
-                'D:\\work\\omnichannel-addons\\debug-eb722e.log',
-                json_encode($payload, JSON_UNESCAPED_UNICODE)."\n",
-                FILE_APPEND,
-            );
-            logger()->info('ai.routing.exhausted', $payload['data']);
-        } catch (\Throwable) {
-            $classified = (new \Omnichannel\Addons\AiPrompt\Support\AiRoutesExhaustionClassifier())
-                ->classify($routingAttempts, $actualAttempts);
-            $retryAfter = null;
-            try {
-                $retryAfter = $health->retryAfterSeconds($userId, $candidates);
-            } catch (\Throwable) {
-            }
-            if ($classified['retryable'] && ($retryAfter === null || $retryAfter <= 0)) {
-                $retryAfter = 30;
-            }
-        }
-        // #endregion
+        $classified = (new \Omnichannel\Addons\AiPrompt\Support\AiRoutesExhaustionClassifier())
+            ->classify($routingAttempts, $actualAttempts);
 
-        if (! isset($classified) || ! is_array($classified)) {
-            $classified = (new \Omnichannel\Addons\AiPrompt\Support\AiRoutesExhaustionClassifier())
-                ->classify($routingAttempts, $actualAttempts);
-        }
-        if (! isset($retryAfter)) {
+        $retryAfter = null;
+        try {
             $retryAfter = $health->retryAfterSeconds($userId, $candidates);
-            if ($classified['retryable'] && ($retryAfter === null || $retryAfter <= 0)) {
-                $retryAfter = 30;
-            }
+        } catch (\Throwable) {
+        }
+        if ($classified['retryable'] && ($retryAfter === null || $retryAfter <= 0)) {
+            $retryAfter = 30;
         }
 
         $connectionIds = [];
@@ -385,28 +315,81 @@ final class AiModelRouterService
             $providerKeys[(string) $candidate->provider] = true;
         }
 
+        $diagnostics = array_merge($this->eligibilityDiagnostics(), [
+            'routing_owner_user_id' => $userId,
+            'profile' => $profile,
+            'hook_key' => $context->hookKey,
+            'eligible_models' => $eligibleModels,
+            'eligible_count' => count($candidates),
+            'eligible_connection_count' => count($connectionIds),
+            'eligible_provider_count' => count($providerKeys),
+            'candidates_before_health' => count($candidates),
+            'max_ai_attempts' => $maxAiAttempts,
+            'max_free_attempts' => $maxFreeAttempts,
+            'exhaustion_kind' => $classified['exhaustion_kind'],
+            'retryable' => $classified['retryable'],
+            'temporary' => $classified['temporary'],
+            'retry_after_seconds' => $retryAfter,
+            'health_skip_count' => $classified['health_skip_count'],
+            'hard_skip_count' => $classified['hard_skip_count'],
+            'transient_failure_count' => $classified['transient_failure_count'],
+            'hard_failure_count' => $classified['hard_failure_count'],
+            'free_budget_skip_count' => $classified['free_budget_skip_count'],
+            'skip_counts' => $this->attemptCounts($routingAttempts, 'skipped', 'skip_reason'),
+            'fail_counts' => $this->attemptCounts($routingAttempts, 'failed', 'failure_class'),
+        ]);
+
+        if (function_exists('logger')) {
+            logger()->info('ai.routing.exhausted', array_merge($diagnostics, [
+                'user_id' => $userId,
+                'attempt_count' => $actualAttempts,
+                'routing_attempts' => $routingAttempts,
+            ]));
+        }
+
         throw new AiRoutesExhaustedException(
             attemptCount: $actualAttempts,
             routingAttempts: $routingAttempts,
             previous: $lastException instanceof \Throwable ? $lastException : null,
-            diagnostics: [
-                'routing_owner_user_id' => $userId,
-                'eligible_models' => $eligibleModels,
-                'eligible_count' => count($candidates),
-                'eligible_connection_count' => count($connectionIds),
-                'eligible_provider_count' => count($providerKeys),
-                'max_ai_attempts' => $maxAiAttempts,
-                'max_free_attempts' => $maxFreeAttempts,
-                'exhaustion_kind' => $classified['exhaustion_kind'],
-                'retryable' => $classified['retryable'],
-                'temporary' => $classified['temporary'],
-                'retry_after_seconds' => $retryAfter,
-                'health_skip_count' => $classified['health_skip_count'],
-                'hard_skip_count' => $classified['hard_skip_count'],
-                'transient_failure_count' => $classified['transient_failure_count'],
-                'hard_failure_count' => $classified['hard_failure_count'],
-            ],
+            diagnostics: $diagnostics,
         );
+    }
+
+    /**
+     * Per-reason tallies over the routing attempt log.
+     *
+     * @param  list<array<string, mixed>>  $routingAttempts
+     * @return array<string, int>
+     */
+    private function attemptCounts(array $routingAttempts, string $result, string $detailKey): array
+    {
+        $counts = [];
+        foreach ($routingAttempts as $row) {
+            if (! is_array($row) || (string) ($row['result'] ?? '') !== $result) {
+                continue;
+            }
+            $detail = (string) ($row[$detailKey] ?? 'unknown');
+            if ($detail === '') {
+                $detail = 'unknown';
+            }
+            $counts[$detail] = ($counts[$detail] ?? 0) + 1;
+        }
+
+        return $counts;
+    }
+
+    /**
+     * Pre-health funnel counts recorded by the routing target service, when available.
+     *
+     * @return array<string, mixed>
+     */
+    private function eligibilityDiagnostics(): array
+    {
+        try {
+            return $this->targetsService()?->lastEligibilityDiagnostics() ?? [];
+        } catch (\Throwable) {
+            return [];
+        }
     }
 
     /**

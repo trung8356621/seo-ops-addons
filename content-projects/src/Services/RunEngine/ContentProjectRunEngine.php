@@ -10,6 +10,7 @@ use Omnichannel\Addons\ContentProjects\Enums\SeoProjectRunItemStatus;
 use Omnichannel\Addons\ContentProjects\Jobs\RunContentProjectArticleJob;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRunItem;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectArticleRuntimeStatusResolver;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectRunItemService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectWorkflowRunService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectWorkflowStepRetryService;
@@ -568,14 +569,16 @@ final class ContentProjectRunEngine
                 ? $settings[self::SETTINGS_ENGINE_KEY]
                 : [];
             unset($engine['active_dispatch']);
-            $engine[ContentProjectTransientAiRetryPolicy::SETTINGS_KEY] = [
+            $failedHook = trim((string) ($result->payload['failed_hook'] ?? ''));
+            $engine[ContentProjectTransientAiRetryPolicy::SETTINGS_KEY] = array_filter([
                 'run_item_id' => (int) $lockedItem->id,
                 'task_id' => (int) $lockedItem->task_id,
                 'attempt' => $nextAttempt,
                 'delay_seconds' => $delay,
                 'scheduled_at' => now()->toIso8601String(),
                 'exhaustion_kind' => $result->payload['exhaustion_kind'] ?? null,
-            ];
+                'failed_hook' => $failedHook !== '' ? $failedHook : null,
+            ], static fn (mixed $v): bool => $v !== null && $v !== '');
             $engine['active_dispatch'] = [
                 'task_id' => (int) $lockedItem->task_id,
                 'run_item_id' => (int) $lockedItem->id,
@@ -585,7 +588,8 @@ final class ContentProjectRunEngine
                 'dispatched_at' => now()->toIso8601String(),
                 'last_heartbeat_at' => now()->toIso8601String(),
                 'claimed_at' => null,
-                'current_step' => 'ai_retry_delayed',
+                // Prefer the failed hook so UI can show Outline/Vocabulary while waiting.
+                'current_step' => $failedHook !== '' ? $failedHook : 'ai_retry_delayed',
             ];
             $settings[self::SETTINGS_ENGINE_KEY] = $engine;
             $locked->update(['settings' => $settings]);
@@ -683,6 +687,9 @@ final class ContentProjectRunEngine
                 $engine['stop_reason'] = $engine['circuit_breaker']['reason'];
                 $engine['finalized_at'] = now()->toIso8601String();
                 $engine['final_status'] = 'failed_circuit_breaker';
+                // Remaining items stay Pending so the run can be resumed. Clearing the
+                // reservation is what keeps the ops UI from showing them as running —
+                // ContentProjectArticleRuntimeStatusResolver requires a matching dispatch.
                 unset($engine['active_dispatch']);
                 $settings[self::SETTINGS_ENGINE_KEY] = $engine;
                 $locked->update([
@@ -1037,6 +1044,13 @@ final class ContentProjectRunEngine
 
         if ($active !== null && $processingItems->count() > 1) {
             $errors[] = 'active_dispatch_with_multi_processing';
+            // Ops UI can only mark one row as genuinely running — surface the mismatch.
+            RuntimeLogger::warning(ContentProjectArticleRuntimeStatusResolver::LOG_INCONSISTENT, [
+                'run_id' => (int) $run->id,
+                'processing_count' => $processingItems->count(),
+                'processing_ids' => $processingItems->pluck('id')->all(),
+                'active_run_item_id' => (int) ($active['run_item_id'] ?? 0),
+            ]);
         }
 
         if ($active !== null) {

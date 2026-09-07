@@ -99,36 +99,6 @@ final class ContentProjectArticleRunner
                 'class' => $exception::class,
             ]);
 
-            // #region agent log
-            try {
-                $ctx = $exception instanceof \Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException
-                    ? $exception->context
-                    : [];
-                file_put_contents(
-                    'D:\\work\\omnichannel-addons\\debug-eb722e.log',
-                    json_encode([
-                        'sessionId' => 'eb722e',
-                        'hypothesisId' => 'H4_H5_terminal',
-                        'location' => 'ContentProjectArticleRunner.php:catch',
-                        'message' => 'article marked failed from exception',
-                        'timestamp' => (int) round(microtime(true) * 1000),
-                        'data' => [
-                            'run_id' => (int) $run->id,
-                            'task_id' => $taskId,
-                            'run_item_id' => $runItemId,
-                            'exception_class' => $exception::class,
-                            'message' => $exception->getMessage(),
-                            'retryable_context' => $ctx['retryable'] ?? null,
-                            'attempt_count' => $ctx['attempt_count'] ?? null,
-                            'classification' => $ctx['classification'] ?? null,
-                        ],
-                    ], JSON_UNESCAPED_UNICODE)."\n",
-                    FILE_APPEND,
-                );
-            } catch (\Throwable) {
-            }
-            // #endregion
-
             $run->refresh();
             if ($this->cancellationGuard->isStopRequested($run)) {
                 return $this->cancelledResult(
@@ -282,31 +252,6 @@ final class ContentProjectArticleRunner
             'exhaustion_kind' => $retryMeta['exhaustion_kind'] ?? null,
             'failed_hook' => $retryMeta['failed_hook'] ?? null,
         ]);
-
-        // #region agent log
-        try {
-            file_put_contents(
-                'D:\\work\\omnichannel-addons\\debug-eb722e.log',
-                json_encode([
-                    'sessionId' => 'eb722e',
-                    'runId' => 'post-fix',
-                    'hypothesisId' => 'H4_defer',
-                    'location' => 'ContentProjectArticleRunner.php:deferredTransientResult',
-                    'message' => 'article deferred for transient AI',
-                    'timestamp' => (int) round(microtime(true) * 1000),
-                    'data' => [
-                        'run_id' => (int) $run->id,
-                        'run_item_id' => $runItemId,
-                        'current_attempt' => $currentAttempt,
-                        'next_attempt' => $nextAttempt,
-                        'delay_seconds' => $delay,
-                    ],
-                ], JSON_UNESCAPED_UNICODE)."\n",
-                FILE_APPEND,
-            );
-        } catch (\Throwable) {
-        }
-        // #endregion
 
         return new ArticleExecutionResult(
             runId: (int) $run->id,

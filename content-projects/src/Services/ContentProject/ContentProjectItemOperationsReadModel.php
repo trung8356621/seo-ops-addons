@@ -14,6 +14,8 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRunItem;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\SeoAudit\SeoAuditCheckIndexUrl;
+use Omnichannel\Addons\ContentProjects\Services\RunEngine\ContentProjectRunEngine;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectArticleRuntimeStatus;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGenerationKeyword;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectFailedOpsDefinition;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectFailureTypeMapper;
@@ -24,6 +26,8 @@ use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectPubl
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectRecentlyCompletedDefinition;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectScheduledDefinition;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectStatusBadgePresenter;
+use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectRunEngineFeature;
+use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectTransientAiRetryPolicy;
 use Omnichannel\Addons\Publishing\Support\PublishingQueue\PublishingQueueHandoffEligibility;
 use Omnichannel\Addons\WordPress\Services\ArticleWordPressSyncFlagService;
 use Carbon\Carbon;
@@ -45,6 +49,7 @@ final class ContentProjectItemOperationsReadModel
         private readonly ContentProjectItemGenerationClassifier $generationClassifier,
         private readonly ContentProjectExistingArticleReconciler $existingArticleReconciler,
         private readonly ContentProjectGenerationCapabilityResolver $generationCapability,
+        private readonly ContentProjectArticleRuntimeStatusResolver $runtimeStatus,
     ) {}
 
     /**
@@ -131,6 +136,18 @@ final class ContentProjectItemOperationsReadModel
             ->orderByDesc('id')
             ->first();
 
+        $runtimeContext = $this->runtimeRunContext($latestRun, $latestByTask);
+        if ((int) ($runtimeContext['processing_count'] ?? 0) > 1
+            && is_array($runtimeContext['active_dispatch'] ?? null)
+        ) {
+            // Once per request — the ops page polls this read-model every few seconds.
+            $inconsistentKey = 'seo.cp.runtime_inconsistent_logged.'.$projectId;
+            if (! app()->bound($inconsistentKey)) {
+                ContentProjectArticleRuntimeStatusResolver::logInconsistentEvidence($runtimeContext);
+                app()->instance($inconsistentKey, true);
+            }
+        }
+
         $rows = [];
         $index = 0;
         foreach ($tasks as $task) {
@@ -148,10 +165,12 @@ final class ContentProjectItemOperationsReadModel
                 $viewed?->toIso8601String(),
                 isset($generatePendingRunnable[$tid]),
                 isset($keywordDirtyByTask[$tid]),
+                $runtimeContext,
             );
         }
 
         $stats = ContentProjectOpsStateClassifier::countSummary($rows);
+        $stats += self::runtimeSummary($rows, $latestRun);
 
         // Badge SoT (B): project total INCLUDES items handed to Publishing Queue.
         // Working set (Normal) stays scoped to $rows (publishing_queued_at IS NULL).
@@ -196,9 +215,124 @@ final class ContentProjectItemOperationsReadModel
             'last_execution_at' => $latestRun?->finished_at?->format('d/m/Y H:i')
                 ?? $latestRun?->started_at?->format('d/m/Y H:i'),
             'last_execution_status' => $latestRun !== null ? (string) $latestRun->status : null,
+            'active_runtime' => self::activeRuntimeRow($rows),
+            'should_poll_runtime' => (bool) ($stats['should_poll_runtime'] ?? false),
             'rows' => $slice,
             'paginator' => $paginator,
         ];
+    }
+
+    /**
+     * Run-scoped runtime evidence shared by every row of the page.
+     *
+     * @param  array<int, array<string, mixed>>  $latestByTask
+     * @return array<string, mixed>
+     */
+    private function runtimeRunContext(?SeoProjectRun $latestRun, array $latestByTask): array
+    {
+        if (! $latestRun instanceof SeoProjectRun) {
+            return [
+                'run_id' => null,
+                'run_status' => null,
+                'active_dispatch' => null,
+                'ai_transient_retry' => null,
+                'processing_count' => 0,
+                'has_dispatch_tracking' => false,
+            ];
+        }
+
+        $runId = (int) $latestRun->id;
+        $settings = is_array($latestRun->settings) ? $latestRun->settings : [];
+        $engine = is_array($settings[ContentProjectRunEngine::SETTINGS_ENGINE_KEY] ?? null)
+            ? $settings[ContentProjectRunEngine::SETTINGS_ENGINE_KEY]
+            : [];
+        $activeDispatch = is_array($engine['active_dispatch'] ?? null) ? $engine['active_dispatch'] : null;
+        $aiRetry = is_array($engine[ContentProjectTransientAiRetryPolicy::SETTINGS_KEY] ?? null)
+            ? $engine[ContentProjectTransientAiRetryPolicy::SETTINGS_KEY]
+            : null;
+
+        $processingCount = 0;
+        foreach ($latestByTask as $exec) {
+            if (! is_array($exec) || (int) ($exec['run_id'] ?? 0) !== $runId) {
+                continue;
+            }
+            if (strtolower(trim((string) ($exec['status'] ?? ''))) === 'processing') {
+                $processingCount++;
+            }
+        }
+
+        return [
+            'run_id' => $runId,
+            'run_status' => (string) $latestRun->status,
+            'active_dispatch' => $activeDispatch,
+            'ai_transient_retry' => $aiRetry,
+            'processing_count' => $processingCount,
+            'has_dispatch_tracking' => ContentProjectRunEngineFeature::hasPhpEngineSignals($engine),
+        ];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $rows
+     * @return array<string, int>
+     */
+    private static function runtimeSummary(array $rows, ?SeoProjectRun $latestRun): array
+    {
+        $active = 0;
+        $waiting = 0;
+        $stuck = 0;
+        foreach ($rows as $row) {
+            $state = (string) ($row['runtime_status']['state'] ?? '');
+            match ($state) {
+                ContentProjectArticleRuntimeStatus::STATE_ACTIVELY_PROCESSING => $active++,
+                ContentProjectArticleRuntimeStatus::STATE_QUEUED,
+                ContentProjectArticleRuntimeStatus::STATE_WAITING_AI_RETRY => $waiting++,
+                ContentProjectArticleRuntimeStatus::STATE_STALE_PROCESSING,
+                ContentProjectArticleRuntimeStatus::STATE_INCONSISTENT_PROCESSING => $stuck++,
+                default => null,
+            };
+        }
+
+        $runLive = $latestRun instanceof SeoProjectRun && ! in_array((string) $latestRun->status, [
+            SeoProjectRun::STATUS_COMPLETED,
+            SeoProjectRun::STATUS_CANCELLED,
+            SeoProjectRun::STATUS_FAILED,
+        ], true);
+
+        return [
+            'runtime_active' => $active,
+            'runtime_waiting' => $waiting,
+            'runtime_stuck' => $stuck,
+            'should_poll_runtime' => (int) ($active > 0 || $waiting > 0 || $stuck > 0 || $runLive),
+        ];
+    }
+
+    /**
+     * Compact header indicator — only when exactly one row is provably running.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @return array<string, mixed>|null
+     */
+    private static function activeRuntimeRow(array $rows): ?array
+    {
+        $found = null;
+        foreach ($rows as $row) {
+            if (empty($row['runtime_status']['is_active'])) {
+                continue;
+            }
+            if ($found !== null) {
+                return null;
+            }
+            $found = [
+                'task_id' => (int) ($row['task_id'] ?? 0),
+                'title' => (string) ($row['primary_label'] ?? ''),
+                'label' => (string) ($row['runtime_status']['label'] ?? ''),
+                'step_label' => $row['runtime_status']['step_label'] ?? null,
+                'detail' => $row['runtime_status']['detail'] ?? null,
+                'time_label' => $row['runtime_status']['time_label'] ?? null,
+            ];
+        }
+
+        return $found;
     }
 
     /**
@@ -243,6 +377,10 @@ final class ContentProjectItemOperationsReadModel
      *     scheduled: int,
      *     published: int,
      *     running: int,
+     *     runtime_active: int,
+     *     runtime_waiting: int,
+     *     runtime_stuck: int,
+     *     should_poll_runtime: int,
      * }
      */
     public static function normalizeSummaryStats(array $stats): array
@@ -266,6 +404,11 @@ final class ContentProjectItemOperationsReadModel
             'scheduled' => (int) ($stats['waiting_publish'] ?? $stats['scheduled'] ?? 0),
             'published' => (int) ($stats['published'] ?? 0),
             'running' => (int) ($stats['running'] ?? $stats['pending'] ?? 0),
+            // Runtime truth (dispatch-backed) — drives spinner + live polling, not the cards.
+            'runtime_active' => (int) ($stats['runtime_active'] ?? 0),
+            'runtime_waiting' => (int) ($stats['runtime_waiting'] ?? 0),
+            'runtime_stuck' => (int) ($stats['runtime_stuck'] ?? 0),
+            'should_poll_runtime' => (int) ($stats['should_poll_runtime'] ?? 0),
         ];
     }
 
@@ -300,6 +443,7 @@ final class ContentProjectItemOperationsReadModel
 
     /**
      * @param  array<string, mixed>|null  $exec
+     * @param  array<string, mixed>  $runtimeContext
      * @return array<string, mixed>
      */
     private function mapRow(
@@ -310,14 +454,19 @@ final class ContentProjectItemOperationsReadModel
         ?string $viewedGenerationCompletedAt = null,
         bool $isGeneratePendingRunnable = false,
         bool $isGenerationKeywordDirty = false,
+        array $runtimeContext = [],
     ): array {
         $tid = (int) $task->id;
         $article = $task->article;
         $staleEval = $this->staleness->evaluateTask($task);
         $isStaleGeneration = (bool) ($staleEval['stale'] ?? false);
-        $runError = $exec !== null
-            ? trim((string) ($exec['error_message'] ?? $exec['message'] ?? ''))
-            : '';
+        $execStatusRaw = strtolower(trim((string) ($exec['status'] ?? '')));
+        $runError = trim((string) ($exec['error_message'] ?? ''));
+        if ($runError === '' && in_array($execStatusRaw, ['failed', 'error', 'cancelled', 'stopped', 'timeout'], true)) {
+            // `message` also carries non-error runtime notes (deferred AI retry) — only
+            // promote it to an error on a terminal failure.
+            $runError = trim((string) ($exec['message'] ?? ''));
+        }
         $state = $this->lifecycle->resolveState(
             $task,
             $article instanceof SeoArticle ? $article : null,
@@ -403,11 +552,17 @@ final class ContentProjectItemOperationsReadModel
             && $this->syncFlags->hasUnpublishedChanges($article);
 
         $lastActivityCarbon = $this->resolveLastActivity($task, $article, $exec);
-        $isGenuineRunning = (string) ($task->status ?? '') === SeoProjectTask::STATUS_WRITING
-            && ! $isStaleGeneration
-            && (bool) ($staleEval['has_fresh_active_execution'] ?? false);
-        if ($execStatusEarly === 'processing' && ! $isStaleGeneration) {
-            $isGenuineRunning = true;
+
+        // Runtime SoT — dispatch-backed evidence, never sticky task.status alone.
+        $runtime = $this->runtimeStatus->resolve($runtimeContext + [
+            'run_item' => $exec,
+            'task_status' => (string) ($task->status ?? ''),
+            'legacy_fresh_execution' => (bool) ($staleEval['has_fresh_active_execution'] ?? false),
+            'is_generation_stale' => $isStaleGeneration,
+        ]);
+        $runtimeArray = $runtime->toArray();
+        $isGenuineRunning = $runtime->isActive;
+        if ($isGenuineRunning) {
             $genStatus = SeoProjectTask::STATUS_WRITING;
         }
         $hasResumableCheckpoint = false;
@@ -438,9 +593,8 @@ final class ContentProjectItemOperationsReadModel
                     }
                 }
             }
-            if ($capability->isActive()) {
-                $isGenuineRunning = true;
-            }
+            // Capability "active" is a sticky hint only — the runtime resolver owns
+            // is_genuinely_running so pending/queued rows never paint as running.
         } catch (\Throwable) {
             // Fail open to legacy failed-exec heuristic only for resume hint.
             $hasResumableCheckpoint = ! $isGenuineRunning
@@ -473,6 +627,7 @@ final class ContentProjectItemOperationsReadModel
         $rowBase = [
             'generation_status' => $displayGenStatus,
             'execution_status' => $exec['status'] ?? null,
+            'runtime_status' => $runtimeArray,
             'is_genuinely_running' => $isGenuineRunning,
             'generation_completed_at' => $generationCompletedAt,
             'viewed_generation_completed_at' => $viewedGenerationCompletedAt,
@@ -509,7 +664,18 @@ final class ContentProjectItemOperationsReadModel
         ];
         $classified = ContentProjectOpsStateClassifier::classify($rowBase);
         $genBadge = match ($classified['generation_key']) {
-            'running' => ContentProjectStatusBadgePresenter::generation('writing', 'running'),
+            'running' => ContentProjectStatusBadgePresenter::runtime(
+                ContentProjectArticleRuntimeStatus::STATE_ACTIVELY_PROCESSING,
+            ),
+            'queued' => ContentProjectStatusBadgePresenter::runtime(
+                ContentProjectArticleRuntimeStatus::STATE_QUEUED,
+            ),
+            'waiting_ai' => ContentProjectStatusBadgePresenter::runtime(
+                ContentProjectArticleRuntimeStatus::STATE_WAITING_AI_RETRY,
+            ),
+            'stale' => ContentProjectStatusBadgePresenter::runtime(
+                ContentProjectArticleRuntimeStatus::STATE_STALE_PROCESSING,
+            ),
             'failed' => ContentProjectStatusBadgePresenter::generation('failed', 'failed'),
             'generated' => ContentProjectStatusBadgePresenter::generation('completed', 'success'),
             default => ContentProjectStatusBadgePresenter::generation('pending', null),
@@ -562,7 +728,13 @@ final class ContentProjectItemOperationsReadModel
             'article_slug' => $article instanceof SeoArticle ? (string) ($article->slug ?? '') : '',
             'generation_status' => $displayGenStatus,
             'execution_status' => $exec['status'] ?? null,
-            'current_step' => $exec['action'] ?? null,
+            'current_step' => $this->resolveCurrentStep($exec, $runtimeContext, $runtime),
+            'runtime_status' => $runtimeArray,
+            'runtime_state' => $runtime->state,
+            'runtime_label' => $runtime->label,
+            'runtime_detail' => $runtime->detail,
+            'runtime_time_label' => $runtime->timeLabel,
+            'runtime_warning' => $runtime->warning,
             'lifecycle' => $displayPhase->value,
             'workflow_key' => $classified['workflow_key'],
             'generation_key' => $classified['generation_key'],
@@ -582,7 +754,8 @@ final class ContentProjectItemOperationsReadModel
             'is_scheduled' => $task->scheduled_publish_at !== null,
             'publish_published_at' => $rowBase['publish_published_at'],
             'message' => $message !== '' ? $message : null,
-            'last_activity' => $lastActivityCarbon?->diffForHumans() ?? '—',
+            'last_activity' => $runtime->timeLabel ?? ($lastActivityCarbon?->diffForHumans() ?? '—'),
+            'last_activity_relative' => $lastActivityCarbon?->diffForHumans() ?? '—',
             'last_activity_full' => $lastActivityCarbon?->format('d/m/Y H:i:s'),
             'last_run_at' => $exec['finished_at'] ?? $exec['started_at'] ?? null,
             'generation_completed_at' => $generationCompletedAt,
@@ -605,7 +778,7 @@ final class ContentProjectItemOperationsReadModel
                 || $generationRecoveryAction === ContentProjectGenerationRecoveryDecision::ACTION_GENERATE,
             'is_generation_stale' => $isStaleGeneration,
             'is_genuinely_running' => $isGenuineRunning,
-            'is_activity_processing' => $isGenuineRunning,
+            'is_activity_processing' => $runtime->showSpinner,
             'has_resumable_checkpoint' => $hasResumableCheckpoint,
             'generation_recovery_action' => $generationRecoveryAction,
             'generation_recovery_reason' => $generationRecoveryReason,
@@ -633,6 +806,38 @@ final class ContentProjectItemOperationsReadModel
             'can_send_to_publishing_queue' => PublishingQueueHandoffEligibility::canSend($rowBase),
             'keywords_count' => $this->distinctKeywordCount($article),
         ];
+    }
+
+    /**
+     * Live dispatch step wins for the row that owns the reservation; otherwise the
+     * run-item action is the best available hint.
+     *
+     * @param  array<string, mixed>|null  $exec
+     * @param  array<string, mixed>  $runtimeContext
+     */
+    private function resolveCurrentStep(
+        ?array $exec,
+        array $runtimeContext,
+        ContentProjectArticleRuntimeStatus $runtime,
+    ): ?string {
+        if ($runtime->stepLabel !== null) {
+            return $runtime->stepLabel;
+        }
+
+        $dispatch = is_array($runtimeContext['active_dispatch'] ?? null)
+            ? $runtimeContext['active_dispatch']
+            : null;
+        $execId = (int) ($exec['id'] ?? 0);
+        if ($dispatch !== null && $execId > 0 && (int) ($dispatch['run_item_id'] ?? 0) === $execId) {
+            $step = trim((string) ($dispatch['current_step'] ?? ''));
+            if ($step !== '') {
+                return $step;
+            }
+        }
+
+        $action = trim((string) ($exec['action'] ?? ''));
+
+        return $action !== '' ? $action : null;
     }
 
     /**
@@ -721,7 +926,9 @@ final class ContentProjectItemOperationsReadModel
                     $classifiedGen = (string) ($row['generation_key'] ?? '');
                     $ok = match ($generation) {
                         'pending' => $classifiedGen === 'pending',
-                        'running' => $classifiedGen === 'running',
+                        // "Running" filter keeps meaning "live AI work" — queued/waiting rows
+                        // are still in flight even though their badge is no longer "Đang chạy".
+                        'running' => in_array($classifiedGen, ['running', 'queued', 'waiting_ai'], true),
                         'success', 'generated' => $classifiedGen === 'generated',
                         'failed' => $classifiedGen === 'failed',
                         default => (string) ($row['generation_status'] ?? '') === $generation,
@@ -854,7 +1061,10 @@ final class ContentProjectItemOperationsReadModel
         $items = SeoProjectRunItem::query()
             ->whereIn('task_id', $taskIds)
             ->orderByDesc('id')
-            ->get(['id', 'task_id', 'run_id', 'status', 'action', 'error_message', 'started_at', 'finished_at']);
+            ->get([
+                'id', 'task_id', 'run_id', 'status', 'action', 'attempt', 'message',
+                'error_message', 'started_at', 'finished_at',
+            ]);
 
         $map = [];
         foreach ($items as $item) {
@@ -864,12 +1074,16 @@ final class ContentProjectItemOperationsReadModel
             }
             $map[$tid] = [
                 'id' => (int) $item->id,
+                'task_id' => $tid,
                 'run_id' => (int) $item->run_id,
                 'status' => (string) ($item->status ?? ''),
                 'action' => $item->action !== null ? (string) $item->action : null,
+                'attempt' => (int) ($item->attempt ?? 0),
                 'error_message' => $item->error_message !== null ? (string) $item->error_message : null,
-                'message' => null,
+                // Runtime message (e.g. deferred AI retry note) — not an error.
+                'message' => $item->message !== null ? (string) $item->message : null,
                 'started_at' => $item->started_at?->format('d/m/Y H:i'),
+                'started_at_iso' => $item->started_at?->toIso8601String(),
                 'finished_at' => $item->finished_at?->format('d/m/Y H:i'),
                 'finished_at_iso' => $item->finished_at?->toIso8601String(),
             ];

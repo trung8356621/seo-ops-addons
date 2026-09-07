@@ -700,6 +700,7 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
                 QueueRuntimeCheckCommand::class,
                 \Omnichannel\Addons\ContentProjects\Console\ContentProjectRunRecoverCommand::class,
                 \Omnichannel\Addons\ContentProjects\Console\RepairContentProjectActiveExecutionsCommand::class,
+                \Omnichannel\Addons\ContentProjects\Console\RepairContentProjectAiFailuresCommand::class,
                 \Omnichannel\Addons\ContentProjects\Console\RecoverContentProjectStaleGenerationCommand::class,
                 \Omnichannel\Addons\Media\Console\ProductGalleryParentChildCanaryCommand::class,
                 \Omnichannel\Addons\Media\Console\ProductGalleryPromptsDoctorCommand::class,

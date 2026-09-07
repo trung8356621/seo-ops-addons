@@ -163,6 +163,16 @@
             opacity: 0.78;
             transition: opacity .18s ease;
         }
+        /* Only rows with proven live generation get the running accent. */
+        .cp-ops-row--running > td:first-child {
+            box-shadow: inset 3px 0 0 0 rgb(14 165 233);
+        }
+        .cp-ops-row--running {
+            background: rgb(240 249 255 / 0.55);
+        }
+        .dark .cp-ops-row--running {
+            background: rgb(12 74 110 / 0.22);
+        }
         .cp-ops-status-cell,
         .cp-ops-schedule-cell {
             transition: opacity .18s ease;

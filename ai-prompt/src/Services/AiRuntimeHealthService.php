@@ -59,30 +59,6 @@ final class AiRuntimeHealthService
             $modelHealth = $this->findSubject($userId, AiRuntimeHealthState::SUBJECT_MODEL, $modelId);
             if ($modelHealth !== null) {
                 if ($modelHealth->health_status === AiRuntimeHealthStatus::Unavailable->value) {
-                    // #region agent log
-                    try {
-                        file_put_contents(
-                            'D:\\work\\omnichannel-addons\\debug-eb722e.log',
-                            json_encode([
-                                'sessionId' => 'eb722e',
-                                'hypothesisId' => 'H1_poison',
-                                'location' => 'AiRuntimeHealthService.php:skipReason',
-                                'message' => 'skip model_unavailable',
-                                'timestamp' => (int) round(microtime(true) * 1000),
-                                'data' => [
-                                    'user_id' => $userId,
-                                    'model_id' => (int) $modelId,
-                                    'model' => $candidate->model,
-                                    'last_failure_class' => $modelHealth->last_failure_class,
-                                    'consecutive_failures' => (int) $modelHealth->consecutive_failures,
-                                ],
-                            ], JSON_UNESCAPED_UNICODE)."\n",
-                            FILE_APPEND,
-                        );
-                    } catch (\Throwable) {
-                    }
-                    // #endregion
-
                     return 'model_unavailable';
                 }
 
@@ -193,35 +169,6 @@ final class AiRuntimeHealthService
                     } else {
                         $row->health_status = $this->statusAfterProviderFailure($row, $decision)->value;
                     }
-
-                    // #region agent log
-                    try {
-                        file_put_contents(
-                            'D:\\work\\omnichannel-addons\\debug-eb722e.log',
-                            json_encode([
-                                'sessionId' => 'eb722e',
-                                'hypothesisId' => 'H1_poison',
-                                'location' => 'AiRuntimeHealthService.php:recordFailure:model',
-                                'message' => 'model health after failure',
-                                'timestamp' => (int) round(microtime(true) * 1000),
-                                'data' => [
-                                    'user_id' => $userId,
-                                    'model_id' => (int) ($candidate->seoAiModelId ?? 0),
-                                    'model' => $candidate->model,
-                                    'failure_class' => $decision->category->value,
-                                    'apply_cooldown' => $decision->applyCooldown,
-                                    'mark_unavailable' => $decision->markModelUnavailable,
-                                    'consecutive_failures' => (int) $row->consecutive_failures,
-                                    'health_status' => (string) $row->health_status,
-                                    'cooldown_until' => (string) $row->cooldown_until,
-                                    'threshold_unavailable' => self::UNAVAILABLE_THRESHOLD,
-                                ],
-                            ], JSON_UNESCAPED_UNICODE)."\n",
-                            FILE_APPEND,
-                        );
-                    } catch (\Throwable) {
-                    }
-                    // #endregion
 
                     $this->updateModelLastError($candidate, $decision);
                     $this->maybeNotifyFailure($userId, $row, $previous, $decision, $candidate);

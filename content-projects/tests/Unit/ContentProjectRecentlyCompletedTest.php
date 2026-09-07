@@ -156,6 +156,10 @@ final class ContentProjectRecentlyCompletedTest extends TestCase
             'scheduled' => 5,
             'published' => 7,
             'running' => 0,
+            'runtime_active' => 0,
+            'runtime_waiting' => 0,
+            'runtime_stuck' => 0,
+            'should_poll_runtime' => 0,
         ], $summary);
     }
 

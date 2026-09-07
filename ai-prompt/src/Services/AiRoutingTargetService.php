@@ -31,10 +31,24 @@ final class AiRoutingTargetService
     /** @var array<string, list<\Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate>> */
     private array $liveCandidatesMemo = [];
 
+    /** @var array<string, mixed> */
+    private array $lastEligibilityDiagnostics = [];
+
     public function forgetMemo(): void
     {
         $this->liveCandidatesMemo = [];
         $this->priorities->forgetMemo();
+    }
+
+    /**
+     * Funnel counts from the most recent {@see eligibleCandidates} call.
+     * Diagnostics only — never drives routing decisions.
+     *
+     * @return array<string, mixed>
+     */
+    public function lastEligibilityDiagnostics(): array
+    {
+        return $this->lastEligibilityDiagnostics;
     }
 
     /**
@@ -169,6 +183,12 @@ final class AiRoutingTargetService
         $beforeEligibility = $canonical;
         $canonical = (new AiProductionRouteEligibility())->filter($canonical, $profile, $context);
         $this->logProductionEligibilitySkips($userId, $profile, $context, $beforeEligibility, $canonical);
+
+        $this->lastEligibilityDiagnostics = [
+            'candidates_before_production_eligibility' => count($beforeEligibility),
+            'candidates_after_production_eligibility' => count($canonical),
+            'production_eligibility_skip_count' => max(0, count($beforeEligibility) - count($canonical)),
+        ];
 
         $policy = $context->costPolicy ?? AiCostPolicyScope::current();
         if (! $profile->isMedia() && $policy === AiCostPolicy::FreeOnly) {

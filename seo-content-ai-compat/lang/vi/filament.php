@@ -4082,6 +4082,11 @@ return [
         'item_action_regen_image' => 'Tạo lại ảnh (editor)',
         'item_action_improve_manual' => 'Improve · chỉ thủ công',
         'badge_running' => 'Đang chạy',
+        // Runtime states (ops list) — only badge_generating_active means a live worker.
+        'badge_generating_active' => 'Đang tạo',
+        'badge_queued_worker' => 'Đang chờ worker',
+        'badge_waiting_ai' => 'Chờ AI',
+        'badge_possibly_stuck' => 'Có thể bị kẹt',
         'badge_retrying' => 'Đang thử lại',
         'badge_failed' => 'Lỗi',
         'badge_generated' => 'Đã tạo',

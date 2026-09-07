@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Services;
 
+use Omnichannel\Addons\AiPrompt\Exceptions\AiRoutesExhaustedException;
+use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\PromptHookFailure;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Runtime\PromptHookBindingRunner;
@@ -25,6 +27,35 @@ final class ArticleOutlineVocabularySplitExecutor
     public const VOCABULARY_HOOK = 'article.vocabulary.generate';
 
     public const MIN_DIRECT_BODY_LENGTH = 100;
+
+    /** Context keys copied verbatim from a routing exception into `ai_routing`. */
+    private const AI_ROUTING_CONTEXT_KEYS = [
+        'classification',
+        'retryable',
+        'temporary',
+        'exhaustion_kind',
+        'attempt_count',
+        'routing_attempts',
+        'retry_after_seconds',
+        'health_skip_count',
+        'hard_skip_count',
+        'transient_failure_count',
+        'hard_failure_count',
+        'free_budget_skip_count',
+        'skip_counts',
+        'fail_counts',
+        'profile',
+        'hook_key',
+        'eligible_models',
+        'eligible_count',
+        'candidates_before_health',
+        'candidates_before_production_eligibility',
+        'candidates_after_production_eligibility',
+        'production_eligibility_skip_count',
+    ];
+
+    /** Subset of `ai_routing` also surfaced at the top level of a failed result. */
+    private const AI_ROUTING_PROMOTED_KEYS = ['classification', 'retryable', 'exhaustion_kind'];
 
     public function __construct(
         private readonly PromptHookBindingRunner $hookBindingExecutor,
@@ -54,7 +85,11 @@ final class ArticleOutlineVocabularySplitExecutor
      *   outline_ai_invoked?: bool,
      *   vocabulary_ai_invoked?: bool,
      *   outline_status?: string,
-     *   vocabulary_status?: string
+     *   vocabulary_status?: string,
+     *   ai_routing?: array<string, mixed>,
+     *   classification?: string,
+     *   retryable?: bool,
+     *   exhaustion_kind?: string
      * }
      */
     public function execute(
@@ -116,6 +151,8 @@ final class ArticleOutlineVocabularySplitExecutor
                     ],
                     outlineAiInvoked: true,
                     durationMs: (int) round(microtime(true) * 1000) - $started,
+                    hookKey: self::OUTLINE_STRUCTURE_HOOK,
+                    aiRouting: $this->routingContextFromException($exception),
                 );
             } catch (\Throwable $exception) {
                 $promptResultId = $this->exceptionPromptResultId($exception);
@@ -129,6 +166,8 @@ final class ArticleOutlineVocabularySplitExecutor
                     ],
                     outlineAiInvoked: true,
                     durationMs: (int) round(microtime(true) * 1000) - $started,
+                    hookKey: self::OUTLINE_STRUCTURE_HOOK,
+                    aiRouting: $this->routingContextFromException($exception),
                 );
             }
 
@@ -187,6 +226,8 @@ final class ArticleOutlineVocabularySplitExecutor
                 outlineAiInvoked: $outlineAiInvoked,
                 vocabularyAiInvoked: true,
                 durationMs: (int) round(microtime(true) * 1000) - $started,
+                hookKey: self::VOCABULARY_HOOK,
+                aiRouting: $this->routingContextFromException($exception),
             );
         } catch (\Throwable $exception) {
             $promptResultId = $this->exceptionPromptResultId($exception);
@@ -204,6 +245,8 @@ final class ArticleOutlineVocabularySplitExecutor
                 outlineAiInvoked: $outlineAiInvoked,
                 vocabularyAiInvoked: true,
                 durationMs: (int) round(microtime(true) * 1000) - $started,
+                hookKey: self::VOCABULARY_HOOK,
+                aiRouting: $this->routingContextFromException($exception),
             );
         }
 
@@ -453,6 +496,7 @@ final class ArticleOutlineVocabularySplitExecutor
      * @param  array<string, mixed>  $outlineResult
      * @param  array<string, mixed>|null  $vocabularyResult
      * @param  array<string, string>  $sections
+     * @param  array<string, mixed>  $aiRouting
      * @return array<string, mixed>
      */
     private function fail(
@@ -464,6 +508,8 @@ final class ArticleOutlineVocabularySplitExecutor
         bool $outlineAiInvoked = false,
         bool $vocabularyAiInvoked = false,
         int $durationMs = 0,
+        ?string $hookKey = null,
+        array $aiRouting = [],
     ): array {
         $resultIds = array_values(array_filter([
             isset($outlineResult['prompt_result_id']) ? (int) $outlineResult['prompt_result_id'] : null,
@@ -479,7 +525,7 @@ final class ArticleOutlineVocabularySplitExecutor
                 : 'outline_failed';
         }
 
-        return [
+        $out = [
             'status' => 'failed',
             'message' => $message,
             'output' => '',
@@ -488,7 +534,7 @@ final class ArticleOutlineVocabularySplitExecutor
             'outline_result' => $outlineResult,
             'vocabulary_result' => $vocabularyResult,
             'prompt_result_ids' => $resultIds,
-            'hook_key' => self::OUTLINE_STRUCTURE_HOOK,
+            'hook_key' => $hookKey ?? self::OUTLINE_STRUCTURE_HOOK,
             'hook_version' => '0.1.0',
             'execution_source' => 'split_outline_vocabulary',
             'correlation_id' => (string) ($outlineResult['correlation_id'] ?? ''),
@@ -500,6 +546,65 @@ final class ArticleOutlineVocabularySplitExecutor
             'outline_status' => $hasOutline ? 'completed' : 'failed',
             'vocabulary_status' => 'failed',
         ];
+
+        if ($aiRouting !== []) {
+            $out['ai_routing'] = $aiRouting;
+            foreach (self::AI_ROUTING_PROMOTED_KEYS as $key) {
+                if (array_key_exists($key, $aiRouting)) {
+                    $out[$key] = $aiRouting[$key];
+                }
+            }
+        }
+
+        return $out;
+    }
+
+    /**
+     * Structured AI routing context from the exception (or its previous chain),
+     * so downstream retry policy has an SSOT instead of parsing messages.
+     *
+     * @return array<string, mixed>
+     */
+    private function routingContextFromException(\Throwable $exception): array
+    {
+        $chain = [];
+        for ($current = $exception; $current !== null; $current = $current->getPrevious()) {
+            $chain[] = $current;
+        }
+
+        $source = null;
+        foreach ($chain as $candidate) {
+            if ($candidate instanceof AiRoutesExhaustedException) {
+                $source = $candidate;
+                break;
+            }
+        }
+        if ($source === null) {
+            foreach ($chain as $candidate) {
+                if ($candidate instanceof PromptRunException && $candidate->classification() !== null) {
+                    $source = $candidate;
+                    break;
+                }
+            }
+        }
+        if (! $source instanceof PromptRunException) {
+            return [];
+        }
+
+        $out = [];
+        foreach (self::AI_ROUTING_CONTEXT_KEYS as $key) {
+            if (array_key_exists($key, $source->context)) {
+                $out[$key] = $source->context[$key];
+            }
+        }
+
+        if ($out === []) {
+            return [];
+        }
+
+        $out['exception_class'] = $source::class;
+
+        return $out;
     }
 
     private function positiveInt(mixed $value): ?int
@@ -515,7 +620,7 @@ final class ArticleOutlineVocabularySplitExecutor
 
     private function exceptionPromptResultId(\Throwable $exception): ?int
     {
-        if ($exception instanceof \Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException) {
+        if ($exception instanceof PromptRunException) {
             return $this->positiveInt($exception->context['prompt_result_id'] ?? null);
         }
 

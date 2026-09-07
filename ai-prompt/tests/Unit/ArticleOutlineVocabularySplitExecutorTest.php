@@ -4,13 +4,16 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Tests\Unit;
 
+use Omnichannel\Addons\AiPrompt\Exceptions\AiRoutesExhaustedException;
 use Omnichannel\Addons\AiPrompt\Services\ArticleOutlineVocabularySplitExecutor;
 use Omnichannel\Addons\AiPrompt\Services\PromptExecutionProfileResolver;
 use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\DefaultSplitOutlinePromptsInstaller;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
+use Omnichannel\Addons\AiPrompt\Support\AiRoutesExhaustionClassifier;
 use Omnichannel\Addons\ContentProjects\Services\ArticleGenerationInputResolver;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
+use ReflectionMethod;
 
 final class ArticleOutlineVocabularySplitExecutorTest extends TestCase
 {
@@ -103,6 +106,78 @@ final class ArticleOutlineVocabularySplitExecutorTest extends TestCase
         );
         self::assertStringContainsString("(\$splitResult['status'] ?? '') !== 'completed'", $runnerSource);
         self::assertStringContainsString('shouldSkipAfterOutlineFailure', $runnerSource);
+    }
+
+    public function test_fail_preserves_structured_ai_routing_from_wrapped_exception(): void
+    {
+        $executor = (new ReflectionClass(ArticleOutlineVocabularySplitExecutor::class))
+            ->newInstanceWithoutConstructor();
+
+        $exhausted = new AiRoutesExhaustedException(
+            attemptCount: 0,
+            routingAttempts: [
+                ['result' => 'skipped', 'model' => 'a', 'skip_reason' => 'model_unavailable'],
+            ],
+            diagnostics: ['skip_counts' => ['model_unavailable' => 1], 'profile' => 'text_reasoning'],
+        );
+        $wrapped = new \RuntimeException('Vocabulary generation failed', 0, $exhausted);
+
+        $routingContext = (new ReflectionMethod($executor, 'routingContextFromException'))
+            ->invoke($executor, $wrapped);
+
+        self::assertSame(AiRoutesExhaustedException::CLASSIFICATION, $routingContext['classification']);
+        self::assertFalse($routingContext['retryable']);
+        self::assertSame(AiRoutesExhaustionClassifier::KIND_HARD, $routingContext['exhaustion_kind']);
+        self::assertSame(['model_unavailable' => 1], $routingContext['skip_counts']);
+        self::assertSame('text_reasoning', $routingContext['profile']);
+
+        $result = (new ReflectionMethod($executor, 'fail'))->invoke(
+            $executor,
+            'Vocabulary generation failed: AI_ROUTES_EXHAUSTED: No eligible AI route was attempted',
+            [],
+            ['error' => 'boom'],
+            [],
+            'vocabulary_failed',
+            true,
+            true,
+            0,
+            ArticleOutlineVocabularySplitExecutor::VOCABULARY_HOOK,
+            $routingContext,
+        );
+
+        self::assertSame('failed', $result['status']);
+        self::assertSame(ArticleOutlineVocabularySplitExecutor::VOCABULARY_HOOK, $result['hook_key']);
+        self::assertSame($routingContext, $result['ai_routing']);
+        self::assertFalse($result['retryable']);
+        self::assertSame(AiRoutesExhaustionClassifier::KIND_HARD, $result['exhaustion_kind']);
+        self::assertSame(AiRoutesExhaustedException::CLASSIFICATION, $result['classification']);
+    }
+
+    public function test_fail_without_routing_exception_omits_ai_routing(): void
+    {
+        $executor = (new ReflectionClass(ArticleOutlineVocabularySplitExecutor::class))
+            ->newInstanceWithoutConstructor();
+
+        $routingContext = (new ReflectionMethod($executor, 'routingContextFromException'))
+            ->invoke($executor, new \RuntimeException('plain failure'));
+        self::assertSame([], $routingContext);
+
+        $result = (new ReflectionMethod($executor, 'fail'))->invoke(
+            $executor,
+            'Outline generation failed: empty output.',
+            [],
+            null,
+            [],
+            null,
+            true,
+            false,
+            0,
+            null,
+            $routingContext,
+        );
+
+        self::assertArrayNotHasKey('ai_routing', $result);
+        self::assertSame(ArticleOutlineVocabularySplitExecutor::OUTLINE_STRUCTURE_HOOK, $result['hook_key']);
     }
 
     public function test_split_prompt_markdown_is_canonical_from_installer(): void

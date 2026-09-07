@@ -60,6 +60,95 @@ final class ContentProjectTransientAiRetryPolicyTest extends TestCase
         self::assertSame('vocabulary_failed', $meta['outline_subtask']);
     }
 
+    public function test_structured_hard_exhaustion_wins_over_legacy_message(): void
+    {
+        $itemRow = [
+            'message' => 'AI_ROUTES_EXHAUSTED: No eligible AI route was attempted',
+            'steps' => [[
+                'status' => 'failed',
+                'hook_key' => 'article.outline.structure.generate',
+                'message' => 'AI_ROUTES_EXHAUSTED: No eligible AI route was attempted',
+                'ai_routing' => [
+                    'classification' => AiRoutesExhaustedException::CLASSIFICATION,
+                    'retryable' => false,
+                    'exhaustion_kind' => AiRoutesExhaustionClassifier::KIND_HARD,
+                    'attempt_count' => 0,
+                    'routing_attempts' => [
+                        ['result' => 'skipped', 'model' => 'a', 'skip_reason' => 'model_unavailable'],
+                    ],
+                ],
+            ]],
+        ];
+
+        self::assertNull(ContentProjectTransientAiRetryPolicy::fromFailedItemRow($itemRow));
+    }
+
+    public function test_structured_temporary_health_retries_with_diagnostics(): void
+    {
+        $meta = ContentProjectTransientAiRetryPolicy::fromFailedItemRow([
+            'message' => 'AI_ROUTES_EXHAUSTED: No eligible AI route was attempted',
+            'steps' => [[
+                'status' => 'failed',
+                'hook_key' => 'article.vocabulary.generate',
+                'outline_subtask' => 'vocabulary_failed',
+                'ai_routing' => [
+                    'classification' => AiRoutesExhaustedException::CLASSIFICATION,
+                    'retryable' => true,
+                    'exhaustion_kind' => AiRoutesExhaustionClassifier::KIND_TEMPORARY_HEALTH,
+                    'retry_after_seconds' => 45,
+                    'attempt_count' => 0,
+                    'health_skip_count' => 2,
+                    'skip_counts' => ['model_cooldown' => 2],
+                    'routing_attempts' => [
+                        ['result' => 'skipped', 'model' => 'a', 'skip_reason' => 'model_cooldown'],
+                    ],
+                ],
+            ]],
+        ]);
+
+        self::assertNotNull($meta);
+        self::assertTrue($meta[ContentProjectTransientAiRetryPolicy::PAYLOAD_FLAG]);
+        self::assertSame(AiRoutesExhaustionClassifier::KIND_TEMPORARY_HEALTH, $meta['exhaustion_kind']);
+        self::assertSame(45, $meta['retry_after_seconds']);
+        self::assertSame(2, $meta['health_skip_count']);
+        self::assertSame(['model_cooldown' => 2], $meta['skip_counts']);
+        self::assertSame('article.vocabulary.generate', $meta['failed_hook']);
+        self::assertSame('vocabulary_failed', $meta['outline_subtask']);
+    }
+
+    public function test_structured_flags_at_item_row_level_are_ssot(): void
+    {
+        self::assertNull(ContentProjectTransientAiRetryPolicy::fromFailedItemRow([
+            'message' => 'AI_ROUTES_EXHAUSTED: No eligible AI route was attempted',
+            'classification' => AiRoutesExhaustedException::CLASSIFICATION,
+            'retryable' => false,
+            'exhaustion_kind' => AiRoutesExhaustionClassifier::KIND_HARD,
+        ]));
+    }
+
+    public function test_from_exception_walks_previous_chain(): void
+    {
+        $hard = new \RuntimeException('Outline generation failed: AI_ROUTES_EXHAUSTED: No eligible AI route was attempted', 0, new AiRoutesExhaustedException(
+            attemptCount: 0,
+            routingAttempts: [
+                ['result' => 'skipped', 'model' => 'a', 'skip_reason' => 'model_unavailable'],
+            ],
+        ));
+        self::assertNull(ContentProjectTransientAiRetryPolicy::fromException($hard));
+
+        $temporary = new \RuntimeException('Outline generation failed', 0, new AiRoutesExhaustedException(
+            attemptCount: 0,
+            routingAttempts: [
+                ['result' => 'skipped', 'model' => 'a', 'skip_reason' => 'model_cooldown'],
+            ],
+            diagnostics: ['retry_after_seconds' => 60],
+        ));
+        $meta = ContentProjectTransientAiRetryPolicy::fromException($temporary);
+        self::assertNotNull($meta);
+        self::assertSame(AiRoutesExhaustionClassifier::KIND_TEMPORARY_HEALTH, $meta['exhaustion_kind']);
+        self::assertSame(60, $meta['retry_after_seconds']);
+    }
+
     public function test_delay_floors_and_caps(): void
     {
         self::assertSame(30, ContentProjectTransientAiRetryPolicy::delaySeconds(2, 10));

@@ -1044,7 +1044,16 @@ final class TaskWorkflowTestRunner
                                     $vocabResultId,
                                 ]));
 
-                            return [
+                            $aiRouting = is_array($splitResult['ai_routing'] ?? null)
+                                ? $splitResult['ai_routing']
+                                : [];
+
+                            return array_merge($aiRouting === [] ? [] : [
+                                'ai_routing' => $aiRouting,
+                                'classification' => $splitResult['classification'] ?? null,
+                                'retryable' => $splitResult['retryable'] ?? null,
+                                'exhaustion_kind' => $splitResult['exhaustion_kind'] ?? null,
+                            ], [
                                 'node_id' => $nodeId,
                                 'type' => $type,
                                 'title' => $title,
@@ -1075,7 +1084,7 @@ final class TaskWorkflowTestRunner
                                 'vocabulary_ai_invoked' => (bool) ($splitResult['vocabulary_ai_invoked'] ?? false),
                                 'execution_sequence' => 1,
                                 'sections' => is_array($splitResult['sections'] ?? null) ? $splitResult['sections'] : [],
-                            ];
+                            ]);
                         }
 
                         $this->clearSplitOutlineCheckpoint($state);
