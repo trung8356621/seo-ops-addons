@@ -463,6 +463,11 @@
                 const id = Number(tid || 0);
                 if (id <= 0) return;
                 this.processingRows = { ...(this.processingRows || {}), [id]: String(kind || 'generation') };
+                // Single-item menu actions set this overlay but often do not dispatch
+                // cp-ops-generation-started — keep runtime lazy poll alive so remorph can clear it.
+                if (String(kind || '') === 'generation') {
+                    this.startRuntimePoll();
+                }
             },
             clearRowProcessing(tid) {
                 const id = Number(tid || 0);
@@ -476,6 +481,9 @@
             },
             rowProcessingKind(tid) {
                 return this.processingRows?.[Number(tid || 0)] || null;
+            },
+            hasOptimisticProcessing() {
+                return Object.keys(this.processingRows || {}).length > 0;
             },
             stopGenerationTablePoll() {
                 if (this.generationPollTimer) {
@@ -531,7 +539,14 @@
                 try {
                     await this.doLazyRefresh(false);
                 } catch (e) {}
-                if (! this.shouldPollRuntime() || attempt >= 200) {
+                // Keep polling while backend is live OR client still shows optimistic running badge.
+                // Stop only when both are clear — then drop any leftover overlay before exit.
+                const live = this.shouldPollRuntime();
+                const optimistic = this.hasOptimisticProcessing();
+                if ((! live && ! optimistic) || attempt >= 200) {
+                    if (! live) {
+                        this.processingRows = {};
+                    }
                     this.stopGenerationTablePoll();
                     return;
                 }
@@ -590,16 +605,28 @@
                 const requestId = ++this.summaryRequestId;
                 try {
                     let summary = null;
+                    let changed = false;
                     if (force) {
                         const result = await $wire.manualRefreshOps();
                         summary = result?.summary || null;
+                        changed = true;
                     } else {
-                        const result = await $wire.fetchOpsSummaryOnly(requestId);
+                        // Active runtime / visibility: remorph rows only when summary fingerprint changes.
+                        // Do NOT use fetchOpsSummaryOnly here — it always skipRender() and leaves rows stale.
+                        const result = await $wire.lazyRefreshOps();
                         summary = result?.summary || null;
+                        changed = !!result?.changed;
                     }
                     if (! summary) return;
                     if (requestId !== this.summaryRequestId) return;
                     this.acceptCanonicalSummary(summary, requestId);
+                    // After a real table remorph, drop Alpine processing overlays so server
+                    // generation_badge (Đã tạo / Lỗi) is visible in the same tab.
+                    if (changed || force) {
+                        this.processingRows = {};
+                    } else if (Number(summary.should_poll_runtime || 0) <= 0) {
+                        this.processingRows = {};
+                    }
                     if (force && (this.pendingTransitions || []).length === 0) {
                         this.resetRowOptimistic();
                     }

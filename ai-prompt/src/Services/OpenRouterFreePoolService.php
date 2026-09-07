@@ -23,7 +23,25 @@ final class OpenRouterFreePoolService
 
     public const EVAL_SNAPSHOT_META_KEY = 'openrouter_free_language_eval_snapshot';
 
+    /** Per-language opt-in language gate on ApiConnection.metadata (no migration). */
+    public const LANGUAGE_GATE_META_KEY = 'openrouter_free_language_gate';
+
     public const DELTA_THRESHOLD_ENV = 'FREE_POOL_REVIEW_DELTA_THRESHOLD';
+
+    /** Presentational pool status — not a SeoAiModel DB status. */
+    public const POOL_STATUS_ACTIVE = 'active';
+
+    public const POOL_STATUS_PENDING_LANGUAGE = 'pending_language';
+
+    public const POOL_STATUS_UNAVAILABLE = 'unavailable';
+
+    /** Routing diagnostic when catalog exists but no language-approved runtime members. */
+    public const DIAG_PENDING_LANGUAGE = 'free_pool_pending_language';
+
+    public const DIAG_EMPTY = 'free_pool_empty';
+
+    /** @var array<string, mixed> */
+    private array $lastExpansionDiagnostics = [];
 
     public function __construct(
         private readonly ModelCapabilityRegistry $capabilities = new ModelCapabilityRegistry(),
@@ -31,6 +49,14 @@ final class OpenRouterFreePoolService
         private readonly OpenRouterFreeLanguageGateService $language = new OpenRouterFreeLanguageGateService(),
         private readonly AiModelPriorityService $priorities = new AiModelPriorityService(),
     ) {}
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function lastExpansionDiagnostics(): array
+    {
+        return $this->lastExpansionDiagnostics;
+    }
 
     public function deltaThreshold(): int
     {
@@ -55,7 +81,8 @@ final class OpenRouterFreePoolService
     }
 
     /**
-     * Free TEXT catalog members for an area (language-filtered for runtime).
+     * Free TEXT catalog members for an area.
+     * Language filter applies only when the opt-in language gate is ON.
      *
      * @return list<SeoAiModel>
      */
@@ -64,15 +91,123 @@ final class OpenRouterFreePoolService
         if (! $area->isTextPrimary()) {
             return [];
         }
+        $gateOn = $this->isLanguageGateEnabled($userId);
         $out = [];
         foreach ($this->catalogCandidates($userId, $area) as $row) {
-            if ($row['language_state'] !== OpenRouterFreeLanguageState::Supported) {
+            if ($gateOn && $row['language_state'] !== OpenRouterFreeLanguageState::Supported) {
                 continue;
             }
             $out[] = $row['model'];
         }
 
         return $out;
+    }
+
+    /**
+     * Pool-level language-gate flag for the user's OpenRouter Free Pool.
+     * English primary is always non-blocking (returns false).
+     * Enabled if any OpenRouter connection has enabled=true for the primary language.
+     */
+    public function isLanguageGateEnabled(int $userId, ?string $language = null): bool
+    {
+        if ($this->language->isEnglishPrimary()) {
+            return false;
+        }
+        $lang = strtolower(trim((string) ($language ?? $this->language->primaryLanguage())));
+        if ($lang === '' || str_starts_with($lang, 'en')) {
+            return false;
+        }
+        foreach ($this->openRouterConnections($userId) as $connection) {
+            $entry = $this->languageGateEntry($connection, $lang);
+            if (! empty($entry['enabled'])) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Enable language enforcement after a successful evaluation completes.
+     */
+    public function enableLanguageGate(int $userId, ?string $language = null): void
+    {
+        $lang = strtolower(trim((string) ($language ?? $this->language->primaryLanguage())));
+        if ($lang === '' || str_starts_with($lang, 'en')) {
+            return;
+        }
+        $now = now()->toIso8601String();
+        foreach ($this->openRouterConnections($userId) as $connection) {
+            $meta = is_array($connection->metadata) ? $connection->metadata : [];
+            $bag = is_array($meta[self::LANGUAGE_GATE_META_KEY] ?? null)
+                ? $meta[self::LANGUAGE_GATE_META_KEY]
+                : [];
+            $prev = is_array($bag[$lang] ?? null) ? $bag[$lang] : [];
+            $bag[$lang] = [
+                'enabled' => true,
+                'enabled_at' => (string) ($prev['enabled_at'] ?? $now),
+                'last_evaluated_at' => $now,
+            ];
+            $meta[self::LANGUAGE_GATE_META_KEY] = $bag;
+            $this->persistConnectionMetadata($connection, $meta);
+        }
+    }
+
+    /**
+     * Turn language filtering off — technical Free Pool becomes runnable again.
+     */
+    public function disableLanguageGate(int $userId, ?string $language = null): void
+    {
+        $lang = strtolower(trim((string) ($language ?? $this->language->primaryLanguage())));
+        if ($lang === '') {
+            return;
+        }
+        $now = now()->toIso8601String();
+        foreach ($this->openRouterConnections($userId) as $connection) {
+            $meta = is_array($connection->metadata) ? $connection->metadata : [];
+            $bag = is_array($meta[self::LANGUAGE_GATE_META_KEY] ?? null)
+                ? $meta[self::LANGUAGE_GATE_META_KEY]
+                : [];
+            $prev = is_array($bag[$lang] ?? null) ? $bag[$lang] : [];
+            $bag[$lang] = [
+                'enabled' => false,
+                'enabled_at' => $prev['enabled_at'] ?? null,
+                'last_evaluated_at' => $prev['last_evaluated_at'] ?? null,
+                'disabled_at' => $now,
+            ];
+            $meta[self::LANGUAGE_GATE_META_KEY] = $bag;
+            $this->persistConnectionMetadata($connection, $meta);
+        }
+    }
+
+    /**
+     * Write only metadata. Inventory may set ephemeral attributes (e.g. connection_type)
+     * that must not be persisted when the column is absent.
+     *
+     * @param  array<string, mixed>  $meta
+     */
+    private function persistConnectionMetadata(ApiConnection $connection, array $meta): void
+    {
+        $connection->setAttribute('metadata', $meta);
+        ApiConnection::query()->whereKey((int) $connection->getKey())->update([
+            'metadata' => json_encode($meta, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
+            'updated_at' => now(),
+        ]);
+        $connection->syncOriginalAttribute('metadata');
+    }
+
+    /**
+     * @return array{enabled?: bool, enabled_at?: ?string, last_evaluated_at?: ?string, disabled_at?: ?string}
+     */
+    private function languageGateEntry(ApiConnection $connection, string $language): array
+    {
+        $meta = is_array($connection->metadata) ? $connection->metadata : [];
+        $bag = is_array($meta[self::LANGUAGE_GATE_META_KEY] ?? null)
+            ? $meta[self::LANGUAGE_GATE_META_KEY]
+            : [];
+        $entry = is_array($bag[$language] ?? null) ? $bag[$language] : [];
+
+        return $entry;
     }
 
     /**
@@ -150,26 +285,28 @@ final class OpenRouterFreePoolService
         if ($candidates === [] && $routerAnchor === null) {
             return null;
         }
-        $runtime = [];
+        $gateOn = $this->isLanguageGateEnabled($userId);
+        $supportedRows = [];
         $pending = 0;
         $unsupported = 0;
         foreach ($candidates as $row) {
             if ($row['language_state'] === OpenRouterFreeLanguageState::Supported) {
-                $runtime[] = $row;
+                $supportedRows[] = $row;
             } elseif ($row['language_state'] === OpenRouterFreeLanguageState::Pending) {
                 $pending++;
             } else {
                 $unsupported++;
             }
         }
-        // English (or all supported): pool visible when catalog has members.
-        // Non-English with only PENDING: still show pool with pending diagnostics.
-        if ($runtime === [] && $pending === 0 && $routerAnchor === null) {
+        $technical = count($candidates);
+        // Gate OFF: technical catalog is the runtime pool (PENDING does not block).
+        // Gate ON: only SUPPORTED members are runnable.
+        $memberRows = $gateOn ? $supportedRows : $candidates;
+        if ($memberRows === [] && $pending === 0 && $routerAnchor === null && $technical === 0) {
             return null;
         }
-        $memberCount = count($runtime);
-        // UI "N models" includes pending candidates so the pool is never an empty shell.
-        $displayCount = $memberCount + $pending;
+        $available = count($memberRows);
+        $displayCount = $gateOn ? ($available + $pending) : max($technical, $available);
         $connection = $routerAnchor?->apiConnection;
         if (! $connection instanceof ApiConnection) {
             $connections = $this->openRouterConnections($userId);
@@ -179,16 +316,29 @@ final class OpenRouterFreePoolService
             return null;
         }
         $routerId = $routerAnchor !== null ? (int) $routerAnchor->id : 0;
-        $memberIds = array_map(static fn (array $r): int => (int) $r['model']->id, $runtime);
+        $runtimeIds = array_map(static fn (array $r): int => (int) $r['model']->id, $memberRows);
+        $memberIds = $runtimeIds;
         if ($routerId > 0) {
             array_unshift($memberIds, $routerId);
         }
         $memberIds = array_values(array_unique($memberIds));
-        $available = $memberCount;
         $label = 'OpenRouter Free Pool';
-        $subtitle = 'Auto managed · '.$displayCount.' models';
-        if ($pending > 0) {
-            $subtitle .= ' · '.$pending.' pending language';
+        if (! $gateOn) {
+            $poolStatus = $available > 0 ? self::POOL_STATUS_ACTIVE : self::POOL_STATUS_UNAVAILABLE;
+            $subtitle = $this->language->isEnglishPrimary() || $pending === 0
+                ? 'Auto managed · '.$available.' models'
+                : $available.' models · Chưa kiểm tra ngôn ngữ';
+        } elseif ($available > 0) {
+            $poolStatus = self::POOL_STATUS_ACTIVE;
+            $subtitle = $pending > 0
+                ? $available.' khả dụng · '.$pending.' chờ đánh giá'
+                : 'Auto managed · '.$available.' models';
+        } elseif ($pending > 0) {
+            $poolStatus = self::POOL_STATUS_PENDING_LANGUAGE;
+            $subtitle = $displayCount.' model · '.$pending.' chờ đánh giá';
+        } else {
+            $poolStatus = self::POOL_STATUS_UNAVAILABLE;
+            $subtitle = 'Auto managed · 0 models';
         }
 
         return [
@@ -213,9 +363,11 @@ final class OpenRouterFreePoolService
             'cooldown_count' => 0,
             'pending_language_count' => $pending,
             'unsupported_language_count' => $unsupported,
+            'language_gate_enabled' => $gateOn,
             'canonical_model_key' => 'openrouter:free_pool:'.$area->value,
             'family_key' => 'openrouter.free',
-            'status' => SeoAiModel::STATUS_ACTIVE,
+            'status' => $poolStatus,
+            'pool_status' => $poolStatus,
             'routes' => [[
                 'connection_id' => (int) $connection->id,
                 'provider_key' => ApiConnectionProviders::OPENROUTER,
@@ -288,42 +440,120 @@ final class OpenRouterFreePoolService
     /**
      * Expand free-router candidate into ranked language-approved free members.
      *
+     * Production Free Pool never silently falls back to synthetic openrouter/free.
+     * That id remains valid only for explicit infrastructure probes (Test Connection).
+     *
      * @param  list<\Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate>  $candidates
      * @return list<\Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate>
      */
     public function expandFreeRouterCandidates(int $userId, AiModelArea $area, array $candidates): array
     {
+        $this->lastExpansionDiagnostics = [];
         $out = [];
+        $sawFreeRouter = false;
+        $expandedFromPool = 0;
         foreach ($candidates as $candidate) {
             if (! OpenRouterModelEconomics::isOpenRouterFreeRouter($candidate->model)) {
                 $out[] = $candidate;
                 continue;
             }
+            $sawFreeRouter = true;
+            $counts = $this->catalogLanguageCounts($userId, $area);
             $members = $this->runtimeMembers($userId, $area);
+            $reason = null;
             if ($members === []) {
-                // Keep router itself as last-resort OpenRouter free endpoint.
-                $out[] = $candidate;
+                // Empty pool → zero production members (no openrouter/free bypass).
+                // Pending-language block only applies when the opt-in gate is ON.
+                if ($this->isLanguageGateEnabled($userId)
+                    && $counts['technical'] > 0
+                    && $counts['pending'] > 0
+                    && $counts['supported'] === 0) {
+                    $reason = self::DIAG_PENDING_LANGUAGE;
+                } else {
+                    $reason = self::DIAG_EMPTY;
+                }
+                $this->lastExpansionDiagnostics = [
+                    'free_pool_reason' => $reason,
+                    'language_gate_enabled' => $this->isLanguageGateEnabled($userId),
+                    'free_pool_technical_candidates' => $counts['technical'],
+                    'free_pool_supported' => $counts['supported'],
+                    'free_pool_pending' => $counts['pending'],
+                    'free_pool_unsupported' => $counts['unsupported'],
+                    'free_pool_runtime_members' => 0,
+                    'free_pool_expanded_candidates' => 0,
+                ];
                 continue;
             }
             $basePriority = $candidate->priority;
-            $i = 0;
             foreach ($members as $member) {
+                $exactId = (string) $member->raw_model_name;
                 $out[] = new \Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate(
                     profile: $candidate->profile,
                     connection: $candidate->connection,
                     provider: $candidate->provider,
-                    model: (string) $member->raw_model_name,
-                    capabilities: $this->capabilities->capabilitiesFor($candidate->connection, (string) $member->raw_model_name),
-                    priority: $basePriority + ($i * 0.0001),
+                    model: $exactId,
+                    capabilities: $this->capabilities->capabilitiesFor($candidate->connection, $exactId),
+                    priority: $basePriority,
                     options: $candidate->options,
                     seoAiModelId: (int) $member->id,
                     isFree: true,
                 );
-                $i++;
+                $expandedFromPool++;
             }
+            $this->lastExpansionDiagnostics = [
+                'free_pool_reason' => null,
+                'language_gate_enabled' => $this->isLanguageGateEnabled($userId),
+                'free_pool_technical_candidates' => $counts['technical'],
+                'free_pool_supported' => $counts['supported'],
+                'free_pool_pending' => $counts['pending'],
+                'free_pool_unsupported' => $counts['unsupported'],
+                'free_pool_runtime_members' => count($members),
+                'free_pool_expanded_candidates' => $expandedFromPool,
+            ];
+        }
+        if ($sawFreeRouter && $this->lastExpansionDiagnostics === []) {
+            $this->lastExpansionDiagnostics = [
+                'free_pool_reason' => self::DIAG_EMPTY,
+                'free_pool_technical_candidates' => 0,
+                'free_pool_supported' => 0,
+                'free_pool_pending' => 0,
+                'free_pool_unsupported' => 0,
+                'free_pool_runtime_members' => 0,
+                'free_pool_expanded_candidates' => 0,
+            ];
         }
 
         return $out;
+    }
+
+    /**
+     * Safe Free Pool language counts (no secrets).
+     *
+     * @return array{technical: int, supported: int, pending: int, unsupported: int}
+     */
+    public function catalogLanguageCounts(int $userId, AiModelArea $area): array
+    {
+        $technical = 0;
+        $supported = 0;
+        $pending = 0;
+        $unsupported = 0;
+        foreach ($this->catalogCandidates($userId, $area) as $row) {
+            $technical++;
+            if ($row['language_state'] === OpenRouterFreeLanguageState::Supported) {
+                $supported++;
+            } elseif ($row['language_state'] === OpenRouterFreeLanguageState::Pending) {
+                $pending++;
+            } else {
+                $unsupported++;
+            }
+        }
+
+        return [
+            'technical' => $technical,
+            'supported' => $supported,
+            'pending' => $pending,
+            'unsupported' => $unsupported,
+        ];
     }
 
     /**

@@ -39,17 +39,28 @@ final class AiCapacityStatusService
         }
 
         $targets = app(AiRoutingTargetService::class);
+        $pool = app(OpenRouterFreePoolService::class);
         $paidAvailable = false;
         $freeAvailable = false;
 
         foreach ([AiExecutionProfile::TextFast, AiExecutionProfile::TextLongform, AiExecutionProfile::TextReasoning] as $profile) {
             try {
                 foreach ($targets->liveCompatibleCandidates($userId, $profile) as $candidate) {
-                    if ($candidate->isFree) {
-                        $freeAvailable = true;
-                    } else {
+                    // Synthetic openrouter/free is not Free Rescue capacity — only
+                    // OpenRouterFreePoolService::runtimeMembers (gate-aware) count.
+                    if (! $candidate->isFree) {
                         $paidAvailable = true;
                     }
+                }
+            } catch (\Throwable) {
+            }
+        }
+
+        foreach (AiModelArea::textPrimaryCases() as $area) {
+            try {
+                if ($pool->runtimeMembers($userId, $area) !== []) {
+                    $freeAvailable = true;
+                    break;
                 }
             } catch (\Throwable) {
             }

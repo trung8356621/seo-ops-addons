@@ -67,8 +67,9 @@ final class AiPromptServiceProvider extends ServiceProvider
         if (class_exists(\Filament\Support\Facades\FilamentView::class)
             && class_exists(\Filament\View\PanelsRenderHook::class)
         ) {
+            // Persistent capacity banner under the topbar (beside logo / above content).
             \Filament\Support\Facades\FilamentView::registerRenderHook(
-                \Filament\View\PanelsRenderHook::BODY_START,
+                \Filament\View\PanelsRenderHook::TOPBAR_AFTER,
                 function (): string {
                     try {
                         if (! auth()->check()) {

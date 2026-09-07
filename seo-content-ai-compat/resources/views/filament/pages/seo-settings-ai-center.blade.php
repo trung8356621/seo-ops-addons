@@ -122,6 +122,17 @@
                                 <span wire:loading.remove wire:target="evaluateFreePoolLanguage">{{ __('seo-content-ai::filament.ai_center.free_pool_evaluate') }}</span>
                                 <span wire:loading wire:target="evaluateFreePoolLanguage">…</span>
                             </x-filament::button>
+                            <x-filament::button
+                                type="button"
+                                size="sm"
+                                color="gray"
+                                wire:click="disableFreePoolLanguageGate"
+                                wire:loading.attr="disabled"
+                                wire:target="disableFreePoolLanguageGate"
+                            >
+                                <span wire:loading.remove wire:target="disableFreePoolLanguageGate">{{ __('seo-content-ai::filament.ai_center.free_pool_language_disable') }}</span>
+                                <span wire:loading wire:target="disableFreePoolLanguageGate">…</span>
+                            </x-filament::button>
                         </div>
                         <div class="seo-ai-toolbar-extra">
                             <label><input type="checkbox" wire:model.live="modelTechnical" /> {{ __('seo-content-ai::filament.ai_center.technical_models') }}</label>

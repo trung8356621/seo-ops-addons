@@ -217,7 +217,14 @@ final class AiRoutingTargetService
             return $candidates;
         }
 
-        return (new OpenRouterFreePoolService())->expandFreeRouterCandidates($userId, $area, $candidates);
+        $pool = new OpenRouterFreePoolService();
+        $expanded = $pool->expandFreeRouterCandidates($userId, $area, $candidates);
+        $diag = $pool->lastExpansionDiagnostics();
+        if ($diag !== []) {
+            $this->lastEligibilityDiagnostics = array_merge($this->lastEligibilityDiagnostics, $diag);
+        }
+
+        return $expanded;
     }
 
     /**

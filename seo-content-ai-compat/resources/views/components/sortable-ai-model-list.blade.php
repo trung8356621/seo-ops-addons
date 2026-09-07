@@ -66,8 +66,19 @@
                 @if (! empty($row['is_free']))
                     <span class="seo-ai-status seo-ai-status--free">FREE</span>
                 @endif
-                <span @class(['seo-ai-status', ($row['status'] ?? '') === 'active' ? 'seo-ai-status--active' : 'seo-ai-status--inactive'])>
-                    {{ ($row['status'] ?? '') === 'active' ? __('seo-content-ai::filament.ai_center.status_active') : __('seo-content-ai::filament.ai_center.status_inactive') }}
+                <span @class([
+                    'seo-ai-status',
+                    ($row['status'] ?? '') === 'active' ? 'seo-ai-status--active' : '',
+                    ($row['status'] ?? '') === 'pending_language' ? 'seo-ai-status--pending' : '',
+                    ! in_array(($row['status'] ?? ''), ['active', 'pending_language'], true) ? 'seo-ai-status--inactive' : '',
+                ])>
+                    @if (($row['status'] ?? '') === 'pending_language')
+                        {{ __('seo-content-ai::filament.ai_center.status_pending_language') }}
+                    @elseif (($row['status'] ?? '') === 'active')
+                        {{ __('seo-content-ai::filament.ai_center.status_active') }}
+                    @else
+                        {{ __('seo-content-ai::filament.ai_center.status_inactive') }}
+                    @endif
                 </span>
                 <button
                     type="button"

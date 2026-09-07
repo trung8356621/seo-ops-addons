@@ -606,6 +606,7 @@ class SeoSettingsAiCenter extends Page
 
     /**
      * Manual Free Pool language evaluation — never auto-run on provider sync.
+     * Gate turns ON only after a successful full evaluation pass.
      */
     public function evaluateFreePoolLanguage(): void
     {
@@ -623,7 +624,25 @@ class SeoSettingsAiCenter extends Page
             return;
         }
         $pending = $pool->pendingLanguageModels($userId, $area);
+        $lang = $gate->primaryLanguage();
         if ($pending === []) {
+            // No PENDING rows: either nothing to do, or user is re-enabling after disable.
+            // Re-apply gate using existing Supported/Unsupported results (no LLM spend).
+            $counts = $pool->catalogLanguageCounts($userId, $area);
+            if ($counts['technical'] > 0 && ($counts['supported'] + $counts['unsupported']) > 0) {
+                $pool->enableLanguageGate($userId, $lang);
+                $this->bustInventoryCache();
+                Notification::make()
+                    ->title(__('seo-content-ai::filament.ai_center.free_pool_language_done_title'))
+                    ->body(__('seo-content-ai::filament.ai_center.free_pool_language_done_body', [
+                        'supported' => $counts['supported'],
+                        'rejected' => $counts['unsupported'],
+                    ]))
+                    ->success()
+                    ->send();
+
+                return;
+            }
             Notification::make()
                 ->title(__('seo-content-ai::filament.ai_center.free_pool_language_none_pending'))
                 ->success()
@@ -631,18 +650,31 @@ class SeoSettingsAiCenter extends Page
 
             return;
         }
-        $lang = $gate->primaryLanguage();
         $supported = 0;
         $rejected = 0;
-        foreach ($pending as $model) {
-            // Manual gate: language support only — no ranking mutation.
-            // Heuristic bootstrap uses model id / display hints; replaceable by paid LLM later.
-            $ok = $this->heuristicLanguageSupport((string) $model->raw_model_name, (string) $model->display_name, $lang);
-            $gate->recordEvaluation($model, $lang, $ok, $ok ? 0.6 : 0.7, $ok ? 'manual_heuristic_supported' : 'manual_heuristic_unsupported');
-            $ok ? $supported++ : $rejected++;
-        }
-        foreach ($pool->openRouterConnections($userId) as $connection) {
-            $pool->markLanguageEvalSnapshot($connection);
+        try {
+            foreach ($pending as $model) {
+                // Manual gate: language support only — no ranking mutation.
+                // Heuristic bootstrap uses model id / display hints; replaceable by paid LLM later.
+                $ok = $this->heuristicLanguageSupport((string) $model->raw_model_name, (string) $model->display_name, $lang);
+                $gate->recordEvaluation($model, $lang, $ok, $ok ? 0.6 : 0.7, $ok ? 'manual_heuristic_supported' : 'manual_heuristic_unsupported');
+                $ok ? $supported++ : $rejected++;
+            }
+            foreach ($pool->openRouterConnections($userId) as $connection) {
+                $pool->markLanguageEvalSnapshot($connection);
+            }
+            // Enable only after every pending model was evaluated successfully.
+            $pool->enableLanguageGate($userId, $lang);
+        } catch (\Throwable $e) {
+            // Leave gate OFF so technical Free Pool remains runnable.
+            Notification::make()
+                ->title(__('seo-content-ai::filament.ai_center.free_pool_language_failed_title'))
+                ->body(__('seo-content-ai::filament.ai_center.free_pool_language_failed_body'))
+                ->danger()
+                ->send();
+            $this->bustInventoryCache();
+
+            return;
         }
         $this->bustInventoryCache();
         Notification::make()
@@ -651,6 +683,32 @@ class SeoSettingsAiCenter extends Page
                 'supported' => $supported,
                 'rejected' => $rejected,
             ]))
+            ->success()
+            ->send();
+    }
+
+    /**
+     * Opt out of language filtering — technical Free Pool becomes runnable again.
+     */
+    public function disableFreePoolLanguageGate(): void
+    {
+        $this->assertManager();
+        $userId = (int) auth()->id();
+        $pool = app(OpenRouterFreePoolService::class);
+        $gate = app(OpenRouterFreeLanguageGateService::class);
+        if ($gate->isEnglishPrimary() || ! $pool->isLanguageGateEnabled($userId)) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.ai_center.free_pool_language_already_off'))
+                ->success()
+                ->send();
+
+            return;
+        }
+        $pool->disableLanguageGate($userId);
+        $this->bustInventoryCache();
+        Notification::make()
+            ->title(__('seo-content-ai::filament.ai_center.free_pool_language_disabled_title'))
+            ->body(__('seo-content-ai::filament.ai_center.free_pool_language_disabled_body'))
             ->success()
             ->send();
     }
