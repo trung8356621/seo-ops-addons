@@ -3,11 +3,12 @@ import { ExternalLink } from 'lucide-react';
 import ResourceLinks from './ResourceLinks';
 
 /**
- * Step 1 — create Topic only. Links are auto-detected snapshots.
+ * Create or edit Topic. Links are auto-detected snapshots.
  *
  * @param {{
  *   topic: Record<string, unknown>,
  *   canMutate: boolean,
+ *   mode?: 'create'|'edit',
  *   onChange: (partial: Record<string, unknown>) => void,
  *   onPasteContent: (event: React.ClipboardEvent) => void,
  *   onCancel: () => void,
@@ -17,17 +18,31 @@ import ResourceLinks from './ResourceLinks';
 export default function TopicComposer({
     topic,
     canMutate,
+    mode = 'create',
     onChange,
     onPasteContent,
     onCancel,
     onCreate,
 }) {
+    const isEdit = mode === 'edit';
+
     return (
-        <div className="seeding-ws__composer" data-composer="step1">
+        <div className="seeding-ws__composer" data-composer={isEdit ? 'edit' : 'step1'}>
             <div className="seeding-ws__composer-head">
-                <h2>Tạo chủ đề</h2>
+                <h2>{isEdit ? 'Sửa chủ đề' : 'Tạo chủ đề'}</h2>
                 <span className="seeding-ws__meta-pill seeding-ws__meta-pill--ok">Local-first</span>
             </div>
+
+            <section className="seeding-ws__section">
+                <div className="seeding-ws__section-title">Tiêu đề (tuỳ chọn)</div>
+                <input
+                    className="seeding-ws__input"
+                    value={topic.title || ''}
+                    disabled={!canMutate}
+                    placeholder="Để trống nếu không cần title riêng"
+                    onChange={(e) => onChange({ title: e.target.value })}
+                />
+            </section>
 
             <section className="seeding-ws__section">
                 <div className="seeding-ws__section-title">Nội dung gốc</div>
@@ -72,7 +87,7 @@ export default function TopicComposer({
                     onClick={onCreate}
                     disabled={!canMutate || !String(topic.full_text || '').trim()}
                 >
-                    Tạo chủ đề
+                    {isEdit ? 'Lưu' : 'Tạo chủ đề'}
                 </button>
             </footer>
         </div>

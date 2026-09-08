@@ -3,31 +3,37 @@ import { MoreHorizontal, Pencil, Plus, Sparkles, Trash2 } from 'lucide-react';
 import { makeId } from '../services/storage';
 import { generateSampleComments } from '../api';
 import { detectPlatformLabel } from '../services/linkExtract';
-import { visibleWorkComments } from '../features/workspace/selectors';
 import { canDeleteComment, canEditComment } from '../features/workspace/auth';
+import { latestCommentsPreview } from '../features/workspace/content';
 
 /**
- * Unified comments section for Topic Detail.
+ * Inline comment preview + add/gen/edit/delete for feed cards & sidebar.
  *
  * @param {{
  *   topic: Record<string, unknown>,
  *   canMutate: boolean,
  *   userId: number|string,
  *   userDisplayName?: string,
- *   onChange: (comments: Array<Record<string, unknown>>) => void,
- *   onClaim: (comment: Record<string, unknown>) => void,
+ *   previewLimit?: number,
+ *   compact?: boolean,
+ *   onCommentsChange: (comments: Array<Record<string, unknown>>) => void,
+ *   onExpandAll?: () => void,
  * }} props
  */
-export default function TopicCommentsSection({
+export default function FeedCommentsBlock({
     topic,
     canMutate,
     userId,
     userDisplayName = '',
-    onChange,
-    onClaim,
+    previewLimit = 2,
+    compact = true,
+    onCommentsChange,
+    onExpandAll,
 }) {
     const all = Array.isArray(topic.comments) ? topic.comments : [];
-    const workList = visibleWorkComments(all, userId);
+    const preview = latestCommentsPreview(all, previewLimit);
+    const hidden = Math.max(0, all.length - preview.length);
+
     const [adding, setAdding] = useState(false);
     const [draft, setDraft] = useState('');
     const [generating, setGenerating] = useState(false);
@@ -36,10 +42,12 @@ export default function TopicCommentsSection({
     const [menuId, setMenuId] = useState(null);
     const [error, setError] = useState(null);
 
+    const stop = (e) => e.stopPropagation();
+
     const addComment = () => {
         const text = draft.trim();
         if (!text) return;
-        onChange([
+        onCommentsChange([
             ...all,
             {
                 id: makeId('cmt'),
@@ -64,16 +72,18 @@ export default function TopicCommentsSection({
         if (!text) return;
         const target = all.find((c) => c.id === id);
         if (!target || !canEditComment(target, userId, canMutate)) return;
-        onChange(all.map((c) => (c.id === id ? { ...c, text } : c)));
+        onCommentsChange(all.map((c) => (c.id === id ? { ...c, text } : c)));
         setEditingId(null);
         setEditText('');
+        setMenuId(null);
     };
 
     const remove = (id) => {
         const target = all.find((c) => c.id === id);
         if (!target || !canDeleteComment(target, userId, canMutate)) return;
         if (!window.confirm('Xóa bình luận này?')) return;
-        onChange(all.filter((c) => c.id !== id));
+        onCommentsChange(all.filter((c) => c.id !== id));
+        setMenuId(null);
     };
 
     const gen = async () => {
@@ -91,7 +101,7 @@ export default function TopicCommentsSection({
                 setError('AI không trả về bình luận.');
                 return;
             }
-            onChange([
+            onCommentsChange([
                 ...all,
                 ...incoming.map((text) => ({
                     id: makeId('cmt'),
@@ -114,86 +124,22 @@ export default function TopicCommentsSection({
     };
 
     return (
-        <section className="seeding-ws__section" data-section="topic-comments">
-            <div className="seeding-ws__section-head">
-                <div className="seeding-ws__section-title">Bình luận mẫu</div>
-                <span className="seeding-ws__muted">{workList.length} việc</span>
+        <div className={`seeding-ws__feed-comments${compact ? ' is-compact' : ''}`} onClick={stop} data-section="feed-comments">
+            <div className="seeding-ws__feed-comments-head">
+                <span className="seeding-ws__section-title">Bình luận · {all.length}</span>
             </div>
 
-            {canMutate ? (
-                <div className="seeding-ws__sample-actions-row" data-actions="comment-create">
-                    <button
-                        type="button"
-                        className="seeding-ws__btn seeding-ws__btn--ghost"
-                        onClick={() => {
-                            setAdding(true);
-                            setError(null);
-                        }}
-                    >
-                        <Plus size={14} /> Thêm bình luận
-                    </button>
-                    <button
-                        type="button"
-                        className="seeding-ws__btn seeding-ws__btn--primary"
-                        onClick={gen}
-                        disabled={generating}
-                    >
-                        <Sparkles size={14} /> {generating ? 'Đang gen…' : 'Gen bình luận'}
-                    </button>
-                </div>
-            ) : null}
-
-            {adding ? (
-                <div className="seeding-ws__sample-add" data-form="manual-add">
-                    <textarea
-                        className="seeding-ws__textarea seeding-ws__textarea--sm"
-                        value={draft}
-                        placeholder="Viết bình luận mẫu…"
-                        autoFocus
-                        onChange={(e) => setDraft(e.target.value)}
-                    />
-                    <div className="seeding-ws__sample-actions-row">
-                        <button
-                            type="button"
-                            className="seeding-ws__btn seeding-ws__btn--primary"
-                            onClick={addComment}
-                            disabled={!draft.trim()}
-                        >
-                            Thêm
-                        </button>
-                        <button
-                            type="button"
-                            className="seeding-ws__btn seeding-ws__btn--ghost"
-                            onClick={() => {
-                                setAdding(false);
-                                setDraft('');
-                            }}
-                        >
-                            Hủy
-                        </button>
-                    </div>
-                </div>
-            ) : null}
-
-            {error ? <div className="seeding-ws__error">{error}</div> : null}
-
-            {workList.length === 0 ? (
-                <div className="seeding-ws__muted" data-empty="comment-work">
-                    Chưa có việc trong hàng đợi — thêm hoặc gen bình luận.
-                </div>
+            {preview.length === 0 ? (
+                <div className="seeding-ws__muted seeding-ws__feed-comments-empty">Chưa có bình luận</div>
             ) : (
-                <div className="seeding-ws__work-list" data-list="comment-work">
-                    {workList.map((c) => {
-                        const isShared = (topic.state || 'draft') === 'shared'
-                            || (topic.state || '') === 'completed';
+                <ul className="seeding-ws__feed-comment-list">
+                    {preview.map((c) => {
+                        const name = c.author_display_name || (c.source === 'ai' ? 'AI' : 'Bạn');
                         const editing = editingId === c.id;
                         return (
-                            <div
-                                key={c.id}
-                                className={`seeding-ws__work-item-row${c.state === 'in_progress' ? ' is-mine' : ''}`}
-                            >
+                            <li key={c.id} className="seeding-ws__feed-comment-item">
                                 {editing ? (
-                                    <div className="seeding-ws__sample-add" style={{ flex: 1 }}>
+                                    <div className="seeding-ws__sample-add">
                                         <textarea
                                             className="seeding-ws__textarea seeding-ws__textarea--sm"
                                             value={editText}
@@ -207,23 +153,16 @@ export default function TopicCommentsSection({
                                     </div>
                                 ) : (
                                     <>
-                                        <div className="seeding-ws__work-text">
-                                            {c.text}
-                                            <div className="seeding-ws__work-badges">
-                                                {c.source === 'ai' ? <span className="seeding-ws__chip">AI</span> : (
-                                                    <span className="seeding-ws__meta-pill">manual</span>
-                                                )}
-                                                {c.state === 'in_progress' ? (
-                                                    <span className="seeding-ws__badge seeding-ws__badge--shared">Đang làm</span>
-                                                ) : null}
-                                            </div>
-                                        </div>
-                                        <div className="seeding-ws__work-item-actions">
+                                        <div className="seeding-ws__feed-comment-row">
+                                            <p className="seeding-ws__feed-comment-text">
+                                                <strong>{name}:</strong> {c.text}
+                                            </p>
                                             {(canEditComment(c, userId, canMutate) || canDeleteComment(c, userId, canMutate)) ? (
                                                 <div className="seeding-ws__menu">
                                                     <button
                                                         type="button"
                                                         className="seeding-ws__icon-btn"
+                                                        aria-label="Comment menu"
                                                         onClick={() => setMenuId(menuId === c.id ? null : c.id)}
                                                     >
                                                         <MoreHorizontal size={14} />
@@ -251,24 +190,62 @@ export default function TopicCommentsSection({
                                                     ) : null}
                                                 </div>
                                             ) : null}
-                                            {isShared ? (
-                                                <button
-                                                    type="button"
-                                                    className="seeding-ws__btn seeding-ws__btn--primary"
-                                                    onClick={() => onClaim(c)}
-                                                    disabled={!canMutate}
-                                                >
-                                                    {c.state === 'in_progress' ? 'Tiếp tục' : 'Nhận'}
-                                                </button>
-                                            ) : null}
                                         </div>
                                     </>
                                 )}
-                            </div>
+                            </li>
                         );
                     })}
-                </div>
+                </ul>
             )}
-        </section>
+
+            {hidden > 0 ? (
+                <button
+                    type="button"
+                    className="seeding-ws__linkish"
+                    onClick={() => onExpandAll?.()}
+                >
+                    Xem thêm {hidden} bình luận
+                </button>
+            ) : null}
+
+            {canMutate ? (
+                <div className="seeding-ws__sample-actions-row" data-actions="comment-create">
+                    <button
+                        type="button"
+                        className="seeding-ws__btn seeding-ws__btn--ghost"
+                        onClick={() => { setAdding(true); setError(null); }}
+                    >
+                        <Plus size={14} /> Bình luận
+                    </button>
+                    <button
+                        type="button"
+                        className="seeding-ws__btn seeding-ws__btn--primary"
+                        onClick={gen}
+                        disabled={generating}
+                    >
+                        <Sparkles size={14} /> {generating ? 'Đang gen…' : 'Gen bình luận'}
+                    </button>
+                </div>
+            ) : null}
+
+            {adding ? (
+                <div className="seeding-ws__sample-add" data-form="manual-add">
+                    <textarea
+                        className="seeding-ws__textarea seeding-ws__textarea--sm"
+                        value={draft}
+                        placeholder="Viết bình luận…"
+                        autoFocus
+                        onChange={(e) => setDraft(e.target.value)}
+                    />
+                    <div className="seeding-ws__sample-actions-row">
+                        <button type="button" className="seeding-ws__btn seeding-ws__btn--primary" onClick={addComment} disabled={!draft.trim()}>Thêm</button>
+                        <button type="button" className="seeding-ws__btn seeding-ws__btn--ghost" onClick={() => { setAdding(false); setDraft(''); }}>Hủy</button>
+                    </div>
+                </div>
+            ) : null}
+
+            {error ? <div className="seeding-ws__error">{error}</div> : null}
+        </div>
     );
 }

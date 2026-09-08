@@ -1,7 +1,11 @@
 import { previewText, stateLabel, topicKeyOf } from '../../services/storage';
 import { detectPlatformLabel, hostOf } from '../../services/linkExtract';
+import { isAutoCopiedTitle } from './content';
+import { canShareTopic, shareStatusLabel, shareStatusOf } from './auth';
 
 export { detectPlatformLabel, hostOf, previewText, stateLabel, topicKeyOf };
+export { canShareTopic, shareStatusLabel, shareStatusOf };
+export { isAutoCopiedTitle };
 
 /**
  * @param {string} filter
@@ -87,6 +91,22 @@ export function topicStatusLabel(topic) {
     return stateLabel(topic.state || 'draft');
 }
 
+/**
+ * Distinct user title only — never auto-copy from content.
+ * @param {Record<string, unknown>} topic
+ * @returns {string|null}
+ */
+export function topicDistinctTitle(topic) {
+    const title = typeof topic?.title === 'string' ? topic.title.trim() : '';
+    if (!title || isAutoCopiedTitle(title, topic?.full_text)) return null;
+    return title;
+}
+
+/** Prefer topicDistinctTitle — kept for detail fallback label */
 export function topicCardTitle(topic) {
-    return previewText(topic.full_text || topic.preview, 80);
+    return topicDistinctTitle(topic) || previewText(topic.full_text || topic.preview, 80);
+}
+
+export function commentsCount(topic) {
+    return Array.isArray(topic?.comments) ? topic.comments.length : 0;
 }

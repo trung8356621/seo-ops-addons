@@ -139,6 +139,13 @@ final class AiModelRouterService
     }
 
     /**
+     * ARTICLE MODEL AUTHORITY:
+     * For article generation, preserve AI Center sortable order.
+     * Only explicit user model override may intentionally reorder candidates.
+     * Health / Free Only / availability may filter but must preserve relative order.
+     *
+     * FastEconomy / BestQuality must NOT reorder article candidates.
+     *
      * @param  list<RoutedAiCandidate>  $candidates
      * @return list<RoutedAiCandidate>
      */
@@ -152,10 +159,15 @@ final class AiModelRouterService
         }
 
         if (class_exists(\Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemGenerationRoutingPreference::class)) {
-            $candidates = \Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemGenerationRoutingPreference::orderCandidates(
-                $candidates,
-                $mode,
-            );
+            // Article writing: never apply FastEconomy free-first / BestQuality reverse.
+            if (\Omnichannel\Addons\AiPrompt\Support\ArticleModelOrderAuthority::allowsGenerationModeReorder($context->hookKey)) {
+                $candidates = \Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemGenerationRoutingPreference::orderCandidates(
+                    $candidates,
+                    $mode,
+                );
+            }
+
+            // Explicit user model_override_id only (preferred prepend). Not auto-primary.
             $candidates = \Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemGenerationRoutingPreference::prependPreferred(
                 $candidates,
                 $context->preferredModelId,

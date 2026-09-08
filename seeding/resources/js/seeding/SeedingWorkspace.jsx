@@ -4,6 +4,7 @@ import FeedToolbar from './components/FeedToolbar';
 import TopicFeed from './components/TopicFeed';
 import TopicComposer from './components/TopicComposer';
 import TopicDetail from './components/TopicDetail';
+import TopicContextSidebar from './components/TopicContextSidebar';
 import GlobalWorkDrawer from './components/GlobalWorkDrawer';
 import LocalReport from './components/LocalReport';
 import {
@@ -21,19 +22,22 @@ import {
 import { extractLinksFromPaste, suggestSocialUrl } from './services/linkExtract';
 import { saveProof } from './services/proofStore';
 import { deriveMetrics, topicMatchesFilter } from './features/workspace/selectors';
+import { canDeleteTopic, canEditTopic, canShareTopic } from './features/workspace/auth';
 
 function emptyComposerDraft() {
     return {
         localId: makeLocalDraftId(),
+        title: '',
         full_text: '',
         social_url: '',
         links: [],
         source_html: null,
+        _mode: 'create',
     };
 }
 
 /**
- * Seeding app root — feed + detail + global work drawer.
+ * Seeding app root — feed shell + module sidebar + detail + work drawer.
  * Local claim is NOT concurrency-safe (prototype).
  *
  * @param {{
@@ -47,6 +51,7 @@ function emptyComposerDraft() {
 export default function SeedingWorkspace({ canMutate = true, bootstrap = null }) {
     const installationId = bootstrap?.client?.installation_id || 'app:local';
     const userId = bootstrap?.user?.id ?? 0;
+    const userDisplayName = bootstrap?.user?.display_name || '';
     const scope = useMemo(() => ({ installationId, userId }), [installationId, userId]);
 
     const [topics, setTopics] = useState([]);
@@ -56,6 +61,8 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
     const [composerOpen, setComposerOpen] = useState(false);
     const [composer, setComposer] = useState(null);
     const [detailId, setDetailId] = useState(null);
+    const [selectedId, setSelectedId] = useState(null);
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
     /** @type {[string|null, Function]} */
     const [activeWorkItemId, setActiveWorkItemId] = useState(null);
     const [historyOpen, setHistoryOpen] = useState(false);
@@ -74,10 +81,12 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
             filter,
             search,
             detail_topic_id: detailId,
+            selected_topic_id: selectedId,
             active_work_item_id: activeWorkItemId,
             history_open: historyOpen,
+            sidebar_collapsed: sidebarCollapsed,
         };
-    }, [filter, search, detailId, activeWorkItemId, historyOpen]);
+    }, [filter, search, detailId, selectedId, activeWorkItemId, historyOpen, sidebarCollapsed]);
 
     const showToast = useCallback((message) => {
         if (toastTimer.current) clearTimeout(toastTimer.current);
@@ -104,16 +113,28 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
 
     useEffect(() => {
         const doc = readDocument(scope);
-        setTopics(doc.topics || []);
+        const topicsRaw = Array.isArray(doc.topics) ? doc.topics : [];
+        // Per-user localStorage scope: legacy topics without owner belong to this user.
+        const topicsOwned = topicsRaw.map((t) => (
+            t.created_by_user_id == null || t.created_by_user_id === ''
+                ? { ...t, created_by_user_id: userId, created_by_display_name: t.created_by_display_name || userDisplayName }
+                : t
+        ));
+        setTopics(topicsOwned);
         setReports(doc.reports || []);
         setFilter(doc.ui?.filter || 'work');
         setSearch(doc.ui?.search || '');
         setDetailId(doc.ui?.detail_topic_id ? String(doc.ui.detail_topic_id) : null);
+        setSelectedId(doc.ui?.selected_topic_id ? String(doc.ui.selected_topic_id) : null);
         setActiveWorkItemId(doc.ui?.active_work_item_id ? String(doc.ui.active_work_item_id) : null);
         setHistoryOpen(Boolean(doc.ui?.history_open));
+        setSidebarCollapsed(Boolean(doc.ui?.sidebar_collapsed));
         setComposerOpen(false);
         setComposer(null);
-    }, [scope]);
+        if (topicsOwned.some((t, i) => t !== topicsRaw[i])) {
+            schedulePersist(topicsOwned, doc.reports || []);
+        }
+    }, [scope, userId, userDisplayName, schedulePersist]);
 
     useEffect(() => () => {
         writer.current.cancel();
@@ -134,7 +155,7 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
         const q = search.trim().toLowerCase();
         let list = topics.filter((t) => topicMatchesFilter(filter, t));
         if (q) {
-            list = list.filter((t) => `${t.preview || ''} ${t.full_text || ''} ${t.social_url || ''}`.toLowerCase().includes(q));
+            list = list.filter((t) => `${t.title || ''} ${t.preview || ''} ${t.full_text || ''} ${t.social_url || ''}`.toLowerCase().includes(q));
         }
         return list;
     }, [topics, filter, search]);
@@ -143,6 +164,13 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
         () => (detailId ? topics.find((t) => topicKeyOf(t) === String(detailId)) || null : null),
         [detailId, topics],
     );
+
+    const selectedTopic = useMemo(
+        () => (selectedId ? topics.find((t) => topicKeyOf(t) === String(selectedId)) || null : null),
+        [selectedId, topics],
+    );
+
+    const sidebarTopic = detailTopic || selectedTopic;
 
     const activeWork = useMemo(() => {
         if (!activeWorkItemId) return { topic: null, comment: null };
@@ -160,6 +188,13 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
         setReports(nextReports);
         schedulePersist(nextTopics, nextReports);
     }, [schedulePersist]);
+
+    const patchTopicByKey = useCallback((key, patcher) => {
+        const nextTopics = topicsRef.current.map((t) =>
+            topicKeyOf(t) === key ? patcher(t) : t,
+        );
+        replaceTopics(nextTopics);
+    }, [replaceTopics]);
 
     const openComposer = () => {
         if (!canMutate) return;
@@ -204,8 +239,10 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
             ? composer.links
             : extractLinksFromPaste(fullText, composer.source_html);
         const now = new Date().toISOString();
+        const title = String(composer.title || '').trim();
         const topic = {
             localId: composer.localId || makeLocalDraftId(),
+            title,
             full_text: fullText,
             social_url: String(composer.social_url || '').trim(),
             links,
@@ -214,6 +251,8 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
             created_at: now,
             updated_at: now,
             preview: previewText(fullText),
+            created_by_user_id: userId,
+            created_by_display_name: userDisplayName,
         };
         const nextTopics = [topic, ...topicsRef.current];
         replaceTopics(nextTopics);
@@ -221,7 +260,35 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
         setComposerOpen(false);
         setComposer(null);
         setFilter('work');
+        setSelectedId(topicKeyOf(topic));
         showToast('Đã tạo chủ đề (local)');
+    };
+
+    const saveEditedTopic = () => {
+        if (!composer || composer._mode !== 'edit' || !canMutate) return;
+        const key = String(composer.localId || composer.id);
+        const target = topicsRef.current.find((t) => topicKeyOf(t) === key);
+        if (!target || !canEditTopic(target, userId, canMutate)) {
+            showToast('Không có quyền sửa chủ đề này.');
+            return;
+        }
+        const fullText = String(composer.full_text || '').trim();
+        if (!fullText) return;
+        const links = Array.isArray(composer.links) && composer.links.length > 0
+            ? composer.links
+            : extractLinksFromPaste(fullText, composer.source_html);
+        patchTopicByKey(key, (t) => ({
+            ...t,
+            title: String(composer.title || '').trim(),
+            full_text: fullText,
+            social_url: String(composer.social_url || '').trim(),
+            links,
+            preview: previewText(fullText),
+            updated_at: new Date().toISOString(),
+        }));
+        setComposerOpen(false);
+        setComposer(null);
+        showToast('Đã cập nhật chủ đề');
     };
 
     const cancelComposer = () => {
@@ -230,36 +297,46 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
     };
 
     const openDetail = (topic) => {
-        setDetailId(topicKeyOf(topic));
+        const key = topicKeyOf(topic);
+        setDetailId(key);
+        setSelectedId(key);
         setComposerOpen(false);
         setComposer(null);
     };
 
     const closeDetail = () => setDetailId(null);
 
-    const updateDetailComments = (comments) => {
-        if (!detailTopic) return;
-        const key = topicKeyOf(detailTopic);
-        const nextTopics = topicsRef.current.map((t) =>
-            topicKeyOf(t) === key ? { ...t, comments, updated_at: new Date().toISOString() } : t,
-        );
-        replaceTopics(nextTopics);
+    const selectTopic = (topic) => {
+        setSelectedId(topicKeyOf(topic));
+        if (sidebarCollapsed) setSidebarCollapsed(false);
     };
 
-    const shareTopic = () => {
-        if (!detailTopic || !canMutate) return;
-        const comments = Array.isArray(detailTopic.comments) ? detailTopic.comments : [];
-        if (comments.length < 1) {
+    const updateTopicComments = (topic, comments) => {
+        const key = topicKeyOf(topic);
+        patchTopicByKey(key, (t) => ({
+            ...t,
+            comments,
+            updated_at: new Date().toISOString(),
+        }));
+    };
+
+    const updateTopicLinks = useCallback((topic, links) => {
+        const key = topicKeyOf(topic);
+        patchTopicByKey(key, (t) => ({ ...t, links }));
+    }, [patchTopicByKey]);
+
+    const shareTopic = (topic) => {
+        if (!topic || !canMutate) return;
+        if (!canShareTopic(topic)) {
             showToast('Cần ít nhất 1 bình luận.');
             return;
         }
         const now = new Date().toISOString();
-        const key = topicKeyOf(detailTopic);
+        const key = topicKeyOf(topic);
         const nextTopics = topicsRef.current.map((t) =>
             topicKeyOf(t) === key
                 ? {
                     ...t,
-                    comments,
                     state: 'shared',
                     status: 'shared',
                     shared_at: now,
@@ -277,25 +354,50 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
         showToast('Đã đẩy chia sẻ (local) — đang chạy');
     };
 
-    const deleteTopic = () => {
-        if (!detailTopic || !canMutate) return;
-        if (topicHasWorkHistory(detailTopic, reportsRef.current)) {
+    const deleteTopic = (topic) => {
+        if (!topic || !canMutate) return;
+        if (!canDeleteTopic(topic, userId, canMutate, reportsRef.current, topicHasWorkHistory)) {
+            showToast('Không có quyền xóa.');
+            return;
+        }
+        if (topicHasWorkHistory(topic, reportsRef.current)) {
             showToast('Không thể xóa — đã có lịch sử làm việc.');
             return;
         }
-        const key = topicKeyOf(detailTopic);
+        if (!window.confirm('Xóa chủ đề này?')) return;
+        const key = topicKeyOf(topic);
         const nextTopics = topicsRef.current.filter((t) => topicKeyOf(t) !== key);
         replaceTopics(nextTopics);
-        setDetailId(null);
+        if (detailId === key) setDetailId(null);
+        if (selectedId === key) setSelectedId(null);
         showToast('Đã xóa chủ đề');
+    };
+
+    const editTopic = (topic) => {
+        if (!canEditTopic(topic, userId, canMutate)) {
+            showToast('Chỉ tác giả mới được sửa.');
+            return;
+        }
+        setComposer({
+            localId: topic.localId || topic.id,
+            title: topic.title || '',
+            full_text: topic.full_text || '',
+            social_url: topic.social_url || '',
+            links: topic.links || [],
+            source_html: null,
+            _mode: 'edit',
+        });
+        setComposerOpen(true);
+        setDetailId(null);
     };
 
     /**
      * Local prototype claim — not concurrency-safe.
      */
     const claimComment = (comment) => {
-        if (!detailTopic || !canMutate) return;
-        if ((detailTopic.state || 'draft') === 'draft') {
+        const topic = detailTopic || selectedTopic;
+        if (!topic || !canMutate) return;
+        if ((topic.state || 'draft') === 'draft') {
             showToast('Đẩy chia sẻ trước khi nhận việc.');
             return;
         }
@@ -305,7 +407,7 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
             return;
         }
         const now = new Date().toISOString();
-        const key = topicKeyOf(detailTopic);
+        const key = topicKeyOf(topic);
         const nextTopics = topicsRef.current.map((t) => {
             if (topicKeyOf(t) !== key) return t;
             return {
@@ -374,7 +476,6 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
         const { topic, comment } = activeWork;
         if (!topic || !comment) throw new Error('Không có việc đang mở.');
 
-        // Idempotency: one completion report per comment item
         if (findReportForComment(reportsRef.current, comment.id)) {
             setActiveWorkItemId(null);
             showToast('Đã hoàn tất trước đó');
@@ -398,7 +499,7 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
             topic_id: topicKeyOf(topic),
             comment_item_id: comment.id,
             user_id: userId,
-            user_display_name: bootstrap?.user?.display_name || '',
+            user_display_name: userDisplayName,
             comment_text: comment.text,
             social_url: topic.social_url || '',
             proof_id: proofId,
@@ -430,23 +531,40 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
             active_work_item_id: null,
         }));
         showToast('Hoàn tất +1');
-    }, [activeWork, replaceTopics, persistNow, showToast, userId]);
+    }, [activeWork, replaceTopics, persistNow, showToast, userId, userDisplayName]);
 
-    const shellClass = `seeding-ws seeding-ws--feed${activeWorkItemId ? ' has-drawer' : ''}`;
+    const toggleSidebar = () => {
+        setSidebarCollapsed((v) => {
+            const next = !v;
+            schedulePersist(topicsRef.current, reportsRef.current);
+            return next;
+        });
+    };
+
+    const shellClass = [
+        'seeding-ws',
+        'seeding-ws--feed',
+        'seeding-ws--shell',
+        !sidebarCollapsed ? 'has-sidebar' : 'sidebar-collapsed',
+        activeWorkItemId ? 'has-drawer' : '',
+    ].filter(Boolean).join(' ');
 
     return (
-        <div className={shellClass} data-storage-key={documentKey(scope)} data-layout="feed">
+        <div className={shellClass} data-storage-key={documentKey(scope)} data-layout="shell">
             <div className="seeding-ws__main-column">
                 {detailTopic ? (
                     <TopicDetail
                         topic={detailTopic}
                         canMutate={canMutate}
-                        canDelete={canMutate && !topicHasWorkHistory(detailTopic, reports)}
+                        canDelete={canDeleteTopic(detailTopic, userId, canMutate, reports, topicHasWorkHistory)}
+                        canEdit={canEditTopic(detailTopic, userId, canMutate)}
                         userId={userId}
+                        userDisplayName={userDisplayName}
                         onBack={closeDetail}
-                        onDelete={deleteTopic}
-                        onCommentsChange={updateDetailComments}
-                        onShare={shareTopic}
+                        onDelete={() => deleteTopic(detailTopic)}
+                        onEdit={() => editTopic(detailTopic)}
+                        onCommentsChange={(comments) => updateTopicComments(detailTopic, comments)}
+                        onShare={() => shareTopic(detailTopic)}
                         onClaim={claimComment}
                     />
                 ) : (
@@ -454,15 +572,22 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
                         <header className="seeding-ws__page-head">
                             <div>
                                 <h1 className="seeding-ws__page-title">Seeding</h1>
-                                <p className="seeding-ws__page-sub">Comment-task workflow — topic bất biến, việc là bình luận</p>
+                                <p className="seeding-ws__page-sub">Comment-task workflow — feed là nơi thao tác chính</p>
                             </div>
-                            <button
-                                type="button"
-                                className="seeding-ws__btn seeding-ws__btn--ghost"
-                                onClick={() => setHistoryOpen((v) => !v)}
-                            >
-                                Báo cáo
-                            </button>
+                            <div className="seeding-ws__page-head-actions">
+                                <button
+                                    type="button"
+                                    className="seeding-ws__btn seeding-ws__btn--ghost"
+                                    onClick={() => setHistoryOpen((v) => !v)}
+                                >
+                                    Báo cáo
+                                </button>
+                                {sidebarCollapsed ? (
+                                    <button type="button" className="seeding-ws__btn seeding-ws__btn--ghost" onClick={toggleSidebar}>
+                                        Mở panel
+                                    </button>
+                                ) : null}
+                            </div>
                         </header>
 
                         <MetricCards metrics={metrics} />
@@ -481,10 +606,11 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
                             <TopicComposer
                                 topic={composer}
                                 canMutate={canMutate}
+                                mode={composer._mode === 'edit' ? 'edit' : 'create'}
                                 onChange={patchComposer}
                                 onPasteContent={onPasteContent}
                                 onCancel={cancelComposer}
-                                onCreate={createTopic}
+                                onCreate={composer._mode === 'edit' ? saveEditedTopic : createTopic}
                             />
                         ) : null}
 
@@ -498,13 +624,40 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
                         <TopicFeed
                             topics={filteredTopics}
                             reports={reports}
-                            onOpen={openDetail}
-                            onCreate={openComposer}
+                            selectedId={selectedId}
                             canMutate={canMutate}
+                            userId={userId}
+                            userDisplayName={userDisplayName}
+                            onSelect={selectTopic}
+                            onOpenDetail={openDetail}
+                            onCommentsChange={updateTopicComments}
+                            onLinksChange={updateTopicLinks}
+                            onEdit={editTopic}
+                            onDelete={deleteTopic}
+                            onShare={shareTopic}
+                            onCreate={openComposer}
                         />
                     </>
                 )}
             </div>
+
+            <TopicContextSidebar
+                open
+                collapsed={sidebarCollapsed}
+                topic={sidebarTopic}
+                reports={reports}
+                canMutate={canMutate}
+                userId={userId}
+                userDisplayName={userDisplayName}
+                onToggleCollapse={toggleSidebar}
+                onCommentsChange={(comments) => {
+                    if (sidebarTopic) updateTopicComments(sidebarTopic, comments);
+                }}
+                onShare={() => sidebarTopic && shareTopic(sidebarTopic)}
+                onEdit={() => sidebarTopic && editTopic(sidebarTopic)}
+                onDelete={() => sidebarTopic && deleteTopic(sidebarTopic)}
+                onOpenDetail={() => sidebarTopic && openDetail(sidebarTopic)}
+            />
 
             <GlobalWorkDrawer
                 open={Boolean(activeWorkItemId && activeWork.comment)}

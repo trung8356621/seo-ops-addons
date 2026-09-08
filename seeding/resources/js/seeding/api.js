@@ -59,3 +59,29 @@ export async function generateSampleComments(payload) {
         body: JSON.stringify(payload),
     });
 }
+
+/**
+ * Fetch Open Graph preview for a URL. Failures return ok:false — never throw for soft fallbacks.
+ * @param {string} url
+ */
+export async function fetchLinkPreview(url) {
+    try {
+        return await seedingApiFetch('/api/seeding/link-preview', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url }),
+        });
+    } catch (e) {
+        return {
+            ok: false,
+            preview_url: url,
+            preview_title: null,
+            preview_description: null,
+            preview_image_url: null,
+            preview_domain: null,
+            preview_fetched_at: new Date().toISOString(),
+            preview_status: 'error',
+            error: e?.message || 'preview failed',
+        };
+    }
+}

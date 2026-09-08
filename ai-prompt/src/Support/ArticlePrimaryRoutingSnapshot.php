@@ -75,13 +75,10 @@ final class ArticlePrimaryRoutingSnapshot
             $variables[$key] = $value;
         }
 
-        // Prefer primary during execution without hard-pinning (fallback remains).
+        // Runtime primary audit only — never fabricate a user model override.
+        // `_item_model_override_id` is reserved for explicit per-item user selection.
         if ($this->primaryModelId !== null && $this->primaryModelId > 0) {
             $variables['_article_primary_model_id'] = (string) $this->primaryModelId;
-            if (! isset($variables['_item_model_override_id']) || trim((string) $variables['_item_model_override_id']) === '') {
-                $variables['_item_model_override_id'] = (string) $this->primaryModelId;
-                $variables['_item_model_override_mode'] = 'preferred';
-            }
         }
 
         return $variables;

@@ -13,6 +13,7 @@ use Omnichannel\Addons\Seeding\Http\Requests\SeedingTopicStoreRequest;
 use Omnichannel\Addons\Seeding\Http\Requests\SeedingTopicUpdateRequest;
 use Omnichannel\Addons\Seeding\Services\SeedingTopicService;
 use Omnichannel\Addons\Seeding\Support\SeedingAccess;
+use Omnichannel\Addons\Seeding\Support\SeedingTopicAuthorization;
 use Omnichannel\Addons\Seeding\Support\SeedingTopicPresenter;
 use Throwable;
 
@@ -21,6 +22,7 @@ final class SeedingTopicController extends Controller
     public function __construct(
         private readonly SeedingTopicService $topics,
         private readonly SeedingAccess $access,
+        private readonly SeedingTopicAuthorization $authz,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -95,6 +97,12 @@ final class SeedingTopicController extends Controller
         $model = $this->topics->findForSite($siteId, $topic);
         abort_if($model === null, 404);
 
+        $user = $request->user() instanceof User ? $request->user() : null;
+        abort_unless(
+            $this->authz->canEditTopic($user, $model->created_by !== null ? (int) $model->created_by : null),
+            403,
+        );
+
         $payload = [];
         $validated = $request->validated();
         foreach (['full_text', 'source_html', 'social_url', 'archived'] as $key) {
@@ -127,6 +135,12 @@ final class SeedingTopicController extends Controller
 
         $model = $this->topics->findForSite($siteId, $topic);
         abort_if($model === null, 404);
+
+        $user = $request->user() instanceof User ? $request->user() : null;
+        abort_unless(
+            $this->authz->canDeleteTopic($user, $model->created_by !== null ? (int) $model->created_by : null),
+            403,
+        );
 
         try {
             $this->topics->deleteDraft($model);

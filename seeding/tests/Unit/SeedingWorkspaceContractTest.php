@@ -122,6 +122,7 @@ final class SeedingWorkspaceContractTest extends TestCase
 
         self::assertStringContainsString('activeWorkItemId', $workspace);
         self::assertStringContainsString('GlobalWorkDrawer', $workspace);
+        self::assertStringContainsString('TopicContextSidebar', $workspace);
         self::assertStringContainsString('completeWithProof', $workspace);
         self::assertStringContainsString('findReportForComment', $workspace);
         self::assertStringContainsString('Hoàn tất +1', $workspace);
@@ -136,9 +137,10 @@ final class SeedingWorkspaceContractTest extends TestCase
         self::assertStringNotContainsString('Bình luận mẫu', $composer);
 
         self::assertStringContainsString('Đẩy chia sẻ', $detail);
-        self::assertStringContainsString('Chỉ đọc', $detail);
+        self::assertStringContainsString('canShareTopic', $detail);
         self::assertStringContainsString('Cần ít nhất 1 bình luận', $detail);
         self::assertStringContainsString('TopicCommentsSection', $detail);
+        self::assertStringContainsString('ContentWithLinkPreviews', $detail);
         self::assertStringNotContainsString('SampleComments', $detail);
         self::assertStringNotContainsString('CommentWorkList', $detail);
         self::assertStringNotContainsString('Gợi ý triển khai', $detail);
@@ -169,6 +171,10 @@ final class SeedingWorkspaceContractTest extends TestCase
             'TopicComposer.jsx',
             'TopicDetail.jsx',
             'TopicCommentsSection.jsx',
+            'TopicContextSidebar.jsx',
+            'FeedCommentsBlock.jsx',
+            'LinkPreviewCard.jsx',
+            'ContentWithLinkPreviews.jsx',
             'CommentWorkList.jsx',
             'SampleComments.jsx',
             'ResourceLinks.jsx',

@@ -1,20 +1,24 @@
 import React from 'react';
-import { ArrowLeft, ExternalLink, Trash2 } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Pencil, Trash2 } from 'lucide-react';
 import ResourceLinks from './ResourceLinks';
 import TopicCommentsSection from './TopicCommentsSection';
+import ContentWithLinkPreviews from './ContentWithLinkPreviews';
 import { detectPlatformLabel } from '../services/linkExtract';
-import { topicCardTitle, topicStatusLabel } from '../features/workspace/selectors';
+import { canShareTopic, shareStatusLabel, shareStatusOf, topicDistinctTitle, topicStatusLabel } from '../features/workspace/selectors';
 
 /**
- * Step 2 — immutable Topic context + comment work units.
+ * Topic detail — still available; feed remains primary surface.
  *
  * @param {{
  *   topic: Record<string, unknown>,
  *   canMutate: boolean,
  *   canDelete: boolean,
+ *   canEdit?: boolean,
  *   userId: number|string,
+ *   userDisplayName?: string,
  *   onBack: () => void,
  *   onDelete: () => void,
+ *   onEdit?: () => void,
  *   onCommentsChange: (comments: Array<Record<string, unknown>>) => void,
  *   onShare: () => void,
  *   onClaim: (comment: Record<string, unknown>) => void,
@@ -24,9 +28,12 @@ export default function TopicDetail({
     topic,
     canMutate,
     canDelete,
+    canEdit = false,
     userId,
+    userDisplayName = '',
     onBack,
     onDelete,
+    onEdit,
     onCommentsChange,
     onShare,
     onClaim,
@@ -34,9 +41,9 @@ export default function TopicDetail({
     const platform = detectPlatformLabel(topic.social_url);
     const state = topic.state || 'draft';
     const isDraft = state === 'draft';
-    const commentCount = Array.isArray(topic.comments) ? topic.comments.length : 0;
-    const availableOrWork = commentCount > 0;
-    const canShare = isDraft && availableOrWork;
+    const canShare = canShareTopic(topic);
+    const shareStatus = shareStatusOf(topic);
+    const title = topicDistinctTitle(topic);
 
     return (
         <div className="seeding-ws__detail" data-view="topic-detail">
@@ -45,6 +52,11 @@ export default function TopicDetail({
                     <ArrowLeft size={14} /> Feed
                 </button>
                 <div className="seeding-ws__detail-bar-actions">
+                    {canEdit ? (
+                        <button type="button" className="seeding-ws__btn seeding-ws__btn--ghost" onClick={onEdit}>
+                            <Pencil size={14} /> Sửa
+                        </button>
+                    ) : null}
                     {canDelete ? (
                         <button type="button" className="seeding-ws__btn seeding-ws__btn--danger" onClick={onDelete}>
                             <Trash2 size={14} /> Xóa
@@ -66,19 +78,21 @@ export default function TopicDetail({
 
             <div className="seeding-ws__detail-main seeding-ws__detail-main--wide">
                 <header className="seeding-ws__detail-head">
-                    <h2 className="seeding-ws__detail-title">{topicCardTitle(topic)}</h2>
+                    {title ? <h2 className="seeding-ws__detail-title">{title}</h2> : null}
                     <div className="seeding-ws__detail-meta">
                         <span className={`seeding-ws__badge seeding-ws__badge--${state}`}>
                             {topicStatusLabel(topic)}
                         </span>
                         {platform ? <span className="seeding-ws__chip">{platform}</span> : null}
-                        <span className="seeding-ws__meta-pill">Chỉ đọc</span>
+                        <span className={`seeding-ws__share-pill seeding-ws__share-pill--${shareStatus}`}>
+                            {shareStatusLabel(shareStatus)}
+                        </span>
                     </div>
                 </header>
 
                 <section className="seeding-ws__section">
                     <div className="seeding-ws__section-title">Nội dung gốc</div>
-                    <div className="seeding-ws__readonly-block">{topic.full_text || '—'}</div>
+                    <ContentWithLinkPreviews text={topic.full_text || '—'} links={topic.links || []} />
                 </section>
 
                 <section className="seeding-ws__section">
@@ -101,6 +115,7 @@ export default function TopicDetail({
                     topic={topic}
                     canMutate={canMutate}
                     userId={userId}
+                    userDisplayName={userDisplayName}
                     onChange={onCommentsChange}
                     onClaim={onClaim}
                 />

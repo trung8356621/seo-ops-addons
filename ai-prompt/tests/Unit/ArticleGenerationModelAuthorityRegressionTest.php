@@ -153,9 +153,10 @@ final class ArticleGenerationModelAuthorityRegressionTest extends TestCase
         $vars = ArticlePrimaryRoutingSnapshot::fromCandidate($primary, $shape)->mergeIntoVariables([]);
 
         self::assertTrue($shape->isSectioned());
-        self::assertSame('42', $vars['_item_model_override_id']);
-        self::assertSame('preferred', $vars['_item_model_override_mode']);
+        self::assertSame('42', $vars['_article_primary_model_id']);
+        self::assertSame(42, $vars['primary_model_id']);
         self::assertSame(ArticleGenerationShape::SOURCE_AI_CENTER_PRIMARY, $vars['generation_shape_source']);
+        self::assertArrayNotHasKey('_item_model_override_id', $vars);
     }
 
     public function test_tracked_call_allows_paid_section_fallback(): void

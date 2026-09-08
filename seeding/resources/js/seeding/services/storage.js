@@ -64,9 +64,11 @@ function emptyDocument() {
             filter: 'work',
             search: '',
             detail_topic_id: null,
+            selected_topic_id: null,
             active_work_item_id: null,
             history_open: false,
             composer_open: false,
+            sidebar_collapsed: false,
         },
     };
 }
@@ -77,7 +79,18 @@ function emptyDocument() {
 function normalizeLink(link) {
     if (typeof link === 'string') {
         const url = link.trim();
-        return url ? { url, normalized_url: normalizeUrlKey(url), detected_at: new Date().toISOString() } : null;
+        return url ? {
+            url,
+            normalized_url: normalizeUrlKey(url),
+            detected_at: new Date().toISOString(),
+            preview_url: null,
+            preview_title: null,
+            preview_description: null,
+            preview_image_url: null,
+            preview_domain: null,
+            preview_fetched_at: null,
+            preview_status: null,
+        } : null;
     }
     if (!link || typeof link !== 'object') return null;
     const url = String(link.url || link.normalized_url || '').trim();
@@ -86,6 +99,13 @@ function normalizeLink(link) {
         url,
         normalized_url: String(link.normalized_url || normalizeUrlKey(url)),
         detected_at: link.detected_at || new Date().toISOString(),
+        preview_url: link.preview_url || null,
+        preview_title: link.preview_title || null,
+        preview_description: link.preview_description || null,
+        preview_image_url: link.preview_image_url || null,
+        preview_domain: link.preview_domain || null,
+        preview_fetched_at: link.preview_fetched_at || null,
+        preview_status: link.preview_status || null,
     };
 }
 
@@ -133,6 +153,8 @@ function normalizeComment(comment) {
         completed_at: comment.completed_at ?? null,
         created_at: comment.created_at || new Date().toISOString(),
         source: comment.source === 'ai' ? 'ai' : 'manual',
+        author_user_id: comment.author_user_id ?? comment.created_by_user_id ?? null,
+        author_display_name: comment.author_display_name || '',
     };
 }
 
@@ -189,6 +211,7 @@ export function normalizeTopic(topic) {
     return {
         localId: topic.localId || (topic.id != null ? String(topic.id) : makeLocalDraftId()),
         id: topic.id ?? null,
+        title: typeof topic.title === 'string' ? topic.title.trim() : '',
         full_text: typeof topic.full_text === 'string' ? topic.full_text : '',
         social_url: typeof topic.social_url === 'string' ? topic.social_url : '',
         links,
@@ -204,6 +227,8 @@ export function normalizeTopic(topic) {
         created_at: topic.created_at || topic.updated_at || new Date().toISOString(),
         updated_at: topic.updated_at || new Date().toISOString(),
         preview: previewText(topic.full_text || topic.preview),
+        created_by_user_id: topic.created_by_user_id ?? topic.created_by ?? null,
+        created_by_display_name: topic.created_by_display_name || '',
     };
 }
 
@@ -283,9 +308,11 @@ export function migrateVersion(raw) {
             filter,
             search: String(uiRaw.search ?? ''),
             detail_topic_id: uiRaw.detail_topic_id ?? uiRaw.detailTopicId ?? null,
+            selected_topic_id: uiRaw.selected_topic_id ?? uiRaw.selectedTopicId ?? null,
             active_work_item_id: uiRaw.active_work_item_id ?? uiRaw.activeWorkItemId ?? null,
             history_open: Boolean(uiRaw.history_open ?? uiRaw.historyOpen),
             composer_open: false,
+            sidebar_collapsed: Boolean(uiRaw.sidebar_collapsed ?? uiRaw.sidebarCollapsed),
         },
     };
 }
@@ -390,9 +417,11 @@ export function writeDocument(scope, doc) {
                 filter: doc.ui?.filter || 'work',
                 search: doc.ui?.search || '',
                 detail_topic_id: doc.ui?.detail_topic_id ?? null,
+                selected_topic_id: doc.ui?.selected_topic_id ?? null,
                 active_work_item_id: doc.ui?.active_work_item_id ?? null,
                 history_open: Boolean(doc.ui?.history_open),
                 composer_open: false,
+                sidebar_collapsed: Boolean(doc.ui?.sidebar_collapsed),
             },
         };
         localStorage.setItem(documentKey(scope), JSON.stringify(payload));
