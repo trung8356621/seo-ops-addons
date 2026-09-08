@@ -22,11 +22,14 @@ use Omnichannel\Addons\AiPrompt\PromptBudget\PromptChunkLedger;
 use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeArticleGenerator;
 use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeBreadcrumbBag;
 use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeExecutionGuard;
+use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreePromptIsolationGuard;
 use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeRunState;
 use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeSectionUnit;
 use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeSectionValidator;
 use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeTrackedProviderCall;
 use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategy;
+use Omnichannel\Addons\AiPrompt\Support\AiExecutionModelAttribution;
+use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategySnapshot;
 use Omnichannel\Addons\AiPrompt\Services\Ai\DeepSeekChatClient;
 use Omnichannel\Addons\AiPrompt\Services\Ai\GeminiGenerateContentClient;
 use Omnichannel\Addons\AiPrompt\Support\AiCostPolicyScope;
@@ -186,18 +189,21 @@ class PromptRunnerService
             $result->update([
                 'prompt_id' => $prompt->id,
                 'status' => 'running',
-                'input_snapshot' => $this->sanitizeInputSnapshot($this->withIntendedImageModels(
-                    $this->withImageOutputModeAudit([
-                        'variables' => $variables,
-                        'compiled_prompt' => $compiled,
-                        'model_category' => $category,
-                        'is_task_mode' => $isTaskMode,
-                        'tools' => $toolType,
-                    ], $prompt, $variables, $toolType),
-                    $prompt,
-                    $compiled,
-                    $variables,
-                    $toolType,
+                'input_snapshot' => $this->sanitizeInputSnapshot(array_merge(
+                    $this->strategySnapshotFields($variables),
+                    $this->withIntendedImageModels(
+                        $this->withImageOutputModeAudit([
+                            'variables' => $variables,
+                            'compiled_prompt' => $compiled,
+                            'model_category' => $category,
+                            'is_task_mode' => $isTaskMode,
+                            'tools' => $toolType,
+                        ], $prompt, $variables, $toolType),
+                        $prompt,
+                        $compiled,
+                        $variables,
+                        $toolType,
+                    ),
                 )),
                 'output_text' => null,
                 'error_message' => null,
@@ -210,18 +216,21 @@ class PromptRunnerService
                 'user_id' => (int) auth()->id(),
                 'site_id' => 0,
                 'status' => 'running',
-                'input_snapshot' => $this->sanitizeInputSnapshot($this->withIntendedImageModels(
-                    $this->withImageOutputModeAudit([
-                        'variables' => $variables,
-                        'compiled_prompt' => $compiled,
-                        'model_category' => $category,
-                        'is_task_mode' => $isTaskMode,
-                        'tools' => $toolType,
-                    ], $prompt, $variables, $toolType),
-                    $prompt,
-                    $compiled,
-                    $variables,
-                    $toolType,
+                'input_snapshot' => $this->sanitizeInputSnapshot(array_merge(
+                    $this->strategySnapshotFields($variables),
+                    $this->withIntendedImageModels(
+                        $this->withImageOutputModeAudit([
+                            'variables' => $variables,
+                            'compiled_prompt' => $compiled,
+                            'model_category' => $category,
+                            'is_task_mode' => $isTaskMode,
+                            'tools' => $toolType,
+                        ], $prompt, $variables, $toolType),
+                        $prompt,
+                        $compiled,
+                        $variables,
+                        $toolType,
+                    ),
                 )),
                 'started_at' => now(),
             ]);
@@ -247,7 +256,15 @@ class PromptRunnerService
                 'finished_at' => now(),
                 'input_snapshot' => $this->sanitizeInputSnapshot(array_merge(
                     is_array($result->input_snapshot) ? $result->input_snapshot : [],
-                    $this->imagePipelineSnapshotFields($toolType, $rawModel, is_array($mediaMeta) ? $mediaMeta : []),
+                    $this->strategySnapshotFields($variables),
+                    ImageToolType::fromMixed($toolType)->isImagePipeline()
+                        ? $this->imagePipelineSnapshotFields($toolType, $rawModel, is_array($mediaMeta) ? $mediaMeta : [])
+                        : $this->executionModelAttributionFields(
+                            $toolType,
+                            is_string($rawModel) ? $rawModel : null,
+                            is_array($usage) ? $usage : null,
+                            requestedModel: $this->resolveRequestedModelLabel($variables, $category),
+                        ),
                 )),
             ]);
         } catch (\Throwable $exception) {
@@ -409,6 +426,7 @@ class PromptRunnerService
             $variables,
             $toolType,
         );
+        $snapshot = array_merge($this->strategySnapshotFields($variables), $snapshot);
 
         if ($chainParentStep && $this->hasDependentSubTasks($prompt)) {
             $snapshot['chain_mode'] = true;
@@ -445,7 +463,15 @@ class PromptRunnerService
                 'finished_at' => now(),
                 'input_snapshot' => $this->sanitizeInputSnapshot(array_merge(
                     is_array($result->input_snapshot) ? $result->input_snapshot : [],
-                    $this->imagePipelineSnapshotFields($toolType, $rawModel, is_array($mediaMeta) ? $mediaMeta : []),
+                    $this->strategySnapshotFields($variables),
+                    ImageToolType::fromMixed($toolType)->isImagePipeline()
+                        ? $this->imagePipelineSnapshotFields($toolType, $rawModel, is_array($mediaMeta) ? $mediaMeta : [])
+                        : $this->executionModelAttributionFields(
+                            $toolType,
+                            is_string($rawModel) ? $rawModel : null,
+                            is_array($usage) ? $usage : null,
+                            requestedModel: $this->resolveRequestedModelLabel($variables, $category),
+                        ),
                 )),
             ]);
         } catch (\Throwable $exception) {
@@ -1074,6 +1100,120 @@ class PromptRunnerService
     }
 
     /**
+     * Persist model provenance at provider-boundary — never collapse into a single silent "model".
+     *
+     * @param  array<string, mixed>|null  $usage
+     * @return array<string, mixed>
+     */
+    private function executionModelAttributionFields(
+        string $toolType,
+        ?string $candidateModel,
+        ?array $usage,
+        ?string $requestedModel = null,
+        ?bool $isFreeCandidate = null,
+        ?string $provider = null,
+        ?int $connectionId = null,
+        ?int $attempt = null,
+        ?string $status = null,
+    ): array {
+        $routing = is_array($usage['routing'] ?? null) ? $usage['routing'] : [];
+        $candidate = trim((string) (
+            $candidateModel
+            ?? $routing['candidate_model']
+            ?? $routing['model']
+            ?? ''
+        ));
+        $requested = trim((string) (
+            $requestedModel
+            ?? $usage['requested_model']
+            ?? $routing['requested_model']
+            ?? ''
+        ));
+        $isFree = $isFreeCandidate;
+        if ($isFree === null && array_key_exists('is_free', $routing)) {
+            $isFree = (bool) $routing['is_free'];
+        } elseif ($isFree === null && array_key_exists('is_free_candidate', $routing)) {
+            $isFree = (bool) $routing['is_free_candidate'];
+        }
+
+        $attribution = AiExecutionModelAttribution::fromProviderAttempt(
+            requestedModel: $requested !== '' ? $requested : null,
+            candidateModel: $candidate,
+            isFreeCandidate: $isFree ?? false,
+            provider: $provider ?? (isset($routing['provider']) ? (string) $routing['provider'] : ''),
+            connectionId: $connectionId ?? (isset($routing['connection_id']) ? (int) $routing['connection_id'] : null),
+            usage: $usage,
+            attempt: $attempt ?? (isset($routing['attempt']) ? (int) $routing['attempt'] : null),
+            status: $status ?? (isset($routing['status']) ? (string) $routing['status'] : 'SUCCESS'),
+        );
+
+        $fields = $attribution->toSnapshotFields();
+        if ($isFree === null) {
+            unset($fields['is_free_candidate']);
+        } else {
+            $fields['is_free_candidate'] = $isFree;
+        }
+
+        $display = $attribution->displayModel();
+        if ($display !== 'Unknown model') {
+            $fields = array_merge($fields, $this->modelSnapshotFields($toolType, $display));
+        } else {
+            unset($fields['raw_model_used'], $fields['planner_model'], $fields['render_model']);
+            $fields['model_source'] = AiExecutionModelAttribution::SOURCE_UNKNOWN;
+        }
+
+        if ($requested !== '') {
+            $fields['requested_model'] = $requested;
+        }
+
+        return $fields;
+    }
+
+    /**
+     * @param  array<string, mixed>  $variables
+     * @return array<string, mixed>
+     */
+    private function strategySnapshotFields(array $variables): array
+    {
+        $snapshot = ArticleGenerationStrategySnapshot::fromVariables($variables);
+        $taskId = (int) ($variables['project_task_id'] ?? $variables['task_id'] ?? 0);
+
+        return [
+            'strategy_override' => $snapshot->strategyOverride,
+            'generation_strategy_override' => $snapshot->strategyOverride,
+            'strategy_resolved' => $snapshot->strategyResolved,
+            'strategy_source' => $snapshot->strategySource,
+            'generation_strategy' => $snapshot->strategyResolved,
+            'resolved_generation_strategy' => $snapshot->strategyResolved,
+            'task_id' => $taskId > 0 ? $taskId : null,
+        ];
+    }
+
+    /**
+     * Policy/config model label requested before routing — not the winning candidate.
+     *
+     * @param  array<string, mixed>  $variables
+     */
+    private function resolveRequestedModelLabel(array $variables, ?string $category = null): ?string
+    {
+        foreach ([
+            'requested_model',
+            '_item_requested_model',
+            '_item_model_name',
+            'preferred_model',
+        ] as $key) {
+            $value = trim((string) ($variables[$key] ?? ''));
+            if ($value !== '') {
+                return $value;
+            }
+        }
+
+        $category = trim((string) ($category ?? ''));
+
+        return $category !== '' ? $category : null;
+    }
+
+    /**
      * @param  array<string, mixed>  $media
      * @return array<string, mixed>
      */
@@ -1106,6 +1246,22 @@ class PromptRunnerService
     public function compilePrompt(SeoPrompt $prompt, array $variables): string
     {
         $variables = app(PromptLanguageVariableService::class)->mergeInto($variables);
+
+        $strategy = (new \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategyResolver())
+            ->resolve($variables);
+        if ($strategy->isSectionedFree()) {
+            throw new PromptRunException(
+                'SECTIONED_FREE_NORMAL_COMPILER_INVOKED: normal article compilePrompt must not run when generation_strategy=sectioned_free.',
+                0,
+                null,
+                [
+                    'failure_code' => 'SECTIONED_FREE_NORMAL_COMPILER_INVOKED',
+                    'hook_key' => (string) ($prompt->hook_key ?? ''),
+                    'prompt_id' => (int) $prompt->id,
+                    'retryable' => false,
+                ],
+            );
+        }
 
         $assembled = $this->assemblePromptBlocks($prompt, $variables);
 
@@ -1505,6 +1661,11 @@ class PromptRunnerService
             'sectioned_free_section_id' => $unit->sectionId,
         ]);
 
+        (new SectionedFreePromptIsolationGuard())->assertSectionPromptIsIsolated($sectionPrompt, [
+            'section_id' => $unit->sectionId,
+            'run_id' => trim((string) ($variables['_execution_run_id'] ?? $variables['run_id'] ?? '')),
+        ]);
+
         [$output, $usage] = $this->callProvider(
             $routed->connection,
             $prompt,
@@ -1555,22 +1716,23 @@ class PromptRunnerService
             generationStrategy: ArticleGenerationStrategy::SectionedFree->value,
         );
 
-        $outline = trim((string) (
-            $variables['outline']
-            ?? $variables['article_outline']
+        // Do NOT pass raw vocabulary into writer context — generator splits artifact itself.
+        $outlineOnly = trim((string) (
+            $variables['article_outline']
+            ?? $variables['outline']
             ?? $variables['article_writing_raw_input']
             ?? $variables['input']
             ?? ''
         ));
-
-        // Do NOT pass raw vocabulary into writer context — generator splits artifact itself.
         $articleContext = [
             'title' => (string) ($variables['title'] ?? $variables['post_title'] ?? $variables['article_title'] ?? ''),
             'primary_keyword' => (string) ($variables['primary_keyword'] ?? $variables['focus_keyword'] ?? $variables['keyword'] ?? ''),
             'intent' => (string) ($variables['intent'] ?? $variables['search_intent'] ?? $variables['content_intent'] ?? ''),
             'language' => (string) ($variables['language'] ?? $variables['content_language'] ?? 'vi'),
-            'outline' => $outline,
-            'input' => $outline,
+            'outline' => $outlineOnly,
+            'article_outline' => (string) ($variables['article_outline'] ?? $outlineOnly),
+            'article_vocabulary' => (string) ($variables['article_vocabulary'] ?? ''),
+            'input' => $outlineOnly,
             'article_length' => $variables['article_length']
                 ?? $variables['target_article_length']
                 ?? $variables['resolved_article_length']

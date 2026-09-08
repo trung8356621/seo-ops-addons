@@ -124,5 +124,6 @@ final class ArticlePromptRunHistorySplitPresentationTest extends TestCase
         self::assertStringContainsString('outline_result_id', $src);
         self::assertStringContainsString('vocabulary_result_id', $src);
         self::assertStringContainsString('prompt_result_ids', $src);
+        self::assertStringContainsString('child_prompt_result_ids', $src);
     }
 }

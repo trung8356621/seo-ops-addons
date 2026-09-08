@@ -74,6 +74,13 @@ final class ContentProjectItemGenerationPolicyApplier
         if ($policy->generationStrategy !== null) {
             $variables = (new \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategyResolver())
                 ->stamp($variables, $policy->generationStrategy);
+            $variables['generation_strategy_override'] = $policy->generationStrategy->value;
+            $variables['strategy_override'] = $policy->generationStrategy->value;
+            $variables['strategy_resolved'] = $policy->generationStrategy->value;
+            $variables['strategy_source'] = \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategySnapshot::SOURCE_TASK_OVERRIDE;
+        } else {
+            $snap = \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategySnapshot::fromVariables($variables, null);
+            $variables = $snap->mergeIntoVariables($variables);
         }
 
         if ($policy->modelOverrideId !== null) {

@@ -39,6 +39,12 @@ final class PromptResultLinkService
                 $resultIds[] = $id;
             }
         }
+        foreach (is_array($step['child_prompt_result_ids'] ?? null) ? $step['child_prompt_result_ids'] : [] as $rid) {
+            $id = (int) $rid;
+            if ($id > 0) {
+                $resultIds[] = $id;
+            }
+        }
 
         $resultIds = array_values(array_unique(array_filter($resultIds)));
         if ($resultIds === [] || $articleId <= 0) {

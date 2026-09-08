@@ -95,12 +95,28 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
         );
 
         // CRITICAL: branch BEFORE legacy whole-article compile / provider call.
-        $strategy = $this->strategyResolver->resolve($variables);
+        $strategy = $this->strategyResolver->resolve(array_merge(
+            $variables,
+            array_filter([
+                'generation_strategy' => $contextExtras['generation_strategy'] ?? null,
+                '_item_generation_strategy' => $contextExtras['_item_generation_strategy'] ?? null,
+                'resolved_generation_strategy' => $contextExtras['resolved_generation_strategy'] ?? null,
+                'generation_strategy_override' => $contextExtras['generation_strategy_override'] ?? null,
+            ], static fn (mixed $v): bool => $v !== null && $v !== ''),
+        ));
         if (
             $strategy->isSectionedFree()
             && in_array($effectiveHookKey, ['article.content.generate', 'article.content.rewrite'], true)
         ) {
             $variables = $this->strategyResolver->stamp($variables, $strategy);
+            Log::info('article.generation.strategy.branch', [
+                'strategy' => $strategy->value,
+                'hook_key' => $effectiveHookKey,
+                'prompt_id' => (int) $prompt->id,
+                'article_id' => $contextExtras['article_id'] ?? null,
+                'task_id' => $contextExtras['project_task_id'] ?? $contextExtras['task_id'] ?? null,
+                'branch' => SectionedFreeHookOrchestrator::class.'::execute',
+            ]);
             $orchestrator = $this->sectionedFreeOrchestrator
                 ?? app(SectionedFreeHookOrchestrator::class);
 
@@ -112,6 +128,15 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
                 $effectiveVersion,
             );
         }
+
+        Log::info('article.generation.strategy.branch', [
+            'strategy' => $strategy->value,
+            'hook_key' => $effectiveHookKey,
+            'prompt_id' => (int) $prompt->id,
+            'article_id' => $contextExtras['article_id'] ?? null,
+            'task_id' => $contextExtras['project_task_id'] ?? $contextExtras['task_id'] ?? null,
+            'branch' => 'normal_prompt_hook_compile',
+        ]);
 
         $correlationId = (string) ($contextExtras['correlation_id'] ?? Str::uuid()->toString());
         $input = $this->mapInput($definition->inputSchema->fields, $variables, $previousOutputs);

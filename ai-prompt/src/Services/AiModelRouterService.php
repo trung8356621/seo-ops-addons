@@ -296,7 +296,22 @@ final class AiModelRouterService
             try {
                 [$output, $usage] = $executor($candidate);
                 $health->recordSuccess($userId, $candidate);
-                $routingAttempts[] = $this->attemptLog($candidate, $attemptNumber, 'success');
+                $actualProviderModel = is_array($usage)
+                    ? trim((string) ($usage['resolved_model'] ?? $usage['actual_provider_model'] ?? ''))
+                    : '';
+                $routingAttempts[] = $this->attemptLog(
+                    $candidate,
+                    $attemptNumber,
+                    'success',
+                    null,
+                    null,
+                    array_filter([
+                        'actual_provider_model' => $actualProviderModel !== '' ? $actualProviderModel : null,
+                        'requested_model' => is_array($usage)
+                            ? (trim((string) ($usage['requested_model'] ?? '')) ?: null)
+                            : null,
+                    ], static fn (mixed $v): bool => $v !== null && $v !== ''),
+                );
 
                 return [$output, $usage, $candidate, $fallbackCount, $reasons, $routingAttempts];
             } catch (\Throwable $exception) {
@@ -527,12 +542,23 @@ final class AiModelRouterService
         ?int $httpStatus = null,
         array $extra = [],
     ): array {
+        $status = match ($result) {
+            'success' => 'SUCCESS',
+            'failed' => 'FAILED',
+            'skipped' => 'SKIPPED',
+            default => strtoupper($result),
+        };
+
         return array_filter(array_merge([
             'attempt' => $attemptNumber,
             'connection_id' => (int) $candidate->connection->id,
+            'provider' => $candidate->provider,
             'model' => $candidate->model,
+            'candidate_model' => $candidate->model,
             'is_free' => $candidate->isFree,
+            'is_free_candidate' => $candidate->isFree,
             'result' => $result,
+            'status' => $status,
             'failure_class' => $result === 'failed' ? $detail : null,
             'skip_reason' => $result === 'skipped' ? $detail : null,
             'http_status' => $httpStatus,

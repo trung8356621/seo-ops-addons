@@ -49,6 +49,21 @@ final class ArticleAiHistoryUiWiringTest extends TestCase
         self::assertStringNotContainsString('x-collapse', $blade);
         self::assertStringNotContainsString('overflow-y-scroll', $blade);
         self::assertStringNotContainsString('Chạy lại quy trình', $blade);
+
+        // Compact list presentation — technical metadata stays out of the card.
+        self::assertStringContainsString('ArticleAiHistoryCardPresenter', $blade);
+        self::assertStringContainsString('seo-run-history-item__tag', $blade);
+        self::assertStringContainsString('seo-run-history-item__error-banner', $blade);
+        self::assertStringContainsString('seo-run-history-item__actions', $blade);
+        self::assertStringContainsString('compactModel', $blade);
+        self::assertStringContainsString('strategy_resolved', $blade);
+        self::assertStringContainsString('is_free_candidate', $blade);
+        self::assertStringNotContainsString("title=\"Hook\"", $blade);
+        self::assertStringNotContainsString("title=\"Artifact\"", $blade);
+        self::assertStringNotContainsString('status_label', $blade);
+        self::assertStringNotContainsString('execution_type_label', $blade);
+        self::assertStringNotContainsString('article_ai_history.not_applied', $blade);
+        self::assertStringNotContainsString("format('d/m/Y H:i')", $blade);
     }
 
     public function test_legacy_classifier_and_application_facade_exist(): void

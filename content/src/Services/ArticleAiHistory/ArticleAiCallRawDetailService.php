@@ -188,7 +188,12 @@ final class ArticleAiCallRawDetailService
     private static function extractModel(PromptResult $result): string
     {
         $snapshot = is_array($result->input_snapshot) ? $result->input_snapshot : [];
+        $usage = is_array($result->token_usage) ? $result->token_usage : [];
+        $attribution = \Omnichannel\Addons\AiPrompt\Support\AiExecutionModelAttribution::fromPersistence(
+            $snapshot,
+            $usage,
+        );
 
-        return trim((string) ($snapshot['raw_model_used'] ?? $snapshot['render_model'] ?? ''));
+        return $attribution->displayModel();
     }
 }

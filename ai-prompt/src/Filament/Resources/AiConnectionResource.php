@@ -157,13 +157,14 @@ class AiConnectionResource extends SeoPanelResource
     {
         return $table
             ->paginated(false)
+            ->recordUrl(null)
+            ->recordAction(null)
             ->emptyStateHeading(__('seo-content-ai::filament.api_connections.empty'))
             ->columns([
                 Tables\Columns\TextColumn::make('name')
                     ->label(__('seo-content-ai::filament.api_connections.col_connection'))
                     ->searchable()
-                    ->sortable()
-                    ->url(fn (Model $record): ?string => static::resolveEditUrl($record)),
+                    ->sortable(),
                 Tables\Columns\TextColumn::make('connection_type')
                     ->label(__('seo-content-ai::filament.api_connections.col_type'))
                     ->badge()
@@ -200,11 +201,13 @@ class AiConnectionResource extends SeoPanelResource
                         },
                     )
                     ->sortable(),
-                Tables\Columns\TextColumn::make('status')
+                Tables\Columns\ViewColumn::make('status')
                     ->label(__('seo-content-ai::filament.api_connections.col_status'))
-                    ->badge()
-                    ->formatStateUsing(fn (?string $state): string => static::formatStatusLabel((string) $state))
+                    ->view('seo-content-ai::filament.tables.columns.api-connection-status-toggle')
                     ->sortable(),
+                Tables\Columns\ViewColumn::make('paid_locked')
+                    ->label(__('seo-content-ai::filament.api_connections.col_model_mode'))
+                    ->view('seo-content-ai::filament.tables.columns.api-connection-mode-toggle'),
             ])
             ->actions([
                 Tables\Actions\EditAction::make()

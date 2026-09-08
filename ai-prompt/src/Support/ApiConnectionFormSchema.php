@@ -146,6 +146,12 @@ final class ApiConnectionFormSchema
                 ->default('active')
                 ->visible(fn (Get $get): bool => ApiConnectionProviders::isAi($get('provider')))
                 ->native(false),
+            Forms\Components\Toggle::make('paid_locked')
+                ->label(__('seo-content-ai::filament.api_connections.free_only_form_label'))
+                ->helperText(__('seo-content-ai::filament.api_connections.free_only_form_help'))
+                ->default(false)
+                ->visible(fn (Get $get): bool => ApiConnectionProviders::isAi($get('provider')))
+                ->dehydrated(fn (Get $get): bool => ApiConnectionProviders::isAi($get('provider'))),
             Forms\Components\Section::make(__('seo-content-ai::filament.api_connections.gsc_heading'))
                 ->description(__('seo-content-ai::filament.api_connections.gsc_hint'))
                 ->visible(fn (Get $get): bool => $get('provider') === ApiConnectionProviders::GOOGLE_SEARCH_CONSOLE)

@@ -90,6 +90,12 @@ final class ArticleExecutionHistoryService
                         $resultIds[] = $id;
                     }
                 }
+                foreach (is_array($row['child_prompt_result_ids'] ?? null) ? $row['child_prompt_result_ids'] : [] as $rid) {
+                    $id = (int) $rid;
+                    if ($id > 0) {
+                        $resultIds[] = $id;
+                    }
+                }
                 $single = (int) ($row['result_id'] ?? 0);
                 if ($single > 0) {
                     $resultIds[] = $single;
@@ -103,6 +109,18 @@ final class ArticleExecutionHistoryService
                 if ($single > 0) {
                     $resultIds[] = $single;
                 }
+                foreach (is_array($step['prompt_result_ids'] ?? null) ? $step['prompt_result_ids'] : [] as $rid) {
+                    $id = (int) $rid;
+                    if ($id > 0) {
+                        $resultIds[] = $id;
+                    }
+                }
+                foreach (is_array($step['child_prompt_result_ids'] ?? null) ? $step['child_prompt_result_ids'] : [] as $rid) {
+                    $id = (int) $rid;
+                    if ($id > 0) {
+                        $resultIds[] = $id;
+                    }
+                }
             }
         }
 
@@ -111,6 +129,26 @@ final class ArticleExecutionHistoryService
             ->whereIn('id', array_values(array_unique($resultIds)))
             ->get()
             ->keyBy(static fn (PromptResult $row): int => (int) $row->id);
+
+        // Two-pass: load sectioned_free children referenced only on parent snapshots.
+        $extraChildIds = [];
+        foreach ($results as $result) {
+            $snap = is_array($result->input_snapshot) ? $result->input_snapshot : [];
+            foreach (is_array($snap['child_prompt_result_ids'] ?? null) ? $snap['child_prompt_result_ids'] : [] as $childId) {
+                $cid = (int) $childId;
+                if ($cid > 0 && ! $results->has($cid)) {
+                    $extraChildIds[] = $cid;
+                }
+            }
+        }
+        if ($extraChildIds !== []) {
+            $extra = PromptResult::query()
+                ->with('prompt')
+                ->whereIn('id', array_values(array_unique($extraChildIds)))
+                ->get()
+                ->keyBy(static fn (PromptResult $row): int => (int) $row->id);
+            $results = $results->union($extra);
+        }
 
         $runs = [];
         foreach ($runItems->groupBy(static fn (SeoProjectRunItem $item): int => (int) $item->run_id) as $runId => $items) {

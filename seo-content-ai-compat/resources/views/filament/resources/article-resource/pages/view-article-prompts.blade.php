@@ -269,8 +269,11 @@
                     </div>
 
                     <div class="seo-run-history-group__meta">
-                        @if ($ranAt)
-                            <span>{{ $ranAt->format('d/m/Y H:i') }}</span>
+                        @php
+                            $groupDateLabel = \Omnichannel\Addons\Content\Support\ArticleAiHistoryCardPresenter::groupDateLabel($ranAt);
+                        @endphp
+                        @if ($groupDateLabel)
+                            <span>{{ $groupDateLabel }}</span>
                         @endif
                         @if ($runStatus !== '')
                             <span class="seo-run-history-status">{{ $runStatus }}</span>
@@ -284,10 +287,8 @@
                             $artifactRef = trim((string) ($promptItem['artifact_ref'] ?? ''));
                             $promptType = trim((string) ($promptItem['type'] ?? 'Prompt AI'));
                             $status = trim((string) ($promptItem['status'] ?? ''));
-                            $statusLabel = trim((string) ($promptItem['status_label'] ?? $status));
                             $hookKey = trim((string) ($promptItem['hook_key'] ?? $promptItem['execution_role'] ?? ''));
                             $artifactType = trim((string) ($promptItem['artifact_type'] ?? ''));
-                            $classification = trim((string) ($promptItem['classification'] ?? 'unknown'));
                             $promptText = trim((string) ($promptItem['prompt'] ?? ''));
                             $resultText = trim((string) ($promptItem['result'] ?? ''));
                             $normalized = trim((string) ($promptItem['normalized_artifact'] ?? ''));
@@ -296,69 +297,114 @@
                             $isDeleted = (bool) ($promptItem['is_deleted'] ?? false);
                             $applyCount = (int) ($promptItem['apply_count'] ?? 0);
                             $appliedLabel = trim((string) ($promptItem['applied_label'] ?? ''));
-                            $executionTypeLabel = trim((string) ($promptItem['execution_type_label'] ?? ''));
+                            $executionType = trim((string) ($promptItem['execution_type'] ?? ''));
                             $model = trim((string) ($promptItem['model'] ?? $promptItem['render_model'] ?? ''));
+                            $isFreeCandidate = array_key_exists('is_free_candidate', $promptItem)
+                                ? (is_bool($promptItem['is_free_candidate']) ? $promptItem['is_free_candidate'] : null)
+                                : null;
+                            $modelCompact = \Omnichannel\Addons\Content\Support\ArticleAiHistoryCardPresenter::compactModel(
+                                $model,
+                                $isFreeCandidate,
+                            );
+                            $strategyResolved = strtolower(trim((string) (
+                                $promptItem['strategy_resolved']
+                                ?? $promptItem['generation_strategy']
+                                ?? ''
+                            )));
+                            $showStrategyTag = in_array($strategyResolved, ['single_pass', 'sectioned_free'], true);
+                            $strategySource = trim((string) ($promptItem['strategy_source'] ?? ''));
+                            $strategyOverrideLabel = trim((string) ($promptItem['strategy_override_label'] ?? ''));
                             $ranAtItem = $promptItem['ran_at'] ?? null;
                             $attempt = $promptItem['attempt'] ?? null;
+                            $attemptMeta = \Omnichannel\Addons\Content\Support\ArticleAiHistoryCardPresenter::attemptMeta(
+                                $attempt,
+                                $ranAtItem,
+                                $executionType !== '' ? $executionType : null,
+                            );
+                            $wordCountLabel = \Omnichannel\Addons\Content\Support\ArticleAiHistoryCardPresenter::wordCountLabel(
+                                $promptItem['actual_word_count'] ?? null,
+                            );
+                            $isFailed = in_array($status, ['failed', 'error'], true);
+                            $errorMessage = $isFailed
+                                ? \Omnichannel\Addons\Content\Support\PromptAiCallErrorNormalizer::display($promptItem['message'] ?? null)
+                                : null;
+                            $lengthValidation = strtolower(trim((string) ($promptItem['length_validation_result'] ?? '')));
+                            $errorCode = ($isFailed && $lengthValidation === 'truncated') ? 'OUTPUT_TRUNCATED' : null;
+                            if ($errorCode !== null && is_string($errorMessage) && str_contains(strtoupper($errorMessage), 'OUTPUT_TRUNCATED')) {
+                                $errorCode = null;
+                            }
                             $selected = in_array($artifactRef, $this->selectedRefs, true);
-                            $isInvalid = $classification === 'unknown';
+                            $metaParts = array_values(array_filter([
+                                $attemptMeta['attempt_label'],
+                                $attemptMeta['time_label'],
+                            ]));
+                            $metaLine = implode(' · ', $metaParts);
                         @endphp
 
                         <div class="seo-run-history-item">
-                            <div class="flex items-start gap-2 px-3 pt-3 pb-1">
+                            <div class="seo-run-history-item__row">
                                 @if ($artifactRef !== '' && ! $isDeleted)
                                     <input
                                         type="checkbox"
-                                        class="mt-1"
+                                        class="seo-run-history-item__check"
                                         @checked($selected)
                                         wire:click="toggleSelect({{ \Illuminate\Support\Js::from($artifactRef) }})"
                                     />
                                 @endif
                                 <div class="seo-run-history-item__toggle flex-1 pointer-events-none">
-                                    <span class="seo-run-history-item__identity">
+                                    <div class="seo-run-history-item__identity">
                                         <span class="seo-run-history-item__index">{{ $index + 1 }}</span>
-                                        <span>
-                                            <span class="seo-run-history-item__type">{{ $promptType }}</span>
-                                            @if ($hookKey !== '')
-                                                <span class="seo-run-history-item__model" title="Hook">{{ $hookKey }}</span>
+                                        <div class="seo-run-history-item__copy min-w-0 flex-1">
+                                            <div class="seo-run-history-item__title-row">
+                                                <span class="seo-run-history-item__type">{{ $promptType }}</span>
+                                            </div>
+
+                                            @if ($attemptMeta['is_retry'] || $metaLine !== '')
+                                                <p class="seo-run-history-item__meta">
+                                                    @if ($attemptMeta['is_retry'])
+                                                        <span class="seo-run-history-item__tag">Retry</span>
+                                                    @endif
+                                                    @if ($metaLine !== '')
+                                                        <span>{{ $metaLine }}</span>
+                                                    @endif
+                                                </p>
                                             @endif
-                                            @if ($artifactType !== '')
-                                                <span class="seo-run-history-item__model" title="Artifact">{{ $artifactType }}</span>
-                                            @elseif ($isInvalid)
-                                                <span class="seo-run-history-item__model" title="Invalid">INVALID / RAW</span>
+
+                                            @if ($showStrategyTag)
+                                                <p class="seo-run-history-item__meta">
+                                                    <span class="seo-run-history-item__tag">{{ $strategyResolved }}</span>
+                                                </p>
+                                                <p class="seo-run-history-item__meta" title="Strategy provenance">
+                                                    Strategy: {{ $strategyResolved }}
+                                                    · Source: {{ $strategySource !== '' ? $strategySource : 'default' }}
+                                                    · Task override: {{ $strategyOverrideLabel !== '' ? $strategyOverrideLabel : 'none' }}
+                                                </p>
                                             @endif
-                                            @if ($executionTypeLabel !== '')
-                                                <span class="seo-run-history-item__model">{{ $executionTypeLabel }}</span>
+
+                                            @if ($modelCompact !== '')
+                                                <p class="seo-run-history-item__model" title="{{ $model }}">{{ $modelCompact }}</p>
                                             @endif
-                                            @if ($statusLabel !== '')
-                                                <span class="seo-run-history-item__model">{{ $statusLabel }}</span>
+
+                                            @if (! $isFailed && $wordCountLabel !== null)
+                                                <p class="seo-run-history-item__meta">{{ $wordCountLabel }}</p>
                                             @endif
+
                                             @if ($applyCount > 0)
-                                                <span class="seo-run-history-item__model">APPLIED · {{ $appliedLabel !== '' ? $appliedLabel : $applyCount }}</span>
-                                            @else
-                                                <span class="seo-run-history-item__model">{{ __('seo-content-ai::filament.article_ai_history.not_applied') }}</span>
+                                                <p class="seo-run-history-item__meta">APPLIED · {{ $appliedLabel !== '' ? $appliedLabel : $applyCount }}</p>
                                             @endif
+
                                             @if ($isDeleted)
-                                                <span class="seo-run-history-item__model">DELETED</span>
+                                                <p class="seo-run-history-item__meta">DELETED</p>
                                             @endif
-                                            @if ($attempt)
-                                                <span class="seo-run-history-item__model">Attempt #{{ $attempt }}</span>
-                                            @endif
-                                            @if ($ranAtItem)
-                                                <span class="seo-run-history-item__model">{{ $ranAtItem->format('d/m/Y H:i') }}</span>
-                                            @endif
-                                            @if ($model !== '')
-                                                <span class="seo-run-history-item__model">{{ $model }}</span>
-                                            @endif
-                                        </span>
-                                    </span>
-                                    <span class="seo-run-history-item__actions">
-                                        @if ($status !== '')
-                                            <span class="seo-run-history-status {{ in_array($status, ['failed', 'error'], true) ? 'is-failed' : '' }}">
+                                        </div>
+                                    </div>
+                                    @if ($status !== '')
+                                        <span class="seo-run-history-item__actions">
+                                            <span class="seo-run-history-status {{ $isFailed ? 'is-failed' : '' }}">
                                                 {{ strtoupper($status) }}
                                             </span>
-                                        @endif
-                                    </span>
+                                        </span>
+                                    @endif
                                 </div>
                             </div>
 
@@ -373,7 +419,7 @@
                                 $drawerTitle = $promptType.($artifactType !== '' ? ' · '.$artifactType : '');
                             @endphp
 
-                            <div class="flex flex-wrap gap-2 px-3 pb-3">
+                            <div class="seo-run-history-item__actions-row">
                                 @if (! $isDeleted)
                                     <button
                                         type="button"
@@ -421,7 +467,6 @@
                                         >
                                             {{ __('seo-content-ai::filament.article_ai_history.apply_content') }}
                                         </button>
-                                        <span class="text-xs text-amber-700 dark:text-amber-300">{{ $promptItem['apply_block_reason'] }}</span>
                                     @endif
 
                                     @if ($promptText !== '' || $resultText !== '')
@@ -451,6 +496,36 @@
                                     </button>
                                 @endif
                             </div>
+
+                            @php
+                                $applyBlockReason = trim((string) ($promptItem['apply_block_reason'] ?? ''));
+                                $showApplyBlock = $applyBlockReason !== '' && str_contains($hookKey, 'article.content');
+                                $showErrorBanner = $isFailed && ($wordCountLabel !== null || $errorCode !== null || filled($errorMessage));
+                            @endphp
+
+                            @if ($showApplyBlock || $showErrorBanner)
+                                <div class="seo-run-history-item__notices mx-3 mb-2.5 space-y-1.5">
+                                    @if ($showApplyBlock)
+                                        <div class="seo-run-history-item__apply-block rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-snug text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+                                            {{ $applyBlockReason }}
+                                        </div>
+                                    @endif
+
+                                    @if ($showErrorBanner)
+                                        <div class="seo-run-history-item__error-banner rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 dark:border-red-900 dark:bg-red-950/60">
+                                            @if ($wordCountLabel !== null)
+                                                <p class="seo-run-history-item__error-words mb-1 text-xs font-bold text-red-800 dark:text-red-200">{{ $wordCountLabel }}</p>
+                                            @endif
+                                            @if ($errorCode !== null)
+                                                <p class="seo-run-history-item__error-code m-0 text-[0.6875rem] font-extrabold tracking-wide text-red-700 dark:text-red-300">{{ $errorCode }}</p>
+                                            @endif
+                                            @if (filled($errorMessage))
+                                                <p class="seo-run-history-item__error-msg mt-1 break-words text-xs leading-snug text-rose-800 dark:text-red-200">{{ $errorMessage }}</p>
+                                            @endif
+                                        </div>
+                                    @endif
+                                </div>
+                            @endif
                         </div>
                     @endforeach
                 </div>

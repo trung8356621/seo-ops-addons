@@ -62,4 +62,26 @@ final class WorkflowExecutionTraceTest extends TestCase
         self::assertSame('failed', $trace[0]['vocabulary_status']);
         self::assertSame([11, 22], $trace[0]['prompt_result_ids']);
     }
+
+    public function test_from_steps_preserves_sectioned_free_child_ids(): void
+    {
+        $trace = WorkflowExecutionTrace::fromSteps([
+            [
+                'node_id' => 'write',
+                'type' => 'prompt',
+                'title' => 'Viết bài theo dàn ý',
+                'status' => 'failed',
+                'result_id' => 10,
+                'prompt_result_ids' => [10, 21, 22],
+                'child_prompt_result_ids' => [21, 22],
+                'generation_strategy' => 'sectioned_free',
+                'execution_source' => 'sectioned_free_orchestrator',
+            ],
+        ]);
+
+        self::assertSame([21, 22], $trace[0]['child_prompt_result_ids']);
+        self::assertSame('sectioned_free', $trace[0]['generation_strategy']);
+        self::assertContains(21, $trace[0]['prompt_result_ids']);
+        self::assertContains(22, $trace[0]['prompt_result_ids']);
+    }
 }

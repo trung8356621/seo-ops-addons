@@ -56,10 +56,19 @@ final class SectionedFreeArticleGenerator
         ?string $rerunSectionId = null,
         ?string $runId = null,
     ): array {
-        $rawOutline = trim((string) ($articleContext['outline'] ?? $articleContext['input'] ?? ''));
+        $rawOutline = trim((string) (
+            $articleContext['article_outline']
+            ?? $articleContext['outline']
+            ?? $articleContext['input']
+            ?? ''
+        ));
+        $explicitVocabulary = trim((string) ($articleContext['article_vocabulary'] ?? ''));
         $parts = $this->artifactSplitter->split($rawOutline);
         $outline = $parts['outline_markdown'];
-        $vocabularyRaw = $parts['vocabulary_raw'];
+        // Prefer typed vocabulary artifact over regex-split from combined blob.
+        $vocabularyRaw = $explicitVocabulary !== ''
+            ? $explicitVocabulary
+            : $parts['vocabulary_raw'];
 
         $articleTargetWords = $this->resolveArticleTargetWords($articleContext);
         $plan = $this->prepare->preparePlan($outline, $articleTargetWords);
@@ -148,6 +157,10 @@ final class SectionedFreeArticleGenerator
                     ['failure_code' => 'SECTIONED_FREE_VOCAB_LEAK', 'retryable' => false],
                 );
             }
+            (new SectionedFreePromptIsolationGuard())->assertSectionPromptIsIsolated($prompt, [
+                'section_id' => $unit->sectionId,
+                'run_id' => (string) ($state->toArray()['run_id'] ?? ''),
+            ]);
             if (
                 str_contains($prompt, 'DYNAMIC WORD ALLOCATION')
                 || str_contains($prompt, 'target 1000 words')

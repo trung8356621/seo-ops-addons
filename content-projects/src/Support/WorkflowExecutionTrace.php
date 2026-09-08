@@ -60,6 +60,16 @@ final class WorkflowExecutionTrace
                     $resultIds[] = $id;
                 }
             }
+            $childIds = [];
+            foreach (is_array($step['child_prompt_result_ids'] ?? null) ? $step['child_prompt_result_ids'] : [] as $rid) {
+                $id = (int) $rid;
+                if ($id > 0 && ! in_array($id, $childIds, true)) {
+                    $childIds[] = $id;
+                }
+                if ($id > 0 && ! in_array($id, $resultIds, true)) {
+                    $resultIds[] = $id;
+                }
+            }
             $single = (int) ($step['result_id'] ?? 0);
             if ($single > 0 && ! in_array($single, $resultIds, true)) {
                 $resultIds[] = $single;
@@ -76,6 +86,22 @@ final class WorkflowExecutionTrace
                 'execution_role' => self::nullableString($step['execution_role'] ?? null),
                 'result_id' => $single > 0 ? $single : null,
                 'prompt_result_ids' => $resultIds,
+                'child_prompt_result_ids' => $childIds,
+                'generation_strategy' => self::nullableString(
+                    $step['strategy_resolved']
+                    ?? $step['generation_strategy']
+                    ?? null
+                ),
+                'strategy_override' => array_key_exists('strategy_override', $step)
+                    ? self::nullableString($step['strategy_override'])
+                    : self::nullableString($step['generation_strategy_override'] ?? null),
+                'strategy_resolved' => self::nullableString(
+                    $step['strategy_resolved']
+                    ?? $step['generation_strategy']
+                    ?? null
+                ),
+                'strategy_source' => self::nullableString($step['strategy_source'] ?? null),
+                'execution_source' => self::nullableString($step['execution_source'] ?? null),
                 'outline_result_id' => (($oid = (int) ($step['outline_result_id'] ?? 0)) > 0) ? $oid : null,
                 'vocabulary_result_id' => (($vid = (int) ($step['vocabulary_result_id'] ?? 0)) > 0) ? $vid : null,
                 'outline_status' => self::nullableString($step['outline_status'] ?? null),

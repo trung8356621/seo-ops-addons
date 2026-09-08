@@ -32,8 +32,12 @@ use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\Content\Support\ArticleGenerationSourceResult;
 use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordFocusAttach;
+use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategy;
+use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategyResolver;
+use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategySnapshot;
 use Omnichannel\Addons\AiPrompt\Support\PromptMediaPersistContext;
 use Omnichannel\Addons\AiPrompt\Support\PromptPostProcessing;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ContentProjectItemGenerationPolicyApplier;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\Seo\Support\SeoRuleViolationsResolver;
 use Omnichannel\Addons\Seo\Support\SeoScoringRulesRegistry;
@@ -968,6 +972,7 @@ final class TaskWorkflowTestRunner
                 }
 
                 if ($hookBinding !== null && ! $isImagePipeline) {
+                    $variables = $this->ensureGenerationStrategyVariables($variables, $context, $state);
                     $nodeData = is_array($node['data'] ?? null) ? $node['data'] : [];
                     $contextExtras = [
                         'site_id' => $this->resolveMediaContextSiteId($context, $state),
@@ -995,6 +1000,13 @@ final class TaskWorkflowTestRunner
                             ? (int) $context->variables['project_id']
                             : null,
                         'locale' => $variables['language'] ?? $variables['locale'] ?? null,
+                        'generation_strategy' => $variables['generation_strategy'] ?? null,
+                        '_item_generation_strategy' => $variables['_item_generation_strategy'] ?? null,
+                        'resolved_generation_strategy' => $variables['resolved_generation_strategy'] ?? null,
+                        'generation_strategy_override' => $variables['generation_strategy_override'] ?? null,
+                        'strategy_override' => $variables['strategy_override'] ?? null,
+                        'strategy_resolved' => $variables['strategy_resolved'] ?? null,
+                        'strategy_source' => $variables['strategy_source'] ?? null,
                     ];
 
                     if ($this->isOutlineRoleNode($node, $hookBinding->hookKey)) {
@@ -1161,6 +1173,11 @@ final class TaskWorkflowTestRunner
                     }
 
                     try {
+                        $variables = $this->stampSectionedFreeWritingArtifacts(
+                            $variables,
+                            $state,
+                            (string) ($hookBinding->hookKey ?? ''),
+                        );
                         $hookResult = $this->hookBindingExecutor->execute(
                             $prompt,
                             $variables,
@@ -1193,10 +1210,16 @@ final class TaskWorkflowTestRunner
                         $promptResultIds = is_array($exception->context['prompt_result_ids'] ?? null)
                             ? array_values(array_map('intval', $exception->context['prompt_result_ids']))
                             : [];
+                        $childPromptResultIds = is_array($exception->context['child_prompt_result_ids'] ?? null)
+                            ? array_values(array_map('intval', $exception->context['child_prompt_result_ids']))
+                            : [];
                         $parentId = (int) ($exception->context['prompt_result_id'] ?? 0);
                         if ($parentId <= 0 && $promptResultIds !== []) {
                             $parentId = (int) $promptResultIds[0];
                         }
+                        $isSectionedFree = $childPromptResultIds !== []
+                            || str_contains((string) ($exception->context['failure_code'] ?? ''), 'SECTIONED_FREE')
+                            || strtolower((string) ($exception->context['generation_strategy'] ?? '')) === 'sectioned_free';
 
                         return [
                             'node_id' => $nodeId,
@@ -1207,13 +1230,19 @@ final class TaskWorkflowTestRunner
                             'prompt_name' => (string) $prompt->name,
                             'hook_key' => $hookBinding->hookKey,
                             'hook_version' => $hookBinding->hookVersion,
-                            'execution_source' => 'sectioned_free_orchestrator',
+                            'execution_source' => $isSectionedFree
+                                ? 'sectioned_free_orchestrator'
+                                : 'explicit_hook_binding',
                             'message' => $exception->userMessage(),
                             'failure_category' => (string) ($exception->context['failure_code'] ?? 'SECTIONED_FREE_SECTION_FAILED'),
                             'result_id' => $parentId > 0 ? $parentId : null,
                             'prompt_result_ids' => $promptResultIds !== []
                                 ? $promptResultIds
                                 : ($parentId > 0 ? [$parentId] : []),
+                            'child_prompt_result_ids' => $childPromptResultIds,
+                            'generation_strategy' => $isSectionedFree
+                                ? 'sectioned_free'
+                                : (string) ($exception->context['generation_strategy'] ?? ''),
                         ];
                     }
 
@@ -1282,6 +1311,22 @@ final class TaskWorkflowTestRunner
                                     ? [(int) $hookResult['prompt_result_id']]
                                     : []
                             ),
+                        'child_prompt_result_ids' => is_array($hookResult['child_prompt_result_ids'] ?? null)
+                            ? $hookResult['child_prompt_result_ids']
+                            : [],
+                        'generation_strategy' => (string) (
+                            $variables['strategy_resolved']
+                            ?? $hookResult['usage']['generation_strategy']
+                            ?? $variables['resolved_generation_strategy']
+                            ?? $variables['generation_strategy']
+                            ?? ''
+                        ),
+                        'strategy_override' => $variables['strategy_override'] ?? null,
+                        'strategy_resolved' => $variables['strategy_resolved']
+                            ?? $variables['resolved_generation_strategy']
+                            ?? $variables['generation_strategy']
+                            ?? null,
+                        'strategy_source' => $variables['strategy_source'] ?? null,
                         'duration_ms' => $hookResult['duration_ms'],
                         'actual_word_count' => $hookResult['actual_word_count'] ?? null,
                         'minimum_acceptable_words' => $hookResult['minimum_acceptable_words'] ?? null,
@@ -2570,6 +2615,99 @@ final class TaskWorkflowTestRunner
         ));
 
         return $stored;
+    }
+
+    /**
+     * Snapshot strategy provenance before Generate/Rerun Writing executes.
+     * Always stamps strategy_override / strategy_resolved / strategy_source —
+     * even when task override is NULL (resolved = single_pass, source = default).
+     *
+     * @param  array<string, mixed>  $variables
+     * @return array<string, mixed>
+     */
+    private function ensureGenerationStrategyVariables(
+        array $variables,
+        TaskTestContext $context,
+        WorkflowExecutionState $state,
+    ): array {
+        unset($state);
+
+        $taskId = (int) ($variables['project_task_id']
+            ?? $variables['task_id']
+            ?? $context->variables['project_task_id']
+            ?? $context->variables['task_id']
+            ?? 0);
+
+        $taskOverride = false;
+        if ($taskId > 0) {
+            $task = SeoProjectTask::query()->find($taskId);
+            if ($task instanceof SeoProjectTask) {
+                $raw = $task->getAttribute('generation_strategy_override');
+                $taskOverride = (is_string($raw) || is_int($raw)) && trim((string) $raw) !== ''
+                    ? trim((string) $raw)
+                    : null;
+
+                $policy = app(\Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ContentProjectItemGenerationPolicyResolver::class)
+                    ->resolve($task);
+                if ($policy->generationStrategy !== null) {
+                    $variables = app(ContentProjectItemGenerationPolicyApplier::class)
+                        ->stampVariables($variables, $policy);
+                }
+            }
+        }
+
+        $snapshot = ArticleGenerationStrategySnapshot::fromVariables($variables, $taskOverride);
+        $variables = $snapshot->mergeIntoVariables($variables);
+        foreach ($snapshot->toExecutionSnapshot($taskId > 0 ? $taskId : null) as $key => $value) {
+            $variables[$key] = $value;
+        }
+
+        return $variables;
+    }
+
+    /**
+     * For sectioned_free writing: feed typed outline + vocabulary separately.
+     * Never treat the normal combined writer input blob as the planner source of truth.
+     *
+     * @param  array<string, mixed>  $variables
+     * @return array<string, mixed>
+     */
+    private function stampSectionedFreeWritingArtifacts(
+        array $variables,
+        WorkflowExecutionState $state,
+        string $hookKey,
+    ): array {
+        $strategy = (new ArticleGenerationStrategyResolver())->resolve($variables);
+        if (! $strategy->isSectionedFree()) {
+            return $variables;
+        }
+        if (! in_array($hookKey, ['article.content.generate', 'article.content.rewrite'], true)) {
+            return $variables;
+        }
+
+        $outlineTyped = $this->resolveTypedArtifact($state, WorkflowArtifactType::ArticleOutline);
+        $vocabularyTyped = $this->resolveTypedArtifact($state, WorkflowArtifactType::ArticleVocabulary);
+        $outlineArtifact = trim((string) ($outlineTyped?->payload ?? ''));
+        $vocabularyArtifact = trim((string) ($vocabularyTyped?->payload ?? ''));
+
+        if ($outlineArtifact === '') {
+            $outlineArtifact = trim((string) ($state->meta['direct_publish_outline_markdown'] ?? ''));
+        }
+        if ($outlineArtifact === '') {
+            $outlineArtifact = trim((string) ($variables['article_outline'] ?? ''));
+        }
+
+        if ($outlineArtifact !== '') {
+            $variables['article_outline'] = $outlineArtifact;
+            // Planner input = outline-only artifact (not whole-article compiled blob).
+            $variables['input'] = $outlineArtifact;
+            $variables['article_writing_raw_input'] = $outlineArtifact;
+        }
+        if ($vocabularyArtifact !== '') {
+            $variables['article_vocabulary'] = $vocabularyArtifact;
+        }
+
+        return (new ArticleGenerationStrategyResolver())->stamp($variables, ArticleGenerationStrategy::SectionedFree);
     }
 
     /**

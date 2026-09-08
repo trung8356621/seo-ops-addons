@@ -71,9 +71,12 @@ final class ContentProjectItemAdvancedForm
                             ->placeholder(__('seo-content-ai::filament.projects.item_generation_strategy_default'))
                             ->helperText(__('seo-content-ai::filament.projects.item_generation_strategy_help'))
                             ->options([
+                                ArticleGenerationStrategy::SinglePass->value => __('seo-content-ai::filament.projects.item_generation_strategy_default'),
                                 ArticleGenerationStrategy::SectionedFree->value => __('seo-content-ai::filament.projects.item_generation_strategy_sectioned_free'),
                             ])
+                            ->nullable()
                             ->native(false)
+                            ->dehydrated()
                             ->live(),
 
                         Forms\Components\Select::make('model_override_id')

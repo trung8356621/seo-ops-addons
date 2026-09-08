@@ -12,6 +12,7 @@ use Omnichannel\Addons\AiPrompt\Support\AiFailureClass;
 use Omnichannel\Addons\AiPrompt\Support\AiFailureScope;
 use Omnichannel\Addons\AiPrompt\Support\AiRoutesExhaustionClassifier;
 use Omnichannel\Addons\AiPrompt\Support\AiRuntimeHealthStatus;
+use App\Models\ApiConnection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
@@ -31,6 +32,11 @@ final class AiRuntimeHealthService
 
     public function skipReason(int $userId, RoutedAiCandidate $candidate): ?string
     {
+        // Connection preference Free only (api_connections.paid_locked) — before provider call.
+        if ($candidate->isFree === false && $this->connectionPrefersFreeOnly($candidate->connection)) {
+            return 'connection_paid_locked';
+        }
+
         if (! $this->tableReady()) {
             return null;
         }
@@ -456,6 +462,27 @@ final class AiRuntimeHealthService
         } catch (\Throwable) {
             return false;
         }
+    }
+
+    /**
+     * User preference on api_connections.paid_locked (Free only) — not runtime health budget lock.
+     */
+    private function connectionPrefersFreeOnly(ApiConnection $connection): bool
+    {
+        if (array_key_exists('paid_locked', $connection->getAttributes())) {
+            return (bool) $connection->getAttribute('paid_locked');
+        }
+
+        try {
+            if (! Schema::connection($connection->getConnectionName() ?: $this->connectionName())
+                ->hasColumn('api_connections', 'paid_locked')) {
+                return false;
+            }
+        } catch (\Throwable) {
+            return false;
+        }
+
+        return (bool) ($connection->getAttribute('paid_locked') ?? false);
     }
 
     private function connectionName(): string

@@ -54,6 +54,8 @@ final class SectionedFreeObservabilityContractTest extends TestCase
         $this->assertStringContainsString('prompt_hash', $trackedSrc);
         $this->assertStringContainsString('completeSuccess', $trackedSrc);
         $this->assertStringContainsString('completeFailure', $trackedSrc);
+        $this->assertStringContainsString('linkChildImmediately', $trackedSrc);
+        $this->assertStringContainsString('PromptResultLinkService', $trackedSrc);
     }
 
     public function test_generator_invokes_executor_once_per_planned_section(): void

@@ -7,9 +7,12 @@ namespace Omnichannel\Addons\AiPrompt\Filament\Resources\AiConnectionResource\Pa
 use Omnichannel\Addons\AiPrompt\Enums\ApiConnectionType;
 use Omnichannel\Addons\AiPrompt\Filament\Resources\AiConnectionResource;
 use Omnichannel\Addons\AiPrompt\Services\ApiConnectionsListService;
+use Omnichannel\Addons\AiPrompt\Services\SetAiConnectionActive;
+use Omnichannel\Addons\AiPrompt\Services\SetAiConnectionFreeOnly;
 use Omnichannel\Addons\SearchIntelligence\Services\SeoProviderCapabilityResolver;
 use Omnichannel\Addons\SearchIntelligence\Services\SeoProviderRegistry;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
+use App\Models\ApiConnection;
 use Filament\Actions;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
@@ -98,6 +101,92 @@ class ListAiConnections extends ListRecords
         }
 
         $this->connectionTypeFilter = $filter;
+    }
+
+    public function toggleConnectionActive(string $recordKey): void
+    {
+        $connection = $this->resolveAiConnection($recordKey);
+        if ($connection === null) {
+            return;
+        }
+
+        $nextActive = (string) $connection->status === 'inactive';
+        try {
+            $updated = app(SetAiConnectionActive::class)->handle($connection, $nextActive);
+        } catch (\Throwable $e) {
+            Notification::make()
+                ->title($e->getMessage())
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        Notification::make()
+            ->title($nextActive
+                ? __('seo-content-ai::filament.api_connections.toast_activated', ['name' => $updated->name])
+                : __('seo-content-ai::filament.api_connections.toast_deactivated', ['name' => $updated->name]))
+            ->success()
+            ->send();
+
+        $this->resetTable();
+    }
+
+    public function toggleConnectionFreeOnly(string $recordKey): void
+    {
+        $connection = $this->resolveAiConnection($recordKey);
+        if ($connection === null) {
+            return;
+        }
+
+        $nextFreeOnly = ! (bool) ($connection->paid_locked ?? false);
+        try {
+            $updated = app(SetAiConnectionFreeOnly::class)->handle($connection, $nextFreeOnly);
+        } catch (\Throwable $e) {
+            Notification::make()
+                ->title($e->getMessage())
+                ->danger()
+                ->send();
+
+            return;
+        }
+
+        Notification::make()
+            ->title($nextFreeOnly
+                ? __('seo-content-ai::filament.api_connections.toast_free_only_on', ['name' => $updated->name])
+                : __('seo-content-ai::filament.api_connections.toast_free_only_off', ['name' => $updated->name]))
+            ->success()
+            ->send();
+
+        $this->resetTable();
+    }
+
+    private function resolveAiConnection(string $recordKey): ?ApiConnection
+    {
+        if (! ctype_digit($recordKey) && ! is_numeric($recordKey)) {
+            return null;
+        }
+
+        $connectionId = (int) $recordKey;
+        if ($connectionId <= 0) {
+            return null;
+        }
+
+        $viewerId = (int) (\Filament\Facades\Filament::auth()->id() ?? auth()->id() ?? 0);
+        $connection = app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionInventoryService::class)
+            ->queryForViewer($viewerId)
+            ->whereKey($connectionId)
+            ->first();
+
+        if (! $connection instanceof ApiConnection) {
+            return null;
+        }
+
+        if (! ApiConnectionProviders::isAi((string) $connection->provider)) {
+            return null;
+        }
+
+        return $connection;
     }
 
     public function getTableRecords(): EloquentCollection|Paginator|CursorPaginator

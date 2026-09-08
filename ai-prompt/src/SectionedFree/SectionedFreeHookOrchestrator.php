@@ -12,6 +12,7 @@ use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\Services\AiModelRouterService;
 use Omnichannel\Addons\AiPrompt\Services\AiRoutingOwnerResolver;
 use Omnichannel\Addons\AiPrompt\Services\PromptExecutionProfileResolver;
+use Omnichannel\Addons\AiPrompt\Services\PromptResultLinkService;
 use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
 use Omnichannel\Addons\AiPrompt\Support\AiConnectionCredential;
 use Omnichannel\Addons\AiPrompt\Support\AiCostPolicyScope;
@@ -70,6 +71,11 @@ final class SectionedFreeHookOrchestrator
             $runId = uniqid('sf_', true);
         }
 
+        $articleId = (int) ($contextExtras['article_id'] ?? $variables['article_id'] ?? 0);
+        $projectRunId = (int) ($contextExtras['project_run_id'] ?? $contextExtras['run_id'] ?? 0);
+        $projectTaskId = (int) ($contextExtras['project_task_id'] ?? $contextExtras['task_id'] ?? 0);
+        $workflowNodeId = trim((string) ($contextExtras['node_id'] ?? ''));
+
         $breadcrumbs = new SectionedFreeBreadcrumbBag();
         $breadcrumbs->push('strategy_received', ['value' => $strategyReceived !== '' ? $strategyReceived : null]);
         $breadcrumbs->push('strategy_resolved', ['value' => $strategy->value]);
@@ -80,25 +86,56 @@ final class SectionedFreeHookOrchestrator
             'user_id' => (int) (auth()->id() ?? 0),
             'site_id' => $siteId,
             'status' => 'running',
-            'input_snapshot' => [
-                'variables' => [
+            'input_snapshot' => array_merge(
+                \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategySnapshot::fromVariables($variables)
+                    ->toExecutionSnapshot($projectTaskId > 0 ? $projectTaskId : null),
+                [
+                    'variables' => [
+                        'generation_strategy' => ArticleGenerationStrategy::SectionedFree->value,
+                        'resolved_generation_strategy' => ArticleGenerationStrategy::SectionedFree->value,
+                        '_item_generation_strategy' => ArticleGenerationStrategy::SectionedFree->value,
+                        'strategy_override' => $variables['strategy_override'] ?? $variables['generation_strategy_override'] ?? null,
+                        'strategy_resolved' => ArticleGenerationStrategy::SectionedFree->value,
+                        'strategy_source' => $variables['strategy_source']
+                            ?? \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategySnapshot::SOURCE_TASK_OVERRIDE,
+                        'isolation_mode' => 'free_test',
+                        'model_tier' => 'free',
+                        'hook_key' => $hookKey,
+                        'article_id' => $articleId > 0 ? $articleId : null,
+                    ],
+                    'compiled_prompt' => "Strategy: sectioned_free\nParent orchestrator running…",
+                    'manual_compiled' => true,
+                    'sectioned_free_orchestrator' => true,
                     'generation_strategy' => ArticleGenerationStrategy::SectionedFree->value,
-                    'resolved_generation_strategy' => ArticleGenerationStrategy::SectionedFree->value,
-                    '_item_generation_strategy' => ArticleGenerationStrategy::SectionedFree->value,
-                    'isolation_mode' => 'free_test',
-                    'model_tier' => 'free',
+                    'strategy_override' => $variables['strategy_override'] ?? $variables['generation_strategy_override'] ?? null,
+                    'strategy_resolved' => ArticleGenerationStrategy::SectionedFree->value,
+                    'strategy_source' => $variables['strategy_source']
+                        ?? \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategySnapshot::SOURCE_TASK_OVERRIDE,
+                    'run_id' => $runId,
                     'hook_key' => $hookKey,
+                    'display_name' => 'Viết bài — Sectioned free (orchestrator)',
+                    'article_id' => $articleId > 0 ? $articleId : null,
+                    'project_run_id' => $projectRunId > 0 ? $projectRunId : null,
+                    'project_task_id' => $projectTaskId > 0 ? $projectTaskId : null,
+                    'workflow_node_id' => $workflowNodeId !== '' ? $workflowNodeId : null,
+                    // Parent has many AI calls — do not attach a single fake model.
+                    'suppress_single_model_display' => true,
                 ],
-                'compiled_prompt' => "Strategy: sectioned_free\nParent orchestrator running…",
-                'manual_compiled' => true,
-                'sectioned_free_orchestrator' => true,
-                'run_id' => $runId,
-                'hook_key' => $hookKey,
-                'display_name' => 'Viết bài — Sectioned free (orchestrator)',
-            ],
+            ),
             'started_at' => now(),
         ]);
         $parentId = (int) $parentResult->id;
+
+        $this->linkPromptResultImmediately(
+            $parentId,
+            $articleId,
+            $projectRunId,
+            $projectTaskId,
+            $workflowNodeId,
+            'Viết bài — Sectioned free (orchestrator)',
+            'sectioned_free_orchestrator',
+            ['generation_strategy' => ArticleGenerationStrategy::SectionedFree->value],
+        );
 
         SectionedFreeExecutionGuard::enter([
             'run_id' => $runId,
@@ -108,6 +145,7 @@ final class SectionedFreeHookOrchestrator
         /** @var list<int> $childPromptResultIds */
         $childPromptResultIds = [];
         $tracked = $this->trackedCall ?? new SectionedFreeTrackedProviderCall($this->promptRunner);
+        $plannedSectionCount = 0;
 
         try {
             $freeContext = new AiRoutingContext(
@@ -137,8 +175,23 @@ final class SectionedFreeHookOrchestrator
                 'primary_keyword' => (string) ($variables['focus_keyword'] ?? $variables['keyword'] ?? $variables['primary_keyword'] ?? ''),
                 'intent' => (string) ($variables['search_intent'] ?? $variables['intent'] ?? $variables['content_intent'] ?? ''),
                 'language' => (string) ($variables['language'] ?? $variables['locale'] ?? 'vi'),
-                'outline' => (string) ($variables['input'] ?? $variables['article_writing_raw_input'] ?? ''),
-                'input' => (string) ($variables['input'] ?? $variables['article_writing_raw_input'] ?? ''),
+                // Prefer typed outline artifact — never the normal whole-article compiled input blob.
+                'outline' => (string) (
+                    $variables['article_outline']
+                    ?? $variables['outline']
+                    ?? $variables['article_writing_raw_input']
+                    ?? $variables['input']
+                    ?? ''
+                ),
+                'article_outline' => (string) ($variables['article_outline'] ?? ''),
+                'article_vocabulary' => (string) ($variables['article_vocabulary'] ?? ''),
+                'input' => (string) (
+                    $variables['article_outline']
+                    ?? $variables['outline']
+                    ?? $variables['article_writing_raw_input']
+                    ?? $variables['input']
+                    ?? ''
+                ),
                 'article_length' => $variables['article_length']
                     ?? $variables['target_article_length']
                     ?? $variables['resolved_article_length']
@@ -170,10 +223,15 @@ final class SectionedFreeHookOrchestrator
                 $parentId,
                 $runId,
                 $siteId,
+                $articleId,
+                $projectRunId,
+                $projectTaskId,
+                $workflowNodeId,
                 $breadcrumbs,
                 &$childPromptResultIds,
                 &$sectionAttemptCounters,
                 &$sectionChildIds,
+                &$plannedSectionCount,
             ): array {
                 $breadcrumbs->push('section_generation_started', [
                     'section_id' => $unit->sectionId,
@@ -195,10 +253,15 @@ final class SectionedFreeHookOrchestrator
                         $parentId,
                         $runId,
                         $siteId,
+                        $articleId,
+                        $projectRunId,
+                        $projectTaskId,
+                        $workflowNodeId,
                         $breadcrumbs,
                         &$childPromptResultIds,
                         &$sectionAttemptCounters,
                         &$sectionChildIds,
+                        &$plannedSectionCount,
                     ): array {
                         if (! AiConnectionCredential::isUsable($routed->connection->api_key ?? null)) {
                             throw new PromptRunException(
@@ -227,7 +290,17 @@ final class SectionedFreeHookOrchestrator
                             $attemptNumber,
                             $parentId,
                             $runId,
-                            ['site_id' => $siteId],
+                            [
+                                'site_id' => $siteId,
+                                'article_id' => $articleId,
+                                'project_run_id' => $projectRunId,
+                                'project_task_id' => $projectTaskId,
+                                'run_id' => $projectRunId,
+                                'task_id' => $projectTaskId,
+                                'node_id' => $workflowNodeId,
+                                'section_count' => max(1, $plannedSectionCount),
+                                'parent_prompt_result_id' => $parentId,
+                            ],
                         );
 
                         $childId = (int) $child->id;
@@ -285,6 +358,7 @@ final class SectionedFreeHookOrchestrator
                 }
             }
             $planPreview = $prepare->preparePlan($outlineParts['outline_markdown'], $articleTarget);
+            $plannedSectionCount = $planPreview->plannedUnitCount();
             $breadcrumbs->push('sections_planned', [
                 'count' => $planPreview->plannedUnitCount(),
                 'minimum_units_by_budget' => $planPreview->minimumUnitsByBudget(),
@@ -547,5 +621,38 @@ final class SectionedFreeHookOrchestrator
         $lines[] = 'Open child PromptResults to inspect actual section prompts/outputs.';
 
         return implode("\n", $lines);
+    }
+
+    /**
+     * @param  array<string, mixed>  $meta
+     */
+    private function linkPromptResultImmediately(
+        int $promptResultId,
+        int $articleId,
+        int $projectRunId,
+        int $projectTaskId,
+        string $workflowNodeId,
+        string $title,
+        string $source,
+        array $meta = [],
+    ): void {
+        if ($promptResultId <= 0 || $articleId <= 0) {
+            return;
+        }
+
+        try {
+            app(PromptResultLinkService::class)->linkPromptResult(
+                promptResultId: $promptResultId,
+                articleId: $articleId,
+                source: $source,
+                runId: $projectRunId > 0 ? $projectRunId : null,
+                taskId: $projectTaskId > 0 ? $projectTaskId : null,
+                workflowNodeId: $workflowNodeId !== '' ? $workflowNodeId : null,
+                workflowStepTitle: $title,
+                meta: $meta,
+            );
+        } catch (\Throwable) {
+            // Best-effort audit link.
+        }
     }
 }

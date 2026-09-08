@@ -8,6 +8,7 @@ use Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate;
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\AiPrompt\Models\PromptResult;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
+use Omnichannel\Addons\AiPrompt\Services\PromptResultLinkService;
 use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
 use Omnichannel\Addons\AiPrompt\Support\PromptTextMetrics;
 
@@ -19,6 +20,7 @@ final class SectionedFreeTrackedProviderCall
     public function __construct(
         private readonly PromptRunnerService $promptRunner,
         private readonly SectionedFreeSectionCallRecorder $recorder = new SectionedFreeSectionCallRecorder(),
+        private readonly ?PromptResultLinkService $promptResultLinks = null,
     ) {}
 
     /**
@@ -38,6 +40,32 @@ final class SectionedFreeTrackedProviderCall
         string $runId,
         array $meta = [],
     ): array {
+        if (! $routed->isFree) {
+            $message = 'SECTIONED_FREE_NON_FREE_MODEL_SELECTED: sectioned_free cannot run a non-free routing candidate.';
+            logger()->error($message, [
+                'run_id' => $runId,
+                'section_id' => $unit->sectionId,
+                'candidate_model' => $routed->model,
+                'connection_id' => (int) $routed->connection->id,
+                'router_policy' => 'free_only',
+                'is_free_candidate' => false,
+            ]);
+            throw new PromptRunException(
+                $message,
+                0,
+                null,
+                [
+                    'failure_code' => 'SECTIONED_FREE_NON_FREE_MODEL_SELECTED',
+                    'run_id' => $runId,
+                    'section_id' => $unit->sectionId,
+                    'candidate_model' => $routed->model,
+                    'connection_id' => (int) $routed->connection->id,
+                    'router_policy' => 'free_only',
+                    'retryable' => false,
+                ],
+            );
+        }
+
         $child = $this->recorder->beginAttempt(
             $prompt,
             $unit,
@@ -48,6 +76,9 @@ final class SectionedFreeTrackedProviderCall
             $runId,
             $meta,
         );
+
+        // Audit link immediately — must survive parent failure / later rollbacks of business state.
+        $this->linkChildImmediately($child, $unit, $meta);
 
         $boundary = [
             'provider_call_id' => (int) $child->id,
@@ -101,6 +132,50 @@ final class SectionedFreeTrackedProviderCall
             );
 
             throw $exception;
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $meta
+     */
+    private function linkChildImmediately(
+        PromptResult $child,
+        SectionedFreeSectionUnit $unit,
+        array $meta,
+    ): void {
+        $articleId = (int) ($meta['article_id'] ?? 0);
+        if ($articleId <= 0) {
+            return;
+        }
+
+        $linker = $this->promptResultLinks ?? app(PromptResultLinkService::class);
+        $projectRunId = (int) ($meta['project_run_id'] ?? $meta['run_id'] ?? 0);
+        $projectTaskId = (int) ($meta['project_task_id'] ?? $meta['task_id'] ?? 0);
+        $nodeId = trim((string) ($meta['node_id'] ?? ''));
+        $label = trim((string) (is_array($child->input_snapshot) ? ($child->input_snapshot['display_name'] ?? '') : ''));
+        if ($label === '') {
+            $label = sprintf('Viết bài — Section %d', $unit->order + 1);
+        }
+
+        try {
+            $linker->linkPromptResult(
+                promptResultId: (int) $child->id,
+                articleId: $articleId,
+                source: 'sectioned_free_section',
+                runId: $projectRunId > 0 ? $projectRunId : null,
+                taskId: $projectTaskId > 0 ? $projectTaskId : null,
+                workflowNodeId: $nodeId !== '' ? $nodeId : null,
+                workflowStepTitle: $label,
+                meta: [
+                    'section_id' => $unit->sectionId,
+                    'section_order' => $unit->order,
+                    'generation_strategy' => 'sectioned_free',
+                    'hook_key' => SectionedFreeSectionCallRecorder::HOOK_KEY,
+                    'parent_prompt_result_id' => $meta['parent_prompt_result_id'] ?? null,
+                ],
+            );
+        } catch (\Throwable) {
+            // History link is best-effort; never abort a live provider attempt.
         }
     }
 }

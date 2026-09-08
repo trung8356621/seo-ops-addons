@@ -181,6 +181,9 @@ final class ArticlePromptRunHistoryService
                 foreach (is_array($step['prompt_result_ids'] ?? null) ? $step['prompt_result_ids'] : [] as $rid) {
                     $ids[] = (int) $rid;
                 }
+                foreach (is_array($step['child_prompt_result_ids'] ?? null) ? $step['child_prompt_result_ids'] : [] as $rid) {
+                    $ids[] = (int) $rid;
+                }
 
                 return $ids;
             })
@@ -213,6 +216,26 @@ final class ArticlePromptRunHistoryService
             ->whereIn('id', $resultIds)
             ->get()
             ->keyBy(fn (PromptResult $result): int => (int) $result->getKey());
+
+        // Two-pass: expand sectioned_free children declared on parent snapshots.
+        $extraChildIds = [];
+        foreach ($results as $result) {
+            $snap = is_array($result->input_snapshot) ? $result->input_snapshot : [];
+            foreach (is_array($snap['child_prompt_result_ids'] ?? null) ? $snap['child_prompt_result_ids'] : [] as $childId) {
+                $cid = (int) $childId;
+                if ($cid > 0 && ! $results->has($cid)) {
+                    $extraChildIds[] = $cid;
+                }
+            }
+        }
+        if ($extraChildIds !== []) {
+            $extra = PromptResult::query()
+                ->with('prompt')
+                ->whereIn('id', array_values(array_unique($extraChildIds)))
+                ->get()
+                ->keyBy(fn (PromptResult $result): int => (int) $result->getKey());
+            $results = $results->union($extra);
+        }
 
         $seenResultIds = [];
         $seenRunItemIds = [];
@@ -269,6 +292,7 @@ final class ArticlePromptRunHistoryService
                                 $step['run_item_id'] = $step['run_item_id'] ?? ($item['run_item_id'] ?? null);
                                 $step['attempt'] = $step['attempt'] ?? ($item['attempt'] ?? null);
 
+                                $step = $this->enrichStepFromParentPromptResult($step, $results);
                                 $children = $this->expandSplitChildSteps($step);
                                 $normalizedChildren = [];
                                 foreach ($children as $childIndex => $childStep) {
@@ -454,6 +478,15 @@ final class ArticlePromptRunHistoryService
         $type = trim((string) ($step['type'] ?? ''));
         $source = trim((string) ($step['_source'] ?? ''));
         $name = trim((string) ($step['prompt_name'] ?? $step['title'] ?? $result?->prompt?->name ?? ''));
+        $snapshotDisplayName = trim((string) ($snapshot['display_name'] ?? ''));
+        if ($snapshotDisplayName !== '' && (
+            ! empty($snapshot['sectioned_free_section'])
+            || ! empty($snapshot['sectioned_free_orchestrator'])
+            || strtolower(trim((string) ($snapshot['generation_strategy'] ?? ''))) === 'sectioned_free'
+            || str_contains(strtolower((string) ($snapshot['hook_key'] ?? '')), 'section.generate')
+        )) {
+            $name = $snapshotDisplayName;
+        }
         $displayType = $this->resolveDisplayType($type, $source, $name);
 
         $renderModel = trim((string) (
@@ -469,30 +502,118 @@ final class ArticlePromptRunHistoryService
         $validationModel = trim((string) ($snapshot['validation_model'] ?? $step['validation_model'] ?? ''));
         $workflowMode = trim((string) ($snapshot['workflow_execution_mode'] ?? $step['workflow_execution_mode'] ?? ''));
 
+        $snapshotVariables = is_array($snapshot['variables'] ?? null)
+            ? $snapshot['variables']
+            : [];
+
+        $tokenUsage = is_array($result?->token_usage) ? $result->token_usage : [];
+        $attribution = \Omnichannel\Addons\AiPrompt\Support\AiExecutionModelAttribution::fromPersistence(
+            $snapshot,
+            $tokenUsage,
+        );
+
         // Media AI: ưu tiên snapshot render; không lấy step.ai_model (thường là planner category).
         if ($renderModel === '' && $this->isMediaAiHistory($displayType, $source, $snapshot)) {
             $renderModel = trim((string) ($snapshot['raw_model_used'] ?? ''));
-        }
-
-        if ($renderModel === '' && $plannerModel === '') {
-            // Text path / legacy: raw_model_used; không ưu tiên step.ai_model cho media.
-            $legacy = trim((string) ($snapshot['raw_model_used'] ?? ''));
-            if ($legacy !== '') {
-                if ($this->isMediaAiHistory($displayType, $source, $snapshot)) {
-                    $renderModel = $legacy;
-                } else {
-                    $plannerModel = $legacy;
-                }
-            } elseif (! $this->isMediaAiHistory($displayType, $source, $snapshot)) {
-                $plannerModel = trim((string) ($step['ai_model'] ?? ''));
+            if ($renderModel === '') {
+                $renderModel = $attribution->displayModel() !== 'Unknown model'
+                    ? $attribution->displayModel()
+                    : '';
             }
         }
 
-        $primaryModel = $renderModel !== '' ? $renderModel : $plannerModel;
+        $isSectionedFreeParent = ! empty($snapshot['sectioned_free_orchestrator'])
+            || ! empty($snapshot['suppress_single_model_display']);
 
-        $snapshotVariables = is_array($snapshot['variables'] ?? null)
-            ? $snapshot['variables']
-            : (is_array($snapshot) ? $snapshot : []);
+        $primaryModel = '';
+        $isFreeCandidate = $attribution->isFreeCandidate;
+        $modelSource = $attribution->displayModelSource();
+        $routingAttempts = [];
+        if (is_array($tokenUsage['routing']['routing_attempts'] ?? null)) {
+            $routingAttempts = $tokenUsage['routing']['routing_attempts'];
+        }
+
+        if ($isSectionedFreeParent) {
+            $childIds = array_values(array_filter(array_map(
+                'intval',
+                is_array($snapshot['child_prompt_result_ids'] ?? null) ? $snapshot['child_prompt_result_ids'] : [],
+            )));
+            $uniqueModels = [];
+            foreach ($routingAttempts as $attemptRow) {
+                if (! is_array($attemptRow)) {
+                    continue;
+                }
+                $attemptStatus = strtoupper((string) ($attemptRow['status'] ?? ''));
+                $attemptResult = strtolower((string) ($attemptRow['result'] ?? ''));
+                $isSuccess = $attemptStatus === 'SUCCESS' || $attemptResult === 'success';
+                if (! $isSuccess) {
+                    continue;
+                }
+                $m = trim((string) ($attemptRow['actual_provider_model'] ?? $attemptRow['candidate_model'] ?? $attemptRow['model'] ?? ''));
+                if ($m !== '') {
+                    $uniqueModels[$m] = true;
+                }
+            }
+            $modelCount = count($uniqueModels);
+            if ($modelCount === 0 && $childIds !== []) {
+                $primaryModel = count($childIds).' models used';
+            } elseif ($modelCount > 1) {
+                $primaryModel = $modelCount.' models used';
+            } elseif ($modelCount === 1) {
+                $primaryModel = '1 model used';
+            } else {
+                $primaryModel = '';
+            }
+            $isFreeCandidate = null;
+            $modelSource = 'parent_orchestrator';
+        } elseif ($this->isMediaAiHistory($displayType, $source, $snapshot)) {
+            $primaryModel = $renderModel !== '' ? $renderModel : (
+                $attribution->displayModel() !== 'Unknown model' ? $attribution->displayModel() : ''
+            );
+        } else {
+            // Text path: actual → candidate → Unknown. NEVER silent requested/default/step.ai_model.
+            $primaryModel = $attribution->displayModel();
+            if ($plannerModel === '' && $primaryModel !== 'Unknown model') {
+                $plannerModel = $primaryModel;
+            }
+        }
+
+        $strategyResolved = trim((string) (
+            $snapshot['strategy_resolved']
+            ?? $step['strategy_resolved']
+            ?? $snapshot['generation_strategy']
+            ?? $step['generation_strategy']
+            ?? $snapshotVariables['strategy_resolved']
+            ?? $snapshotVariables['generation_strategy']
+            ?? ''
+        ));
+        if ($strategyResolved === '') {
+            $strategyResolved = 'single_pass';
+        }
+        $strategySource = trim((string) (
+            $snapshot['strategy_source']
+            ?? $step['strategy_source']
+            ?? $snapshotVariables['strategy_source']
+            ?? ''
+        ));
+        if ($strategySource === '') {
+            $strategySource = $strategyResolved === 'single_pass'
+                ? \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategySnapshot::SOURCE_DEFAULT
+                : \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategySnapshot::SOURCE_VARIABLES;
+        }
+        $strategyOverride = null;
+        if (array_key_exists('strategy_override', $snapshot)) {
+            $strategyOverride = $snapshot['strategy_override'];
+        } elseif (array_key_exists('generation_strategy_override', $snapshot)) {
+            $strategyOverride = $snapshot['generation_strategy_override'];
+        } elseif (array_key_exists('strategy_override', $step)) {
+            $strategyOverride = $step['strategy_override'];
+        } elseif (array_key_exists('strategy_override', $snapshotVariables)) {
+            $strategyOverride = $snapshotVariables['strategy_override'];
+        }
+        $strategyOverrideLabel = ($strategyOverride === null || trim((string) $strategyOverride) === '')
+            ? 'none'
+            : trim((string) $strategyOverride);
 
         $debug = array_filter([
             'article_generation_source' => $snapshotVariables['article_generation_source'] ?? null,
@@ -533,6 +654,14 @@ final class ArticlePromptRunHistoryService
             'execution_role' => $snapshotVariables['execution_role']
                 ?? $step['execution_role']
                 ?? null,
+            'strategy_override' => $strategyOverride,
+            'strategy_resolved' => $strategyResolved,
+            'strategy_source' => $strategySource,
+            'requested_model' => $attribution->requestedModel,
+            'candidate_model' => $attribution->candidateModel,
+            'actual_provider_model' => $attribution->actualProviderModel,
+            'model_source' => $modelSource,
+            'is_free_candidate' => $isFreeCandidate,
         ], static fn (mixed $value): bool => $value !== null && $value !== '');
 
         $sourceTypeRaw = trim((string) (
@@ -593,6 +722,19 @@ final class ArticlePromptRunHistoryService
             'model' => $primaryModel,
             'render_model' => $renderModel,
             'planner_model' => $plannerModel,
+            'requested_model' => $attribution->requestedModel,
+            'candidate_model' => $attribution->candidateModel,
+            'actual_provider_model' => $attribution->actualProviderModel,
+            'model_source' => $modelSource,
+            'is_free_candidate' => $isFreeCandidate,
+            'provider' => $attribution->provider,
+            'connection_id' => $attribution->connectionId,
+            'routing_attempts' => $routingAttempts !== [] ? $routingAttempts : null,
+            'strategy_override' => $strategyOverride,
+            'strategy_resolved' => $strategyResolved,
+            'strategy_source' => $strategySource,
+            'strategy_override_label' => $strategyOverrideLabel,
+            'generation_strategy' => $strategyResolved,
             'validation_model' => $validationModel,
             'workflow_execution_mode' => $workflowMode,
             'candidate_count' => $snapshot['candidate_count'] ?? null,
@@ -672,14 +814,219 @@ final class ArticlePromptRunHistoryService
     }
 
     /**
+     * Pull sectioned_free child ids / strategy from parent PromptResult when steps omit them.
+     *
+     * @param  array<string, mixed>  $step
+     * @param  Collection<int, PromptResult>  $results
+     * @return array<string, mixed>
+     */
+    private function enrichStepFromParentPromptResult(array $step, Collection $results): array
+    {
+        $resultId = (int) ($step['result_id'] ?? 0);
+        if ($resultId <= 0) {
+            return $step;
+        }
+
+        $parent = $results->get($resultId);
+        if (! $parent instanceof PromptResult) {
+            return $step;
+        }
+
+        $snap = is_array($parent->input_snapshot) ? $parent->input_snapshot : [];
+        $childIds = array_values(array_filter(
+            array_map('intval', is_array($snap['child_prompt_result_ids'] ?? null) ? $snap['child_prompt_result_ids'] : []),
+            static fn (int $id): bool => $id > 0,
+        ));
+
+        if ($childIds !== []) {
+            $existing = array_values(array_filter(
+                array_map('intval', is_array($step['child_prompt_result_ids'] ?? null) ? $step['child_prompt_result_ids'] : []),
+                static fn (int $id): bool => $id > 0,
+            ));
+            if ($existing === []) {
+                $step['child_prompt_result_ids'] = $childIds;
+            }
+
+            $promptIds = array_values(array_filter(
+                array_map('intval', is_array($step['prompt_result_ids'] ?? null) ? $step['prompt_result_ids'] : []),
+                static fn (int $id): bool => $id > 0,
+            ));
+            if ($promptIds === [] || (count($promptIds) === 1 && $promptIds[0] === $resultId)) {
+                $step['prompt_result_ids'] = array_values(array_unique(array_merge([$resultId], $childIds)));
+            }
+        }
+
+        if (! empty($snap['sectioned_free_orchestrator'])
+            || strtolower(trim((string) ($snap['generation_strategy'] ?? ''))) === 'sectioned_free'
+            || strtolower(trim((string) ($snap['strategy_resolved'] ?? ''))) === 'sectioned_free'
+        ) {
+            if (trim((string) ($step['generation_strategy'] ?? '')) === '') {
+                $step['generation_strategy'] = 'sectioned_free';
+            }
+            if (trim((string) ($step['execution_source'] ?? '')) === '') {
+                $step['execution_source'] = 'sectioned_free_orchestrator';
+            }
+        }
+
+        foreach (['strategy_override', 'strategy_resolved', 'strategy_source', 'generation_strategy'] as $key) {
+            if (array_key_exists($key, $snap) && trim((string) ($step[$key] ?? '')) === '' && $snap[$key] !== null && $snap[$key] !== '') {
+                $step[$key] = $snap[$key];
+            }
+        }
+        if (array_key_exists('strategy_override', $snap) && ! array_key_exists('strategy_override', $step)) {
+            $step['strategy_override'] = $snap['strategy_override'];
+        }
+
+        return $step;
+    }
+
+    /**
+     * @param  array<string, mixed>  $step
+     */
+    private function isSectionedFreeHistoryStep(array $step): bool
+    {
+        $source = (string) ($step['execution_source'] ?? '');
+        if ($source === 'sectioned_free_orchestrator') {
+            return true;
+        }
+
+        $strategy = strtolower(trim((string) ($step['generation_strategy'] ?? '')));
+        if ($strategy === 'sectioned_free') {
+            return true;
+        }
+
+        $childIds = is_array($step['child_prompt_result_ids'] ?? null)
+            ? $step['child_prompt_result_ids']
+            : [];
+        if ($childIds !== []) {
+            return true;
+        }
+
+        // Content generate with many prompt_result_ids and no outline/vocab split markers.
+        $outlineId = (int) ($step['outline_result_id'] ?? 0);
+        $vocabId = (int) ($step['vocabulary_result_id'] ?? 0);
+        if ($outlineId > 0 || $vocabId > 0) {
+            return false;
+        }
+        if (in_array($source, ['split_outline_vocabulary'], true)) {
+            return false;
+        }
+        if (str_contains(strtolower((string) ($step['hook_key'] ?? '')), 'outline')) {
+            return false;
+        }
+
+        $ids = array_values(array_filter(
+            is_array($step['prompt_result_ids'] ?? null) ? $step['prompt_result_ids'] : [],
+            static fn (mixed $id): bool => (int) $id > 0,
+        ));
+        $hook = strtolower(trim((string) ($step['hook_key'] ?? '')));
+
+        return count($ids) > 1 && str_contains($hook, 'article.content.');
+    }
+
+    /**
+     * @param  array<string, mixed>  $step
+     * @return list<array<string, mixed>>
+     */
+    private function expandSectionedFreeChildSteps(array $step): array
+    {
+        $parentId = (int) ($step['result_id'] ?? 0);
+        $allIds = [];
+        foreach (is_array($step['prompt_result_ids'] ?? null) ? $step['prompt_result_ids'] : [] as $rid) {
+            $id = (int) $rid;
+            if ($id > 0) {
+                $allIds[] = $id;
+            }
+        }
+        foreach (is_array($step['child_prompt_result_ids'] ?? null) ? $step['child_prompt_result_ids'] : [] as $rid) {
+            $id = (int) $rid;
+            if ($id > 0) {
+                $allIds[] = $id;
+            }
+        }
+        if ($parentId > 0) {
+            array_unshift($allIds, $parentId);
+        }
+        $allIds = array_values(array_unique($allIds));
+
+        $baseTitle = trim((string) ($step['title'] ?? $step['prompt_name'] ?? 'Viết bài'));
+        $baseTitle = preg_replace('/\s*[—-]\s*(Outline|Vocabulary|Sectioned free.*)\s*$/iu', '', $baseTitle) ?? $baseTitle;
+
+        $rows = [];
+        $seq = 10;
+        foreach ($allIds as $index => $resultId) {
+            $isParent = $parentId > 0 && $resultId === $parentId;
+            if ($isParent || ($parentId <= 0 && $index === 0 && count($allIds) > 1)) {
+                // Orchestrator aggregate — not a provider prompt.
+                $rows[] = array_merge($step, [
+                    'result_id' => $resultId,
+                    'title' => $baseTitle.' — Sectioned free',
+                    'prompt_name' => $baseTitle.' — Sectioned free',
+                    'outline_subtask' => 'sectioned_free_parent',
+                    'execution_sequence' => $seq++,
+                    'hook_key' => (string) ($step['hook_key'] ?? 'article.content.generate'),
+                    'artifact_type' => null,
+                    'outline_markdown' => null,
+                    'persists_as_outline' => false,
+                    'generation_strategy' => 'sectioned_free',
+                    'prompt_result_ids' => [$resultId],
+                    'child_prompt_result_ids' => [],
+                    'output' => null,
+                ]);
+                continue;
+            }
+
+            $rows[] = [
+                'type' => $step['type'] ?? 'prompt',
+                'title' => $baseTitle.' — Section',
+                'prompt_name' => $baseTitle.' — Section',
+                'status' => (string) ($step['status'] ?? ''),
+                'message' => null,
+                'result_id' => $resultId,
+                'prompt_id' => $step['prompt_id'] ?? null,
+                'hook_key' => 'article.content.section.generate',
+                'outline_subtask' => 'section',
+                'execution_sequence' => $seq++,
+                'execution_source' => 'sectioned_free_section',
+                'generation_strategy' => 'sectioned_free',
+                'artifact_type' => null,
+                'outline_markdown' => null,
+                'persists_as_outline' => false,
+                'prompt_result_ids' => [$resultId],
+                'node_id' => $step['node_id'] ?? null,
+                'execution_type' => $step['execution_type'] ?? null,
+                'persist_status' => $step['persist_status'] ?? null,
+                'attempt' => $step['attempt'] ?? null,
+                'run_item_id' => $step['run_item_id'] ?? null,
+                'output' => null,
+            ];
+        }
+
+        if ($rows === []) {
+            if (! isset($step['execution_sequence'])) {
+                $step['execution_sequence'] = 10;
+            }
+
+            return [$step];
+        }
+
+        return $rows;
+    }
+
+    /**
      * Expand aggregate outline+vocabulary split steps into child cards so
      * Outline never displays Vocabulary errors (and vice versa).
+     * Also expands sectioned_free parent + section PromptResults.
      *
      * @param  array<string, mixed>  $step
      * @return list<array<string, mixed>>
      */
     private function expandSplitChildSteps(array $step): array
     {
+        if ($this->isSectionedFreeHistoryStep($step)) {
+            return $this->expandSectionedFreeChildSteps($step);
+        }
+
         $outlineId = (int) ($step['outline_result_id'] ?? 0);
         $vocabId = (int) ($step['vocabulary_result_id'] ?? 0);
         $ids = array_values(array_filter(
@@ -689,7 +1036,6 @@ final class ArticlePromptRunHistoryService
 
         $isSplit = $outlineId > 0
             || $vocabId > 0
-            || count($ids) > 1
             || in_array((string) ($step['execution_source'] ?? ''), ['split_outline_vocabulary'], true)
             || str_contains(strtolower((string) ($step['hook_key'] ?? '')), 'outline.structure');
 

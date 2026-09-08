@@ -51,6 +51,7 @@ final class AiRuntimeFallbackTest extends TestCase
             $table->text('api_key')->nullable();
             $table->boolean('is_global')->default(false);
             $table->string('status')->default('active');
+            $table->boolean('paid_locked')->default(false);
             $table->json('metadata')->nullable();
             $table->timestamps();
         });
@@ -191,6 +192,61 @@ final class AiRuntimeFallbackTest extends TestCase
         );
         $this->assertSame('ok2', $output);
         $this->assertSame(['free/gemma:free'], $calls);
+    }
+
+    public function test_connection_paid_locked_preference_skips_paid_before_provider_call(): void
+    {
+        $this->seedTwoModelRoute(71, 'anthropic/claude-sonnet-4.6', 'google/gemma:free', false, true);
+        $conn = ApiConnection::query()->where('user_id', 71)->firstOrFail();
+        $conn->paid_locked = true;
+        $conn->save();
+
+        $calls = [];
+        [$output] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextLongform->value,
+            new AiRoutingContext(userId: 71),
+            function ($candidate) use (&$calls): array {
+                $calls[] = $candidate->model;
+
+                return ['ok-free-only', null];
+            },
+        );
+
+        $this->assertSame('ok-free-only', $output);
+        $this->assertSame(['google/gemma:free'], $calls);
+        $this->assertNotContains('anthropic/claude-sonnet-4.6', $calls);
+    }
+
+    public function test_connection_paid_locked_does_not_fallback_to_paid_when_free_fails(): void
+    {
+        $this->seedTwoModelRoute(72, 'anthropic/claude-sonnet-4.6', 'google/gemma:free', false, true);
+        $conn = ApiConnection::query()->where('user_id', 72)->firstOrFail();
+        $conn->paid_locked = true;
+        $conn->save();
+
+        $calls = [];
+        try {
+            $this->router->executeWithProfile(
+                AiExecutionProfile::TextLongform->value,
+                new AiRoutingContext(userId: 72),
+                function ($candidate) use (&$calls): array {
+                    $calls[] = $candidate->model;
+                    throw new PromptRunException('free failed', 503);
+                },
+            );
+            $this->fail('Expected AI_ROUTES_EXHAUSTED without paid fallback');
+        } catch (AiRoutesExhaustedException $exception) {
+            $this->assertSame(['google/gemma:free'], $calls);
+            $this->assertNotContains('anthropic/claude-sonnet-4.6', $calls);
+            $attempts = $exception->context['routing_attempts'] ?? [];
+            $this->assertTrue(
+                collect($attempts)->contains(
+                    static fn (mixed $row): bool => is_array($row)
+                        && ($row['model'] ?? '') === 'anthropic/claude-sonnet-4.6'
+                        && ($row['skip_reason'] ?? '') === 'connection_paid_locked',
+                ),
+            );
+        }
     }
 
     public function test_system_error_stops_without_next_candidate(): void
