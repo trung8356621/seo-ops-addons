@@ -27,9 +27,12 @@ use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeRunState;
 use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeSectionUnit;
 use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeSectionValidator;
 use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeTrackedProviderCall;
+use Omnichannel\Addons\AiPrompt\Support\ArticleContentGenerationHooks;
+use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape;
 use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategy;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionModelAttribution;
 use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategySnapshot;
+use Omnichannel\Addons\AiPrompt\Support\ArticleOutboundCeilingPolicy;
 use Omnichannel\Addons\AiPrompt\Services\Ai\DeepSeekChatClient;
 use Omnichannel\Addons\AiPrompt\Services\Ai\GeminiGenerateContentClient;
 use Omnichannel\Addons\AiPrompt\Support\AiCostPolicyScope;
@@ -71,6 +74,13 @@ class PromptRunnerService
             : new PromptBudgetPreflightService();
     }
 
+    private function articleExecutionPlanner(): ArticleGenerationExecutionPlanner
+    {
+        return function_exists('app') && app()->bound(ArticleGenerationExecutionPlanner::class)
+            ? app(ArticleGenerationExecutionPlanner::class)
+            : new ArticleGenerationExecutionPlanner($this->aiModelRouter);
+    }
+
     private const ROLE_HEADINGS = [
         'role' => 'Vai trò',
         'context' => 'Bối cảnh',
@@ -99,24 +109,31 @@ class PromptRunnerService
         $variables = Utf8Sanitizer::variablesForAi($variables);
         $variables = app(PromptLanguageVariableService::class)->mergeInto($variables);
 
-        $strategyResolver = new \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategyResolver();
-        $strategy = $strategyResolver->resolve($variables);
-        $hookKeyEarly = trim((string) ($prompt->hook_key ?? ''));
-        if (
-            $strategy->isSectionedFree()
-            && in_array($hookKeyEarly, ['article.content.generate', 'article.content.rewrite'], true)
-        ) {
-            $variables = $strategyResolver->stamp($variables, $strategy);
-
-            return $this->runSectionedFreeAsPromptResult($prompt, $variables, $isTaskMode, $reuseResultId);
-        }
-
         $connection = $prompt->aiConnection;
         $toolType = $this->normalizeToolType($prompt);
         $imageTool = ImageToolType::fromMixed($toolType);
         $profile = $this->profileResolver->resolve($prompt, (string) ($prompt->hook_key ?? ''), $toolType);
+        $hookKeyEarly = trim((string) ($prompt->hook_key ?? ''));
 
         $routingContext = $this->routingContextForPrompt($prompt, $connection, $imageTool->isImagePipeline(), $variables);
+
+        // Article: resolve primary AI Center candidate BEFORE compile; shape from isFree.
+        if (ArticleContentGenerationHooks::matches($hookKeyEarly)) {
+            [$primary, $shapeSnapshot, $variables] = $this->articleExecutionPlanner()
+                ->plan($profile->value, $routingContext, $variables);
+            $connection = $primary->connection;
+            $routingContext = $this->routingContextForPrompt(
+                $prompt,
+                $connection,
+                $imageTool->isImagePipeline(),
+                $variables,
+            );
+
+            if ($shapeSnapshot->generationShape->isSectioned()) {
+                return $this->runSectionedFreeAsPromptResult($prompt, $variables, $isTaskMode, $reuseResultId);
+            }
+        }
+
         $candidate = $this->aiModelRouter->resolve($profile->value, $routingContext);
         $connection = $candidate->connection;
 
@@ -379,28 +396,34 @@ class PromptRunnerService
         $variables = Utf8Sanitizer::variablesForAi($variables);
         $variables = app(PromptLanguageVariableService::class)->mergeInto($variables);
 
-        $strategyResolver = new \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategyResolver();
-        $strategy = $strategyResolver->resolve($variables);
-        $hookKeyEarly = trim((string) ($prompt->hook_key ?? ''));
-        if (
-            $strategy->isSectionedFree()
-            && in_array($hookKeyEarly, ['article.content.generate', 'article.content.rewrite'], true)
-        ) {
-            // Ignore precompiled whole-article prompt — sectioned_free owns provider prompts.
-            $variables = $strategyResolver->stamp($variables, $strategy);
-
-            return $this->runSectionedFreeAsPromptResult($prompt, $variables, $isTaskMode, null);
-        }
-
         $connection = $prompt->aiConnection;
         $toolType = $this->normalizeToolType($prompt);
         $profile = $this->profileResolver->resolve($prompt, (string) ($prompt->hook_key ?? ''), $toolType);
+        $hookKeyEarly = trim((string) ($prompt->hook_key ?? ''));
         $routingContext = $this->routingContextForPrompt(
             $prompt,
             $connection,
             ImageToolType::fromMixed($toolType)->isImagePipeline(),
             $variables,
         );
+
+        if (ArticleContentGenerationHooks::matches($hookKeyEarly)) {
+            [$primary, $shapeSnapshot, $variables] = $this->articleExecutionPlanner()
+                ->plan($profile->value, $routingContext, $variables);
+            $connection = $primary->connection;
+            $routingContext = $this->routingContextForPrompt(
+                $prompt,
+                $connection,
+                ImageToolType::fromMixed($toolType)->isImagePipeline(),
+                $variables,
+            );
+
+            if ($shapeSnapshot->generationShape->isSectioned()) {
+                // Ignore precompiled whole-article prompt — sectioned owns provider prompts.
+                return $this->runSectionedFreeAsPromptResult($prompt, $variables, $isTaskMode, null);
+            }
+        }
+
         $candidate = $this->aiModelRouter->resolve($profile->value, $routingContext);
         $connection = $candidate->connection;
 
@@ -542,12 +565,12 @@ class PromptRunnerService
         }
 
         $generationStrategy = ArticleGenerationStrategy::resolve(
-            $variables['generation_strategy'] ?? null,
+            $variables['generation_shape'] ?? $variables['generation_strategy'] ?? null,
         );
         $hookKey = trim((string) ($prompt->hook_key ?? ''));
         if (
-            $generationStrategy->isSectionedFree()
-            && in_array($hookKey, ['article.content.generate', 'article.content.rewrite'], true)
+            $generationStrategy->isSectioned()
+            && ArticleContentGenerationHooks::matches($hookKey)
         ) {
             return $this->executeSectionedFreeGeneration(
                 $connection,
@@ -1249,13 +1272,13 @@ class PromptRunnerService
 
         $strategy = (new \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategyResolver())
             ->resolve($variables);
-        if ($strategy->isSectionedFree()) {
+        if ($strategy->isSectioned()) {
             throw new PromptRunException(
-                'SECTIONED_FREE_NORMAL_COMPILER_INVOKED: normal article compilePrompt must not run when generation_strategy=sectioned_free.',
+                'SECTIONED_NORMAL_COMPILER_INVOKED: normal article compilePrompt must not run when generation_shape=sectioned.',
                 0,
                 null,
                 [
-                    'failure_code' => 'SECTIONED_FREE_NORMAL_COMPILER_INVOKED',
+                    'failure_code' => 'SECTIONED_NORMAL_COMPILER_INVOKED',
                     'hook_key' => (string) ($prompt->hook_key ?? ''),
                     'prompt_id' => (int) $prompt->id,
                     'retryable' => false,
@@ -1507,7 +1530,7 @@ class PromptRunnerService
             $variables,
         );
 
-        $summaryPrompt = "Strategy: sectioned_free\nParent node is an orchestrator — no whole-article provider prompt.";
+        $summaryPrompt = "Strategy: sectioned\nParent node is an orchestrator — no whole-article provider prompt.";
 
         if ($reuseResultId !== null && $reuseResultId > 0) {
             $result = PromptResult::query()->find($reuseResultId);
@@ -1615,7 +1638,7 @@ class PromptRunnerService
         $metrics = is_array($usage['sectioned_free'] ?? null) ? $usage['sectioned_free'] : [];
 
         return implode("\n", [
-            'Strategy: sectioned_free',
+            'Strategy: sectioned',
             'Generation units: '.(string) ($metrics['generation_unit_count'] ?? 0),
             'Provider calls: '.(string) ($usage['provider_calls'] ?? $metrics['total_attempts'] ?? 0),
             'Final words: '.(string) ($usage['assembled_word_count'] ?? $metrics['final_assembled_word_count'] ?? 0),
@@ -1656,9 +1679,10 @@ class PromptRunnerService
         }
 
         $callOptions = array_merge($routed->options, [
-            'max_output' => 1200,
+            'omit_application_output_ceiling' => true,
             'hook_key' => (string) ($prompt->hook_key ?? ''),
             'sectioned_free_section_id' => $unit->sectionId,
+            'section_id' => $unit->sectionId,
         ]);
 
         (new SectionedFreePromptIsolationGuard())->assertSectionPromptIsIsolated($sectionPrompt, [
@@ -1700,7 +1724,8 @@ class PromptRunnerService
     ): array {
         unset($connection, $isTaskMode);
 
-        $freeContext = new AiRoutingContext(
+        // Sectioned shape ≠ freeOnly routing. Free-only comes from connection preference only.
+        $sectionContext = new AiRoutingContext(
             userId: $baseContext->userId,
             legacyConnection: $baseContext->legacyConnection,
             allowLegacyFallback: $baseContext->allowLegacyFallback,
@@ -1711,9 +1736,9 @@ class PromptRunnerService
             requirePreferredModel: $baseContext->requirePreferredModel,
             itemGenerationMode: $baseContext->itemGenerationMode,
             hookKey: $baseContext->hookKey,
-            freeOnly: true,
-            isolationMode: 'free_test',
-            generationStrategy: ArticleGenerationStrategy::SectionedFree->value,
+            freeOnly: false,
+            isolationMode: 'sectioned_generation',
+            generationStrategy: ArticleGenerationStrategy::Sectioned->value,
         );
 
         // Do NOT pass raw vocabulary into writer context — generator splits artifact itself.
@@ -1753,7 +1778,8 @@ class PromptRunnerService
         }
 
         $breadcrumbs = new SectionedFreeBreadcrumbBag();
-        $breadcrumbs->push('strategy_resolved', ['value' => ArticleGenerationStrategy::SectionedFree->value]);
+        $breadcrumbs->push('strategy_resolved', ['value' => ArticleGenerationStrategy::Sectioned->value]);
+        $breadcrumbs->push('generation_shape', ['value' => ArticleGenerationShape::Sectioned->value]);
         $breadcrumbs->push('branch_entered', ['class' => self::class.'::executeSectionedFreeGeneration']);
 
         $tracked = new SectionedFreeTrackedProviderCall($this);
@@ -1770,7 +1796,7 @@ class PromptRunnerService
             $variables,
             $toolType,
             $profile,
-            $freeContext,
+            $sectionContext,
             $tracked,
             $parentPromptResultId,
             $runId,
@@ -1786,7 +1812,7 @@ class PromptRunnerService
 
             [$output, $usage, $candidate, $fallbackCount, $reasons, $routingAttempts] = $this->aiModelRouter->executeWithProfile(
                 $profile->value,
-                $freeContext,
+                $sectionContext,
                 function (RoutedAiCandidate $routed) use (
                     $prompt,
                     $variables,
@@ -1836,6 +1862,8 @@ class PromptRunnerService
                 'prompt_result_ids' => $sectionChildIds[$unit->sectionId] ?? [],
             ]);
 
+            $primaryIsFree = (bool) ($variables['primary_is_free'] ?? $candidate->isFree);
+
             return [
                 'output' => $output,
                 'model' => $candidate->model,
@@ -1846,9 +1874,11 @@ class PromptRunnerService
                 'prompt_result_ids' => $sectionChildIds[$unit->sectionId] ?? [],
                 'usage' => array_merge(is_array($usage) ? $usage : [], [
                     'routing_attempts' => $routingAttempts ?? [],
-                    'generation_strategy' => ArticleGenerationStrategy::SectionedFree->value,
-                    'isolation_mode' => 'free_test',
-                    'model_tier' => 'free',
+                    'generation_strategy' => ArticleGenerationStrategy::Sectioned->value,
+                    'generation_shape' => ArticleGenerationShape::Sectioned->value,
+                    'isolation_mode' => 'sectioned_generation',
+                    'primary_is_free' => $primaryIsFree,
+                    'section_model_is_free' => $candidate->isFree,
                     'section_id' => $unit->sectionId,
                     'credential_source' => 'configured_connection',
                     'connection_id' => (int) $candidate->connection->id,
@@ -1873,10 +1903,15 @@ class PromptRunnerService
 
         $usage = $result['usage'];
         $usage['routing'] = [
-            'generation_strategy' => ArticleGenerationStrategy::SectionedFree->value,
-            'isolation_mode' => 'free_test',
-            'model_tier' => 'free',
-            'free_only' => true,
+            'generation_strategy' => ArticleGenerationStrategy::Sectioned->value,
+            'generation_shape' => ArticleGenerationShape::Sectioned->value,
+            'generation_shape_source' => (string) ($variables['generation_shape_source'] ?? ArticleGenerationShape::SOURCE_AI_CENTER_PRIMARY),
+            'isolation_mode' => 'sectioned_generation',
+            'primary_model' => $variables['primary_model'] ?? null,
+            'primary_model_id' => $variables['primary_model_id'] ?? null,
+            'primary_is_free' => (bool) ($variables['primary_is_free'] ?? true),
+            'free_only_policy' => (bool) ($variables['free_only_policy'] ?? false),
+            'free_only' => (bool) ($variables['free_only_policy'] ?? false),
             'credential_source' => 'configured_connection',
         ];
         $usage['child_prompt_result_ids'] = $childPromptResultIds;
@@ -1904,6 +1939,32 @@ class PromptRunnerService
         $hookKey = (string) ($prompt->hook_key ?? '');
         $routeVariables = $variables;
         $compiled = $baselineCompiled;
+
+        // Article generation: PromptBudget must not throttle output / skip models / force LongForm split.
+        if (ArticleContentGenerationHooks::matches($hookKey)) {
+            $callOptions = array_merge($routed->options, [
+                'omit_application_output_ceiling' => true,
+                'hook_key' => $hookKey,
+            ]);
+
+            [$output, $usage] = $this->callProvider(
+                $routed->connection,
+                $prompt,
+                $compiled,
+                $routed->model,
+                $routeVariables,
+                $isTaskMode,
+                $toolType,
+                $callOptions,
+            );
+            $this->assertGeneratedContentQuality($output, $prompt, $routeVariables);
+            $usage = is_array($usage) ? $usage : [];
+            $usage['compiled_chars'] = mb_strlen($compiled);
+            $usage['article_budget_quarantined'] = true;
+
+            return [$output, $usage];
+        }
+
         $preflight = $this->budgetPreflight();
         $capability = $preflight->capabilities()->resolve($routed);
         $strategy = $preflight->strategies()->forHook($hookKey);

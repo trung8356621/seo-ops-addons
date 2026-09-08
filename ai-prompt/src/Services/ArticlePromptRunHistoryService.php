@@ -482,7 +482,8 @@ final class ArticlePromptRunHistoryService
         if ($snapshotDisplayName !== '' && (
             ! empty($snapshot['sectioned_free_section'])
             || ! empty($snapshot['sectioned_free_orchestrator'])
-            || strtolower(trim((string) ($snapshot['generation_strategy'] ?? ''))) === 'sectioned_free'
+            || in_array(strtolower(trim((string) ($snapshot['generation_strategy'] ?? ''))), ['sectioned_free', 'sectioned'], true)
+            || in_array(strtolower(trim((string) ($snapshot['generation_shape'] ?? ''))), ['sectioned_free', 'sectioned'], true)
             || str_contains(strtolower((string) ($snapshot['hook_key'] ?? '')), 'section.generate')
         )) {
             $name = $snapshotDisplayName;
@@ -579,7 +580,10 @@ final class ArticlePromptRunHistoryService
         }
 
         $strategyResolved = trim((string) (
-            $snapshot['strategy_resolved']
+            $snapshot['generation_shape']
+            ?? $step['generation_shape']
+            ?? $snapshotVariables['generation_shape']
+            ?? $snapshot['strategy_resolved']
             ?? $step['strategy_resolved']
             ?? $snapshot['generation_strategy']
             ?? $step['generation_strategy']
@@ -587,11 +591,17 @@ final class ArticlePromptRunHistoryService
             ?? $snapshotVariables['generation_strategy']
             ?? ''
         ));
+        if ($strategyResolved === 'sectioned_free') {
+            $strategyResolved = 'sectioned';
+        }
         if ($strategyResolved === '') {
             $strategyResolved = 'single_pass';
         }
         $strategySource = trim((string) (
-            $snapshot['strategy_source']
+            $snapshot['generation_shape_source']
+            ?? $step['generation_shape_source']
+            ?? $snapshotVariables['generation_shape_source']
+            ?? $snapshot['strategy_source']
             ?? $step['strategy_source']
             ?? $snapshotVariables['strategy_source']
             ?? ''
@@ -599,7 +609,7 @@ final class ArticlePromptRunHistoryService
         if ($strategySource === '') {
             $strategySource = $strategyResolved === 'single_pass'
                 ? \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategySnapshot::SOURCE_DEFAULT
-                : \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategySnapshot::SOURCE_VARIABLES;
+                : \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape::SOURCE_AI_CENTER_PRIMARY;
         }
         $strategyOverride = null;
         if (array_key_exists('strategy_override', $snapshot)) {
@@ -857,14 +867,18 @@ final class ArticlePromptRunHistoryService
         }
 
         if (! empty($snap['sectioned_free_orchestrator'])
-            || strtolower(trim((string) ($snap['generation_strategy'] ?? ''))) === 'sectioned_free'
-            || strtolower(trim((string) ($snap['strategy_resolved'] ?? ''))) === 'sectioned_free'
+            || in_array(strtolower(trim((string) ($snap['generation_strategy'] ?? ''))), ['sectioned_free', 'sectioned'], true)
+            || in_array(strtolower(trim((string) ($snap['strategy_resolved'] ?? ''))), ['sectioned_free', 'sectioned'], true)
+            || in_array(strtolower(trim((string) ($snap['generation_shape'] ?? ''))), ['sectioned_free', 'sectioned'], true)
         ) {
             if (trim((string) ($step['generation_strategy'] ?? '')) === '') {
-                $step['generation_strategy'] = 'sectioned_free';
+                $step['generation_strategy'] = 'sectioned';
+            }
+            if (trim((string) ($step['generation_shape'] ?? '')) === '') {
+                $step['generation_shape'] = 'sectioned';
             }
             if (trim((string) ($step['execution_source'] ?? '')) === '') {
-                $step['execution_source'] = 'sectioned_free_orchestrator';
+                $step['execution_source'] = 'sectioned_orchestrator';
             }
         }
 
@@ -886,12 +900,12 @@ final class ArticlePromptRunHistoryService
     private function isSectionedFreeHistoryStep(array $step): bool
     {
         $source = (string) ($step['execution_source'] ?? '');
-        if ($source === 'sectioned_free_orchestrator') {
+        if (in_array($source, ['sectioned_free_orchestrator', 'sectioned_orchestrator'], true)) {
             return true;
         }
 
-        $strategy = strtolower(trim((string) ($step['generation_strategy'] ?? '')));
-        if ($strategy === 'sectioned_free') {
+        $strategy = strtolower(trim((string) ($step['generation_strategy'] ?? $step['generation_shape'] ?? '')));
+        if (in_array($strategy, ['sectioned_free', 'sectioned'], true)) {
             return true;
         }
 

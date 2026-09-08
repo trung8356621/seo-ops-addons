@@ -99,9 +99,7 @@ final class ModelContextCapabilityResolver
         $reasoning = in_array(AiModelCapability::TextReasoning->value, $capabilityKeys, true)
             || $this->looksReasoning($model);
 
-        if ($reasoning && $maxOut > 1024) {
-            $maxOut = min($maxOut, (int) floor($maxOut * 0.55));
-        }
+        // Do NOT mutate max output for reasoning models — registry must reflect real capability.
 
         $estimatorConfidence = ModelContextCapability::CONFIDENCE_DEFAULT; // char heuristic
         [$margin, $marginReason] = $this->marginFor($capabilityConfidence, $estimatorConfidence, $context, $reasoning);

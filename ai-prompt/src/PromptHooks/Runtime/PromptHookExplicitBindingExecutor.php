@@ -10,10 +10,17 @@ use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\InvalidInput;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\PromptHookFailure;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Support\PromptHookRequireAnyOf;
 use Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeHookOrchestrator;
+use Omnichannel\Addons\AiPrompt\Services\AiRoutingOwnerResolver;
+use Omnichannel\Addons\AiPrompt\Services\ArticleGenerationExecutionPlanner;
+use Omnichannel\Addons\AiPrompt\Services\PromptExecutionProfileResolver;
+use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext;
+use Omnichannel\Addons\AiPrompt\Support\AiCostPolicyScope;
+use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategy;
 use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategyResolver;
 use Omnichannel\Addons\Content\Services\ArticleWritingLegacyRewriteAdapter;
 use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemIdentity;
+use Omnichannel\Addons\Media\Support\ImageToolType;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use InvalidArgumentException;
@@ -94,43 +101,88 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
             $this->flags->experimentalAllowlist(),
         );
 
-        // CRITICAL: branch BEFORE legacy whole-article compile / provider call.
-        $strategy = $this->strategyResolver->resolve(array_merge(
+        // CRITICAL: resolve primary + shape BEFORE legacy whole-article compile / provider call.
+        $mergedVars = array_merge(
             $variables,
             array_filter([
                 'generation_strategy' => $contextExtras['generation_strategy'] ?? null,
                 '_item_generation_strategy' => $contextExtras['_item_generation_strategy'] ?? null,
                 'resolved_generation_strategy' => $contextExtras['resolved_generation_strategy'] ?? null,
                 'generation_strategy_override' => $contextExtras['generation_strategy_override'] ?? null,
+                'generation_shape' => $contextExtras['generation_shape'] ?? null,
             ], static fn (mixed $v): bool => $v !== null && $v !== ''),
-        ));
-        if (
-            $strategy->isSectionedFree()
-            && in_array($effectiveHookKey, ['article.content.generate', 'article.content.rewrite'], true)
-        ) {
-            $variables = $this->strategyResolver->stamp($variables, $strategy);
-            Log::info('article.generation.strategy.branch', [
-                'strategy' => $strategy->value,
-                'hook_key' => $effectiveHookKey,
-                'prompt_id' => (int) $prompt->id,
-                'article_id' => $contextExtras['article_id'] ?? null,
-                'task_id' => $contextExtras['project_task_id'] ?? $contextExtras['task_id'] ?? null,
-                'branch' => SectionedFreeHookOrchestrator::class.'::execute',
-            ]);
-            $orchestrator = $this->sectionedFreeOrchestrator
-                ?? app(SectionedFreeHookOrchestrator::class);
+        );
 
-            return $orchestrator->execute(
-                $prompt,
+        if (in_array($effectiveHookKey, ['article.content.generate', 'article.content.rewrite'], true)) {
+            $toolType = ImageToolType::fromMixed($prompt->tools ?? 'default')->value;
+            $profile = app(PromptExecutionProfileResolver::class)->resolve($prompt, $effectiveHookKey, $toolType);
+            $routingContext = new AiRoutingContext(
+                userId: app(AiRoutingOwnerResolver::class)->resolve(
+                    explicitUserId: null,
+                    prompt: $prompt,
+                    connection: $prompt->aiConnection,
+                ),
+                legacyConnection: $prompt->aiConnection,
+                allowLegacyFallback: true,
+                usageModeOverride: null,
+                allowedFamilyKeys: null,
+                costPolicy: AiCostPolicyScope::current(),
+                preferredModelId: isset($mergedVars['_item_model_override_id'])
+                    ? (int) $mergedVars['_item_model_override_id']
+                    : null,
+                requirePreferredModel: strtolower(trim((string) ($mergedVars['_item_model_override_mode'] ?? ''))) === 'required',
+                itemGenerationMode: isset($mergedVars['_item_generation_mode'])
+                    ? (string) $mergedVars['_item_generation_mode']
+                    : null,
+                hookKey: $effectiveHookKey,
+                freeOnly: false,
+            );
+
+            [$primary, $shapeSnapshot, $mergedVars] = app(ArticleGenerationExecutionPlanner::class)
+                ->plan($profile->value, $routingContext, $mergedVars);
+            unset($primary);
+            $variables = $mergedVars;
+
+            if ($shapeSnapshot->generationShape->isSectioned()) {
+                $variables = $this->strategyResolver->stamp(
+                    $variables,
+                    ArticleGenerationStrategy::Sectioned,
+                );
+                Log::info('article.generation.strategy.branch', [
+                    'strategy' => ArticleGenerationStrategy::Sectioned->value,
+                    'generation_shape' => $shapeSnapshot->generationShape->value,
+                    'generation_shape_source' => $shapeSnapshot->generationShapeSource,
+                    'primary_model' => $shapeSnapshot->primaryModel,
+                    'primary_is_free' => $shapeSnapshot->primaryIsFree,
+                    'hook_key' => $effectiveHookKey,
+                    'prompt_id' => (int) $prompt->id,
+                    'article_id' => $contextExtras['article_id'] ?? null,
+                    'task_id' => $contextExtras['project_task_id'] ?? $contextExtras['task_id'] ?? null,
+                    'branch' => SectionedFreeHookOrchestrator::class.'::execute',
+                ]);
+                $orchestrator = $this->sectionedFreeOrchestrator
+                    ?? app(SectionedFreeHookOrchestrator::class);
+
+                return $orchestrator->execute(
+                    $prompt,
+                    $variables,
+                    $contextExtras,
+                    $effectiveHookKey,
+                    $effectiveVersion,
+                );
+            }
+
+            $variables = $this->strategyResolver->stamp(
                 $variables,
-                $contextExtras,
-                $effectiveHookKey,
-                $effectiveVersion,
+                ArticleGenerationStrategy::SinglePass,
             );
         }
 
+        $strategy = $this->strategyResolver->resolve($variables);
+
         Log::info('article.generation.strategy.branch', [
             'strategy' => $strategy->value,
+            'generation_shape' => $variables['generation_shape'] ?? $strategy->value,
             'hook_key' => $effectiveHookKey,
             'prompt_id' => (int) $prompt->id,
             'article_id' => $contextExtras['article_id'] ?? null,

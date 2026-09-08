@@ -41,8 +41,9 @@ final class ClaudeMessagesClient
         }
 
         $modelName = trim($model) !== '' ? trim($model) : self::DEFAULT_MODEL;
+        $omitCeiling = \Omnichannel\Addons\AiPrompt\Support\ArticleOutboundCeilingPolicy::shouldOmitApplicationCeiling($options);
 
-        if (function_exists('app') && app()->bound(\Omnichannel\Addons\AiPrompt\Services\PromptBudgetPreflightService::class)) {
+        if (! $omitCeiling && function_exists('app') && app()->bound(\Omnichannel\Addons\AiPrompt\Services\PromptBudgetPreflightService::class)) {
             $gate = new \Omnichannel\Addons\AiPrompt\Services\AiOutboundBudgetGate(
                 app(\Omnichannel\Addons\AiPrompt\Services\PromptBudgetPreflightService::class),
             );
@@ -65,7 +66,13 @@ final class ClaudeMessagesClient
             ->withHttpClient($this->createHttpClient())
             ->make();
 
-        $maxTokens = (int) ($options['max_output'] ?? self::MAX_OUTPUT_TOKENS);
+        // Anthropic Messages requires max_tokens. For article gen this is PROVIDER_REQUIRED_OUTPUT_CEILING only.
+        if ($omitCeiling) {
+            $maxTokens = (int) ($options['provider_required_output_ceiling']
+                ?? \Omnichannel\Addons\AiPrompt\Support\ArticleOutboundCeilingPolicy::PROVIDER_REQUIRED_OUTPUT_CEILING);
+        } else {
+            $maxTokens = (int) ($options['max_output'] ?? self::MAX_OUTPUT_TOKENS);
+        }
         if ($maxTokens <= 0) {
             $maxTokens = self::MAX_OUTPUT_TOKENS;
         }

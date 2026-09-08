@@ -176,8 +176,8 @@ final class PromptBudgetBoundedExecutionTest extends TestCase
         $rewrite = $registry->forHook('article.content.rewrite');
         $title = $registry->forHook('article.title_suggestion');
 
-        $this->assertInstanceOf(LongFormArticleSplitStrategy::class, $gen);
-        $this->assertTrue($gen->supportsSplit());
+        $this->assertInstanceOf(DirectFitStrategy::class, $gen);
+        $this->assertFalse($gen->supportsSplit());
         $this->assertInstanceOf(HtmlSafeRewriteSplitStrategy::class, $rewrite);
         $this->assertTrue($rewrite->supportsSplit());
         $this->assertFalse($title->supportsSplit());

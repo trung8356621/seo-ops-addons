@@ -99,11 +99,14 @@ final class OpenAiCompatibleProtocolAdapter
         if (isset($options['temperature']) && is_numeric($options['temperature'])) {
             $payload['temperature'] = (float) $options['temperature'];
         }
-        if (isset($options['max_output']) && is_numeric($options['max_output'])) {
+
+        $omitCeiling = \Omnichannel\Addons\AiPrompt\Support\ArticleOutboundCeilingPolicy::shouldOmitApplicationCeiling($options);
+
+        if (! $omitCeiling && isset($options['max_output']) && is_numeric($options['max_output'])) {
             $payload['max_tokens'] = (int) $options['max_output'];
         }
 
-        if (function_exists('app') && app()->bound(\Omnichannel\Addons\AiPrompt\Services\PromptBudgetPreflightService::class)) {
+        if (! $omitCeiling && function_exists('app') && app()->bound(\Omnichannel\Addons\AiPrompt\Services\PromptBudgetPreflightService::class)) {
             $gate = new \Omnichannel\Addons\AiPrompt\Services\AiOutboundBudgetGate(
                 app(\Omnichannel\Addons\AiPrompt\Services\PromptBudgetPreflightService::class),
             );

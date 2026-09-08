@@ -46,12 +46,15 @@ final class DeepSeekChatClient
         if (array_key_exists('temperature', $options) && $options['temperature'] !== null) {
             $payload['temperature'] = (float) $options['temperature'];
         }
-        if (isset($options['max_output']) && is_numeric($options['max_output'])) {
+
+        $omitCeiling = \Omnichannel\Addons\AiPrompt\Support\ArticleOutboundCeilingPolicy::shouldOmitApplicationCeiling($options);
+
+        if (! $omitCeiling && isset($options['max_output']) && is_numeric($options['max_output'])) {
             $payload['max_tokens'] = (int) $options['max_output'];
         }
 
         // Final outbound invariant — blocks HTTP when payload exceeds verified budget.
-        if (function_exists('app') && app()->bound(PromptBudgetPreflightService::class)) {
+        if (! $omitCeiling && function_exists('app') && app()->bound(PromptBudgetPreflightService::class)) {
             $gate = new AiOutboundBudgetGate(app(PromptBudgetPreflightService::class));
             $plan = $gate->verifyCompiled(
                 null,

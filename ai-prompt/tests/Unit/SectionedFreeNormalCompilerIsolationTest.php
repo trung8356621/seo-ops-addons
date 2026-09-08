@@ -27,26 +27,27 @@ final class SectionedFreeNormalCompilerIsolationTest extends TestCase
         $src = (string) file_get_contents(
             (string) (new ReflectionClass(PromptHookExplicitBindingExecutor::class))->getFileName(),
         );
-        $branchPos = strpos($src, 'isSectionedFree()');
+        $branchPos = strpos($src, 'ArticleGenerationExecutionPlanner');
         $compilePos = strpos($src, 'compilePrompt(');
         $this->assertNotFalse($branchPos);
         $this->assertNotFalse($compilePos);
-        $this->assertLessThan($compilePos, $branchPos, 'sectioned_free branch must run before compilePrompt');
+        $this->assertLessThan($compilePos, $branchPos, 'primary/shape planner must run before compilePrompt');
         $this->assertStringContainsString('SectionedFreeHookOrchestrator', $src);
+        $this->assertStringContainsString('isSectioned()', $src);
     }
 
     public function test_compile_prompt_source_guards_sectioned_free(): void
     {
         $src = (string) file_get_contents((string) (new ReflectionClass(PromptRunnerService::class))->getFileName());
-        $this->assertStringContainsString('SECTIONED_FREE_NORMAL_COMPILER_INVOKED', $src);
+        $this->assertStringContainsString('SECTIONED_NORMAL_COMPILER_INVOKED', $src);
 
         $fnStart = strpos($src, 'function compilePrompt(');
         $this->assertNotFalse($fnStart);
         $slice = substr($src, $fnStart, 700);
-        $this->assertStringContainsString('isSectionedFree()', $slice);
+        $this->assertStringContainsString('isSectioned()', $slice);
     }
 
-    public function test_policy_applier_stamps_sectioned_free_strategy(): void
+    public function test_policy_applier_no_longer_stamps_strategy_override(): void
     {
         $ref = new ReflectionClass(ContentProjectItemGenerationPolicyApplier::class);
         /** @var ContentProjectItemGenerationPolicyApplier $applier */
@@ -67,9 +68,9 @@ final class SectionedFreeNormalCompilerIsolationTest extends TestCase
         );
 
         $vars = $applier->stampVariables(['article_length' => '2000'], $policy);
-        $this->assertSame('sectioned_free', $vars['generation_strategy']);
-        $this->assertSame('sectioned_free', $vars['_item_generation_strategy']);
-        $this->assertSame('sectioned_free', $vars['resolved_generation_strategy']);
+        $this->assertArrayNotHasKey('generation_strategy', $vars);
+        $this->assertSame('sectioned_free', $vars['legacy_generation_strategy_override'] ?? null);
+        $this->assertArrayNotHasKey('generation_strategy_override', $vars);
     }
 
     public function test_unique_vocabulary_marker_never_reaches_section_prompts(): void

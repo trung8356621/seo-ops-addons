@@ -12,7 +12,7 @@ use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 
 /**
- * Contract: Content Project hook path must branch to sectioned_free BEFORE whole-article compile.
+ * Contract: Content Project hook path resolves primary/shape BEFORE whole-article compile.
  */
 final class SectionedFreeHookPathBranchTest extends TestCase
 {
@@ -21,16 +21,17 @@ final class SectionedFreeHookPathBranchTest extends TestCase
         $ref = new ReflectionClass(PromptHookExplicitBindingExecutor::class);
         $src = file_get_contents((string) $ref->getFileName()) ?: '';
 
-        $branchPos = strpos($src, 'isSectionedFree()');
-        $compilePos = strpos($src, "legacy_compiled_prompt");
+        $branchPos = strpos($src, 'ArticleGenerationExecutionPlanner');
+        $compilePos = strpos($src, 'legacy_compiled_prompt');
         $enginePos = strpos($src, '$this->engine->execute');
 
-        $this->assertNotFalse($branchPos, 'missing sectioned_free branch');
+        $this->assertNotFalse($branchPos, 'missing primary/shape planner');
         $this->assertNotFalse($compilePos, 'missing legacy compile');
         $this->assertNotFalse($enginePos, 'missing engine execute');
-        $this->assertLessThan($compilePos, $branchPos, 'sectioned_free branch must run before legacy compile');
-        $this->assertLessThan($enginePos, $branchPos, 'sectioned_free branch must run before engine.execute');
+        $this->assertLessThan($compilePos, $branchPos, 'planner must run before legacy compile');
+        $this->assertLessThan($enginePos, $branchPos, 'planner must run before engine.execute');
         $this->assertStringContainsString('SectionedFreeHookOrchestrator', $src);
+        $this->assertStringContainsString('isSectioned()', $src);
     }
 
     public function test_prompt_runner_branches_before_compile_prompt(): void
@@ -40,15 +41,14 @@ final class SectionedFreeHookPathBranchTest extends TestCase
 
         $runPos = strpos($src, 'public function run(');
         $this->assertNotFalse($runPos);
-        // Limit to the primary run() method body before runWithCompiledPrompt.
         $compiledMethodPos = strpos($src, 'public function runWithCompiledPrompt(');
         $this->assertNotFalse($compiledMethodPos);
         $slice = substr($src, $runPos, $compiledMethodPos - $runPos);
-        $strategyPos = strpos($slice, 'isSectionedFree()');
+        $plannerPos = strpos($slice, 'articleExecutionPlanner()');
         $compilePos = strpos($slice, '$this->compilePrompt(');
-        $this->assertNotFalse($strategyPos);
+        $this->assertNotFalse($plannerPos);
         $this->assertNotFalse($compilePos);
-        $this->assertLessThan($compilePos, $strategyPos);
+        $this->assertLessThan($compilePos, $plannerPos);
         $this->assertStringContainsString('runSectionedFreeAsPromptResult', $src);
     }
 
@@ -61,8 +61,8 @@ final class SectionedFreeHookPathBranchTest extends TestCase
         $fromRunner = $resolver->resolve([
             'generation_strategy' => 'sectioned_free',
         ]);
-        $this->assertSame(ArticleGenerationStrategy::SectionedFree, $fromItem);
-        $this->assertSame(ArticleGenerationStrategy::SectionedFree, $fromRunner);
+        $this->assertSame(ArticleGenerationStrategy::Sectioned, $fromItem);
+        $this->assertSame(ArticleGenerationStrategy::Sectioned, $fromRunner);
         $this->assertSame(ArticleGenerationStrategy::SinglePass, $resolver->resolve([]));
     }
 }

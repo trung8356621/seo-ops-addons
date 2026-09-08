@@ -7,19 +7,23 @@ namespace Omnichannel\Addons\AiPrompt\Support;
 use BackedEnum;
 
 /**
- * Article body generation strategy.
+ * Article body generation strategy (legacy enum + compat).
  *
- * Default remains {@see self::SinglePass}. {@see self::SectionedFree} is an
- * explicit free-model test path and must never become the implicit default.
+ * Runtime shape for article.content.generate is derived from the AI Center primary
+ * candidate via {@see ArticleGenerationShape} — not from user override.
+ *
+ * {@see self::SectionedFree} remains a legacy alias accepted from DB/history.
  */
 enum ArticleGenerationStrategy: string
 {
     case SinglePass = 'single_pass';
 
-    /** Reserved — not implemented in phase 1. */
+    /** Canonical sectioned generation (any primary free candidate). */
     case Sectioned = 'sectioned';
 
-    /** Free-only sectioned generation + deterministic assemble. */
+    /**
+     * @deprecated Use {@see self::Sectioned}. Accepted as alias for sectioned shape.
+     */
     case SectionedFree = 'sectioned_free';
 
     public static function tryFromMixed(mixed $value): ?self
@@ -43,11 +47,40 @@ enum ArticleGenerationStrategy: string
 
     public static function resolve(mixed $value): self
     {
-        return self::tryFromMixed($value) ?? self::SinglePass;
+        $parsed = self::tryFromMixed($value);
+        if ($parsed === null) {
+            return self::SinglePass;
+        }
+
+        return $parsed->canonical();
     }
 
+    /**
+     * Normalize legacy sectioned_free → sectioned.
+     */
+    public function canonical(): self
+    {
+        return $this === self::SectionedFree ? self::Sectioned : $this;
+    }
+
+    public function toShape(): ArticleGenerationShape
+    {
+        return match ($this->canonical()) {
+            self::SinglePass => ArticleGenerationShape::SinglePass,
+            self::Sectioned, self::SectionedFree => ArticleGenerationShape::Sectioned,
+        };
+    }
+
+    public function isSectioned(): bool
+    {
+        return $this === self::Sectioned || $this === self::SectionedFree;
+    }
+
+    /**
+     * @deprecated Prefer {@see self::isSectioned()}.
+     */
     public function isSectionedFree(): bool
     {
-        return $this === self::SectionedFree;
+        return $this->isSectioned();
     }
 }

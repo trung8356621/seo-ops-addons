@@ -57,6 +57,54 @@ final class AiModelRouterService
     }
 
     /**
+     * First candidate that normal execution would attempt (AI Center order + freeOnly + health skips).
+     * Does not skip based on PromptBudget / capability estimators.
+     */
+    public function resolveFirstAttemptable(string $profile, AiRoutingContext $context): RoutedAiCandidate
+    {
+        $candidates = $this->resolveAll($profile, $context);
+        if ($context->freeOnly) {
+            $candidates = array_values(array_filter(
+                $candidates,
+                static fn (RoutedAiCandidate $candidate): bool => $candidate->isFree,
+            ));
+        }
+
+        if ($candidates === []) {
+            $parsed = AiExecutionProfile::tryFrom($profile);
+            $capability = $parsed?->requiredCapabilityKeys()[0] ?? 'text.generate';
+            if ($context->freeOnly) {
+                throw AiRoutingException::noValidFreeConnection($profile);
+            }
+            throw AiRoutingException::noCandidate($profile, $capability);
+        }
+
+        $userId = $context->userId !== null && $context->userId > 0
+            ? $context->userId
+            : app(AiRoutingOwnerResolver::class)->resolve(
+                explicitUserId: null,
+                prompt: null,
+                connection: $candidates[0]->connection ?? null,
+            );
+        if ($userId <= 0) {
+            $userId = (int) (auth()->id() ?? 0);
+        }
+
+        $health = $this->runtimeHealth();
+        foreach ($candidates as $candidate) {
+            $skipReason = $health->skipReason($userId, $candidate);
+            if ($skipReason !== null) {
+                continue;
+            }
+
+            return $candidate;
+        }
+
+        // All skipped by health — still return AI Center #1 (shape authority); execution may fail/fallback.
+        return $candidates[0];
+    }
+
+    /**
      * @return list<RoutedAiCandidate>
      */
     public function resolveAll(string $profile, AiRoutingContext $context): array

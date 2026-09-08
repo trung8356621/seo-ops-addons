@@ -76,7 +76,9 @@ final class GeminiGenerateContentClient
         string $apiVersion,
         array $options = [],
     ): array {
-        if (function_exists('app') && app()->bound(\Omnichannel\Addons\AiPrompt\Services\PromptBudgetPreflightService::class)) {
+        $omitCeiling = \Omnichannel\Addons\AiPrompt\Support\ArticleOutboundCeilingPolicy::shouldOmitApplicationCeiling($options);
+
+        if (! $omitCeiling && function_exists('app') && app()->bound(\Omnichannel\Addons\AiPrompt\Services\PromptBudgetPreflightService::class)) {
             $gate = new \Omnichannel\Addons\AiPrompt\Services\AiOutboundBudgetGate(
                 app(\Omnichannel\Addons\AiPrompt\Services\PromptBudgetPreflightService::class),
             );

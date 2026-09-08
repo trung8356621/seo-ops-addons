@@ -63,7 +63,7 @@ TXT;
     {
         $resolver = new ArticleGenerationStrategyResolver();
         $this->assertSame(
-            ArticleGenerationStrategy::SectionedFree,
+            ArticleGenerationStrategy::Sectioned,
             $resolver->resolve(['_item_generation_strategy' => 'sectioned_free']),
         );
         $this->assertSame(
@@ -71,9 +71,10 @@ TXT;
             $resolver->resolve([]),
         );
         $stamped = $resolver->stamp([], ArticleGenerationStrategy::SectionedFree);
-        $this->assertSame('sectioned_free', $stamped['resolved_generation_strategy']);
-        $this->assertSame('sectioned_free', $stamped['generation_strategy']);
-        $this->assertSame('sectioned_free', $stamped['_item_generation_strategy']);
+        $this->assertSame('sectioned', $stamped['resolved_generation_strategy']);
+        $this->assertSame('sectioned', $stamped['generation_strategy']);
+        $this->assertSame('sectioned', $stamped['_item_generation_strategy']);
+        $this->assertSame('sectioned', $stamped['generation_shape']);
     }
 
     public function test_artifact_splitter_keeps_vocabulary_but_outline_only_for_planner(): void

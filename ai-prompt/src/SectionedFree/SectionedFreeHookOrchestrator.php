@@ -56,11 +56,11 @@ final class SectionedFreeHookOrchestrator
             ?? ''
         );
         $strategy = $this->strategyResolver->resolve($variables);
-        if (! $strategy->isSectionedFree()) {
-            throw new PromptRunException('SectionedFreeHookOrchestrator invoked without sectioned_free strategy.');
+        if (! $strategy->isSectioned()) {
+            throw new PromptRunException('SectionedFreeHookOrchestrator invoked without sectioned generation shape.');
         }
 
-        $variables = $this->strategyResolver->stamp($variables, $strategy);
+        $variables = $this->strategyResolver->stamp($variables, ArticleGenerationStrategy::Sectioned);
         $correlationId = (string) ($contextExtras['correlation_id'] ?? Str::uuid()->toString());
         $toolType = ImageToolType::fromMixed($prompt->tools ?? 'default')->value;
         $profile = $this->profileResolver->resolve($prompt, $hookKey, $toolType);
@@ -91,29 +91,36 @@ final class SectionedFreeHookOrchestrator
                     ->toExecutionSnapshot($projectTaskId > 0 ? $projectTaskId : null),
                 [
                     'variables' => [
-                        'generation_strategy' => ArticleGenerationStrategy::SectionedFree->value,
-                        'resolved_generation_strategy' => ArticleGenerationStrategy::SectionedFree->value,
-                        '_item_generation_strategy' => ArticleGenerationStrategy::SectionedFree->value,
-                        'strategy_override' => $variables['strategy_override'] ?? $variables['generation_strategy_override'] ?? null,
-                        'strategy_resolved' => ArticleGenerationStrategy::SectionedFree->value,
-                        'strategy_source' => $variables['strategy_source']
-                            ?? \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategySnapshot::SOURCE_TASK_OVERRIDE,
-                        'isolation_mode' => 'free_test',
-                        'model_tier' => 'free',
+                        'generation_strategy' => ArticleGenerationStrategy::Sectioned->value,
+                        'resolved_generation_strategy' => ArticleGenerationStrategy::Sectioned->value,
+                        '_item_generation_strategy' => ArticleGenerationStrategy::Sectioned->value,
+                        'generation_shape' => ArticleGenerationStrategy::Sectioned->value,
+                        'generation_shape_source' => $variables['generation_shape_source']
+                            ?? \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape::SOURCE_AI_CENTER_PRIMARY,
+                        'primary_model' => $variables['primary_model'] ?? null,
+                        'primary_model_id' => $variables['primary_model_id'] ?? null,
+                        'primary_is_free' => $variables['primary_is_free'] ?? null,
+                        'free_only_policy' => $variables['free_only_policy'] ?? false,
+                        'strategy_override' => null,
+                        'strategy_resolved' => ArticleGenerationStrategy::Sectioned->value,
+                        'strategy_source' => $variables['generation_shape_source']
+                            ?? \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape::SOURCE_AI_CENTER_PRIMARY,
+                        'isolation_mode' => 'sectioned_generation',
                         'hook_key' => $hookKey,
                         'article_id' => $articleId > 0 ? $articleId : null,
                     ],
-                    'compiled_prompt' => "Strategy: sectioned_free\nParent orchestrator running…",
+                    'compiled_prompt' => "Strategy: sectioned\nParent orchestrator running…",
                     'manual_compiled' => true,
                     'sectioned_free_orchestrator' => true,
-                    'generation_strategy' => ArticleGenerationStrategy::SectionedFree->value,
-                    'strategy_override' => $variables['strategy_override'] ?? $variables['generation_strategy_override'] ?? null,
-                    'strategy_resolved' => ArticleGenerationStrategy::SectionedFree->value,
-                    'strategy_source' => $variables['strategy_source']
-                        ?? \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategySnapshot::SOURCE_TASK_OVERRIDE,
+                    'generation_strategy' => ArticleGenerationStrategy::Sectioned->value,
+                    'generation_shape' => ArticleGenerationStrategy::Sectioned->value,
+                    'strategy_override' => null,
+                    'strategy_resolved' => ArticleGenerationStrategy::Sectioned->value,
+                    'strategy_source' => $variables['generation_shape_source']
+                        ?? \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape::SOURCE_AI_CENTER_PRIMARY,
                     'run_id' => $runId,
                     'hook_key' => $hookKey,
-                    'display_name' => 'Viết bài — Sectioned free (orchestrator)',
+                    'display_name' => 'Viết bài — Sectioned (orchestrator)',
                     'article_id' => $articleId > 0 ? $articleId : null,
                     'project_run_id' => $projectRunId > 0 ? $projectRunId : null,
                     'project_task_id' => $projectTaskId > 0 ? $projectTaskId : null,
@@ -132,9 +139,9 @@ final class SectionedFreeHookOrchestrator
             $projectRunId,
             $projectTaskId,
             $workflowNodeId,
-            'Viết bài — Sectioned free (orchestrator)',
-            'sectioned_free_orchestrator',
-            ['generation_strategy' => ArticleGenerationStrategy::SectionedFree->value],
+            'Viết bài — Sectioned (orchestrator)',
+            'sectioned_orchestrator',
+            ['generation_strategy' => ArticleGenerationStrategy::Sectioned->value, 'generation_shape' => 'sectioned'],
         );
 
         SectionedFreeExecutionGuard::enter([
@@ -159,15 +166,17 @@ final class SectionedFreeHookOrchestrator
                 usageModeOverride: null,
                 allowedFamilyKeys: null,
                 costPolicy: AiCostPolicyScope::current(),
-                preferredModelId: null,
+                preferredModelId: isset($variables['_item_model_override_id'])
+                    ? (int) $variables['_item_model_override_id']
+                    : (isset($variables['primary_model_id']) ? (int) $variables['primary_model_id'] : null),
                 requirePreferredModel: false,
                 itemGenerationMode: isset($variables['_item_generation_mode'])
                     ? (string) $variables['_item_generation_mode']
                     : null,
                 hookKey: $hookKey,
-                freeOnly: true,
-                isolationMode: 'free_test',
-                generationStrategy: ArticleGenerationStrategy::SectionedFree->value,
+                freeOnly: false,
+                isolationMode: 'sectioned_generation',
+                generationStrategy: ArticleGenerationStrategy::Sectioned->value,
             );
 
             $articleContext = [
@@ -340,7 +349,8 @@ final class SectionedFreeHookOrchestrator
                         'routing_attempts' => $routingAttempts ?? [],
                         'section_id' => $unit->sectionId,
                         'prompt_character_count' => mb_strlen($sectionPrompt),
-                        'generation_strategy' => ArticleGenerationStrategy::SectionedFree->value,
+                        'generation_strategy' => ArticleGenerationStrategy::Sectioned->value,
+                        'generation_shape' => ArticleGenerationStrategy::Sectioned->value,
                         'credential_source' => 'configured_connection',
                         'prompt_result_ids' => $sectionChildIds[$unit->sectionId] ?? [],
                     ]),

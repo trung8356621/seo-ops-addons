@@ -96,7 +96,20 @@ final class AiExecutionService
             throw new PromptRunException('Prompt không có khối nhiệm vụ (task) để gửi tới Claude.');
         }
 
-        $maxTokens = (int) ($budgetOptions['max_output'] ?? self::MAX_OUTPUT_TOKENS);
+        $omitCeiling = \Omnichannel\Addons\AiPrompt\Support\ArticleOutboundCeilingPolicy::shouldOmitApplicationCeiling(
+            array_merge($budgetOptions, [
+                'hook_key' => is_string($budgetOptions['hook_key'] ?? null)
+                    ? (string) $budgetOptions['hook_key']
+                    : (string) ($prompt->hook_key ?? ''),
+            ]),
+        );
+
+        if ($omitCeiling) {
+            $maxTokens = (int) ($budgetOptions['provider_required_output_ceiling']
+                ?? \Omnichannel\Addons\AiPrompt\Support\ArticleOutboundCeilingPolicy::PROVIDER_REQUIRED_OUTPUT_CEILING);
+        } else {
+            $maxTokens = (int) ($budgetOptions['max_output'] ?? self::MAX_OUTPUT_TOKENS);
+        }
         if ($maxTokens <= 0) {
             $maxTokens = self::MAX_OUTPUT_TOKENS;
         }
@@ -116,7 +129,7 @@ final class AiExecutionService
             $payload['system'] = implode("\n\n", $systemInstructions);
         }
 
-        if (function_exists('app') && app()->bound(PromptBudgetPreflightService::class)) {
+        if (! $omitCeiling && function_exists('app') && app()->bound(PromptBudgetPreflightService::class)) {
             $messages = [];
             if (isset($payload['system']) && is_string($payload['system'])) {
                 $messages[] = ['role' => 'system', 'content' => $payload['system']];

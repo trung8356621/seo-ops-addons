@@ -68,8 +68,9 @@ final class PromptSplitStrategyRegistry
             $this->register(new DirectFitStrategy($hook, PromptSplitClass::BusinessSplit, 2048));
         }
 
-        // Long-form generate — real splitter/merger (supportsSplit=true).
-        $this->register(new LongFormArticleSplitStrategy('article.content.generate'));
+        // Long-form article.content.generate is owned by SectionedArticle generation when primary is free.
+        // Do not register generic LongFormArticleSplitStrategy as a competing article architecture.
+        $this->register(new DirectFitStrategy('article.content.generate', PromptSplitClass::DirectFit, 4096));
 
         // Rewrite / improve / translate — HTML-safe blocks + merger.
         foreach ([

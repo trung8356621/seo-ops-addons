@@ -6,7 +6,10 @@ namespace Omnichannel\Addons\AiPrompt\Support;
 
 /**
  * Canonical strategy resolution for article writing.
- * Single place — Controllers/hooks must not re-implement ad-hoc.
+ *
+ * For article.content.generate production flow, prefer
+ * {@see \Omnichannel\Addons\AiPrompt\Services\ArticleGenerationExecutionPlanner}
+ * (shape from AI Center primary). This resolver remains for legacy stamps / History.
  */
 final class ArticleGenerationStrategyResolver
 {
@@ -15,6 +18,12 @@ final class ArticleGenerationStrategyResolver
      */
     public function resolve(array $variables): ArticleGenerationStrategy
     {
+        // Prefer runtime-derived generation_shape when present.
+        $fromShape = ArticleGenerationShape::tryFromMixed($variables['generation_shape'] ?? null);
+        if ($fromShape !== null) {
+            return $fromShape->toLegacyStrategy();
+        }
+
         foreach ([
             'generation_strategy',
             '_item_generation_strategy',
@@ -23,7 +32,7 @@ final class ArticleGenerationStrategyResolver
         ] as $key) {
             $strategy = ArticleGenerationStrategy::tryFromMixed($variables[$key] ?? null);
             if ($strategy !== null) {
-                return $strategy;
+                return $strategy->canonical();
             }
         }
 
@@ -36,9 +45,11 @@ final class ArticleGenerationStrategyResolver
      */
     public function stamp(array $variables, ArticleGenerationStrategy $strategy): array
     {
-        $variables['generation_strategy'] = $strategy->value;
-        $variables['_item_generation_strategy'] = $strategy->value;
-        $variables['resolved_generation_strategy'] = $strategy->value;
+        $canonical = $strategy->canonical();
+        $variables['generation_strategy'] = $canonical->value;
+        $variables['_item_generation_strategy'] = $canonical->value;
+        $variables['resolved_generation_strategy'] = $canonical->value;
+        $variables['generation_shape'] = $canonical->toShape()->value;
 
         return $variables;
     }

@@ -40,31 +40,8 @@ final class SectionedFreeTrackedProviderCall
         string $runId,
         array $meta = [],
     ): array {
-        if (! $routed->isFree) {
-            $message = 'SECTIONED_FREE_NON_FREE_MODEL_SELECTED: sectioned_free cannot run a non-free routing candidate.';
-            logger()->error($message, [
-                'run_id' => $runId,
-                'section_id' => $unit->sectionId,
-                'candidate_model' => $routed->model,
-                'connection_id' => (int) $routed->connection->id,
-                'router_policy' => 'free_only',
-                'is_free_candidate' => false,
-            ]);
-            throw new PromptRunException(
-                $message,
-                0,
-                null,
-                [
-                    'failure_code' => 'SECTIONED_FREE_NON_FREE_MODEL_SELECTED',
-                    'run_id' => $runId,
-                    'section_id' => $unit->sectionId,
-                    'candidate_model' => $routed->model,
-                    'connection_id' => (int) $routed->connection->id,
-                    'router_policy' => 'free_only',
-                    'retryable' => false,
-                ],
-            );
-        }
+        // Paid fallback is allowed for sectioned shape when Free only is OFF.
+        // Free-only filtering is owned by AiRuntimeHealthService / connection paid_locked.
 
         $child = $this->recorder->beginAttempt(
             $prompt,
@@ -85,7 +62,7 @@ final class SectionedFreeTrackedProviderCall
             'run_id' => $runId,
             'parent_run_id' => $parentPromptResultId,
             'parent_prompt_result_id' => $parentPromptResultId,
-            'strategy' => 'sectioned_free',
+            'strategy' => 'sectioned',
             'section_id' => $unit->sectionId,
             'model' => $routed->model,
             'connection_id' => (int) $routed->connection->id,
@@ -169,7 +146,8 @@ final class SectionedFreeTrackedProviderCall
                 meta: [
                     'section_id' => $unit->sectionId,
                     'section_order' => $unit->order,
-                    'generation_strategy' => 'sectioned_free',
+                    'generation_strategy' => 'sectioned',
+                    'generation_shape' => 'sectioned',
                     'hook_key' => SectionedFreeSectionCallRecorder::HOOK_KEY,
                     'parent_prompt_result_id' => $meta['parent_prompt_result_id'] ?? null,
                 ],

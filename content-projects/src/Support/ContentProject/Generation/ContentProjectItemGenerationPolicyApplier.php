@@ -71,17 +71,11 @@ final class ContentProjectItemGenerationPolicyApplier
             $variables['_item_generation_mode'] = $policy->generationMode->value;
         }
 
+        // generation_strategy_override is legacy/debug only — shape comes from AI Center primary at runtime.
         if ($policy->generationStrategy !== null) {
-            $variables = (new \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategyResolver())
-                ->stamp($variables, $policy->generationStrategy);
-            $variables['generation_strategy_override'] = $policy->generationStrategy->value;
-            $variables['strategy_override'] = $policy->generationStrategy->value;
-            $variables['strategy_resolved'] = $policy->generationStrategy->value;
-            $variables['strategy_source'] = \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategySnapshot::SOURCE_TASK_OVERRIDE;
-        } else {
-            $snap = \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategySnapshot::fromVariables($variables, null);
-            $variables = $snap->mergeIntoVariables($variables);
+            $variables['legacy_generation_strategy_override'] = $policy->generationStrategy->value;
         }
+        // Do not stamp generation_strategy / override into variables (NULL must not force single_pass).
 
         if ($policy->modelOverrideId !== null) {
             $variables['_item_model_override_id'] = (string) $policy->modelOverrideId;

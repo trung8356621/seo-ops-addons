@@ -307,11 +307,20 @@
                                 $isFreeCandidate,
                             );
                             $strategyResolved = strtolower(trim((string) (
-                                $promptItem['strategy_resolved']
+                                $promptItem['generation_shape']
+                                ?? $promptItem['strategy_resolved']
                                 ?? $promptItem['generation_strategy']
                                 ?? ''
                             )));
-                            $showStrategyTag = in_array($strategyResolved, ['single_pass', 'sectioned_free'], true);
+                            if ($strategyResolved === 'sectioned_free') {
+                                $strategyResolved = 'sectioned';
+                            }
+                            $showStrategyTag = in_array($strategyResolved, ['single_pass', 'sectioned'], true);
+                            $tierTag = null;
+                            if (array_key_exists('primary_is_free', $promptItem) || array_key_exists('is_free_candidate', $promptItem)) {
+                                $isFree = (bool) ($promptItem['primary_is_free'] ?? $promptItem['is_free_candidate'] ?? false);
+                                $tierTag = $isFree ? 'free' : 'paid';
+                            }
                             $strategySource = trim((string) ($promptItem['strategy_source'] ?? ''));
                             $strategyOverrideLabel = trim((string) ($promptItem['strategy_override_label'] ?? ''));
                             $ranAtItem = $promptItem['ran_at'] ?? null;
@@ -373,11 +382,16 @@
                                             @if ($showStrategyTag)
                                                 <p class="seo-run-history-item__meta">
                                                     <span class="seo-run-history-item__tag">{{ $strategyResolved }}</span>
+                                                    @if ($tierTag !== null)
+                                                        <span class="seo-run-history-item__tag">{{ $tierTag }}</span>
+                                                    @endif
                                                 </p>
                                                 <p class="seo-run-history-item__meta" title="Strategy provenance">
-                                                    Strategy: {{ $strategyResolved }}
-                                                    · Source: {{ $strategySource !== '' ? $strategySource : 'default' }}
-                                                    · Task override: {{ $strategyOverrideLabel !== '' ? $strategyOverrideLabel : 'none' }}
+                                                    Shape: {{ $strategyResolved }}
+                                                    @if ($tierTag !== null)
+                                                        · Tier: {{ $tierTag }}
+                                                    @endif
+                                                    · Source: {{ $strategySource !== '' ? $strategySource : 'ai_center_primary_candidate' }}
                                                 </p>
                                             @endif
 
