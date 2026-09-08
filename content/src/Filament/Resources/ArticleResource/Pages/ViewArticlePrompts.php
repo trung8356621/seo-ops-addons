@@ -35,7 +35,7 @@ final class ViewArticlePrompts extends Page
 
     public ?SeoArticle $articleRecord = null;
 
-    public string $activeTab = 'workflow';
+    public string $activeTab = 'ai_calls';
 
     public string $filterType = 'all';
 
@@ -83,6 +83,10 @@ final class ViewArticlePrompts extends Page
      */
     public function getExecutionRuns(): array
     {
+        if ($this->activeTab !== 'workflow') {
+            return [];
+        }
+
         if (! $this->articleRecord instanceof SeoArticle) {
             return [];
         }
@@ -115,7 +119,7 @@ final class ViewArticlePrompts extends Page
 
     public function setActiveTab(string $tab): void
     {
-        $this->activeTab = in_array($tab, ['workflow', 'ai_calls'], true) ? $tab : 'workflow';
+        $this->activeTab = in_array($tab, ['workflow', 'ai_calls'], true) ? $tab : 'ai_calls';
     }
 
     /**

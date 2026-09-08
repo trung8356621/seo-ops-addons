@@ -580,7 +580,10 @@ final class ArticlePromptRunHistoryService
         }
 
         $strategyResolved = trim((string) (
-            $snapshot['generation_shape']
+            $snapshot['pass_mode']
+            ?? $step['pass_mode']
+            ?? $snapshotVariables['pass_mode']
+            ?? $snapshot['generation_shape']
             ?? $step['generation_shape']
             ?? $snapshotVariables['generation_shape']
             ?? $snapshot['strategy_resolved']
@@ -591,8 +594,8 @@ final class ArticlePromptRunHistoryService
             ?? $snapshotVariables['generation_strategy']
             ?? ''
         ));
-        if ($strategyResolved === 'sectioned_free') {
-            $strategyResolved = 'sectioned';
+        if ($strategyResolved === 'sectioned_free' || $strategyResolved === 'sectioned') {
+            $strategyResolved = 'multiple_pass';
         }
         $hookForStrategy = strtolower(trim((string) (
             $snapshotVariables['hook_key']
@@ -619,7 +622,7 @@ final class ArticlePromptRunHistoryService
         if ($strategySource === '' && $strategyResolved !== '') {
             $strategySource = $strategyResolved === 'single_pass'
                 ? \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategySnapshot::SOURCE_DEFAULT
-                : \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape::SOURCE_AI_CENTER_PRIMARY;
+                : \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape::SOURCE_WRITING_SPLIT_PREFERENCE;
         }
         $strategyOverride = null;
         if (array_key_exists('strategy_override', $snapshot)) {

@@ -30,24 +30,52 @@ final class DefaultSplitOutlinePromptsInstaller
     /** Legacy combined-output wording — safe signature for system-default upgrade. */
     public const LEGACY_OUTLINE_SIGNATURE = '2 loại đầu ra riêng biệt';
 
+    /** Target-word density contract — system Outline must expose {{article_length}}. */
+    public const OUTLINE_DENSITY_SIGNATURE = '{{article_length}}';
+
     public const OUTLINE_MARKDOWN = <<<'MD'
 ## Vai trò
-Chuyên gia tối ưu hóa công cụ tìm kiếm (SEO Specialist) và Chuyên gia nội dung.
+Chuyên gia SEO và biên tập nội dung. Nhiệm vụ: tạo dàn ý (Outline) có độ sâu heading tỷ lệ với độ dài bài mục tiêu.
 
 ## Đầu vào
-{{input}}
+Chủ đề / từ khóa: {{input}}
+Độ dài bài mục tiêu (số từ): {{article_length}}
 
-## Nhiệm vụ: Dàn ý
-Tạo một dàn ý chi tiết dựa trên đầu vào phía trên.
-Đảm bảo hệ thống tiêu đề rõ ràng (H1, H2, H3), bao gồm phần Giới thiệu, Nội dung chính, Kết luận và Câu hỏi thường gặp (FAQ).
+## Quy tắc mật độ heading (heuristic biên tập — không phải quota cứng)
+Mật độ H2/H3 phải tỷ lệ với độ dài bài mục tiêu.
+Không tạo H3 trừ khi tiểu mục đủ lớn để trở thành một section viết độc lập.
 
-Quy tắc:
-Sử dụng Markdown. Trong nội dung dàn ý phải tích hợp ít nhất một bảng so sánh (10 - 20 hàng, 2 - 5 cột) hoặc danh sách liệt kê (bullet points) để tăng khả năng đạt Featured Snippet.
+Hướng dẫn theo {{article_length}}:
+- 800–1200 từ: khoảng 4–6 H2 chính; khoảng 3–8 H3 tổng; nhiều H2 không cần H3.
+- 1200–1800 từ: khoảng 5–7 H2; khoảng 6–12 H3.
+- 1800–2500 từ: khoảng 5–8 H2; khoảng 9–16 H3.
+- 2500+ từ: mở rộng theo phủ ngữ nghĩa; không tăng heading chỉ để đạt số lượng.
+
+Nếu {{article_length}} trống: giữ cấu trúc semantic hợp lý, tránh over-segmentation.
+
+## Cấu trúc bắt buộc
+1. Mở bài không heading:
+[MỞ BÀI — KHÔNG HEADING]
+Gợi ý triển khai: …
+
+2. Các H2 semantic rõ ràng. Không bắt buộc mọi H2 có H3.
+   - Nếu H2 chỉ cần một đoạn giải thích: giữ H2 + Gợi ý triển khai, không tạo H3.
+   - Nếu bài ngắn và các ý gần nhau: gộp ở cấp Outline (không tạo H3 vụn).
+
+3. H3 chỉ khi tiểu mục atomic, đủ lớn để viết độc lập.
+
+4. Featured Snippet: chỉ tạo vị trí/heading/instruction — không sinh answer, list, hay table data.
+
+5. Bảng: chỉ heading/instruction — không sinh Markdown table data trong Outline.
+
+6. FAQ: chỉ heading câu hỏi — không viết câu trả lời.
+
+7. Không tạo heading kiểu «## Giới thiệu».
 
 ## Định dạng đầu ra
-- Markdown
-- Toàn bộ đầu ra sử dụng Tiếng Việt.
-- Trả về trực tiếp nội dung dàn ý (H1/H2/H3). Không bọc START/END marker.
+- Markdown (H1/H2/H3 + Gợi ý triển khai).
+- Toàn bộ đầu ra dùng Tiếng Việt (hoặc {{language}} nếu có).
+- Trả về trực tiếp nội dung dàn ý. Không bọc START/END marker.
 MD;
 
     public const VOCABULARY_MARKDOWN = <<<'MD'
@@ -90,6 +118,7 @@ MD;
             portableUuid: self::OUTLINE_PORTABLE_UUID,
             variables: [
                 ['name' => 'input', 'description' => 'Canonical task subject (keyword / planning context)'],
+                ['name' => 'article_length', 'description' => 'Target article length in words (Outline heading density)'],
                 ['name' => 'language', 'description' => 'Output language'],
             ],
             refreshMarkdown: true,
@@ -128,6 +157,17 @@ MD;
     }
 
     /**
+     * Upgrade system-default Outline for target-word density guidance ({{article_length}}).
+     * Skips operator-customized prompts.
+     *
+     * @return array{outline: array{prompt_id: int, updated: bool}, vocabulary: array{prompt_id: int, updated: bool}}
+     */
+    public function refreshOutlineTargetWordDensityContract(): array
+    {
+        return $this->refreshSplitPromptMarkerlessContract();
+    }
+
+    /**
      * Upgrade system-default #22/#23: remove AI marker protocol; keep {{input}}.
      * Skips operator-customized prompts.
      *
@@ -142,6 +182,7 @@ MD;
             portableUuid: self::OUTLINE_PORTABLE_UUID,
             variables: [
                 ['name' => 'input', 'description' => 'Canonical task subject (keyword / planning context)'],
+                ['name' => 'article_length', 'description' => 'Target article length in words (Outline heading density)'],
                 ['name' => 'language', 'description' => 'Output language'],
             ],
             refreshMarkdown: true,
@@ -277,6 +318,12 @@ MD;
 
         // System defaults still instructing AI to emit START/END markers → upgrade.
         if ($this->containsLegacyMarkerProtocol($current)) {
+            return true;
+        }
+
+        // System Outline missing target-word density contract → upgrade.
+        if (str_contains($canonical, self::OUTLINE_DENSITY_SIGNATURE)
+            && ! str_contains($current, self::OUTLINE_DENSITY_SIGNATURE)) {
             return true;
         }
 

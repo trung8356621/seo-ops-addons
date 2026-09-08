@@ -71,11 +71,22 @@ final class SectionedFreeArticleGenerator
             : $parts['vocabulary_raw'];
 
         $articleTargetWords = $this->resolveArticleTargetWords($articleContext);
-        $plan = $this->prepare->preparePlan($outline, $articleTargetWords);
+        $writingSplit = (bool) ($articleContext['writing_split_enabled'] ?? false)
+            || (($articleContext['pass_mode'] ?? '') === 'multiple_pass');
+
+        if ($writingSplit && ($articleContext['writing_multiple_pass_plan'] ?? null) instanceof SectionedFreePlan) {
+            $plan = $articleContext['writing_multiple_pass_plan'];
+        } elseif ($writingSplit && is_array($articleContext['structured_outline_rows'] ?? null)) {
+            $plan = (new \Omnichannel\Addons\AiPrompt\Services\WritingMultiplePassStepPlanner())
+                ->planFromRows($articleContext['structured_outline_rows']);
+        } else {
+            $plan = $this->prepare->preparePlan($outline, $articleTargetWords);
+        }
         $units = $plan->units;
 
         if (
-            $plan->minimumUnitsByBudget() > 1
+            ! $writingSplit
+            && $plan->minimumUnitsByBudget() > 1
             && $plan->plannedUnitCount() < $plan->minimumUnitsByBudget()
             && ! ($plan->meta['insufficient_outline_material'] ?? false)
         ) {
@@ -109,6 +120,10 @@ final class SectionedFreeArticleGenerator
         $previousSummary = '';
         $promptCharCounts = [];
         $assembleCalled = false;
+        /** @var null|callable(SectionedFreeSectionUnit): string $sectionPromptFactory */
+        $sectionPromptFactory = is_callable($articleContext['section_prompt_factory'] ?? null)
+            ? $articleContext['section_prompt_factory']
+            : null;
 
         foreach ($units as $unit) {
             if ($rerunId !== '' && $unit->sectionId !== $rerunId) {
@@ -128,25 +143,30 @@ final class SectionedFreeArticleGenerator
             }
 
             $state->markRunning($unit->sectionId);
-            $ctx = [
-                'title' => $articleContext['title'] ?? '',
-                'primary_keyword' => $articleContext['primary_keyword']
-                    ?? $articleContext['keyword']
-                    ?? '',
-                'intent' => $articleContext['intent']
-                    ?? $articleContext['search_intent']
-                    ?? $articleContext['content_intent']
-                    ?? '',
-                'language' => $articleContext['language'] ?? 'vi',
-                'article_map' => $articleMap,
-                'suggested_keywords' => $this->keywordSuggester->suggestForSection($unit, $vocabularyRaw),
-                'emit_parent_heading' => $unit->emitParentHeading,
-                'parent_h2' => $unit->parentH2,
-            ];
-            if ($previousSummary !== '') {
-                $ctx['previous_section_summary'] = $previousSummary;
+            if ($sectionPromptFactory !== null) {
+                $prompt = $sectionPromptFactory($unit);
+            } else {
+                $ctx = [
+                    'title' => $articleContext['title'] ?? '',
+                    'primary_keyword' => $articleContext['primary_keyword']
+                        ?? $articleContext['keyword']
+                        ?? '',
+                    'intent' => $articleContext['intent']
+                        ?? $articleContext['search_intent']
+                        ?? $articleContext['content_intent']
+                        ?? '',
+                    'language' => $articleContext['language'] ?? 'vi',
+                    'article_map' => $articleMap,
+                    'suggested_keywords' => $this->keywordSuggester->suggestForSection($unit, $vocabularyRaw),
+                    'emit_parent_heading' => $unit->emitParentHeading,
+                    'parent_h2' => $unit->parentH2,
+                ];
+                // MULTIPLE_PASS writing_split: never chain previous generated output.
+                if (! $writingSplit && $previousSummary !== '') {
+                    $ctx['previous_section_summary'] = $previousSummary;
+                }
+                $prompt = $this->promptBuilder->build($unit, $ctx);
             }
-            $prompt = $this->promptBuilder->build($unit, $ctx);
             $promptCharCounts[$unit->sectionId] = mb_strlen($prompt);
 
             if ($vocabularyRaw !== '' && str_contains($prompt, $vocabularyRaw)) {
@@ -157,10 +177,15 @@ final class SectionedFreeArticleGenerator
                     ['failure_code' => 'SECTIONED_FREE_VOCAB_LEAK', 'retryable' => false],
                 );
             }
-            (new SectionedFreePromptIsolationGuard())->assertSectionPromptIsIsolated($prompt, [
-                'section_id' => $unit->sectionId,
-                'run_id' => (string) ($state->toArray()['run_id'] ?? ''),
-            ]);
+            if ($writingSplit) {
+                (new \Omnichannel\Addons\AiPrompt\Support\WritingMultiplePassPromptIsolationGuard())
+                    ->assertCompiledSectionPrompt($prompt, $unit, $outline);
+            } else {
+                (new SectionedFreePromptIsolationGuard())->assertSectionPromptIsIsolated($prompt, [
+                    'section_id' => $unit->sectionId,
+                    'run_id' => (string) ($state->toArray()['run_id'] ?? ''),
+                ]);
+            }
             if (
                 str_contains($prompt, 'DYNAMIC WORD ALLOCATION')
                 || str_contains($prompt, 'target 1000 words')

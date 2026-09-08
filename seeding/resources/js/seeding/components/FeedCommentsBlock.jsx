@@ -5,9 +5,12 @@ import { generateSampleComments } from '../api';
 import { detectPlatformLabel } from '../services/linkExtract';
 import { canDeleteComment, canEditComment } from '../features/workspace/auth';
 import { latestCommentsPreview } from '../features/workspace/content';
+import { buildCommentRecord } from '../services/linkPreviewPipeline';
+import CommentRichBody from './CommentRichBody';
 
 /**
- * Inline comment preview + add/gen/edit/delete for feed cards & sidebar.
+ * Inline comment preview + add/gen/edit/delete for feed cards.
+ * Link previews reuse the shared Topic pipeline (compact variant).
  *
  * @param {{
  *   topic: Record<string, unknown>,
@@ -16,7 +19,9 @@ import { latestCommentsPreview } from '../features/workspace/content';
  *   userDisplayName?: string,
  *   previewLimit?: number,
  *   compact?: boolean,
+ *   linkPreviewCache?: Record<string, Record<string, unknown>>,
  *   onCommentsChange: (comments: Array<Record<string, unknown>>) => void,
+ *   onCacheUpdate?: (cache: Record<string, Record<string, unknown>>) => void,
  *   onExpandAll?: () => void,
  * }} props
  */
@@ -27,7 +32,9 @@ export default function FeedCommentsBlock({
     userDisplayName = '',
     previewLimit = 2,
     compact = true,
+    linkPreviewCache = {},
     onCommentsChange,
+    onCacheUpdate,
     onExpandAll,
 }) {
     const all = Array.isArray(topic.comments) ? topic.comments : [];
@@ -44,23 +51,22 @@ export default function FeedCommentsBlock({
 
     const stop = (e) => e.stopPropagation();
 
+    const patchCommentLinks = (commentId, links) => {
+        onCommentsChange(all.map((c) => (String(c.id) === String(commentId) ? { ...c, links } : c)));
+    };
+
     const addComment = () => {
         const text = draft.trim();
         if (!text) return;
         onCommentsChange([
             ...all,
-            {
+            buildCommentRecord(text, {
                 id: makeId('cmt'),
-                text,
                 state: 'available',
                 source: 'manual',
-                claimed_by_user_id: null,
-                claimed_at: null,
-                completed_at: null,
-                created_at: new Date().toISOString(),
                 author_user_id: userId,
                 author_display_name: userDisplayName,
-            },
+            }, linkPreviewCache),
         ]);
         setDraft('');
         setAdding(false);
@@ -72,7 +78,11 @@ export default function FeedCommentsBlock({
         if (!text) return;
         const target = all.find((c) => c.id === id);
         if (!target || !canEditComment(target, userId, canMutate)) return;
-        onCommentsChange(all.map((c) => (c.id === id ? { ...c, text } : c)));
+        onCommentsChange(all.map((c) => (
+            c.id === id
+                ? buildCommentRecord(text, { ...c, id: c.id }, linkPreviewCache)
+                : c
+        )));
         setEditingId(null);
         setEditText('');
         setMenuId(null);
@@ -103,18 +113,13 @@ export default function FeedCommentsBlock({
             }
             onCommentsChange([
                 ...all,
-                ...incoming.map((text) => ({
+                ...incoming.map((text) => buildCommentRecord(String(text), {
                     id: makeId('cmt'),
-                    text: String(text),
                     state: 'available',
                     source: 'ai',
-                    claimed_by_user_id: null,
-                    claimed_at: null,
-                    completed_at: null,
-                    created_at: new Date().toISOString(),
                     author_user_id: userId,
                     author_display_name: userDisplayName,
-                })),
+                }, linkPreviewCache)),
             ]);
         } catch (e) {
             setError(e?.message || 'Gen bình luận thất bại.');
@@ -152,46 +157,54 @@ export default function FeedCommentsBlock({
                                         </div>
                                     </div>
                                 ) : (
-                                    <>
-                                        <div className="seeding-ws__feed-comment-row">
-                                            <p className="seeding-ws__feed-comment-text">
-                                                <strong>{name}:</strong> {c.text}
-                                            </p>
-                                            {(canEditComment(c, userId, canMutate) || canDeleteComment(c, userId, canMutate)) ? (
-                                                <div className="seeding-ws__menu">
-                                                    <button
-                                                        type="button"
-                                                        className="seeding-ws__icon-btn"
-                                                        aria-label="Comment menu"
-                                                        onClick={() => setMenuId(menuId === c.id ? null : c.id)}
-                                                    >
-                                                        <MoreHorizontal size={14} />
-                                                    </button>
-                                                    {menuId === c.id ? (
-                                                        <div className="seeding-ws__menu-pop">
-                                                            {canEditComment(c, userId, canMutate) ? (
-                                                                <button
-                                                                    type="button"
-                                                                    onClick={() => {
-                                                                        setEditingId(c.id);
-                                                                        setEditText(c.text);
-                                                                        setMenuId(null);
-                                                                    }}
-                                                                >
-                                                                    <Pencil size={12} /> Sửa
-                                                                </button>
-                                                            ) : null}
-                                                            {canDeleteComment(c, userId, canMutate) ? (
-                                                                <button type="button" className="is-danger" onClick={() => remove(c.id)}>
-                                                                    <Trash2 size={12} /> Xóa
-                                                                </button>
-                                                            ) : null}
-                                                        </div>
-                                                    ) : null}
-                                                </div>
-                                            ) : null}
+                                    <div className="seeding-ws__feed-comment-row">
+                                        <div className="seeding-ws__feed-comment-main">
+                                            <div className="seeding-ws__feed-comment-author">{name}</div>
+                                            <CommentRichBody
+                                                comment={c}
+                                                variant="comment"
+                                                clampLines={2}
+                                                maxRichPreviews={1}
+                                                linkPreviewCache={linkPreviewCache}
+                                                onCommentLinksChange={patchCommentLinks}
+                                                onCacheUpdate={onCacheUpdate}
+                                                className="seeding-ws__feed-comment-text"
+                                            />
                                         </div>
-                                    </>
+                                        {(canEditComment(c, userId, canMutate) || canDeleteComment(c, userId, canMutate)) ? (
+                                            <div className="seeding-ws__menu">
+                                                <button
+                                                    type="button"
+                                                    className="seeding-ws__icon-btn"
+                                                    aria-label="Comment menu"
+                                                    onClick={() => setMenuId(menuId === c.id ? null : c.id)}
+                                                >
+                                                    <MoreHorizontal size={14} />
+                                                </button>
+                                                {menuId === c.id ? (
+                                                    <div className="seeding-ws__menu-pop">
+                                                        {canEditComment(c, userId, canMutate) ? (
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => {
+                                                                    setEditingId(c.id);
+                                                                    setEditText(c.text);
+                                                                    setMenuId(null);
+                                                                }}
+                                                            >
+                                                                <Pencil size={12} /> Sửa
+                                                            </button>
+                                                        ) : null}
+                                                        {canDeleteComment(c, userId, canMutate) ? (
+                                                            <button type="button" className="is-danger" onClick={() => remove(c.id)}>
+                                                                <Trash2 size={12} /> Xóa
+                                                            </button>
+                                                        ) : null}
+                                                    </div>
+                                                ) : null}
+                                            </div>
+                                        ) : null}
+                                    </div>
                                 )}
                             </li>
                         );

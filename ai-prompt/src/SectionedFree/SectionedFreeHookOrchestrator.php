@@ -108,19 +108,23 @@ final class SectionedFreeHookOrchestrator
                         'isolation_mode' => 'sectioned_generation',
                         'hook_key' => $hookKey,
                         'article_id' => $articleId > 0 ? $articleId : null,
+                        'pass_mode' => 'multiple_pass',
+                        'writing_split_enabled' => true,
+                        'writing_scope' => 'section',
                     ],
-                    'compiled_prompt' => "Strategy: sectioned\nParent orchestrator running…",
+                    'compiled_prompt' => "Pass mode: MULTIPLE_PASS\nParent orchestrator running…",
                     'manual_compiled' => true,
                     'sectioned_free_orchestrator' => true,
                     'generation_strategy' => ArticleGenerationStrategy::Sectioned->value,
                     'generation_shape' => ArticleGenerationStrategy::Sectioned->value,
+                    'pass_mode' => 'multiple_pass',
                     'strategy_override' => null,
-                    'strategy_resolved' => ArticleGenerationStrategy::Sectioned->value,
+                    'strategy_resolved' => 'multiple_pass',
                     'strategy_source' => $variables['generation_shape_source']
-                        ?? \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape::SOURCE_AI_CENTER_PRIMARY,
+                        ?? \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape::SOURCE_WRITING_SPLIT_PREFERENCE,
                     'run_id' => $runId,
                     'hook_key' => $hookKey,
-                    'display_name' => 'Viết bài — Sectioned (orchestrator)',
+                    'display_name' => 'Viết bài — MULTIPLE_PASS (orchestrator)',
                     'article_id' => $articleId > 0 ? $articleId : null,
                     'project_run_id' => $projectRunId > 0 ? $projectRunId : null,
                     'project_task_id' => $projectTaskId > 0 ? $projectTaskId : null,
@@ -139,9 +143,9 @@ final class SectionedFreeHookOrchestrator
             $projectRunId,
             $projectTaskId,
             $workflowNodeId,
-            'Viết bài — Sectioned (orchestrator)',
+            'Viết bài — MULTIPLE_PASS (orchestrator)',
             'sectioned_orchestrator',
-            ['generation_strategy' => ArticleGenerationStrategy::Sectioned->value, 'generation_shape' => 'sectioned'],
+            ['generation_strategy' => ArticleGenerationStrategy::Sectioned->value, 'generation_shape' => 'sectioned', 'pass_mode' => 'multiple_pass'],
         );
 
         SectionedFreeExecutionGuard::enter([
@@ -209,7 +213,29 @@ final class SectionedFreeHookOrchestrator
                     ?? $variables['target_article_length']
                     ?? $variables['resolved_article_length']
                     ?? null,
+                'writing_split_enabled' => (bool) ($variables['writing_split_enabled'] ?? false),
+                'pass_mode' => (string) ($variables['pass_mode'] ?? 'multiple_pass'),
             ];
+
+            $writingSplit = (bool) ($variables['writing_split_enabled'] ?? false)
+                || (($variables['pass_mode'] ?? '') === 'multiple_pass')
+                || (($variables['generation_shape_source'] ?? '') === \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape::SOURCE_WRITING_SPLIT_PREFERENCE);
+
+            if ($writingSplit) {
+                $articleContext['writing_split_enabled'] = true;
+                $articleContext['pass_mode'] = 'multiple_pass';
+                $rows = $this->resolveStructuredRowsForWriting($articleId, $articleContext['outline']);
+                $planPreview = (new \Omnichannel\Addons\AiPrompt\Services\WritingMultiplePassStepPlanner())
+                    ->planFromRows($rows);
+                $articleContext['structured_outline_rows'] = $rows;
+                $articleContext['writing_multiple_pass_plan'] = $planPreview;
+                $compiler = app(\Omnichannel\Addons\AiPrompt\Services\WritingSectionPromptCompiler::class);
+                $articleContext['section_prompt_factory'] = static function (
+                    SectionedFreeSectionUnit $unit,
+                ) use ($compiler, $prompt, $variables): string {
+                    return $compiler->compile($prompt, $variables, $unit);
+                };
+            }
 
             $priorState = SectionedFreeRunState::fromArray(
                 is_array($variables['_sectioned_free_state'] ?? null) ? $variables['_sectioned_free_state'] : null,
@@ -357,25 +383,38 @@ final class SectionedFreeHookOrchestrator
                 ];
             };
 
-            // Pre-plan for breadcrumbs (same prepare as generator).
-            $prepare = new SectionedFreePrepareSections();
-            $outlineParts = (new SectionedFreeArtifactSplitter())->split($articleContext['outline']);
-            $articleTarget = 0;
-            foreach (['article_length', 'target_words'] as $k) {
-                if (isset($articleContext[$k]) && is_numeric($articleContext[$k])) {
-                    $articleTarget = (int) $articleContext[$k];
-                    break;
+            // Pre-plan for breadcrumbs.
+            if ($writingSplit && isset($planPreview) && $planPreview instanceof SectionedFreePlan) {
+                $plannedSectionCount = $planPreview->plannedUnitCount();
+                $breadcrumbs->push('sections_planned', [
+                    'count' => $planPreview->plannedUnitCount(),
+                    'minimum_units_by_budget' => 1,
+                    'article_target_words' => 0,
+                    'section_ids' => array_map(static fn (SectionedFreeSectionUnit $u): string => $u->sectionId, $planPreview->units),
+                    'plan' => $planPreview->meta,
+                    'source' => 'structured_outline_rows',
+                    'pass_mode' => 'multiple_pass',
+                ]);
+            } else {
+                $prepare = new SectionedFreePrepareSections();
+                $outlineParts = (new SectionedFreeArtifactSplitter())->split($articleContext['outline']);
+                $articleTarget = 0;
+                foreach (['article_length', 'target_words'] as $k) {
+                    if (isset($articleContext[$k]) && is_numeric($articleContext[$k])) {
+                        $articleTarget = (int) $articleContext[$k];
+                        break;
+                    }
                 }
+                $planPreview = $prepare->preparePlan($outlineParts['outline_markdown'], $articleTarget);
+                $plannedSectionCount = $planPreview->plannedUnitCount();
+                $breadcrumbs->push('sections_planned', [
+                    'count' => $planPreview->plannedUnitCount(),
+                    'minimum_units_by_budget' => $planPreview->minimumUnitsByBudget(),
+                    'article_target_words' => $planPreview->articleTargetWords(),
+                    'section_ids' => array_map(static fn (SectionedFreeSectionUnit $u): string => $u->sectionId, $planPreview->units),
+                    'plan' => $planPreview->meta,
+                ]);
             }
-            $planPreview = $prepare->preparePlan($outlineParts['outline_markdown'], $articleTarget);
-            $plannedSectionCount = $planPreview->plannedUnitCount();
-            $breadcrumbs->push('sections_planned', [
-                'count' => $planPreview->plannedUnitCount(),
-                'minimum_units_by_budget' => $planPreview->minimumUnitsByBudget(),
-                'article_target_words' => $planPreview->articleTargetWords(),
-                'section_ids' => array_map(static fn (SectionedFreeSectionUnit $u): string => $u->sectionId, $planPreview->units),
-                'plan' => $planPreview->meta,
-            ]);
             $this->patchParentSnapshot($parentResult, $breadcrumbs, $childPromptResultIds);
 
             $result = $this->generator->run(
@@ -664,5 +703,37 @@ final class SectionedFreeHookOrchestrator
         } catch (\Throwable) {
             // Best-effort audit link.
         }
+    }
+
+    /**
+     * Resolve persisted structured rows; one-time backfill from markdown when missing.
+     *
+     * @return list<array{
+     *   id: string,
+     *   order: int,
+     *   level: int,
+     *   title: string,
+     *   note: string,
+     *   parent_id: ?string,
+     *   kind: string
+     * }>
+     */
+    private function resolveStructuredRowsForWriting(int $articleId, string $outlineMarkdown): array
+    {
+        $resolver = app(\Omnichannel\Addons\Content\Services\ArticleOutlineResolver::class);
+
+        if ($articleId > 0) {
+            $article = \Omnichannel\Addons\Content\Models\SeoArticle::query()->find($articleId);
+            if ($article instanceof \Omnichannel\Addons\Content\Models\SeoArticle) {
+                $rows = $resolver->ensureStructuredRows($article);
+                if ($rows !== []) {
+                    return $rows;
+                }
+            }
+        }
+
+        // No article persist available — normalize in-memory only (no silent markdown authority on retry).
+        return (new \Omnichannel\Addons\Content\Services\OutlineStructuredRowsNormalizer())
+            ->normalize($outlineMarkdown);
     }
 }

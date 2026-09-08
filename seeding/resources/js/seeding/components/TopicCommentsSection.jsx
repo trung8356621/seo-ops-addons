@@ -5,6 +5,8 @@ import { generateSampleComments } from '../api';
 import { detectPlatformLabel } from '../services/linkExtract';
 import { visibleWorkComments } from '../features/workspace/selectors';
 import { canDeleteComment, canEditComment } from '../features/workspace/auth';
+import { buildCommentRecord } from '../services/linkPreviewPipeline';
+import CommentRichBody from './CommentRichBody';
 
 /**
  * Unified comments section for Topic Detail.
@@ -14,7 +16,9 @@ import { canDeleteComment, canEditComment } from '../features/workspace/auth';
  *   canMutate: boolean,
  *   userId: number|string,
  *   userDisplayName?: string,
+ *   linkPreviewCache?: Record<string, Record<string, unknown>>,
  *   onChange: (comments: Array<Record<string, unknown>>) => void,
+ *   onCacheUpdate?: (cache: Record<string, Record<string, unknown>>) => void,
  *   onClaim: (comment: Record<string, unknown>) => void,
  * }} props
  */
@@ -23,7 +27,9 @@ export default function TopicCommentsSection({
     canMutate,
     userId,
     userDisplayName = '',
+    linkPreviewCache = {},
     onChange,
+    onCacheUpdate,
     onClaim,
 }) {
     const all = Array.isArray(topic.comments) ? topic.comments : [];
@@ -36,23 +42,22 @@ export default function TopicCommentsSection({
     const [menuId, setMenuId] = useState(null);
     const [error, setError] = useState(null);
 
+    const patchCommentLinks = (commentId, links) => {
+        onChange(all.map((c) => (String(c.id) === String(commentId) ? { ...c, links } : c)));
+    };
+
     const addComment = () => {
         const text = draft.trim();
         if (!text) return;
         onChange([
             ...all,
-            {
+            buildCommentRecord(text, {
                 id: makeId('cmt'),
-                text,
                 state: 'available',
                 source: 'manual',
-                claimed_by_user_id: null,
-                claimed_at: null,
-                completed_at: null,
-                created_at: new Date().toISOString(),
                 author_user_id: userId,
                 author_display_name: userDisplayName,
-            },
+            }, linkPreviewCache),
         ]);
         setDraft('');
         setAdding(false);
@@ -64,7 +69,11 @@ export default function TopicCommentsSection({
         if (!text) return;
         const target = all.find((c) => c.id === id);
         if (!target || !canEditComment(target, userId, canMutate)) return;
-        onChange(all.map((c) => (c.id === id ? { ...c, text } : c)));
+        onChange(all.map((c) => (
+            c.id === id
+                ? buildCommentRecord(text, { ...c, id: c.id }, linkPreviewCache)
+                : c
+        )));
         setEditingId(null);
         setEditText('');
     };
@@ -93,18 +102,13 @@ export default function TopicCommentsSection({
             }
             onChange([
                 ...all,
-                ...incoming.map((text) => ({
+                ...incoming.map((text) => buildCommentRecord(String(text), {
                     id: makeId('cmt'),
-                    text: String(text),
                     state: 'available',
                     source: 'ai',
-                    claimed_by_user_id: null,
-                    claimed_at: null,
-                    completed_at: null,
-                    created_at: new Date().toISOString(),
                     author_user_id: userId,
                     author_display_name: userDisplayName,
-                })),
+                }, linkPreviewCache)),
             ]);
         } catch (e) {
             setError(e?.message || 'Gen bình luận thất bại.');
@@ -208,7 +212,15 @@ export default function TopicCommentsSection({
                                 ) : (
                                     <>
                                         <div className="seeding-ws__work-text">
-                                            {c.text}
+                                            <CommentRichBody
+                                                comment={c}
+                                                variant="comment"
+                                                clampLines={0}
+                                                maxRichPreviews={3}
+                                                linkPreviewCache={linkPreviewCache}
+                                                onCommentLinksChange={patchCommentLinks}
+                                                onCacheUpdate={onCacheUpdate}
+                                            />
                                             <div className="seeding-ws__work-badges">
                                                 {c.source === 'ai' ? <span className="seeding-ws__chip">AI</span> : (
                                                     <span className="seeding-ws__meta-pill">manual</span>

@@ -10,7 +10,8 @@ use BackedEnum;
  * Prompt/task shape for article body generation.
  *
  * Independent from routing policy (normal vs free_only) and from candidate economics.
- * Derived at runtime from the AI Center primary candidate's {@see RoutedAiCandidate::$isFree}.
+ * Writing pass mode is derived from manual writing_split_enabled preference —
+ * not from free/paid primary candidate.
  */
 enum ArticleGenerationShape: string
 {
@@ -20,6 +21,16 @@ enum ArticleGenerationShape: string
 
     public const SOURCE_AI_CENTER_PRIMARY = 'ai_center_primary_candidate';
 
+    public const SOURCE_WRITING_SPLIT_PREFERENCE = 'writing_split_preference';
+
+    public static function fromWritingSplitEnabled(bool $enabled): self
+    {
+        return $enabled ? self::Sectioned : self::SinglePass;
+    }
+
+    /**
+     * @deprecated Pass mode is manual writing_split_enabled — do not derive from free/paid.
+     */
     public static function fromPrimaryIsFree(bool $isFree): self
     {
         return $isFree ? self::Sectioned : self::SinglePass;

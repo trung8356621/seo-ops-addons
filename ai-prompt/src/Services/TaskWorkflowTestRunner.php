@@ -2160,6 +2160,8 @@ final class TaskWorkflowTestRunner
                 ['meta_key' => 'seo_article_outline'],
                 ['meta_value' => $outlineMarkdown],
             );
+            app(\Omnichannel\Addons\Content\Services\ArticleOutlineResolver::class)
+                ->persistStructuredRows($article, $outlineMarkdown);
             $savedKeys[] = 'seo_article_outline';
         }
 
@@ -2174,6 +2176,8 @@ final class TaskWorkflowTestRunner
                 ['meta_key' => 'seo_article_outline'],
                 ['meta_value' => $state->lastPromptOutput],
             );
+            app(\Omnichannel\Addons\Content\Services\ArticleOutlineResolver::class)
+                ->persistStructuredRows($article, (string) $state->lastPromptOutput);
             $savedKeys[] = 'seo_article_outline';
         }
 

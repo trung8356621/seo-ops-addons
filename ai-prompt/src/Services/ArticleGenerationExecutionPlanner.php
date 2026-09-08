@@ -8,10 +8,13 @@ use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext;
 use Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate;
 use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape;
 use Omnichannel\Addons\AiPrompt\Support\ArticlePrimaryRoutingSnapshot;
+use Omnichannel\Addons\AiPrompt\Support\WritingSectionScopeInstructions;
+use Omnichannel\Addons\Content\Support\WritingSplitPreference;
 use App\Models\ApiConnection;
 
 /**
- * Resolves AI Center primary candidate THEN derives prompt shape (free → sectioned, paid → single_pass).
+ * Resolves AI Center primary candidate THEN derives Writing pass mode from
+ * manual writing_split_enabled preference (not free/paid).
  */
 final class ArticleGenerationExecutionPlanner
 {
@@ -28,24 +31,35 @@ final class ArticleGenerationExecutionPlanner
         $primary = $this->router->resolveFirstAttemptable($profile, $routingContext);
         $freeOnlyPolicy = $this->connectionFreeOnlyPolicy($primary->connection)
             || $routingContext->freeOnly;
-        $shape = ArticleGenerationShape::fromPrimaryIsFree($primary->isFree);
+
+        $actorUserId = ($routingContext->userId !== null && $routingContext->userId > 0)
+            ? $routingContext->userId
+            : null;
+        $splitEnabled = WritingSplitPreference::resolveForRun($variables, $actorUserId);
+        $shape = ArticleGenerationShape::fromWritingSplitEnabled($splitEnabled);
         $snapshot = ArticlePrimaryRoutingSnapshot::fromCandidate(
             $primary,
             $shape,
             $freeOnlyPolicy,
+            ArticleGenerationShape::SOURCE_WRITING_SPLIT_PREFERENCE,
         );
 
-        return [$primary, $snapshot, $snapshot->mergeIntoVariables($variables)];
+        $merged = $snapshot->mergeIntoVariables($variables);
+        // Immutable run snapshot — later preference toggles must not mutate this run.
+        $merged['writing_split_enabled'] = $splitEnabled;
+        $merged['pass_mode'] = $splitEnabled ? 'multiple_pass' : 'single_pass';
+        $merged['generation_shape_source'] = ArticleGenerationShape::SOURCE_WRITING_SPLIT_PREFERENCE;
+        $merged['writing_scope'] = $splitEnabled
+            ? WritingSectionScopeInstructions::SCOPE_SECTION
+            : WritingSectionScopeInstructions::SCOPE_ARTICLE;
+
+        return [$primary, $snapshot, $merged];
     }
 
     private function connectionFreeOnlyPolicy(?ApiConnection $connection): bool
     {
-        if (! $connection instanceof ApiConnection) {
+        if ($connection === null) {
             return false;
-        }
-
-        if (array_key_exists('paid_locked', $connection->getAttributes())) {
-            return (bool) $connection->getAttribute('paid_locked');
         }
 
         return (bool) ($connection->paid_locked ?? false);

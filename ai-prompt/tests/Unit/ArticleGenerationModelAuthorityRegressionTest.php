@@ -31,23 +31,25 @@ use Tests\TestCase;
  */
 final class ArticleGenerationModelAuthorityRegressionTest extends TestCase
 {
-    public function test_a_paid_primary_derives_single_pass_shape(): void
+    public function test_a_paid_primary_no_longer_owns_shape_via_free_flag(): void
     {
-        $primary = $this->candidate('anthropic/claude-sonnet', isFree: false, id: 1);
-        $shape = ArticleGenerationShape::fromPrimaryIsFree($primary->isFree);
-        $snap = ArticlePrimaryRoutingSnapshot::fromCandidate($primary, $shape);
+        // Shape is manual writing_split — fromPrimaryIsFree remains deprecated helper only.
+        $shape = ArticleGenerationShape::fromWritingSplitEnabled(false);
+        $snap = ArticlePrimaryRoutingSnapshot::fromCandidate(
+            $this->candidate('anthropic/claude-sonnet', isFree: false, id: 1),
+            $shape,
+            false,
+            ArticleGenerationShape::SOURCE_WRITING_SPLIT_PREFERENCE,
+        );
 
         self::assertSame(ArticleGenerationShape::SinglePass, $shape);
         self::assertSame('single_pass', $snap->generationShape->value);
-        self::assertSame('anthropic/claude-sonnet', $snap->primaryModel);
-        self::assertFalse($snap->primaryIsFree);
-        self::assertSame(ArticleGenerationShape::SOURCE_AI_CENTER_PRIMARY, $snap->generationShapeSource);
+        self::assertSame(ArticleGenerationShape::SOURCE_WRITING_SPLIT_PREFERENCE, $snap->generationShapeSource);
     }
 
-    public function test_b_free_primary_derives_sectioned_shape(): void
+    public function test_b_writing_split_enabled_derives_sectioned_shape(): void
     {
-        $primary = $this->candidate('nvidia/nemotron-free', isFree: true, id: 2);
-        $shape = ArticleGenerationShape::fromPrimaryIsFree($primary->isFree);
+        $shape = ArticleGenerationShape::fromWritingSplitEnabled(true);
 
         self::assertSame(ArticleGenerationShape::Sectioned, $shape);
         self::assertTrue($shape->isSectioned());
@@ -110,15 +112,19 @@ final class ArticleGenerationModelAuthorityRegressionTest extends TestCase
         self::assertStringNotContainsString('freeOnly: true', $orch);
     }
 
-    public function test_h_null_override_does_not_force_single_pass_for_free_primary(): void
+    public function test_h_null_override_does_not_force_single_pass_for_split_enabled(): void
     {
         $resolver = new ArticleGenerationStrategyResolver();
-        // Empty variables alone default single_pass — planner must stamp shape from primary.
         self::assertSame(ArticleGenerationStrategy::SinglePass, $resolver->resolve([]));
 
         $primary = $this->candidate('nvidia/nemotron', isFree: true, id: 5);
-        $shape = ArticleGenerationShape::fromPrimaryIsFree($primary->isFree);
-        $vars = ArticlePrimaryRoutingSnapshot::fromCandidate($primary, $shape)->mergeIntoVariables([
+        $shape = ArticleGenerationShape::fromWritingSplitEnabled(true);
+        $vars = ArticlePrimaryRoutingSnapshot::fromCandidate(
+            $primary,
+            $shape,
+            false,
+            ArticleGenerationShape::SOURCE_WRITING_SPLIT_PREFERENCE,
+        )->mergeIntoVariables([
             'generation_strategy_override' => null,
         ]);
 
@@ -149,13 +155,18 @@ final class ArticleGenerationModelAuthorityRegressionTest extends TestCase
     public function test_planner_stamps_primary_preference(): void
     {
         $primary = $this->candidate('nvidia/nemotron', isFree: true, id: 42, connectionId: 7);
-        $shape = ArticleGenerationShape::fromPrimaryIsFree($primary->isFree);
-        $vars = ArticlePrimaryRoutingSnapshot::fromCandidate($primary, $shape)->mergeIntoVariables([]);
+        $shape = ArticleGenerationShape::fromWritingSplitEnabled(true);
+        $vars = ArticlePrimaryRoutingSnapshot::fromCandidate(
+            $primary,
+            $shape,
+            false,
+            ArticleGenerationShape::SOURCE_WRITING_SPLIT_PREFERENCE,
+        )->mergeIntoVariables([]);
 
         self::assertTrue($shape->isSectioned());
         self::assertSame('42', $vars['_article_primary_model_id']);
         self::assertSame(42, $vars['primary_model_id']);
-        self::assertSame(ArticleGenerationShape::SOURCE_AI_CENTER_PRIMARY, $vars['generation_shape_source']);
+        self::assertSame(ArticleGenerationShape::SOURCE_WRITING_SPLIT_PREFERENCE, $vars['generation_shape_source']);
         self::assertArrayNotHasKey('_item_model_override_id', $vars);
     }
 

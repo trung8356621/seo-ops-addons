@@ -1,0 +1,31 @@
+<?php
+
+declare(strict_types=1);
+
+use Illuminate\Database\Migrations\Migration;
+use Omnichannel\Addons\AiPrompt\Services\PromptOwnership\DefaultSplitOutlinePromptsInstaller;
+
+/**
+ * Upgrade system-default Outline prompt with {{article_length}} density guidance.
+ * Skips operator-customized prompts.
+ */
+return new class extends Migration
+{
+    public function up(): void
+    {
+        if (! app()->bound(DefaultSplitOutlinePromptsInstaller::class)) {
+            return;
+        }
+
+        try {
+            app(DefaultSplitOutlinePromptsInstaller::class)->refreshOutlineTargetWordDensityContract();
+        } catch (Throwable) {
+            // Installer may run before SEO DB is bootstrapped in some environments.
+        }
+    }
+
+    public function down(): void
+    {
+        // Non-destructive: keep density guidance if present.
+    }
+};

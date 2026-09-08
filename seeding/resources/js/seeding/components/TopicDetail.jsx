@@ -16,10 +16,12 @@ import { canShareTopic, shareStatusLabel, shareStatusOf, topicDistinctTitle, top
  *   canEdit?: boolean,
  *   userId: number|string,
  *   userDisplayName?: string,
+ *   linkPreviewCache?: Record<string, Record<string, unknown>>,
  *   onBack: () => void,
  *   onDelete: () => void,
  *   onEdit?: () => void,
  *   onCommentsChange: (comments: Array<Record<string, unknown>>) => void,
+ *   onCacheUpdate?: (cache: Record<string, Record<string, unknown>>) => void,
  *   onShare: () => void,
  *   onClaim: (comment: Record<string, unknown>) => void,
  * }} props
@@ -31,10 +33,12 @@ export default function TopicDetail({
     canEdit = false,
     userId,
     userDisplayName = '',
+    linkPreviewCache = {},
     onBack,
     onDelete,
     onEdit,
     onCommentsChange,
+    onCacheUpdate,
     onShare,
     onClaim,
 }) {
@@ -92,7 +96,7 @@ export default function TopicDetail({
 
                 <section className="seeding-ws__section">
                     <div className="seeding-ws__section-title">Nội dung gốc</div>
-                    <ContentWithLinkPreviews text={topic.full_text || '—'} links={topic.links || []} />
+                    <ContentWithLinkPreviews text={topic.full_text || '—'} links={topic.links || []} variant="topic" />
                 </section>
 
                 <section className="seeding-ws__section">
@@ -116,7 +120,9 @@ export default function TopicDetail({
                     canMutate={canMutate}
                     userId={userId}
                     userDisplayName={userDisplayName}
+                    linkPreviewCache={linkPreviewCache}
                     onChange={onCommentsChange}
+                    onCacheUpdate={onCacheUpdate}
                     onClaim={onClaim}
                 />
 

@@ -8,12 +8,14 @@ import {
 
 /**
  * Render content with URL tokens replaced by rich previews (or plain anchors on fallback).
+ * Shared by Topic + Comment — same extraction / metadata / fallback path.
  *
  * @param {{
  *   text: string,
  *   links?: Array<Record<string, unknown>>,
  *   clampLines?: number,
  *   maxRichPreviews?: number,
+ *   variant?: 'topic' | 'comment',
  *   className?: string,
  * }} props
  */
@@ -22,13 +24,17 @@ export default function ContentWithLinkPreviews({
     links = [],
     clampLines = 0,
     maxRichPreviews = Infinity,
+    variant = 'topic',
     className = '',
 }) {
     const parts = useMemo(() => splitContentByUrls(text), [text]);
     let richShown = 0;
 
     return (
-        <div className={`seeding-ws__rich-content ${className}`.trim()}>
+        <div
+            className={`seeding-ws__rich-content seeding-ws__rich-content--${variant} ${className}`.trim()}
+            data-rich-variant={variant}
+        >
             {parts.map((part, index) => {
                 if (part.type === 'text') {
                     const value = part.value;
@@ -53,12 +59,24 @@ export default function ContentWithLinkPreviews({
                             key={`p-${index}-${part.value}`}
                             link={meta}
                             href={meta.preview_url || meta.url || part.value}
+                            variant={variant}
                         />
                     );
                 }
                 if (hasRichPreview(meta)) {
-                    // Extra rich URLs already previewed once — hide raw URL noise.
-                    return null;
+                    // Extra rich URLs beyond max — compact clickable text (feed comments).
+                    return (
+                        <a
+                            key={`u-${index}`}
+                            className="seeding-ws__inline-url"
+                            href={meta.preview_url || meta.url || part.value}
+                            target="_blank"
+                            rel="noreferrer"
+                            onClick={(e) => e.stopPropagation()}
+                        >
+                            {meta.preview_domain || meta.preview_title || part.value}
+                        </a>
+                    );
                 }
                 return (
                     <a

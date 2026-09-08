@@ -1,7 +1,8 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
 import ContentWithLinkPreviews from './ContentWithLinkPreviews';
 import FeedCommentsBlock from './FeedCommentsBlock';
+import useEnsureLinkPreviews from '../hooks/useEnsureLinkPreviews';
 import {
     detectPlatformLabel,
     relativeTime,
@@ -12,7 +13,6 @@ import {
 } from '../features/workspace/selectors';
 import { canDeleteTopic, canEditTopic } from '../features/workspace/auth';
 import { topicHasWorkHistory } from '../services/storage';
-import { fetchLinkPreview } from '../api';
 
 /**
  * Vertical feed card — actions live on the card; no select→sidebar side effect.
@@ -23,9 +23,11 @@ import { fetchLinkPreview } from '../api';
  *   canMutate: boolean,
  *   userId: number|string,
  *   userDisplayName?: string,
+ *   linkPreviewCache?: Record<string, Record<string, unknown>>,
  *   onOpenDetail: (topic: Record<string, unknown>) => void,
  *   onCommentsChange: (topic: Record<string, unknown>, comments: Array<Record<string, unknown>>) => void,
  *   onLinksChange: (topic: Record<string, unknown>, links: Array<Record<string, unknown>>) => void,
+ *   onCacheUpdate?: (cache: Record<string, Record<string, unknown>>) => void,
  *   onEdit: (topic: Record<string, unknown>) => void,
  *   onDelete: (topic: Record<string, unknown>) => void,
  *   onShare: (topic: Record<string, unknown>) => void,
@@ -37,9 +39,11 @@ export default function TopicCard({
     canMutate,
     userId,
     userDisplayName = '',
+    linkPreviewCache = {},
     onOpenDetail,
     onCommentsChange,
     onLinksChange,
+    onCacheUpdate,
     onEdit,
     onDelete,
     onShare,
@@ -49,39 +53,19 @@ export default function TopicCard({
     const title = topicDistinctTitle(topic);
     const shareStatus = shareStatusOf(topic);
     const [menuOpen, setMenuOpen] = useState(false);
-    const fetchedRef = useRef(false);
 
     const canEdit = canEditTopic(topic, userId, canMutate);
     const canDel = canDeleteTopic(topic, userId, canMutate, reports, topicHasWorkHistory);
-    useEffect(() => {
-        if (fetchedRef.current) return;
-        const links = Array.isArray(topic.links) ? topic.links : [];
-        const pending = links.filter((l) => l.url && !l.preview_fetched_at);
-        if (pending.length === 0) return;
-        fetchedRef.current = true;
-        let cancelled = false;
-        (async () => {
-            const next = [...links];
-            for (let i = 0; i < next.length; i += 1) {
-                const link = next[i];
-                if (link.preview_fetched_at) continue;
-                const meta = await fetchLinkPreview(link.url);
-                if (cancelled) return;
-                next[i] = {
-                    ...link,
-                    preview_url: meta.preview_url || link.url,
-                    preview_title: meta.preview_title,
-                    preview_description: meta.preview_description,
-                    preview_image_url: meta.preview_image_url,
-                    preview_domain: meta.preview_domain,
-                    preview_fetched_at: meta.preview_fetched_at || new Date().toISOString(),
-                    preview_status: meta.preview_status || (meta.ok ? 'ok' : 'error'),
-                };
-            }
-            if (!cancelled) onLinksChange(topic, next);
-        })();
-        return () => { cancelled = true; };
+
+    const onTopicLinksChange = useCallback((next) => {
+        onLinksChange(topic, next);
     }, [topic, onLinksChange]);
+
+    useEnsureLinkPreviews(topic.links || [], {
+        cache: linkPreviewCache,
+        onLinksChange: onTopicLinksChange,
+        onCacheUpdate,
+    });
 
     return (
         <article
@@ -136,6 +120,7 @@ export default function TopicCard({
                 links={topic.links || []}
                 clampLines={3}
                 maxRichPreviews={1}
+                variant="topic"
                 className="seeding-ws__vcard-body"
             />
 
@@ -145,7 +130,9 @@ export default function TopicCard({
                 userId={userId}
                 userDisplayName={userDisplayName}
                 previewLimit={2}
+                linkPreviewCache={linkPreviewCache}
                 onCommentsChange={(comments) => onCommentsChange(topic, comments)}
+                onCacheUpdate={onCacheUpdate}
                 onExpandAll={() => onOpenDetail(topic)}
             />
 

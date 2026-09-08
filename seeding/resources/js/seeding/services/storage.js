@@ -1,16 +1,17 @@
 /**
- * Seeding local repository — V5 workspace document.
+ * Seeding local repository — V6 workspace document.
  *
- * Key: seeding:v5:{installationId}:{userId}:workspace
+ * Key: seeding:v5:{installationId}:{userId}:workspace (stable key; schema_version inside).
  * Scope: installation + user (no site/domain).
  *
  * Topic = immutable context after create.
- * Comment Item = work unit.
+ * Comment Item = work unit (may carry links[] for URL previews).
+ * link_previews = shared OG metadata cache keyed by normalized_url (Topic + Comment).
  * Report events = completion ledger (counters derived).
  * Proof binary lives in IndexedDB — never in this JSON.
  */
 
-const SCHEMA_VERSION = 5;
+const SCHEMA_VERSION = 6;
 const LOCAL_PERSIST_MS = 200;
 
 /**
@@ -60,6 +61,7 @@ function emptyDocument() {
         updated_at: new Date().toISOString(),
         topics: [],
         reports: [],
+        link_previews: {},
         ui: {
             filter: 'work',
             search: '',
@@ -75,7 +77,7 @@ function emptyDocument() {
 /**
  * @param {unknown} link
  */
-function normalizeLink(link) {
+export function normalizeLink(link) {
     if (typeof link === 'string') {
         const url = link.trim();
         return url ? {
@@ -134,6 +136,7 @@ function normalizeComment(comment) {
             completed_at: null,
             created_at: new Date().toISOString(),
             source: 'manual',
+            links: normalizeLinksFromText(comment),
         };
     }
     if (!comment || typeof comment !== 'object') return null;
@@ -143,6 +146,18 @@ function normalizeComment(comment) {
     if (!['available', 'in_progress', 'completed'].includes(state)) {
         state = 'available';
     }
+    const rawLinks = Array.isArray(comment.links) ? comment.links : [];
+    let links = [];
+    const seen = new Set();
+    for (const raw of rawLinks) {
+        const link = normalizeLink(raw);
+        if (!link || seen.has(link.normalized_url)) continue;
+        seen.add(link.normalized_url);
+        links.push(link);
+    }
+    // Re-sync from text so removed URLs drop stale preview associations.
+    links = mergeLinksWithText(text, links);
+
     return {
         id: String(comment.id || makeId('cmt')),
         text,
@@ -154,7 +169,69 @@ function normalizeComment(comment) {
         source: comment.source === 'ai' ? 'ai' : 'manual',
         author_user_id: comment.author_user_id ?? comment.created_by_user_id ?? null,
         author_display_name: comment.author_display_name || '',
+        links,
     };
+}
+
+function normalizeLinksFromText(text) {
+    const re = /https?:\/\/[^\s<>"'）)\]]+/gi;
+    const out = [];
+    const seen = new Set();
+    let m;
+    const src = String(text || '');
+    while ((m = re.exec(src)) !== null) {
+        const link = normalizeLink(m[0].replace(/[),.;!?]+$/g, ''));
+        if (!link || seen.has(link.normalized_url)) continue;
+        seen.add(link.normalized_url);
+        out.push(link);
+    }
+    return out;
+}
+
+/**
+ * Keep only URLs still present in text; preserve preview meta for survivors.
+ * @param {string} text
+ * @param {Array<Record<string, unknown>>} previous
+ */
+function mergeLinksWithText(text, previous) {
+    const fresh = normalizeLinksFromText(text);
+    /** @type {Map<string, Record<string, unknown>>} */
+    const prev = new Map();
+    for (const link of previous || []) {
+        prev.set(String(link.normalized_url), link);
+    }
+    return fresh.map((stub) => {
+        const hit = prev.get(stub.normalized_url);
+        return hit ? { ...stub, ...pickPreviewFields(hit) } : stub;
+    });
+}
+
+function pickPreviewFields(link) {
+    return {
+        preview_url: link.preview_url ?? null,
+        preview_title: link.preview_title ?? null,
+        preview_description: link.preview_description ?? null,
+        preview_image_url: link.preview_image_url ?? null,
+        preview_domain: link.preview_domain ?? null,
+        preview_fetched_at: link.preview_fetched_at ?? null,
+        preview_status: link.preview_status ?? null,
+    };
+}
+
+/**
+ * @param {unknown} raw
+ * @returns {Record<string, Record<string, unknown>>}
+ */
+export function normalizeLinkPreviewCache(raw) {
+    /** @type {Record<string, Record<string, unknown>>} */
+    const out = {};
+    if (!raw || typeof raw !== 'object') return out;
+    for (const [key, value] of Object.entries(raw)) {
+        const link = normalizeLink(value && typeof value === 'object' ? { ...value, normalized_url: value.normalized_url || key } : key);
+        if (!link || !link.preview_fetched_at) continue;
+        out[link.normalized_url] = link;
+    }
+    return out;
 }
 
 function resolveTopicState(topic, comments) {
@@ -288,6 +365,23 @@ export function migrateVersion(raw) {
         ? doc.reports.map(normalizeReport).filter(Boolean)
         : [];
 
+    let linkPreviews = normalizeLinkPreviewCache(doc.link_previews);
+    // Backfill shared cache from embedded topic/comment link metas (V5 → V6).
+    for (const topic of topics) {
+        for (const link of topic.links || []) {
+            if (!link.preview_fetched_at) continue;
+            const key = String(link.normalized_url);
+            if (!linkPreviews[key]) linkPreviews[key] = normalizeLink(link);
+        }
+        for (const comment of topic.comments || []) {
+            for (const link of comment.links || []) {
+                if (!link.preview_fetched_at) continue;
+                const key = String(link.normalized_url);
+                if (!linkPreviews[key]) linkPreviews[key] = normalizeLink(link);
+            }
+        }
+    }
+
     const uiRaw = /** @type {Record<string, unknown>} */ (
         (doc.ui && typeof doc.ui === 'object' ? doc.ui : null)
         || (doc.workspace && typeof doc.workspace === 'object' ? doc.workspace : {})
@@ -303,6 +397,7 @@ export function migrateVersion(raw) {
         updated_at: typeof doc.updated_at === 'string' ? doc.updated_at : new Date().toISOString(),
         topics,
         reports,
+        link_previews: linkPreviews,
         ui: {
             filter,
             search: String(uiRaw.search ?? ''),
@@ -411,6 +506,7 @@ export function writeDocument(scope, doc) {
             updated_at: new Date().toISOString(),
             topics: Array.isArray(doc.topics) ? doc.topics.map((t) => normalizeTopic(t)) : [],
             reports: Array.isArray(doc.reports) ? doc.reports.map(normalizeReport).filter(Boolean) : [],
+            link_previews: normalizeLinkPreviewCache(doc.link_previews),
             ui: {
                 filter: doc.ui?.filter || 'work',
                 search: doc.ui?.search || '',

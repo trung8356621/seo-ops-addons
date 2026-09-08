@@ -29,7 +29,8 @@ final class DefaultSplitOutlinePromptsInstallerTest extends TestCase
     {
         $markdown = DefaultSplitOutlinePromptsInstaller::OUTLINE_MARKDOWN;
         self::assertStringContainsString('{{input}}', $markdown);
-        self::assertStringContainsString('Nhiệm vụ: Dàn ý', $markdown);
+        self::assertStringContainsString('{{article_length}}', $markdown);
+        self::assertStringContainsString('[MỞ BÀI — KHÔNG HEADING]', $markdown);
         self::assertStringNotContainsString('START_TASK_1_OUTLINE', $markdown);
         self::assertStringNotContainsString('START_TASK_2_VOCABULARY', $markdown);
         self::assertStringNotContainsString('Holonymy', $markdown);
@@ -79,6 +80,9 @@ final class DefaultSplitOutlinePromptsInstallerTest extends TestCase
         );
         self::assertFileExists(
             ProjectRoot::addonsPath().'/ai-prompt/database/migrations/2026_09_04_140000_refresh_split_outline_vocabulary_markerless_contract.php',
+        );
+        self::assertFileExists(
+            ProjectRoot::addonsPath().'/ai-prompt/database/migrations/2026_09_08_120000_refresh_outline_target_word_density_contract.php',
         );
 
         $provider = (string) file_get_contents(LegacyAddonPath::resolve('SeoContentAiServiceProvider.php'));

@@ -11,9 +11,11 @@ import TopicCard from './TopicCard';
  *   canMutate: boolean,
  *   userId: number|string,
  *   userDisplayName?: string,
+ *   linkPreviewCache?: Record<string, Record<string, unknown>>,
  *   onOpenDetail: (topic: Record<string, unknown>) => void,
  *   onCommentsChange: (topic: Record<string, unknown>, comments: Array<Record<string, unknown>>) => void,
  *   onLinksChange: (topic: Record<string, unknown>, links: Array<Record<string, unknown>>) => void,
+ *   onCacheUpdate?: (cache: Record<string, Record<string, unknown>>) => void,
  *   onEdit: (topic: Record<string, unknown>) => void,
  *   onDelete: (topic: Record<string, unknown>) => void,
  *   onShare: (topic: Record<string, unknown>) => void,
@@ -26,9 +28,11 @@ export default function TopicFeed({
     canMutate,
     userId,
     userDisplayName = '',
+    linkPreviewCache = {},
     onOpenDetail,
     onCommentsChange,
     onLinksChange,
+    onCacheUpdate,
     onEdit,
     onDelete,
     onShare,
@@ -60,9 +64,11 @@ export default function TopicFeed({
                             canMutate={canMutate}
                             userId={userId}
                             userDisplayName={userDisplayName}
+                            linkPreviewCache={linkPreviewCache}
                             onOpenDetail={onOpenDetail}
                             onCommentsChange={onCommentsChange}
                             onLinksChange={onLinksChange}
+                            onCacheUpdate={onCacheUpdate}
                             onEdit={onEdit}
                             onDelete={onDelete}
                             onShare={onShare}

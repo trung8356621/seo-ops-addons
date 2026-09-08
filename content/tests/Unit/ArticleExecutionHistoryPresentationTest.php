@@ -420,4 +420,14 @@ final class ArticleExecutionHistoryPresentationTest extends TestCase
 
         return $result;
     }
+
+    public function test_default_tab_is_ai_calls_and_workflow_cards_removed(): void
+    {
+        $src = (string) file_get_contents((new ReflectionClass(ViewArticlePrompts::class))->getFileName());
+        self::assertStringContainsString("activeTab = 'ai_calls'", $src);
+        $jsx = (string) file_get_contents(ProjectRoot::addonsPath().'/content/resources/js/article-execution-history.jsx');
+        self::assertStringContainsString('collectNodeHistory', $jsx);
+        self::assertStringNotContainsString('setActiveRunId', $jsx);
+    }
+
 }

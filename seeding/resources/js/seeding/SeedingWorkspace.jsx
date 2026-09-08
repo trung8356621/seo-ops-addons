@@ -56,6 +56,7 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
 
     const [topics, setTopics] = useState([]);
     const [reports, setReports] = useState([]);
+    const [linkPreviews, setLinkPreviews] = useState({});
     const [filter, setFilter] = useState('work');
     const [search, setSearch] = useState('');
     const [composerOpen, setComposerOpen] = useState(false);
@@ -71,10 +72,12 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
     const toastTimer = useRef(null);
     const topicsRef = useRef(topics);
     const reportsRef = useRef(reports);
+    const linkPreviewsRef = useRef(linkPreviews);
     const uiRef = useRef({});
 
     useEffect(() => { topicsRef.current = topics; }, [topics]);
     useEffect(() => { reportsRef.current = reports; }, [reports]);
+    useEffect(() => { linkPreviewsRef.current = linkPreviews; }, [linkPreviews]);
     useEffect(() => {
         uiRef.current = {
             filter,
@@ -92,12 +95,13 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
         toastTimer.current = setTimeout(() => setToast(null), 3500);
     }, []);
 
-    const persistNow = useCallback((nextTopics, nextReports, uiPartial = {}) => {
+    const persistNow = useCallback((nextTopics, nextReports, uiPartial = {}, nextLinkPreviews = linkPreviewsRef.current) => {
         const current = readDocument(scope);
         writeDocument(scope, {
             ...current,
             topics: nextTopics,
             reports: nextReports,
+            link_previews: nextLinkPreviews,
             ui: {
                 ...uiRef.current,
                 ...uiPartial,
@@ -105,8 +109,8 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
         });
     }, [scope]);
 
-    const schedulePersist = useCallback((nextTopics, nextReports) => {
-        writer.current.schedule(() => persistNow(nextTopics, nextReports));
+    const schedulePersist = useCallback((nextTopics, nextReports, nextLinkPreviews = linkPreviewsRef.current) => {
+        writer.current.schedule(() => persistNow(nextTopics, nextReports, {}, nextLinkPreviews));
     }, [persistNow]);
 
     useEffect(() => {
@@ -120,6 +124,7 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
         ));
         setTopics(topicsOwned);
         setReports(doc.reports || []);
+        setLinkPreviews(doc.link_previews && typeof doc.link_previews === 'object' ? doc.link_previews : {});
         setFilter(doc.ui?.filter || 'work');
         setSearch(doc.ui?.search || '');
         setDetailId(doc.ui?.detail_topic_id ? String(doc.ui.detail_topic_id) : null);
@@ -129,7 +134,7 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
         setComposerOpen(false);
         setComposer(null);
         if (topicsOwned.some((t, i) => t !== topicsRaw[i])) {
-            schedulePersist(topicsOwned, doc.reports || []);
+            schedulePersist(topicsOwned, doc.reports || [], doc.link_previews || {});
         }
     }, [scope, userId, userDisplayName, schedulePersist]);
 
@@ -171,12 +176,21 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
         return { topic: null, comment: null };
     }, [activeWorkItemId, topics]);
 
-    const replaceTopics = useCallback((nextTopics, nextReports = reportsRef.current) => {
+    const replaceTopics = useCallback((nextTopics, nextReports = reportsRef.current, nextLinkPreviews = linkPreviewsRef.current) => {
         topicsRef.current = nextTopics;
         reportsRef.current = nextReports;
+        linkPreviewsRef.current = nextLinkPreviews;
         setTopics(nextTopics);
         setReports(nextReports);
-        schedulePersist(nextTopics, nextReports);
+        setLinkPreviews(nextLinkPreviews);
+        schedulePersist(nextTopics, nextReports, nextLinkPreviews);
+    }, [schedulePersist]);
+
+    const updateLinkPreviewCache = useCallback((nextCache) => {
+        const merged = { ...linkPreviewsRef.current, ...nextCache };
+        linkPreviewsRef.current = merged;
+        setLinkPreviews(merged);
+        schedulePersist(topicsRef.current, reportsRef.current, merged);
     }, [schedulePersist]);
 
     const patchTopicByKey = useCallback((key, patcher) => {
@@ -549,10 +563,12 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
                         canEdit={canEditTopic(detailTopic, userId, canMutate)}
                         userId={userId}
                         userDisplayName={userDisplayName}
+                        linkPreviewCache={linkPreviews}
                         onBack={closeDetail}
                         onDelete={() => deleteTopic(detailTopic)}
                         onEdit={() => editTopic(detailTopic)}
                         onCommentsChange={(comments) => updateTopicComments(detailTopic, comments)}
+                        onCacheUpdate={updateLinkPreviewCache}
                         onShare={() => shareTopic(detailTopic)}
                         onClaim={claimComment}
                     />
@@ -616,9 +632,11 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
                             canMutate={canMutate}
                             userId={userId}
                             userDisplayName={userDisplayName}
+                            linkPreviewCache={linkPreviews}
                             onOpenDetail={openDetail}
                             onCommentsChange={updateTopicComments}
                             onLinksChange={updateTopicLinks}
+                            onCacheUpdate={updateLinkPreviewCache}
                             onEdit={editTopic}
                             onDelete={deleteTopic}
                             onShare={shareTopic}

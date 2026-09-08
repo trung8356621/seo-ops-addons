@@ -110,6 +110,8 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
                 'resolved_generation_strategy' => $contextExtras['resolved_generation_strategy'] ?? null,
                 'generation_strategy_override' => $contextExtras['generation_strategy_override'] ?? null,
                 'generation_shape' => $contextExtras['generation_shape'] ?? null,
+                'article_id' => $contextExtras['article_id'] ?? $variables['article_id'] ?? null,
+                'writing_split_enabled' => $variables['writing_split_enabled'] ?? $contextExtras['writing_split_enabled'] ?? null,
             ], static fn (mixed $v): bool => $v !== null && $v !== ''),
         );
 
@@ -176,6 +178,10 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
                 $variables,
                 ArticleGenerationStrategy::SinglePass,
             );
+            $variables['pass_mode'] = $variables['pass_mode'] ?? 'single_pass';
+            $variables['writing_scope'] = $variables['writing_scope']
+                ?? \Omnichannel\Addons\AiPrompt\Support\WritingSectionScopeInstructions::SCOPE_ARTICLE;
+            $variables['writing_split_enabled'] = (bool) ($variables['writing_split_enabled'] ?? false);
         }
 
         // Writing pass-mode only. Outline / Vocabulary are normal single prompt executions.
@@ -192,6 +198,9 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
                 'strategy_source',
                 'strategy_override',
                 'pass_mode',
+                'writing_scope',
+                'writing_split_enabled',
+                'writing_scope_instructions',
             ] as $writingPassKey) {
                 unset($variables[$writingPassKey]);
             }
@@ -536,6 +545,17 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
             }
         }
 
+        // Outline density guidance: mirror article_length ↔ target_words for {{…}} compile only.
+        $lengthRaw = trim((string) ($out['article_length'] ?? $out['target_words'] ?? ''));
+        if ($lengthRaw !== '') {
+            if (trim((string) ($out['article_length'] ?? '')) === '') {
+                $out['article_length'] = $lengthRaw;
+            }
+            if (trim((string) ($out['target_words'] ?? '')) === '') {
+                $out['target_words'] = $lengthRaw;
+            }
+        }
+
         return $out;
     }
 
@@ -561,7 +581,15 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
             'heading_context' => ['heading_context', 'input', 'context', 'outline_context'],
             'language' => ['language', 'locale', 'lang'],
             'search_intent' => ['search_intent', 'intent'],
-            'article_length' => ['article_length', 'article_length_default', 'article_length_product'],
+            'article_length' => [
+                'article_length',
+                'target_words',
+                'target_article_length',
+                'resolved_article_length',
+                '_item_content_length_target_words',
+                'article_length_default',
+                'article_length_product',
+            ],
             'keyword_density' => ['keyword_density', 'keyword_density_default', 'keyword_density_product'],
         ];
 
@@ -572,10 +600,17 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
             }
             $field = (string) $field;
             $value = $variables[$field] ?? null;
-            // article_length: ưu tiên key đã resolve theo post_type; không nhảy product trước default.
+            // article_length: item/runtime target first, then settings aliases — never invent a hard cap.
             if ($field === 'article_length') {
                 if ($value === null || $value === '') {
-                    foreach (['article_length_default', 'article_length_product'] as $alias) {
+                    foreach ([
+                        'target_words',
+                        'target_article_length',
+                        'resolved_article_length',
+                        '_item_content_length_target_words',
+                        'article_length_default',
+                        'article_length_product',
+                    ] as $alias) {
                         if (isset($variables[$alias]) && $variables[$alias] !== '' && $variables[$alias] !== null) {
                             $value = $variables[$alias];
                             break;
@@ -598,7 +633,14 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
             }
             if ($field === 'article_length') {
                 if (($value === null || $value === '')) {
-                    foreach (['article_length_default', 'article_length_product'] as $alias) {
+                    foreach ([
+                        'target_words',
+                        'target_article_length',
+                        'resolved_article_length',
+                        '_item_content_length_target_words',
+                        'article_length_default',
+                        'article_length_product',
+                    ] as $alias) {
                         if (isset($previousOutputs[$alias]) && $previousOutputs[$alias] !== '' && $previousOutputs[$alias] !== null) {
                             $value = $previousOutputs[$alias];
                             break;

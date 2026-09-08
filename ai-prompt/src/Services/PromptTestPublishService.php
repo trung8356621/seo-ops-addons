@@ -293,6 +293,9 @@ final class PromptTestPublishService
             ['meta_value' => $markdown],
         );
 
+        app(\Omnichannel\Addons\Content\Services\ArticleOutlineResolver::class)
+            ->persistStructuredRows($article, $markdown);
+
         $article->articleMetas()->updateOrCreate(
             ['meta_key' => 'seo_outline_json'],
             [

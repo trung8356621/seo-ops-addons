@@ -24,8 +24,12 @@ class ArticleOutlineResolver
 
     public const META_KEY_PARSED = 'seo_article_outlines';
 
+    /** Structured rows SoT for MULTIPLE_PASS planning only — not SINGLE_PASS Writing input. */
+    public const META_KEY_ROWS = 'seo_article_outline_rows';
+
     public function __construct(
         private readonly WorkflowParserService $workflowParser,
+        private readonly OutlineStructuredRowsNormalizer $rowsNormalizer = new OutlineStructuredRowsNormalizer(),
     ) {}
 
     public function resolveMarkdown(?SeoArticle $article): string
@@ -115,6 +119,8 @@ class ArticleOutlineResolver
             );
         }
 
+        $this->persistStructuredRows($article, $markdown);
+
         $article->unsetRelation('articleMetas');
         $article->load('articleMetas');
 
@@ -131,6 +137,103 @@ class ArticleOutlineResolver
             'markdown' => $markdown,
             'message' => null,
         ];
+    }
+
+    /**
+     * @return list<array{
+     *   id: string,
+     *   order: int,
+     *   level: int,
+     *   title: string,
+     *   note: string,
+     *   parent_id: ?string,
+     *   kind: string
+     * }>
+     */
+    public function resolveStructuredRows(?SeoArticle $article): array
+    {
+        if (! $article instanceof SeoArticle) {
+            return [];
+        }
+
+        $article->loadMissing('articleMetas');
+        $raw = trim((string) (
+            $article->articleMetas->firstWhere('meta_key', self::META_KEY_ROWS)?->meta_value ?? ''
+        ));
+        if ($raw === '') {
+            return [];
+        }
+
+        $decoded = json_decode($raw, true);
+        if (! is_array($decoded)) {
+            return [];
+        }
+
+        $rows = [];
+        foreach ($decoded as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $id = trim((string) ($row['id'] ?? ''));
+            if ($id === '') {
+                continue;
+            }
+            $rows[] = [
+                'id' => $id,
+                'order' => (int) ($row['order'] ?? count($rows) + 1),
+                'level' => (int) ($row['level'] ?? 0),
+                'title' => trim((string) ($row['title'] ?? '')),
+                'note' => trim((string) ($row['note'] ?? '')),
+                'parent_id' => isset($row['parent_id']) && $row['parent_id'] !== null && $row['parent_id'] !== ''
+                    ? (string) $row['parent_id']
+                    : null,
+                'kind' => trim((string) ($row['kind'] ?? OutlineStructuredRowsNormalizer::KIND_OTHER)),
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * One-time bootstrap for legacy articles missing rows. After persist, callers
+     * must read rows — do not re-normalize on retry/resume.
+     *
+     * @return list<array{
+     *   id: string,
+     *   order: int,
+     *   level: int,
+     *   title: string,
+     *   note: string,
+     *   parent_id: ?string,
+     *   kind: string
+     * }>
+     */
+    public function ensureStructuredRows(SeoArticle $article): array
+    {
+        $existing = $this->resolveStructuredRows($article);
+        if ($existing !== []) {
+            return $existing;
+        }
+
+        $markdown = $this->resolveMarkdown($article);
+        if ($markdown === '') {
+            return [];
+        }
+
+        $this->persistStructuredRows($article, $markdown);
+        $article->unsetRelation('articleMetas');
+        $article->load('articleMetas');
+
+        return $this->resolveStructuredRows($article);
+    }
+
+    public function persistStructuredRows(SeoArticle $article, string $markdown): void
+    {
+        $rows = $this->rowsNormalizer->normalize($markdown);
+        $article->articleMetas()->updateOrCreate(
+            ['meta_key' => self::META_KEY_ROWS],
+            ['meta_value' => json_encode($rows, JSON_UNESCAPED_UNICODE)],
+        );
     }
 
     /**

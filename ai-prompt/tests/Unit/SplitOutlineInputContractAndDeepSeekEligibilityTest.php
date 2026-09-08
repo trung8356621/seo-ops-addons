@@ -18,6 +18,7 @@ final class SplitOutlineInputContractAndDeepSeekEligibilityTest extends TestCase
     {
         $md = DefaultSplitOutlinePromptsInstaller::OUTLINE_MARKDOWN;
         self::assertStringContainsString('{{input}}', $md);
+        self::assertStringContainsString('{{article_length}}', $md);
         self::assertStringNotContainsString('START_TASK_1_OUTLINE', $md);
         self::assertStringNotContainsString('2 loại đầu ra riêng biệt', $md);
         self::assertStringNotContainsString('START_TASK_2_VOCABULARY', $md);

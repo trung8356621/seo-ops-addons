@@ -80,7 +80,7 @@ final class SeedingWorkspaceContractTest extends TestCase
             $this->addonRoot().'/resources/js/seeding/services/linkExtract.js'
         );
 
-        self::assertStringContainsString('SCHEMA_VERSION = 5', $storage);
+        self::assertStringContainsString('SCHEMA_VERSION = 6', $storage);
         self::assertMatchesRegularExpression(
             '/seeding:v5:\$\{installationId\}:\$\{userId\}:workspace/',
             $storage
@@ -173,6 +173,7 @@ final class SeedingWorkspaceContractTest extends TestCase
             'TopicCommentsSection.jsx',
             'TeamStatsSidebar.jsx',
             'FeedCommentsBlock.jsx',
+            'CommentRichBody.jsx',
             'LinkPreviewCard.jsx',
             'ContentWithLinkPreviews.jsx',
             'CommentWorkList.jsx',

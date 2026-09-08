@@ -5682,6 +5682,8 @@ class EditArticle extends SeoEditRecord
             ['meta_key' => 'seo_article_outline'],
             ['meta_value' => $outline],
         );
+        app(\Omnichannel\Addons\Content\Services\ArticleOutlineResolver::class)
+            ->persistStructuredRows($this->record, $outline);
         $this->record->refresh();
 
         return [

@@ -69,6 +69,15 @@
       "max_length": 500,
       "allowed_source": ["seo_prompt_settings", "runtime"]
     },
+    "article_length": {
+      "type": "integer",
+      "required": false,
+      "nullable": true,
+      "minimum": 300,
+      "maximum": 20000,
+      "description": "Target article length in words — controls Outline heading density (editorial heuristic, not hard validation).",
+      "allowed_source": ["seo_prompt_settings", "runtime"]
+    },
     "language": {
       "type": "string",
       "required": false,
@@ -106,6 +115,7 @@
       { "key": "topic", "required": false },
       { "key": "site_description", "required": false },
       { "key": "tone", "required": false },
+      { "key": "article_length", "required": false },
       { "key": "language", "required": false }
     ]
   },

@@ -1,5 +1,6 @@
 /**
- * Split topic content into text / URL segments for inline link-preview replacement.
+ * Split content into text / URL segments for inline link-preview replacement.
+ * Shared by Topic + Comment via ContentWithLinkPreviews.
  */
 
 const URL_RE = /https?:\/\/[^\s<>"'）)\]]+/gi;

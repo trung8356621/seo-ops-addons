@@ -196,6 +196,7 @@ final class SeedingFeedUxContractTest extends TestCase
         self::assertStringContainsString('preview_image_url', $storage);
         self::assertStringContainsString('preview_fetched_at', $storage);
         self::assertStringContainsString('sidebar_collapsed', $storage);
+        self::assertStringContainsString('link_previews', $storage);
         self::assertStringNotContainsString('selected_topic_id', $storage);
     }
 }

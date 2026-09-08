@@ -9,6 +9,7 @@ use Omnichannel\Addons\AiPrompt\Models\SeoPromptResultLink;
 use Omnichannel\Addons\AiPrompt\Models\SeoTask;
 use Omnichannel\Addons\AiPrompt\Services\PromptExecutionProfileResolver;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Models\SeoArticleAiHistoryTombstone;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRunItem;
 use Omnichannel\Addons\ContentProjects\Services\WorkflowRoles\WorkflowExecutionSnapshotBuilder;
@@ -68,6 +69,8 @@ final class ArticleExecutionHistoryService
             ->orderBy('id')
             ->get()
             ->groupBy(static fn (SeoPromptResultLink $link): int => (int) ($link->project_run_id ?? 0));
+
+        $hiddenPromptResultIds = $this->hiddenPromptResultIds($articleId);
 
         $resultIds = $linksByRun
             ->flatten(1)
@@ -163,7 +166,7 @@ final class ArticleExecutionHistoryService
             $trace = $this->collectExecutionTrace($items);
             $hasFullTrace = $this->hasFullExecutionTrace($items);
             $links = $linksByRun->get((int) $runId, collect());
-            $executionByNodeId = $this->buildExecutionByNodeId($workflow, $trace, $links, $results, $hasFullTrace);
+            $executionByNodeId = $this->buildExecutionByNodeId($workflow, $trace, $links, $results, $hasFullTrace, $hiddenPromptResultIds);
             $workflowNodes = is_array($workflow['nodes'] ?? null) ? $workflow['nodes'] : [];
 
             $runs[] = [
@@ -345,12 +348,16 @@ final class ArticleExecutionHistoryService
      * @param  \Illuminate\Support\Collection<int, PromptResult>  $results
      * @return array<string, array<string, mixed>>
      */
+    /**
+     * @param  array<int, true>  $hiddenPromptResultIds
+     */
     private function buildExecutionByNodeId(
         array $workflow,
         array $trace,
         \Illuminate\Support\Collection $links,
         \Illuminate\Support\Collection $results,
         bool $hasFullTrace,
+        array $hiddenPromptResultIds = [],
     ): array {
         $traceByNode = [];
         foreach ($trace as $row) {
@@ -389,6 +396,7 @@ final class ArticleExecutionHistoryService
                 $linksByNode[$nodeId] ?? [],
                 $results,
                 $hasFullTrace,
+                hiddenPromptResultIds: $hiddenPromptResultIds,
             );
             unset($traceByNode[$nodeId]);
         }
@@ -406,6 +414,7 @@ final class ArticleExecutionHistoryService
                 $results,
                 $hasFullTrace,
                 mappingConfidence: 'legacy',
+                hiddenPromptResultIds: $hiddenPromptResultIds,
             );
         }
 
@@ -417,6 +426,9 @@ final class ArticleExecutionHistoryService
      * @param  list<SeoPromptResultLink>  $nodeLinks
      * @return array<string, mixed>
      */
+    /**
+     * @param  array<int, true>  $hiddenPromptResultIds
+     */
     private function buildNodeExecutionRow(
         string $nodeId,
         string $type,
@@ -425,6 +437,7 @@ final class ArticleExecutionHistoryService
         \Illuminate\Support\Collection $results,
         bool $hasFullTrace,
         string $mappingConfidence = 'workflow_node_id',
+        array $hiddenPromptResultIds = [],
     ): array {
         if ($traceRow === null) {
             $status = $hasFullTrace ? 'not_reached' : 'unknown';
@@ -448,7 +461,7 @@ final class ArticleExecutionHistoryService
             'action' => is_array($traceRow) ? ($traceRow['action'] ?? null) : null,
             'filter_type' => is_array($traceRow) ? ($traceRow['filter_type'] ?? null) : null,
             'type' => $type,
-            'ai_calls' => $this->buildAiCallsForNode($nodeId, $traceRow, $nodeLinks, $results),
+            'ai_calls' => $this->buildAiCallsForNode($nodeId, $traceRow, $nodeLinks, $results, $hiddenPromptResultIds),
             'is_prompt' => $type === 'prompt',
             'has_prompt_result' => $this->nodeHasPromptResult($traceRow, $nodeLinks),
             'mapping_confidence' => $mappingConfidence,
@@ -512,11 +525,15 @@ final class ArticleExecutionHistoryService
      * @param  \Illuminate\Support\Collection<int, PromptResult>  $results
      * @return list<array<string, mixed>>
      */
+    /**
+     * @param  array<int, true>  $hiddenPromptResultIds
+     */
     private function buildAiCallsForNode(
         string $nodeId,
         ?array $traceRow,
         array $nodeLinks,
         \Illuminate\Support\Collection $results,
+        array $hiddenPromptResultIds = [],
     ): array {
         $calls = [];
         $seen = [];
@@ -569,6 +586,9 @@ final class ArticleExecutionHistoryService
 
         foreach ($candidateIds as $resultId) {
             if (isset($seen[$resultId])) {
+                continue;
+            }
+            if (isset($hiddenPromptResultIds[$resultId])) {
                 continue;
             }
             $result = $results->get($resultId);
@@ -633,6 +653,10 @@ final class ArticleExecutionHistoryService
 
             $attempt = (int) ($snapshot['attempt'] ?? $snapshot['attempt_number'] ?? 0);
 
+            $passMode = trim((string) ($snapshot['pass_mode'] ?? $snapshot['variables']['pass_mode'] ?? ''));
+            $stepsTotal = (int) ($snapshot['steps_total'] ?? $snapshot['sectioned_free']['steps_total'] ?? 0);
+            $stepsSuccess = (int) ($snapshot['steps_success'] ?? $snapshot['sectioned_free']['steps_success'] ?? 0);
+
             $calls[] = [
                 'result_id' => $resultId,
                 'prompt_result_id' => $resultId,
@@ -651,6 +675,9 @@ final class ArticleExecutionHistoryService
                 'mapping_confidence' => $nodeId !== '' ? 'workflow_node_id' : 'legacy',
                 'route_position' => $snapshot['route_position'] ?? null,
                 'is_free' => $snapshot['is_free'] ?? null,
+                'pass_mode' => $passMode !== '' ? strtoupper($passMode) : null,
+                'steps_total' => $stepsTotal > 0 ? $stepsTotal : null,
+                'steps_success' => $stepsSuccess > 0 ? $stepsSuccess : null,
             ];
         }
 
@@ -777,4 +804,42 @@ final class ArticleExecutionHistoryService
             default => str_replace('_', ' ', $skipReason),
         };
     }
+
+    /**
+     * PromptResult IDs hidden via AI Calls tombstone (and by artifact_ref pr:ID).
+     *
+     * @return array<int, true>
+     */
+    private function hiddenPromptResultIds(int $articleId): array
+    {
+        if ($articleId <= 0) {
+            return [];
+        }
+
+        $hidden = [];
+        try {
+            $rows = SeoArticleAiHistoryTombstone::query()
+                ->where('article_id', $articleId)
+                ->get(['prompt_result_id', 'artifact_ref']);
+        } catch (\Throwable) {
+            return [];
+        }
+
+        foreach ($rows as $row) {
+            $pid = (int) ($row->prompt_result_id ?? 0);
+            if ($pid > 0) {
+                $hidden[$pid] = true;
+            }
+            $ref = trim((string) ($row->artifact_ref ?? ''));
+            if (str_starts_with($ref, 'pr:')) {
+                $fromRef = (int) substr($ref, 3);
+                if ($fromRef > 0) {
+                    $hidden[$fromRef] = true;
+                }
+            }
+        }
+
+        return $hidden;
+    }
+
 }

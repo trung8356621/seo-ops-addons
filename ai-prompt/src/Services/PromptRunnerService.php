@@ -1210,7 +1210,7 @@ class PromptRunnerService
 
         $snapshot = ArticleGenerationStrategySnapshot::fromVariables($variables);
 
-        return array_merge([
+        $fields = array_merge([
             'strategy_override' => $snapshot->strategyOverride,
             'generation_strategy_override' => $snapshot->strategyOverride,
             'strategy_resolved' => $snapshot->strategyResolved,
@@ -1218,6 +1218,35 @@ class PromptRunnerService
             'generation_strategy' => $snapshot->strategyResolved,
             'resolved_generation_strategy' => $snapshot->strategyResolved,
         ], $taskIdField);
+
+        $passMode = trim((string) ($variables['pass_mode'] ?? ''));
+        if ($passMode === '') {
+            $passMode = $snapshot->strategyResolved === 'sectioned' || $snapshot->strategyResolved === 'sectioned_free'
+                ? 'multiple_pass'
+                : (string) ($variables['generation_shape'] ?? $snapshot->strategyResolved);
+            if ($passMode === 'sectioned' || $passMode === 'sectioned_free') {
+                $passMode = 'multiple_pass';
+            }
+            if ($passMode === '') {
+                $passMode = 'single_pass';
+            }
+        }
+        $fields['pass_mode'] = $passMode;
+        if ($passMode === 'multiple_pass') {
+            $fields['strategy_resolved'] = 'multiple_pass';
+        }
+        if (array_key_exists('writing_split_enabled', $variables)) {
+            $fields['writing_split_enabled'] = (bool) $variables['writing_split_enabled'];
+        }
+        if (trim((string) ($variables['writing_scope'] ?? '')) !== '') {
+            $fields['writing_scope'] = (string) $variables['writing_scope'];
+        }
+        if (trim((string) ($variables['generation_shape_source'] ?? '')) !== '') {
+            $fields['generation_shape_source'] = (string) $variables['generation_shape_source'];
+            $fields['strategy_source'] = (string) $variables['generation_shape_source'];
+        }
+
+        return $fields;
     }
 
     /**

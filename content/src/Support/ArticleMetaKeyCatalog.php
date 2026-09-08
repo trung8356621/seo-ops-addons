@@ -195,6 +195,22 @@ final class ArticleMetaKeyCatalog
                 'writers' => ['ArticleResource', 'ArticlesOptimal'],
                 'readers' => ['ArticleResource', 'ArticlesOptimal'],
             ],
+            'writing_split_enabled' => [
+                'purpose' => 'LEGACY article meta — ignored. Authority is user_meta via WritingSplitPreference',
+                'class' => self::CLASS_LEGACY,
+                'cleanup' => false,
+                'canonical_replacement' => 'user_meta.writing_split_enabled',
+                'writers' => [],
+                'readers' => [],
+            ],
+            'seo_article_outline_rows' => [
+                'purpose' => 'Structured Outline rows for MULTIPLE_PASS Writing planning only',
+                'class' => self::CLASS_CANONICAL,
+                'cleanup' => false,
+                'canonical_replacement' => null,
+                'writers' => ['ArticleOutlineResolver', 'OutlineStructuredRowsNormalizer'],
+                'readers' => ['ArticleOutlineResolver', 'WritingMultiplePassStepPlanner'],
+            ],
 
             // SEO fields
             'seo_focus_keyword' => [

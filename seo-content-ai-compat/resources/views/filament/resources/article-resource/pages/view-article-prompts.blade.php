@@ -5,9 +5,9 @@
     ])
 
     @php
-        $executionRuns = $this->getExecutionRuns();
         $groups = $this->getAiCallGroups();
-        $promptsForCanvas = $this->getPromptsForWorkflowCanvas();
+        $executionRuns = $activeTab === 'workflow' ? $this->getExecutionRuns() : [];
+        $promptsForCanvas = $activeTab === 'workflow' ? $this->getPromptsForWorkflowCanvas() : [];
         $articleId = $this->getArticleId();
         $articleEditUrl = $this->getArticleEditUrl();
         $articleTitle = trim((string) ($this->articleRecord?->title ?? ''));
@@ -39,6 +39,9 @@
                 'context_keyword' => __('seo-content-ai::filament.article_ai_history.context_keyword'),
                 'context_domain' => __('seo-content-ai::filament.article_ai_history.context_domain'),
                 'contextRouting' => __('seo-content-ai::filament.article_ai_history.context_routing'),
+                'nodeHistoryHeading' => __('seo-content-ai::filament.article_ai_history.node_history_heading'),
+                'effectiveSuccess' => __('seo-content-ai::filament.article_ai_history.effective_success'),
+                'emptyNodeHistory' => __('seo-content-ai::filament.article_ai_history.empty_node_history'),
             ],
         ];
     @endphp
@@ -100,17 +103,17 @@
         <nav class="mb-4 flex gap-2 border-b border-gray-200 dark:border-gray-700">
             <button
                 type="button"
-                class="px-4 py-2 text-sm font-medium {{ $activeTab === 'workflow' ? 'border-b-2 border-primary-600 text-primary-600' : 'text-gray-500' }}"
-                wire:click="setActiveTab('workflow')"
-            >
-                {{ __('seo-content-ai::filament.article_ai_history.tab_workflow') }}
-            </button>
-            <button
-                type="button"
                 class="px-4 py-2 text-sm font-medium {{ $activeTab === 'ai_calls' ? 'border-b-2 border-primary-600 text-primary-600' : 'text-gray-500' }}"
                 wire:click="setActiveTab('ai_calls')"
             >
                 {{ __('seo-content-ai::filament.article_ai_history.tab_ai_calls') }}
+            </button>
+            <button
+                type="button"
+                class="px-4 py-2 text-sm font-medium {{ $activeTab === 'workflow' ? 'border-b-2 border-primary-600 text-primary-600' : 'text-gray-500' }}"
+                wire:click="setActiveTab('workflow')"
+            >
+                {{ __('seo-content-ai::filament.article_ai_history.tab_workflow') }}
             </button>
         </nav>
 
@@ -124,12 +127,25 @@
                 ></div>
             </section>
             <script>
-                document.addEventListener('DOMContentLoaded', () => {
-                    const el = document.getElementById('article-execution-history-root');
-                    if (el && typeof window.mountArticleExecutionHistory === 'function') {
+                (() => {
+                    const mount = () => {
+                        const el = document.getElementById('article-execution-history-root');
+                        if (!el || el.dataset.executionHistoryMounted === '1') {
+                            return;
+                        }
+                        if (typeof window.mountArticleExecutionHistory !== 'function') {
+                            return;
+                        }
+                        el.dataset.executionHistoryMounted = '1';
                         window.mountArticleExecutionHistory(el);
+                    };
+                    mount();
+                    queueMicrotask(mount);
+                    document.addEventListener('livewire:navigated', mount);
+                    if (window.Livewire && typeof window.Livewire.hook === 'function') {
+                        window.Livewire.hook('morph.updated', () => queueMicrotask(mount));
                     }
-                });
+                })();
             </script>
         @else
         <section class="seo-run-history-summary">
@@ -307,15 +323,16 @@
                                 $isFreeCandidate,
                             );
                             $strategyResolved = strtolower(trim((string) (
-                                $promptItem['generation_shape']
+                                $promptItem['pass_mode']
+                                ?? $promptItem['generation_shape']
                                 ?? $promptItem['strategy_resolved']
                                 ?? $promptItem['generation_strategy']
                                 ?? ''
                             )));
-                            if ($strategyResolved === 'sectioned_free') {
-                                $strategyResolved = 'sectioned';
+                            if ($strategyResolved === 'sectioned_free' || $strategyResolved === 'sectioned') {
+                                $strategyResolved = 'multiple_pass';
                             }
-                            $showStrategyTag = in_array($strategyResolved, ['single_pass', 'sectioned'], true);
+                            $showStrategyTag = in_array($strategyResolved, ['single_pass', 'multiple_pass', 'sectioned'], true);
                             $tierTag = null;
                             if (array_key_exists('primary_is_free', $promptItem) || array_key_exists('is_free_candidate', $promptItem)) {
                                 $isFree = (bool) ($promptItem['primary_is_free'] ?? $promptItem['is_free_candidate'] ?? false);

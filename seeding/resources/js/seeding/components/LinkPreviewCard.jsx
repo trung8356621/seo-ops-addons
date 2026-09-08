@@ -2,28 +2,36 @@ import React from 'react';
 import { hasRichPreview } from '../features/workspace/content';
 
 /**
- * Compact vertical social-style link preview.
+ * Shared link preview card — Topic (vertical) + Comment (compact horizontal).
  *
  * @param {{
  *   link: Record<string, unknown>,
  *   href?: string,
+ *   variant?: 'topic' | 'comment',
  *   onNavigate?: (e: React.MouseEvent) => void,
  * }} props
  */
-export default function LinkPreviewCard({ link, href, onNavigate }) {
+export default function LinkPreviewCard({
+    link,
+    href,
+    variant = 'topic',
+    onNavigate,
+}) {
     if (!hasRichPreview(link)) return null;
     const url = href || link.preview_url || link.url;
     const title = link.preview_title || link.preview_domain || 'Link';
     const domain = link.preview_domain || '';
     const desc = link.preview_description || '';
     const image = link.preview_image_url || null;
+    const isComment = variant === 'comment';
 
     return (
         <a
-            className="seeding-ws__link-preview"
+            className={`seeding-ws__link-preview seeding-ws__link-preview--${variant}`}
             href={url}
             target="_blank"
             rel="noreferrer"
+            data-preview-variant={variant}
             onClick={(e) => {
                 e.stopPropagation();
                 onNavigate?.(e);
@@ -45,7 +53,9 @@ export default function LinkPreviewCard({ link, href, onNavigate }) {
             <div className="seeding-ws__link-preview-body">
                 <div className="seeding-ws__link-preview-title">{title}</div>
                 {domain ? <div className="seeding-ws__link-preview-domain">{domain}</div> : null}
-                {desc ? <div className="seeding-ws__link-preview-desc">{desc}</div> : null}
+                {!isComment && desc ? (
+                    <div className="seeding-ws__link-preview-desc">{desc}</div>
+                ) : null}
             </div>
         </a>
     );
