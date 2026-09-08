@@ -15,16 +15,14 @@ import { topicHasWorkHistory } from '../services/storage';
 import { fetchLinkPreview } from '../api';
 
 /**
- * Vertical feed card — select updates sidebar; detail is opt-in.
+ * Vertical feed card — actions live on the card; no select→sidebar side effect.
  *
  * @param {{
  *   topic: Record<string, unknown>,
  *   reports: Array<Record<string, unknown>>,
- *   selected: boolean,
  *   canMutate: boolean,
  *   userId: number|string,
  *   userDisplayName?: string,
- *   onSelect: (topic: Record<string, unknown>) => void,
  *   onOpenDetail: (topic: Record<string, unknown>) => void,
  *   onCommentsChange: (topic: Record<string, unknown>, comments: Array<Record<string, unknown>>) => void,
  *   onLinksChange: (topic: Record<string, unknown>, links: Array<Record<string, unknown>>) => void,
@@ -36,11 +34,9 @@ import { fetchLinkPreview } from '../api';
 export default function TopicCard({
     topic,
     reports,
-    selected,
     canMutate,
     userId,
     userDisplayName = '',
-    onSelect,
     onOpenDetail,
     onCommentsChange,
     onLinksChange,
@@ -57,7 +53,6 @@ export default function TopicCard({
 
     const canEdit = canEditTopic(topic, userId, canMutate);
     const canDel = canDeleteTopic(topic, userId, canMutate, reports, topicHasWorkHistory);
-
     useEffect(() => {
         if (fetchedRef.current) return;
         const links = Array.isArray(topic.links) ? topic.links : [];
@@ -90,13 +85,7 @@ export default function TopicCard({
 
     return (
         <article
-            className={`seeding-ws__vcard seeding-ws__vcard--${state}${selected ? ' is-selected' : ''}`}
-            onClick={() => onSelect(topic)}
-            onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') onSelect(topic);
-            }}
-            role="button"
-            tabIndex={0}
+            className={`seeding-ws__vcard seeding-ws__vcard--${state}`}
             data-topic-card
         >
             <div className="seeding-ws__vcard-head">
@@ -107,39 +96,37 @@ export default function TopicCard({
                         {shareStatusLabel(shareStatus)}
                     </span>
                 </div>
-                {(canEdit || canDel) ? (
-                    <div className="seeding-ws__menu" onClick={(e) => e.stopPropagation()}>
-                        <button
-                            type="button"
-                            className="seeding-ws__icon-btn"
-                            aria-label="Topic menu"
-                            onClick={() => setMenuOpen((v) => !v)}
-                        >
-                            <MoreHorizontal size={16} />
-                        </button>
-                        {menuOpen ? (
-                            <div className="seeding-ws__menu-pop">
-                                {canEdit ? (
-                                    <button type="button" onClick={() => { setMenuOpen(false); onEdit(topic); }}>
-                                        <Pencil size={12} /> Sửa
-                                    </button>
-                                ) : null}
-                                {canDel ? (
-                                    <button
-                                        type="button"
-                                        className="is-danger"
-                                        onClick={() => { setMenuOpen(false); onDelete(topic); }}
-                                    >
-                                        <Trash2 size={12} /> Xóa
-                                    </button>
-                                ) : null}
-                                <button type="button" onClick={() => { setMenuOpen(false); onOpenDetail(topic); }}>
-                                    Mở chi tiết
+                <div className="seeding-ws__menu">
+                    <button
+                        type="button"
+                        className="seeding-ws__icon-btn"
+                        aria-label="Topic menu"
+                        onClick={() => setMenuOpen((v) => !v)}
+                    >
+                        <MoreHorizontal size={16} />
+                    </button>
+                    {menuOpen ? (
+                        <div className="seeding-ws__menu-pop">
+                            {canEdit ? (
+                                <button type="button" onClick={() => { setMenuOpen(false); onEdit(topic); }}>
+                                    <Pencil size={12} /> Sửa
                                 </button>
-                            </div>
-                        ) : null}
-                    </div>
-                ) : null}
+                            ) : null}
+                            {canDel ? (
+                                <button
+                                    type="button"
+                                    className="is-danger"
+                                    onClick={() => { setMenuOpen(false); onDelete(topic); }}
+                                >
+                                    <Trash2 size={12} /> Xóa
+                                </button>
+                            ) : null}
+                            <button type="button" onClick={() => { setMenuOpen(false); onOpenDetail(topic); }}>
+                                Mở chi tiết
+                            </button>
+                        </div>
+                    ) : null}
+                </div>
             </div>
 
             {title ? <h3 className="seeding-ws__vcard-title">{title}</h3> : null}
@@ -148,6 +135,7 @@ export default function TopicCard({
                 text={String(topic.full_text || '').trim() || 'Chưa có nội dung.'}
                 links={topic.links || []}
                 clampLines={3}
+                maxRichPreviews={1}
                 className="seeding-ws__vcard-body"
             />
 
@@ -169,10 +157,7 @@ export default function TopicCard({
                         className="seeding-ws__btn seeding-ws__btn--primary"
                         disabled={!canMutate || shareStatus !== 'ready'}
                         title={shareStatus !== 'ready' ? 'Cần ít nhất 1 bình luận.' : undefined}
-                        onClick={(e) => {
-                            e.stopPropagation();
-                            onShare(topic);
-                        }}
+                        onClick={() => onShare(topic)}
                     >
                         Đẩy chia sẻ
                     </button>

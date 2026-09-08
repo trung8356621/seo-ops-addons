@@ -61,4 +61,152 @@ final class AiRoutesExhaustedExceptionTest extends TestCase
         self::assertStringContainsString('API key', $user);
         self::assertStringNotContainsString('hạn mức', $user);
     }
+
+    public function test_free_only_mixed_failures_do_not_map_to_quota_exhausted(): void
+    {
+        $exception = new AiRoutesExhaustedException(
+            attemptCount: 2,
+            routingAttempts: [
+                [
+                    'result' => 'skipped',
+                    'model' => 'anthropic/claude',
+                    'is_free' => false,
+                    'skip_reason' => 'connection_paid_locked',
+                ],
+                [
+                    'result' => 'failed',
+                    'model' => 'nvidia/nemotron:free',
+                    'is_free' => true,
+                    'failure_class' => 'transient_provider',
+                    'http_status' => 503,
+                ],
+                [
+                    'result' => 'failed',
+                    'model' => 'google/gemma:free',
+                    'is_free' => true,
+                    'failure_class' => 'rate_limited',
+                    'http_status' => 429,
+                ],
+            ],
+            diagnostics: [
+                'skip_counts' => ['connection_paid_locked' => 1],
+                'fail_counts' => [
+                    'transient_provider' => 1,
+                    'rate_limited' => 1,
+                ],
+            ],
+        );
+
+        $user = $exception->userMessage();
+        self::assertSame(AiRoutesExhaustedException::CLASSIFICATION, $exception->context['classification'] ?? null);
+        self::assertStringContainsString('model miễn phí', mb_strtolower($user));
+        self::assertStringNotContainsString('hạn mức', $user);
+        self::assertStringNotContainsString('kết nối dự phòng', mb_strtolower($user));
+        self::assertStringNotContainsString('AI_ROUTES_EXHAUSTED', $user);
+    }
+
+    public function test_explicit_quota_failure_maps_to_quota_message(): void
+    {
+        $exception = new AiRoutesExhaustedException(
+            attemptCount: 1,
+            routingAttempts: [
+                [
+                    'result' => 'failed',
+                    'model' => 'anthropic/claude',
+                    'is_free' => false,
+                    'failure_class' => 'insufficient_budget_for_request',
+                    'http_status' => 402,
+                ],
+            ],
+            diagnostics: [
+                'fail_counts' => ['insufficient_budget_for_request' => 1],
+            ],
+        );
+
+        $user = $exception->userMessage();
+        self::assertStringContainsString('hạn mức', $user);
+        self::assertStringNotContainsString('kết nối dự phòng', mb_strtolower($user));
+    }
+
+    public function test_429_does_not_map_to_quota_exhausted(): void
+    {
+        $exception = new AiRoutesExhaustedException(
+            attemptCount: 1,
+            routingAttempts: [
+                [
+                    'result' => 'skipped',
+                    'model' => 'anthropic/claude',
+                    'is_free' => false,
+                    'skip_reason' => 'connection_paid_locked',
+                ],
+                [
+                    'result' => 'failed',
+                    'model' => 'nvidia/nemotron:free',
+                    'is_free' => true,
+                    'failure_class' => 'rate_limited',
+                    'http_status' => 429,
+                ],
+            ],
+            diagnostics: [
+                'skip_counts' => ['connection_paid_locked' => 1],
+                'fail_counts' => ['rate_limited' => 1],
+            ],
+        );
+
+        $user = $exception->userMessage();
+        self::assertStringNotContainsString('hạn mức', $user);
+        self::assertStringContainsString('model miễn phí', mb_strtolower($user));
+    }
+
+    public function test_paid_plus_free_failures_do_not_use_free_only_copy(): void
+    {
+        $exception = new AiRoutesExhaustedException(
+            attemptCount: 2,
+            routingAttempts: [
+                [
+                    'result' => 'failed',
+                    'model' => 'anthropic/claude',
+                    'is_free' => false,
+                    'failure_class' => 'transient_provider',
+                ],
+                [
+                    'result' => 'failed',
+                    'model' => 'nvidia/nemotron:free',
+                    'is_free' => true,
+                    'failure_class' => 'transient_provider',
+                ],
+            ],
+            diagnostics: [
+                'retryable' => true,
+                'fail_counts' => ['transient_provider' => 2],
+            ],
+        );
+
+        $user = $exception->userMessage();
+        self::assertStringContainsString('tạm thời', mb_strtolower($user));
+        self::assertStringNotContainsString('hạn mức', $user);
+    }
+
+    public function test_ai_routes_exhausted_remains_terminal_aggregate_classification(): void
+    {
+        $exception = new AiRoutesExhaustedException(
+            attemptCount: 1,
+            routingAttempts: [
+                [
+                    'result' => 'failed',
+                    'model' => 'free/a',
+                    'is_free' => true,
+                    'failure_class' => 'provider_empty_output',
+                ],
+            ],
+            diagnostics: [
+                'fail_counts' => ['provider_empty_output' => 1],
+                'free_only_policy' => true,
+            ],
+        );
+
+        self::assertSame(AiRoutesExhaustedException::CLASSIFICATION, $exception->context['classification'] ?? null);
+        self::assertStringContainsString('AI_ROUTES_EXHAUSTED', $exception->getMessage());
+        self::assertStringNotContainsString('AI_ROUTES_EXHAUSTED', $exception->userMessage());
+    }
 }

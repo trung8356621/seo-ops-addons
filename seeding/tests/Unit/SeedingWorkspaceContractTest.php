@@ -122,7 +122,7 @@ final class SeedingWorkspaceContractTest extends TestCase
 
         self::assertStringContainsString('activeWorkItemId', $workspace);
         self::assertStringContainsString('GlobalWorkDrawer', $workspace);
-        self::assertStringContainsString('TopicContextSidebar', $workspace);
+        self::assertStringContainsString('TeamStatsSidebar', $workspace);
         self::assertStringContainsString('completeWithProof', $workspace);
         self::assertStringContainsString('findReportForComment', $workspace);
         self::assertStringContainsString('Hoàn tất +1', $workspace);
@@ -171,7 +171,7 @@ final class SeedingWorkspaceContractTest extends TestCase
             'TopicComposer.jsx',
             'TopicDetail.jsx',
             'TopicCommentsSection.jsx',
-            'TopicContextSidebar.jsx',
+            'TeamStatsSidebar.jsx',
             'FeedCommentsBlock.jsx',
             'LinkPreviewCard.jsx',
             'ContentWithLinkPreviews.jsx',

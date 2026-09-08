@@ -34,6 +34,7 @@ export function deriveMetrics(topics, reports, userId) {
     const completed = list.filter((t) => topicMatchesFilter('completed', t)).length;
 
     const start = startOfLocalDay();
+    // Semantics: completed comment-tasks today (report.completed_at), scoped to current user.
     const todayCount = reps.filter((r) => {
         if (String(r.user_id) !== String(userId)) return false;
         const ts = Date.parse(String(r.completed_at || ''));
@@ -41,6 +42,121 @@ export function deriveMetrics(topics, reports, userId) {
     }).length;
 
     return { work, shared, completed, todayComments: todayCount };
+}
+
+/**
+ * Single-pass team / employee Seeding stats for the module sidebar.
+ * Actors: topic creator, comment author, claimer, report completer (local-first model).
+ *
+ * @param {Array<Record<string, unknown>>} topics
+ * @param {Array<Record<string, unknown>>} reports
+ */
+export function deriveTeamStats(topics, reports) {
+    const list = Array.isArray(topics) ? topics : [];
+    const reps = Array.isArray(reports) ? reports : [];
+    const start = startOfLocalDay();
+
+    /** @type {Map<string, {
+     *   key: string,
+     *   displayName: string,
+     *   commentsCreated: number,
+     *   topicsOwned: number,
+     *   shares: number,
+     *   inProgressClaims: number,
+     *   completedReports: number,
+     * }>} */
+    const byActor = new Map();
+
+    const bump = (id, name, patch) => {
+        const label = String(name || '').trim();
+        if ((id == null || id === '') && !label) return;
+        const key = id != null && id !== '' ? `u:${id}` : `n:${label}`;
+        const displayName = label || `User #${id}`;
+        const prev = byActor.get(key) || {
+            key,
+            displayName,
+            commentsCreated: 0,
+            topicsOwned: 0,
+            shares: 0,
+            inProgressClaims: 0,
+            completedReports: 0,
+        };
+        if (label) prev.displayName = label;
+        for (const [k, v] of Object.entries(patch)) {
+            prev[k] = (prev[k] || 0) + v;
+        }
+        byActor.set(key, prev);
+    };
+
+    let commentsCreatedToday = 0;
+    let sharedToday = 0;
+    let completedToday = 0;
+    let newTopicsToday = 0;
+    let inProgressTopics = 0;
+    let pendingDrafts = 0;
+    let inProgressComments = 0;
+
+    for (const topic of list) {
+        const state = topic.state || 'draft';
+        const createdTs = Date.parse(String(topic.created_at || ''));
+        if (Number.isFinite(createdTs) && createdTs >= start) newTopicsToday += 1;
+        if (state === 'draft') pendingDrafts += 1;
+        if (state === 'shared') inProgressTopics += 1;
+
+        const sharedTs = Date.parse(String(topic.shared_at || ''));
+        if (Number.isFinite(sharedTs) && sharedTs >= start) sharedToday += 1;
+
+        bump(topic.created_by_user_id, topic.created_by_display_name, { topicsOwned: 1 });
+        if (state === 'shared' || state === 'completed') {
+            bump(topic.created_by_user_id, topic.created_by_display_name, { shares: 1 });
+        }
+
+        for (const comment of (topic.comments || [])) {
+            const cCreated = Date.parse(String(comment.created_at || ''));
+            if (Number.isFinite(cCreated) && cCreated >= start) commentsCreatedToday += 1;
+            bump(
+                comment.author_user_id ?? comment.created_by_user_id,
+                comment.author_display_name ?? comment.created_by_display_name,
+                { commentsCreated: 1 },
+            );
+            if (comment.state === 'in_progress') {
+                inProgressComments += 1;
+                bump(
+                    comment.claimed_by_user_id,
+                    comment.claimed_by_display_name,
+                    { inProgressClaims: 1 },
+                );
+            }
+        }
+    }
+
+    for (const report of reps) {
+        const ts = Date.parse(String(report.completed_at || ''));
+        if (Number.isFinite(ts) && ts >= start) completedToday += 1;
+        bump(report.user_id, report.user_display_name, { completedReports: 1 });
+    }
+
+    const employees = [...byActor.values()]
+        .filter((e) => e.commentsCreated > 0 || e.topicsOwned > 0 || e.shares > 0 || e.completedReports > 0 || e.inProgressClaims > 0)
+        .sort((a, b) => (
+            (b.commentsCreated + b.completedReports * 2) - (a.commentsCreated + a.completedReports * 2)
+            || a.displayName.localeCompare(b.displayName)
+        ));
+
+    return {
+        today: {
+            commentsCreated: commentsCreatedToday,
+            shared: sharedToday,
+            completed: completedToday,
+            newTopics: newTopicsToday,
+        },
+        workload: {
+            inProgressTopics,
+            pendingDrafts,
+            inProgressComments,
+        },
+        employees,
+    };
 }
 
 function startOfLocalDay() {

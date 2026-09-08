@@ -178,11 +178,31 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
             );
         }
 
-        $strategy = $this->strategyResolver->resolve($variables);
+        // Writing pass-mode only. Outline / Vocabulary are normal single prompt executions.
+        $isWritingHook = in_array($effectiveHookKey, ['article.content.generate', 'article.content.rewrite'], true);
+        if (! $isWritingHook) {
+            foreach ([
+                'generation_shape',
+                'generation_shape_source',
+                'generation_strategy',
+                '_item_generation_strategy',
+                'resolved_generation_strategy',
+                'generation_strategy_override',
+                'strategy_resolved',
+                'strategy_source',
+                'strategy_override',
+                'pass_mode',
+            ] as $writingPassKey) {
+                unset($variables[$writingPassKey]);
+            }
+        }
+        $strategy = $isWritingHook ? $this->strategyResolver->resolve($variables) : null;
 
         Log::info('article.generation.strategy.branch', [
-            'strategy' => $strategy->value,
-            'generation_shape' => $variables['generation_shape'] ?? $strategy->value,
+            'strategy' => $strategy?->value,
+            'generation_shape' => $isWritingHook
+                ? ($variables['generation_shape'] ?? $strategy?->value)
+                : null,
             'hook_key' => $effectiveHookKey,
             'prompt_id' => (int) $prompt->id,
             'article_id' => $contextExtras['article_id'] ?? null,
@@ -206,10 +226,12 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
             'site_id' => isset($contextExtras['site_id']) ? (int) $contextExtras['site_id'] : null,
             'locale' => isset($contextExtras['locale']) ? (string) $contextExtras['locale'] : ($variables['language'] ?? null),
             'language' => $variables['language'] ?? ($contextExtras['locale'] ?? null),
-            // Observability/invariant for length pipeline — not part of hook input schema.
-            'generation_strategy' => $strategy->value,
-            'resolved_generation_strategy' => $strategy->value,
         ];
+        // Observability for Writing length pipeline only — not Outline/Vocabulary.
+        if ($strategy !== null) {
+            $context['generation_strategy'] = $strategy->value;
+            $context['resolved_generation_strategy'] = $strategy->value;
+        }
         foreach (['team_id', 'connection_id', 'article_id', 'actor_id', 'run_id', 'project_run_id', 'run_item_id', 'attempt', 'project_task_id', 'task_id', 'project_id', 'outline_subtask'] as $key) {
             if (array_key_exists($key, $contextExtras) && $contextExtras[$key] !== null) {
                 $context[$key] = $contextExtras[$key];

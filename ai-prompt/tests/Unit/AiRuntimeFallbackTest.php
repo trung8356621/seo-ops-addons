@@ -7,6 +7,7 @@ namespace Omnichannel\Addons\AiPrompt\Tests\Unit;
 use App\Models\WpOption;
 use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
+use Omnichannel\Addons\AiPrompt\DataTransfer\AiFailureDecision;
 use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext;
 use Omnichannel\Addons\AiPrompt\Exceptions\AiRoutesExhaustedException;
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
@@ -21,8 +22,12 @@ use Omnichannel\Addons\AiPrompt\Services\AiRoutingTargetService;
 use Omnichannel\Addons\AiPrompt\Services\AiRuntimeHealthService;
 use Omnichannel\Addons\AiPrompt\Services\ModelCapabilityRegistry;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
+use Omnichannel\Addons\AiPrompt\Support\AiFailureClass;
+use Omnichannel\Addons\AiPrompt\Support\AiFailureRuntimeAction;
+use Omnichannel\Addons\AiPrompt\Support\AiFailureScope;
 use Omnichannel\Addons\AiPrompt\Support\AiModelArea;
 use Omnichannel\Addons\AiPrompt\Support\AiModelCapability;
+use Omnichannel\Addons\AiPrompt\Support\AiRuntimeHealthStatus;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
 use Omnichannel\Addons\Seo\Support\AiModelCategory;
 use App\Models\ApiConnection;
@@ -33,6 +38,8 @@ final class AiRuntimeFallbackTest extends TestCase
     private AiModelRouterService $router;
 
     private AiRuntimeHealthService $health;
+
+    private AiRoutingTargetService $targets;
 
     protected function setUp(): void
     {
@@ -138,10 +145,10 @@ final class AiRuntimeFallbackTest extends TestCase
 
         $registry = new ModelCapabilityRegistry();
         $priorities = new AiModelPriorityService();
-        $targets = new AiRoutingTargetService($registry, priorities: $priorities);
-        $bootstrap = new AiRoutingBootstrapService($registry, $targets);
+        $this->targets = new AiRoutingTargetService($registry, priorities: $priorities);
+        $bootstrap = new AiRoutingBootstrapService($registry, $this->targets);
         $this->health = new AiRuntimeHealthService(notifications: null);
-        $this->router = new AiModelRouterService($registry, $targets, $bootstrap);
+        $this->router = new AiModelRouterService($registry, $this->targets, $bootstrap);
 
         $this->app->instance(AiProviderFailureClassifier::class, new AiProviderFailureClassifier());
         $this->app->instance(AiRuntimeHealthService::class, $this->health);
@@ -559,6 +566,180 @@ final class AiRuntimeFallbackTest extends TestCase
             $this->assertSame(['paid/claude'], $calls);
             $decision = (new AiProviderFailureClassifier())->classify($exception);
             $this->assertFalse($decision->fallbackAllowed());
+        }
+    }
+
+    public function test_mixed_free_paid_allows_initial_plus_one_free_retry_then_paid(): void
+    {
+        (new AiResilienceSettingsService())->save(80, ['max_ai_attempts' => 6, 'max_free_attempts' => 3]);
+        $this->seedOrderedLongform(80, [
+            ['a', 'free/a:free', ApiConnectionProviders::OPENROUTER, true],
+            ['b', 'free/b:free', ApiConnectionProviders::OPENROUTER, true],
+            ['c', 'free/c:free', ApiConnectionProviders::OPENROUTER, true],
+            ['d', 'paid/gpt', ApiConnectionProviders::OPENROUTER, false],
+        ]);
+        $calls = [];
+        [$output] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextLongform->value,
+            new AiRoutingContext(userId: 80),
+            function ($candidate) use (&$calls): array {
+                $calls[] = $candidate->model;
+                if (str_starts_with($candidate->model, 'free/')) {
+                    throw new PromptRunException('503 unavailable', 503);
+                }
+
+                return ['paid-ok', null];
+            },
+        );
+        $this->assertSame('paid-ok', $output);
+        $this->assertSame(['free/a:free', 'free/b:free', 'paid/gpt'], $calls);
+        $this->assertNotContains('free/c:free', $calls);
+    }
+
+    public function test_mixed_free_paid_stops_after_first_free_success(): void
+    {
+        (new AiResilienceSettingsService())->save(81, ['max_ai_attempts' => 6, 'max_free_attempts' => 3]);
+        $this->seedOrderedLongform(81, [
+            ['a', 'free/a:free', ApiConnectionProviders::OPENROUTER, true],
+            ['b', 'free/b:free', ApiConnectionProviders::OPENROUTER, true],
+            ['c', 'paid/gpt', ApiConnectionProviders::OPENROUTER, false],
+        ]);
+        $calls = [];
+        [$output] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextLongform->value,
+            new AiRoutingContext(userId: 81),
+            function ($candidate) use (&$calls): array {
+                $calls[] = $candidate->model;
+
+                return ['free-ok', null];
+            },
+        );
+        $this->assertSame('free-ok', $output);
+        $this->assertSame(['free/a:free'], $calls);
+    }
+
+    public function test_mixed_free_paid_second_free_success_skips_paid(): void
+    {
+        (new AiResilienceSettingsService())->save(82, ['max_ai_attempts' => 6, 'max_free_attempts' => 3]);
+        $this->seedOrderedLongform(82, [
+            ['a', 'free/a:free', ApiConnectionProviders::OPENROUTER, true],
+            ['b', 'free/b:free', ApiConnectionProviders::OPENROUTER, true],
+            ['c', 'paid/gpt', ApiConnectionProviders::OPENROUTER, false],
+        ]);
+        $calls = [];
+        [$output] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextLongform->value,
+            new AiRoutingContext(userId: 82),
+            function ($candidate) use (&$calls): array {
+                $calls[] = $candidate->model;
+                if ($candidate->model === 'free/a:free') {
+                    throw new PromptRunException('503 unavailable', 503);
+                }
+
+                return ['free-b-ok', null];
+            },
+        );
+        $this->assertSame('free-b-ok', $output);
+        $this->assertSame(['free/a:free', 'free/b:free'], $calls);
+        $this->assertNotContains('paid/gpt', $calls);
+    }
+
+    public function test_mixed_free_paid_health_skip_does_not_consume_free_retry(): void
+    {
+        (new AiResilienceSettingsService())->save(83, ['max_ai_attempts' => 6, 'max_free_attempts' => 3]);
+        $this->seedOrderedLongform(83, [
+            ['a', 'free/a:free', ApiConnectionProviders::OPENROUTER, true],
+            ['b', 'free/b:free', ApiConnectionProviders::OPENROUTER, true],
+            ['c', 'free/c:free', ApiConnectionProviders::OPENROUTER, true],
+            ['d', 'paid/gpt', ApiConnectionProviders::OPENROUTER, false],
+        ]);
+        $freeA = $this->targets->eligibleCandidates(
+            83,
+            AiExecutionProfile::TextLongform,
+            new AiRoutingContext(userId: 83),
+        )[0];
+        $this->assertSame('free/a:free', $freeA->model);
+        $this->health->recordFailure(83, $freeA, new AiFailureDecision(
+            category: AiFailureClass::RateLimited,
+            scope: AiFailureScope::Model,
+            recoverable: true,
+            runtimeAction: AiFailureRuntimeAction::Continue,
+            healthStatus: AiRuntimeHealthStatus::Degraded,
+            safeMessage: '429',
+            httpStatus: 429,
+            applyCooldown: true,
+            affectsRuntimeHealth: true,
+            failureStage: 'provider',
+        ));
+        $this->assertSame('model_cooldown', $this->health->skipReason(83, $freeA));
+
+        $calls = [];
+        [$output, , , , , $routingAttempts] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextLongform->value,
+            new AiRoutingContext(userId: 83),
+            function ($candidate) use (&$calls): array {
+                $calls[] = $candidate->model;
+                if (str_starts_with($candidate->model, 'free/')) {
+                    throw new PromptRunException('503 unavailable', 503);
+                }
+
+                return ['paid-ok', null];
+            },
+        );
+        $this->assertSame('paid-ok', $output);
+        $this->assertSame(['free/b:free', 'free/c:free', 'paid/gpt'], $calls);
+        $this->assertSame('model_cooldown', $routingAttempts[0]['skip_reason'] ?? null);
+    }
+
+    public function test_mixed_free_paid_honors_max_free_attempts_one(): void
+    {
+        (new AiResilienceSettingsService())->save(84, ['max_ai_attempts' => 6, 'max_free_attempts' => 1]);
+        $this->seedOrderedLongform(84, [
+            ['a', 'free/a:free', ApiConnectionProviders::OPENROUTER, true],
+            ['b', 'free/b:free', ApiConnectionProviders::OPENROUTER, true],
+            ['c', 'paid/gpt', ApiConnectionProviders::OPENROUTER, false],
+        ]);
+        $calls = [];
+        [$output] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextLongform->value,
+            new AiRoutingContext(userId: 84),
+            function ($candidate) use (&$calls): array {
+                $calls[] = $candidate->model;
+                if (str_starts_with($candidate->model, 'free/')) {
+                    throw new PromptRunException('503 unavailable', 503);
+                }
+
+                return ['paid-ok', null];
+            },
+        );
+        $this->assertSame('paid-ok', $output);
+        $this->assertSame(['free/a:free', 'paid/gpt'], $calls);
+        $this->assertNotContains('free/b:free', $calls);
+    }
+
+    public function test_free_only_path_keeps_full_max_free_attempts(): void
+    {
+        (new AiResilienceSettingsService())->save(85, ['max_ai_attempts' => 6, 'max_free_attempts' => 3]);
+        $this->seedOrderedLongform(85, [
+            ['a', 'free/a:free', ApiConnectionProviders::OPENROUTER, true],
+            ['b', 'free/b:free', ApiConnectionProviders::OPENROUTER, true],
+            ['c', 'free/c:free', ApiConnectionProviders::OPENROUTER, true],
+            ['d', 'free/d:free', ApiConnectionProviders::OPENROUTER, true],
+        ]);
+        $calls = [];
+        try {
+            $this->router->executeWithProfile(
+                AiExecutionProfile::TextLongform->value,
+                new AiRoutingContext(userId: 85),
+                function ($candidate) use (&$calls): array {
+                    $calls[] = $candidate->model;
+                    throw new PromptRunException('503 unavailable', 503);
+                },
+            );
+            $this->fail('Expected AI_ROUTES_EXHAUSTED');
+        } catch (AiRoutesExhaustedException) {
+            $this->assertSame(['free/a:free', 'free/b:free', 'free/c:free'], $calls);
+            $this->assertNotContains('free/d:free', $calls);
         }
     }
 

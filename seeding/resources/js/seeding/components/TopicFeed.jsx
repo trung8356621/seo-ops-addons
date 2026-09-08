@@ -3,15 +3,14 @@ import TopicCard from './TopicCard';
 
 /**
  * Vertical CSS grid feed — max 3 columns via CSS, never forced 4.
+ * Cards are direct grid children of `.seeding-ws__feed-grid`.
  *
  * @param {{
  *   topics: Array<Record<string, unknown>>,
  *   reports: Array<Record<string, unknown>>,
- *   selectedId: string|null,
  *   canMutate: boolean,
  *   userId: number|string,
  *   userDisplayName?: string,
- *   onSelect: (topic: Record<string, unknown>) => void,
  *   onOpenDetail: (topic: Record<string, unknown>) => void,
  *   onCommentsChange: (topic: Record<string, unknown>, comments: Array<Record<string, unknown>>) => void,
  *   onLinksChange: (topic: Record<string, unknown>, links: Array<Record<string, unknown>>) => void,
@@ -24,11 +23,9 @@ import TopicCard from './TopicCard';
 export default function TopicFeed({
     topics,
     reports,
-    selectedId,
     canMutate,
     userId,
     userDisplayName = '',
-    onSelect,
     onOpenDetail,
     onCommentsChange,
     onLinksChange,
@@ -51,28 +48,28 @@ export default function TopicFeed({
     }
 
     return (
-        <div className="seeding-ws__feed-grid" data-feed="topics">
-            {topics.map((topic) => {
-                const id = String(topic.localId || topic.id);
-                return (
-                    <TopicCard
-                        key={id}
-                        topic={topic}
-                        reports={reports}
-                        selected={selectedId != null && String(selectedId) === id}
-                        canMutate={canMutate}
-                        userId={userId}
-                        userDisplayName={userDisplayName}
-                        onSelect={onSelect}
-                        onOpenDetail={onOpenDetail}
-                        onCommentsChange={onCommentsChange}
-                        onLinksChange={onLinksChange}
-                        onEdit={onEdit}
-                        onDelete={onDelete}
-                        onShare={onShare}
-                    />
-                );
-            })}
+        <div className="seeding-ws__feed-host" data-feed-host>
+            <div className="seeding-ws__feed-grid" data-feed="topics">
+                {topics.map((topic) => {
+                    const id = String(topic.localId || topic.id);
+                    return (
+                        <TopicCard
+                            key={id}
+                            topic={topic}
+                            reports={reports}
+                            canMutate={canMutate}
+                            userId={userId}
+                            userDisplayName={userDisplayName}
+                            onOpenDetail={onOpenDetail}
+                            onCommentsChange={onCommentsChange}
+                            onLinksChange={onLinksChange}
+                            onEdit={onEdit}
+                            onDelete={onDelete}
+                            onShare={onShare}
+                        />
+                    );
+                })}
+            </div>
         </div>
     );
 }

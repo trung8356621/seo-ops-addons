@@ -594,7 +594,17 @@ final class ArticlePromptRunHistoryService
         if ($strategyResolved === 'sectioned_free') {
             $strategyResolved = 'sectioned';
         }
-        if ($strategyResolved === '') {
+        $hookForStrategy = strtolower(trim((string) (
+            $snapshotVariables['hook_key']
+            ?? $step['hook_key']
+            ?? $snapshot['hook_key']
+            ?? ''
+        )));
+        $isNonWritingPassModeHook = str_contains($hookForStrategy, 'outline')
+            || str_contains($hookForStrategy, 'vocabulary');
+        // Do not invent Writing pass-mode for Outline/Vocabulary. Legacy rows that already
+        // stamped single_pass/sectioned are tolerated for backward-compatible render.
+        if ($strategyResolved === '' && ! $isNonWritingPassModeHook) {
             $strategyResolved = 'single_pass';
         }
         $strategySource = trim((string) (
@@ -606,7 +616,7 @@ final class ArticlePromptRunHistoryService
             ?? $snapshotVariables['strategy_source']
             ?? ''
         ));
-        if ($strategySource === '') {
+        if ($strategySource === '' && $strategyResolved !== '') {
             $strategySource = $strategyResolved === 'single_pass'
                 ? \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategySnapshot::SOURCE_DEFAULT
                 : \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape::SOURCE_AI_CENTER_PRIMARY;

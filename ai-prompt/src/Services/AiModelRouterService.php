@@ -252,7 +252,8 @@ final class AiModelRouterService
         $settings = $this->resilienceSettings()->get($userId);
         $maxAiAttempts = (int) $settings[AiResilienceSettingsService::KEY_MAX_AI_ATTEMPTS];
         $maxFreeAttempts = (int) $settings[AiResilienceSettingsService::KEY_MAX_FREE_ATTEMPTS];
-        // Free Pool + any paid route still listed → max ONE free attempt (UX one-shot).
+        // Mixed Free Pool + paid routes: initial free provider attempt + one free retry,
+        // then continue to next outer route. Honors max_free_attempts when lower than 2.
         // Rescue Mode (no paid candidates) keeps configured MAX_FREE_ATTEMPTS rotation.
         // freeOnly (sectioned_free) always uses full max_free_attempts — paid are already filtered out.
         $paidCandidatesExist = false;
@@ -265,7 +266,7 @@ final class AiModelRouterService
             }
         }
         $effectiveMaxFreeAttempts = $paidCandidatesExist
-            ? min(1, max(0, $maxFreeAttempts))
+            ? min(2, max(0, $maxFreeAttempts))
             : $maxFreeAttempts;
 
         $classifier = $this->failureClassifier();

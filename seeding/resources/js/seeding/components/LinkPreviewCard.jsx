@@ -30,11 +30,17 @@ export default function LinkPreviewCard({ link, href, onNavigate }) {
             }}
         >
             {image ? (
-                <div className="seeding-ws__link-preview-media">
-                    <img src={String(image)} alt="" loading="lazy" referrerPolicy="no-referrer" />
+                <div className="seeding-ws__link-preview-media" data-preview-media>
+                    <img
+                        src={String(image)}
+                        alt=""
+                        loading="lazy"
+                        referrerPolicy="no-referrer"
+                        className="seeding-ws__link-preview-img"
+                    />
                 </div>
             ) : (
-                <div className="seeding-ws__link-preview-media seeding-ws__link-preview-media--empty" />
+                <div className="seeding-ws__link-preview-media seeding-ws__link-preview-media--empty" data-preview-media />
             )}
             <div className="seeding-ws__link-preview-body">
                 <div className="seeding-ws__link-preview-title">{title}</div>

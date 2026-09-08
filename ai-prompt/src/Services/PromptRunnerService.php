@@ -1193,23 +1193,54 @@ class PromptRunnerService
     }
 
     /**
+     * Writing pass-mode snapshot only. Outline/Vocabulary omit these fields so History
+     * does not invent SINGLE_PASS / shape=single_pass for non-writing executions.
+     *
      * @param  array<string, mixed>  $variables
      * @return array<string, mixed>
      */
     private function strategySnapshotFields(array $variables): array
     {
-        $snapshot = ArticleGenerationStrategySnapshot::fromVariables($variables);
         $taskId = (int) ($variables['project_task_id'] ?? $variables['task_id'] ?? 0);
+        $taskIdField = $taskId > 0 ? ['task_id' => $taskId] : [];
 
-        return [
+        if (! $this->variablesCarryWritingPassMode($variables)) {
+            return $taskIdField;
+        }
+
+        $snapshot = ArticleGenerationStrategySnapshot::fromVariables($variables);
+
+        return array_merge([
             'strategy_override' => $snapshot->strategyOverride,
             'generation_strategy_override' => $snapshot->strategyOverride,
             'strategy_resolved' => $snapshot->strategyResolved,
             'strategy_source' => $snapshot->strategySource,
             'generation_strategy' => $snapshot->strategyResolved,
             'resolved_generation_strategy' => $snapshot->strategyResolved,
-            'task_id' => $taskId > 0 ? $taskId : null,
-        ];
+        ], $taskIdField);
+    }
+
+    /**
+     * @param  array<string, mixed>  $variables
+     */
+    private function variablesCarryWritingPassMode(array $variables): bool
+    {
+        foreach ([
+            'generation_shape',
+            'generation_strategy',
+            '_item_generation_strategy',
+            'resolved_generation_strategy',
+            'generation_strategy_override',
+            'strategy_resolved',
+        ] as $key) {
+            if (trim((string) ($variables[$key] ?? '')) !== '') {
+                return true;
+            }
+        }
+
+        $hook = strtolower(trim((string) ($variables['hook_key'] ?? '')));
+
+        return in_array($hook, ['article.content.generate', 'article.content.rewrite'], true);
     }
 
     /**

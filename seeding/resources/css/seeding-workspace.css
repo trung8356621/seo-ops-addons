@@ -235,34 +235,59 @@
     border-top: 1px solid #f3f4f6;
 }
 
-/* Vertical card grid — container queries cap at 3 columns */
+/* Vertical card grid — available-width driven, hard-capped at 3 columns.
+ *
+ * Root cause of prior 1-column feed:
+ * 1) @supports (1cqw) forced a single column then relied only on @container
+ *    against .seeding-ws__main-column — container queries often never upgraded.
+ * 2) auto-fit + percentage-based min track sizing could collapse to one track.
+ * Fix: dedicated feed host as container + viewport media fallbacks; never 4 cols.
+ */
+.seeding-ws__feed-host {
+    width: 100%;
+    min-width: 0;
+    container-type: inline-size;
+    container-name: seeding-feed;
+}
+
 .seeding-ws__feed-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+    grid-template-columns: repeat(1, minmax(0, 1fr));
     gap: 0.85rem;
     max-width: 100%;
+    width: 100%;
 }
 
-.seeding-ws--shell.has-sidebar .seeding-ws__feed-grid {
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
-}
-
-@supports (width: 1cqw) {
-    .seeding-ws__main-column {
-        container-type: inline-size;
-    }
+/* Viewport fallbacks (reliable when container queries lag / unsupported) */
+@media (min-width: 900px) {
     .seeding-ws__feed-grid {
-        grid-template-columns: repeat(1, minmax(0, 1fr));
+        grid-template-columns: repeat(2, minmax(0, 1fr));
     }
-    @container (min-width: 680px) {
-        .seeding-ws__feed-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
+}
+
+/* ~1366 + sidebar collapsed, or wide desktop with sidebar open */
+@media (min-width: 1400px) {
+    .seeding-ws--shell.sidebar-collapsed .seeding-ws__feed-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
-    @container (min-width: 1100px) {
-        .seeding-ws__feed-grid {
-            grid-template-columns: repeat(3, minmax(0, 1fr));
-        }
+}
+
+@media (min-width: 1600px) {
+    .seeding-ws--shell.has-sidebar .seeding-ws__feed-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+    }
+}
+
+/* Preferred: columns from available feed width (not full viewport) */
+@container seeding-feed (min-width: 620px) {
+    .seeding-ws__feed-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+}
+
+@container seeding-feed (min-width: 980px) {
+    .seeding-ws__feed-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
 }
 
@@ -271,19 +296,15 @@
     border: 1px solid #e5e7eb;
     border-radius: 0.85rem;
     padding: 0.85rem;
-    cursor: pointer;
     display: flex;
     flex-direction: column;
     gap: 0.65rem;
     transition: border-color 0.12s ease, box-shadow 0.12s ease;
     min-width: 0;
+    max-width: 100%;
 }
 
 .seeding-ws__vcard:hover { border-color: #fdba74; }
-.seeding-ws__vcard.is-selected {
-    border-color: #fb923c;
-    box-shadow: 0 0 0 1px #ffedd5;
-}
 
 .seeding-ws__vcard-head {
     display: flex;
@@ -368,20 +389,32 @@
     background: #fafafa;
     text-decoration: none;
     color: inherit;
+    max-width: 100%;
 }
 
 .seeding-ws__link-preview:hover { border-color: #cbd5e1; }
 
+/* Absolute img breaks Tailwind `img { height:auto }` vs aspect-ratio cycle
+   that previously let Shopee natural heights expand the whole card. */
 .seeding-ws__link-preview-media {
+    position: relative;
+    width: 100%;
     aspect-ratio: 16 / 9;
+    max-height: 180px;
     background: #e5e7eb;
     overflow: hidden;
 }
 
-.seeding-ws__link-preview-media img {
+.seeding-ws__link-preview-media img,
+.seeding-ws__link-preview-img {
+    position: absolute;
+    inset: 0;
     width: 100%;
     height: 100%;
+    max-width: none;
+    max-height: none;
     object-fit: cover;
+    object-position: center;
     display: block;
 }
 
@@ -416,7 +449,7 @@
     font-size: 0.6875rem;
     color: #6b7280;
     display: -webkit-box;
-    -webkit-line-clamp: 2;
+    -webkit-line-clamp: 1;
     -webkit-box-orient: vertical;
     overflow: hidden;
 }
@@ -580,6 +613,78 @@
     font-size: 0.8125rem;
     color: #6b7280;
     line-height: 1.45;
+}
+
+.seeding-ws__sidebar-lead {
+    margin: 0;
+    font-size: 0.75rem;
+    color: #6b7280;
+    line-height: 1.4;
+}
+
+.seeding-ws__stat-rows {
+    margin: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.35rem;
+}
+
+.seeding-ws__stat-row {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 0.75rem;
+    font-size: 0.8125rem;
+}
+
+.seeding-ws__stat-row dt {
+    margin: 0;
+    color: #4b5563;
+}
+
+.seeding-ws__stat-row dd {
+    margin: 0;
+    font-weight: 700;
+    color: #111827;
+    font-variant-numeric: tabular-nums;
+}
+
+.seeding-ws__employee-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+}
+
+.seeding-ws__employee-row {
+    padding-bottom: 0.55rem;
+    border-bottom: 1px solid #f3f4f6;
+}
+
+.seeding-ws__employee-row:last-child {
+    border-bottom: 0;
+    padding-bottom: 0;
+}
+
+.seeding-ws__employee-name {
+    font-size: 0.8125rem;
+    font-weight: 700;
+    color: #111827;
+}
+
+.seeding-ws__employee-meta {
+    margin-top: 0.15rem;
+    font-size: 0.75rem;
+    color: #6b7280;
+}
+
+.seeding-ws__employee-workload {
+    margin-top: 0.2rem;
+    font-size: 0.6875rem;
+    font-weight: 650;
+    color: #c2410c;
 }
 
 .seeding-ws__sidebar-meta {
@@ -1029,6 +1134,6 @@
 @media (max-width: 640px) {
     .seeding-ws__metrics { grid-template-columns: 1fr 1fr; }
     .seeding-ws__feed-grid {
-        grid-template-columns: 1fr;
+        grid-template-columns: 1fr !important;
     }
 }

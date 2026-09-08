@@ -13,6 +13,7 @@ import {
  *   text: string,
  *   links?: Array<Record<string, unknown>>,
  *   clampLines?: number,
+ *   maxRichPreviews?: number,
  *   className?: string,
  * }} props
  */
@@ -20,9 +21,11 @@ export default function ContentWithLinkPreviews({
     text,
     links = [],
     clampLines = 0,
+    maxRichPreviews = Infinity,
     className = '',
 }) {
     const parts = useMemo(() => splitContentByUrls(text), [text]);
+    let richShown = 0;
 
     return (
         <div className={`seeding-ws__rich-content ${className}`.trim()}>
@@ -43,7 +46,8 @@ export default function ContentWithLinkPreviews({
                     );
                 }
                 const meta = findLinkMeta(links, part.value);
-                if (hasRichPreview(meta)) {
+                if (hasRichPreview(meta) && richShown < maxRichPreviews) {
+                    richShown += 1;
                     return (
                         <LinkPreviewCard
                             key={`p-${index}-${part.value}`}
@@ -51,6 +55,10 @@ export default function ContentWithLinkPreviews({
                             href={meta.preview_url || meta.url || part.value}
                         />
                     );
+                }
+                if (hasRichPreview(meta)) {
+                    // Extra rich URLs already previewed once — hide raw URL noise.
+                    return null;
                 }
                 return (
                     <a
