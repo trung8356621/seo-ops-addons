@@ -36,6 +36,18 @@ final class ArticleAiHistoryLegacyClassifier
         $output = trim((string) ($rawOutput ?? $step['output'] ?? ''));
         $status = strtolower(trim((string) ($step['status'] ?? '')));
         $typedArtifactType = trim((string) ($step['artifact_type'] ?? ''));
+        $hookKey = strtolower(trim((string) ($step['hook_key'] ?? '')));
+        $outlineSubtask = strtolower(trim((string) ($step['outline_subtask'] ?? '')));
+
+        // Vocabulary is never an outline artifact — even if a parent step stamped article_outline.
+        if (
+            $typedArtifactType === WorkflowArtifactType::ArticleVocabulary->value
+            || $hookKey === 'article.vocabulary.generate'
+            || $outlineSubtask === 'vocabulary'
+            || $outlineSubtask === 'vocabulary_failed'
+        ) {
+            return $this->classifyVocabulary($status, $output);
+        }
 
         if ($typedArtifactType === WorkflowArtifactType::ArticleOutline->value
             || $typedArtifactType === WorkflowArtifactType::ArticleContent->value
@@ -58,6 +70,48 @@ final class ArticleAiHistoryLegacyClassifier
         }
 
         return $this->unknown('ambiguous_step_signature', $output);
+    }
+
+    /**
+     * @return array{artifact_type: ?string, classification: 'typed'|'legacy'|'unknown', can_apply: bool, reason: string, normalized_payload: string}
+     */
+    private function classifyVocabulary(string $status, string $output): array
+    {
+        if (! $this->isSucceededish($status) && $status !== '') {
+            // Still expose type so UI does not fall back to outline.
+            return [
+                'artifact_type' => WorkflowArtifactType::ArticleVocabulary->value,
+                'classification' => 'typed',
+                'can_apply' => false,
+                'reason' => 'typed_vocabulary_not_succeeded',
+                'normalized_payload' => $this->stripVocabularyMarkers($output),
+            ];
+        }
+
+        return [
+            'artifact_type' => WorkflowArtifactType::ArticleVocabulary->value,
+            'classification' => 'typed',
+            'can_apply' => false,
+            'reason' => 'typed_artifact_vocabulary',
+            'normalized_payload' => $this->stripVocabularyMarkers($output),
+        ];
+    }
+
+    public function stripVocabularyMarkers(string $text): string
+    {
+        $text = trim($text);
+        if ($text === '') {
+            return '';
+        }
+
+        if (preg_match('/\[START_TASK_\d+_VOCABULARY\](.*?)\[END_TASK_\d+_VOCABULARY\]/is', $text, $matches) === 1) {
+            return trim($matches[1]);
+        }
+
+        $stripped = preg_replace('/\[START_TASK_\d+_[A-Z_]+\]/i', '', $text) ?? $text;
+        $stripped = preg_replace('/\[END_TASK_\d+_[A-Z_]+\]/i', '', $stripped) ?? $stripped;
+
+        return trim($stripped);
     }
 
     /**

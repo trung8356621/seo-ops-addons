@@ -1090,6 +1090,8 @@ final class TaskWorkflowTestRunner
                         $this->clearSplitOutlineCheckpoint($state);
 
                         $output = trim((string) ($splitResult['output'] ?? ''));
+                        $outlineOnly = trim((string) ($splitResult['sections']['outline'] ?? ''));
+                        $vocabularyOnly = trim((string) ($splitResult['sections']['vocabulary'] ?? ''));
                         $outlinePersistedMarkdown = '';
                         if ($output !== '') {
                             $output = $this->applyPromptPostProcessing($prompt, $output);
@@ -1102,7 +1104,16 @@ final class TaskWorkflowTestRunner
                                 $state,
                             );
                             $this->refreshWorkflowSeoScore($state, $output);
-                            $outlinePersistedMarkdown = $this->captureOutlinePromptOutput($node, $prompt, $output, $state);
+                            // Persist OUTLINE ONLY — never the combined outline+vocabulary payload.
+                            $outlinePersistedMarkdown = $this->captureOutlinePromptOutput(
+                                $node,
+                                $prompt,
+                                $outlineOnly !== '' ? $outlineOnly : $output,
+                                $state,
+                            );
+                            if ($vocabularyOnly !== '') {
+                                $this->registerVocabularyArtifact($node, $vocabularyOnly, $state, $context);
+                            }
                         }
 
                         return [
@@ -1123,10 +1134,15 @@ final class TaskWorkflowTestRunner
                             'input_used' => $input !== '' ? mb_substr($input, 0, 120).(mb_strlen($input) > 120 ? '…' : '') : null,
                             'output' => $output,
                             'outputs' => $state->nodeOutputs[$nodeId] ?? [],
+                            'sections' => is_array($splitResult['sections'] ?? null) ? $splitResult['sections'] : [],
                             'outline_markdown' => $outlinePersistedMarkdown !== '' ? $outlinePersistedMarkdown : null,
+                            'vocabulary_markdown' => $vocabularyOnly !== '' ? $vocabularyOnly : null,
                             'persists_as_outline' => $outlinePersistedMarkdown !== '',
                             'artifact_type' => $outlinePersistedMarkdown !== ''
                                 ? WorkflowArtifactType::ArticleOutline->value
+                                : null,
+                            'vocabulary_artifact_type' => $vocabularyOnly !== ''
+                                ? WorkflowArtifactType::ArticleVocabulary->value
                                 : null,
                             'result_id' => $splitResult['prompt_result_ids'][1]
                                 ?? $splitResult['prompt_result_ids'][0]
@@ -2554,6 +2570,47 @@ final class TaskWorkflowTestRunner
         ));
 
         return $stored;
+    }
+
+    /**
+     * Persist vocabulary as a distinct typed artifact — never overwrite article_outline.
+     *
+     * @param  array<string, mixed>  $node
+     */
+    private function registerVocabularyArtifact(
+        array $node,
+        string $vocabularyMarkdown,
+        WorkflowExecutionState $state,
+        TaskTestContext $context,
+    ): void {
+        $payload = trim($vocabularyMarkdown);
+        if ($payload === '') {
+            return;
+        }
+
+        $this->registerTypedArtifact($state, new WorkflowTypedArtifact(
+            artifactType: WorkflowArtifactType::ArticleVocabulary,
+            payload: $payload,
+            projectId: isset($context->variables['project_id']) ? (int) $context->variables['project_id'] : null,
+            projectTaskId: isset($context->variables['project_task_id'])
+                ? (int) $context->variables['project_task_id']
+                : (isset($context->variables['task_id']) ? (int) $context->variables['task_id'] : null),
+            articleId: ($state->article ?? $context->article)?->id !== null
+                ? (int) ($state->article ?? $context->article)->id
+                : null,
+            runId: isset($context->variables['run_id']) ? (int) $context->variables['run_id'] : null,
+            runItemId: isset($context->variables['run_item_id']) ? (int) $context->variables['run_item_id'] : null,
+            attempt: isset($context->variables['attempt']) ? (int) $context->variables['attempt'] : null,
+            workflowNodeId: (string) ($node['id'] ?? ''),
+            producerHookKey: ArticleOutlineVocabularySplitExecutor::VOCABULARY_HOOK,
+            workflowGraphVersion: isset($context->variables['workflow_graph_version'])
+                ? (string) $context->variables['workflow_graph_version']
+                : null,
+            inputFingerprint: isset($context->variables['input_fingerprint'])
+                ? (string) $context->variables['input_fingerprint']
+                : null,
+            createdAt: now()->toIso8601String(),
+        ));
     }
 
     /**

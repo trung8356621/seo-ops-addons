@@ -157,6 +157,7 @@ final class ArticleAiHistoryListService
             'outline_markdown' => $prompt['outline_markdown'] ?? null,
             'status' => $prompt['status'] ?? null,
             'persists_as_outline' => (bool) ($prompt['persists_as_outline'] ?? false),
+            'outline_subtask' => $prompt['outline_subtask'] ?? null,
         ], (string) ($prompt['result'] ?? ''));
 
         $tombstone = $tombstones[$artifactRef] ?? null;

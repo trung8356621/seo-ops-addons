@@ -10,6 +10,7 @@ namespace Omnichannel\Addons\ContentProjects\Enums;
 enum WorkflowArtifactType: string
 {
     case ArticleOutline = 'article_outline';
+    case ArticleVocabulary = 'article_vocabulary';
     case ArticleContent = 'article_content';
     case ProductGallery = 'product_gallery';
     case ProductReview = 'product_review';

@@ -6,6 +6,8 @@ namespace Omnichannel\Addons\AiPrompt\SectionedFree;
 
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategy;
+use Omnichannel\Addons\AiPrompt\Support\PromptTextMetrics;
+use Omnichannel\Addons\Content\Support\ArticleGenerationLengthValidator;
 use Omnichannel\Addons\ContentProjects\Services\ArticleGenerationInputResolver;
 
 /**
@@ -43,6 +45,7 @@ final class SectionedFreeArticleGenerator
      *   usage: array<string, mixed>,
      *   last_model: string,
      *   units: list<SectionedFreeSectionUnit>,
+     *   plan: SectionedFreePlan,
      *   vocabulary_persisted: bool
      * }
      */
@@ -58,7 +61,27 @@ final class SectionedFreeArticleGenerator
         $outline = $parts['outline_markdown'];
         $vocabularyRaw = $parts['vocabulary_raw'];
 
-        $units = $this->prepare->prepare($outline);
+        $articleTargetWords = $this->resolveArticleTargetWords($articleContext);
+        $plan = $this->prepare->preparePlan($outline, $articleTargetWords);
+        $units = $plan->units;
+
+        if (
+            $plan->minimumUnitsByBudget() > 1
+            && $plan->plannedUnitCount() < $plan->minimumUnitsByBudget()
+            && ! ($plan->meta['insufficient_outline_material'] ?? false)
+        ) {
+            throw new PromptRunException(
+                'SECTIONED_FREE_PLAN_INVARIANT: planned_unit_count < minimum_units_by_budget without explicit reason.',
+                0,
+                null,
+                [
+                    'failure_code' => 'SECTIONED_FREE_PLAN_INVARIANT',
+                    'plan' => $plan->meta,
+                    'retryable' => false,
+                ],
+            );
+        }
+
         $articleMap = $this->promptBuilder->buildArticleMap($units);
         $state = $priorState ?? new SectionedFreeRunState();
         $state->setRun($runId ?? uniqid('sf_', true));
@@ -76,6 +99,7 @@ final class SectionedFreeArticleGenerator
         $lastModel = '';
         $previousSummary = '';
         $promptCharCounts = [];
+        $assembleCalled = false;
 
         foreach ($units as $unit) {
             if ($rerunId !== '' && $unit->sectionId !== $rerunId) {
@@ -107,6 +131,8 @@ final class SectionedFreeArticleGenerator
                 'language' => $articleContext['language'] ?? 'vi',
                 'article_map' => $articleMap,
                 'suggested_keywords' => $this->keywordSuggester->suggestForSection($unit, $vocabularyRaw),
+                'emit_parent_heading' => $unit->emitParentHeading,
+                'parent_h2' => $unit->parentH2,
             ];
             if ($previousSummary !== '') {
                 $ctx['previous_section_summary'] = $previousSummary;
@@ -114,7 +140,6 @@ final class SectionedFreeArticleGenerator
             $prompt = $this->promptBuilder->build($unit, $ctx);
             $promptCharCounts[$unit->sectionId] = mb_strlen($prompt);
 
-            // Hard isolation asserts — fail closed in tests / runtime.
             if ($vocabularyRaw !== '' && str_contains($prompt, $vocabularyRaw)) {
                 throw new PromptRunException(
                     'Sectioned free prompt leaked raw TASK_2_VOCABULARY.',
@@ -153,48 +178,84 @@ final class SectionedFreeArticleGenerator
                     'prompt_character_count' => $promptCharCounts[$unit->sectionId],
                     'target_words' => $unit->preferredTargetWords,
                     'minimum_words' => SectionedFreeSectionValidator::INCOMPLETE_WORD_THRESHOLD,
+                    'emit_parent_heading' => $unit->emitParentHeading,
+                    'parent_h2' => $unit->parentH2,
                 ]);
                 $providerCalls += $attemptCount;
                 $lastModel = (string) ($result['model'] ?? $lastModel);
                 $previousSummary = $this->shortSummary($output);
             } catch (\Throwable $exception) {
                 $state->markFailed($unit->sectionId, $exception->getMessage());
+                $completed = $this->countCompleted($state);
                 throw new PromptRunException(
-                    'Sectioned free failed at '.$unit->sectionId.': '.$exception->getMessage(),
+                    $this->formatSectionFailedMessage($unit->sectionId, $exception->getMessage(), $completed, count($units)),
                     0,
                     $exception,
                     [
                         'failure_code' => 'SECTIONED_FREE_SECTION_FAILED',
                         'section_id' => $unit->sectionId,
+                        'planned_sections' => count($units),
+                        'completed_sections' => $completed,
+                        'assemble_called' => false,
                         'sectioned_free_state' => $state->toArray(),
+                        'plan' => $plan->meta,
                         'retryable' => false,
-                        'user_message' => 'Section '.$unit->sectionId.' failed. Other successful sections were kept.',
+                        'user_message' => 'Section '.$unit->sectionId.' failed. Assemble was not called.',
                     ],
                 );
             }
         }
 
         $rows = $state->sectionsSorted();
+        $completed = 0;
         foreach ($rows as $row) {
-            if (($row['status'] ?? '') !== SectionedFreeRunState::STATUS_COMPLETED) {
-                throw new PromptRunException(
-                    'Sectioned free incomplete: section '.($row['section_id'] ?? '?').' not completed.',
-                    0,
-                    null,
-                    [
-                        'failure_code' => 'SECTIONED_FREE_INCOMPLETE',
-                        'sectioned_free_state' => $state->toArray(),
-                        'retryable' => false,
-                    ],
-                );
+            if (($row['status'] ?? '') === SectionedFreeRunState::STATUS_COMPLETED) {
+                $completed++;
             }
         }
+        if ($completed !== count($units)) {
+            throw new PromptRunException(
+                $this->formatSectionFailedMessage('incomplete', 'not all sections completed', $completed, count($units)),
+                0,
+                null,
+                [
+                    'failure_code' => 'SECTIONED_FREE_SECTION_FAILED',
+                    'planned_sections' => count($units),
+                    'completed_sections' => $completed,
+                    'assemble_called' => false,
+                    'sectioned_free_state' => $state->toArray(),
+                    'plan' => $plan->meta,
+                    'retryable' => false,
+                ],
+            );
+        }
 
-        $assembled = $this->assembler->assemble($rows);
-        $assembledWords = $this->validator->countWords($assembled);
-        $metrics = $this->buildMetrics($units, $rows, $assembledWords, $providerCalls, $promptCharCounts);
+        $assembleCalled = true;
+        $assembled = $this->assembler->assemble($rows, $units);
+        $parity = $this->assembler->assertWordParity($rows, $assembled);
+        $assembledWords = $parity['assembled_words'];
+
+        $this->assertFinalLengthContract(
+            $articleTargetWords,
+            $assembledWords,
+            $units,
+            $rows,
+            $parity['sum_section_words'],
+            $plan,
+        );
+
+        $metrics = $this->buildMetrics(
+            $units,
+            $rows,
+            $assembledWords,
+            $providerCalls,
+            $promptCharCounts,
+            $plan,
+            $parity['sum_section_words'],
+        );
         $metrics['vocabulary_persisted'] = $parts['vocabulary_persisted'];
         $metrics['vocabulary_injected_into_writer'] = false;
+        $metrics['assemble_called'] = $assembleCalled;
         $state->setMetrics($metrics);
 
         return [
@@ -208,16 +269,118 @@ final class SectionedFreeArticleGenerator
                 'sectioned_free' => $metrics,
                 'sectioned_free_state' => $state->toArray(),
                 'sectioned_free_trace' => $state->traceChildren(),
+                'sectioned_free_plan' => $plan->meta,
                 'provider_calls' => $providerCalls,
                 'assembled_word_count' => $assembledWords,
+                'sum_section_words' => $parity['sum_section_words'],
                 'assemble_mode' => 'deterministic_concat',
                 'whole_article_rewrite' => false,
                 'vocabulary_injected_into_writer' => false,
             ],
             'last_model' => $lastModel,
             'units' => $units,
+            'plan' => $plan,
             'vocabulary_persisted' => $parts['vocabulary_persisted'],
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $articleContext
+     */
+    private function resolveArticleTargetWords(array $articleContext): int
+    {
+        foreach (['article_length', 'target_words', 'target_article_length', 'resolved_article_length'] as $key) {
+            if (! array_key_exists($key, $articleContext) || $articleContext[$key] === null || $articleContext[$key] === '') {
+                continue;
+            }
+            $raw = $articleContext[$key];
+            if (is_numeric($raw)) {
+                return max(0, (int) $raw);
+            }
+            if (is_string($raw) && preg_match('/(\d+)/', $raw, $m) === 1) {
+                return max(0, (int) $m[1]);
+            }
+        }
+
+        return 0;
+    }
+
+    /**
+     * @param  list<SectionedFreeSectionUnit>  $units
+     * @param  list<array<string, mixed>>  $rows
+     */
+    private function assertFinalLengthContract(
+        int $articleTargetWords,
+        int $assembledWords,
+        array $units,
+        array $rows,
+        int $sumSectionWords,
+        SectionedFreePlan $plan,
+    ): void {
+        if ($articleTargetWords <= 0) {
+            return;
+        }
+
+        $minimum = (new ArticleGenerationLengthValidator)->minimumForTarget($articleTargetWords);
+        if ($assembledWords >= $minimum) {
+            return;
+        }
+
+        $perSection = [];
+        foreach ($rows as $row) {
+            $perSection[] = [
+                'section_id' => $row['section_id'] ?? null,
+                'words' => (int) ($row['word_count'] ?? 0),
+            ];
+        }
+
+        throw new PromptRunException(
+            "SECTIONED_FREE_FINAL_TOO_SHORT\n"
+            .'planned units: '.count($units)."\n"
+            .'completed units: '.count($units)."\n"
+            .'sum_section_words: '.$sumSectionWords."\n"
+            .'final words: '.$assembledWords."\n"
+            .'target: '.$articleTargetWords."\n"
+            .'minimum: '.$minimum,
+            0,
+            null,
+            [
+                'failure_code' => 'SECTIONED_FREE_FINAL_TOO_SHORT',
+                'planned_units' => count($units),
+                'completed_units' => count($units),
+                'per_section_words' => $perSection,
+                'sum_section_words' => $sumSectionWords,
+                'final_assembled_word_count' => $assembledWords,
+                'target_words' => $articleTargetWords,
+                'minimum_words' => $minimum,
+                'plan' => $plan->meta,
+                'retryable' => false,
+            ],
+        );
+    }
+
+    private function formatSectionFailedMessage(
+        string $sectionId,
+        string $lastError,
+        int $completed,
+        int $planned,
+    ): string {
+        return "SECTIONED_FREE_SECTION_FAILED\n"
+            ."section: {$sectionId}\n"
+            .'last_error: '.$lastError."\n"
+            ."completed_sections: {$completed}/{$planned}";
+    }
+
+    private function countCompleted(SectionedFreeRunState $state): int
+    {
+        $n = 0;
+        foreach ($state->sectionsSorted() as $row) {
+            if (($row['status'] ?? '') === SectionedFreeRunState::STATUS_COMPLETED) {
+                $n++;
+            }
+        }
+
+        return $n;
     }
 
     /**
@@ -231,7 +394,9 @@ final class SectionedFreeArticleGenerator
         array $rows,
         int $assembledWords,
         int $providerCalls,
-        array $promptCharCounts = [],
+        array $promptCharCounts,
+        SectionedFreePlan $plan,
+        int $sumSectionWords,
     ): array {
         $perSection = [];
         $models = [];
@@ -273,17 +438,18 @@ final class SectionedFreeArticleGenerator
             $totalAttempts += (int) ($row['attempt_count'] ?? 0);
         }
 
-        $generatedTotal = array_sum(array_map(
-            static fn (array $r): int => (int) ($r['word_count'] ?? 0),
-            $rows,
-        ));
-
         return [
             'generation_strategy' => ArticleGenerationStrategy::SectionedFree->value,
+            'article_target_words' => $plan->articleTargetWords(),
+            'minimum_units_by_budget' => $plan->minimumUnitsByBudget(),
             'outline_section_count' => $outlineNodeCount,
             'generation_unit_count' => count($units),
+            'planned_unit_count' => count($units),
+            'completed_unit_count' => count($units),
+            'failed_unit_count' => 0,
             'requested_target_words' => $targetWords,
-            'generated_total_word_count' => $generatedTotal,
+            'generated_total_word_count' => $sumSectionWords,
+            'sum_section_words' => $sumSectionWords,
             'per_section_word_counts' => $perSection,
             'total_attempts' => $totalAttempts > 0 ? $totalAttempts : $providerCalls,
             'first_attempt_success_count' => $firstAttemptSuccess,
@@ -292,6 +458,7 @@ final class SectionedFreeArticleGenerator
             'final_assembled_word_count' => $assembledWords,
             'exceeds_1000_words' => $assembledWords >= 1000,
             'prompt_character_counts' => $promptCharCounts,
+            'plan' => $plan->meta,
         ];
     }
 

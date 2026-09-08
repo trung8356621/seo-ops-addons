@@ -139,6 +139,14 @@ final class SectionedFreeHookOrchestrator
                 'language' => (string) ($variables['language'] ?? $variables['locale'] ?? 'vi'),
                 'outline' => (string) ($variables['input'] ?? $variables['article_writing_raw_input'] ?? ''),
                 'input' => (string) ($variables['input'] ?? $variables['article_writing_raw_input'] ?? ''),
+                'article_length' => $variables['article_length']
+                    ?? $variables['target_article_length']
+                    ?? $variables['resolved_article_length']
+                    ?? null,
+                'target_words' => $variables['article_length']
+                    ?? $variables['target_article_length']
+                    ?? $variables['resolved_article_length']
+                    ?? null,
             ];
 
             $priorState = SectionedFreeRunState::fromArray(
@@ -269,10 +277,20 @@ final class SectionedFreeHookOrchestrator
             // Pre-plan for breadcrumbs (same prepare as generator).
             $prepare = new SectionedFreePrepareSections();
             $outlineParts = (new SectionedFreeArtifactSplitter())->split($articleContext['outline']);
-            $plannedUnits = $prepare->prepare($outlineParts['outline_markdown']);
+            $articleTarget = 0;
+            foreach (['article_length', 'target_words'] as $k) {
+                if (isset($articleContext[$k]) && is_numeric($articleContext[$k])) {
+                    $articleTarget = (int) $articleContext[$k];
+                    break;
+                }
+            }
+            $planPreview = $prepare->preparePlan($outlineParts['outline_markdown'], $articleTarget);
             $breadcrumbs->push('sections_planned', [
-                'count' => count($plannedUnits),
-                'section_ids' => array_map(static fn (SectionedFreeSectionUnit $u): string => $u->sectionId, $plannedUnits),
+                'count' => $planPreview->plannedUnitCount(),
+                'minimum_units_by_budget' => $planPreview->minimumUnitsByBudget(),
+                'article_target_words' => $planPreview->articleTargetWords(),
+                'section_ids' => array_map(static fn (SectionedFreeSectionUnit $u): string => $u->sectionId, $planPreview->units),
+                'plan' => $planPreview->meta,
             ]);
             $this->patchParentSnapshot($parentResult, $breadcrumbs, $childPromptResultIds);
 
@@ -310,7 +328,9 @@ final class SectionedFreeHookOrchestrator
                         'sectioned_free_metrics' => $result['metrics'],
                         'child_prompt_result_ids' => $childPromptResultIds,
                         'breadcrumbs' => $breadcrumbs->all(),
-                        'sections_planned' => count($plannedUnits),
+                        'sections_planned' => $planPreview->plannedUnitCount(),
+                        'minimum_units_by_budget' => $planPreview->minimumUnitsByBudget(),
+                        'article_target_words' => $planPreview->articleTargetWords(),
                         'legacy_whole_article_calls' => 0,
                         'legacy_validator_reached' => false,
                     ],
@@ -499,15 +519,33 @@ final class SectionedFreeHookOrchestrator
      */
     private function orchestratorSummaryPrompt(array $metrics, array $childIds): string
     {
-        return implode("\n", [
+        $lines = [
             'Strategy: sectioned_free',
-            'Generation units: '.(string) ($metrics['generation_unit_count'] ?? 0),
-            'Provider calls: '.(string) ($metrics['total_attempts'] ?? count($childIds)),
-            'Final words: '.(string) ($metrics['final_assembled_word_count'] ?? 0),
-            'Child prompt_result_ids: '.implode(',', $childIds),
+            'Article target: '.(string) ($metrics['article_target_words'] ?? 0).' words',
+            'Minimum units by budget: '.(string) ($metrics['minimum_units_by_budget'] ?? 0),
+            'Planned: '.(string) ($metrics['planned_unit_count'] ?? $metrics['generation_unit_count'] ?? 0),
+            'Completed: '.(string) ($metrics['completed_unit_count'] ?? $metrics['generation_unit_count'] ?? 0),
+            'Failed: '.(string) ($metrics['failed_unit_count'] ?? 0),
             '',
-            'Parent node is an orchestrator — it does not send a whole-article provider prompt.',
-            'Open child PromptResults to inspect actual section prompts/outputs.',
-        ]);
+        ];
+
+        foreach (is_array($metrics['per_section_word_counts'] ?? null) ? $metrics['per_section_word_counts'] : [] as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $lines[] = (string) ($row['section_id'] ?? 'section')
+                .' '.(string) ($row['word_count'] ?? $row['output_word_count'] ?? 0)
+                .' words';
+        }
+
+        $lines[] = '';
+        $lines[] = 'Sum section words: '.(string) ($metrics['sum_section_words'] ?? $metrics['generated_total_word_count'] ?? 0);
+        $lines[] = 'Assembled words: '.(string) ($metrics['final_assembled_word_count'] ?? 0);
+        $lines[] = 'Child prompt_result_ids: '.implode(',', $childIds);
+        $lines[] = '';
+        $lines[] = 'Parent node is an orchestrator — it does not send a whole-article provider prompt.';
+        $lines[] = 'Open child PromptResults to inspect actual section prompts/outputs.';
+
+        return implode("\n", $lines);
     }
 }

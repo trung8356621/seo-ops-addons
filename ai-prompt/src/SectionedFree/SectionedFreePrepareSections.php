@@ -7,7 +7,8 @@ namespace Omnichannel\Addons\AiPrompt\SectionedFree;
 /**
  * Group outline nodes into generation units targeting ~250–350 words each.
  *
- * Does not split every H2/H3 into its own API call.
+ * Enforces word-budget minimum unit count:
+ *   minimumUnitsByBudget = ceil(articleTargetWords / PREFERRED_MAX)
  */
 final class SectionedFreePrepareSections
 {
@@ -22,56 +23,148 @@ final class SectionedFreePrepareSections
     /**
      * @return list<SectionedFreeSectionUnit>
      */
-    public function prepare(string $outlineMarkdown): array
+    public function prepare(string $outlineMarkdown, int $articleTargetWords = 0): array
     {
+        return $this->preparePlan($outlineMarkdown, $articleTargetWords)->units;
+    }
+
+    public function preparePlan(string $outlineMarkdown, int $articleTargetWords = 0): SectionedFreePlan
+    {
+        $target = max(0, $articleTargetWords);
+        $minimumUnits = $this->minimumUnitsByBudget($target);
+
         $nodes = $this->parseNodes($outlineMarkdown);
         if ($nodes === []) {
-            return [
-                new SectionedFreeSectionUnit(
-                    sectionId: 'section_01',
-                    order: 0,
-                    label: 'Body',
-                    role: SectionedFreeSectionUnit::ROLE_BODY,
-                    outlineNodes: [[
-                        'kind' => 'body',
-                        'heading' => 'Body',
-                        'level' => 2,
-                        'body' => trim($outlineMarkdown),
-                    ]],
-                    requiredPoints: [],
-                    targetMinWords: self::PREFERRED_MIN,
-                    targetMaxWords: self::PREFERRED_MAX,
-                    preferredTargetWords: 300,
-                ),
-            ];
-        }
-
-        $groups = $this->groupNodes($nodes);
-        $units = [];
-        foreach ($groups as $index => $group) {
-            $order = $index;
-            $sectionId = 'section_'.str_pad((string) ($order + 1), 2, '0', STR_PAD_LEFT);
-            $label = $this->groupLabel($group);
-            $role = $this->groupRole($group);
-            $estimate = $this->estimateTargetWords($group);
-            $units[] = new SectionedFreeSectionUnit(
-                sectionId: $sectionId,
-                order: $order,
-                label: $label,
-                role: $role,
-                outlineNodes: $group,
-                requiredPoints: $this->extractRequiredPoints($group),
+            $unit = new SectionedFreeSectionUnit(
+                sectionId: 'section_01',
+                order: 0,
+                label: 'Body',
+                role: SectionedFreeSectionUnit::ROLE_BODY,
+                outlineNodes: [[
+                    'kind' => 'body',
+                    'heading' => 'Body',
+                    'level' => 2,
+                    'body' => trim($outlineMarkdown),
+                    'emit_heading' => true,
+                    'parent_h2' => null,
+                ]],
+                requiredPoints: [],
                 targetMinWords: self::PREFERRED_MIN,
                 targetMaxWords: self::PREFERRED_MAX,
-                preferredTargetWords: $estimate,
+                preferredTargetWords: 300,
+            );
+
+            return new SectionedFreePlan(
+                units: [$unit],
+                meta: $this->buildMeta($target, $minimumUnits, [$unit], true, 'outline_had_no_parseable_headings'),
             );
         }
 
-        return $units;
+        $clusters = $this->buildSemanticClusters($nodes);
+        $clusters = $this->expandClustersToMeetBudget($clusters, $minimumUnits);
+
+        $insufficient = count($clusters) < $minimumUnits;
+        $reason = $insufficient
+            ? 'outline_semantic_material_exhausted_before_budget_minimum'
+            : null;
+
+        $units = [];
+        foreach ($clusters as $index => $cluster) {
+            $units[] = $this->clusterToUnit($cluster, $index);
+        }
+
+        if (! $insufficient && count($units) < $minimumUnits) {
+            $insufficient = true;
+            $reason = 'planned_unit_count_below_budget_minimum';
+        }
+
+        return new SectionedFreePlan(
+            units: $units,
+            meta: $this->buildMeta($target, $minimumUnits, $units, $insufficient, $reason),
+        );
+    }
+
+    public function minimumUnitsByBudget(int $articleTargetWords): int
+    {
+        $target = max(0, $articleTargetWords);
+        if ($target <= 0) {
+            return 1;
+        }
+
+        return max(1, (int) ceil($target / self::PREFERRED_MAX));
     }
 
     /**
-     * @return list<array{kind: string, heading: string, level: int, body: string}>
+     * @param  list<SectionedFreeSectionUnit>  $units
+     * @return array<string, mixed>
+     */
+    private function buildMeta(
+        int $target,
+        int $minimumUnits,
+        array $units,
+        bool $insufficient,
+        ?string $reason,
+    ): array {
+        $perSection = [];
+        foreach ($units as $unit) {
+            $perSection[] = [
+                'section_id' => $unit->sectionId,
+                'target_words' => $unit->preferredTargetWords,
+                'label' => $unit->label,
+            ];
+        }
+
+        return [
+            'article_target_words' => $target,
+            'planned_unit_count' => count($units),
+            'minimum_units_by_budget' => $minimumUnits,
+            'max_section_target_words' => self::PREFERRED_MAX,
+            'insufficient_outline_material' => $insufficient,
+            'insufficient_reason' => $reason,
+            'per_section_targets' => $perSection,
+        ];
+    }
+
+    /**
+     * @param  array{
+     *   nodes: list<array<string, mixed>>,
+     *   parent_h2: ?string,
+     *   emit_parent_heading: bool,
+     *   role: string
+     * }  $cluster
+     */
+    private function clusterToUnit(array $cluster, int $order): SectionedFreeSectionUnit
+    {
+        $nodes = $cluster['nodes'];
+        $sectionId = 'section_'.str_pad((string) ($order + 1), 2, '0', STR_PAD_LEFT);
+        $h3s = [];
+        foreach ($nodes as $node) {
+            if ((int) ($node['level'] ?? 0) >= 3) {
+                $h = trim((string) ($node['heading'] ?? ''));
+                if ($h !== '') {
+                    $h3s[] = $h;
+                }
+            }
+        }
+
+        return new SectionedFreeSectionUnit(
+            sectionId: $sectionId,
+            order: $order,
+            label: $this->groupLabel($nodes, (bool) $cluster['emit_parent_heading'], $cluster['parent_h2']),
+            role: (string) $cluster['role'],
+            outlineNodes: $nodes,
+            requiredPoints: $this->extractRequiredPoints($nodes),
+            targetMinWords: self::PREFERRED_MIN,
+            targetMaxWords: self::PREFERRED_MAX,
+            preferredTargetWords: $this->estimateTargetWords($nodes),
+            parentH2: $cluster['parent_h2'],
+            emitParentHeading: (bool) $cluster['emit_parent_heading'],
+            includedH3s: $h3s,
+        );
+    }
+
+    /**
+     * @return list<array{kind: string, heading: string, level: int, body: string, emit_heading: bool, parent_h2: ?string}>
      */
     private function parseNodes(string $markdown): array
     {
@@ -98,6 +191,8 @@ final class SectionedFreePrepareSections
                     'heading' => $heading,
                     'level' => $level,
                     'body' => '',
+                    'emit_heading' => true,
+                    'parent_h2' => null,
                 ];
                 continue;
             }
@@ -107,6 +202,8 @@ final class SectionedFreePrepareSections
                     'heading' => 'Introduction',
                     'level' => 2,
                     'body' => '',
+                    'emit_heading' => true,
+                    'parent_h2' => null,
                 ];
             }
             $current['body'] .= ($current['body'] === '' ? '' : "\n").$line;
@@ -149,192 +246,259 @@ final class SectionedFreePrepareSections
     }
 
     /**
-     * @param  list<array{kind: string, heading: string, level: int, body: string}>  $nodes
-     * @return list<list<array{kind: string, heading: string, level: int, body: string}>>
+     * Semantic clusters: Intro | H2(+H3s) | FAQ | Conclusion — one cluster each.
+     * Does NOT merge across H2s (budget expansion handles further splits).
+     *
+     * @param  list<array<string, mixed>>  $nodes
+     * @return list<array{nodes: list<array<string, mixed>>, parent_h2: ?string, emit_parent_heading: bool, role: string}>
      */
-    private function groupNodes(array $nodes): array
+    private function buildSemanticClusters(array $nodes): array
     {
-        $groups = [];
-        $buffer = [];
-        $bufferWeight = 0;
-
-        $flush = static function () use (&$groups, &$buffer, &$bufferWeight): void {
-            if ($buffer === []) {
-                return;
-            }
-            $groups[] = $buffer;
-            $buffer = [];
-            $bufferWeight = 0;
-        };
-
+        $clusters = [];
         $i = 0;
         $count = count($nodes);
+
         while ($i < $count) {
             $node = $nodes[$i];
             $kind = (string) $node['kind'];
+            $level = (int) $node['level'];
 
-            // FAQ always its own unit.
             if ($kind === SectionedFreeSectionUnit::ROLE_FAQ) {
-                $flush();
-                $groups[] = [$node];
+                $clusters[] = $this->makeCluster([$node], null, true, SectionedFreeSectionUnit::ROLE_FAQ);
                 $i++;
                 continue;
             }
 
-            // H2 + following H3 children as one candidate cluster.
-            if ((int) $node['level'] === 2 && $kind === SectionedFreeSectionUnit::ROLE_BODY) {
-                $cluster = [$node];
-                $weight = $this->nodeWeight($node);
+            if ($kind === SectionedFreeSectionUnit::ROLE_CONCLUSION) {
+                $clusters[] = $this->makeCluster([$node], null, true, SectionedFreeSectionUnit::ROLE_CONCLUSION);
+                $i++;
+                continue;
+            }
+
+            if ($level === 2 && $kind === SectionedFreeSectionUnit::ROLE_BODY) {
+                $group = [$node];
+                $parentH2 = trim((string) $node['heading']);
                 $j = $i + 1;
                 while ($j < $count && (int) $nodes[$j]['level'] >= 3) {
-                    $cluster[] = $nodes[$j];
-                    $weight += $this->nodeWeight($nodes[$j]);
+                    $child = $nodes[$j];
+                    $child['parent_h2'] = $parentH2;
+                    $group[] = $child;
                     $j++;
                 }
-
-                if ($buffer !== [] && ($bufferWeight + $weight) > self::UNIT_SOFT_MAX) {
-                    $flush();
-                }
-                if ($buffer === []) {
-                    $buffer = $cluster;
-                    $bufferWeight = $weight;
-                } elseif (($bufferWeight + $weight) <= self::UNIT_SOFT_MAX) {
-                    foreach ($cluster as $item) {
-                        $buffer[] = $item;
-                    }
-                    $bufferWeight += $weight;
-                } else {
-                    $flush();
-                    $buffer = $cluster;
-                    $bufferWeight = $weight;
-                }
-
-                // Prefer flushing when we reached preferred band.
-                if ($bufferWeight >= self::PREFERRED_MIN && $bufferWeight <= self::UNIT_SOFT_MAX) {
-                    // Keep buffering only if next is a tiny trailing intro/conclusion-ish node.
-                    $next = $nodes[$j] ?? null;
-                    if ($next === null
-                        || (string) $next['kind'] === SectionedFreeSectionUnit::ROLE_FAQ
-                        || (string) $next['kind'] === SectionedFreeSectionUnit::ROLE_CONCLUSION
-                        || $bufferWeight >= self::PREFERRED_MAX
-                    ) {
-                        $flush();
-                    }
-                }
-
+                $clusters[] = $this->makeCluster($group, $parentH2, true, SectionedFreeSectionUnit::ROLE_BODY);
                 $i = $j;
                 continue;
             }
 
-            $weight = $this->nodeWeight($node);
-            if ($buffer !== [] && ($bufferWeight + $weight) > self::UNIT_SOFT_MAX) {
-                $flush();
-            }
-            $buffer[] = $node;
-            $bufferWeight += $weight;
-
-            if ($kind === SectionedFreeSectionUnit::ROLE_CONCLUSION
-                || $bufferWeight >= self::PREFERRED_MAX
+            // Intro / H1 / loose body nodes.
+            $group = [$node];
+            $j = $i + 1;
+            while (
+                $j < $count
+                && (int) $nodes[$j]['level'] !== 2
+                && (string) $nodes[$j]['kind'] !== SectionedFreeSectionUnit::ROLE_FAQ
+                && (string) $nodes[$j]['kind'] !== SectionedFreeSectionUnit::ROLE_CONCLUSION
             ) {
-                $flush();
+                $group[] = $nodes[$j];
+                $j++;
             }
-
-            $i++;
+            $role = (string) ($group[0]['kind'] ?? SectionedFreeSectionUnit::ROLE_INTRO);
+            $clusters[] = $this->makeCluster($group, null, true, $role);
+            $i = $j;
         }
-        $flush();
 
-        return $this->mergeUndersized($groups);
+        return $clusters;
     }
 
     /**
-     * @param  list<list<array{kind: string, heading: string, level: int, body: string}>>  $groups
-     * @return list<list<array{kind: string, heading: string, level: int, body: string}>>
+     * @param  list<array{nodes: list<array<string, mixed>>, parent_h2: ?string, emit_parent_heading: bool, role: string}>  $clusters
+     * @return list<array{nodes: list<array<string, mixed>>, parent_h2: ?string, emit_parent_heading: bool, role: string}>
      */
-    private function mergeUndersized(array $groups): array
+    private function expandClustersToMeetBudget(array $clusters, int $minimumUnits): array
     {
-        if (count($groups) <= 1) {
-            return $groups;
+        if ($minimumUnits <= 1 || count($clusters) >= $minimumUnits) {
+            return $clusters;
         }
 
-        $merged = [];
-        $pending = null;
-        $pendingWeight = 0;
+        $guard = 0;
+        while (count($clusters) < $minimumUnits && $guard < 64) {
+            $guard++;
+            $splitIndex = $this->findBestSplitIndex($clusters);
+            if ($splitIndex === null) {
+                break;
+            }
+            $parts = $this->splitCluster($clusters[$splitIndex]);
+            if ($parts === null) {
+                break;
+            }
+            array_splice($clusters, $splitIndex, 1, $parts);
+        }
 
-        foreach ($groups as $group) {
+        return array_values($clusters);
+    }
+
+    /**
+     * @param  list<array{nodes: list<array<string, mixed>>, parent_h2: ?string, emit_parent_heading: bool, role: string}>  $clusters
+     */
+    private function findBestSplitIndex(array $clusters): ?int
+    {
+        $bestIndex = null;
+        $bestScore = -1;
+        foreach ($clusters as $index => $cluster) {
+            $h3Count = 0;
+            foreach ($cluster['nodes'] as $node) {
+                if ((int) ($node['level'] ?? 0) >= 3) {
+                    $h3Count++;
+                }
+            }
             $weight = 0;
-            foreach ($group as $node) {
+            foreach ($cluster['nodes'] as $node) {
                 $weight += $this->nodeWeight($node);
             }
-            $isFaq = ((string) ($group[0]['kind'] ?? '')) === SectionedFreeSectionUnit::ROLE_FAQ;
-
-            if ($isFaq) {
-                if ($pending !== null) {
-                    $merged[] = $pending;
-                    $pending = null;
-                    $pendingWeight = 0;
-                }
-                $merged[] = $group;
+            // Prefer body H2 clusters with multiple H3s; otherwise heaviest cluster with ≥2 nodes.
+            $score = ($h3Count * 1000) + $weight + (count($cluster['nodes']) * 10);
+            if ($h3Count < 2 && count($cluster['nodes']) < 2) {
                 continue;
             }
-
-            if ($pending === null) {
-                $pending = $group;
-                $pendingWeight = $weight;
-                continue;
-            }
-
-            if ($pendingWeight < self::UNIT_SOFT_MIN && ($pendingWeight + $weight) <= self::UNIT_SOFT_MAX) {
-                foreach ($group as $node) {
-                    $pending[] = $node;
-                }
-                $pendingWeight += $weight;
-                continue;
-            }
-
-            $merged[] = $pending;
-            $pending = $group;
-            $pendingWeight = $weight;
-        }
-
-        if ($pending !== null) {
-            // Attach tiny trailing group to previous if possible.
-            if (
-                $pendingWeight < self::UNIT_SOFT_MIN
-                && $merged !== []
-                && ((string) ($merged[array_key_last($merged)][0]['kind'] ?? '')) !== SectionedFreeSectionUnit::ROLE_FAQ
-            ) {
-                $lastIdx = array_key_last($merged);
-                foreach ($pending as $node) {
-                    $merged[$lastIdx][] = $node;
-                }
-            } else {
-                $merged[] = $pending;
+            if ($score > $bestScore) {
+                $bestScore = $score;
+                $bestIndex = $index;
             }
         }
 
-        return array_values($merged);
+        return $bestIndex;
     }
 
     /**
-     * @param  array{kind: string, heading: string, level: int, body: string}  $node
+     * @param  array{nodes: list<array<string, mixed>>, parent_h2: ?string, emit_parent_heading: bool, role: string}  $cluster
+     * @return list<array{nodes: list<array<string, mixed>>, parent_h2: ?string, emit_parent_heading: bool, role: string}>|null
+     */
+    private function splitCluster(array $cluster): ?array
+    {
+        $nodes = $cluster['nodes'];
+        $h3Indexes = [];
+        foreach ($nodes as $idx => $node) {
+            if ((int) ($node['level'] ?? 0) >= 3) {
+                $h3Indexes[] = $idx;
+            }
+        }
+
+        if (count($h3Indexes) >= 2) {
+            $mid = (int) ceil(count($h3Indexes) / 2);
+            $splitAtH3 = $h3Indexes[$mid];
+            $leftNodes = array_slice($nodes, 0, $splitAtH3);
+            $rightNodes = array_slice($nodes, $splitAtH3);
+            if ($leftNodes === [] || $rightNodes === []) {
+                return null;
+            }
+
+            $parentH2 = $cluster['parent_h2']
+                ?? $this->firstH2Heading($nodes);
+
+            // Left keeps parent H2 emission; right continues without re-emitting H2.
+            $left = $this->makeCluster(
+                $leftNodes,
+                $parentH2,
+                (bool) $cluster['emit_parent_heading'],
+                (string) $cluster['role'],
+            );
+            $rightNodes = $this->markContinuationNodes($rightNodes, $parentH2);
+            $right = $this->makeCluster(
+                $rightNodes,
+                $parentH2,
+                false,
+                (string) $cluster['role'],
+            );
+
+            return [$left, $right];
+        }
+
+        // Fallback: split flat node list in half.
+        if (count($nodes) < 2) {
+            return null;
+        }
+        $mid = (int) ceil(count($nodes) / 2);
+        $leftNodes = array_slice($nodes, 0, $mid);
+        $rightNodes = array_slice($nodes, $mid);
+        $parentH2 = $cluster['parent_h2'] ?? $this->firstH2Heading($nodes);
+        $rightNodes = $this->markContinuationNodes($rightNodes, $parentH2);
+
+        return [
+            $this->makeCluster($leftNodes, $parentH2, (bool) $cluster['emit_parent_heading'], (string) $cluster['role']),
+            $this->makeCluster($rightNodes, $parentH2, false, (string) $cluster['role']),
+        ];
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $nodes
+     * @return list<array<string, mixed>>
+     */
+    private function markContinuationNodes(array $nodes, ?string $parentH2): array
+    {
+        $out = [];
+        foreach ($nodes as $node) {
+            if ((int) ($node['level'] ?? 0) === 2) {
+                $node['emit_heading'] = false;
+                $node['parent_h2'] = $parentH2 ?? trim((string) ($node['heading'] ?? ''));
+            } else {
+                $node['parent_h2'] = $parentH2 ?? ($node['parent_h2'] ?? null);
+            }
+            $out[] = $node;
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $nodes
+     */
+    private function firstH2Heading(array $nodes): ?string
+    {
+        foreach ($nodes as $node) {
+            if ((int) ($node['level'] ?? 0) === 2) {
+                $h = trim((string) ($node['heading'] ?? ''));
+
+                return $h !== '' ? $h : null;
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $nodes
+     * @return array{nodes: list<array<string, mixed>>, parent_h2: ?string, emit_parent_heading: bool, role: string}
+     */
+    private function makeCluster(array $nodes, ?string $parentH2, bool $emitParentHeading, string $role): array
+    {
+        return [
+            'nodes' => array_values($nodes),
+            'parent_h2' => $parentH2,
+            'emit_parent_heading' => $emitParentHeading,
+            'role' => $role,
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $node
      */
     private function nodeWeight(array $node): int
     {
-        $kind = (string) $node['kind'];
-        $body = trim((string) $node['body']);
+        $kind = (string) ($node['kind'] ?? '');
+        $body = trim((string) ($node['body'] ?? ''));
         $bullets = preg_match_all('/^\s*[-*•]\s+/mu', $body) ?: 0;
         $base = match ($kind) {
             SectionedFreeSectionUnit::ROLE_INTRO => 220,
             SectionedFreeSectionUnit::ROLE_CONCLUSION => 200,
             SectionedFreeSectionUnit::ROLE_FAQ => 260,
-            default => ((int) $node['level'] >= 3 ? 140 : 280),
+            default => ((int) ($node['level'] ?? 2) >= 3 ? 140 : 280),
         };
 
         return $base + ($bullets * 40) + (int) min(80, (int) floor(mb_strlen($body) / 12));
     }
 
     /**
-     * @param  list<array{kind: string, heading: string, level: int, body: string}>  $group
+     * @param  list<array<string, mixed>>  $group
      */
     private function estimateTargetWords(array $group): int
     {
@@ -347,13 +511,31 @@ final class SectionedFreePrepareSections
     }
 
     /**
-     * @param  list<array{kind: string, heading: string, level: int, body: string}>  $group
+     * @param  list<array<string, mixed>>  $group
      */
-    private function groupLabel(array $group): string
+    private function groupLabel(array $group, bool $emitParentHeading, ?string $parentH2): string
     {
+        if (! $emitParentHeading && $parentH2 !== null && $parentH2 !== '') {
+            $h3s = [];
+            foreach ($group as $node) {
+                if ((int) ($node['level'] ?? 0) >= 3) {
+                    $h = trim((string) ($node['heading'] ?? ''));
+                    if ($h !== '') {
+                        $h3s[] = $h;
+                    }
+                }
+            }
+
+            return $parentH2.' — tiếp'.($h3s !== [] ? ' ('.implode(', ', array_slice($h3s, 0, 2)).')' : '');
+        }
+
         $headings = [];
         foreach ($group as $node) {
-            $h = trim((string) $node['heading']);
+            $emit = array_key_exists('emit_heading', $node) ? (bool) $node['emit_heading'] : true;
+            if (! $emit && (int) ($node['level'] ?? 0) <= 2) {
+                continue;
+            }
+            $h = trim((string) ($node['heading'] ?? ''));
             if ($h !== '') {
                 $headings[] = $h;
             }
@@ -363,33 +545,14 @@ final class SectionedFreePrepareSections
     }
 
     /**
-     * @param  list<array{kind: string, heading: string, level: int, body: string}>  $group
-     */
-    private function groupRole(array $group): string
-    {
-        foreach ($group as $node) {
-            $kind = (string) $node['kind'];
-            if ($kind === SectionedFreeSectionUnit::ROLE_FAQ) {
-                return SectionedFreeSectionUnit::ROLE_FAQ;
-            }
-            if ($kind === SectionedFreeSectionUnit::ROLE_CONCLUSION) {
-                return SectionedFreeSectionUnit::ROLE_CONCLUSION;
-            }
-        }
-        $first = (string) ($group[0]['kind'] ?? SectionedFreeSectionUnit::ROLE_BODY);
-
-        return $first !== '' ? $first : SectionedFreeSectionUnit::ROLE_BODY;
-    }
-
-    /**
-     * @param  list<array{kind: string, heading: string, level: int, body: string}>  $group
+     * @param  list<array<string, mixed>>  $group
      * @return list<string>
      */
     private function extractRequiredPoints(array $group): array
     {
         $points = [];
         foreach ($group as $node) {
-            $body = (string) $node['body'];
+            $body = (string) ($node['body'] ?? '');
             if (preg_match_all('/^\s*[-*•]\s+(.+)$/mu', $body, $m) > 0) {
                 foreach ($m[1] as $point) {
                     $point = trim((string) $point);

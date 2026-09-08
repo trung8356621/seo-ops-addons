@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\AiPrompt\Services;
 
 use Omnichannel\Addons\AiPrompt\Models\PromptResult;
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\ContentProjects\Enums\WorkflowArtifactType;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRunItem;
 use Omnichannel\Addons\AiPrompt\Models\SeoPromptResultLink;
@@ -753,6 +754,15 @@ final class ArticlePromptRunHistoryService
                 'outline_subtask' => 'outline',
                 'execution_sequence' => 1,
                 'hook_key' => $step['hook_key'] ?? 'article.outline.structure.generate',
+                'artifact_type' => WorkflowArtifactType::ArticleOutline->value,
+                'outline_markdown' => $this->trimmedOrNull(
+                    is_array($step['sections'] ?? null)
+                        ? ($step['sections']['outline'] ?? $step['outline_markdown'] ?? null)
+                        : ($step['outline_markdown'] ?? null),
+                ),
+                'persists_as_outline' => true,
+                // Do not inherit combined split output onto outline child display path.
+                'output' => null,
             ]);
         }
 
@@ -775,6 +785,11 @@ final class ArticlePromptRunHistoryService
                 'outline_subtask' => 'vocabulary',
                 'execution_sequence' => 2,
                 'hook_key' => 'article.vocabulary.generate',
+                // CRITICAL: vocabulary must not inherit article_outline typed artifact.
+                'artifact_type' => WorkflowArtifactType::ArticleVocabulary->value,
+                'outline_markdown' => null,
+                'persists_as_outline' => false,
+                'output' => null,
             ]);
         }
 

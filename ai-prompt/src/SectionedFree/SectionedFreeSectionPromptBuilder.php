@@ -113,6 +113,13 @@ final class SectionedFreeSectionPromptBuilder
         $lines[] = 'Target length:';
         $lines[] = $unit->targetMinWords.'–'.$unit->targetMaxWords.' words (preferred ~'
             .$unit->preferredTargetWords.').';
+
+        if (! $unit->emitParentHeading && $unit->parentH2 !== null && $unit->parentH2 !== '') {
+            $lines[] = '';
+            $lines[] = 'This chunk CONTINUES under H2: '.$unit->parentH2;
+            $lines[] = 'Do NOT repeat the parent H2 heading. Start with H3/subheadings only.';
+        }
+
         $lines[] = '';
         $lines[] = 'Do not write:';
         $lines[] = '- the full article';
@@ -122,7 +129,11 @@ final class SectionedFreeSectionPromptBuilder
         $lines[] = '- FAQ unless assigned';
         $lines[] = '';
         $lines[] = 'Avoid repeating information that belongs to other sections.';
-        $lines[] = 'OUTPUT: Markdown for this section only. Include the section heading(s).';
+        if ($unit->emitParentHeading) {
+            $lines[] = 'OUTPUT: Markdown for this section only. Include the section heading(s).';
+        } else {
+            $lines[] = 'OUTPUT: Markdown for this continuation only. Do not re-emit the parent H2.';
+        }
 
         // Hard guarantee: never append raw vocabulary / full outline / word allocation.
         return implode("\n", $lines);

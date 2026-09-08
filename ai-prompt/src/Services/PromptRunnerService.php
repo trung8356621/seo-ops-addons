@@ -1571,6 +1571,14 @@ class PromptRunnerService
             'language' => (string) ($variables['language'] ?? $variables['content_language'] ?? 'vi'),
             'outline' => $outline,
             'input' => $outline,
+            'article_length' => $variables['article_length']
+                ?? $variables['target_article_length']
+                ?? $variables['resolved_article_length']
+                ?? null,
+            'target_words' => $variables['article_length']
+                ?? $variables['target_article_length']
+                ?? $variables['resolved_article_length']
+                ?? null,
         ];
 
         $priorState = SectionedFreeRunState::fromArray(
