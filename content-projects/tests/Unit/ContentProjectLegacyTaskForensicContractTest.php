@@ -34,7 +34,9 @@ final class ContentProjectLegacyTaskForensicContractTest extends TestCase
         ContentProjectCreateGenerationGuard::assertState([
             'type' => SeoProjectTask::TYPE_CREATE,
             'project_id' => 11,
-            'project_site_id' => 2,
+            'task_site_id' => 2,
+            'expected_site_id' => 2,
+            'canonical_site_id' => 2,
             'task_article_id' => 0,
             'article_id' => 0,
             'article_site_id' => 0,
@@ -52,7 +54,9 @@ final class ContentProjectLegacyTaskForensicContractTest extends TestCase
         ContentProjectCreateGenerationGuard::assertState([
             'type' => SeoProjectTask::TYPE_CREATE,
             'project_id' => 11,
-            'project_site_id' => 2,
+            'task_site_id' => 2,
+            'expected_site_id' => 2,
+            'canonical_site_id' => 2,
             'task_article_id' => 100,
             'article_id' => 100,
             'article_site_id' => 2,
@@ -62,7 +66,7 @@ final class ContentProjectLegacyTaskForensicContractTest extends TestCase
         ]);
     }
 
-    public function test_article_site_must_equal_project_site_before_ai(): void
+    public function test_article_site_must_equal_task_site_before_ai(): void
     {
         $this->expectException(\InvalidArgumentException::class);
         $this->expectExceptionMessage(ContentProjectCreateGenerationGuard::CODE_ARTICLE_WRONG_SITE);
@@ -70,7 +74,9 @@ final class ContentProjectLegacyTaskForensicContractTest extends TestCase
         ContentProjectCreateGenerationGuard::assertState([
             'type' => SeoProjectTask::TYPE_CREATE,
             'project_id' => 11,
-            'project_site_id' => 2,
+            'task_site_id' => 2,
+            'expected_site_id' => 2,
+            'canonical_site_id' => 2,
             'task_article_id' => 9672,
             'article_id' => 9672,
             'article_site_id' => 4,
@@ -102,7 +108,9 @@ final class ContentProjectLegacyTaskForensicContractTest extends TestCase
         ContentProjectCreateGenerationGuard::assertState([
             'type' => SeoProjectTask::TYPE_CREATE,
             'project_id' => 11,
-            'project_site_id' => 2,
+            'task_site_id' => 2,
+            'expected_site_id' => 2,
+            'canonical_site_id' => 2,
             'task_article_id' => 9673,
             'article_id' => 9673,
             'article_site_id' => 4,
@@ -272,7 +280,9 @@ final class ContentProjectLegacyTaskForensicContractTest extends TestCase
         ContentProjectCreateGenerationGuard::assertState([
             'type' => SeoProjectTask::TYPE_CREATE,
             'project_id' => 11,
-            'project_site_id' => 2,
+            'task_site_id' => 2,
+            'expected_site_id' => 2,
+            'canonical_site_id' => 2,
             'task_article_id' => 100,
             'article_id' => 100,
             'article_site_id' => 2,

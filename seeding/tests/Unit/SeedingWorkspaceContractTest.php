@@ -167,5 +167,8 @@ final class SeedingWorkspaceContractTest extends TestCase
             (new ReflectionClass(SeedingVite::class))->getFileName()
         );
         self::assertStringContainsString("BUILD_DIRECTORY = 'build-seeding'", $resolver);
+        self::assertStringContainsString('findManifestChunk', $resolver);
+        self::assertStringContainsString("str_ends_with(\$candidate, '/'.\$normalizedEntry)", $resolver);
+        self::assertStringContainsString('normalize-seeding-manifest-keys', $vite);
     }
 }

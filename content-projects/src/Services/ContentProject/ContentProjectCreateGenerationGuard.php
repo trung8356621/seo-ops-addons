@@ -13,12 +13,17 @@ use Omnichannel\Addons\ContentProjects\Support\TaskTestContext;
 
 /**
  * Hard stop before first AI/prompt call for Content Project CREATE.
+ *
+ * Domain authority is the item/task site (SeoProjectTask.site_id), not SeoProject.site_id.
+ * Invariant: article.site_id === task.site_id (expected_site_id).
  */
 final class ContentProjectCreateGenerationGuard
 {
     public const CODE_MISSING_PROJECT = 'create_generation_missing_project';
 
     public const CODE_MISSING_CANONICAL_SITE = 'create_generation_missing_canonical_site';
+
+    public const CODE_SITE_CONTEXT_MISMATCH = 'create_generation_site_context_mismatch';
 
     public const CODE_MISSING_LOCAL_ARTICLE = 'create_generation_missing_local_article';
 
@@ -34,7 +39,9 @@ final class ContentProjectCreateGenerationGuard
      * @param  array{
      *     type?: string,
      *     project_id?: int,
-     *     project_site_id?: int,
+     *     task_site_id?: int,
+     *     expected_site_id?: int,
+     *     canonical_site_id?: int,
      *     task_article_id?: int,
      *     article_id?: int,
      *     article_site_id?: int,
@@ -57,9 +64,18 @@ final class ContentProjectCreateGenerationGuard
             throw new \InvalidArgumentException(self::CODE_MISSING_PROJECT);
         }
 
-        $projectSiteId = (int) ($state['project_site_id'] ?? 0);
-        if ($projectSiteId <= 0) {
+        $taskSiteId = (int) ($state['task_site_id'] ?? 0);
+        $expectedSiteId = (int) ($state['expected_site_id'] ?? 0);
+        if ($expectedSiteId <= 0) {
+            $expectedSiteId = $taskSiteId;
+        }
+        if ($expectedSiteId <= 0) {
             throw new \InvalidArgumentException(self::CODE_MISSING_CANONICAL_SITE);
+        }
+
+        $canonicalSiteId = (int) ($state['canonical_site_id'] ?? 0);
+        if ($canonicalSiteId > 0 && $canonicalSiteId !== $expectedSiteId) {
+            throw new \InvalidArgumentException(self::CODE_SITE_CONTEXT_MISMATCH);
         }
 
         $articleId = (int) ($state['article_id'] ?? 0);
@@ -68,7 +84,7 @@ final class ContentProjectCreateGenerationGuard
         }
 
         $articleSiteId = (int) ($state['article_site_id'] ?? 0);
-        if ($articleSiteId !== $projectSiteId) {
+        if ($articleSiteId !== $expectedSiteId) {
             throw new \InvalidArgumentException(self::CODE_ARTICLE_WRONG_SITE);
         }
 
@@ -119,9 +135,17 @@ final class ContentProjectCreateGenerationGuard
             throw new \InvalidArgumentException(self::CODE_MISSING_PROJECT);
         }
 
-        $projectSiteId = (int) ($project->site_id ?? 0);
-        if ($projectSiteId <= 0) {
-            $projectSiteId = $canonicalSiteId;
+        // Item/task domain is authoritative. Never compare against SeoProject.site_id.
+        $taskSiteId = (int) ($task->site_id ?? 0);
+        // Compat for genuinely old tasks with no task.site_id: use execution canonical only.
+        // Never fall back to project.site_id (stale legacy project domain must not override).
+        $expectedSiteId = $taskSiteId > 0 ? $taskSiteId : $canonicalSiteId;
+        if ($expectedSiteId <= 0) {
+            throw new \InvalidArgumentException(self::CODE_MISSING_CANONICAL_SITE);
+        }
+
+        if ($taskSiteId > 0 && $canonicalSiteId > 0 && $canonicalSiteId !== $taskSiteId) {
+            throw new \InvalidArgumentException(self::CODE_SITE_CONTEXT_MISMATCH);
         }
 
         $article = $context->article;
@@ -131,7 +155,9 @@ final class ContentProjectCreateGenerationGuard
         self::assertState([
             'type' => $type,
             'project_id' => (int) $project->getKey(),
-            'project_site_id' => $projectSiteId,
+            'task_site_id' => $taskSiteId,
+            'expected_site_id' => $expectedSiteId,
+            'canonical_site_id' => $canonicalSiteId,
             'task_article_id' => (int) ($task->article_id ?? 0),
             'article_id' => $articleId,
             'article_site_id' => $articleSiteId,

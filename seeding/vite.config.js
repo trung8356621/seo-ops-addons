@@ -31,6 +31,49 @@ function resolveClientPublic() {
 const clientPublic = resolveClientPublic();
 const buildDirectory = 'build-seeding';
 const hotFile = path.join(clientPublic, 'hot-seeding');
+const entrypoints = [
+    'resources/js/seeding-workspace.jsx',
+    'resources/css/seeding-workspace.css',
+];
+
+/**
+ * Windows junction builds can emit long relative manifest keys.
+ * Rewrite them back to the short entrypoint names SeedingVite expects.
+ */
+function normalizeSeedingManifestKeys() {
+    return {
+        name: 'normalize-seeding-manifest-keys',
+        closeBundle() {
+            const manifestPath = path.join(clientPublic, buildDirectory, 'manifest.json');
+            if (!fs.existsSync(manifestPath)) {
+                return;
+            }
+
+            const raw = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+            const next = { ...raw };
+
+            for (const entry of entrypoints) {
+                if (next[entry]) {
+                    continue;
+                }
+
+                const matchKey = Object.keys(next).find((key) => {
+                    const src = String(next[key]?.src ?? key).replace(/\\/g, '/');
+                    return src === entry || src.endsWith(`/${entry}`);
+                });
+
+                if (!matchKey) {
+                    continue;
+                }
+
+                next[entry] = { ...next[matchKey], src: entry };
+                delete next[matchKey];
+            }
+
+            fs.writeFileSync(manifestPath, `${JSON.stringify(next, null, 2)}\n`);
+        },
+    };
+}
 
 export default defineConfig({
     root: __dirname,
@@ -44,16 +87,14 @@ export default defineConfig({
     },
     plugins: [
         laravel({
-            input: [
-                'resources/js/seeding-workspace.jsx',
-                'resources/css/seeding-workspace.css',
-            ],
+            input: entrypoints,
             publicDirectory: clientPublic,
             buildDirectory,
             hotFile,
             refresh: false,
         }),
         react(),
+        normalizeSeedingManifestKeys(),
     ],
     build: {
         manifest: 'manifest.json',

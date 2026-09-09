@@ -118,10 +118,7 @@ final class SeedingVite
         $emittedCss = [];
 
         foreach (self::ENTRYPOINTS as $entry) {
-            $chunk = $decoded[$entry] ?? null;
-            if (! is_array($chunk) || empty($chunk['file'])) {
-                throw new RuntimeException('Seeding manifest entry missing: '.$entry);
-            }
+            $chunk = $this->findManifestChunk($decoded, $entry);
 
             $file = (string) $chunk['file'];
             $url = asset(self::BUILD_DIRECTORY.'/'.$file);
@@ -146,5 +143,51 @@ final class SeedingVite
         }
 
         return implode("\n", $tags);
+    }
+
+    /**
+     * Vite may emit junction-relative keys on Windows, e.g.
+     * `../../omnichannel-client/addons/seeding/resources/js/seeding-workspace.jsx`
+     * instead of `resources/js/seeding-workspace.jsx`.
+     *
+     * @param  array<string, mixed>  $manifest
+     * @return array{file: string, css?: list<string>, src?: string}
+     */
+    private function findManifestChunk(array $manifest, string $entry): array
+    {
+        $direct = $manifest[$entry] ?? null;
+        if (is_array($direct) && ! empty($direct['file'])) {
+            /** @var array{file: string, css?: list<string>, src?: string} $direct */
+            return $direct;
+        }
+
+        $normalizedEntry = str_replace('\\', '/', $entry);
+
+        foreach ($manifest as $key => $chunk) {
+            if (! is_array($chunk) || empty($chunk['file'])) {
+                continue;
+            }
+
+            $candidates = [
+                str_replace('\\', '/', (string) $key),
+                str_replace('\\', '/', (string) ($chunk['src'] ?? '')),
+            ];
+
+            foreach ($candidates as $candidate) {
+                if ($candidate === '') {
+                    continue;
+                }
+
+                if (
+                    $candidate === $normalizedEntry
+                    || str_ends_with($candidate, '/'.$normalizedEntry)
+                ) {
+                    /** @var array{file: string, css?: list<string>, src?: string} $chunk */
+                    return $chunk;
+                }
+            }
+        }
+
+        throw new RuntimeException('Seeding manifest entry missing: '.$entry);
     }
 }
