@@ -28,16 +28,17 @@ export const RECENT_SEEDED_DAYS = 7;
  * }} [ctx]
  */
 export function topicMatchesFilter(filter, topic, ctx = {}) {
-    const state = topic.state || 'draft';
+    const state = topic.state || (topic.id ? 'shared' : 'draft');
+    const isDraft = state === 'draft' || String(topic.localId || '').startsWith('draft:');
     if (filter === 'archived') return state === 'archived';
     if (state === 'archived') return false;
     if (filter === 'draft' || filter === 'new') {
-        return !lastSeededAtForUser(topic, ctx.batches || [], ctx.userId, ctx.nowMs);
+        return isDraft;
     }
     if (filter === 'recent') {
-        return Boolean(lastSeededAtForUser(topic, ctx.batches || [], ctx.userId, ctx.nowMs));
+        return !isDraft && Boolean(lastSeededAtForUser(topic, ctx.batches || [], ctx.userId, ctx.nowMs));
     }
-    // all
+    // all — drafts + eligible shared
     return true;
 }
 

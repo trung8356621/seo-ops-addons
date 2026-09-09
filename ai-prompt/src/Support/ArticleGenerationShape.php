@@ -7,11 +7,14 @@ namespace Omnichannel\Addons\AiPrompt\Support;
 use BackedEnum;
 
 /**
- * Prompt/task shape for article body generation.
+ * Prompt/task shape for article body / outline generation.
  *
- * Independent from routing policy (normal vs free_only) and from candidate economics.
- * Writing pass mode is derived from manual writing_split_enabled preference —
- * not from free/paid primary candidate.
+ * Runtime authority: first usable AI Center route cost_class
+ * (FREE → sectioned/SPLIT, PAID → single_pass/SINGLE) via
+ * {@see \Omnichannel\Addons\AiPrompt\Services\GenerationShapeResolver}.
+ *
+ * Independent from free_only routing policy. Legacy preference helpers below
+ * are deprecated compatibility only — they must not control new runs.
  */
 enum ArticleGenerationShape: string
 {
@@ -19,21 +22,38 @@ enum ArticleGenerationShape: string
 
     case Sectioned = 'sectioned';
 
+    /** @deprecated Prefer SOURCE_ROUTE_COST_AUTO for new runs. */
     public const SOURCE_AI_CENTER_PRIMARY = 'ai_center_primary_candidate';
 
+    /** @deprecated Manual checkbox — no longer runtime authority. */
     public const SOURCE_WRITING_SPLIT_PREFERENCE = 'writing_split_preference';
 
+    public const SOURCE_ROUTE_COST_AUTO = 'route_cost_auto';
+
+    /**
+     * @deprecated Use GenerationShapeResolver / fromRouteCostClass.
+     */
     public static function fromWritingSplitEnabled(bool $enabled): self
     {
         return $enabled ? self::Sectioned : self::SinglePass;
     }
 
     /**
-     * @deprecated Pass mode is manual writing_split_enabled — do not derive from free/paid.
+     * FREE → SPLIT (sectioned), PAID → SINGLE.
+     */
+    public static function fromRouteCostClass(string $costClass): self
+    {
+        return strtolower(trim($costClass)) === 'free'
+            ? self::Sectioned
+            : self::SinglePass;
+    }
+
+    /**
+     * @deprecated Alias of fromRouteCostClass — kept for BC callers.
      */
     public static function fromPrimaryIsFree(bool $isFree): self
     {
-        return $isFree ? self::Sectioned : self::SinglePass;
+        return self::fromRouteCostClass($isFree ? 'free' : 'paid');
     }
 
     public static function tryFromMixed(mixed $value): ?self

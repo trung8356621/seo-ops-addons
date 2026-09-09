@@ -54,6 +54,14 @@ final class SeoProjectWorkflowRunService
             throw new \RuntimeException(__('seo-content-ai::filament.projects.archive_blocked_generate'));
         }
 
+        $settings = is_array($settings) ? $settings : [];
+        // Snapshot article generation mode at run start (immutable mid-run).
+        if (! array_key_exists(\Omnichannel\Addons\AiPrompt\Support\AiCostPolicy::SETTING_KEY, $settings)) {
+            $settings[\Omnichannel\Addons\AiPrompt\Support\AiCostPolicy::SETTING_KEY] = \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationModePreference::forUserId(
+                (int) (auth()->id() ?? 0),
+            )->value;
+        }
+
         // Keep task_ids / rerun* — fromArray()->toArray() alone strips them and
         // prepareRunQueue then expands to all pending project items.
         $snapshot = ContentProjectRunSettings::snapshotForRun($settings);

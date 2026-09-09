@@ -40,6 +40,8 @@ final class ContentProjectItemActionCatalog
 {
     public const GROUP_CONTENT = 'content';
 
+    public const GROUP_RETRY_RECOVERY = 'retry_recovery';
+
     public const GROUP_REVIEW = 'review';
 
     public const GROUP_PUBLISHING = 'publishing_queue';
@@ -55,6 +57,7 @@ final class ContentProjectItemActionCatalog
     {
         return [
             self::GROUP_CONTENT,
+            self::GROUP_RETRY_RECOVERY,
             self::GROUP_REVIEW,
             self::GROUP_PUBLISHING,
             self::GROUP_LIFECYCLE,
@@ -69,6 +72,7 @@ final class ContentProjectItemActionCatalog
     {
         return [
             self::GROUP_CONTENT => 'Content',
+            self::GROUP_RETRY_RECOVERY => 'Retry / Recovery',
             self::GROUP_REVIEW => 'Review',
             self::GROUP_PUBLISHING => 'Publishing Queue',
             self::GROUP_LIFECYCLE => 'Lifecycle',
@@ -94,9 +98,30 @@ final class ContentProjectItemActionCatalog
                 commandFamily: [],
             ),
             self::def(
+                key: 'ai_history',
+                labelKey: 'seo-content-ai::filament.projects.item_action_ai_history',
+                group: self::GROUP_CONTENT,
+                icon: 'heroicon-o-clock',
+                single: true,
+                bulk: false,
+                presenterFlag: 'ai_history',
+                singleMethod: null,
+                commandFamily: [],
+            ),
+            self::def(
+                key: 'regen_image',
+                labelKey: 'seo-content-ai::filament.projects.item_action_regen_image',
+                group: self::GROUP_CONTENT,
+                icon: 'heroicon-o-photo',
+                single: true,
+                bulk: false,
+                presenterFlag: 'regen_image',
+                commandFamily: [],
+            ),
+            self::def(
                 key: 'run_generation',
                 labelKey: 'seo-content-ai::filament.projects.item_action_run_generation',
-                group: self::GROUP_CONTENT,
+                group: self::GROUP_RETRY_RECOVERY,
                 icon: 'heroicon-o-play',
                 single: true,
                 bulk: true,
@@ -114,7 +139,7 @@ final class ContentProjectItemActionCatalog
                 key: 'rerun_outline',
                 labelKey: 'seo-content-ai::filament.projects.item_action_rerun_outline',
                 confirmKey: 'seo-content-ai::filament.projects.item_action_rerun_outline_confirm',
-                group: self::GROUP_CONTENT,
+                group: self::GROUP_RETRY_RECOVERY,
                 icon: 'heroicon-o-document-text',
                 single: true,
                 bulk: true,
@@ -128,7 +153,7 @@ final class ContentProjectItemActionCatalog
                 key: 'rerun_writing',
                 labelKey: 'seo-content-ai::filament.projects.item_action_rerun_writing',
                 confirmKey: 'seo-content-ai::filament.projects.item_action_rerun_writing_confirm',
-                group: self::GROUP_CONTENT,
+                group: self::GROUP_RETRY_RECOVERY,
                 icon: 'heroicon-o-pencil-square',
                 single: true,
                 bulk: true,
@@ -141,7 +166,7 @@ final class ContentProjectItemActionCatalog
             self::def(
                 key: 'restart_with_keyword',
                 labelKey: 'seo-content-ai::filament.projects.item_action_restart_with_keyword',
-                group: self::GROUP_CONTENT,
+                group: self::GROUP_RETRY_RECOVERY,
                 icon: 'heroicon-o-key',
                 single: true,
                 bulk: false,
@@ -154,7 +179,7 @@ final class ContentProjectItemActionCatalog
                 key: 'skip_generation',
                 labelKey: 'seo-content-ai::filament.projects.item_action_skip_generation',
                 confirmKey: 'seo-content-ai::filament.projects.item_action_skip_generation_confirm',
-                group: self::GROUP_CONTENT,
+                group: self::GROUP_RETRY_RECOVERY,
                 icon: 'heroicon-o-no-symbol',
                 single: true,
                 bulk: true,
@@ -162,16 +187,6 @@ final class ContentProjectItemActionCatalog
                 singleMethod: 'skipGenerationOne',
                 bulkMethod: 'skipGenerationSelected',
                 commandFamily: [BlockProjectItemGenerationCommand::class],
-            ),
-            self::def(
-                key: 'regen_image',
-                labelKey: 'seo-content-ai::filament.projects.item_action_regen_image',
-                group: self::GROUP_CONTENT,
-                icon: 'heroicon-o-photo',
-                single: true,
-                bulk: false,
-                presenterFlag: 'regen_image',
-                commandFamily: [],
             ),
             self::def(
                 key: 'start_review',

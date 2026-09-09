@@ -1,8 +1,8 @@
 /**
- * Topic/comment authorization helpers for local-first workspace.
- * Mirrors SeedingTopicAuthorization (PHP) — manage ≈ canMutate until fine RBAC.
+ * Topic authorization for React-first hybrid workspace.
  *
- * Flexible Seeding: canSeedTopic is independent of topic author / canMutate.
+ * Draft (local): author may edit / share / delete.
+ * Shared (DB): author cannot edit or Gen; others may Gen/report if eligible.
  */
 
 /**
@@ -12,13 +12,14 @@
  */
 export function canEditTopic(topic, userId, canMutate) {
     if (!canMutate || !topic) return false;
-    const owner = topic.created_by_user_id;
+    const state = topic.state || (topic.id ? 'shared' : 'draft');
+    if (state !== 'draft' && !String(topic.localId || '').startsWith('draft:')) return false;
+    const owner = topic.created_by_user_id ?? topic.created_by;
     if (owner == null || owner === '') return false;
     return String(owner) === String(userId);
 }
 
 /**
- * Author or manage (canMutate).
  * @param {Record<string, unknown>} topic
  * @param {number|string} userId
  * @param {boolean} canMutate
@@ -28,87 +29,74 @@ export function canEditTopic(topic, userId, canMutate) {
  */
 export function canDeleteTopic(topic, userId, canMutate, reports = [], hasWorkHistory = null, extra = {}) {
     if (!canMutate || !topic) return false;
+    if (!canEditTopic(topic, userId, canMutate)) return false;
     if (typeof hasWorkHistory === 'function' && hasWorkHistory(topic, reports, extra)) return false;
-    const owner = topic.created_by_user_id;
-    if (owner != null && owner !== '' && String(owner) === String(userId)) return true;
-    return true; // manage
+    return true;
 }
 
 /**
- * Share / Gen eligibility — NOT tied to topic author or canMutate.
+ * Author may share local draft → DB commit.
+ */
+export function canShareDraftTopic(topic, userId, canMutate) {
+    return canEditTopic(topic, userId, canMutate);
+}
+
+/**
+ * Gen comment eligibility — shared feed topics only; never own topic.
  * @param {Record<string, unknown>|null|undefined} topic
- * @param {{ hasWorkspaceAccess?: boolean }} [opts]
+ * @param {{ hasWorkspaceAccess?: boolean, userId?: number|string }} [opts]
  */
 export function canSeedTopic(topic, opts = {}) {
     const hasAccess = opts.hasWorkspaceAccess !== false;
     if (!hasAccess || !topic) return false;
-    const state = topic.state || 'draft';
+    const state = topic.state || (topic.id ? 'shared' : 'draft');
     if (state === 'archived' || topic.is_archived) return false;
+    if (state === 'draft' || String(topic.localId || '').startsWith('draft:')) return false;
+    if (topic.id == null) return false;
+
+    const owner = topic.created_by_user_id ?? topic.created_by;
+    if (opts.userId != null && owner != null && String(owner) === String(opts.userId)) {
+        return false;
+    }
+
+    const required = Number(topic.required_report_count ?? topic.required_comments_per_user ?? 0);
+    const done = Number(topic.current_user_report_count ?? 0);
+    if (required > 0 && done >= required) return false;
+    if (topic.eligibility && topic.eligibility.eligible === false) return false;
+
     return true;
 }
 
-/**
- * @deprecated Use canSeedTopic — kept for migrate/tests naming only.
- * @param {Record<string, unknown>} topic
- * @param {{ hasWorkspaceAccess?: boolean }} [opts]
- */
+/** @deprecated */
 export function canShareTopic(topic, opts = {}) {
     return canSeedTopic(topic, opts);
 }
 
-/**
- * Legacy comment helpers — unused in primary Flexible Seeding UX.
- * @param {Record<string, unknown>} comment
- * @param {number|string} userId
- * @param {boolean} canMutate
- */
-export function canEditComment(comment, userId, canMutate) {
-    if (!canMutate || !comment) return false;
-    const owner = comment.author_user_id ?? comment.created_by_user_id;
-    if (owner == null || owner === '') return false;
-    return String(owner) === String(userId);
-}
-
-/**
- * @param {Record<string, unknown>} comment
- * @param {number|string} userId
- * @param {boolean} canMutate
- */
-export function canDeleteComment(comment, userId, canMutate) {
-    if (!canMutate || !comment) return false;
-    if (comment.state === 'in_progress' || comment.state === 'completed' || comment.claimed_by_user_id || comment.completed_at) {
-        return false;
-    }
-    const owner = comment.author_user_id ?? comment.created_by_user_id;
-    if (owner != null && owner !== '' && String(owner) === String(userId)) return true;
-    return true;
-}
-
-/**
- * Link Pool is scoped to the current user's localStorage document.
- * @param {boolean} hasWorkspaceAccess
- */
 export function canManageOwnSeedLinks(hasWorkspaceAccess = true) {
     return hasWorkspaceAccess !== false;
 }
 
 /**
- * Soft status for feed chips (no comment gate).
  * @param {Record<string, unknown>} topic
- * @returns {'ready'|'seeded'|'archived'|'draft'}
+ * @returns {'ready'|'seeded'|'archived'|'draft'|'shared'|'done'}
  */
 export function seedStatusOf(topic) {
-    const state = topic?.state || 'draft';
+    const state = topic?.state || (topic?.id ? 'shared' : 'draft');
     if (state === 'archived') return 'archived';
-    if (topic?.last_seeded_at) return 'seeded';
-    if (state === 'draft') return 'draft';
-    return 'ready';
+    if (state === 'draft' || String(topic?.localId || '').startsWith('draft:')) return 'draft';
+    const required = Number(topic?.required_report_count ?? topic?.required_comments_per_user ?? 0);
+    const done = Number(topic?.current_user_report_count ?? 0);
+    if (required > 0 && done >= required) return 'done';
+    if (done > 0) return 'seeded';
+    return 'shared';
 }
 
 export function seedStatusLabel(status) {
-    if (status === 'seeded') return 'Đã dùng';
+    if (status === 'seeded') return 'Đang làm';
     if (status === 'archived') return 'Lưu trữ';
-    if (status === 'draft') return 'Chủ đề';
+    if (status === 'draft') return 'Nháp';
+    if (status === 'done') return 'Hoàn tất';
+    if (status === 'shared') return 'Chia sẻ';
     return 'Sẵn sàng';
 }
 

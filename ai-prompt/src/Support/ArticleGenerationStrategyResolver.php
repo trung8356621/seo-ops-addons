@@ -9,7 +9,7 @@ namespace Omnichannel\Addons\AiPrompt\Support;
  *
  * For article.content.generate production flow, prefer
  * {@see \Omnichannel\Addons\AiPrompt\Services\ArticleGenerationExecutionPlanner}
- * (shape from AI Center primary). This resolver remains for legacy stamps / History.
+ * (shape from first usable route cost_class). This resolver remains for legacy stamps / History.
  */
 final class ArticleGenerationStrategyResolver
 {

@@ -74,6 +74,19 @@
                                 </label>
                             </div>
                             <p class="seo-ai-strategy__help">{{ __('seo-content-ai::filament.ai_center.strategy_short') }}</p>
+                            <p class="seo-ai-strategy__help seo-ai-split-shape-hint">
+                                <span>{{ __('seo-content-ai::filament.ai_center.split_shape_hint') }}</span>
+                                <button
+                                    type="button"
+                                    class="seo-context-help-btn"
+                                    title="{{ __('seo-content-ai::filament.help.trigger_aria') }}"
+                                    aria-label="{{ __('seo-content-ai::filament.help.trigger_aria') }}"
+                                    data-help-context="settings.ai.free_single_split"
+                                    onclick="event.preventDefault(); event.stopPropagation(); window.dispatchEvent(new CustomEvent('seo-global-help:open', { detail: { contextKey: 'settings.ai.free_single_split', groupId: 'settings', topicId: 'settings.ai.free_single_split', trigger: this } }));"
+                                >
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+                                </button>
+                            </p>
                         </section>
 
                         <nav class="seo-ai-segment seo-ai-segment--wide" aria-label="{{ __('seo-content-ai::filament.ai_center.models_page_title') }}">

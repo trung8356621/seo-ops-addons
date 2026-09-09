@@ -13,7 +13,7 @@ use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
 use Tests\TestCase;
 
 /**
- * Outline Split (Structure + Vocabulary) ≠ writing_split_enabled ≠ PromptBudget supportsSplit.
+ * Outline split runtime follows route_cost_auto generation_shape — not outline_split_enabled.
  */
 final class OutlineSplitRuntimeSwitchTest extends TestCase
 {
@@ -30,7 +30,7 @@ final class OutlineSplitRuntimeSwitchTest extends TestCase
         });
     }
 
-    public function test_k_outline_split_off_bypasses_split_executor_gate(): void
+    public function test_k_outline_split_gate_uses_generation_shape(): void
     {
         $runnerSrc = (string) file_get_contents(
             (string) (new \ReflectionClass(TaskWorkflowTestRunner::class))->getFileName(),
@@ -40,8 +40,9 @@ final class OutlineSplitRuntimeSwitchTest extends TestCase
             $runnerSrc,
         );
         $this->assertStringContainsString('outlineSplitExecutor->execute', $runnerSrc);
-        $this->assertStringContainsString('hookBindingExecutor->execute', $runnerSrc);
-        $this->assertStringContainsString('KEY_OUTLINE_SPLIT_ENABLED', $runnerSrc);
+        $this->assertStringContainsString('ensureRouteCostGenerationShapeSnapshot', $runnerSrc);
+        $this->assertStringContainsString('GenerationShapeResolver', $runnerSrc);
+        $this->assertStringContainsString('generation_shape', $runnerSrc);
     }
 
     public function test_l_outline_split_on_uses_structure_and_vocabulary_hooks(): void
@@ -56,7 +57,7 @@ final class OutlineSplitRuntimeSwitchTest extends TestCase
         $this->assertStringContainsString("execution_source' => 'split_outline_vocabulary'", $executorSrc);
     }
 
-    public function test_m_writing_split_does_not_control_outline_split(): void
+    public function test_m_settings_outline_split_is_legacy_not_runtime_authority(): void
     {
         $this->assertSame('writing_split_enabled', WritingSplitPreference::META_KEY);
         $this->assertSame('outline_split_enabled', SeoCreateArticleSettingsService::KEY_OUTLINE_SPLIT_ENABLED);
@@ -69,22 +70,34 @@ final class OutlineSplitRuntimeSwitchTest extends TestCase
         $settings->saveSettings([SeoCreateArticleSettingsService::KEY_OUTLINE_SPLIT_ENABLED => false]);
         $this->assertFalse($settings->isOutlineSplitEnabled());
 
-        // Missing key keeps production default (always-on split).
-        $settings->saveSettings([SeoCreateArticleSettingsService::KEY_OUTLINE_SPLIT_ENABLED => true]);
-        $this->assertTrue($settings->isOutlineSplitEnabled());
-
         $runnerSrc = (string) file_get_contents(
             (string) (new \ReflectionClass(TaskWorkflowTestRunner::class))->getFileName(),
         );
         $this->assertStringContainsString('isOutlineSplitEnabled', $runnerSrc);
-        $this->assertStringContainsString('KEY_OUTLINE_SPLIT_ENABLED', $runnerSrc);
-        $this->assertStringNotContainsString('WritingSplitPreference', $runnerSrc);
-        $this->assertStringContainsString('createArticleSettings->isOutlineSplitEnabled', $runnerSrc);
+        $this->assertStringNotContainsString('createArticleSettings->isOutlineSplitEnabled', $runnerSrc);
+        $this->assertStringContainsString('GenerationShapeResolver', $runnerSrc);
     }
 
-    public function test_default_missing_key_is_outline_split_on(): void
+    public function test_default_missing_key_reader_still_true_but_ignored_at_runtime(): void
     {
+        // Isolate from prior tests that wrote outline_split_enabled=false.
+        Schema::dropIfExists('wp_options');
+        Schema::create('wp_options', function (Blueprint $table): void {
+            $table->id();
+            $table->string('option_name')->unique();
+            $table->longText('option_value')->nullable();
+            $table->string('autoload')->default('yes');
+            $table->timestamps();
+        });
+        \App\Models\WpOption::clearRequestCache();
+
         $settings = app(SeoCreateArticleSettingsService::class);
         $this->assertTrue($settings->isOutlineSplitEnabled());
+
+        $settingsSrc = (string) file_get_contents(
+            (string) (new \ReflectionClass(SeoCreateArticleSettingsService::class))->getFileName(),
+        );
+        $this->assertStringContainsString('@deprecated', $settingsSrc);
+        $this->assertStringContainsString('route_cost_auto', $settingsSrc);
     }
 }

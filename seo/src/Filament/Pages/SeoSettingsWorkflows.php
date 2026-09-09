@@ -103,7 +103,9 @@ class SeoSettingsWorkflows extends Page implements HasForms
                             ->label(__('seo-content-ai::filament.settings_workflows.outline_split_enabled'))
                             ->helperText(__('seo-content-ai::filament.settings_workflows.outline_split_enabled_hint'))
                             ->default(true)
-                            ->inline(false),
+                            ->inline(false)
+                            // Legacy setting retained for BC/data — runtime authority is route_cost_auto.
+                            ->hidden(),
                         ...$this->dynamicHookBindingFields(),
                     ]),
             ])

@@ -23,13 +23,14 @@ final class WritingSplitGlobalPreferenceAndHistoryUxTest extends TestCase
         self::assertStringContainsString('persistForUserId', $src);
         self::assertStringContainsString('enabledForUserId', $src);
         self::assertStringContainsString('resolveForRun', $src);
+        self::assertStringContainsString('@deprecated', $src);
         self::assertStringNotContainsString('articleMetas', $src);
         self::assertStringNotContainsString('enabledForArticle(', $src);
         self::assertFalse(WritingSplitPreference::enabledForArticleId(99));
         self::assertFalse(WritingSplitPreference::enabledFromVariables(['article_id' => 99]));
     }
 
-    public function test_run_snapshot_is_immutable_over_later_preference(): void
+    public function test_legacy_preference_helpers_still_readable(): void
     {
         self::assertTrue(WritingSplitPreference::resolveForRun([
             'writing_split_enabled' => true,
@@ -40,11 +41,11 @@ final class WritingSplitGlobalPreferenceAndHistoryUxTest extends TestCase
         ], 42));
         self::assertSame(
             ArticleGenerationShape::Sectioned,
-            ArticleGenerationShape::fromWritingSplitEnabled(true),
+            ArticleGenerationShape::fromRouteCostClass('free'),
         );
         self::assertSame(
             ArticleGenerationShape::SinglePass,
-            ArticleGenerationShape::fromWritingSplitEnabled(false),
+            ArticleGenerationShape::fromRouteCostClass('paid'),
         );
     }
 
@@ -55,7 +56,7 @@ final class WritingSplitGlobalPreferenceAndHistoryUxTest extends TestCase
         self::assertFalse(WritingSplitPreference::enabledForUserId(0));
     }
 
-    public function test_global_seo_bar_persists_user_preference_not_article(): void
+    public function test_global_seo_bar_hides_writing_split_checkbox(): void
     {
         $bar = (string) file_get_contents((new ReflectionClass(GlobalSeoBar::class))->getFileName());
         $blade = (string) file_get_contents(
@@ -65,17 +66,18 @@ final class WritingSplitGlobalPreferenceAndHistoryUxTest extends TestCase
         self::assertStringContainsString('persistForUserId', $bar);
         self::assertStringContainsString('syncWritingSplitPreference', $bar);
         self::assertStringNotContainsString('writingSplitArticleId', $bar);
-        self::assertStringNotContainsString('showWritingSplitToggle', $bar);
         self::assertStringNotContainsString('enabledForArticle', $bar);
 
         self::assertStringContainsString('x-filament::dropdown', $blade);
         self::assertStringContainsString('placement="bottom-end"', $blade);
-        self::assertStringContainsString('writingSplitEnabled', $blade);
+        self::assertStringContainsString('writing_split_auto_hint', $blade);
+        self::assertStringContainsString('wire:model.live="articleGenerationMode"', $blade);
+        self::assertStringNotContainsString('wire:model.live="writingSplitEnabled"', $blade);
         self::assertStringContainsString('simulatedRole', $blade);
         self::assertStringContainsString('h-9 w-9', $blade);
         self::assertStringContainsString('options_heading', $blade);
         self::assertStringContainsString('ai_generation_heading', $blade);
-        self::assertStringNotContainsString('showWritingSplitToggle', $blade);
+        self::assertStringContainsString('generation_mode_label', $blade);
     }
 
     public function test_execution_history_defaults_to_ai_calls_and_lazy_workflow(): void
@@ -117,15 +119,15 @@ final class WritingSplitGlobalPreferenceAndHistoryUxTest extends TestCase
         self::assertStringContainsString('isset($hiddenPromptResultIds[$resultId])', $src);
     }
 
-    public function test_planner_snapshots_writing_split_preference_source(): void
+    public function test_planner_snapshots_route_cost_auto_source(): void
     {
         $planner = (string) file_get_contents(
             ProjectRoot::addonsPath().'/ai-prompt/src/Services/ArticleGenerationExecutionPlanner.php',
         );
-        self::assertStringContainsString('WritingSplitPreference::resolveForRun', $planner);
-        self::assertStringContainsString('SOURCE_WRITING_SPLIT_PREFERENCE', $planner);
-        self::assertStringContainsString("merged['writing_split_enabled']", $planner);
-        self::assertStringContainsString("merged['pass_mode']", $planner);
+        self::assertStringContainsString('GenerationShapeResolver', $planner);
+        self::assertStringContainsString('SOURCE_ROUTE_COST_AUTO', $planner);
+        self::assertStringNotContainsString('WritingSplitPreference::resolveForRun', $planner);
+        self::assertStringContainsString("toVariableFields", $planner);
     }
 
     public function test_legacy_article_meta_catalog_marked_legacy(): void
@@ -135,6 +137,6 @@ final class WritingSplitGlobalPreferenceAndHistoryUxTest extends TestCase
         );
         self::assertStringContainsString("'writing_split_enabled' =>", $catalog);
         self::assertStringContainsString('CLASS_LEGACY', $catalog);
-        self::assertStringContainsString('user_meta.writing_split_enabled', $catalog);
+        self::assertStringContainsString('route_cost_auto', $catalog);
     }
 }

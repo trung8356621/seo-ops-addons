@@ -1,26 +1,9 @@
 import React from 'react';
 import TopicCard from './TopicCard';
+import { topicKeyOf } from '../services/storage';
 
 /**
- * Vertical CSS grid feed — max 3 columns via CSS.
- *
- * @param {{
- *   topics: Array<Record<string, unknown>>,
- *   reports: Array<Record<string, unknown>>,
- *   seedBatches?: Array<Record<string, unknown>>,
- *   seedOutputs?: Array<Record<string, unknown>>,
- *   canMutate: boolean,
- *   hasWorkspaceAccess?: boolean,
- *   userId: number|string,
- *   linkPreviewCache?: Record<string, Record<string, unknown>>,
- *   onOpenDetail: (topic: Record<string, unknown>) => void,
- *   onLinksChange: (topic: Record<string, unknown>, links: Array<Record<string, unknown>>) => void,
- *   onCacheUpdate?: (cache: Record<string, Record<string, unknown>>) => void,
- *   onEdit: (topic: Record<string, unknown>) => void,
- *   onDelete: (topic: Record<string, unknown>) => void,
- *   onShare: (topic: Record<string, unknown>) => void,
- *   onCreate: () => void,
- * }} props
+ * Vertical CSS grid feed — stable keys; no remount on panel/stats updates.
  */
 export default function TopicFeed({
     topics,
@@ -31,12 +14,14 @@ export default function TopicFeed({
     hasWorkspaceAccess = true,
     userId,
     linkPreviewCache = {},
+    sharingTopicKey = null,
     onOpenDetail,
     onLinksChange,
     onCacheUpdate,
     onEdit,
     onDelete,
-    onShare,
+    onShareDraft,
+    onGenComment,
     onCreate,
 }) {
     if (topics.length === 0) {
@@ -56,7 +41,7 @@ export default function TopicFeed({
         <div className="seeding-ws__feed-host" data-feed-host>
             <div className="seeding-ws__feed-grid" data-feed="topics">
                 {topics.map((topic) => {
-                    const id = String(topic.localId || topic.id);
+                    const id = topicKeyOf(topic);
                     return (
                         <TopicCard
                             key={id}
@@ -68,12 +53,14 @@ export default function TopicFeed({
                             hasWorkspaceAccess={hasWorkspaceAccess}
                             userId={userId}
                             linkPreviewCache={linkPreviewCache}
+                            sharing={sharingTopicKey === id}
                             onOpenDetail={onOpenDetail}
                             onLinksChange={onLinksChange}
                             onCacheUpdate={onCacheUpdate}
                             onEdit={onEdit}
                             onDelete={onDelete}
-                            onShare={onShare}
+                            onShareDraft={onShareDraft}
+                            onGenComment={onGenComment}
                         />
                     );
                 })}

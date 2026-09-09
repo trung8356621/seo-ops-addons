@@ -4,83 +4,74 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Seeding\Models;
 
-use App\Models\Site;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\Relations\BelongsTo;
-use Illuminate\Database\Eloquent\Relations\BelongsToMany;
-use Omnichannel\Addons\SearchFoundation\Models\Concerns\BelongsToOnDefaultConnection;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Omnichannel\Addons\Seeding\Enums\SeedingSocialPlatform;
 use Omnichannel\Addons\Seeding\Enums\SeedingTopicStatus;
-use Omnichannel\Addons\Seeding\LinkIntelligence\Models\LinkResource;
+use Omnichannel\Addons\Seeding\Support\SeedingServiceConfig;
 
 /**
- * @deprecated Experimental V2 Eloquent persistence on omi_seo_ai.
- * Canonical workspace is localStorage; do not use for new code.
+ * Shared topic persistence on omi_seeding (commit point: Chia sẻ).
  */
 class SeedingTopic extends Model
 {
-    use BelongsToOnDefaultConnection;
-
-    protected $connection = 'omi_seo_ai';
+    protected $connection = SeedingServiceConfig::CONNECTION;
 
     protected $table = 'seeding_topics';
 
     /** @var list<string> */
     protected $fillable = [
-        'site_id',
+        'installation_id',
         'created_by',
+        'created_by_display_name',
+        'title',
         'full_text',
         'source_html',
         'social_url',
         'social_platform',
+        'links_json',
         'status',
-        'published_at',
+        'max_comments_target',
+        'member_count_at_share',
+        'required_comments_per_user',
+        'shared_at',
         'archived_at',
     ];
 
     protected $casts = [
-        'site_id' => 'integer',
         'created_by' => 'integer',
+        'links_json' => 'array',
         'status' => SeedingTopicStatus::class,
         'social_platform' => SeedingSocialPlatform::class,
-        'published_at' => 'datetime',
+        'max_comments_target' => 'integer',
+        'member_count_at_share' => 'integer',
+        'required_comments_per_user' => 'integer',
+        'shared_at' => 'datetime',
         'archived_at' => 'datetime',
     ];
 
-    /** @return BelongsTo<Site, $this> */
-    public function site(): BelongsTo
+    /** @return HasMany<SeedingReport, $this> */
+    public function reports(): HasMany
     {
-        return $this->belongsToOnDefaultConnection(Site::class, 'site_id');
-    }
-
-    /** @return BelongsToMany<LinkResource, $this> */
-    public function linkResources(): BelongsToMany
-    {
-        return $this->belongsToMany(
-            LinkResource::class,
-            'seeding_topic_links',
-            'topic_id',
-            'link_resource_id',
-        )->withTimestamps();
+        return $this->hasMany(SeedingReport::class, 'topic_id');
     }
 
     /** @param  Builder<static>  $query */
-    public function scopeForSite(Builder $query, int $siteId): Builder
+    public function scopeForInstallation(Builder $query, string $installationId): Builder
     {
-        return $query->where('site_id', $siteId);
+        return $query->where('installation_id', $installationId);
     }
 
     /** @param  Builder<static>  $query */
-    public function scopeNotArchived(Builder $query): Builder
+    public function scopeSharedVisible(Builder $query): Builder
     {
-        return $query->whereNull('archived_at');
-    }
-
-    /** @param  Builder<static>  $query */
-    public function scopeArchived(Builder $query): Builder
-    {
-        return $query->whereNotNull('archived_at');
+        return $query
+            ->whereNull('archived_at')
+            ->whereIn('status', [
+                SeedingTopicStatus::Shared->value,
+                SeedingTopicStatus::Active->value,
+            ]);
     }
 
     public function preview(int $max = 80): string
@@ -96,18 +87,14 @@ class SeedingTopic extends Model
         return mb_substr($text, 0, $max).'…';
     }
 
-    public function isDraft(): bool
-    {
-        return $this->status === SeedingTopicStatus::Draft;
-    }
-
-    public function isActive(): bool
-    {
-        return $this->status === SeedingTopicStatus::Active;
-    }
-
     public function isArchived(): bool
     {
-        return $this->archived_at !== null;
+        return $this->archived_at !== null
+            || $this->status === SeedingTopicStatus::Archived;
+    }
+
+    public function requiredCommentsPerUser(): int
+    {
+        return max(1, (int) $this->required_comments_per_user);
     }
 }

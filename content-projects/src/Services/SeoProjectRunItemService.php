@@ -13,6 +13,7 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRunItem;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectBindArticleAuthority;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\LocalArticleAssociationGuard;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGenerationKeyword;
 use Omnichannel\Addons\ContentProjects\Support\ProjectRunIdempotencyKeyGenerator;
@@ -615,24 +616,35 @@ final class SeoProjectRunItemService
             ];
         }
 
-        $task->loadMissing('project');
-        $siteId = (int) ($task->project?->site_id ?? 0);
-        if ($siteId <= 0) {
-            $siteId = (int) ($task->site_id ?? 0);
+        // Site authority = task.site_id. Project.site_id is legacy fallback only.
+        $taskSiteId = (int) ($task->site_id ?? 0);
+        $projectSiteId = 0;
+        if ($taskSiteId <= 0) {
+            $task->loadMissing('project');
+            $projectSiteId = (int) ($task->project?->site_id ?? 0);
         }
-        $localArticleId = LocalArticleAssociationGuard::resolveLocalArticleId(
+        $siteId = ContentProjectBindArticleAuthority::resolveSiteId($taskSiteId, $projectSiteId);
+
+        $existsLocally = LocalArticleAssociationGuard::resolveLocalArticleId($articleId, null);
+        $localArticleSiteId = null;
+        if ($existsLocally !== null) {
+            $localArticleSiteId = (int) (SeoArticle::query()->whereKey($articleId)->value('site_id') ?? 0);
+        }
+
+        $gate = ContentProjectBindArticleAuthority::evaluateLocalCandidate(
             $articleId,
-            $siteId > 0 ? $siteId : null,
+            $siteId,
+            $existsLocally === null ? null : $localArticleSiteId,
         );
-        if ($localArticleId === null) {
+        if (! ($gate['ok'] ?? false)) {
             return [
                 'ok' => false,
-                'error_code' => ContentProjectErrorCode::ArticleRelationMissing->value,
-                'message' => 'article_id không phải local articles.id — từ chối bind.',
+                'error_code' => $gate['error_code'],
+                'message' => $gate['message'],
                 'article_id' => null,
             ];
         }
-        $articleId = $localArticleId;
+        $articleId = (int) $gate['article_id'];
 
         try {
             return DB::connection('omi_seo_ai')->transaction(function () use (

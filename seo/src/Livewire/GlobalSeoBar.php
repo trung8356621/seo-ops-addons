@@ -28,6 +28,9 @@ class GlobalSeoBar extends Component
 
     public bool $writingSplitEnabled = false;
 
+    /** @var string normal|free_only — article generation mode (user-facing FreeOnly). */
+    public string $articleGenerationMode = 'normal';
+
     public function mount(): void
     {
         SeoAccessControl::forgetLegacyGlobalSitePersistence();
@@ -48,9 +51,14 @@ class GlobalSeoBar extends Component
         session(['seo_simulated_role' => $this->simulatedRole]);
         $this->syncGlobalContentProjectSelection();
         $this->bootstrapDatabaseForCurrentSite();
+        // Legacy preference sync kept for BC data only — UI no longer exposes the toggle.
         $this->syncWritingSplitPreference();
+        $this->syncArticleGenerationModePreference();
     }
 
+    /**
+     * @deprecated Preference no longer controls execution shape (route_cost_auto).
+     */
     public function updatedWritingSplitEnabled($value): void
     {
         $enabled = filter_var($value, FILTER_VALIDATE_BOOLEAN);
@@ -62,6 +70,19 @@ class GlobalSeoBar extends Component
         }
 
         \Omnichannel\Addons\Content\Support\WritingSplitPreference::persistForUserId($userId, $enabled);
+    }
+
+    public function updatedArticleGenerationMode($value): void
+    {
+        $policy = \Omnichannel\Addons\AiPrompt\Support\AiCostPolicy::tryFromMixed($value);
+        $this->articleGenerationMode = $policy->generationModeValue();
+
+        $userId = (int) (auth()->id() ?? 0);
+        if ($userId <= 0) {
+            return;
+        }
+
+        \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationModePreference::persistForUserId($userId, $policy);
     }
 
     public function updatedDomainKey($value): void
@@ -165,6 +186,7 @@ class GlobalSeoBar extends Component
             'showContentProjectPicker' => $showContentProjectPicker && SeoAccessControl::shouldShowGlobalSitePicker(),
             'contentProjectOptions' => $contentProjectOptions,
             'writingSplitEnabled' => $this->writingSplitEnabled,
+            'articleGenerationMode' => $this->articleGenerationMode,
         ]);
     }
 
@@ -174,6 +196,15 @@ class GlobalSeoBar extends Component
         $this->writingSplitEnabled = \Omnichannel\Addons\Content\Support\WritingSplitPreference::enabledForUserId(
             $userId > 0 ? $userId : null,
         );
+    }
+
+    private function syncArticleGenerationModePreference(): void
+    {
+        $userId = (int) (auth()->id() ?? 0);
+        $policy = \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationModePreference::forUserId(
+            $userId > 0 ? $userId : null,
+        );
+        $this->articleGenerationMode = $policy->generationModeValue();
     }
 
     private function applyContext(DomainContext $context): void

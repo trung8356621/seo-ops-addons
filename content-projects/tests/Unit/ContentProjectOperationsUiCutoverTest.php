@@ -106,6 +106,7 @@ final class ContentProjectOperationsUiCutoverTest extends TestCase
         self::assertStringContainsString('ContentProjectItemActionsPresenter', $blade);
         self::assertStringContainsString('cp-ops-menu', $blade);
         self::assertStringContainsString('>Content</p>', $blade);
+        self::assertStringContainsString('>Retry / Recovery</p>', $blade);
         self::assertStringContainsString('>Review</p>', $blade);
         self::assertStringContainsString('>Publishing Queue</p>', $blade);
         self::assertStringContainsString('>Lifecycle</p>', $blade);

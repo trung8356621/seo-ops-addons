@@ -17,6 +17,8 @@ enum ContentProjectErrorCode: string
     case ArticleRelationMissing = 'CONTENT_PROJECT_ARTICLE_RELATION_MISSING';
     case ArticleRelationConflict = 'CONTENT_PROJECT_ARTICLE_RELATION_CONFLICT';
     case ArticleAlreadyLinked = 'CONTENT_PROJECT_ARTICLE_ALREADY_LINKED';
+    /** Local article exists but article.site_id !== task.site_id. */
+    case ArticleSiteMismatch = 'CONTENT_PROJECT_ARTICLE_SITE_MISMATCH';
     case RunItemNotFound = 'CONTENT_PROJECT_RUN_ITEM_NOT_FOUND';
     case ExternalWorkflowFailed = 'CONTENT_PROJECT_EXTERNAL_WORKFLOW_FAILED';
     case ArchiveMirrorFailed = 'CONTENT_PROJECT_ARCHIVE_MIRROR_FAILED';

@@ -48,11 +48,11 @@ final class ContentProjectItemActionCatalogTest extends TestCase
     public function test_group_order_is_identical_for_single_and_bulk(): void
     {
         self::assertSame(
-            ['content', 'review', 'publishing_queue', 'lifecycle', 'other'],
+            ['content', 'retry_recovery', 'review', 'publishing_queue', 'lifecycle', 'other'],
             ContentProjectItemActionCatalog::groupOrder(),
         );
         self::assertSame(
-            ['Content', 'Review', 'Publishing Queue', 'Lifecycle', 'Other'],
+            ['Content', 'Retry / Recovery', 'Review', 'Publishing Queue', 'Lifecycle', 'Other'],
             array_values(ContentProjectItemActionCatalog::groupHeadings()),
         );
 
@@ -83,16 +83,19 @@ final class ContentProjectItemActionCatalogTest extends TestCase
 
         $menu = LegacyAddonPath::read('resources/views/components/content-project-item-actions-menu.blade.php');
         $contentPos = strpos($menu, '>Content</p>');
+        $recoveryPos = strpos($menu, '>Retry / Recovery</p>');
         $reviewPos = strpos($menu, '>Review</p>');
         $pqPos = strpos($menu, '>Publishing Queue</p>');
         $lifePos = strpos($menu, '>Lifecycle</p>');
         $otherPos = strpos($menu, '>Other</p>');
         self::assertNotFalse($contentPos);
+        self::assertNotFalse($recoveryPos);
         self::assertNotFalse($reviewPos);
         self::assertNotFalse($pqPos);
         self::assertNotFalse($lifePos);
         self::assertNotFalse($otherPos);
-        self::assertLessThan($reviewPos, $contentPos);
+        self::assertLessThan($recoveryPos, $contentPos);
+        self::assertLessThan($reviewPos, $recoveryPos);
         self::assertLessThan($pqPos, $reviewPos);
         self::assertLessThan($lifePos, $pqPos);
         self::assertLessThan($otherPos, $lifePos);
@@ -160,7 +163,7 @@ final class ContentProjectItemActionCatalogTest extends TestCase
 
     public function test_single_only_actions_are_absent_from_bulk_menu(): void
     {
-        foreach (['open_article', 'view_details', 'regen_image'] as $key) {
+        foreach (['open_article', 'ai_history', 'view_details', 'regen_image'] as $key) {
             $def = ContentProjectItemActionCatalog::definition($key);
             self::assertNotNull($def);
             self::assertTrue($def['single']);
@@ -172,6 +175,7 @@ final class ContentProjectItemActionCatalogTest extends TestCase
             ContentProjectItemActionCatalog::bulkDefinitions(),
         );
         self::assertNotContains('open_article', $bulkKeys);
+        self::assertNotContains('ai_history', $bulkKeys);
         self::assertNotContains('view_details', $bulkKeys);
         self::assertNotContains('regen_image', $bulkKeys);
 
@@ -179,6 +183,7 @@ final class ContentProjectItemActionCatalogTest extends TestCase
         self::assertStringNotContainsString('open_article', $toolbar);
         self::assertStringNotContainsString('openExecutionDetails', $toolbar);
         self::assertStringNotContainsString('item_action_open_article', $toolbar);
+        self::assertStringNotContainsString('item_action_ai_history', $toolbar);
         self::assertStringNotContainsString('item_action_view_details', $toolbar);
         self::assertStringNotContainsString('item_action_regen_image', $toolbar);
     }
@@ -352,6 +357,107 @@ final class ContentProjectItemActionCatalogTest extends TestCase
         self::assertSame('partial', $run['state']);
         self::assertFalse($run['enabled']);
         self::assertSame(1, $run['eligible']);
+    }
+
+    public function test_ai_history_is_content_nav_only_when_article_exists(): void
+    {
+        $aiHistory = ContentProjectItemActionCatalog::definition('ai_history');
+        self::assertNotNull($aiHistory);
+        self::assertSame(ContentProjectItemActionCatalog::GROUP_CONTENT, $aiHistory['group']);
+        self::assertSame('ai_history', $aiHistory['presenter_flag']);
+        self::assertFalse($aiHistory['bulk']);
+
+        $withArticle = ContentProjectItemActionsPresenter::forRow([
+            'lifecycle' => 'review',
+            'queue_status' => 'none',
+            'generation_badge' => ['key' => 'success'],
+            'can_generate' => false,
+            'can_regen' => true,
+            'article_edit_url' => '/seo/articles/42/edit',
+            'article_ai_history_url' => '/seo/articles/42/prompts?site_id=7',
+        ]);
+        self::assertTrue($withArticle['open_article']);
+        self::assertTrue($withArticle['ai_history']);
+        self::assertTrue($withArticle['has_content']);
+
+        $withoutArticle = ContentProjectItemActionsPresenter::forRow([
+            'lifecycle' => 'draft',
+            'queue_status' => 'none',
+            'generation_badge' => ['key' => 'pending'],
+            'generation_status' => 'pending',
+            'is_generate_pending_runnable' => true,
+            'can_generate' => true,
+            'can_regen' => false,
+            'article_edit_url' => null,
+        ]);
+        self::assertFalse($withoutArticle['open_article']);
+        self::assertFalse($withoutArticle['ai_history']);
+
+        $menu = LegacyAddonPath::read('resources/views/components/content-project-item-actions-menu.blade.php');
+        self::assertStringContainsString('article_ai_history_url', $menu);
+        self::assertStringContainsString('item_action_ai_history', $menu);
+        self::assertStringContainsString('heroicon-o-clock', $menu);
+
+        $readModel = (string) file_get_contents(
+            (new ReflectionClass(
+                \Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectItemOperationsReadModel::class,
+            ))->getFileName(),
+        );
+        self::assertStringContainsString("'article_ai_history_url'", $readModel);
+        self::assertStringContainsString("getUrl('prompts'", $readModel);
+        self::assertStringContainsString('appendSiteToUrl', $readModel);
+        self::assertStringContainsString('$task->site_id', $readModel);
+        self::assertStringNotContainsString('project->site_id', $readModel);
+    }
+
+    public function test_retry_recovery_actions_leave_content_group(): void
+    {
+        foreach (['run_generation', 'rerun_outline', 'rerun_writing', 'restart_with_keyword', 'skip_generation'] as $key) {
+            $def = ContentProjectItemActionCatalog::definition($key);
+            self::assertNotNull($def);
+            self::assertSame(ContentProjectItemActionCatalog::GROUP_RETRY_RECOVERY, $def['group'], $key);
+        }
+
+        foreach (['open_article', 'ai_history', 'regen_image'] as $key) {
+            $def = ContentProjectItemActionCatalog::definition($key);
+            self::assertNotNull($def);
+            self::assertSame(ContentProjectItemActionCatalog::GROUP_CONTENT, $def['group'], $key);
+        }
+
+        $withRetry = ContentProjectItemActionsPresenter::forRow([
+            'lifecycle' => 'draft',
+            'queue_status' => 'none',
+            'generation_badge' => ['key' => 'failed'],
+            'generation_status' => 'failed',
+            'can_generate' => true,
+            'can_regen' => true,
+            'article_edit_url' => '/a/1',
+            'has_resumable_checkpoint' => true,
+        ]);
+        self::assertTrue($withRetry['has_content']);
+        self::assertTrue($withRetry['has_recovery']);
+        self::assertTrue($withRetry['ai_history']);
+
+        $menu = LegacyAddonPath::read('resources/views/components/content-project-item-actions-menu.blade.php');
+        $contentPos = strpos($menu, '>Content</p>');
+        $recoveryPos = strpos($menu, '>Retry / Recovery</p>');
+        self::assertNotFalse($contentPos);
+        self::assertNotFalse($recoveryPos);
+        self::assertLessThan($recoveryPos, $contentPos);
+
+        $recoverySlice = substr($menu, $recoveryPos);
+        self::assertStringContainsString('resumeFromFailedStep', $recoverySlice);
+        self::assertStringContainsString('regenOutline', $recoverySlice);
+        self::assertStringContainsString('regenArticle', $recoverySlice);
+        self::assertStringContainsString('skipGenerationOne', $recoverySlice);
+        self::assertStringContainsString('acknowledgeGenerationError', $recoverySlice);
+
+        $contentSlice = substr($menu, $contentPos, $recoveryPos - $contentPos);
+        self::assertStringContainsString('item_action_open_article', $contentSlice);
+        self::assertStringContainsString('item_action_ai_history', $contentSlice);
+        self::assertStringContainsString('item_action_regen_image', $contentSlice);
+        self::assertStringNotContainsString('regenOutline', $contentSlice);
+        self::assertStringNotContainsString('skipGenerationOne', $contentSlice);
     }
 
     /**

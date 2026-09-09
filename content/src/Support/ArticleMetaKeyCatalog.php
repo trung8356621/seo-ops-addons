@@ -196,10 +196,10 @@ final class ArticleMetaKeyCatalog
                 'readers' => ['ArticleResource', 'ArticlesOptimal'],
             ],
             'writing_split_enabled' => [
-                'purpose' => 'LEGACY article meta — ignored. Authority is user_meta via WritingSplitPreference',
+                'purpose' => 'LEGACY article/user meta — ignored at runtime. Authority is route_cost_auto via GenerationShapeResolver',
                 'class' => self::CLASS_LEGACY,
                 'cleanup' => false,
-                'canonical_replacement' => 'user_meta.writing_split_enabled',
+                'canonical_replacement' => 'generation_shape + generation_shape_source=route_cost_auto',
                 'writers' => [],
                 'readers' => [],
             ],

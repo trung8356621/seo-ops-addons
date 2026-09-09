@@ -7,8 +7,9 @@ namespace Omnichannel\Addons\AiPrompt\Support;
 use Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate;
 
 /**
- * Snapshot of the AI Center primary candidate used to derive generation shape.
+ * Snapshot of the first usable AI Center route used to derive generation shape.
  * Prefer this candidate first at execution; do not disable normal fallback.
+ * Shape is immutable for the run once stamped with route_cost_auto.
  */
 final class ArticlePrimaryRoutingSnapshot
 {
@@ -18,15 +19,20 @@ final class ArticlePrimaryRoutingSnapshot
         public readonly ?int $primaryConnectionId,
         public readonly bool $primaryIsFree,
         public readonly ArticleGenerationShape $generationShape,
-        public readonly string $generationShapeSource = ArticleGenerationShape::SOURCE_AI_CENTER_PRIMARY,
+        public readonly string $generationShapeSource = ArticleGenerationShape::SOURCE_ROUTE_COST_AUTO,
         public readonly bool $freeOnlyPolicy = false,
+        public readonly string $shapeDecisionLogicalModel = '',
+        public readonly string $shapeDecisionPhysicalRoute = '',
+        public readonly string $shapeDecisionProvider = '',
+        public readonly string $shapeDecisionConnectionName = '',
+        public readonly string $shapeDecisionCostClass = '',
     ) {}
 
     public static function fromCandidate(
         RoutedAiCandidate $primary,
         ArticleGenerationShape $shape,
         bool $freeOnlyPolicy = false,
-        string $shapeSource = ArticleGenerationShape::SOURCE_AI_CENTER_PRIMARY,
+        string $shapeSource = ArticleGenerationShape::SOURCE_ROUTE_COST_AUTO,
     ): self {
         return new self(
             primaryModel: $primary->model,
@@ -38,6 +44,31 @@ final class ArticlePrimaryRoutingSnapshot
             generationShape: $shape,
             generationShapeSource: $shapeSource,
             freeOnlyPolicy: $freeOnlyPolicy,
+            shapeDecisionLogicalModel: $primary->logicalModelKey(),
+            shapeDecisionPhysicalRoute: $primary->physicalRouteKey(),
+            shapeDecisionProvider: $primary->provider,
+            shapeDecisionConnectionName: (string) ($primary->connection->name ?? ''),
+            shapeDecisionCostClass: $primary->isFree ? 'free' : 'paid',
+        );
+    }
+
+    public static function fromDecision(
+        GenerationShapeDecision $decision,
+        bool $freeOnlyPolicy = false,
+    ): self {
+        return new self(
+            primaryModel: $decision->model,
+            primaryModelId: $decision->modelId,
+            primaryConnectionId: $decision->connectionId,
+            primaryIsFree: $decision->isFree,
+            generationShape: $decision->shape,
+            generationShapeSource: $decision->source,
+            freeOnlyPolicy: $freeOnlyPolicy,
+            shapeDecisionLogicalModel: $decision->logicalModel,
+            shapeDecisionPhysicalRoute: $decision->physicalRoute,
+            shapeDecisionProvider: $decision->provider,
+            shapeDecisionConnectionName: $decision->connectionName,
+            shapeDecisionCostClass: $decision->costClass,
         );
     }
 
@@ -54,6 +85,14 @@ final class ArticlePrimaryRoutingSnapshot
             'generation_shape' => $this->generationShape->value,
             'generation_shape_source' => $this->generationShapeSource,
             'free_only_policy' => $this->freeOnlyPolicy,
+            'shape_decision_logical_model' => $this->shapeDecisionLogicalModel,
+            'shape_decision_physical_route' => $this->shapeDecisionPhysicalRoute,
+            'shape_decision_provider' => $this->shapeDecisionProvider,
+            'shape_decision_connection_id' => $this->primaryConnectionId,
+            'shape_decision_connection_name' => $this->shapeDecisionConnectionName,
+            'shape_decision_cost_class' => $this->shapeDecisionCostClass !== ''
+                ? $this->shapeDecisionCostClass
+                : ($this->primaryIsFree ? 'free' : 'paid'),
             // Compat mirrors for History / existing strategy fields.
             'generation_strategy' => $this->generationShape->value,
             'resolved_generation_strategy' => $this->generationShape->value,

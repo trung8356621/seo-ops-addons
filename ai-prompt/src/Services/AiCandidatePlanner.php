@@ -39,7 +39,7 @@ final class AiCandidatePlanner
         $mode = $context->routingMode ?? $this->contextResolver->resolveMode($context);
 
         // ORDER POLICY: preserve caller/AI Center sortable order exactly.
-        // COST POLICY: FreeOnly may drop paid; free/paid phase lists are diagnostics only.
+        // COST POLICY: FreeOnly may drop paid from execution; free/paid phase lists are diagnostics.
         $free = [];
         $paid = [];
         foreach ($candidates as $candidate) {
@@ -50,22 +50,18 @@ final class AiCandidatePlanner
             }
         }
 
-        if ($mode === AiExecutionRoutingMode::FreeOnly) {
-            $paid = [];
-            $candidates = array_values(array_filter(
-                $candidates,
-                static fn (RoutedAiCandidate $candidate): bool => $candidate->isFree,
-            ));
-        }
         // Default / Economy / Quality / PaidPreferred / Explicit: never rewrite order by cost.
+        // FreeOnly: keep configured order for diagnostics; exclude paid from attemptable stream.
 
         $attemptablePaid = [];
-        foreach ($paid as $candidate) {
-            $health = $healthSkipReason($candidate);
-            if ($health !== null) {
-                continue;
+        if ($mode !== AiExecutionRoutingMode::FreeOnly) {
+            foreach ($paid as $candidate) {
+                $health = $healthSkipReason($candidate);
+                if ($health !== null) {
+                    continue;
+                }
+                $attemptablePaid[] = $candidate;
             }
-            $attemptablePaid[] = $candidate;
         }
 
         $budget = $this->budgetPolicy->resolve(
@@ -106,6 +102,8 @@ final class AiCandidatePlanner
                     'connection_active' => true,
                     'cost_class_allowed' => false,
                 ];
+                // Policy exclusion: 0 API attempts — do not treat as health skip.
+                $health = null;
             }
 
             $phase = $candidate->isFree ? 'free' : 'paid';

@@ -1,18 +1,20 @@
 import React, { useMemo, useState } from 'react';
 import { Copy, ExternalLink, Loader2, Minus, Plus, RefreshCw, Sparkles, Trash2, X } from 'lucide-react';
 import ContentWithLinkPreviews from './ContentWithLinkPreviews';
-import { linkPoolCapacity, usedTodayByLinkId } from '../services/linkPool';
+import { linkPoolCapacity } from '../services/linkPool';
 import { DEFAULT_SEED_QUANTITY } from '../services/seedGenerate';
+import { buildCopyPayload, writeClipboard } from '../services/copyComment';
 import { normalizeLink, normalizeUrlKey } from '../services/storage';
+import { notifySuccess, notifyWarning } from '../services/toast';
 
 /**
- * Minimal Share → quantity → Gen panel.
+ * Gen comment panel for shared topics (not draft share).
  *
  * @param {{
  *   open: boolean,
  *   topic: Record<string, unknown>|null,
  *   seedLinks: Array<Record<string, unknown>>,
- *   seedOutputs: Array<Record<string, unknown>>,
+ *   linkUsageToday?: Record<string, number>,
  *   topicOutputs: Array<Record<string, unknown>>,
  *   linkPreviewCache?: Record<string, Record<string, unknown>>,
  *   canSeed: boolean,
@@ -22,6 +24,7 @@ import { normalizeLink, normalizeUrlKey } from '../services/storage';
  *   onUpdateOutput: (output: Record<string, unknown>) => void,
  *   onRegenerateOutput: (output: Record<string, unknown>) => void|Promise<void>,
  *   onDeleteOutput: (output: Record<string, unknown>) => void,
+ *   onReport: (output: Record<string, unknown>) => void,
  *   onCacheUpdate?: (cache: Record<string, Record<string, unknown>>) => void,
  * }} props
  */
@@ -29,7 +32,7 @@ export default function ShareGeneratePanel({
     open,
     topic,
     seedLinks,
-    seedOutputs,
+    linkUsageToday = {},
     topicOutputs,
     linkPreviewCache = {},
     canSeed,
@@ -39,31 +42,60 @@ export default function ShareGeneratePanel({
     onUpdateOutput,
     onRegenerateOutput,
     onDeleteOutput,
+    onReport,
 }) {
     const [quantity, setQuantity] = useState(DEFAULT_SEED_QUANTITY);
     const [editingId, setEditingId] = useState(null);
     const [editText, setEditText] = useState('');
     const [regenId, setRegenId] = useState(null);
+    const [appendLink, setAppendLink] = useState(true);
 
-    const capacity = useMemo(() => {
-        const used = usedTodayByLinkId(seedOutputs);
-        return linkPoolCapacity(seedLinks, used);
-    }, [seedLinks, seedOutputs]);
+    const capacity = useMemo(
+        () => linkPoolCapacity(seedLinks, linkUsageToday),
+        [seedLinks, linkUsageToday],
+    );
 
     if (!open || !topic) return null;
 
     const emptyPool = (seedLinks || []).filter((l) => l.is_active !== false).length === 0;
     const allAtLimit = !emptyPool && capacity.available === 0 && capacity.active > 0;
+    const progress = Number(topic.current_user_report_count || 0);
+    const required = Number(topic.required_report_count || topic.required_comments_per_user || 0);
 
     const bump = (delta) => {
         setQuantity((q) => Math.max(1, Math.min(12, q + delta)));
     };
 
-    const copyText = async (text) => {
-        try {
-            await navigator.clipboard.writeText(text);
-        } catch {
-            /* ignore */
+    const copyOutput = async (out) => {
+        const payload = buildCopyPayload({
+            content: String(out.content || ''),
+            appendLink: appendLink || Boolean(out.append_link),
+            selectedSeedLinkId: out.selected_seed_link_id || out.seed_link_id,
+            selectedSeedUrl: out.selected_seed_url || out.url,
+            seedLinks,
+            linkUsageToday,
+        });
+
+        await writeClipboard(payload.text);
+
+        const next = {
+            ...out,
+            append_link: appendLink,
+            selected_seed_link_id: payload.selected_seed_link_id,
+            selected_seed_url: payload.selected_seed_url,
+            seed_link_id: payload.selected_seed_link_id,
+            url: payload.selected_seed_url,
+            copied_at: new Date().toISOString(),
+            updated_at: new Date().toISOString(),
+        };
+        onUpdateOutput(next);
+
+        if (payload.softLimitReached) {
+            notifyWarning('Các link hôm nay đã đủ ngưỡng');
+        } else if (payload.appended) {
+            notifySuccess('Đã copy comment');
+        } else {
+            notifySuccess('Đã copy comment');
         }
     };
 
@@ -89,11 +121,17 @@ export default function ShareGeneratePanel({
     return (
         <div className="seeding-ws__panel seeding-ws__panel--share" data-panel="share-generate">
             <div className="seeding-ws__panel-head">
-                <h2>Chia sẻ</h2>
+                <h2>Gen comment</h2>
                 <button type="button" className="seeding-ws__icon-btn" onClick={onClose} aria-label="Đóng">
                     <X size={16} />
                 </button>
             </div>
+
+            {required > 0 ? (
+                <div className="seeding-ws__progress-line">
+                    Tiến độ: {progress} / {required}
+                </div>
+            ) : null}
 
             <div className="seeding-ws__share-qty">
                 <span className="seeding-ws__section-title">Số lượng</span>
@@ -107,6 +145,15 @@ export default function ShareGeneratePanel({
                     </button>
                 </div>
             </div>
+
+            <label className="seeding-ws__check">
+                <input
+                    type="checkbox"
+                    checked={appendLink}
+                    onChange={(e) => setAppendLink(e.target.checked)}
+                />
+                Append link khi Copy
+            </label>
 
             <dl className="seeding-ws__stat-rows seeding-ws__stat-rows--compact">
                 <div className="seeding-ws__stat-row">
@@ -123,7 +170,7 @@ export default function ShareGeneratePanel({
                 <div className="seeding-ws__hint">Bạn chưa có link trong Link Pool.</div>
             ) : null}
             {allAtLimit ? (
-                <div className="seeding-ws__hint">Các link của bạn đều đã đạt ngưỡng hôm nay. Vẫn có thể Gen.</div>
+                <div className="seeding-ws__hint">Các link của bạn đều đã đạt ngưỡng hôm nay.</div>
             ) : null}
 
             <button
@@ -133,19 +180,20 @@ export default function ShareGeneratePanel({
                 onClick={() => onGenerate(quantity)}
             >
                 {generating ? <Loader2 size={14} className="seeding-ws__spin" /> : <Sparkles size={14} />}
-                {generating ? 'Đang Gen…' : 'Gen'}
+                {generating ? 'Đang Gen…' : 'Gen comment'}
             </button>
 
             {topicOutputs.length > 0 ? (
                 <section className="seeding-ws__section" data-section="seed-outputs">
-                    <div className="seeding-ws__section-title">Nội dung đã Gen</div>
+                    <div className="seeding-ws__section-title">Comment đã Gen</div>
                     <ul className="seeding-ws__output-list">
                         {topicOutputs.map((out) => {
-                            const linkStub = out.url
+                            const linkUrl = out.selected_seed_url || out.url;
+                            const linkStub = linkUrl
                                 ? normalizeLink({
-                                    url: out.url,
-                                    normalized_url: normalizeUrlKey(out.url),
-                                    ...(linkPreviewCache[normalizeUrlKey(out.url)] || {}),
+                                    url: linkUrl,
+                                    normalized_url: normalizeUrlKey(linkUrl),
+                                    ...(linkPreviewCache[normalizeUrlKey(linkUrl)] || {}),
                                 })
                                 : null;
                             const links = linkStub ? [linkStub] : [];
@@ -179,38 +227,37 @@ export default function ShareGeneratePanel({
                                                 variant="comment"
                                                 maxRichPreviews={1}
                                             />
-                                            {out.url ? (
+                                            {linkUrl ? (
                                                 <a
                                                     className="seeding-ws__output-link"
-                                                    href={String(out.url)}
+                                                    href={String(linkUrl)}
                                                     target="_blank"
                                                     rel="noreferrer"
                                                 >
-                                                    {out.url} <ExternalLink size={12} />
+                                                    {linkUrl} <ExternalLink size={12} />
                                                 </a>
                                             ) : null}
                                             <div className="seeding-ws__output-actions">
-                                                <button type="button" className="seeding-ws__btn seeding-ws__btn--ghost" onClick={() => copyText(String(out.content || ''))}>
+                                                <button type="button" className="seeding-ws__btn seeding-ws__btn--ghost" onClick={() => copyOutput(out)}>
                                                     <Copy size={12} /> Copy
+                                                </button>
+                                                <button type="button" className="seeding-ws__btn seeding-ws__btn--primary" onClick={() => onReport(out)}>
+                                                    Báo cáo
                                                 </button>
                                                 <button type="button" className="seeding-ws__btn seeding-ws__btn--ghost" onClick={() => startEdit(out)}>
                                                     Sửa
                                                 </button>
                                                 <button
                                                     type="button"
-                                                    className="seeding-ws__btn seeding-ws__btn--ghost"
+                                                    className="seeding-ws__icon-btn"
                                                     disabled={isRegen}
                                                     onClick={() => doRegen(out)}
+                                                    aria-label="Gen lại"
                                                 >
-                                                    {isRegen ? <Loader2 size={12} className="seeding-ws__spin" /> : <RefreshCw size={12} />}
-                                                    Gen lại
+                                                    {isRegen ? <Loader2 size={14} className="seeding-ws__spin" /> : <RefreshCw size={14} />}
                                                 </button>
-                                                <button
-                                                    type="button"
-                                                    className="seeding-ws__btn seeding-ws__btn--ghost is-danger"
-                                                    onClick={() => onDeleteOutput(out)}
-                                                >
-                                                    <Trash2 size={12} /> Xóa
+                                                <button type="button" className="seeding-ws__icon-btn" onClick={() => onDeleteOutput(out)} aria-label="Xóa">
+                                                    <Trash2 size={14} />
                                                 </button>
                                             </div>
                                         </>

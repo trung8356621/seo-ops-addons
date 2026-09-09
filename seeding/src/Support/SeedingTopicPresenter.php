@@ -4,7 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Seeding\Support;
 
-use Omnichannel\Addons\Seeding\LinkIntelligence\Models\LinkResource;
+use Omnichannel\Addons\Seeding\Models\SeedingReport;
 use Omnichannel\Addons\Seeding\Models\SeedingTopic;
 
 final class SeedingTopicPresenter
@@ -14,57 +14,85 @@ final class SeedingTopicPresenter
      */
     public static function topic(SeedingTopic $topic): array
     {
-        if (! $topic->relationLoaded('linkResources')) {
-            $topic->load('linkResources');
-        }
-
-        $links = $topic->linkResources
-            ->map(static fn (LinkResource $link): array => self::link($link))
-            ->values()
-            ->all();
+        $links = is_array($topic->links_json) ? array_values($topic->links_json) : [];
 
         return [
             'id' => (int) $topic->id,
-            'site_id' => (int) $topic->site_id,
+            'installation_id' => (string) $topic->installation_id,
+            'created_by' => (int) $topic->created_by,
+            'created_by_user_id' => (int) $topic->created_by,
+            'created_by_display_name' => $topic->created_by_display_name,
+            'title' => $topic->title,
             'full_text' => (string) $topic->full_text,
             'source_html' => $topic->source_html,
             'social_url' => $topic->social_url,
             'social_platform' => $topic->social_platform?->value,
             'social_platform_label' => $topic->social_platform?->label(),
-            'status' => $topic->status->value,
-            'status_label' => $topic->status->label(),
-            'published_at' => $topic->published_at?->toIso8601String(),
-            'archived_at' => $topic->archived_at?->toIso8601String(),
-            'is_archived' => $topic->isArchived(),
-            'preview' => $topic->preview(60),
+            'status' => $topic->status?->value ?? 'shared',
+            'status_label' => $topic->status?->label(),
+            'state' => 'shared',
             'links' => $links,
             'links_count' => count($links),
+            'preview' => $topic->preview(60),
+            'max_comments_target' => (int) $topic->max_comments_target,
+            'member_count_at_share' => (int) $topic->member_count_at_share,
+            'required_comments_per_user' => $topic->requiredCommentsPerUser(),
+            'required_report_count' => $topic->requiredCommentsPerUser(),
+            'shared_at' => $topic->shared_at?->toIso8601String(),
+            'archived_at' => $topic->archived_at?->toIso8601String(),
+            'is_archived' => $topic->isArchived(),
             'created_at' => $topic->created_at?->toIso8601String(),
             'updated_at' => $topic->updated_at?->toIso8601String(),
         ];
     }
 
     /**
+     * Feed card payload with eligibility + progress for current user.
+     *
      * @return array<string, mixed>
      */
-    public static function link(LinkResource $link): array
-    {
-        return [
-            'id' => (int) $link->id,
-            'original_url' => (string) $link->original_url,
-            'normalized_url' => (string) $link->normalized_url,
-            'domain' => (string) $link->domain,
-            'title' => $link->title,
-            'description' => $link->description,
-        ];
+    public static function feedItem(
+        SeedingTopic $topic,
+        int $userId,
+        int $currentUserReportCount,
+        bool $eligible,
+    ): array {
+        $base = self::topic($topic);
+        $required = $topic->requiredCommentsPerUser();
+
+        return array_merge($base, [
+            'current_user_report_count' => max(0, $currentUserReportCount),
+            'required_report_count' => $required,
+            'eligibility' => [
+                'eligible' => $eligible,
+                'is_author' => (int) $topic->created_by === $userId,
+                'remaining' => max(0, $required - $currentUserReportCount),
+            ],
+            'author' => [
+                'id' => (int) $topic->created_by,
+                'display_name' => $topic->created_by_display_name,
+            ],
+        ]);
     }
 
     /**
-     * @param  list<SeedingTopic>  $topics
-     * @return list<array<string, mixed>>
+     * @return array<string, mixed>
      */
-    public static function collection(array $topics): array
+    public static function report(SeedingReport $report): array
     {
-        return array_map(static fn (SeedingTopic $topic): array => self::topic($topic), $topics);
+        return [
+            'id' => (int) $report->id,
+            'topic_id' => (int) $report->topic_id,
+            'user_id' => (int) $report->user_id,
+            'user_display_name' => $report->user_display_name,
+            'comment_text' => (string) $report->comment_text,
+            'seed_link_id' => $report->seed_link_id,
+            'seed_url' => $report->seed_url,
+            'proof_path' => $report->proof_path,
+            'proof_mime' => $report->proof_mime,
+            'proof_meta' => is_array($report->proof_meta) ? $report->proof_meta : null,
+            'reported_at' => $report->reported_at?->toIso8601String(),
+            'created_at' => $report->created_at?->toIso8601String(),
+        ];
     }
 }

@@ -14,7 +14,6 @@ use Omnichannel\Addons\AiPrompt\Services\WritingSectionPromptCompiler;
 use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape;
 use Omnichannel\Addons\AiPrompt\Support\WritingSectionScopeInstructions;
 use Omnichannel\Addons\Content\Services\OutlineStructuredRowsNormalizer;
-use Omnichannel\Addons\Content\Support\WritingSplitPreference;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 
@@ -43,19 +42,18 @@ MD;
 
     public function test_toggle_off_is_single_pass_even_for_free_primary(): void
     {
+        // Legacy helper retained; runtime authority is fromRouteCostClass / GenerationShapeResolver.
         self::assertSame(
             ArticleGenerationShape::SinglePass,
             ArticleGenerationShape::fromWritingSplitEnabled(false),
         );
-        self::assertFalse(WritingSplitPreference::enabledFromVariables([
-            'writing_split_enabled' => false,
-            'primary_is_free' => true,
-        ]));
+        self::assertSame(
+            ArticleGenerationShape::Sectioned,
+            ArticleGenerationShape::fromRouteCostClass('free'),
+        );
         self::assertSame(
             ArticleGenerationShape::SinglePass,
-            ArticleGenerationShape::fromWritingSplitEnabled(
-                WritingSplitPreference::enabledFromVariables(['primary_is_free' => true]),
-            ),
+            ArticleGenerationShape::fromRouteCostClass('paid'),
         );
     }
 
@@ -65,10 +63,11 @@ MD;
             ArticleGenerationShape::Sectioned,
             ArticleGenerationShape::fromWritingSplitEnabled(true),
         );
-        self::assertTrue(WritingSplitPreference::enabledFromVariables([
-            'writing_split_enabled' => true,
-            'primary_is_free' => false,
-        ]));
+        // Runtime ignores this preference — paid route cost wins.
+        self::assertSame(
+            ArticleGenerationShape::SinglePass,
+            ArticleGenerationShape::fromPrimaryIsFree(false),
+        );
     }
 
     public function test_planner_reads_structured_rows_not_parse_nodes(): void
@@ -283,15 +282,16 @@ MD;
         self::assertStringContainsString('wrapSlice', $src);
     }
 
-    public function test_execution_planner_uses_writing_split_not_free(): void
+    public function test_execution_planner_uses_route_cost_not_writing_split(): void
     {
         $src = (string) file_get_contents(
             (string) (new ReflectionClass(\Omnichannel\Addons\AiPrompt\Services\ArticleGenerationExecutionPlanner::class))->getFileName(),
         );
-        self::assertStringContainsString('WritingSplitPreference', $src);
-        self::assertStringContainsString('fromWritingSplitEnabled', $src);
+        self::assertStringContainsString('GenerationShapeResolver', $src);
+        self::assertStringContainsString('SOURCE_ROUTE_COST_AUTO', $src);
+        self::assertStringNotContainsString('WritingSplitPreference', $src);
+        self::assertStringNotContainsString('fromWritingSplitEnabled', $src);
         self::assertStringNotContainsString('fromPrimaryIsFree', $src);
-        self::assertStringContainsString('SOURCE_WRITING_SPLIT_PREFERENCE', $src);
     }
 
     public function test_rows_normalizer_captures_notes_and_parent(): void

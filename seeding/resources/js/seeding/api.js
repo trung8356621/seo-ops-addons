@@ -1,6 +1,6 @@
 /**
- * Optional helpers for Seeding service endpoints (bootstrap / health / AI generate).
- * Canonical workspace does NOT use topic CRUD persistence.
+ * Optional helpers for Seeding service endpoints.
+ * Commit points: share topic, report. AI generate is stateless.
  */
 
 function csrfToken() {
@@ -48,9 +48,57 @@ export async function seedingApiFetch(url, options = {}) {
 }
 
 /**
- * Stateless AI seed-content generation — no Seeding DB writes.
- * Response shape kept as { comments: string[] } for route stability;
- * Flexible Seeding maps comments → seed_outputs.
+ * Shared feed + link usage cache.
+ * @param {AbortSignal} [signal]
+ */
+export async function fetchSharedFeed(signal) {
+    return seedingApiFetch('/api/seeding/feed', { method: 'GET', signal });
+}
+
+/**
+ * Commit point A: share local draft → DB.
+ * @param {{
+ *   title?: string,
+ *   full_text: string,
+ *   source_html?: string|null,
+ *   social_url?: string,
+ *   links?: Array<Record<string, unknown>>,
+ * }} payload
+ */
+export async function shareTopic(payload) {
+    return seedingApiFetch('/api/seeding/topics/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+}
+
+/**
+ * Commit point B: report + proof.
+ * @param {{
+ *   topic_id: number|string,
+ *   comment_text: string,
+ *   seed_link_id?: string|null,
+ *   seed_url?: string|null,
+ *   proof: Blob|File,
+ * }} payload
+ */
+export async function submitReport(payload) {
+    const form = new FormData();
+    form.append('topic_id', String(payload.topic_id));
+    form.append('comment_text', String(payload.comment_text || ''));
+    if (payload.seed_link_id) form.append('seed_link_id', String(payload.seed_link_id));
+    if (payload.seed_url) form.append('seed_url', String(payload.seed_url));
+    form.append('proof', payload.proof);
+
+    return seedingApiFetch('/api/seeding/reports', {
+        method: 'POST',
+        body: form,
+    });
+}
+
+/**
+ * Stateless AI comment generation — no Seeding DB writes.
  * @param {{ full_text: string, social_url?: string, count?: number, platform?: string|null }} payload
  * @returns {Promise<{ comments: string[] }>}
  */

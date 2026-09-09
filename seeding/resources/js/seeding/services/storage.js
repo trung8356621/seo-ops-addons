@@ -1,18 +1,15 @@
 /**
- * Seeding local repository — V7 Flexible Seeding document.
+ * Seeding local repository — V8 hybrid (local drafts + DB commit points).
  *
  * Key: seeding:v5:{installationId}:{userId}:workspace (stable key; schema_version inside).
  * Scope: installation + user (no site/domain).
  *
- * Topic = idea / trending signal (content references via topic.links).
- * seed_links = personal Link Pool (soft daily_limit).
- * seed_batches / seed_outputs = execution history (auto-recorded on Gen).
- * link_previews = shared OG metadata cache keyed by normalized_url.
- * Legacy comments / reports kept on migrate — not used in primary UX.
- * Proof binary lives in IndexedDB — never in this JSON.
+ * Topic drafts = local. Shared feed = API. Generated comments = local.
+ * seed_links = personal Link Pool. link_usage_today = report-derived cache.
+ * Proof binary for local preview may use Object URL; report upload goes to API.
  */
 
-const SCHEMA_VERSION = 7;
+const SCHEMA_VERSION = 8;
 const LOCAL_PERSIST_MS = 200;
 
 /**
@@ -65,6 +62,7 @@ function emptyDocument() {
         seed_links: [],
         seed_batches: [],
         seed_outputs: [],
+        link_usage_today: {},
         link_previews: {},
         ui: {
             filter: 'all',
@@ -475,6 +473,9 @@ export function migrateVersion(raw) {
         seed_links: seedLinks,
         seed_batches: seedBatches,
         seed_outputs: seedOutputs,
+        link_usage_today: doc.link_usage_today && typeof doc.link_usage_today === 'object'
+            ? doc.link_usage_today
+            : {},
         link_previews: linkPreviews,
         ui: {
             filter,
@@ -595,6 +596,9 @@ export function writeDocument(scope, doc) {
             seed_outputs: Array.isArray(doc.seed_outputs)
                 ? doc.seed_outputs.map(normalizeSeedOutput).filter(Boolean)
                 : [],
+            link_usage_today: doc.link_usage_today && typeof doc.link_usage_today === 'object'
+                ? doc.link_usage_today
+                : {},
             link_previews: normalizeLinkPreviewCache(doc.link_previews),
             ui: {
                 filter: doc.ui?.filter || 'all',

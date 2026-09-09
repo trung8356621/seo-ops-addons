@@ -161,9 +161,9 @@ final class SeoCreateArticleSettingsService implements \Omnichannel\Addons\Conte
     public const KEY_TYPOGRAPHY_VALIDATION_MODEL = 'typography_validation_model';
 
     /**
-     * Split Outline Prompt: Structure + Vocabulary as separate provider executions.
-     * Default true (missing key = current production always-split behavior).
-     * Independent of writing_split_enabled.
+     * LEGACY: Split Outline Prompt setting key.
+     * Retained for BC/data. Runtime authority is route_cost_auto
+     * (first usable FREE→SPLIT / PAID→SINGLE) — not this toggle.
      */
     public const KEY_OUTLINE_SPLIT_ENABLED = 'outline_split_enabled';
 
@@ -290,11 +290,14 @@ final class SeoCreateArticleSettingsService implements \Omnichannel\Addons\Conte
         ];
     }
 
+    /**
+     * @deprecated Legacy settings reader — ignored by Outline runtime (route_cost_auto).
+     */
     public function isOutlineSplitEnabled(): bool
     {
         $raw = WpOption::get(self::OPTION_KEY, []);
         if (! is_array($raw) || ! array_key_exists(self::KEY_OUTLINE_SPLIT_ENABLED, $raw)) {
-            // Missing key = current production behavior (always split).
+            // Missing key kept for BC reads — must NOT force SPLIT at runtime.
             return true;
         }
 

@@ -5,10 +5,9 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Content\Services\ArticleAiHistory;
 
 use Omnichannel\Addons\AiPrompt\Models\PromptResult;
-use Omnichannel\Addons\AiPrompt\Models\SeoPromptResultLink;
+use Omnichannel\Addons\AiPrompt\Services\ArticlePromptResultOwnershipResolver;
 use Omnichannel\Addons\AiPrompt\Services\PromptReconstructor;
 use Omnichannel\Addons\Content\Models\SeoArticle;
-use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 
 /**
  * Resolve reconstructed prompt + output_text for a single AI call (PromptResult).
@@ -16,13 +15,16 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
  */
 final class ArticleAiCallRawDetailService
 {
+    public const HASH_MISMATCH_WARNING = 'Reconstructed prompt differs from execution hash';
+
     public function __construct(
         private readonly PromptReconstructor $reconstructor,
+        private readonly ArticlePromptResultOwnershipResolver $ownership,
     ) {}
 
     /**
      * @param  list<int>  $accessibleProjectIds
-     * @return array{success: bool, title?: string, prompt?: string, output?: string, meta?: string, message?: string, prompt_result_id?: int, artifact_ref?: string}
+     * @return array{success: bool, title?: string, prompt?: string, output?: string, meta?: string, message?: string, prompt_result_id?: int, artifact_ref?: string, hash_mismatch?: bool}
      */
     public function resolve(SeoArticle $article, string $artifactRef, array $accessibleProjectIds): array
     {
@@ -43,7 +45,7 @@ final class ArticleAiCallRawDetailService
             ];
         }
 
-        if (! $this->isOwnedPromptResult($article, $promptResultId, $accessibleProjectIds)) {
+        if (! $this->ownership->isOwned((int) $article->getKey(), $promptResultId, $accessibleProjectIds)) {
             return [
                 'success' => false,
                 'message' => 'Không tìm thấy AI call này trong lịch sử bài viết.',
@@ -76,6 +78,7 @@ final class ArticleAiCallRawDetailService
         }
 
         $version = $reconstructed['version_label'] ?? null;
+        $hashMismatch = (bool) ($reconstructed['mismatch'] ?? false);
         $titleParts = array_values(array_filter([
             trim((string) ($result->prompt?->name ?? 'AI Call')),
             trim((string) ($result->canonical_prompt_key ?? self::extractHookKey($result))),
@@ -86,7 +89,7 @@ final class ArticleAiCallRawDetailService
             self::extractModel($result),
             trim((string) $result->status),
             'PromptResult #'.$promptResultId,
-            $reconstructed['mismatch'] ? 'HASH MISMATCH' : null,
+            $hashMismatch ? self::HASH_MISMATCH_WARNING : null,
             $error,
         ]));
 
@@ -98,33 +101,8 @@ final class ArticleAiCallRawDetailService
             'meta' => implode(' · ', $metaParts),
             'prompt_result_id' => $promptResultId,
             'artifact_ref' => $artifactRef,
+            'hash_mismatch' => $hashMismatch,
         ];
-    }
-
-    /**
-     * @param  list<int>  $accessibleProjectIds
-     */
-    private function isOwnedPromptResult(SeoArticle $article, int $promptResultId, array $accessibleProjectIds): bool
-    {
-        if ($accessibleProjectIds === []) {
-            return false;
-        }
-
-        $accessibleRunIds = SeoProjectRun::query()
-            ->whereIn('project_id', $accessibleProjectIds)
-            ->pluck('id')
-            ->map(static fn (mixed $id): int => (int) $id)
-            ->all();
-
-        if ($accessibleRunIds === []) {
-            return false;
-        }
-
-        return SeoPromptResultLink::query()
-            ->where('article_id', (int) $article->getKey())
-            ->where('prompt_result_id', $promptResultId)
-            ->whereIn('project_run_id', $accessibleRunIds)
-            ->exists();
     }
 
     public static function resolveRawPromptText(PromptResult $result, ?array $step = null): string

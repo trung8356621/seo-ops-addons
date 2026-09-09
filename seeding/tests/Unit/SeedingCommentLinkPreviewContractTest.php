@@ -77,7 +77,7 @@ final class SeedingCommentLinkPreviewContractTest extends TestCase
         $storage = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/services/storage.js'
         );
-        self::assertStringContainsString('SCHEMA_VERSION = 7', $storage);
+        self::assertStringContainsString('SCHEMA_VERSION = 8', $storage);
         self::assertStringContainsString('link_previews', $storage);
         self::assertStringContainsString('normalizeLinkPreviewCache', $storage);
         self::assertStringContainsString('function mergeLinksWithText', $storage);

@@ -186,17 +186,19 @@ final class ContentProjectSiteOwnershipContractTest extends TestCase
         self::assertStringContainsString('normalizeProjectSiteId($data, $record)', $edit);
     }
 
-    public function test_reconciler_and_bind_prefer_project_site(): void
+    public function test_reconciler_and_bind_prefer_task_site(): void
     {
         $reconciler = $this->source(ContentProjectExistingArticleReconciler::class);
-        self::assertStringContainsString('$fromProject = (int) ($task->project?->site_id ?? 0)', $reconciler);
+        self::assertStringContainsString('$fromTask = (int) ($task->site_id ?? 0)', $reconciler);
         self::assertTrue(
-            strpos($reconciler, '$fromProject = (int) ($task->project?->site_id ?? 0)')
-            < strpos($reconciler, '$resolved = (int) ($task->site_id ?? 0)'),
+            strpos($reconciler, '$fromTask = (int) ($task->site_id ?? 0)')
+            < strpos($reconciler, '$fromProject = (int) ($task->project?->site_id ?? 0)'),
         );
 
         $bind = $this->source(SeoProjectRunItemService::class);
-        self::assertStringContainsString('$siteId = (int) ($task->project?->site_id ?? 0)', $bind);
+        self::assertStringContainsString('$taskSiteId = (int) ($task->site_id ?? 0)', $bind);
+        self::assertStringContainsString('ContentProjectBindArticleAuthority::resolveSiteId', $bind);
+        self::assertStringNotContainsString('$siteId = (int) ($task->project?->site_id ?? 0)', $bind);
 
         self::assertNull(LocalArticleAssociationGuard::resolveLocalArticleId(0, 10));
     }

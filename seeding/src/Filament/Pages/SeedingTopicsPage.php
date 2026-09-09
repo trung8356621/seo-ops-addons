@@ -12,7 +12,7 @@ use Omnichannel\Addons\Seeding\Support\SeedingServiceHealth;
 /**
  * Canonical Seeding workspace shell at GET /seeding.
  *
- * Mounts React island; business state is 100% localStorage (bootstrap props only).
+ * Mounts React island; UX is React-owned. DB only at share/report commit points.
  * No global SEO/site domain context — Seeding is social/external feed scoped.
  */
 final class SeedingTopicsPage extends Page

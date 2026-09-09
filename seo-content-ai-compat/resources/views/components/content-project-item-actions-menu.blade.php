@@ -5,6 +5,7 @@
 @php
     $tid = (int) ($row['task_id'] ?? 0);
     $articleUrl = $row['article_edit_url'] ?? null;
+    $aiHistoryUrl = $row['article_ai_history_url'] ?? null;
     $title = (string) ($row['primary_label'] ?? $row['title'] ?? '#'.$tid);
     $lifecycle = strtolower((string) ($row['lifecycle'] ?? ''));
     $lifecycleBucket = $lifecycle === 'waiting_publish' ? 'scheduled' : $lifecycle;
@@ -182,6 +183,20 @@
                         <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_open_article') }}</span>
                     </a>
                 @endif
+                @if (! empty($a['ai_history']) && $aiHistoryUrl)
+                    <a
+                        role="menuitem"
+                        href="{{ $aiHistoryUrl }}"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        @click="open = false"
+                        class="{{ $itemClass }}"
+                        title="{{ __('seo-content-ai::filament.projects.item_action_ai_history') }}"
+                    >
+                        <x-filament::icon icon="heroicon-o-clock" class="cp-ops-menu__icon" />
+                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_ai_history') }}</span>
+                    </a>
+                @endif
                 @if (! empty($a['check_index']) && ! empty($row['check_index_url']))
                     <a
                         role="menuitem"
@@ -207,6 +222,28 @@
                         <x-filament::icon icon="heroicon-o-globe-alt" class="cp-ops-menu__icon" />
                         <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_open_public') }}</span>
                     </a>
+                @endif
+                @if ($a['regen_image'] && $articleUrl)
+                    <a role="menuitem" href="{{ $articleUrl }}" class="{{ $itemClass }}" title="{{ __('seo-content-ai::filament.projects.item_action_regen_image') }}">
+                        <x-filament::icon icon="heroicon-o-photo" class="cp-ops-menu__icon" />
+                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_regen_image') }}</span>
+                    </a>
+                @endif
+                @if ($a['improve_note'])
+                    <span class="cp-ops-menu__note">{{ __('seo-content-ai::filament.projects.item_action_improve_manual') }}</span>
+                @endif
+            @endif
+
+            @if (! empty($a['has_recovery']))
+                @if ($a['has_content'])
+                    <div class="cp-ops-menu__divider"></div>
+                @endif
+                <p class="cp-ops-menu__heading">Retry / Recovery</p>
+                @if ($a['resume_generation'])
+                    <button role="menuitem" type="button" wire:click="resumeFromFailedStep({{ $tid }})" @click="open = false; $dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'generation' })" class="{{ $itemClass }}" title="{{ __('seo-content-ai::filament.projects.item_action_resume_failed_step') }}">
+                        <x-filament::icon icon="heroicon-o-arrow-uturn-left" class="cp-ops-menu__icon" />
+                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_resume_failed_step') }}</span>
+                    </button>
                 @endif
                 @if (! empty($a['create_or_rerun']))
                     @php
@@ -253,6 +290,12 @@
                         <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_restart_with_keyword') }}</span>
                     </button>
                 @endif
+                @if ($a['acknowledge_error'])
+                    <button role="menuitem" type="button" wire:click="acknowledgeGenerationError({{ $tid }})" wire:confirm="{{ __('seo-content-ai::filament.projects.item_action_acknowledge_error_confirm') }}" @click="open = false" class="{{ $itemClass }}" title="{{ __('seo-content-ai::filament.projects.item_action_acknowledge_error') }}">
+                        <x-filament::icon icon="heroicon-o-check" class="cp-ops-menu__icon" />
+                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_acknowledge_error') }}</span>
+                    </button>
+                @endif
                 @if ($a['skip_generation'])
                     <button
                         role="menuitem"
@@ -267,18 +310,6 @@
                         <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_skip_generation') }}</span>
                     </button>
                 @endif
-                @if ($a['regen_image'] && $articleUrl)
-                    <a role="menuitem" href="{{ $articleUrl }}" class="{{ $itemClass }}" title="{{ __('seo-content-ai::filament.projects.item_action_regen_image') }}">
-                        <x-filament::icon icon="heroicon-o-photo" class="cp-ops-menu__icon" />
-                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_regen_image') }}</span>
-                    </a>
-                @endif
-                @if ($a['resume_generation'])
-                    <button role="menuitem" type="button" wire:click="resumeFromFailedStep({{ $tid }})" @click="open = false; $dispatch('cp-ops-row-processing', { taskId: {{ $tid }}, kind: 'generation' })" class="{{ $itemClass }}" title="{{ __('seo-content-ai::filament.projects.item_action_resume_failed_step') }}">
-                        <x-filament::icon icon="heroicon-o-arrow-uturn-left" class="cp-ops-menu__icon" />
-                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_resume_failed_step') }}</span>
-                    </button>
-                @endif
                 @if (! empty($a['select_existing_article']))
                     <button
                         role="menuitem"
@@ -289,12 +320,6 @@
                     >
                         <x-filament::icon icon="heroicon-o-link" class="cp-ops-menu__icon" />
                         <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_select_existing_article') }}</span>
-                    </button>
-                @endif
-                @if ($a['acknowledge_error'])
-                    <button role="menuitem" type="button" wire:click="acknowledgeGenerationError({{ $tid }})" wire:confirm="{{ __('seo-content-ai::filament.projects.item_action_acknowledge_error_confirm') }}" @click="open = false" class="{{ $itemClass }}" title="{{ __('seo-content-ai::filament.projects.item_action_acknowledge_error') }}">
-                        <x-filament::icon icon="heroicon-o-check" class="cp-ops-menu__icon" />
-                        <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_acknowledge_error') }}</span>
                     </button>
                 @endif
                 @if ($a['allow_generation'])
@@ -309,9 +334,6 @@
                         <x-filament::icon icon="heroicon-o-arrow-uturn-left" class="cp-ops-menu__icon" />
                         <span class="cp-ops-menu__label">{{ __('seo-content-ai::filament.projects.item_action_allow_generation') }}</span>
                     </button>
-                @endif
-                @if ($a['improve_note'])
-                    <span class="cp-ops-menu__note">{{ __('seo-content-ai::filament.projects.item_action_improve_manual') }}</span>
                 @endif
             @endif
 

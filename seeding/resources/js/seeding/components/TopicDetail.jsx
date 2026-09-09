@@ -1,5 +1,5 @@
 import React from 'react';
-import { ArrowLeft, ExternalLink, Pencil, Share2, Trash2 } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Pencil, Share2, Sparkles, Trash2 } from 'lucide-react';
 import ResourceLinks from './ResourceLinks';
 import ContentWithLinkPreviews from './ContentWithLinkPreviews';
 import { detectPlatformLabel } from '../services/linkExtract';
@@ -9,22 +9,10 @@ import {
     seedStatusOf,
     topicDistinctTitle,
 } from '../features/workspace/selectors';
-import { canSeedTopic } from '../features/workspace/auth';
+import { canSeedTopic, canShareDraftTopic } from '../features/workspace/auth';
 
 /**
- * Topic detail — idea context only; no sample comments / claim.
- *
- * @param {{
- *   topic: Record<string, unknown>,
- *   canMutate: boolean,
- *   canDelete: boolean,
- *   canEdit?: boolean,
- *   hasWorkspaceAccess?: boolean,
- *   onBack: () => void,
- *   onDelete: () => void,
- *   onEdit?: () => void,
- *   onShare: () => void,
- * }} props
+ * Topic detail — draft share or Gen comment depending on state.
  */
 export default function TopicDetail({
     topic,
@@ -32,6 +20,7 @@ export default function TopicDetail({
     canDelete,
     canEdit = false,
     hasWorkspaceAccess = true,
+    userId = 0,
     onBack,
     onDelete,
     onEdit,
@@ -40,8 +29,11 @@ export default function TopicDetail({
     const platform = detectPlatformLabel(topic.social_url);
     const status = seedStatusOf(topic);
     const title = topicDistinctTitle(topic);
-    const canSeed = canSeedTopic(topic, { hasWorkspaceAccess });
+    const isDraft = status === 'draft' || String(topic.localId || '').startsWith('draft:');
+    const canShare = canShareDraftTopic(topic, userId, canMutate);
+    const canGen = canSeedTopic(topic, { hasWorkspaceAccess, userId });
     const trending = isTopicTrending(topic);
+    const primaryEnabled = isDraft ? canShare : canGen;
 
     return (
         <div className="seeding-ws__detail" data-view="topic-detail">
@@ -64,9 +56,10 @@ export default function TopicDetail({
                         type="button"
                         className="seeding-ws__btn seeding-ws__btn--primary"
                         onClick={onShare}
-                        disabled={!canSeed}
+                        disabled={!primaryEnabled}
                     >
-                        <Share2 size={14} /> Chia sẻ
+                        {isDraft ? <Share2 size={14} /> : <Sparkles size={14} />}
+                        {isDraft ? 'Chia sẻ' : 'Gen comment'}
                     </button>
                 </div>
             </div>
@@ -83,26 +76,20 @@ export default function TopicDetail({
                     </div>
                 </header>
 
-                <section className="seeding-ws__section">
-                    <div className="seeding-ws__section-title">Nội dung gốc</div>
-                    <ContentWithLinkPreviews text={topic.full_text || '—'} links={topic.links || []} variant="topic" />
-                </section>
+                <ContentWithLinkPreviews
+                    text={String(topic.full_text || '').trim() || 'Chưa có nội dung.'}
+                    links={topic.links || []}
+                    maxRichPreviews={2}
+                    variant="topic"
+                />
 
-                <section className="seeding-ws__section">
-                    <div className="seeding-ws__section-title">Link bài social</div>
-                    {topic.social_url ? (
-                        <div className="seeding-ws__social-row">
-                            <div className="seeding-ws__readonly-inline">{topic.social_url}</div>
-                            <a className="seeding-ws__btn seeding-ws__btn--ghost" href={topic.social_url} target="_blank" rel="noreferrer">
-                                Mở bài <ExternalLink size={14} />
-                            </a>
-                        </div>
-                    ) : (
-                        <div className="seeding-ws__muted">Không có link social.</div>
-                    )}
-                </section>
+                {topic.social_url ? (
+                    <a className="seeding-ws__social-link" href={String(topic.social_url)} target="_blank" rel="noreferrer">
+                        Mở social <ExternalLink size={12} />
+                    </a>
+                ) : null}
 
-                <ResourceLinks links={topic.links || []} />
+                <ResourceLinks links={topic.links || []} mode="links-readonly" />
             </div>
         </div>
     );

@@ -76,17 +76,45 @@
                 <p class="mb-2 text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
                     {{ __('seo-content-ai::filament.global_bar.ai_generation_heading') }}
                 </p>
-                <label class="flex cursor-pointer items-start gap-2 text-sm text-gray-700 dark:text-gray-200">
-                    <input
-                        type="checkbox"
-                        class="mt-0.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                        wire:model.live="writingSplitEnabled"
-                    >
-                    <span>
-                        <span class="font-medium">{{ __('seo-content-ai::filament.global_bar.writing_split_label') }}</span>
-                        <span class="block text-xs text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.global_bar.writing_split_help') }}</span>
-                    </span>
-                </label>
+
+                <div class="space-y-1.5">
+                    <div class="flex items-center justify-between gap-2">
+                        <label class="block text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
+                            {{ __('seo-content-ai::filament.global_bar.generation_mode_label') }}
+                        </label>
+                        <button
+                            type="button"
+                            class="seo-context-help-btn inline-flex h-5 w-5 items-center justify-center rounded text-gray-400 hover:text-gray-600 dark:hover:text-gray-200"
+                            title="{{ __('seo-content-ai::filament.help.trigger_aria') }}"
+                            aria-label="{{ __('seo-content-ai::filament.help.trigger_aria') }}"
+                            data-help-context="settings.ai.free_single_split"
+                            onclick="event.preventDefault(); event.stopPropagation(); window.dispatchEvent(new CustomEvent('seo-global-help:open', { detail: { contextKey: 'settings.ai.free_single_split', groupId: 'settings', topicId: 'settings.ai.free_single_split', trigger: this } }));"
+                        >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><path d="M12 17h.01"/></svg>
+                        </button>
+                    </div>
+                    <x-select wire:model.live="articleGenerationMode" size="sm" class="w-full">
+                        <option value="normal">{{ __('seo-content-ai::filament.global_bar.generation_mode_normal') }}</option>
+                        <option value="free_only">{{ __('seo-content-ai::filament.global_bar.generation_mode_free_only') }}</option>
+                    </x-select>
+                    @if (($articleGenerationMode ?? 'normal') === 'free_only')
+                        <p class="text-[11px] font-medium text-amber-700 dark:text-amber-400">
+                            {{ __('seo-content-ai::filament.global_bar.generation_mode_free_only_badge') }}
+                        </p>
+                    @endif
+                    <p class="text-xs text-gray-500 dark:text-gray-400">
+                        @if (($articleGenerationMode ?? 'normal') === 'free_only')
+                            {{ __('seo-content-ai::filament.global_bar.generation_mode_free_only_help') }}
+                        @else
+                            {{ __('seo-content-ai::filament.global_bar.generation_mode_normal_help') }}
+                        @endif
+                    </p>
+                </div>
+
+                {{-- writing_split_enabled UI removed: execution shape is route_cost_auto (FREE→SPLIT / PAID→SINGLE). --}}
+                <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+                    {{ __('seo-content-ai::filament.global_bar.writing_split_auto_hint') }}
+                </p>
             </div>
         </div>
     </x-filament::dropdown>

@@ -7,15 +7,18 @@ namespace Omnichannel\Addons\Seeding\Enums;
 enum SeedingTopicStatus: string
 {
     case Draft = 'draft';
+    case Shared = 'shared';
     case Active = 'active';
     case Done = 'done';
+    case Archived = 'archived';
 
     public function label(): string
     {
         return match ($this) {
-            self::Draft => 'DRAFT',
-            self::Active => 'ACTIVE',
-            self::Done => 'DONE',
+            self::Draft => 'Nháp',
+            self::Shared, self::Active => 'Đã chia sẻ',
+            self::Done => 'Hoàn tất',
+            self::Archived => 'Lưu trữ',
         };
     }
 }

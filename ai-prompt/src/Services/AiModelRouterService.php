@@ -33,7 +33,7 @@ use App\Models\ApiConnection;
 use Illuminate\Support\Facades\Http;
 use Throwable;
 
-final class AiModelRouterService
+final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contracts\FirstAttemptableAiRouteResolver
 {
     private const MAX_FAILOVER_ATTEMPTS = 8;
 
@@ -66,7 +66,10 @@ final class AiModelRouterService
     public function resolveFirstAttemptable(string $profile, AiRoutingContext $context): RoutedAiCandidate
     {
         $candidates = $this->resolveAll($profile, $context);
-        if ($context->freeOnly) {
+        $policyFreeOnly = $context->freeOnly
+            || $context->costPolicy()->isFreeOnly()
+            || (($context->routingMode ?? null) === AiExecutionRoutingMode::FreeOnly);
+        if ($policyFreeOnly) {
             $candidates = array_values(array_filter(
                 $candidates,
                 static fn (RoutedAiCandidate $candidate): bool => $candidate->isFree,
@@ -76,7 +79,7 @@ final class AiModelRouterService
         if ($candidates === []) {
             $parsed = AiExecutionProfile::tryFrom($profile);
             $capability = $parsed?->requiredCapabilityKeys()[0] ?? 'text.generate';
-            if ($context->freeOnly) {
+            if ($policyFreeOnly) {
                 throw AiRoutingException::noValidFreeConnection($profile);
             }
             throw AiRoutingException::noCandidate($profile, $capability);
@@ -103,8 +106,13 @@ final class AiModelRouterService
             return $candidate;
         }
 
-        // All skipped by health — still return AI Center #1 (shape authority); execution may fail/fallback.
-        return $candidates[0];
+        // No usable route after health skips — normal routing failure (no fake shape authority).
+        $parsed = AiExecutionProfile::tryFrom($profile);
+        $capability = $parsed?->requiredCapabilityKeys()[0] ?? 'text.generate';
+        if ($policyFreeOnly) {
+            throw AiRoutingException::noValidFreeConnection($profile);
+        }
+        throw AiRoutingException::noCandidate($profile, $capability);
     }
 
     /**

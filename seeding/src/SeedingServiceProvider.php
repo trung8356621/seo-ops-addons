@@ -18,8 +18,11 @@ use Illuminate\View\Middleware\ShareErrorsFromSession;
 use Omnichannel\Addons\Seeding\Console\SeedingDbCheckCommand;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingBootstrapController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingCommentGenerateController;
+use Omnichannel\Addons\Seeding\Http\Controllers\SeedingFeedController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingHealthController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingLinkPreviewController;
+use Omnichannel\Addons\Seeding\Http\Controllers\SeedingReportController;
+use Omnichannel\Addons\Seeding\Http\Controllers\SeedingShareTopicController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingTopicController;
 use Omnichannel\Addons\Seeding\LinkIntelligence\LinkExtractor;
 use Omnichannel\Addons\Seeding\LinkIntelligence\LinkResourceService;
@@ -27,14 +30,16 @@ use Omnichannel\Addons\Seeding\LinkIntelligence\UrlNormalizer;
 use Omnichannel\Addons\Seeding\Services\SeedingCommentGenerateService;
 use Omnichannel\Addons\Seeding\Services\SeedingDatabaseConnectionService;
 use Omnichannel\Addons\Seeding\Services\SeedingLinkPreviewService;
+use Omnichannel\Addons\Seeding\Services\SeedingReportService;
+use Omnichannel\Addons\Seeding\Services\SeedingSharedTopicService;
 use Omnichannel\Addons\Seeding\Services\SeedingSocialPlatformDetector;
-use Omnichannel\Addons\Seeding\Services\SeedingTopicService;
 use Omnichannel\Addons\Seeding\Settings\SeedingSettingsSectionContributor;
 use Omnichannel\Addons\Seeding\Support\SeedingAccess;
 use Omnichannel\Addons\Seeding\Support\SeedingDatabaseHealth;
 use Omnichannel\Addons\Seeding\Support\SeedingOutboundUrlPolicy;
 use Omnichannel\Addons\Seeding\Support\SeedingServiceHealth;
 use Omnichannel\Addons\Seeding\Support\SeedingServiceResolver;
+use Omnichannel\Addons\Seeding\Support\SeedingTargetCalculator;
 use Omnichannel\Addons\Seeding\Support\SeedingTopicAuthorization;
 use Omnichannel\Addons\Seeding\Support\SeedingVite;
 use Throwable;
@@ -49,7 +54,9 @@ final class SeedingServiceProvider extends ServiceProvider
         $this->app->singleton(LinkExtractor::class);
         $this->app->singleton(LinkResourceService::class);
         $this->app->singleton(SeedingSocialPlatformDetector::class);
-        $this->app->singleton(SeedingTopicService::class);
+        $this->app->singleton(SeedingTargetCalculator::class);
+        $this->app->singleton(SeedingSharedTopicService::class);
+        $this->app->singleton(SeedingReportService::class);
         $this->app->singleton(SeedingCommentGenerateService::class);
         $this->app->singleton(SeedingOutboundUrlPolicy::class);
         $this->app->singleton(SeedingLinkPreviewService::class);
@@ -116,49 +123,33 @@ final class SeedingServiceProvider extends ServiceProvider
                     ->name('seeding.bootstrap');
                 Route::get('/health', SeedingHealthController::class)
                     ->name('seeding.health');
+                Route::get('/feed', SeedingFeedController::class)
+                    ->name('seeding.feed');
+                Route::post('/topics/share', SeedingShareTopicController::class)
+                    ->name('seeding.topics.share');
+                Route::post('/reports', SeedingReportController::class)
+                    ->name('seeding.reports.store');
                 Route::post('/comments/generate', SeedingCommentGenerateController::class)
                     ->name('seeding.comments.generate');
                 Route::post('/link-preview', SeedingLinkPreviewController::class)
                     ->name('seeding.link-preview');
             });
 
-        // Deprecated experimental CRUD — unused by canonical localStorage workspace.
-        // Kept temporarily for old clients; prefer bootstrap/health only.
+        // Legacy site-scoped CRUD retired — JSON 410 only (no Livewire/Filament toast).
         Route::middleware($middleware)
             ->prefix('api/seeding/topics')
             ->group(function (): void {
-                Route::get('/', [SeedingTopicController::class, 'index'])
-                    ->name('seeding.topics.index');
-                Route::post('/', [SeedingTopicController::class, 'store'])
-                    ->name('seeding.topics.store');
-                Route::get('/{topic}', [SeedingTopicController::class, 'show'])
-                    ->whereNumber('topic')
-                    ->name('seeding.topics.show');
-                Route::patch('/{topic}', [SeedingTopicController::class, 'update'])
-                    ->whereNumber('topic')
-                    ->name('seeding.topics.update');
-                Route::delete('/{topic}', [SeedingTopicController::class, 'destroy'])
-                    ->whereNumber('topic')
-                    ->name('seeding.topics.destroy');
+                Route::any('/{any?}', [SeedingTopicController::class, 'gone'])
+                    ->where('any', '.*')
+                    ->name('seeding.topics.legacy');
             });
 
-        // Thin legacy compatibility — old SEO-prefixed API aliases.
         Route::middleware($middleware)
             ->prefix('api/seo/seeding-topics')
             ->group(function (): void {
-                Route::get('/', [SeedingTopicController::class, 'index'])
-                    ->name('seo.seeding-topics.index');
-                Route::post('/', [SeedingTopicController::class, 'store'])
-                    ->name('seo.seeding-topics.store');
-                Route::get('/{topic}', [SeedingTopicController::class, 'show'])
-                    ->whereNumber('topic')
-                    ->name('seo.seeding-topics.show');
-                Route::patch('/{topic}', [SeedingTopicController::class, 'update'])
-                    ->whereNumber('topic')
-                    ->name('seo.seeding-topics.update');
-                Route::delete('/{topic}', [SeedingTopicController::class, 'destroy'])
-                    ->whereNumber('topic')
-                    ->name('seo.seeding-topics.destroy');
+                Route::any('/{any?}', [SeedingTopicController::class, 'gone'])
+                    ->where('any', '.*')
+                    ->name('seo.seeding-topics.legacy');
             });
     }
 

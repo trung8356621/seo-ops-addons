@@ -1,5 +1,5 @@
-import React, { useCallback } from 'react';
-import { MoreHorizontal, Pencil, Share2, Trash2 } from 'lucide-react';
+import React, { useCallback, memo } from 'react';
+import { MoreHorizontal, Pencil, Share2, Sparkles, Trash2 } from 'lucide-react';
 import ContentWithLinkPreviews from './ContentWithLinkPreviews';
 import useEnsureLinkPreviews from '../hooks/useEnsureLinkPreviews';
 import {
@@ -10,30 +10,18 @@ import {
     seedStatusOf,
     topicDistinctTitle,
 } from '../features/workspace/selectors';
-import { canDeleteTopic, canEditTopic, canSeedTopic } from '../features/workspace/auth';
+import {
+    canDeleteTopic,
+    canEditTopic,
+    canSeedTopic,
+    canShareDraftTopic,
+} from '../features/workspace/auth';
 import { topicHasWorkHistory } from '../services/storage';
 
 /**
- * Vertical feed card — Chia sẻ opens ShareGeneratePanel (no claim / comments).
- *
- * @param {{
- *   topic: Record<string, unknown>,
- *   reports: Array<Record<string, unknown>>,
- *   seedBatches?: Array<Record<string, unknown>>,
- *   seedOutputs?: Array<Record<string, unknown>>,
- *   canMutate: boolean,
- *   hasWorkspaceAccess?: boolean,
- *   userId: number|string,
- *   linkPreviewCache?: Record<string, Record<string, unknown>>,
- *   onOpenDetail: (topic: Record<string, unknown>) => void,
- *   onLinksChange: (topic: Record<string, unknown>, links: Array<Record<string, unknown>>) => void,
- *   onCacheUpdate?: (cache: Record<string, Record<string, unknown>>) => void,
- *   onEdit: (topic: Record<string, unknown>) => void,
- *   onDelete: (topic: Record<string, unknown>) => void,
- *   onShare: (topic: Record<string, unknown>) => void,
- * }} props
+ * Vertical feed card — draft: Chia sẻ→DB; shared: Gen comment.
  */
-export default function TopicCard({
+function TopicCard({
     topic,
     reports,
     seedBatches = [],
@@ -42,12 +30,14 @@ export default function TopicCard({
     hasWorkspaceAccess = true,
     userId,
     linkPreviewCache = {},
+    sharing = false,
     onOpenDetail,
     onLinksChange,
     onCacheUpdate,
     onEdit,
     onDelete,
-    onShare,
+    onShareDraft,
+    onGenComment,
 }) {
     const platform = detectPlatformLabel(topic.social_url);
     const title = topicDistinctTitle(topic);
@@ -55,6 +45,7 @@ export default function TopicCard({
     const trending = isTopicTrending(topic);
     const [menuOpen, setMenuOpen] = React.useState(false);
 
+    const isDraft = status === 'draft' || String(topic.localId || '').startsWith('draft:');
     const canEdit = canEditTopic(topic, userId, canMutate);
     const canDel = canDeleteTopic(
         topic,
@@ -64,7 +55,8 @@ export default function TopicCard({
         topicHasWorkHistory,
         { seed_batches: seedBatches, seed_outputs: seedOutputs },
     );
-    const canSeed = canSeedTopic(topic, { hasWorkspaceAccess });
+    const canShare = canShareDraftTopic(topic, userId, canMutate);
+    const canGen = canSeedTopic(topic, { hasWorkspaceAccess, userId });
 
     const onTopicLinksChange = useCallback((next) => {
         onLinksChange(topic, next);
@@ -76,8 +68,11 @@ export default function TopicCard({
         onCacheUpdate,
     });
 
+    const progress = Number(topic.current_user_report_count || 0);
+    const required = Number(topic.required_report_count || topic.required_comments_per_user || 0);
+
     return (
-        <article className="seeding-ws__vcard" data-topic-card>
+        <article className="seeding-ws__vcard" data-topic-card data-topic-id={String(topic.id || topic.localId)}>
             <div className="seeding-ws__vcard-head">
                 <div className="seeding-ws__vcard-chips">
                     {trending ? <span className="seeding-ws__chip seeding-ws__chip--hot">Trending</span> : null}
@@ -85,6 +80,9 @@ export default function TopicCard({
                     <span className={`seeding-ws__share-pill seeding-ws__share-pill--${status}`}>
                         {seedStatusLabel(status)}
                     </span>
+                    {!isDraft && required > 0 ? (
+                        <span className="seeding-ws__chip">{progress}/{required}</span>
+                    ) : null}
                 </div>
                 <div className="seeding-ws__menu">
                     <button
@@ -131,16 +129,29 @@ export default function TopicCard({
             />
 
             <div className="seeding-ws__vcard-foot">
-                <time className="seeding-ws__time">{relativeTime(topic.updated_at)}</time>
-                <button
-                    type="button"
-                    className="seeding-ws__btn seeding-ws__btn--primary"
-                    disabled={!canSeed}
-                    onClick={() => onShare(topic)}
-                >
-                    <Share2 size={14} /> Chia sẻ
-                </button>
+                <time className="seeding-ws__time">{relativeTime(topic.updated_at || topic.shared_at)}</time>
+                {isDraft ? (
+                    <button
+                        type="button"
+                        className="seeding-ws__btn seeding-ws__btn--primary"
+                        disabled={!canShare || sharing}
+                        onClick={() => onShareDraft(topic)}
+                    >
+                        <Share2 size={14} /> {sharing ? 'Đang chia sẻ…' : 'Chia sẻ'}
+                    </button>
+                ) : (
+                    <button
+                        type="button"
+                        className="seeding-ws__btn seeding-ws__btn--primary"
+                        disabled={!canGen}
+                        onClick={() => onGenComment(topic)}
+                    >
+                        <Sparkles size={14} /> Gen comment
+                    </button>
+                )}
             </div>
         </article>
     );
 }
+
+export default memo(TopicCard);

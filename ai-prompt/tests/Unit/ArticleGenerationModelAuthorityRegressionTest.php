@@ -5,15 +5,11 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AiPrompt\Tests\Unit;
 
 use App\Models\ApiConnection;
-use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext;
-use Omnichannel\Addons\AiPrompt\DataTransfer\ModelContextCapability;
 use Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate;
 use Omnichannel\Addons\AiPrompt\PromptBudget\DirectFitStrategy;
 use Omnichannel\Addons\AiPrompt\PromptBudget\LongFormArticleSplitStrategy;
 use Omnichannel\Addons\AiPrompt\PromptBudget\PromptSplitStrategyRegistry;
 use Omnichannel\Addons\AiPrompt\Services\AiModelRouterService;
-use Omnichannel\Addons\AiPrompt\Services\AiRuntimeHealthService;
-use Omnichannel\Addons\AiPrompt\Services\ArticleGenerationExecutionPlanner;
 use Omnichannel\Addons\AiPrompt\Services\ModelContextCapabilityResolver;
 use Omnichannel\Addons\AiPrompt\Services\PromptRunnerService;
 use Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\OpenAiCompatibleProtocolAdapter;
@@ -27,29 +23,29 @@ use ReflectionClass;
 use Tests\TestCase;
 
 /**
- * Regression suite: AI Center model authority + prompt shape + no output throttling.
+ * Regression suite: AI Center model authority + route_cost_auto shape + no output throttling.
  */
 final class ArticleGenerationModelAuthorityRegressionTest extends TestCase
 {
-    public function test_a_paid_primary_no_longer_owns_shape_via_free_flag(): void
+    public function test_a_paid_primary_derives_single_via_route_cost(): void
     {
-        // Shape is manual writing_split — fromPrimaryIsFree remains deprecated helper only.
-        $shape = ArticleGenerationShape::fromWritingSplitEnabled(false);
+        $shape = ArticleGenerationShape::fromRouteCostClass('paid');
         $snap = ArticlePrimaryRoutingSnapshot::fromCandidate(
             $this->candidate('anthropic/claude-sonnet', isFree: false, id: 1),
             $shape,
             false,
-            ArticleGenerationShape::SOURCE_WRITING_SPLIT_PREFERENCE,
+            ArticleGenerationShape::SOURCE_ROUTE_COST_AUTO,
         );
 
         self::assertSame(ArticleGenerationShape::SinglePass, $shape);
         self::assertSame('single_pass', $snap->generationShape->value);
-        self::assertSame(ArticleGenerationShape::SOURCE_WRITING_SPLIT_PREFERENCE, $snap->generationShapeSource);
+        self::assertSame(ArticleGenerationShape::SOURCE_ROUTE_COST_AUTO, $snap->generationShapeSource);
+        self::assertSame('paid', $snap->shapeDecisionCostClass);
     }
 
-    public function test_b_writing_split_enabled_derives_sectioned_shape(): void
+    public function test_b_free_primary_derives_sectioned_shape(): void
     {
-        $shape = ArticleGenerationShape::fromWritingSplitEnabled(true);
+        $shape = ArticleGenerationShape::fromRouteCostClass('free');
 
         self::assertSame(ArticleGenerationShape::Sectioned, $shape);
         self::assertTrue($shape->isSectioned());
@@ -57,7 +53,6 @@ final class ArticleGenerationModelAuthorityRegressionTest extends TestCase
 
     public function test_c_first_attemptable_preserves_ai_center_order(): void
     {
-        // Contract: resolveFirstAttemptable exists and walks AI Center order (source inspection).
         $src = file_get_contents((string) (new ReflectionClass(AiModelRouterService::class))->getFileName()) ?: '';
         self::assertStringContainsString('function resolveFirstAttemptable', $src);
         self::assertStringContainsString('skipReason', $src);
@@ -95,35 +90,37 @@ final class ArticleGenerationModelAuthorityRegressionTest extends TestCase
         $src = file_get_contents((string) (new ReflectionClass(ModelContextCapabilityResolver::class))->getFileName()) ?: '';
         self::assertStringNotContainsString('0.55', $src);
         self::assertStringContainsString('Do NOT mutate max output for reasoning models', $src);
-        // Configured 8192 must remain 8192 — no * 0.55 path in resolver.
         self::assertStringNotContainsString('floor($maxOut *', $src);
     }
 
     public function test_g_free_only_is_independent_of_sectioned_shape(): void
     {
         $src = file_get_contents((string) (new ReflectionClass(PromptRunnerService::class))->getFileName()) ?: '';
-        self::assertStringContainsString('freeOnly: false', $src);
+        // Sectioned branch must not hardcode freeOnly:true from shape; policy rides costPolicy.
         self::assertStringContainsString("isolationMode: 'sectioned_generation'", $src);
+        self::assertStringContainsString('Sectioned shape ≠ freeOnly routing flag', $src);
+        self::assertStringNotContainsString("freeOnly: true,\n            isolationMode: 'sectioned_generation'", $src);
 
         $orch = file_get_contents(
             (string) (new ReflectionClass(\Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeHookOrchestrator::class))->getFileName(),
         ) ?: '';
-        self::assertStringContainsString('freeOnly: false', $orch);
-        self::assertStringNotContainsString('freeOnly: true', $orch);
+        self::assertStringContainsString('Shape ≠ FreeOnly flag', $orch);
+        self::assertStringContainsString('EffectiveAiCostPolicyResolver', $orch);
+        self::assertStringNotContainsString("freeOnly: true,\n                isolationMode: 'sectioned_generation'", $orch);
     }
 
-    public function test_h_null_override_does_not_force_single_pass_for_split_enabled(): void
+    public function test_h_null_override_does_not_force_single_pass_for_free_shape(): void
     {
         $resolver = new ArticleGenerationStrategyResolver();
         self::assertSame(ArticleGenerationStrategy::SinglePass, $resolver->resolve([]));
 
         $primary = $this->candidate('nvidia/nemotron', isFree: true, id: 5);
-        $shape = ArticleGenerationShape::fromWritingSplitEnabled(true);
+        $shape = ArticleGenerationShape::fromRouteCostClass('free');
         $vars = ArticlePrimaryRoutingSnapshot::fromCandidate(
             $primary,
             $shape,
             false,
-            ArticleGenerationShape::SOURCE_WRITING_SPLIT_PREFERENCE,
+            ArticleGenerationShape::SOURCE_ROUTE_COST_AUTO,
         )->mergeIntoVariables([
             'generation_strategy_override' => null,
         ]);
@@ -155,18 +152,18 @@ final class ArticleGenerationModelAuthorityRegressionTest extends TestCase
     public function test_planner_stamps_primary_preference(): void
     {
         $primary = $this->candidate('nvidia/nemotron', isFree: true, id: 42, connectionId: 7);
-        $shape = ArticleGenerationShape::fromWritingSplitEnabled(true);
+        $shape = ArticleGenerationShape::fromRouteCostClass('free');
         $vars = ArticlePrimaryRoutingSnapshot::fromCandidate(
             $primary,
             $shape,
             false,
-            ArticleGenerationShape::SOURCE_WRITING_SPLIT_PREFERENCE,
+            ArticleGenerationShape::SOURCE_ROUTE_COST_AUTO,
         )->mergeIntoVariables([]);
 
         self::assertTrue($shape->isSectioned());
         self::assertSame('42', $vars['_article_primary_model_id']);
         self::assertSame(42, $vars['primary_model_id']);
-        self::assertSame(ArticleGenerationShape::SOURCE_WRITING_SPLIT_PREFERENCE, $vars['generation_shape_source']);
+        self::assertSame(ArticleGenerationShape::SOURCE_ROUTE_COST_AUTO, $vars['generation_shape_source']);
         self::assertArrayNotHasKey('_item_model_override_id', $vars);
     }
 
@@ -178,9 +175,6 @@ final class ArticleGenerationModelAuthorityRegressionTest extends TestCase
         self::assertStringNotContainsString('SECTIONED_FREE_NON_FREE_MODEL_SELECTED', $src);
     }
 
-    /**
-     * @return RoutedAiCandidate
-     */
     private function candidate(string $model, bool $isFree, int $id, int $priority = 1, int $connectionId = 1): RoutedAiCandidate
     {
         $connection = new ApiConnection([

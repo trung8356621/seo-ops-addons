@@ -26,7 +26,8 @@ final class AiRoutingContext
         public readonly ?string $itemGenerationMode = null,
         public readonly ?string $hookKey = null,
         /**
-         * Per-execution free-only filter (sectioned_free). Never mutate global routing.
+         * Explicit free-only filter flag. Prefer {@see costPolicy} / EffectiveAiCostPolicyResolver
+         * for article generation mode; this flag remains for micro-task / isolation callers.
          */
         public readonly bool $freeOnly = false,
         public readonly ?string $isolationMode = null,

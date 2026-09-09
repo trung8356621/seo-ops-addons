@@ -883,7 +883,7 @@ final class AiRuntimeFallbackTest extends TestCase
         $this->assertSame('first-wins', $output);
     }
 
-    /** TEST E — writing_split OFF / Outline split is independent; PromptBudget ≠ Outline Split */
+    /** TEST E — Outline split is route_cost_auto; PromptBudget ≠ Outline Split */
     public function test_e_outline_split_prompt_off_does_not_use_writing_multiple_pass(): void
     {
         $runner = file_get_contents(
@@ -894,7 +894,8 @@ final class AiRuntimeFallbackTest extends TestCase
         ) ?: '';
         $this->assertStringContainsString('outlineSplitExecutor->execute', $runner);
         $this->assertStringContainsString('isOutlineSplitEnabled', $runner);
-        $this->assertStringContainsString('KEY_OUTLINE_SPLIT_ENABLED', $runner);
+        $this->assertStringContainsString('GenerationShapeResolver', $runner);
+        $this->assertStringContainsString('ensureRouteCostGenerationShapeSnapshot', $runner);
         $this->assertStringNotContainsString('WritingMultiplePassStepPlanner', $executor);
         $this->assertStringNotContainsString('writing_split_enabled', $executor);
         $this->assertStringNotContainsString('SectionedFreeHookOrchestrator', $executor);

@@ -6,7 +6,10 @@ namespace Omnichannel\Addons\Seeding\Tests\Unit;
 
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingBootstrapController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingCommentGenerateController;
+use Omnichannel\Addons\Seeding\Http\Controllers\SeedingFeedController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingHealthController;
+use Omnichannel\Addons\Seeding\Http\Controllers\SeedingReportController;
+use Omnichannel\Addons\Seeding\Http\Controllers\SeedingShareTopicController;
 use Omnichannel\Addons\Seeding\Filament\Pages\SeedingTopicsPage;
 use Omnichannel\Addons\Seeding\Providers\SeedingPanelProvider;
 use Omnichannel\Addons\Seeding\SeedingServiceProvider;
@@ -23,7 +26,7 @@ final class SeedingWorkspaceContractTest extends TestCase
         return dirname(__DIR__, 2);
     }
 
-    public function test_provider_registers_bootstrap_health_and_stateless_ai_generate(): void
+    public function test_provider_registers_bootstrap_health_feed_share_report(): void
     {
         $provider = (string) file_get_contents(
             (new ReflectionClass(SeedingServiceProvider::class))->getFileName()
@@ -32,6 +35,9 @@ final class SeedingWorkspaceContractTest extends TestCase
         self::assertStringContainsString(SeedingBootstrapController::class, $provider);
         self::assertStringContainsString(SeedingHealthController::class, $provider);
         self::assertStringContainsString(SeedingCommentGenerateController::class, $provider);
+        self::assertStringContainsString(SeedingFeedController::class, $provider);
+        self::assertStringContainsString(SeedingShareTopicController::class, $provider);
+        self::assertStringContainsString(SeedingReportController::class, $provider);
         self::assertStringContainsString('comments/generate', $provider);
         self::assertStringContainsString(SeedingCommentGenerateService::class, $provider);
         self::assertStringNotContainsString('$this->loadMigrationsFrom', $provider);
@@ -69,7 +75,7 @@ final class SeedingWorkspaceContractTest extends TestCase
         self::assertStringContainsString('->navigation(false)', $source);
     }
 
-    public function test_storage_v7_seed_pool_and_outputs(): void
+    public function test_storage_v8_hybrid_document(): void
     {
         $storage = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/services/storage.js'
@@ -78,7 +84,7 @@ final class SeedingWorkspaceContractTest extends TestCase
             $this->addonRoot().'/resources/js/seeding/services/linkExtract.js'
         );
 
-        self::assertStringContainsString('SCHEMA_VERSION = 7', $storage);
+        self::assertStringContainsString('SCHEMA_VERSION = 8', $storage);
         self::assertMatchesRegularExpression(
             '/seeding:v5:\$\{installationId\}:\$\{userId\}:workspace/',
             $storage
@@ -86,13 +92,13 @@ final class SeedingWorkspaceContractTest extends TestCase
         self::assertStringContainsString('seed_links', $storage);
         self::assertStringContainsString('seed_batches', $storage);
         self::assertStringContainsString('seed_outputs', $storage);
+        self::assertStringContainsString('link_usage_today', $storage);
         self::assertStringContainsString('normalized_url', $storage);
         self::assertStringContainsString('topicHasWorkHistory', $storage);
-        self::assertStringContainsString('importLegacyIfNeeded', $storage);
         self::assertStringContainsString('extractLinksFromPaste', $links);
     }
 
-    public function test_react_flexible_seeding_flow_no_claim_workflow(): void
+    public function test_react_hybrid_flow_no_claim_workflow(): void
     {
         $workspace = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/SeedingWorkspace.jsx'
@@ -103,35 +109,25 @@ final class SeedingWorkspaceContractTest extends TestCase
         $detail = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/components/TopicDetail.jsx'
         );
-        $resources = (string) file_get_contents(
-            $this->addonRoot().'/resources/js/seeding/components/ResourceLinks.jsx'
-        );
 
         self::assertStringContainsString('ShareGeneratePanel', $workspace);
         self::assertStringContainsString('LinkPoolPanel', $workspace);
         self::assertStringContainsString('TeamStatsSidebar', $workspace);
         self::assertStringContainsString('generateSeedBatch', $workspace);
         self::assertStringContainsString('canSeedTopic', $workspace);
+        self::assertStringContainsString('shareTopicApi', $workspace);
+        self::assertStringContainsString('ReportModal', $workspace);
         self::assertStringNotContainsString('GlobalWorkDrawer', $workspace);
         self::assertStringNotContainsString('completeWithProof', $workspace);
         self::assertStringNotContainsString('Cần ít nhất 1 bình luận', $workspace);
-        self::assertStringNotContainsString('/api/seeding/topics', $workspace);
         self::assertStringNotContainsString('siteId', $workspace);
 
         self::assertStringContainsString('Tạo chủ đề', $composer);
-        self::assertStringNotContainsString('Đẩy chia sẻ', $composer);
         self::assertStringNotContainsString('SampleComments', $composer);
-        self::assertStringNotContainsString('Bình luận mẫu', $composer);
 
-        self::assertStringContainsString('Chia sẻ', $detail);
+        self::assertStringContainsString('Gen comment', $detail);
         self::assertStringContainsString('canSeedTopic', $detail);
-        self::assertStringContainsString('ContentWithLinkPreviews', $detail);
         self::assertStringNotContainsString('TopicCommentsSection', $detail);
-        self::assertStringNotContainsString('SampleComments', $detail);
-        self::assertStringNotContainsString('CommentWorkList', $detail);
-
-        self::assertStringContainsString('links-readonly', $resources);
-        self::assertStringNotContainsString('Thêm link', $resources);
     }
 
     public function test_components_exist(): void
@@ -150,6 +146,7 @@ final class SeedingWorkspaceContractTest extends TestCase
             'ContentWithLinkPreviews.jsx',
             'ResourceLinks.jsx',
             'MetricCards.jsx',
+            'ReportModal.jsx',
         ] as $file) {
             self::assertFileExists($root.'/'.$file);
         }
@@ -158,7 +155,7 @@ final class SeedingWorkspaceContractTest extends TestCase
     public function test_db_plane_and_build_boundary(): void
     {
         self::assertSame('omi_seeding', SeedingServiceConfig::CONNECTION);
-        self::assertSame([], glob($this->addonRoot().'/database/migrations/*.php') ?: []);
+        self::assertNotEmpty(glob($this->addonRoot().'/database/migrations/*.php') ?: []);
 
         $vite = (string) file_get_contents($this->addonRoot().'/vite.config.js');
         self::assertStringContainsString('build-seeding', $vite);

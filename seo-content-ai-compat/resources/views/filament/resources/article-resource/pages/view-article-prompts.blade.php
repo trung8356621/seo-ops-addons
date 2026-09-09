@@ -462,18 +462,38 @@
                                             @endif
 
                                             @if ($showStrategyTag)
+                                                @php
+                                                    $shapeDecisionProvider = trim((string) ($promptItem['shape_decision_provider'] ?? ''));
+                                                    $shapeDecisionModel = trim((string) ($promptItem['shape_decision_logical_model'] ?? $promptItem['primary_model'] ?? ''));
+                                                    $shapeDecisionConn = trim((string) ($promptItem['shape_decision_connection_name'] ?? ''));
+                                                    $shapeDecisionCost = strtoupper(trim((string) ($promptItem['shape_decision_cost_class'] ?? $tierTag ?? '')));
+                                                    $shapeLabel = $strategyResolved === 'multiple_pass' ? 'SPLIT' : (
+                                                        $strategyResolved === 'single_pass' ? 'SINGLE' : strtoupper($strategyResolved)
+                                                    );
+                                                    $shapeSource = trim((string) ($promptItem['generation_shape_source'] ?? $strategySource));
+                                                    if ($shapeSource === '') {
+                                                        $shapeSource = 'route_cost_auto';
+                                                    }
+                                                    $decisionRoute = trim(implode(' / ', array_values(array_filter([
+                                                        $shapeDecisionConn !== '' ? $shapeDecisionConn : $shapeDecisionProvider,
+                                                        $shapeDecisionModel,
+                                                    ]))));
+                                                @endphp
                                                 <p class="seo-run-history-item__meta">
                                                     <span class="seo-run-history-item__tag">{{ $strategyResolved }}</span>
                                                     @if ($tierTag !== null)
                                                         <span class="seo-run-history-item__tag">{{ $tierTag }}</span>
                                                     @endif
                                                 </p>
-                                                <p class="seo-run-history-item__meta" title="Strategy provenance">
-                                                    Shape: {{ $strategyResolved }}
-                                                    @if ($tierTag !== null)
-                                                        · Tier: {{ $tierTag }}
+                                                <p class="seo-run-history-item__meta" title="Execution shape provenance">
+                                                    Shape: {{ $shapeLabel }}
+                                                    · Source: {{ $shapeSource }}
+                                                    @if ($decisionRoute !== '')
+                                                        · Decision route: {{ $decisionRoute }}
                                                     @endif
-                                                    · Source: {{ $strategySource !== '' ? $strategySource : 'ai_center_primary_candidate' }}
+                                                    @if ($shapeDecisionCost !== '')
+                                                        · Cost: {{ $shapeDecisionCost }}
+                                                    @endif
                                                 </p>
                                             @endif
 

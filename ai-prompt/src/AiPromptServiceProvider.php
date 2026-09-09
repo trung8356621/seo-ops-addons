@@ -44,6 +44,23 @@ final class AiPromptServiceProvider extends ServiceProvider
         $this->app->scoped(\Omnichannel\Addons\AiPrompt\Services\AiConnectionPresenter::class);
         $this->app->scoped(\Omnichannel\Addons\AiPrompt\Services\AiExecutionTargetPresenter::class);
         $this->app->singleton(AiCoreSettingsContributor::class);
+        $this->app->bind(
+            \Omnichannel\Addons\AiPrompt\Contracts\FirstAttemptableAiRouteResolver::class,
+            \Omnichannel\Addons\AiPrompt\Services\AiModelRouterService::class,
+        );
+        $this->app->bind(
+            \Omnichannel\Addons\AiPrompt\Services\GenerationShapeResolver::class,
+            static fn ($app) => new \Omnichannel\Addons\AiPrompt\Services\GenerationShapeResolver(
+                $app->make(\Omnichannel\Addons\AiPrompt\Contracts\FirstAttemptableAiRouteResolver::class),
+            ),
+        );
+        $this->app->bind(
+            \Omnichannel\Addons\AiPrompt\Services\ArticleGenerationExecutionPlanner::class,
+            static fn ($app) => new \Omnichannel\Addons\AiPrompt\Services\ArticleGenerationExecutionPlanner(
+                $app->make(\Omnichannel\Addons\AiPrompt\Contracts\FirstAttemptableAiRouteResolver::class),
+                $app->make(\Omnichannel\Addons\AiPrompt\Services\GenerationShapeResolver::class),
+            ),
+        );
     }
 
     public function boot(): void

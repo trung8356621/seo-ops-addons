@@ -1009,6 +1009,10 @@ final class TaskWorkflowTestRunner
                         'strategy_source' => $variables['strategy_source'] ?? null,
                     ];
 
+                    if ($this->isOutlineRoleNode($node, $hookBinding->hookKey)) {
+                        $variables = $this->ensureRouteCostGenerationShapeSnapshot($variables);
+                    }
+
                     if ($this->isOutlineRoleNode($node, $hookBinding->hookKey)
                         && $this->isOutlineSplitEnabled($variables)) {
                         $checkpoint = $this->resolveSplitOutlineCheckpoint($state, $context);
@@ -2671,8 +2675,11 @@ final class TaskWorkflowTestRunner
     }
 
     /**
-     * For sectioned_free writing: feed typed outline + vocabulary separately.
-     * Never treat the normal combined writer input blob as the planner source of truth.
+     * Bind semantic Outline + Vocabulary for Content hooks.
+     *
+     * Shape (sectioned vs single_pass) is resolved later by GenerationShapeResolver —
+     * do not gate this handoff on generation_shape, or typed Split Outline artifacts
+     * are skipped and Content receives the legacy marked transport blob on {{input}}.
      *
      * @param  array<string, mixed>  $variables
      * @return array<string, mixed>
@@ -2682,10 +2689,6 @@ final class TaskWorkflowTestRunner
         WorkflowExecutionState $state,
         string $hookKey,
     ): array {
-        $strategy = (new ArticleGenerationStrategyResolver())->resolve($variables);
-        if (! $strategy->isSectionedFree()) {
-            return $variables;
-        }
         if (! in_array($hookKey, ['article.content.generate', 'article.content.rewrite'], true)) {
             return $variables;
         }
@@ -2702,17 +2705,20 @@ final class TaskWorkflowTestRunner
             $outlineArtifact = trim((string) ($variables['article_outline'] ?? ''));
         }
 
-        if ($outlineArtifact !== '') {
-            $variables['article_outline'] = $outlineArtifact;
-            // Planner input = outline-only artifact (not whole-article compiled blob).
-            $variables['input'] = $outlineArtifact;
-            $variables['article_writing_raw_input'] = $outlineArtifact;
+        $combinedFallback = trim((string) ($variables['input'] ?? ''));
+        if ($combinedFallback === '') {
+            $combinedFallback = trim((string) ($variables['article_writing_raw_input'] ?? ''));
         }
-        if ($vocabularyArtifact !== '') {
-            $variables['article_vocabulary'] = $vocabularyArtifact;
+        if ($combinedFallback === '') {
+            $combinedFallback = trim((string) ($state->lastPromptOutput ?? ''));
         }
 
-        return (new ArticleGenerationStrategyResolver())->stamp($variables, ArticleGenerationStrategy::SectionedFree);
+        return (new SplitOutlineContentSemanticBinder())->bind(
+            $variables,
+            $outlineArtifact !== '' ? $outlineArtifact : null,
+            $vocabularyArtifact !== '' ? $vocabularyArtifact : null,
+            $combinedFallback !== '' ? $combinedFallback : null,
+        );
     }
 
     /**
@@ -2785,27 +2791,77 @@ final class TaskWorkflowTestRunner
     }
 
     /**
-     * Business feature: Split Outline Prompt (Structure + Vocabulary).
-     * Independent of writing_split_enabled and PromptBudget supportsSplit().
+     * Outline Structure+Vocabulary when snapshotted generation_shape is SPLIT (sectioned).
+     * Authority: route_cost_auto via GenerationShapeResolver — NOT outline_split_enabled /
+     * writing_split_enabled / PromptBudget supportsSplit().
      *
      * @param  array<string, mixed>  $variables
      */
     private function isOutlineSplitEnabled(array $variables = []): bool
     {
-        if (array_key_exists(SeoCreateArticleSettingsService::KEY_OUTLINE_SPLIT_ENABLED, $variables)) {
-            $raw = $variables[SeoCreateArticleSettingsService::KEY_OUTLINE_SPLIT_ENABLED];
-            if (is_bool($raw)) {
-                return $raw;
-            }
-
-            return in_array(strtolower(trim((string) $raw)), ['1', 'true', 'yes', 'on'], true);
+        $shape = \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape::tryFromMixed(
+            $variables['generation_shape'] ?? null,
+        );
+        if ($shape !== null) {
+            return $shape->isSectioned();
         }
 
-        try {
-            return $this->createArticleSettings->isOutlineSplitEnabled();
-        } catch (\Throwable) {
-            return true;
+        $decision = $this->resolveOutlineGenerationShape($variables);
+
+        return $decision['decision']->shape->isSectioned();
+    }
+
+    /**
+     * @param  array<string, mixed>  $variables
+     * @return array<string, mixed>
+     */
+    private function ensureRouteCostGenerationShapeSnapshot(array $variables): array
+    {
+        $existing = \Omnichannel\Addons\AiPrompt\Support\GenerationShapeDecision::tryFromVariables($variables);
+        if ($existing !== null) {
+            return array_merge($variables, $existing->toVariableFields());
         }
+
+        $resolved = $this->resolveOutlineGenerationShape($variables);
+
+        return array_merge($resolved['variables'], $resolved['decision']->toVariableFields());
+    }
+
+    /**
+     * @param  array<string, mixed>  $variables
+     * @return array{decision: \Omnichannel\Addons\AiPrompt\Support\GenerationShapeDecision, variables: array<string, mixed>}
+     */
+    private function resolveOutlineGenerationShape(array $variables): array
+    {
+        $userId = (int) ($variables['preference_user_id']
+            ?? $variables['actor_user_id']
+            ?? $variables['initiated_by_user_id']
+            ?? $variables['user_id']
+            ?? auth()->id()
+            ?? 0);
+
+        $profile = \Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile::TextReasoning->value;
+        $variables = \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationModePreference::stampIntoVariables(
+            $variables,
+            $userId > 0 ? $userId : null,
+        );
+        $effectivePolicy = (new \Omnichannel\Addons\AiPrompt\Services\EffectiveAiCostPolicyResolver())->resolve(
+            contextPolicy: \Omnichannel\Addons\AiPrompt\Support\AiCostPolicyScope::current(),
+            explicitFreeOnlyFlag: false,
+            hookKey: ArticleGenerationInputResolver::OUTLINE_HOOK_KEY,
+            variables: $variables,
+        );
+        $routingContext = new \Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext(
+            userId: $userId > 0 ? $userId : null,
+            freeOnly: false,
+            costPolicy: $effectivePolicy,
+            hookKey: ArticleGenerationInputResolver::OUTLINE_HOOK_KEY,
+        );
+
+        return [
+            'decision' => app(GenerationShapeResolver::class)->resolveDecision($profile, $routingContext, $variables),
+            'variables' => $variables,
+        ];
     }
 
     /**

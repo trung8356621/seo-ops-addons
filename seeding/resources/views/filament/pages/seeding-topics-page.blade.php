@@ -111,6 +111,23 @@
         .fi-layout > .fi-sidebar {
             display: none !important;
         }
+        /* Filament may still reserve sidebar gutter — reclaim full width */
+        .fi-layout,
+        .fi-main,
+        .fi-main-ctn,
+        .fi-body,
+        .fi-page,
+        .fi-page > section,
+        .fi-simple-page {
+            margin-left: 0 !important;
+            padding-left: 0 !important;
+            padding-right: 0 !important;
+            max-width: none !important;
+            width: 100% !important;
+        }
+        .fi-layout {
+            display: block !important;
+        }
     </style>
 
     {!! app(SeedingVite::class)->tags() !!}

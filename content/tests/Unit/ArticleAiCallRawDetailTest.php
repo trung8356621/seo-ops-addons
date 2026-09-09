@@ -18,7 +18,10 @@ final class ArticleAiCallRawDetailTest extends TestCase
         $src = (string) file_get_contents((new ReflectionClass(ArticleAiCallRawDetailService::class))->getFileName());
         self::assertStringContainsString('PromptReconstructor', $src);
         self::assertStringContainsString('reconstruct', $src);
+        self::assertStringContainsString('ArticlePromptResultOwnershipResolver', $src);
+        self::assertStringContainsString('HASH_MISMATCH_WARNING', $src);
         self::assertStringNotContainsString("snapshot['compiled_prompt']", $src);
+        self::assertStringNotContainsString('SeoPromptResultLink::query()', $src);
     }
 
     public function test_artifact_ref_encodes_prompt_result_id_for_call_identity(): void

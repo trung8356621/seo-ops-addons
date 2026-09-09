@@ -18,6 +18,14 @@ use Illuminate\Support\Facades\Schema;
 
 final class ArticlePromptRunHistoryService
 {
+    public function __construct(
+        private readonly ?ArticlePromptResultOwnershipResolver $ownership = null,
+    ) {}
+
+    private function ownership(): ArticlePromptResultOwnershipResolver
+    {
+        return $this->ownership ?? app(ArticlePromptResultOwnershipResolver::class);
+    }
     /** @var list<string> */
     private const HIDDEN_SOURCES = [
         'workflow_run_backfill',
@@ -196,14 +204,10 @@ final class ArticlePromptRunHistoryService
             ->values();
 
         // Nhiều luồng editor chỉ lưu article_id trong input_snapshot, cần suy luận thêm từ JSON snapshot.
-        $snapshotResults = $this->promptResultHotQuery()
-            ->where(function ($query) use ($articleId): void {
-                $query
-                    ->where('input_snapshot->article_id', (string) $articleId)
-                    ->orWhere('input_snapshot->article_id', $articleId)
-                    ->orWhere('input_snapshot->variables->article_id', (string) $articleId)
-                    ->orWhere('input_snapshot->variables->article_id', $articleId);
-            })
+        $snapshotResults = $this->ownership()->constrainToSnapshotArticle(
+            $this->promptResultHotQuery(),
+            $articleId,
+        )
             ->orderBy('created_at')
             ->get();
 
@@ -615,10 +619,44 @@ final class ArticlePromptRunHistoryService
             ?? ''
         ));
         if ($strategySource === '' && $strategyResolved !== '') {
-            $strategySource = $strategyResolved === 'single_pass'
-                ? \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationStrategySnapshot::SOURCE_DEFAULT
-                : \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape::SOURCE_WRITING_SPLIT_PREFERENCE;
+            $strategySource = \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape::SOURCE_ROUTE_COST_AUTO;
         }
+        $shapeDecisionLogical = trim((string) (
+            $snapshot['shape_decision_logical_model']
+            ?? $step['shape_decision_logical_model']
+            ?? $snapshotVariables['shape_decision_logical_model']
+            ?? ''
+        ));
+        $shapeDecisionPhysical = trim((string) (
+            $snapshot['shape_decision_physical_route']
+            ?? $step['shape_decision_physical_route']
+            ?? $snapshotVariables['shape_decision_physical_route']
+            ?? ''
+        ));
+        $shapeDecisionProvider = trim((string) (
+            $snapshot['shape_decision_provider']
+            ?? $step['shape_decision_provider']
+            ?? $snapshotVariables['shape_decision_provider']
+            ?? ''
+        ));
+        $shapeDecisionConnection = trim((string) (
+            $snapshot['shape_decision_connection_name']
+            ?? $step['shape_decision_connection_name']
+            ?? $snapshotVariables['shape_decision_connection_name']
+            ?? ''
+        ));
+        $shapeDecisionCostClass = strtolower(trim((string) (
+            $snapshot['shape_decision_cost_class']
+            ?? $step['shape_decision_cost_class']
+            ?? $snapshotVariables['shape_decision_cost_class']
+            ?? ''
+        )));
+        $generationShapeSource = trim((string) (
+            $snapshot['generation_shape_source']
+            ?? $step['generation_shape_source']
+            ?? $snapshotVariables['generation_shape_source']
+            ?? $strategySource
+        ));
         $strategyOverride = null;
         if (array_key_exists('strategy_override', $snapshot)) {
             $strategyOverride = $snapshot['strategy_override'];
@@ -809,6 +847,15 @@ final class ArticlePromptRunHistoryService
             'strategy_source' => $strategySource,
             'strategy_override_label' => $strategyOverrideLabel,
             'generation_strategy' => $strategyResolved,
+            'generation_shape' => $strategyResolved === 'multiple_pass' ? 'sectioned' : (
+                in_array($strategyResolved, ['single_pass', 'sectioned'], true) ? $strategyResolved : null
+            ),
+            'generation_shape_source' => $generationShapeSource !== '' ? $generationShapeSource : $strategySource,
+            'shape_decision_logical_model' => $shapeDecisionLogical !== '' ? $shapeDecisionLogical : null,
+            'shape_decision_physical_route' => $shapeDecisionPhysical !== '' ? $shapeDecisionPhysical : null,
+            'shape_decision_provider' => $shapeDecisionProvider !== '' ? $shapeDecisionProvider : null,
+            'shape_decision_connection_name' => $shapeDecisionConnection !== '' ? $shapeDecisionConnection : null,
+            'shape_decision_cost_class' => $shapeDecisionCostClass !== '' ? $shapeDecisionCostClass : null,
             'validation_model' => $validationModel,
             'workflow_execution_mode' => $workflowMode,
             'candidate_count' => $snapshot['candidate_count'] ?? null,

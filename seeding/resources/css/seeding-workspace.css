@@ -38,7 +38,26 @@
     grid-template-columns: minmax(0, 1fr) 44px 360px;
 }
 
-.seeding-ws__main-column { min-width: 0; }
+.seeding-ws__main-column {
+    min-width: 0;
+    grid-column: 1;
+}
+
+.seeding-ws--shell.has-sidebar > .seeding-ws__sidebar {
+    grid-column: 2;
+}
+
+.seeding-ws--shell.has-drawer.has-sidebar > .seeding-ws__drawer {
+    grid-column: 3;
+}
+
+.seeding-ws--shell.has-drawer.sidebar-collapsed > .seeding-ws__drawer {
+    grid-column: 3;
+}
+
+.seeding-ws--shell.sidebar-collapsed > .seeding-ws__sidebar {
+    grid-column: 2;
+}
 
 .seeding-ws__page-head {
     display: flex;
@@ -1036,6 +1055,69 @@
     padding: 0.55rem 0.75rem;
     font-size: 0.8125rem;
     box-shadow: 0 8px 20px rgb(0 0 0 / 0.18);
+}
+
+.seeding-ws__modal-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    background: rgb(17 24 39 / 0.45);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+}
+
+.seeding-ws__modal {
+    width: min(480px, 100%);
+    max-height: min(90vh, 720px);
+    overflow: auto;
+    background: #fff;
+    border-radius: 0.85rem;
+    border: 1px solid #e5e7eb;
+    padding: 0.85rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem;
+    box-shadow: 0 20px 40px rgb(0 0 0 / 0.18);
+}
+
+.seeding-ws__report-comment {
+    margin: 0;
+    font-size: 0.875rem;
+    line-height: 1.45;
+    white-space: pre-wrap;
+}
+
+.seeding-ws__proof-preview {
+    width: 100%;
+    max-height: 240px;
+    object-fit: contain;
+    border-radius: 0.5rem;
+    background: #f3f4f6;
+}
+
+.seeding-ws__proof-empty {
+    border: 1px dashed #d1d5db;
+    border-radius: 0.5rem;
+    padding: 1.5rem;
+    text-align: center;
+    color: #6b7280;
+    font-size: 0.8125rem;
+}
+
+.seeding-ws__check {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+}
+
+.seeding-ws__progress-line {
+    font-size: 0.8125rem;
+    font-weight: 650;
+    color: #c2410c;
 }
 
 .seeding-ws__drawer {

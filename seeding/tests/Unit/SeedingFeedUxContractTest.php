@@ -7,7 +7,7 @@ namespace Omnichannel\Addons\Seeding\Tests\Unit;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Frontend UX contracts for Flexible Seeding feed (source-level; localStorage SoT).
+ * Frontend UX contracts for hybrid React-first feed.
  */
 final class SeedingFeedUxContractTest extends TestCase
 {
@@ -59,6 +59,7 @@ final class SeedingFeedUxContractTest extends TestCase
         self::assertStringContainsString('canEditTopic', $auth);
         self::assertStringContainsString('canDeleteTopic', $auth);
         self::assertStringContainsString('canSeedTopic', $auth);
+        self::assertStringContainsString('canShareDraftTopic', $auth);
         self::assertStringContainsString('created_by_user_id', $auth);
         self::assertStringContainsString('hasWorkspaceAccess', $auth);
         self::assertStringNotContainsString('comments.length >= 1', $auth);
@@ -131,7 +132,7 @@ final class SeedingFeedUxContractTest extends TestCase
         self::assertStringContainsString('seeding-ws__link-preview-img', $css);
     }
 
-    public function test_share_uses_can_seed_not_comment_gate(): void
+    public function test_card_uses_draft_share_and_gen(): void
     {
         $detail = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/components/TopicDetail.jsx'
@@ -142,6 +143,7 @@ final class SeedingFeedUxContractTest extends TestCase
         self::assertStringContainsString('canSeedTopic', $detail);
         self::assertStringContainsString('canSeedTopic', $card);
         self::assertStringContainsString('Chia sẻ', $card);
+        self::assertStringContainsString('Gen comment', $card);
         self::assertStringNotContainsString('Cần ít nhất 1 bình luận', $card);
         self::assertStringNotContainsString('onSelect', $card);
         self::assertStringNotContainsString('is-selected', $card);
@@ -158,6 +160,7 @@ final class SeedingFeedUxContractTest extends TestCase
             'TopicFeed.jsx',
             'ShareGeneratePanel.jsx',
             'LinkPoolPanel.jsx',
+            'ReportModal.jsx',
         ] as $file) {
             self::assertFileExists($root.'/'.$file);
         }
@@ -179,6 +182,7 @@ final class SeedingFeedUxContractTest extends TestCase
         self::assertStringContainsString('sidebar_collapsed', $storage);
         self::assertStringContainsString('link_previews', $storage);
         self::assertStringContainsString('seed_links', $storage);
+        self::assertStringContainsString('link_usage_today', $storage);
         self::assertStringNotContainsString('selected_topic_id', $storage);
     }
 }

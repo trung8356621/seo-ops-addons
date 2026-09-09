@@ -458,6 +458,18 @@ export const HELP_GROUPS = [
                     'Team chat nằm ở Global AI Chat (tab Team).',
                 ],
             },
+            {
+                id: 'settings.ai.free_single_split',
+                title: 'Free, Single và Split hoạt động thế nào?',
+                summary: 'Thứ tự model trong AI Center quyết định Single hay Split; Free only kiểm soát fallback sang Paid. Split Outline và Split Content là hai cơ chế khác nhau.',
+                content: 'SEO Ops luôn ưu tiên thứ tự model (Sortable) trong AI Center. Paid đứng đầu → Single; Free đứng đầu → Split. Free only bật → chỉ Free; tắt → có thể fallback Paid. Split Outline = Structure + Vocabulary. Split Content = chia theo heading rồi ghép bài. Hai loại Split khác nhau. Kiểm tra AI History (Single/Split shape), không suy luận chỉ từ lỗi cuối.',
+                steps: [
+                    'Kéo Sortable trong AI Center để chọn model xét trước.',
+                    'Free đứng đầu → Split; Paid đứng đầu → Single.',
+                    'Bật Free only nếu không muốn fallback sang Paid.',
+                    'Mở AI History để xem Single/Split và routing attempts.',
+                ],
+            },
         ],
     },
 ];

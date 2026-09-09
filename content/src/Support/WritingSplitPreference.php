@@ -8,17 +8,21 @@ use App\Models\User;
 use App\Models\UserMeta;
 
 /**
- * Global per-user preference: Chia bai theo dan y -> MULTIPLE_PASS Writing.
- * Default false. Free/paid/model MUST NOT decide pass mode.
- * Legacy article_meta.writing_split_enabled is ignored (not authority).
+ * LEGACY per-user preference store for «Chia bài theo dàn ý».
+ *
+ * Runtime authority for new runs is route_cost_auto
+ * ({@see \Omnichannel\Addons\AiPrompt\Services\GenerationShapeResolver}).
+ * Values may remain in user_meta for BC/data safety but must not decide
+ * generation_shape. Legacy article_meta.writing_split_enabled is ignored.
+ *
+ * @deprecated Prefer GenerationShapeResolver / generation_shape snapshot.
  */
 final class WritingSplitPreference
 {
     public const META_KEY = 'writing_split_enabled';
 
     /**
-     * Resolve preference for a Writing run start.
-     * Snapshot key in $variables wins (immutable mid-run). Otherwise actor/user preference.
+     * @deprecated Not runtime authority — retained for BC readers / History.
      *
      * @param  array<string, mixed>  $variables
      */
@@ -65,6 +69,9 @@ final class WritingSplitPreference
         return self::coerceBool($raw);
     }
 
+    /**
+     * Persist legacy preference only — does not control new execution shape.
+     */
     public static function persistForUserId(int $userId, bool $enabled): void
     {
         if ($userId <= 0) {

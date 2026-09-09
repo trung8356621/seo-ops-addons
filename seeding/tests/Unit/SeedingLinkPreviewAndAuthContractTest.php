@@ -78,15 +78,16 @@ HTML;
         self::assertStringContainsString('(int) $user->id === $authorUserId', $source);
     }
 
-    public function test_topic_controller_uses_authz_on_update_destroy(): void
+    public function test_topic_controller_legacy_gone(): void
     {
         $controller = (string) file_get_contents(
             dirname(__DIR__, 2).'/src/Http/Controllers/SeedingTopicController.php'
         );
-        self::assertStringContainsString('SeedingTopicAuthorization', $controller);
-        self::assertStringContainsString('canEditTopic', $controller);
-        self::assertStringContainsString('canDeleteTopic', $controller);
-        self::assertStringContainsString('abort_unless', $controller);
+        self::assertStringContainsString('gone', $controller);
+        self::assertStringContainsString('410', $controller);
+        self::assertStringContainsString('/api/seeding/feed', $controller);
+        self::assertStringContainsString('/api/seeding/topics/share', $controller);
+        self::assertStringContainsString('/api/seeding/reports', $controller);
     }
 
     public function test_link_preview_route_registered(): void

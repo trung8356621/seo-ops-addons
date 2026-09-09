@@ -29,6 +29,7 @@ use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectStat
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectRunEngineFeature;
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectTransientAiRetryPolicy;
 use Omnichannel\Addons\Publishing\Support\PublishingQueue\PublishingQueueHandoffEligibility;
+use Omnichannel\Addons\Seo\Support\DomainContextResolver;
 use Omnichannel\Addons\WordPress\Services\ArticleWordPressSyncFlagService;
 use Carbon\Carbon;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -713,6 +714,12 @@ final class ContentProjectItemOperationsReadModel
                 && ! ($article instanceof SeoArticle),
             'article_edit_url' => ($articleId > 0 && $article instanceof SeoArticle)
                 ? ArticleResource::getUrl('edit', ['record' => $articleId])
+                : null,
+            'article_ai_history_url' => ($articleId > 0 && $article instanceof SeoArticle)
+                ? app(DomainContextResolver::class)->appendSiteToUrl(
+                    ArticleResource::getUrl('prompts', ['record' => $articleId]),
+                    (int) ($task->site_id ?? 0) > 0 ? (int) $task->site_id : null,
+                )
                 : null,
             'article_public_url' => $this->resolveArticlePublicUrl($article),
             'check_index_url' => SeoAuditCheckIndexUrl::forCanonicalUrl($this->resolveArticlePublicUrl($article)),

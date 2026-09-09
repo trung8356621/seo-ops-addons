@@ -65,6 +65,10 @@ class ArticleWritingExecutionService
             $context->baseVariables,
             is_array($context->taskContext?->variables) ? $context->taskContext->variables : [],
         );
+        $variables = \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationModePreference::stampIntoVariables(
+            $variables,
+            (int) (auth()->id() ?? 0) ?: null,
+        );
 
         if ($context->generationStrategy !== null && trim($context->generationStrategy) !== '') {
             $variables['generation_strategy'] = trim($context->generationStrategy);
@@ -94,27 +98,34 @@ class ArticleWritingExecutionService
 
         $taskContext = $this->stampTaskContext($context->taskContext, $variables, $writing);
 
-        return match ($context->mode) {
-            ArticleWritingExecutionMode::PublishGraph => $this->executePublishGraph(
-                $writing,
-                $context,
-                $taskContext,
-                $owner,
-            ),
-            ArticleWritingExecutionMode::ContentNode => $this->executeContentNode(
-                $writing,
-                $context,
-                $taskContext,
-                $owner,
-            ),
-            ArticleWritingExecutionMode::DirectGenerate => $this->executeDirectGenerate(
-                $writing,
-                $context,
-                $taskContext,
-                $owner,
-                $variables,
-            ),
-        };
+        $policy = \Omnichannel\Addons\AiPrompt\Support\AiCostPolicy::tryFromMixed(
+            $variables[\Omnichannel\Addons\AiPrompt\Support\AiCostPolicy::SETTING_KEY] ?? null,
+        );
+
+        return \Omnichannel\Addons\AiPrompt\Support\AiCostPolicyScope::run(
+            $policy,
+            fn (): ArticleWritingExecutionResult => match ($context->mode) {
+                ArticleWritingExecutionMode::PublishGraph => $this->executePublishGraph(
+                    $writing,
+                    $context,
+                    $taskContext,
+                    $owner,
+                ),
+                ArticleWritingExecutionMode::ContentNode => $this->executeContentNode(
+                    $writing,
+                    $context,
+                    $taskContext,
+                    $owner,
+                ),
+                ArticleWritingExecutionMode::DirectGenerate => $this->executeDirectGenerate(
+                    $writing,
+                    $context,
+                    $taskContext,
+                    $owner,
+                    $variables,
+                ),
+            },
+        );
     }
 
     /**

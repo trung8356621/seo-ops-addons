@@ -118,6 +118,12 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
         if (in_array($effectiveHookKey, ['article.content.generate', 'article.content.rewrite'], true)) {
             $toolType = ImageToolType::fromMixed($prompt->tools ?? 'default')->value;
             $profile = app(PromptExecutionProfileResolver::class)->resolve($prompt, $effectiveHookKey, $toolType);
+            $effectivePolicy = (new \Omnichannel\Addons\AiPrompt\Services\EffectiveAiCostPolicyResolver())->resolve(
+                contextPolicy: AiCostPolicyScope::current(),
+                explicitFreeOnlyFlag: false,
+                hookKey: $effectiveHookKey,
+                variables: $mergedVars,
+            );
             $routingContext = new AiRoutingContext(
                 userId: app(AiRoutingOwnerResolver::class)->resolve(
                     explicitUserId: null,
@@ -128,7 +134,7 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
                 allowLegacyFallback: true,
                 usageModeOverride: null,
                 allowedFamilyKeys: null,
-                costPolicy: AiCostPolicyScope::current(),
+                costPolicy: $effectivePolicy,
                 preferredModelId: isset($mergedVars['_item_model_override_id'])
                     ? (int) $mergedVars['_item_model_override_id']
                     : null,
@@ -137,6 +143,8 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
                     ? (string) $mergedVars['_item_generation_mode']
                     : null,
                 hookKey: $effectiveHookKey,
+                // Shape ≠ FreeOnly: do not force freeOnly from sectioned branch.
+                // Effective FreeOnly is carried by costPolicy (generation mode / task policy).
                 freeOnly: false,
             );
 
@@ -181,6 +189,7 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
             $variables['pass_mode'] = $variables['pass_mode'] ?? 'single_pass';
             $variables['writing_scope'] = $variables['writing_scope']
                 ?? \Omnichannel\Addons\AiPrompt\Support\WritingSectionScopeInstructions::SCOPE_ARTICLE;
+            // Derived mirror only — generation_shape / route_cost_auto is authority.
             $variables['writing_split_enabled'] = (bool) ($variables['writing_split_enabled'] ?? false);
         }
 

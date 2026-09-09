@@ -61,6 +61,17 @@ final class SectionedFreeHookOrchestrator
         }
 
         $variables = $this->strategyResolver->stamp($variables, ArticleGenerationStrategy::Sectioned);
+        // Prefer typed/clean outline+vocab; parse legacy transport once if needed.
+        $variables = (new \Omnichannel\Addons\AiPrompt\Services\SplitOutlineContentSemanticBinder())->bind(
+            $variables,
+            isset($variables['article_outline']) ? (string) $variables['article_outline'] : null,
+            isset($variables['article_vocabulary']) ? (string) $variables['article_vocabulary'] : null,
+            trim((string) (
+                $variables['article_writing_raw_input']
+                ?? $variables['input']
+                ?? ''
+            )) ?: null,
+        );
         $correlationId = (string) ($contextExtras['correlation_id'] ?? Str::uuid()->toString());
         $toolType = ImageToolType::fromMixed($prompt->tools ?? 'default')->value;
         $profile = $this->profileResolver->resolve($prompt, $hookKey, $toolType);
@@ -96,7 +107,7 @@ final class SectionedFreeHookOrchestrator
                         '_item_generation_strategy' => ArticleGenerationStrategy::Sectioned->value,
                         'generation_shape' => ArticleGenerationStrategy::Sectioned->value,
                         'generation_shape_source' => $variables['generation_shape_source']
-                            ?? \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape::SOURCE_AI_CENTER_PRIMARY,
+                            ?? \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape::SOURCE_ROUTE_COST_AUTO,
                         'primary_model' => $variables['primary_model'] ?? null,
                         'primary_model_id' => $variables['primary_model_id'] ?? null,
                         'primary_is_free' => $variables['primary_is_free'] ?? null,
@@ -104,7 +115,7 @@ final class SectionedFreeHookOrchestrator
                         'strategy_override' => null,
                         'strategy_resolved' => ArticleGenerationStrategy::Sectioned->value,
                         'strategy_source' => $variables['generation_shape_source']
-                            ?? \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape::SOURCE_AI_CENTER_PRIMARY,
+                            ?? \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape::SOURCE_ROUTE_COST_AUTO,
                         'isolation_mode' => 'sectioned_generation',
                         'hook_key' => $hookKey,
                         'article_id' => $articleId > 0 ? $articleId : null,
@@ -121,7 +132,7 @@ final class SectionedFreeHookOrchestrator
                     'strategy_override' => null,
                     'strategy_resolved' => 'multiple_pass',
                     'strategy_source' => $variables['generation_shape_source']
-                        ?? \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape::SOURCE_WRITING_SPLIT_PREFERENCE,
+                        ?? \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape::SOURCE_ROUTE_COST_AUTO,
                     'run_id' => $runId,
                     'hook_key' => $hookKey,
                     'display_name' => 'Viết bài — MULTIPLE_PASS (orchestrator)',
@@ -159,6 +170,12 @@ final class SectionedFreeHookOrchestrator
         $plannedSectionCount = 0;
 
         try {
+            $effectivePolicy = (new \Omnichannel\Addons\AiPrompt\Services\EffectiveAiCostPolicyResolver())->resolve(
+                contextPolicy: AiCostPolicyScope::current(),
+                explicitFreeOnlyFlag: false,
+                hookKey: $hookKey,
+                variables: $variables,
+            );
             $freeContext = new AiRoutingContext(
                 userId: app(AiRoutingOwnerResolver::class)->resolve(
                     explicitUserId: null,
@@ -169,7 +186,7 @@ final class SectionedFreeHookOrchestrator
                 allowLegacyFallback: true,
                 usageModeOverride: null,
                 allowedFamilyKeys: null,
-                costPolicy: AiCostPolicyScope::current(),
+                costPolicy: $effectivePolicy,
                 preferredModelId: isset($variables['_item_model_override_id'])
                     ? (int) $variables['_item_model_override_id']
                     : (isset($variables['primary_model_id']) ? (int) $variables['primary_model_id'] : null),
@@ -178,6 +195,7 @@ final class SectionedFreeHookOrchestrator
                     ? (string) $variables['_item_generation_mode']
                     : null,
                 hookKey: $hookKey,
+                // Shape ≠ FreeOnly flag. Policy FreeOnly via costPolicy.
                 freeOnly: false,
                 isolationMode: 'sectioned_generation',
                 generationStrategy: ArticleGenerationStrategy::Sectioned->value,
@@ -217,9 +235,12 @@ final class SectionedFreeHookOrchestrator
                 'pass_mode' => (string) ($variables['pass_mode'] ?? 'multiple_pass'),
             ];
 
-            $writingSplit = (bool) ($variables['writing_split_enabled'] ?? false)
-                || (($variables['pass_mode'] ?? '') === 'multiple_pass')
-                || (($variables['generation_shape_source'] ?? '') === \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape::SOURCE_WRITING_SPLIT_PREFERENCE);
+            // Authority: snapshotted generation_shape (route_cost_auto). Legacy mirrors are secondary.
+            $shape = \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape::tryFromMixed(
+                $variables['generation_shape'] ?? null,
+            );
+            $writingSplit = ($shape?->isSectioned() ?? false)
+                || (($variables['pass_mode'] ?? '') === 'multiple_pass');
 
             if ($writingSplit) {
                 $articleContext['writing_split_enabled'] = true;

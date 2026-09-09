@@ -117,7 +117,7 @@ class PromptRunnerService
 
         $routingContext = $this->routingContextForPrompt($prompt, $connection, $imageTool->isImagePipeline(), $variables);
 
-        // Article: resolve primary AI Center candidate BEFORE compile; shape from isFree.
+        // Article: resolve first usable AI Center route BEFORE compile; shape from route cost_class.
         if (ArticleContentGenerationHooks::matches($hookKeyEarly)) {
             [$primary, $shapeSnapshot, $variables] = $this->articleExecutionPlanner()
                 ->plan($profile->value, $routingContext, $variables);
@@ -1231,6 +1231,22 @@ class PromptRunnerService
             $fields['generation_shape_source'] = (string) $variables['generation_shape_source'];
             $fields['strategy_source'] = (string) $variables['generation_shape_source'];
         }
+        foreach ([
+            'shape_decision_logical_model',
+            'shape_decision_physical_route',
+            'shape_decision_provider',
+            'shape_decision_connection_id',
+            'shape_decision_connection_name',
+            'shape_decision_cost_class',
+            'primary_is_free',
+            'primary_model',
+            'primary_model_id',
+            'primary_connection_id',
+        ] as $decisionKey) {
+            if (array_key_exists($decisionKey, $variables) && $variables[$decisionKey] !== null && $variables[$decisionKey] !== '') {
+                $fields[$decisionKey] = $variables[$decisionKey];
+            }
+        }
 
         return $fields;
     }
@@ -1767,7 +1783,8 @@ class PromptRunnerService
     ): array {
         unset($connection, $isTaskMode);
 
-        // Sectioned shape ≠ freeOnly routing. Free-only comes from connection preference only.
+        // Sectioned shape ≠ freeOnly routing flag. Effective FreeOnly rides on costPolicy
+        // (article generation mode / explicit task policy / scope snapshot).
         $sectionContext = new AiRoutingContext(
             userId: $baseContext->userId,
             legacyConnection: $baseContext->legacyConnection,
@@ -1948,7 +1965,7 @@ class PromptRunnerService
         $usage['routing'] = [
             'generation_strategy' => ArticleGenerationStrategy::Sectioned->value,
             'generation_shape' => ArticleGenerationShape::Sectioned->value,
-            'generation_shape_source' => (string) ($variables['generation_shape_source'] ?? ArticleGenerationShape::SOURCE_AI_CENTER_PRIMARY),
+            'generation_shape_source' => (string) ($variables['generation_shape_source'] ?? ArticleGenerationShape::SOURCE_ROUTE_COST_AUTO),
             'isolation_mode' => 'sectioned_generation',
             'primary_model' => $variables['primary_model'] ?? null,
             'primary_model_id' => $variables['primary_model_id'] ?? null,
@@ -2269,6 +2286,13 @@ class PromptRunnerService
 
         $hookKey = trim((string) ($prompt->hook_key ?? ''));
 
+        $effectivePolicy = (new EffectiveAiCostPolicyResolver())->resolve(
+            contextPolicy: AiCostPolicyScope::current(),
+            explicitFreeOnlyFlag: false,
+            hookKey: $hookKey !== '' ? $hookKey : null,
+            variables: $variables,
+        );
+
         return new AiRoutingContext(
             userId: app(AiRoutingOwnerResolver::class)->resolve(
                 explicitUserId: null,
@@ -2279,11 +2303,12 @@ class PromptRunnerService
             allowLegacyFallback: true,
             usageModeOverride: null,
             allowedFamilyKeys: null,
-            costPolicy: AiCostPolicyScope::current(),
+            costPolicy: $effectivePolicy,
             preferredModelId: $preferredModelId > 0 ? $preferredModelId : null,
             requirePreferredModel: $preferredModelId > 0 && $modelMode === 'required',
             itemGenerationMode: $generationMode !== '' ? $generationMode : null,
             hookKey: $hookKey !== '' ? $hookKey : null,
+            freeOnly: $effectivePolicy->isFreeOnly(),
             generationStrategy: isset($variables['generation_strategy'])
                 ? (string) $variables['generation_strategy']
                 : (isset($variables['generation_shape']) ? (string) $variables['generation_shape'] : null),

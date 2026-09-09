@@ -4,22 +4,23 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Services;
 
+use Omnichannel\Addons\AiPrompt\Contracts\FirstAttemptableAiRouteResolver;
 use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext;
 use Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate;
 use Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape;
 use Omnichannel\Addons\AiPrompt\Support\ArticlePrimaryRoutingSnapshot;
-use Omnichannel\Addons\AiPrompt\Support\WritingSectionScopeInstructions;
-use Omnichannel\Addons\Content\Support\WritingSplitPreference;
-use App\Models\ApiConnection;
+use Omnichannel\Addons\AiPrompt\Support\GenerationShapeDecision;
 
 /**
- * Resolves AI Center primary candidate THEN derives Writing pass mode from
- * manual writing_split_enabled preference (not free/paid).
+ * Resolves first usable AI Center route, then derives Writing/Outline execution shape
+ * from that route's cost_class (FREE→SPLIT, PAID→SINGLE). Shape is snapshotted once
+ * per run and must not change during fallback.
  */
 final class ArticleGenerationExecutionPlanner
 {
     public function __construct(
-        private readonly AiModelRouterService $router,
+        private readonly FirstAttemptableAiRouteResolver $router,
+        private readonly ?GenerationShapeResolver $shapeResolver = null,
     ) {}
 
     /**
@@ -28,40 +29,58 @@ final class ArticleGenerationExecutionPlanner
      */
     public function plan(string $profile, AiRoutingContext $routingContext, array $variables = []): array
     {
-        $primary = $this->router->resolveFirstAttemptable($profile, $routingContext);
-        $freeOnlyPolicy = $this->connectionFreeOnlyPolicy($primary->connection)
-            || $routingContext->freeOnly;
+        $resolver = $this->shapeResolver ?? new GenerationShapeResolver($this->router);
+        [$primary, $decision] = $resolver->resolve($profile, $routingContext, $variables);
 
-        $actorUserId = ($routingContext->userId !== null && $routingContext->userId > 0)
-            ? $routingContext->userId
-            : null;
-        $splitEnabled = WritingSplitPreference::resolveForRun($variables, $actorUserId);
-        $shape = ArticleGenerationShape::fromWritingSplitEnabled($splitEnabled);
-        $snapshot = ArticlePrimaryRoutingSnapshot::fromCandidate(
-            $primary,
-            $shape,
-            $freeOnlyPolicy,
-            ArticleGenerationShape::SOURCE_WRITING_SPLIT_PREFERENCE,
-        );
+        // Generation FreeOnly only — connection paid_locked is a separate constraint.
+        $freeOnlyPolicy = (new EffectiveAiCostPolicyResolver())->resolveForContext(
+            $routingContext,
+            $variables,
+        )->isFreeOnly();
+
+        // When reusing an immutable shape snapshot, keep decision fields from $decision
+        // but prefer the live first-usable candidate for prefer-primary routing metadata
+        // only when shape was freshly resolved from that candidate.
+        $snapshot = $this->buildSnapshot($primary, $decision, $freeOnlyPolicy, $variables);
 
         $merged = $snapshot->mergeIntoVariables($variables);
-        // Immutable run snapshot — later preference toggles must not mutate this run.
-        $merged['writing_split_enabled'] = $splitEnabled;
-        $merged['pass_mode'] = $splitEnabled ? 'multiple_pass' : 'single_pass';
-        $merged['generation_shape_source'] = ArticleGenerationShape::SOURCE_WRITING_SPLIT_PREFERENCE;
-        $merged['writing_scope'] = $splitEnabled
-            ? WritingSectionScopeInstructions::SCOPE_SECTION
-            : WritingSectionScopeInstructions::SCOPE_ARTICLE;
+        foreach ($decision->toVariableFields() as $key => $value) {
+            // Decision fields win for shape authority; do not let legacy preference keys
+            // in $variables override after mergeIntoVariables.
+            $merged[$key] = $value;
+        }
+
+        // Re-apply prefer-primary model id from live first-usable when shape was frozen
+        // from a prior decision but routing still needs a current primary pointer.
+        if ($primary->seoAiModelId !== null && $primary->seoAiModelId > 0) {
+            $merged['_article_primary_model_id'] = (string) $primary->seoAiModelId;
+        }
 
         return [$primary, $snapshot, $merged];
     }
 
-    private function connectionFreeOnlyPolicy(?ApiConnection $connection): bool
-    {
-        if ($connection === null) {
-            return false;
+    /**
+     * @param  array<string, mixed>  $variables
+     */
+    private function buildSnapshot(
+        RoutedAiCandidate $primary,
+        GenerationShapeDecision $decision,
+        bool $freeOnlyPolicy,
+        array $variables,
+    ): ArticlePrimaryRoutingSnapshot {
+        $reused = GenerationShapeDecision::tryFromVariables($variables) !== null;
+
+        if ($reused) {
+            return ArticlePrimaryRoutingSnapshot::fromDecision($decision, $freeOnlyPolicy);
         }
 
-        return (bool) ($connection->paid_locked ?? false);
+        // Fresh decision is always from $primary cost class.
+        return ArticlePrimaryRoutingSnapshot::fromCandidate(
+            $primary,
+            $decision->shape,
+            $freeOnlyPolicy,
+            ArticleGenerationShape::SOURCE_ROUTE_COST_AUTO,
+        );
     }
+
 }

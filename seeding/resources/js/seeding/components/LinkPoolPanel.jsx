@@ -3,36 +3,36 @@ import { Link2, Pause, Pencil, Play, Plus, Trash2, X } from 'lucide-react';
 import {
     createSeedLink,
     linkUsageLabel,
-    usedTodayByLinkId,
     DEFAULT_DAILY_LIMIT,
     MIN_DAILY_LIMIT,
 } from '../services/linkPool';
 
 /**
- * Personal Link Pool manager — current user document only.
- *
- * @param {{
- *   open: boolean,
- *   seedLinks: Array<Record<string, unknown>>,
- *   seedOutputs: Array<Record<string, unknown>>,
- *   canManage: boolean,
- *   onClose: () => void,
- *   onChange: (links: Array<Record<string, unknown>>) => void,
- * }} props
+ * Personal Link Pool — local-first CRUD + toast via onChange message.
  */
 export default function LinkPoolPanel({
     open,
     seedLinks,
-    seedOutputs,
+    linkUsageToday = {},
     canManage,
     onClose,
     onChange,
 }) {
-    const usedMap = useMemo(() => usedTodayByLinkId(seedOutputs), [seedOutputs]);
+    const usedMap = useMemo(() => {
+        /** @type {Map<string, number>} */
+        const map = new Map();
+        for (const [k, v] of Object.entries(linkUsageToday || {})) {
+            map.set(String(k), Number(v) || 0);
+        }
+        return map;
+    }, [linkUsageToday]);
+
     const [draftUrl, setDraftUrl] = useState('');
+    const [draftLabel, setDraftLabel] = useState('');
     const [draftLimit, setDraftLimit] = useState(DEFAULT_DAILY_LIMIT);
     const [editingId, setEditingId] = useState(null);
     const [editUrl, setEditUrl] = useState('');
+    const [editLabel, setEditLabel] = useState('');
     const [editLimit, setEditLimit] = useState(DEFAULT_DAILY_LIMIT);
 
     if (!open) return null;
@@ -41,16 +41,18 @@ export default function LinkPoolPanel({
         if (!canManage) return;
         const url = draftUrl.trim();
         if (!url) return;
-        const link = createSeedLink({ url, daily_limit: draftLimit });
+        const link = createSeedLink({ url, daily_limit: draftLimit, label: draftLabel });
         if (!link) return;
-        onChange([link, ...seedLinks]);
+        onChange([link, ...seedLinks], 'Đã thêm link');
         setDraftUrl('');
+        setDraftLabel('');
         setDraftLimit(DEFAULT_DAILY_LIMIT);
     };
 
     const startEdit = (link) => {
         setEditingId(String(link.id));
         setEditUrl(String(link.url || ''));
+        setEditLabel(String(link.label || ''));
         setEditLimit(Number(link.daily_limit) || DEFAULT_DAILY_LIMIT);
     };
 
@@ -64,27 +66,29 @@ export default function LinkPoolPanel({
                 ? {
                     ...l,
                     url,
+                    label: editLabel.trim(),
                     daily_limit: Math.max(MIN_DAILY_LIMIT, Number(editLimit) || DEFAULT_DAILY_LIMIT),
                     updated_at: now,
                 }
                 : l
-        )));
+        )), 'Đã cập nhật link');
         setEditingId(null);
     };
 
     const toggleActive = (link) => {
         if (!canManage) return;
+        const nextActive = !link.is_active;
         onChange(seedLinks.map((l) => (
             String(l.id) === String(link.id)
-                ? { ...l, is_active: !l.is_active, updated_at: new Date().toISOString() }
+                ? { ...l, is_active: nextActive, updated_at: new Date().toISOString() }
                 : l
-        )));
+        )), nextActive ? 'Đã bật link' : 'Đã tạm dừng link');
     };
 
     const removeLink = (link) => {
         if (!canManage) return;
         if (!window.confirm('Xóa link khỏi pool của bạn?')) return;
-        onChange(seedLinks.filter((l) => String(l.id) !== String(link.id)));
+        onChange(seedLinks.filter((l) => String(l.id) !== String(link.id)), 'Đã xóa link');
     };
 
     return (
@@ -96,11 +100,17 @@ export default function LinkPoolPanel({
                 </button>
             </div>
             <p className="seeding-ws__muted">
-                Link Pool cá nhân — ngưỡng mỗi ngày chỉ để gợi ý random, không phải quota cứng.
+                Link Pool cá nhân — usage từ báo cáo DB (cache). Copy không tăng usage.
             </p>
 
             {canManage ? (
                 <div className="seeding-ws__link-pool-add">
+                    <input
+                        className="seeding-ws__input"
+                        value={draftLabel}
+                        placeholder="Nhãn (Shopee A…)"
+                        onChange={(e) => setDraftLabel(e.target.value)}
+                    />
                     <input
                         className="seeding-ws__input"
                         value={draftUrl}
@@ -135,6 +145,12 @@ export default function LinkPoolPanel({
                             <li key={String(link.id)} className={`seeding-ws__link-pool-row${!link.is_active ? ' is-paused' : ''}`}>
                                 {isEditing ? (
                                     <div className="seeding-ws__link-pool-edit">
+                                        <input
+                                            className="seeding-ws__input"
+                                            value={editLabel}
+                                            onChange={(e) => setEditLabel(e.target.value)}
+                                            placeholder="Nhãn"
+                                        />
                                         <input
                                             className="seeding-ws__input"
                                             value={editUrl}

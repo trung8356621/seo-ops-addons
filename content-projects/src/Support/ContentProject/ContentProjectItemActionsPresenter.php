@@ -17,6 +17,7 @@ use Omnichannel\Addons\Publishing\Support\PublishingQueue\PublishingQueueHandoff
  *
  * @phpstan-type ActionFlags array{
  *     open_article: bool,
+ *     ai_history: bool,
  *     generate: bool,
  *     run_again: bool,
  *     create_or_rerun: bool,
@@ -52,6 +53,7 @@ use Omnichannel\Addons\Publishing\Support\PublishingQueue\PublishingQueueHandoff
  *     debug_to_scheduled: bool,
  *     debug_to_published: bool,
  *     has_content: bool,
+ *     has_recovery: bool,
  *     has_review: bool,
  *     has_publishing: bool,
  *     has_lifecycle: bool,
@@ -85,6 +87,8 @@ final class ContentProjectItemActionsPresenter
             || in_array($lifecycle, ['review', 'approved', 'waiting_publish', 'published'], true);
 
         $openArticle = $hasArticle;
+        // Same accessibility gate as open article (local article resolves).
+        $aiHistory = $hasArticle;
         $generate = $canGenerate
             && $isGeneratePendingRunnable
             && $genKey === 'pending'
@@ -286,9 +290,12 @@ final class ContentProjectItemActionsPresenter
             $approve = false;
         }
 
-        $hasContent = $openArticle || $createOrRerun || $stopGeneration || $resumeGeneration
+        $hasContent = $openArticle || $aiHistory || $regenImage || $improveNote
+            || ! empty($row['check_index_url'])
+            || ! empty($row['article_public_url']);
+        $hasRecovery = $createOrRerun || $stopGeneration || $resumeGeneration
             || $selectExistingArticle
-            || $regenOutline || $regenArticle || $restartWithKeyword || $regenImage || $improveNote
+            || $regenOutline || $regenArticle || $restartWithKeyword
             || $acknowledgeError || $skipGeneration || $allowGeneration;
         $hasReview = $startReview || $approve;
         $hasPublishing = $sendToPublishingQueue;
@@ -301,6 +308,7 @@ final class ContentProjectItemActionsPresenter
 
         $flags = [
             'open_article' => $openArticle,
+            'ai_history' => $aiHistory,
             'generate' => false,
             'run_again' => false,
             'create_or_rerun' => $createOrRerun,
@@ -340,6 +348,7 @@ final class ContentProjectItemActionsPresenter
             'debug_to_scheduled' => $debugToScheduled,
             'debug_to_published' => $debugToPublished,
             'has_content' => $hasContent,
+            'has_recovery' => $hasRecovery,
             'has_review' => $hasReview,
             'has_publishing' => $hasPublishing,
             'has_lifecycle' => $hasLifecycle,
@@ -400,7 +409,8 @@ final class ContentProjectItemActionsPresenter
         $flags['has_publishing'] = false;
         $flags['has_lifecycle'] = false;
         $flags['has_debug'] = false;
-        $flags['has_content'] = $flags['open_article'] || $flags['acknowledge_error'];
+        $flags['has_recovery'] = $flags['acknowledge_error'];
+        $flags['has_content'] = $flags['open_article'] || $flags['ai_history'];
 
         return $flags;
     }

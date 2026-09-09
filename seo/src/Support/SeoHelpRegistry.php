@@ -428,6 +428,40 @@ final class SeoHelpRegistry
                             'Content Manager bị hạn chế sync / một số settings.',
                         ],
                     ],
+                    [
+                        'id' => 'settings.ai.free_single_split',
+                        'key' => 'settings.ai.free_single_split',
+                        'title' => 'Free, Single và Split hoạt động thế nào?',
+                        'summary' => 'Thứ tự model trong AI Center quyết định Single hay Split; Free only kiểm soát fallback sang Paid. Split Outline và Split Content là hai cơ chế khác nhau.',
+                        'content' => <<<'TXT'
+SEO Ops luôn ưu tiên thứ tự model bạn đã kéo trong AI Center (Sortable). Free/Paid không tự thay đổi thứ tự này.
+
+Quy tắc chính:
+- Model đầu tiên có thể chạy là Paid → Single (chạy một lượt).
+- Model đầu tiên có thể chạy là Free → Split.
+- Free only bật → chỉ model Free được phép chạy.
+- Free only tắt → router vẫn có thể fallback sang Paid nếu Free lỗi/hết khả dụng.
+
+Split không khóa hệ thống vào OpenRouter — mỗi lần gọi AI vẫn đi qua router bình thường.
+
+Split Outline = 2 AI tasks (Structure + Vocabulary), rồi ghép Outline.
+Split Content = sau Outline hoàn chỉnh, chia theo heading/phần rồi ghép Article Content.
+Hai loại Split không giống nhau; một lần chạy có thể dùng cả hai tuần tự.
+
+Để Free đứng đầu + Free only tắt có thể fallback Paid nhiều lần hơn Single Paid ngay từ đầu.
+Muốn “Free hoặc dừng” → bật Free only. Muốn “ưu tiên Free nhưng bài phải xong” → Free only OFF.
+
+Paid đứng đầu và khả dụng → Single (ít request hơn, nhất quán hơn). Free/Paid theo route cost class, không theo thương hiệu provider.
+
+Kiểm tra trong AI History: prompt type, model, Free/Paid, routing attempts, skipped routes, Single/Split shape. Không suy luận chỉ từ lỗi cuối.
+TXT,
+                        'steps' => [
+                            'Kéo Sortable trong AI Center để chọn model xét trước.',
+                            'Free đứng đầu → Split; Paid đứng đầu → Single.',
+                            'Bật Free only nếu không muốn fallback sang Paid.',
+                            'Mở AI History để xem Single/Split và routing attempts.',
+                        ],
+                    ],
                 ],
             ],
         ];

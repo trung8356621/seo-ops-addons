@@ -62,6 +62,11 @@ final class SeedingServiceHealth
             }
         }
 
+        $maxComments = (int) ($config->rawConfig['max_comments_per_day'] ?? SeedingTargetCalculator::DEFAULT_MAX_COMMENTS_PER_DAY);
+        if ($maxComments <= 0) {
+            $maxComments = SeedingTargetCalculator::DEFAULT_MAX_COMMENTS_PER_DAY;
+        }
+
         return [
             'service' => [
                 'slug' => SeedingServiceResolver::SLUG,
@@ -76,8 +81,11 @@ final class SeedingServiceHealth
                 'display_name' => (string) ($user->name ?? ''),
             ] : null,
             'sites' => $sites,
+            'settings' => [
+                'max_comments_per_day' => $maxComments,
+            ],
             'storage' => [
-                'mode' => $config->persistence,
+                'mode' => 'hybrid',
                 'schema_version' => $config->storageSchemaVersion,
             ],
             'capabilities' => [
