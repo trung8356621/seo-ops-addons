@@ -15,6 +15,9 @@ use Omnichannel\Addons\SearchFoundation\Services\SeoDatabaseConnectionService;
 use Omnichannel\Addons\Content\Support\RunEngine\ArticleExecutionResult;
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectRunEngineFeature;
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectRunStatusMapper;
+use Omnichannel\Addons\Seo\Support\SeoConnectionContext;
+use App\Models\SeoDatabaseConnection;
+use App\Models\User;
 use App\Support\RuntimeLogger;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
@@ -22,6 +25,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Auth;
 
 /**
  * One article (full workflow) inside a Content Project run.
@@ -63,6 +67,18 @@ final class RunContentProjectArticleJob implements ShouldBeUnique, ShouldQueue
         ContentProjectRunStatusMapper $statusMapper,
     ): void {
         $databaseConnection->bootstrapLegacySharedConnection();
+        // ServiceDatabaseConnectionResolver may boot DB without SeoConnectionContext.
+        // Domain-neutral projects (site_id null) skip bootstrapSeoDatabaseConnection below —
+        // without context, panelOwnerId()/site access fallbacks are empty on queue workers.
+        if (SeoConnectionContext::current() === null) {
+            $shared = SeoDatabaseConnection::query()
+                ->where('is_active', true)
+                ->orderBy('id')
+                ->first();
+            if ($shared instanceof SeoDatabaseConnection) {
+                $databaseConnection->bootstrapFromConnection($shared);
+            }
+        }
 
         $run = SeoProjectRun::query()->find($this->runId);
         if (! $run instanceof SeoProjectRun) {
@@ -73,6 +89,15 @@ final class RunContentProjectArticleJob implements ShouldBeUnique, ShouldQueue
             ]);
 
             return;
+        }
+
+        // Restore actor for CreateArticlesFromTaskService::assertSiteAccessible on queue/retry.
+        $runUserId = (int) ($run->user_id ?? 0);
+        if ($runUserId > 0 && (int) (Auth::id() ?? 0) !== $runUserId) {
+            $runUser = User::query()->find($runUserId);
+            if ($runUser instanceof User) {
+                Auth::login($runUser);
+            }
         }
 
         $run->loadMissing('project');

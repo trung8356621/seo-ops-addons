@@ -188,16 +188,14 @@ final class RerunProjectItemsHandler extends AbstractPublishingHandler
             }
             $itemIds = $gate['eligible_ids'];
 
-            // Merge user launch settings, then FORCE orchestration keys (caller cannot override).
-            $launch = ContentProjectRunSettings::fromUserInput(
-                is_array($command->settings) ? $command->settings : [],
-            );
-            $settings = array_merge($launch->toArray(), [
+            // Merge user launch settings + operational keys (e.g. rerun_sync), then FORCE orchestration.
+            $rawSettings = is_array($command->settings) ? $command->settings : [];
+            $settings = ContentProjectRunSettings::snapshotForRun(array_merge($rawSettings, [
                 'task_ids' => $itemIds,
                 'rerun' => true,
                 'rerun_scope' => 'full',
                 'use_php_engine' => true,
-            ]);
+            ]));
 
             $run = $this->businessLock->withLock(
                 $this->businessLock->projectGenerate($projectId),

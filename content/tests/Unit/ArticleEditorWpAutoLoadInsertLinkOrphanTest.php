@@ -118,8 +118,9 @@ final class ArticleEditorWpAutoLoadInsertLinkOrphanTest extends TestCase
         $sidebar = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content/resources/js/components/ArticleLinksSidebar.jsx',
         );
-        self::assertStringContainsString("insert_mode: 'selection'", $sidebar);
-        self::assertStringContainsString('links_insert_link', $sidebar);
+        self::assertStringContainsString('insertSuggestedInternalLinkAction', $sidebar);
+        self::assertStringContainsString('selectedSuggestionOccurrenceRef', $sidebar);
+        self::assertStringContainsString('links_insert_into_suggestion', $sidebar);
         self::assertStringNotContainsString('links_orphan_pages_title', $sidebar);
         self::assertStringContainsString('links_internal_title', $sidebar);
         self::assertStringNotContainsString('links_inbound_title', $sidebar);
@@ -127,10 +128,19 @@ final class ArticleEditorWpAutoLoadInsertLinkOrphanTest extends TestCase
         self::assertStringNotContainsString('Inbound links', $sidebar);
         self::assertStringNotContainsString('links_open_source_article', $sidebar);
 
+        $action = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content/resources/js/utils/suggestedInternalLinkInsertAction.js',
+        );
+        self::assertStringContainsString('hasExplicitEditorTextSelection', $action);
+        self::assertStringContainsString("insert_mode: 'wrap'", $action);
+        self::assertStringContainsString('links_insert_no_match_need_selection', $action);
+        self::assertStringContainsString('resolveSuggestionInsertMatch', $action);
+
         $i18n = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content/resources/js/utils/i18n.js',
         );
         self::assertStringContainsString("links_internal_title: 'Internal Links ({count})'", $i18n);
+        self::assertStringContainsString('links_insert_no_match_need_selection', $i18n);
         // i18n keys may remain for BC; UI must not render Orphan Pages section.
         self::assertStringNotContainsString('links_orphan_pages_title', $sidebar);
         self::assertStringNotContainsString("links_internal_title: 'Outbound links: {count}'", $i18n);

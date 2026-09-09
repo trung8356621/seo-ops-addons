@@ -32,7 +32,6 @@ import {
 } from '../utils/articleEditorPayloadAdapters';
 import { filterUsableCtaContacts } from '../utils/ctaContactUsability';
 import { getEditorCommandHost } from '../utils/editorCommands';
-import { getInsertionContextForCommand } from '../utils/editorInsertionContext';
 import {
     CtaContactInsertList,
     CtaQuickTemplateSettingsPopover,
@@ -40,10 +39,12 @@ import {
     useCtaQuickTemplates,
 } from './CtaContactInsertList';
 import {
-    collectEditorBlocksFromDom,
-    findPhraseOccurrencesInBlocks,
-    scrollToPhraseOccurrence,
-} from '../utils/articlePhraseOccurrences';
+    insertSuggestedInternalLinkAction,
+    resolveSuggestionLocatePhrase,
+} from '../utils/suggestedInternalLinkInsertAction';
+import { hasExplicitEditorTextSelection } from '../utils/editorExplicitSelection';
+import { findSuggestionPhraseOccurrences } from '../utils/suggestedInternalLinkInsertMatch';
+import { collectEditorBlocksFromDom, scrollToPhraseOccurrence } from '../utils/articlePhraseOccurrences';
 import { buildDomainLinkListForEditor, nextDomainLinkOccurrenceIndex } from '../utils/domainLinkOccurrenceIndex';
 import { scrollToDomainLinkOccurrence } from '../utils/domainLinkNavigator';
 import { insertDomainLinkAction } from '../utils/domainLinkInsertAction';
@@ -683,22 +684,20 @@ function KeywordList({
                                     className="wp-article-links-insert-btn"
                                     aria-label={
                                         insertable
-                                            ? t(
-                                                  suggestionKind === 'external'
-                                                      ? 'links_insert_external_for'
-                                                      : 'links_insert_internal_for',
-                                                  { label },
-                                              )
+                                            ? (
+                                                hasExplicitEditorTextSelection()
+                                                    ? t('links_insert_into_selection')
+                                                    : t('links_insert_into_suggestion')
+                                            )
                                             : t('links_missing_target_url')
                                     }
                                     title={
                                         insertable
-                                            ? t(
-                                                  suggestionKind === 'external'
-                                                      ? 'links_insert_external_for_label'
-                                                      : 'links_insert_internal_for_label',
-                                                  { label },
-                                              )
+                                            ? (
+                                                hasExplicitEditorTextSelection()
+                                                    ? t('links_insert_into_selection')
+                                                    : t('links_insert_into_suggestion')
+                                            )
                                             : t('links_missing_target_mapping')
                                     }
                                     disabled={!insertable || isEditing}
@@ -1360,6 +1359,8 @@ export default function ArticleLinksSidebar({
     const [domainHiddenRowKeys, setDomainHiddenRowKeys] = useState(() => new Set());
     /** @type {React.MutableRefObject<{ itemKey: string, occurrence: object|null, index: number }|null>} */
     const selectedDomainOccurrenceRef = useRef(null);
+    /** @type {React.MutableRefObject<{ itemKey: string, occurrence: object|null }|null>} */
+    const selectedSuggestionOccurrenceRef = useRef(null);
 
     const { debounced: debouncedPersistExcluded } = useDebouncedCallback(() => {
         const { articleId, siteId } = articleMetaRef.current;
@@ -1882,13 +1883,13 @@ export default function ArticleLinksSidebar({
 
     const scrollToContentSuggestion = (item, index, itemKey) => {
         setActiveKey(itemKey);
-        const phrase = String(item?.text ?? '').trim();
+        const phrase = resolveSuggestionLocatePhrase(item);
         if (phrase === '') {
             return;
         }
 
         const blocks = collectEditorBlocksFromDom();
-        const occurrences = findPhraseOccurrencesInBlocks(blocks, phrase, 2);
+        const occurrences = findSuggestionPhraseOccurrences(blocks, phrase, 64);
         const currentCycle = Number(cycleByKey[itemKey] ?? 0);
         const occurrence = occurrences.length > 0
             ? occurrences[currentCycle % occurrences.length]
@@ -1898,6 +1899,11 @@ export default function ArticleLinksSidebar({
             ...prev,
             [itemKey]: currentCycle + 1,
         }));
+
+        selectedSuggestionOccurrenceRef.current = {
+            itemKey,
+            occurrence,
+        };
 
         if (occurrence) {
             scrollToPhraseOccurrence(occurrence);
@@ -1911,6 +1917,26 @@ export default function ArticleLinksSidebar({
         if (isContentSuggestion(item)) {
             scrollToContentSuggestion(item, index, itemKey);
             return;
+        }
+        // Keyword / product_cat / topic — resolve occurrence once for highlight + insert.
+        const phrase = resolveSuggestionLocatePhrase(item);
+        if (phrase !== '') {
+            const blocks = collectEditorBlocksFromDom();
+            const occurrences = findSuggestionPhraseOccurrences(blocks, phrase, 64);
+            const currentCycle = Number(cycleByKey[itemKey] ?? 0);
+            const occurrence = occurrences.length > 0
+                ? occurrences[currentCycle % occurrences.length]
+                : null;
+            setCycleByKey((prev) => ({
+                ...prev,
+                [itemKey]: currentCycle + 1,
+            }));
+            selectedSuggestionOccurrenceRef.current = { itemKey, occurrence };
+            if (occurrence) {
+                setActiveKey(itemKey);
+                scrollToPhraseOccurrence(occurrence);
+                return;
+            }
         }
         scrollToKeyword(item, 'internal', index, itemKey, { searchPlainText: true });
     };
@@ -2039,60 +2065,16 @@ export default function ArticleLinksSidebar({
     };
 
     const insertSuggestedLink = (item, _index, itemKey) => {
-        const ctx = getInsertionContextForCommand();
-        const selection = ctx?.selection ?? null;
-        const hasSelection = Boolean(
-            selection
-            && Number.isFinite(selection.from)
-            && Number.isFinite(selection.to)
-            && selection.to > selection.from,
-        );
-        if (!hasSelection) {
-            window.dispatchEvent(
-                new CustomEvent('seo-article-editor-notify', {
-                    detail: {
-                        title: t('links_insert_link'),
-                        body: t('links_insert_need_selection'),
-                        status: 'warning',
-                    },
-                }),
-            );
-            return;
-        }
+        const stored = selectedSuggestionOccurrenceRef.current;
+        const occurrence =
+            stored?.itemKey === itemKey && stored?.occurrence
+                ? stored.occurrence
+                : null;
 
-        hideSuggestionRow(itemKey);
-
-        const text = String(item?.text ?? '').trim();
-        const href = String(item?.href ?? item?.target_url ?? '').trim();
-        const count = occurrenceCount(item);
-        const cycle = Number(cycleByKey[itemKey] ?? 0);
-        const occurrenceIndex = cycle > 0 && count > 1 ? (cycle - 1) % count : 0;
-        if (!text || !href) {
-            window.dispatchEvent(
-                new CustomEvent('seo-article-editor-notify', {
-                    detail: {
-                        title: t('links_insert_failed_title'),
-                        body: t('links_insert_failed_body'),
-                        status: 'warning',
-                    },
-                }),
-            );
-            return;
+        const mode = insertSuggestedInternalLinkAction({ item, occurrence });
+        if (mode === 'custom' || mode === 'match') {
+            hideSuggestionRow(itemKey);
         }
-
-        const detail = {
-            text,
-            href,
-            keyword_id: item.keyword_id ?? null,
-            occurrence_index: occurrenceIndex,
-            insert_mode: 'selection',
-        };
-        const actions = getEditorCommandHost()?.actions;
-        if (typeof actions?.insertSuggestedLink === 'function') {
-            actions.insertSuggestedLink(detail);
-            return;
-        }
-        window.dispatchEvent(new CustomEvent('seo-editor-insert-suggested-link', { detail }));
     };
 
     const insertMainDomainSuggestion = (item, index, itemKey) => {

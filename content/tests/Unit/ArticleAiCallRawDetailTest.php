@@ -48,6 +48,8 @@ final class ArticleAiCallRawDetailTest extends TestCase
         self::assertStringContainsString('seo-run-history-page--workflow-tool', $blade);
         self::assertStringContainsString('seo-execution-history-workspace', $blade);
         self::assertStringNotContainsString('$wire.loadPreview($event.detail.ref)', $blade);
+        self::assertStringContainsString('$runMeta = implode', $blade);
+        self::assertStringContainsString('@if ($runMeta !== \'\')', $blade);
     }
 
     public function test_execution_history_ai_call_payload_includes_artifact_ref(): void

@@ -179,6 +179,117 @@ final class PromptVersionAndHistoryStorageTest extends TestCase
         self::assertTrue((bool) $fresh->routingAttempts()->first()?->attempted);
     }
 
+    public function test_routing_attempt_sequence_is_event_order_not_api_attempt_number(): void
+    {
+        $prompt = $this->makePrompt(['markdown_content' => 'x']);
+        $result = PromptResult::query()->create([
+            'prompt_id' => $prompt->id,
+            'user_id' => 1,
+            'site_id' => 0,
+            'status' => 'completed',
+            'input_snapshot' => ['hook_key' => 'article.outline.generate'],
+            'token_usage' => [
+                'routing' => [
+                    'routing_attempts' => [
+                        [
+                            'attempt' => 1,
+                            'result' => 'skipped',
+                            'attempted' => false,
+                            'skip_reason' => 'model_cooldown',
+                            'provider' => 'openrouter',
+                            'model' => 'nvidia/nemotron-3-ultra-550b-a55b:free',
+                        ],
+                        [
+                            'attempt' => 2,
+                            'result' => 'skipped',
+                            'attempted' => false,
+                            'skip_reason' => 'model_cooldown',
+                            'provider' => 'openrouter',
+                            'model' => 'google/gemma-4-26b-a4b-it:free',
+                        ],
+                        [
+                            'attempt' => 1,
+                            'result' => 'success',
+                            'attempted' => true,
+                            'provider' => 'openrouter',
+                            'model' => 'nvidia/nemotron-3-super-120b-a12b:free',
+                        ],
+                    ],
+                ],
+            ],
+        ]);
+
+        $rows = $result->fresh()?->routingAttempts()->orderBy('sequence')->get() ?? collect();
+        self::assertCount(3, $rows);
+        self::assertSame([1, 2, 3], $rows->pluck('sequence')->map(static fn (mixed $v): int => (int) $v)->all());
+        self::assertFalse((bool) $rows[0]->attempted);
+        self::assertFalse((bool) $rows[1]->attempted);
+        self::assertTrue((bool) $rows[2]->attempted);
+        self::assertSame('nvidia/nemotron-3-super-120b-a12b:free', $rows[2]->provider_model);
+    }
+
+    public function test_failed_routes_exhausted_token_usage_syncs_monotonic_sequences(): void
+    {
+        $prompt = $this->makePrompt(['markdown_content' => 'x']);
+        $result = PromptResult::query()->create([
+            'prompt_id' => $prompt->id,
+            'user_id' => 1,
+            'site_id' => 0,
+            'status' => 'failed',
+            'error_message' => 'AI_ROUTES_EXHAUSTED: 3 AI attempt(s) failed',
+            'input_snapshot' => ['hook_key' => 'article.outline.structure.generate'],
+            'token_usage' => [
+                'routing' => [
+                    'routing_mode' => 'free_first_with_paid_fallback',
+                    'routing_terminal_reason' => 'routes_exhausted',
+                    'routing_attempts' => [
+                        [
+                            'attempt' => 1,
+                            'result' => 'failed',
+                            'attempted' => true,
+                            'provider' => 'openrouter',
+                            'model' => 'nvidia/nemotron-3-ultra-550b-a55b:free',
+                        ],
+                        [
+                            'attempt' => 2,
+                            'result' => 'failed',
+                            'attempted' => true,
+                            'provider' => 'openrouter',
+                            'model' => 'google/gemma-4-26b-a4b-it:free',
+                        ],
+                        [
+                            'attempt' => 3,
+                            'result' => 'failed',
+                            'attempted' => true,
+                            'provider' => 'openrouter',
+                            'model' => 'google/gemma-4-31b-it:free',
+                        ],
+                        [
+                            'attempt' => 1,
+                            'result' => 'skipped',
+                            'attempted' => false,
+                            'skip_reason' => 'connection_paid_locked',
+                            'provider' => 'openrouter',
+                            'model' => 'openai/gpt-5.4',
+                        ],
+                    ],
+                ],
+                'normalized_failure' => [
+                    'category' => 'PROVIDER',
+                    'code' => 'AI_PROVIDER_EMPTY_OUTPUT',
+                ],
+            ],
+        ]);
+
+        $rows = $result->fresh()?->routingAttempts()->orderBy('sequence')->get() ?? collect();
+        self::assertCount(4, $rows);
+        self::assertSame([1, 2, 3, 4], $rows->pluck('sequence')->map(static fn (mixed $v): int => (int) $v)->all());
+        self::assertTrue((bool) $rows[0]->attempted);
+        self::assertFalse((bool) $rows[3]->attempted);
+        self::assertSame('connection_paid_locked', $rows[3]->skip_reason);
+        self::assertSame('article.outline.structure.generate', $result->fresh()?->canonical_prompt_key);
+    }
+
     public function test_reconstructor_compiles_from_prompt_version(): void
     {
         $prompt = $this->makePrompt(['markdown_content' => "# Task\nWrite {{title}}"]);

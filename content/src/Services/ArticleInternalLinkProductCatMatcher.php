@@ -94,8 +94,14 @@ final class ArticleInternalLinkProductCatMatcher
                 continue;
             }
 
+            $contentPhrase = (string) $hit['matched_phrase'];
+            $displayLabel = trim((string) ($row['name'] ?? ''));
+            if ($displayLabel === '') {
+                $displayLabel = $contentPhrase;
+            }
+
             $item = [
-                'text' => $anchor,
+                'text' => $displayLabel,
                 'href' => $url,
                 'target_url' => $url,
                 'target_article_id' => ((int) ($row['article_id'] ?? 0)) > 0 ? (int) $row['article_id'] : null,
@@ -109,10 +115,10 @@ final class ArticleInternalLinkProductCatMatcher
                 'term_id' => (int) ($row['term_id'] ?? 0),
                 'parent_term_id' => (int) ($row['parent_term_id'] ?? 0),
                 'depth' => (int) ($row['depth'] ?? 0),
-                'matched_phrase' => $anchor,
+                'matched_phrase' => $contentPhrase,
                 'url' => $url,
                 'health' => (string) ($row['health'] ?? 'ok'),
-                'category_name' => (string) ($row['name'] ?? ''),
+                'category_name' => $displayLabel,
                 'bucket' => 'internal',
                 'provenance' => [
                     'candidate_source' => ArticleInternalLinkProductCatCatalog::SOURCE,
@@ -120,11 +126,11 @@ final class ArticleInternalLinkProductCatMatcher
                     'term_id' => (int) ($row['term_id'] ?? 0),
                     'parent_term_id' => (int) ($row['parent_term_id'] ?? 0),
                     'depth' => (int) ($row['depth'] ?? 0),
-                    'matched_phrase' => $anchor,
+                    'matched_phrase' => $contentPhrase,
                     'match_reason' => (string) $hit['match_reason'],
                     'url' => $url,
                     'health' => (string) ($row['health'] ?? 'ok'),
-                    'category_name' => (string) ($row['name'] ?? ''),
+                    'category_name' => $displayLabel,
                 ],
             ];
 

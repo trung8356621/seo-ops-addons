@@ -90,8 +90,12 @@ final class ArticleInternalLinkPipeline
         ];
 
         $linkedContext = $this->collectLinkedContext(array_merge($internalLinks, $externalLinks));
-        $linkedLabels = $linkedContext['labels'];
-        $linkedHrefs = $linkedContext['hrefs'];
+        // Already present in the article — only these are excluded at final merge.
+        $alreadyLinkedLabels = $linkedContext['labels'];
+        $alreadyLinkedHrefs = $linkedContext['hrefs'];
+        // Occupied grows as stages produce candidates so later stages skip duplicates.
+        $occupiedLabels = $alreadyLinkedLabels;
+        $occupiedHrefs = $alreadyLinkedHrefs;
         $ownArticlePhrases = $this->ownArticlePhraseBlocklist($article);
 
         // —— Stage 1: FULL product_cat ——
@@ -99,8 +103,8 @@ final class ArticleInternalLinkPipeline
             $siteId,
             $plainText,
             $validationContext,
-            $linkedHrefs,
-            $linkedLabels,
+            $alreadyLinkedHrefs,
+            $alreadyLinkedLabels,
         );
         $productCatSuggestions = [];
         foreach ($productCatResult['suggestions'] as $row) {
@@ -116,11 +120,11 @@ final class ArticleInternalLinkPipeline
         foreach ($productCatSuggestions as $item) {
             $label = mb_strtolower(trim((string) ($item['text'] ?? '')));
             if ($label !== '') {
-                $linkedLabels[] = $label;
+                $occupiedLabels[] = $label;
             }
             $norm = SeoSuggestionUrlNormalizer::normalize((string) ($item['href'] ?? ''));
             if ($norm !== '') {
-                $linkedHrefs[] = $norm;
+                $occupiedHrefs[] = $norm;
             }
         }
 
@@ -141,7 +145,7 @@ final class ArticleInternalLinkPipeline
         $matched = [];
         foreach ($keywords as $keyword) {
             $phrase = trim((string) $keyword->phrase);
-            if ($phrase === '' || $this->isAlreadyLinked($phrase, $linkedLabels)) {
+            if ($phrase === '' || $this->isAlreadyLinked($phrase, $occupiedLabels)) {
                 continue;
             }
             if (LinkSuggestionStopPhraseFilter::isStopPhrase($phrase)) {
@@ -253,6 +257,12 @@ final class ArticleInternalLinkPipeline
             } else {
                 $keywordNonTopicSuggestions[] = $item;
             }
+
+            $occupiedLabels[] = mb_strtolower($phrase);
+            $normHref = SeoSuggestionUrlNormalizer::normalize($href);
+            if ($normHref !== '') {
+                $occupiedHrefs[] = $normHref;
+            }
         }
 
         // —— Stage 4 generic: article index for unresolved phrases + content fallback ——
@@ -261,7 +271,7 @@ final class ArticleInternalLinkPipeline
         $articleTargets = $this->candidateRetriever->resolveBestForAnchors(
             $article,
             $needGenericSearch,
-            $linkedHrefs,
+            $occupiedHrefs,
         );
         foreach ($needGenericSearch as $anchor) {
             $keywordId = (int) ($anchor['keyword_id'] ?? 0);
@@ -306,6 +316,11 @@ final class ArticleInternalLinkPipeline
             }
             unset($item['bucket']);
             $genericSuggestions[] = $item;
+            $occupiedLabels[] = mb_strtolower(trim((string) ($item['text'] ?? '')));
+            $normHref = SeoSuggestionUrlNormalizer::normalize($href);
+            if ($normHref !== '') {
+                $occupiedHrefs[] = $normHref;
+            }
         }
 
         $fallbackTriggered = false;
@@ -317,8 +332,8 @@ final class ArticleInternalLinkPipeline
                 ArticleInternalLinkPriorityMerger::STAGE_KEYWORD_NON_TOPIC => $keywordNonTopicSuggestions,
                 ArticleInternalLinkPriorityMerger::STAGE_GENERIC => $genericSuggestions,
             ],
-            $linkedHrefs,
-            $linkedLabels,
+            $alreadyLinkedHrefs,
+            $alreadyLinkedLabels,
         );
 
         if ($this->contentKeywordFallback->shouldRun(count($preGenericMerged))) {
@@ -330,8 +345,8 @@ final class ArticleInternalLinkPipeline
                     $seenTargets[$tid] = true;
                 }
             }
-            $excludeLabels = $linkedLabels;
-            $excludeUrls = $linkedHrefs;
+            $excludeLabels = $occupiedLabels;
+            $excludeUrls = $occupiedHrefs;
             foreach ($preGenericMerged as $row) {
                 $excludeLabels[] = mb_strtolower(trim((string) ($row['text'] ?? '')));
                 $norm = SeoSuggestionUrlNormalizer::normalize((string) ($row['href'] ?? ''));
@@ -381,8 +396,8 @@ final class ArticleInternalLinkPipeline
                 ArticleInternalLinkPriorityMerger::STAGE_KEYWORD_NON_TOPIC => $keywordNonTopicSuggestions,
                 ArticleInternalLinkPriorityMerger::STAGE_GENERIC => $genericSuggestions,
             ],
-            $linkedHrefs,
-            $linkedLabels,
+            $alreadyLinkedHrefs,
+            $alreadyLinkedLabels,
         );
 
         usort(
@@ -460,6 +475,10 @@ final class ArticleInternalLinkPipeline
             ->where('review_status', KeywordReviewStatus::Active->value)
             ->whereNotNull('phrase')
             ->where('phrase', '!=', '')
+            // Prefer linkable entity phrases (2–4 words). Long title-spam keywords
+            // previously crowded the CHAR_LENGTH DESC limit(800) and hid "túi canvas".
+            ->whereRaw('CHAR_LENGTH(TRIM(phrase)) BETWEEN 5 AND 40')
+            ->whereRaw('(LENGTH(TRIM(phrase)) - LENGTH(REPLACE(TRIM(phrase), " ", ""))) BETWEEN 1 AND 3')
             ->whereDoesntHave(
                 'metas',
                 static function ($meta): void {
@@ -470,15 +489,79 @@ final class ArticleInternalLinkPipeline
                 },
             )
             ->orderByRaw('CHAR_LENGTH(phrase) DESC')
-            ->limit(800);
+            ->limit(5000);
 
         if ($excludeKeywordIds !== []) {
             $query->whereNotIn('id', $excludeKeywordIds);
         }
 
-        $this->keywordsBySite[$cacheKey] = $query->get();
+        $catalog = $query->get();
+
+        // Ensure Topic-classified site keywords are always in the pool (even if longer).
+        $topicIds = $this->topicKeywordIdsForSite($siteId);
+        if ($excludeKeywordIds !== []) {
+            $topicIds = array_values(array_diff($topicIds, $excludeKeywordIds));
+        }
+        $missingTopicIds = array_values(array_diff(
+            $topicIds,
+            $catalog->modelKeys(),
+        ));
+        if ($missingTopicIds !== []) {
+            $extra = Keyword::query()
+                ->forSite($siteId)
+                ->whereIn('id', $missingTopicIds)
+                ->where('type', Keyword::TYPE_NORMAL)
+                ->where('review_status', KeywordReviewStatus::Active->value)
+                ->whereNotNull('phrase')
+                ->where('phrase', '!=', '')
+                ->get();
+            $catalog = $catalog->concat($extra)->unique('id')->values();
+        }
+
+        $this->keywordsBySite[$cacheKey] = $catalog;
 
         return $this->keywordsBySite[$cacheKey];
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function topicKeywordIdsForSite(int $siteId): array
+    {
+        static $cache = [];
+        if (isset($cache[$siteId])) {
+            return $cache[$siteId];
+        }
+
+        try {
+            if (! \Illuminate\Support\Facades\Schema::connection('omi_seo_ai')->hasTable('seo_keyword_classifications')) {
+                return $cache[$siteId] = [];
+            }
+        } catch (\Throwable) {
+            return $cache[$siteId] = [];
+        }
+
+        $classifiedIds = \Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordClassification::query()
+            ->whereNotNull('cluster_key')
+            ->where('cluster_key', '!=', '')
+            ->pluck('keyword_id')
+            ->map(static fn ($id): int => (int) $id)
+            ->unique()
+            ->values()
+            ->all();
+        if ($classifiedIds === []) {
+            return $cache[$siteId] = [];
+        }
+
+        $ids = Keyword::query()
+            ->forSite($siteId)
+            ->whereIn('id', $classifiedIds)
+            ->pluck('id')
+            ->map(static fn ($id): int => (int) $id)
+            ->values()
+            ->all();
+
+        return $cache[$siteId] = $ids;
     }
 
     /**

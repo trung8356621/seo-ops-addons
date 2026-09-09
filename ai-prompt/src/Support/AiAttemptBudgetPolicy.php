@@ -5,16 +5,16 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AiPrompt\Support;
 
 /**
- * Attempt-budget math for FREE_FIRST / mixed routing.
+ * Attempt-budget math (COST POLICY) — never rewrites candidate ORDER.
  *
  * One ACTUAL provider API call = one attempt.
  * Health/policy/disabled skips consume zero attempts.
  *
- * Invariant for free-first:
- * - free attempts capped by MAX_FREE_ATTEMPTS
- * - total attempts capped by MAX_AI_ATTEMPTS
- * - when a genuinely eligible paid fallback exists, preserve at least ONE paid opportunity
- *   (never reserve one slot per paid physical candidate)
+ * MAX_FREE_ATTEMPTS = max free API calls along the manual sortable stream.
+ * It does NOT mean "run free models first".
+ *
+ * When a genuinely eligible paid route exists later in that stream, reserve
+ * exactly ONE total attempt for it (never one slot per paid physical candidate).
  */
 final class AiAttemptBudgetPolicy
 {

@@ -233,12 +233,13 @@ final class ContentProjectItemGenerationPolicyTest extends TestCase
     {
         $candidates = ['cheap', 'mid', 'flagship'];
 
+        // Modes must NOT reorder — AI Center / caller order wins.
         self::assertSame($candidates, ItemGenerationRoutingPreference::orderCandidates($candidates, null));
         self::assertSame($candidates, ItemGenerationRoutingPreference::orderCandidates(
             $candidates,
             ItemGenerationMode::FastEconomy,
         ));
-        self::assertSame(['flagship', 'mid', 'cheap'], ItemGenerationRoutingPreference::orderCandidates(
+        self::assertSame($candidates, ItemGenerationRoutingPreference::orderCandidates(
             $candidates,
             ItemGenerationMode::BestQuality,
         ));
@@ -246,11 +247,11 @@ final class ContentProjectItemGenerationPolicyTest extends TestCase
         $paid = $this->modelCandidate(1, false);
         $free = $this->modelCandidate(2, true);
 
-        self::assertSame([$free, $paid], ItemGenerationRoutingPreference::orderCandidates(
+        self::assertSame([$paid, $free], ItemGenerationRoutingPreference::orderCandidates(
             [$paid, $free],
             ItemGenerationMode::FastEconomy,
         ));
-        self::assertSame([$free, $paid], ItemGenerationRoutingPreference::orderCandidates(
+        self::assertSame([$paid, $free], ItemGenerationRoutingPreference::orderCandidates(
             [$paid, $free],
             ItemGenerationMode::BestQuality,
         ));

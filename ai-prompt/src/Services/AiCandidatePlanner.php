@@ -38,8 +38,8 @@ final class AiCandidatePlanner
     ): array {
         $mode = $context->routingMode ?? $this->contextResolver->resolveMode($context);
 
-        // Preserve caller/AI Center order for execution.
-        // Free/paid phases are inspectable projections — never reorder logical priority.
+        // ORDER POLICY: preserve caller/AI Center sortable order exactly.
+        // COST POLICY: FreeOnly may drop paid; free/paid phase lists are diagnostics only.
         $free = [];
         $paid = [];
         foreach ($candidates as $candidate) {
@@ -57,8 +57,7 @@ final class AiCandidatePlanner
                 static fn (RoutedAiCandidate $candidate): bool => $candidate->isFree,
             ));
         }
-        // PaidPreferred / ExplicitModel / FreeFirst: keep configured order.
-        // Free-first is an attempt-budget policy, not a silent rewrite of model priority.
+        // Default / Economy / Quality / PaidPreferred / Explicit: never rewrite order by cost.
 
         $attemptablePaid = [];
         foreach ($paid as $candidate) {

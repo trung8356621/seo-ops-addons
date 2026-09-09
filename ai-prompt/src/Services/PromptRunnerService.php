@@ -285,11 +285,7 @@ class PromptRunnerService
                 )),
             ]);
         } catch (\Throwable $exception) {
-            $result->update([
-                'status' => 'failed',
-                'error_message' => $this->sanitizeErrorMessage($exception->getMessage()),
-                'finished_at' => now(),
-            ]);
+            $this->markPromptResultFailed($result, $exception);
 
             throw $this->rethrowWithPromptResultId($exception, (int) $result->id);
         }
@@ -362,11 +358,7 @@ class PromptRunnerService
                 )),
             ]);
         } catch (\Throwable $exception) {
-            $result->update([
-                'status' => 'failed',
-                'error_message' => $this->sanitizeErrorMessage($exception->getMessage()),
-                'finished_at' => now(),
-            ]);
+            $this->markPromptResultFailed($result, $exception);
 
             throw $this->rethrowWithPromptResultId($exception, (int) $result->id);
         }
@@ -498,11 +490,7 @@ class PromptRunnerService
                 )),
             ]);
         } catch (\Throwable $exception) {
-            $result->update([
-                'status' => 'failed',
-                'error_message' => $this->sanitizeErrorMessage($exception->getMessage()),
-                'finished_at' => now(),
-            ]);
+            $this->markPromptResultFailed($result, $exception);
 
             throw $this->rethrowWithPromptResultId($exception, (int) $result->id);
         }
@@ -710,11 +698,7 @@ class PromptRunnerService
                 )),
             ]);
         } catch (\Throwable $exception) {
-            $result->update([
-                'status' => 'failed',
-                'error_message' => $this->sanitizeErrorMessage($exception->getMessage()),
-                'finished_at' => now(),
-            ]);
+            $this->markPromptResultFailed($result, $exception);
 
             throw $this->rethrowWithPromptResultId($exception, (int) $result->id);
         }
@@ -791,11 +775,7 @@ class PromptRunnerService
                 )),
             ]);
         } catch (\Throwable $exception) {
-            $result->update([
-                'status' => 'failed',
-                'error_message' => $this->sanitizeErrorMessage($exception->getMessage()),
-                'finished_at' => now(),
-            ]);
+            $this->markPromptResultFailed($result, $exception);
 
             throw $this->rethrowWithPromptResultId($exception, (int) $result->id);
         }
@@ -903,11 +883,7 @@ class PromptRunnerService
                 )),
             ]);
         } catch (\Throwable $exception) {
-            $result->update([
-                'status' => 'failed',
-                'error_message' => $this->sanitizeErrorMessage($exception->getMessage()),
-                'finished_at' => now(),
-            ]);
+            $this->markPromptResultFailed($result, $exception);
 
             throw $this->rethrowWithPromptResultId($exception, (int) $result->id);
         }
@@ -1687,11 +1663,7 @@ class PromptRunnerService
             ]);
             unset($rawModel);
         } catch (\Throwable $exception) {
-            $result->update([
-                'status' => 'failed',
-                'error_message' => $this->sanitizeErrorMessage($exception->getMessage()),
-                'finished_at' => now(),
-            ]);
+            $this->markPromptResultFailed($result, $exception);
 
             throw $this->rethrowWithPromptResultId($exception, (int) $result->id);
         } finally {
@@ -2452,6 +2424,78 @@ class PromptRunnerService
                 'user_message' => 'AI output failed content quality checks.',
             ],
         );
+    }
+
+    /**
+     * Persist failure + routing diagnostics so History/syncRoutingAttempts are not empty
+     * when the router exhausts (AiRoutesExhaustedException carries the full attempt log).
+     */
+    private function markPromptResultFailed(PromptResult $result, \Throwable $exception): void
+    {
+        $usage = is_array($result->token_usage) ? $result->token_usage : [];
+        $snapshot = is_array($result->input_snapshot) ? $result->input_snapshot : [];
+
+        if ($exception instanceof AiRoutesExhaustedException) {
+            $ctx = $exception->context;
+            $routingAttempts = is_array($ctx['routing_attempts'] ?? null) ? $ctx['routing_attempts'] : [];
+            $usage['routing'] = array_merge(is_array($usage['routing'] ?? null) ? $usage['routing'] : [], [
+                'routing_attempts' => $routingAttempts,
+                'routing_plan' => is_array($ctx['routing_plan'] ?? null) ? $ctx['routing_plan'] : null,
+                'routing_mode' => is_string($ctx['routing_mode'] ?? null) ? $ctx['routing_mode'] : null,
+                'routing_decision_source' => is_string($ctx['routing_decision_source'] ?? null)
+                    ? $ctx['routing_decision_source']
+                    : null,
+                'correlation_id' => is_string($ctx['correlation_id'] ?? null) ? $ctx['correlation_id'] : null,
+                'routing_terminal_reason' => is_string($ctx['routing_terminal_reason'] ?? null)
+                    ? $ctx['routing_terminal_reason']
+                    : 'routes_exhausted',
+                'primary_failure' => is_array($ctx['normalized_failure'] ?? null) ? $ctx['normalized_failure'] : null,
+                'budget' => [
+                    'max_ai_attempts' => $ctx['max_ai_attempts'] ?? null,
+                    'max_free_attempts' => $ctx['max_free_attempts'] ?? null,
+                    'effective_max_free_attempts' => $ctx['effective_max_free_attempts'] ?? null,
+                    'reserved_paid_slots' => $ctx['reserved_paid_slots'] ?? null,
+                    'required_paid_fallback_reserve' => $ctx['required_paid_fallback_reserve'] ?? null,
+                    'free_attempts' => $ctx['free_attempts'] ?? null,
+                    'paid_attempts' => $ctx['paid_attempts'] ?? null,
+                    'actual_attempts' => $ctx['actual_attempts'] ?? $ctx['attempt_count'] ?? null,
+                ],
+                'exhaustion_kind' => $ctx['exhaustion_kind'] ?? null,
+                'profile' => $ctx['profile'] ?? null,
+                'hook_key' => $ctx['hook_key'] ?? null,
+                'model_area' => $ctx['profile'] ?? null,
+                'cost_policy' => $ctx['cost_policy'] ?? null,
+                'attemptable_paid_existed' => $ctx['attemptable_paid_existed'] ?? null,
+                'attemptable_paid_count' => $ctx['attemptable_paid_count'] ?? null,
+            ]);
+            if (is_array($ctx['normalized_failure'] ?? null)) {
+                $usage['normalized_failure'] = $ctx['normalized_failure'];
+            }
+
+            $hook = trim((string) ($ctx['hook_key'] ?? ''));
+            if ($hook !== '' && trim((string) ($snapshot['hook_key'] ?? '')) === '') {
+                $snapshot['hook_key'] = $hook;
+                $snapshot['stage'] = $hook;
+            }
+        }
+
+        $payload = [
+            'status' => 'failed',
+            'error_message' => $this->sanitizeErrorMessage(
+                $exception instanceof PromptRunException
+                    ? $exception->getMessage()
+                    : $exception->getMessage()
+            ),
+            'finished_at' => now(),
+        ];
+        if ($usage !== []) {
+            $payload['token_usage'] = $this->sanitizeTokenUsage($usage);
+        }
+        if ($snapshot !== (is_array($result->input_snapshot) ? $result->input_snapshot : [])) {
+            $payload['input_snapshot'] = $this->sanitizeInputSnapshot($snapshot);
+        }
+
+        $result->update($payload);
     }
 
     private function rethrowWithPromptResultId(\Throwable $exception, int $promptResultId): PromptRunException

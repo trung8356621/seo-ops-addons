@@ -401,6 +401,11 @@
                             $actualWords = $promptItem['actual_word_count'] ?? null;
                             $validationContract = trim((string) ($promptItem['validation_contract'] ?? ''));
                             $validatorsApplied = is_array($promptItem['validators_applied'] ?? null) ? $promptItem['validators_applied'] : [];
+                            $runId = (int) ($promptItem['run_id'] ?? 0);
+                            $runMeta = implode(' · ', array_values(array_filter([
+                                trim((string) ($promptItem['project_name'] ?? '')),
+                                $runId > 0 ? 'Run #'.$runId : null,
+                            ])));
                         @endphp
 
                         <div class="seo-run-history-item">
@@ -425,10 +430,12 @@
                                             </div>
                                             @if ($hookKey !== '')
                                                 <p class="text-xs text-gray-500">{{ $hookKey }}
-                                                    @if ($stageLabel !== '')
+                                                    @if ($stageLabel !== '' && $stageLabel !== $hookKey)
                                                         · Stage: {{ $stageLabel }}
                                                     @endif
-                                                    · {{ $runMeta }}
+                                                    @if ($runMeta !== '')
+                                                        · {{ $runMeta }}
+                                                    @endif
                                                 </p>
                                             @endif
 

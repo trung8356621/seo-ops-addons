@@ -31,8 +31,8 @@ final class ArticleModelOrderAuthorityTest extends TestCase
         self::assertFalse(ArticleModelOrderAuthority::allowsGenerationModeReorder(
             ArticleContentGenerationHooks::REWRITE,
         ));
-        self::assertTrue(ArticleModelOrderAuthority::allowsGenerationModeReorder('keyword.discovery'));
-        self::assertTrue(ArticleModelOrderAuthority::allowsGenerationModeReorder(null));
+        self::assertFalse(ArticleModelOrderAuthority::allowsGenerationModeReorder('keyword.discovery'));
+        self::assertFalse(ArticleModelOrderAuthority::allowsGenerationModeReorder(null));
     }
 
     public function test_a_null_mode_preserves_ai_center_order_and_primary_claude(): void
@@ -53,12 +53,12 @@ final class ArticleModelOrderAuthorityTest extends TestCase
         self::assertSame(['claude', 'nemotron', 'gpt-mini'], $this->models($ordered));
         self::assertSame('claude', $ordered[0]->model);
 
-        // Control: non-article still free-first (proves helper still exists, just gated).
+        // Non-article hooks also preserve order (manual sortable wins everywhere).
         $nonArticle = ItemGenerationRoutingPreference::orderCandidates(
             $this->aiCenterTrio(),
             ItemGenerationMode::FastEconomy,
         );
-        self::assertSame(['nemotron', 'claude', 'gpt-mini'], $this->models($nonArticle));
+        self::assertSame(['claude', 'nemotron', 'gpt-mini'], $this->models($nonArticle));
     }
 
     public function test_c_best_quality_does_not_reorder_article_candidates(): void
@@ -75,7 +75,7 @@ final class ArticleModelOrderAuthorityTest extends TestCase
             $this->aiCenterTrio(),
             ItemGenerationMode::BestQuality,
         );
-        self::assertSame(['gpt-mini', 'nemotron', 'claude'], $this->models($nonArticle));
+        self::assertSame(['claude', 'nemotron', 'gpt-mini'], $this->models($nonArticle));
     }
 
     public function test_d_explicit_preferred_override_prepends_nemotron(): void

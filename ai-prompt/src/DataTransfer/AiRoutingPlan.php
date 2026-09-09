@@ -32,8 +32,14 @@ final class AiRoutingPlan
      */
     public function toDebugArray(): array
     {
+        $ordered = array_map(
+            static fn (AiPlannedRoute $route): array => $route->toDebugArray(),
+            $this->executionOrder,
+        );
+
         return [
             'mode' => $this->mode->value,
+            // Diagnostic projections by cost_class — NEVER used as execution order.
             'free_phase' => array_map(
                 static fn (AiPlannedRoute $route): array => $route->toDebugArray(),
                 $this->freePhase,
@@ -42,10 +48,9 @@ final class AiRoutingPlan
                 static fn (AiPlannedRoute $route): array => $route->toDebugArray(),
                 $this->paidPhase,
             ),
-            'execution_order' => array_map(
-                static fn (AiPlannedRoute $route): array => $route->toDebugArray(),
-                $this->executionOrder,
-            ),
+            // SoT: AI Center logical priority × physical route priority.
+            'execution_order' => $ordered,
+            'ordered_routes' => $ordered,
             'budget' => $this->budget,
             'meta' => $this->meta,
         ];

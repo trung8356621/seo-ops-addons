@@ -174,6 +174,30 @@ final class ArticleInternalLinkPriorityPipelineTest extends TestCase
         self::assertStringNotContainsString('usableCount < 3', $sidebar);
     }
 
+    public function test_pipeline_keyword_pool_prefers_short_entity_phrases(): void
+    {
+        $src = (string) file_get_contents(
+            (new ReflectionClass(ArticleInternalLinkPipeline::class))->getFileName()
+        );
+        self::assertStringContainsString('CHAR_LENGTH(TRIM(phrase)) BETWEEN 5 AND 40', $src);
+        self::assertStringContainsString('topicKeywordIdsForSite', $src);
+        self::assertStringNotContainsString("->limit(800)", $src);
+    }
+
+    public function test_pipeline_merge_uses_already_linked_not_stage_occupancy(): void
+    {
+        $src = (string) file_get_contents(
+            (new ReflectionClass(ArticleInternalLinkPipeline::class))->getFileName()
+        );
+        self::assertStringContainsString('$alreadyLinkedHrefs', $src);
+        self::assertStringContainsString('$occupiedHrefs', $src);
+        // Final merge must not exclude stage-1 product_cat as "already linked".
+        self::assertMatchesRegularExpression(
+            '/priorityMerger->merge\(\s*\[[^\]]+\]\s*,\s*\$alreadyLinkedHrefs/s',
+            $src,
+        );
+    }
+
     public function test_site_mcp_root_only_still_present(): void
     {
         $method = new ReflectionMethod(SiteMcpGenerator::class, 'rootProductCategories');

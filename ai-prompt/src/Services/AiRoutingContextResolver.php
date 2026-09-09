@@ -16,13 +16,14 @@ use Omnichannel\Addons\AiPrompt\Support\ArticleModelOrderAuthority;
 final class AiRoutingContextResolver
 {
     /**
-     * Map UI / cost policy / generation mode → execution routing mode.
+     * Map UI / cost policy / generation mode → execution routing MODE (cost/budget).
+     * Does NOT set candidate ORDER — AI Center sortable order always wins.
      *
      * Mapping:
-     * - freeOnly flag OR AiCostPolicy::FreeOnly → FREE_ONLY
+     * - freeOnly flag OR AiCostPolicy::FreeOnly → FREE_ONLY (excludes paid)
      * - explicit preferred model (required) → EXPLICIT_MODEL
-     * - BestQuality / quality → PAID_PREFERRED
-     * - FastEconomy / default / free-first preference → FREE_FIRST_WITH_PAID_FALLBACK
+     * - BestQuality / quality → PAID_PREFERRED (budget label only; no reorder)
+     * - FastEconomy / default → FREE_FIRST_WITH_PAID_FALLBACK (legacy name = default budgets)
      *
      * Economy/default must NOT silently become FREE_ONLY.
      */
@@ -40,15 +41,14 @@ final class AiRoutingContextResolver
             return AiExecutionRoutingMode::ExplicitModel;
         }
 
-        // Preferred (non-required): keep default/free-first/paid-preferred policy;
-        // preferred model is only prepended by applyItemRoutingPreferences.
+        // Preferred (non-required): preferred model is only prepended by applyItemRoutingPreferences.
 
         $generationMode = strtolower(trim((string) ($context->itemGenerationMode ?? '')));
         if (in_array($generationMode, ['best_quality', 'quality', 'paid_preferred'], true)) {
             return AiExecutionRoutingMode::PaidPreferred;
         }
 
-        // FastEconomy and Default: free-first WITH paid fallback — never FreeOnly.
+        // Default/Economy budget mode (legacy enum name). Order stays AI Center sortable.
         return AiExecutionRoutingMode::FreeFirstWithPaidFallback;
     }
 
@@ -86,7 +86,7 @@ final class AiRoutingContextResolver
             return 'item_generation_mode.'.$context->itemGenerationMode;
         }
         if ($context->hookKey !== null && ! ArticleModelOrderAuthority::allowsGenerationModeReorder($context->hookKey)) {
-            return 'article_model_order_authority+default_free_first';
+            return 'manual_sortable_order+default_budget_mode';
         }
 
         return 'default.'.$mode->value;

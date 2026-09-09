@@ -256,11 +256,12 @@ export function normalizeLinksPayload(payload) {
         suggestedExternalLinksCatalog: Array.isArray(src.suggested_external_links_catalog)
             ? src.suggested_external_links_catalog
             : [],
-        suggestedOrphanLinks: Array.isArray(src.suggested_orphan_links)
-            ? src.suggested_orphan_links
-            : Array.isArray(src.suggestedOrphanLinks)
-              ? src.suggestedOrphanLinks
-              : [],
+        // Orphan Pages removed — unified Internal Links pipeline only.
+        suggestedOrphanLinks: [],
+        internalLinkCatalog:
+            src.internal_link_catalog && typeof src.internal_link_catalog === 'object'
+                ? src.internal_link_catalog
+                : {},
         mainDomainSuggestions: {
             mainDomain: String(src.main_domain_suggestions?.main_domain ?? '').trim(),
             relationship: src.main_domain_suggestions?.relationship

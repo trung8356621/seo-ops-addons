@@ -71,6 +71,14 @@ final class PromptExecutionPersistence
             ?? $variables['hook_key']
             ?? ''
         ));
+        if ($hookKey === '' && ! empty($result->prompt_version_id)) {
+            $version = $result->relationLoaded('promptVersion') && $result->promptVersion instanceof PromptVersion
+                ? $result->promptVersion
+                : PromptVersion::query()->find((int) $result->prompt_version_id);
+            if ($version instanceof PromptVersion) {
+                $hookKey = trim((string) ($version->hook_key ?? ''));
+            }
+        }
         if ($hookKey !== '') {
             $result->canonical_prompt_key = $hookKey;
         }
@@ -166,7 +174,8 @@ final class PromptExecutionPersistence
             $attempted = (bool) ($row['attempted'] ?? in_array($resultState, ['success', 'failed'], true));
             $rows[] = [
                 'prompt_result_id' => $resultId,
-                'sequence' => (int) ($row['attempt'] ?? $row['sequence'] ?? $sequence),
+                // Route-event order, not router "attempt" (API attempt #1 collides with skipped candidate #1).
+                'sequence' => $sequence,
                 'logical_model' => $this->nullableString($row['logical_model'] ?? null),
                 'physical_route' => $this->nullableString($row['physical_route'] ?? null),
                 'provider' => $this->nullableString($row['provider'] ?? null),

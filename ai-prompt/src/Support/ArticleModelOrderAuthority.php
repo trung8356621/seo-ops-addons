@@ -5,21 +5,25 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AiPrompt\Support;
 
 /**
- * ARTICLE MODEL AUTHORITY:
- * For article generation, preserve AI Center sortable order.
- * Only explicit user model override may intentionally reorder candidates.
- * Health / Free Only / availability may filter but must preserve relative order.
+ * MODEL ORDER AUTHORITY:
+ * AI Center sortable order (areaEnabledModels) is the runtime execution order
+ * for DEFAULT / ECONOMY / QUALITY. Cost class must not reorder candidates.
  *
- * FastEconomy / BestQuality must NOT reorder article candidates.
+ * Only explicit FreeOnly cost policy may remove paid candidates.
+ * Only explicit user model override may intentionally float a preferred model.
+ *
+ * FastEconomy / BestQuality must NEVER reorder by free/paid or reverse the list.
  */
 final class ArticleModelOrderAuthority
 {
     /**
-     * Whether generation_mode (FastEconomy / BestQuality) may reorder candidates.
-     * Article writing hooks: never.
+     * Whether generation_mode may reorder candidates.
+     * Always false — manual sortable order wins for every hook.
      */
     public static function allowsGenerationModeReorder(?string $hookKey): bool
     {
-        return ! ArticleContentGenerationHooks::matches($hookKey);
+        unset($hookKey);
+
+        return false;
     }
 }
