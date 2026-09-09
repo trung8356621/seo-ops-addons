@@ -32,9 +32,11 @@ final class ArticleLinkSuggestionContentFallbackTest extends TestCase
         $body = $this->methodBody(ArticleInternalLinkSuggestionService::class, 'collectCandidates');
 
         self::assertStringContainsString('contentKeywordFallback', $body);
-        self::assertStringContainsString('shouldRun(count($internalSuggestions))', $body);
+        self::assertStringContainsString('shouldRun($primaryValidInternal)', $body);
         self::assertStringContainsString('->supplement(', $body);
         self::assertStringContainsString("'source' => 'primary'", $body);
+        self::assertStringContainsString('matchForSite', $body);
+        self::assertStringContainsString('internal_link_catalog', $body);
     }
 
     public function test_fallback_reuses_popup_search_service(): void

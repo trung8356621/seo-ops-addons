@@ -46,6 +46,7 @@ final class ArticleInternalLinkSuggestionService
         private readonly ArticleLinkSuggestionCandidateRetriever $candidateRetriever,
         private readonly ArticleLinkSuggestionSearchTermsBuilder $termsBuilder,
         private readonly ArticleLinkSuggestionContentKeywordFallback $contentKeywordFallback,
+        private readonly ArticleInternalLinkProductCatMatcher $productCatMatcher,
     ) {}
 
     /**
@@ -192,6 +193,10 @@ final class ArticleInternalLinkSuggestionService
             'internal_catalog' => $internalCatalog,
             'external' => array_slice($externalCatalog, 0, $maxDisplayExternal),
             'external_catalog' => $externalCatalog,
+            // Always expose catalog counters — required to verify product_cat coverage.
+            'internal_link_catalog' => is_array($this->lastDebug['internal_link_catalog'] ?? null)
+                ? $this->lastDebug['internal_link_catalog']
+                : [],
         ];
 
         if (LinkSuggestionStopPhraseFilter::debugEnabled()) {
@@ -303,6 +308,28 @@ final class ArticleInternalLinkSuggestionService
         $linkedHrefs = $linkedContext['hrefs'];
         $ownArticlePhrases = $this->ownArticlePhraseBlocklist($article);
 
+        // 1) FULL product_cat taxonomy (root+child+deep) — before keyword/article/fallback.
+        $productCatResult = $this->productCatMatcher->matchForSite(
+            $siteId,
+            $plainText,
+            $validationContext,
+            $linkedHrefs,
+            $linkedLabels,
+        );
+        $productCatSuggestions = $productCatResult['suggestions'];
+        $productCatDebug = is_array($productCatResult['debug'] ?? null) ? $productCatResult['debug'] : [];
+
+        foreach ($productCatSuggestions as $productCatItem) {
+            $label = mb_strtolower(trim((string) ($productCatItem['text'] ?? '')));
+            if ($label !== '') {
+                $linkedLabels[] = $label;
+            }
+            $normalizedHref = SeoSuggestionUrlNormalizer::normalize((string) ($productCatItem['href'] ?? ''));
+            if ($normalizedHref !== '') {
+                $linkedHrefs[] = $normalizedHref;
+            }
+        }
+
         $excludeKeywordIds = $this->mainKeywordIdsForArticle((int) $article->id);
         $keywords = $this->keywordsForSite($siteId, $excludeKeywordIds);
 
@@ -391,10 +418,16 @@ final class ArticleInternalLinkSuggestionService
             $linkedHrefs,
         );
 
-        $internalSuggestions = [];
+        $internalSuggestions = $productCatSuggestions;
         $externalSuggestions = [];
         $seenNormalizedUrls = $linkedHrefs;
         $seenTargetArticleIds = [];
+        foreach ($productCatSuggestions as $productCatItem) {
+            $tid = (int) ($productCatItem['target_article_id'] ?? 0);
+            if ($tid > 0) {
+                $seenTargetArticleIds[$tid] = true;
+            }
+        }
 
         foreach ($matched as $row) {
             $keyword = $row['keyword'];
@@ -475,6 +508,11 @@ final class ArticleInternalLinkSuggestionService
             static fn (array $a, array $b): int => ((int) ($b['score'] ?? 0)) <=> ((int) ($a['score'] ?? 0)),
         );
 
+        $articleCandidateCount = count(array_filter(
+            $internalSuggestions,
+            static fn (array $row): bool => (string) ($row['source'] ?? '') !== 'product_cat'
+                && (string) ($row['candidate_source'] ?? '') !== 'product_cat',
+        ));
         $primaryValidInternal = count($internalSuggestions);
         $fallbackTriggered = false;
         $fallbackItems = [];
@@ -516,6 +554,12 @@ final class ArticleInternalLinkSuggestionService
             );
         }
 
+        $internalLinkCatalog = array_merge($productCatDebug, [
+            'matched_product_cat' => (int) ($productCatDebug['matched_product_cat'] ?? count($productCatSuggestions)),
+            'article_candidates' => $articleCandidateCount,
+            'fallback_candidates' => count($fallbackItems),
+        ]);
+
         $this->lastDebug = [
             'entry' => 'collectCandidates',
             'article_id' => (int) $article->id,
@@ -534,6 +578,7 @@ final class ArticleInternalLinkSuggestionService
             'fallback_valid_count' => count($fallbackItems),
             'final_internal_count' => count($internalSuggestions),
             'final_external_count' => count($externalSuggestions),
+            'internal_link_catalog' => $internalLinkCatalog,
             'config' => [
                 'target_internal_suggestions' => (int) config('seo-content-ai.link_suggestions.target_internal_suggestions', 5),
                 'fallback_enabled' => (bool) config('seo-content-ai.link_suggestions.fallback_enabled', true),
@@ -545,6 +590,11 @@ final class ArticleInternalLinkSuggestionService
             ],
         ];
         $this->logDebug('collect_done', $this->lastDebug);
+        RuntimeLogger::info('[INTERNAL_LINK_CATALOG]', [
+            'article_id' => (int) $article->id,
+            'site_id' => $siteId,
+            ...$internalLinkCatalog,
+        ]);
 
         $result = [
             'internal' => $internalSuggestions,

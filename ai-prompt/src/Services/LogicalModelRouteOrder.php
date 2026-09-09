@@ -9,8 +9,10 @@ use Omnichannel\Addons\AiPrompt\Support\AiCanonicalModelKey;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
 
 /**
- * Preserves logical-model order; within each logical model prefers Direct over Aggregator.
+ * Preserves logical-model order from AI Center priorities.
+ * Within the same logical model, lower priority wins; Direct vs Aggregator is only a tiebreaker.
  * Does not promote later logical models above earlier ones.
+ * Does not collapse sibling physical routes into one candidate.
  *
  * @phpstan-type CandidateList list<RoutedAiCandidate>
  */
@@ -44,13 +46,18 @@ final class LogicalModelRouteOrder
         foreach ($order as $key) {
             $members = $groups[$key];
             usort($members, function (RoutedAiCandidate $a, RoutedAiCandidate $b): int {
+                // AI Center / area priority is authoritative within a logical model.
+                if ($a->priority !== $b->priority) {
+                    return $a->priority <=> $b->priority;
+                }
+
                 $ra = $this->routeRank($a);
                 $rb = $this->routeRank($b);
                 if ($ra !== $rb) {
                     return $ra <=> $rb;
                 }
 
-                return $a->priority <=> $b->priority;
+                return ($a->seoAiModelId ?? 0) <=> ($b->seoAiModelId ?? 0);
             });
             foreach ($members as $member) {
                 $out[] = $member;

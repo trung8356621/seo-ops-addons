@@ -24,8 +24,14 @@ final class AiModelFamilyCatalog
     public function all(): array
     {
         return [
-            new AiModelFamily('deepseek.chat', 'DeepSeek Chat', ApiConnectionProviders::DEEPSEEK, 'text', ['deepseek-chat'], 1, 2, 3),
-            new AiModelFamily('deepseek.reasoner', 'DeepSeek Reasoner', ApiConnectionProviders::DEEPSEEK, 'text', ['deepseek-reasoner'], 2, 3, 2),
+            new AiModelFamily('deepseek.chat', 'DeepSeek Chat', ApiConnectionProviders::DEEPSEEK, 'text', [
+                'deepseek-chat',
+                'deepseek/deepseek-chat',
+            ], 1, 2, 3),
+            new AiModelFamily('deepseek.reasoner', 'DeepSeek Reasoner', ApiConnectionProviders::DEEPSEEK, 'text', [
+                'deepseek-reasoner',
+                'deepseek/deepseek-reasoner',
+            ], 2, 3, 2),
             new AiModelFamily('deepseek.v32', 'DeepSeek V3.2', ApiConnectionProviders::DEEPSEEK, 'text', [
                 'deepseek-v3.2',
                 'deepseek/deepseek-v3.2',

@@ -257,9 +257,15 @@ final class AiModelRouterService
         $classifier = $this->failureClassifier();
         $health = $this->runtimeHealth();
 
-        $attemptablePaidExist = ! $context->freeOnly
-            && $this->hasAttemptableNonFreeCandidate($userId, $candidates, $health);
-        $reservedPaidSlots = $attemptablePaidExist ? 1 : 0;
+        $attemptablePaidCount = $context->freeOnly
+            ? 0
+            : $this->countAttemptableNonFreeCandidates($userId, $candidates, $health);
+        $attemptablePaidExist = $attemptablePaidCount > 0;
+        // Reserve one global AI attempt per attemptable paid physical route (not per logical model).
+        // Sibling Direct+OR paid routes under DeepSeek Chat each need their own slot.
+        $reservedPaidSlots = $attemptablePaidExist
+            ? min($attemptablePaidCount, max(0, $maxAiAttempts))
+            : 0;
         $effectiveMaxFreeAttempts = min(
             max(0, $maxFreeAttempts),
             max(0, $maxAiAttempts - $reservedPaidSlots),
@@ -290,11 +296,17 @@ final class AiModelRouterService
             static fn (RoutedAiCandidate $candidate): string => $candidate->model,
             $candidates,
         );
+        $eligiblePhysicalRoutes = array_map(
+            static fn (RoutedAiCandidate $candidate): string => $candidate->physicalRouteKey(),
+            $candidates,
+        );
 
-        /** @var array<int, true> full connection suppress (credential / account) */
+        /** @var array<int, true> full connection suppress (credential / account) — never keyed by logical model */
         $suppressedConnections = [];
         /** @var array<int, true> paid billing-lane suppress — free routes on same connection remain eligible */
         $suppressedPaidLanes = [];
+        /** @var array<string, true> physical routes already attempted this execution */
+        $attemptedPhysicalRoutes = [];
 
         foreach ($candidates as $index => $candidate) {
             $candidateIndex = $index + 1;
@@ -331,7 +343,10 @@ final class AiModelRouterService
                     'skipped',
                     'connection_suppressed',
                     null,
-                    array_filter($budgetMeta(), static fn (mixed $v): bool => $v !== null && $v !== ''),
+                    array_merge(
+                        array_filter($budgetMeta(), static fn (mixed $v): bool => $v !== null && $v !== ''),
+                        $this->siblingRouteMeta($candidates, $index, $suppressedConnections, $suppressedPaidLanes, $attemptedPhysicalRoutes),
+                    ),
                 );
                 continue;
             }
@@ -344,7 +359,10 @@ final class AiModelRouterService
                     'skipped',
                     'paid_lane_suppressed',
                     null,
-                    array_filter($budgetMeta(), static fn (mixed $v): bool => $v !== null && $v !== ''),
+                    array_merge(
+                        array_filter($budgetMeta(), static fn (mixed $v): bool => $v !== null && $v !== ''),
+                        $this->siblingRouteMeta($candidates, $index, $suppressedConnections, $suppressedPaidLanes, $attemptedPhysicalRoutes),
+                    ),
                 );
                 continue;
             }
@@ -357,7 +375,10 @@ final class AiModelRouterService
                     'skipped',
                     $healthBefore,
                     null,
-                    array_filter($budgetMeta(), static fn (mixed $v): bool => $v !== null && $v !== ''),
+                    array_merge(
+                        array_filter($budgetMeta(), static fn (mixed $v): bool => $v !== null && $v !== ''),
+                        $this->siblingRouteMeta($candidates, $index, $suppressedConnections, $suppressedPaidLanes, $attemptedPhysicalRoutes),
+                    ),
                 );
                 if ($healthBefore === 'connection_locked') {
                     $suppressedConnections[$connectionId] = true;
@@ -383,10 +404,22 @@ final class AiModelRouterService
                     max(0, $maxAiAttempts),
                 );
             } elseif ($remainingPaid) {
-                $reservedPaidSlots = 1;
+                $reservedPaidSlots = min(
+                    $this->countRemainingAttemptableNonFree(
+                        $userId,
+                        $candidates,
+                        $index,
+                        $health,
+                        $suppressedConnections,
+                        $suppressedPaidLanes,
+                    ),
+                    max(0, $maxAiAttempts - $actualAttempts),
+                );
+                // Keep at least 1 while remaining paid exist so free budget stays capped.
+                $reservedPaidSlots = max(1, $reservedPaidSlots);
                 $effectiveMaxFreeAttempts = min(
                     max(0, $maxFreeAttempts),
-                    max(0, $maxAiAttempts - 1),
+                    max(0, $maxAiAttempts - $reservedPaidSlots),
                 );
             }
 
@@ -398,7 +431,10 @@ final class AiModelRouterService
                     'skipped',
                     'free_attempt_budget_exhausted',
                     null,
-                    array_filter($budgetMeta(), static fn (mixed $v): bool => $v !== null && $v !== ''),
+                    array_merge(
+                        array_filter($budgetMeta(), static fn (mixed $v): bool => $v !== null && $v !== ''),
+                        $this->siblingRouteMeta($candidates, $index, $suppressedConnections, $suppressedPaidLanes, $attemptedPhysicalRoutes),
+                    ),
                 );
                 continue;
             }
@@ -409,6 +445,7 @@ final class AiModelRouterService
 
             $actualAttempts++;
             $candidatesTried++;
+            $attemptedPhysicalRoutes[$candidate->physicalRouteKey()] = true;
             if ($candidate->isFree) {
                 $freeAttempts++;
             } else {
@@ -439,6 +476,7 @@ final class AiModelRouterService
                             $reservedPaidSlots,
                             null,
                         ),
+                        $this->siblingRouteMeta($candidates, $index, $suppressedConnections, $suppressedPaidLanes, $attemptedPhysicalRoutes),
                         array_filter([
                             'candidate_index' => $candidateIndex,
                             'candidates_tried' => $candidatesTried,
@@ -462,6 +500,7 @@ final class AiModelRouterService
 
                 if ($isCapabilitySkip) {
                     // Pre-execution filter — not a provider attempt failure.
+                    unset($attemptedPhysicalRoutes[$candidate->physicalRouteKey()]);
                     $actualAttempts = max(0, $actualAttempts - 1);
                     $candidatesTried = max(0, $candidatesTried - 1);
                     $candidatesSkipped++;
@@ -487,6 +526,7 @@ final class AiModelRouterService
                                 $reservedPaidSlots,
                                 $healthBefore,
                             ),
+                            $this->siblingRouteMeta($candidates, $index, $suppressedConnections, $suppressedPaidLanes, $attemptedPhysicalRoutes),
                             $decision->toAttemptDiagnostics(),
                         ),
                     );
@@ -502,15 +542,25 @@ final class AiModelRouterService
                 $health->recordFailure($userId, $candidate, $decision);
                 $this->applyLegacyHealthSideEffects($candidate, $decision);
 
+                $healthMutation = null;
                 if ($this->isFullConnectionSuppressDecision($decision)) {
                     $suppressedConnections[$connectionId] = true;
+                    $healthMutation = 'connection_locked';
                 } elseif ($this->isPaidLaneSuppressDecision($decision)) {
                     $suppressedPaidLanes[$connectionId] = true;
+                    $healthMutation = 'connection_paid_locked';
                 }
 
                 $fallbackCount++;
                 $reasons[] = 'position '.$candidate->priority.' attempt '.$providerAttempt.' '
                     .$candidate->provider.'/'.$candidate->model.': '.$decision->safeMessage;
+                $siblingMeta = $this->siblingRouteMeta(
+                    $candidates,
+                    $index,
+                    $suppressedConnections,
+                    $suppressedPaidLanes,
+                    $attemptedPhysicalRoutes,
+                );
                 $routingAttempts[] = $this->attemptLog(
                     $candidate,
                     $providerAttempt,
@@ -530,6 +580,7 @@ final class AiModelRouterService
                             $reservedPaidSlots,
                             $healthBefore,
                         ),
+                        $siblingMeta,
                         [
                             'candidate_index' => $candidateIndex,
                             'candidates_tried' => $candidatesTried,
@@ -540,6 +591,8 @@ final class AiModelRouterService
                             'fallbackable' => $decision->fallbackAllowed(),
                             'connection_suppressed' => $this->isFullConnectionSuppressDecision($decision),
                             'paid_lane_suppressed' => $this->isPaidLaneSuppressDecision($decision),
+                            'health_mutation' => $healthMutation,
+                            'logical_model_exhausted' => ! (bool) ($siblingMeta['sibling_routes_remain_eligible'] ?? false),
                             'request_sent' => $decision->requestSent ?? true,
                         ],
                     ),
@@ -556,9 +609,13 @@ final class AiModelRouterService
                         'failure_stage' => $decision->failureStage,
                         'connection_suppressed' => $this->isFullConnectionSuppressDecision($decision),
                         'paid_lane_suppressed' => $this->isPaidLaneSuppressDecision($decision),
+                        'health_mutation' => $healthMutation,
+                        'sibling_routes_remain_eligible' => $siblingMeta['sibling_routes_remain_eligible'] ?? false,
+                        'eligible_sibling_physical_routes' => $siblingMeta['eligible_sibling_physical_routes'] ?? [],
                         'next' => $decision->fallbackAllowed() && isset($candidates[$index + 1]),
                         'routing_owner_user_id' => $userId,
                         'eligible_models' => $eligibleModels,
+                        'eligible_physical_routes' => $eligiblePhysicalRoutes,
                         'free_attempts' => $freeAttempts,
                         'actual_attempts' => $actualAttempts,
                         'effective_max_free_attempts' => $effectiveMaxFreeAttempts,
@@ -658,11 +715,13 @@ final class AiModelRouterService
      */
     /**
      * Full connection suppress (credential / account) — blocks paid and free on that connection.
-     * RateLimited must NEVER full-suppress: free/paid often share one key with separate buckets.
+     * Model-scoped RateLimited must NEVER full-suppress: free/paid often share one key with separate buckets.
+     * Account-wide / organization quota (scope=Connection) MUST suppress the connection for the rest of the route.
      */
     private function isFullConnectionSuppressDecision(AiFailureDecision $decision): bool
     {
-        if ($decision->category === AiFailureClass::RateLimited) {
+        if ($decision->category === AiFailureClass::RateLimited
+            && $decision->scope !== AiFailureScope::Connection) {
             return false;
         }
 
@@ -725,6 +784,18 @@ final class AiModelRouterService
         array $candidates,
         AiRuntimeHealthService $health,
     ): bool {
+        return $this->countAttemptableNonFreeCandidates($userId, $candidates, $health) > 0;
+    }
+
+    /**
+     * @param  list<RoutedAiCandidate>  $candidates
+     */
+    private function countAttemptableNonFreeCandidates(
+        int $userId,
+        array $candidates,
+        AiRuntimeHealthService $health,
+    ): int {
+        $count = 0;
         foreach ($candidates as $candidate) {
             if ($candidate->isFree) {
                 continue;
@@ -732,11 +803,10 @@ final class AiModelRouterService
             if ($health->skipReason($userId, $candidate) !== null) {
                 continue;
             }
-
-            return true;
+            $count++;
         }
 
-        return false;
+        return $count;
     }
 
     /**
@@ -752,6 +822,30 @@ final class AiModelRouterService
         array $suppressedConnections,
         array $suppressedPaidLanes,
     ): bool {
+        return $this->countRemainingAttemptableNonFree(
+            $userId,
+            $candidates,
+            $currentIndex,
+            $health,
+            $suppressedConnections,
+            $suppressedPaidLanes,
+        ) > 0;
+    }
+
+    /**
+     * @param  list<RoutedAiCandidate>  $candidates
+     * @param  array<int, true>  $suppressedConnections
+     * @param  array<int, true>  $suppressedPaidLanes
+     */
+    private function countRemainingAttemptableNonFree(
+        int $userId,
+        array $candidates,
+        int $currentIndex,
+        AiRuntimeHealthService $health,
+        array $suppressedConnections,
+        array $suppressedPaidLanes,
+    ): int {
+        $count = 0;
         foreach ($candidates as $index => $candidate) {
             if ($index < $currentIndex || $candidate->isFree) {
                 continue;
@@ -763,11 +857,67 @@ final class AiModelRouterService
             if ($health->skipReason($userId, $candidate) !== null) {
                 continue;
             }
-
-            return true;
+            $count++;
         }
 
-        return false;
+        return $count;
+    }
+
+    /**
+     * Sibling physical routes under the same logical model that remain independently eligible.
+     * A failure on one physical route must never imply siblings are exhausted.
+     *
+     * @param  list<RoutedAiCandidate>  $candidates
+     * @param  array<int, true>  $suppressedConnections
+     * @param  array<int, true>  $suppressedPaidLanes
+     * @param  array<string, true>  $attemptedPhysicalRoutes
+     * @return array<string, mixed>
+     */
+    private function siblingRouteMeta(
+        array $candidates,
+        int $currentIndex,
+        array $suppressedConnections,
+        array $suppressedPaidLanes,
+        array $attemptedPhysicalRoutes,
+    ): array {
+        $current = $candidates[$currentIndex] ?? null;
+        if (! $current instanceof RoutedAiCandidate) {
+            return [];
+        }
+
+        $logical = $current->logicalModelKey();
+        $allSiblings = [];
+        $eligibleSiblings = [];
+        foreach ($candidates as $index => $candidate) {
+            if ($candidate->logicalModelKey() !== $logical) {
+                continue;
+            }
+            if ($candidate->physicalRouteKey() === $current->physicalRouteKey()) {
+                continue;
+            }
+            $allSiblings[] = $candidate->physicalRouteKey();
+            if ($index <= $currentIndex) {
+                continue;
+            }
+            $connectionId = (int) $candidate->connection->id;
+            if (isset($suppressedConnections[$connectionId])) {
+                continue;
+            }
+            if (! $candidate->isFree && isset($suppressedPaidLanes[$connectionId])) {
+                continue;
+            }
+            if (isset($attemptedPhysicalRoutes[$candidate->physicalRouteKey()])) {
+                continue;
+            }
+            $eligibleSiblings[] = $candidate->physicalRouteKey();
+        }
+
+        return [
+            'sibling_physical_routes' => $allSiblings,
+            'eligible_sibling_physical_routes' => $eligibleSiblings,
+            'sibling_routes_remain_eligible' => $eligibleSiblings !== [],
+            'logical_model_route_count' => 1 + count($allSiblings),
+        ];
     }
 
     /**
@@ -818,9 +968,14 @@ final class AiModelRouterService
         return array_filter(array_merge([
             'attempt' => $attemptNumber,
             'connection_id' => (int) $candidate->connection->id,
+            'connection_name' => (string) $candidate->connection->name,
             'provider' => $candidate->provider,
             'model' => $candidate->model,
             'candidate_model' => $candidate->model,
+            'logical_model' => $candidate->logicalModelKey(),
+            'physical_route' => $candidate->physicalRouteKey(),
+            'is_aggregator_route' => $candidate->isAggregatorRoute(),
+            'seo_ai_model_id' => $candidate->seoAiModelId,
             'is_free' => $candidate->isFree,
             'is_free_candidate' => $candidate->isFree,
             'result' => $result,
@@ -828,6 +983,9 @@ final class AiModelRouterService
             'failure_class' => $result === 'failed' ? $detail : null,
             'skip_reason' => $result === 'skipped' ? $detail : null,
             'http_status' => $httpStatus,
+            'eligible' => $result !== 'skipped',
+            'skipped' => $result === 'skipped',
+            'attempted' => $result === 'failed' || $result === 'success',
         ], $extra), static fn (mixed $value): bool => $value !== null && $value !== '' && $value !== []);
     }
 

@@ -68,12 +68,18 @@ final class SplitOutlineInputContractAndDeepSeekEligibilityTest extends TestCase
 
         $articleCtx = new AiRoutingContext(userId: 1, hookKey: 'article.content.generate');
         $article = $policy->filter(
-            [$this->candidate('deepseek', 'deepseek-chat'), $claude],
+            [
+                $this->candidate('deepseek', 'deepseek-chat'),
+                $this->candidate('openrouter', 'deepseek/deepseek-chat'),
+                $claude,
+            ],
             AiExecutionProfile::TextLongform,
             $articleCtx,
         );
-        self::assertCount(1, $article);
-        self::assertSame('claude-sonnet-4-20250514', $article[0]->model);
+        self::assertCount(3, $article);
+        self::assertSame('deepseek-chat', $article[0]->model);
+        self::assertSame('deepseek/deepseek-chat', $article[1]->model);
+        self::assertSame('claude-sonnet-4-20250514', $article[2]->model);
     }
 
     public function test_vocabulary_binder_requires_input_not_only_post_title(): void

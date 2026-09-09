@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AiPrompt\DataTransfer;
 
 use App\Models\ApiConnection;
+use Omnichannel\Addons\AiPrompt\Support\AiCanonicalModelKey;
+use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
 
 final class RoutedAiCandidate
 {
@@ -26,6 +28,29 @@ final class RoutedAiCandidate
     ) {}
 
     /**
+     * Logical-model identity shared by Direct + aggregator aliases (e.g. deepseek.chat).
+     * Must NEVER be used alone as failure / attempted / suppression key.
+     */
+    public function logicalModelKey(): string
+    {
+        return AiCanonicalModelKey::fromProviderModelId($this->model, $this->provider);
+    }
+
+    /**
+     * Physical route identity: connection + provider model id.
+     * Failures/suppressions/attempt tracking must key off this (plus billing lane), not logicalModelKey().
+     */
+    public function physicalRouteKey(): string
+    {
+        return ((int) $this->connection->id).'|'.$this->provider.'|'.$this->model;
+    }
+
+    public function isAggregatorRoute(): bool
+    {
+        return ApiConnectionProviders::isAggregator($this->provider);
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function toLogContext(): array
@@ -37,6 +62,9 @@ final class RoutedAiCandidate
             'connection_id' => (int) $this->connection->id,
             'connection_name' => (string) $this->connection->name,
             'model' => $this->model,
+            'logical_model' => $this->logicalModelKey(),
+            'physical_route' => $this->physicalRouteKey(),
+            'is_aggregator_route' => $this->isAggregatorRoute(),
             'capabilities' => $this->capabilities,
             'priority' => $this->priority,
             'route_position' => $this->priority,

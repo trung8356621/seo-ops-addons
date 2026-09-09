@@ -10,8 +10,9 @@ use Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate;
 /**
  * Canonical production eligibility filters (provider/family) by execution profile + hook.
  *
- * DeepSeek remains eligible for keyword discovery / keyword test (TextLongform + KD hook).
- * DeepSeek is not eligible for Outline/Vocabulary (TextReasoning) or article longform production.
+ * DeepSeek is eligible for TextLongform (keyword discovery + article content) including every
+ * physical route under a logical model (Direct + OpenRouter).
+ * DeepSeek remains excluded from Outline/Vocabulary (TextReasoning).
  */
 final class AiProductionRouteEligibility
 {
@@ -36,18 +37,9 @@ final class AiProductionRouteEligibility
 
     public function deepSeekAllowed(AiExecutionProfile $profile, string $hookKey): bool
     {
+        // Outline / Vocabulary production must not use DeepSeek (any physical route).
         if ($profile === AiExecutionProfile::TextReasoning) {
             return false;
-        }
-
-        if ($profile === AiExecutionProfile::TextLongform) {
-            if ($hookKey === '' || str_starts_with($hookKey, 'keyword.')) {
-                return true;
-            }
-
-            if (str_starts_with($hookKey, 'article.')) {
-                return false;
-            }
         }
 
         return true;

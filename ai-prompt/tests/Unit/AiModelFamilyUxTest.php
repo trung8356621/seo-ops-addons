@@ -28,7 +28,8 @@ final class AiModelFamilyUxTest extends TestCase
         $family = $catalog->familyForModelId('deepseek/deepseek-chat');
         $this->assertNotNull($family);
         $this->assertSame('deepseek.chat', $family->familyKey);
-        $this->assertNotContains('deepseek/deepseek-chat', $family->memberModelIds);
+        $this->assertContains('deepseek/deepseek-chat', $family->memberModelIds);
+        $this->assertContains('deepseek-chat', $family->memberModelIds);
     }
 
     public function test_family_keeps_exact_provider_model_id(): void

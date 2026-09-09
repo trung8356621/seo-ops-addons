@@ -181,20 +181,28 @@ final class LogicalModelFallbackArchitectureTest extends TestCase
         $this->assertNotSame($a, $b);
     }
 
-    public function test_logical_route_order_prefers_direct_within_same_canonical_group(): void
+    public function test_logical_route_order_preserves_priority_then_prefers_direct_on_tie(): void
     {
         $or = $this->connection(70, ApiConnectionProviders::OPENROUTER, 'OR');
         $gem = $this->connection(70, ApiConnectionProviders::GEMINI, 'Gemini');
-        $candidates = [
+        // Same priority → Direct wins as tiebreaker.
+        $tied = (new LogicalModelRouteOrder())->apply([
+            new RoutedAiCandidate('text.reasoning', $or, ApiConnectionProviders::OPENROUTER, 'google/gemini-3.1-pro-preview', [], 5),
+            new RoutedAiCandidate('text.reasoning', $gem, ApiConnectionProviders::GEMINI, 'gemini-3.1-pro-preview', [], 5),
+        ]);
+        $this->assertSame('gemini-3.1-pro-preview', $tied[0]->model);
+        $this->assertSame(ApiConnectionProviders::GEMINI, $tied[0]->provider);
+
+        // Explicit lower OR priority must run before Direct — do not force Direct first.
+        $orFirst = (new LogicalModelRouteOrder())->apply([
             new RoutedAiCandidate('text.reasoning', $or, ApiConnectionProviders::OPENROUTER, 'google/gemini-3.1-pro-preview', [], 1),
             new RoutedAiCandidate('text.reasoning', $gem, ApiConnectionProviders::GEMINI, 'gemini-3.1-pro-preview', [], 2),
             new RoutedAiCandidate('text.reasoning', $or, ApiConnectionProviders::OPENROUTER, 'anthropic/claude-sonnet-4.6', [], 3),
-        ];
-        $ordered = (new LogicalModelRouteOrder())->apply($candidates);
-        $this->assertSame('gemini-3.1-pro-preview', $ordered[0]->model);
-        $this->assertSame(ApiConnectionProviders::GEMINI, $ordered[0]->provider);
-        $this->assertSame('google/gemini-3.1-pro-preview', $ordered[1]->model);
-        $this->assertSame('anthropic/claude-sonnet-4.6', $ordered[2]->model);
+        ]);
+        $this->assertSame('google/gemini-3.1-pro-preview', $orFirst[0]->model);
+        $this->assertSame(ApiConnectionProviders::OPENROUTER, $orFirst[0]->provider);
+        $this->assertSame('gemini-3.1-pro-preview', $orFirst[1]->model);
+        $this->assertSame('anthropic/claude-sonnet-4.6', $orFirst[2]->model);
     }
 
     public function test_402_suppresses_paid_lane_only_free_same_connection_runs(): void

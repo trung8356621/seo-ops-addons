@@ -71,6 +71,9 @@ final class ArticleEditorLinksPayloadService
             'suggested_internal_links_catalog' => $bundle['internal_catalog'],
             'suggested_external_links' => $bundle['external'],
             'suggested_external_links_catalog' => $bundle['external_catalog'],
+            'internal_link_catalog' => is_array($bundle['internal_link_catalog'] ?? null)
+                ? $bundle['internal_link_catalog']
+                : [],
             'content_source' => $this->describeContentSource($article, $submittedContent, $content),
         ]);
 
