@@ -41,6 +41,8 @@ final class ViewArticlePrompts extends Page
 
     public string $filterStatus = 'all';
 
+    public bool $latestOnly = true;
+
     /** @var list<string> */
     public array $selectedRefs = [];
 
@@ -106,7 +108,7 @@ final class ViewArticlePrompts extends Page
             return [];
         }
 
-        return app(ArticleAiHistoryApplicationService::class)->listAiCalls(
+        $runGroups = app(ArticleAiHistoryApplicationService::class)->listAiCalls(
             $this->articleRecord,
             $this->accessibleProjectIds(),
             [
@@ -115,6 +117,16 @@ final class ViewArticlePrompts extends Page
                 'include_deleted' => $this->filterStatus === 'deleted',
             ],
         );
+
+        return \Omnichannel\Addons\Content\Support\ArticleAiHistoryPromptCentricPresenter::regroupByPromptKey(
+            $runGroups,
+            $this->latestOnly,
+        );
+    }
+
+    public function toggleLatestOnly(): void
+    {
+        $this->latestOnly = ! $this->latestOnly;
     }
 
     public function setActiveTab(string $tab): void

@@ -173,9 +173,29 @@ final class ArticleAiHistoryListService
             && $classification['artifact_type'] === WorkflowArtifactType::ArticleOutline->value;
         $prompt['can_apply_content'] = $classification['can_apply']
             && $classification['artifact_type'] === WorkflowArtifactType::ArticleContent->value;
+
+        $status = strtolower(trim((string) ($prompt['status'] ?? '')));
+        $hook = strtolower(trim((string) ($prompt['hook_key'] ?? $prompt['execution_role'] ?? '')));
+        $succeeded = in_array($status, ['success', 'succeeded', 'completed'], true);
+        if ($succeeded && ! $prompt['can_apply_outline'] && ! $prompt['can_apply_content']) {
+            if (str_contains($hook, 'article.outline') && ! str_contains($hook, 'vocabulary')) {
+                $prompt['can_apply_outline'] = true;
+                $prompt['artifact_type'] = $prompt['artifact_type'] ?: WorkflowArtifactType::ArticleOutline->value;
+            } elseif (str_contains($hook, 'article.content') && ! str_contains($hook, 'section')) {
+                $prompt['can_apply_content'] = true;
+                $prompt['artifact_type'] = $prompt['artifact_type'] ?: WorkflowArtifactType::ArticleContent->value;
+            }
+        }
+
         $prompt['apply_block_reason'] = $this->applyBlockReason($prompt, $classification);
-        $prompt['has_raw_prompt'] = trim((string) ($prompt['prompt'] ?? '')) !== '';
-        $prompt['has_raw_output'] = trim((string) ($prompt['result'] ?? '')) !== '';
+        $prompt['has_raw_prompt'] = (int) ($prompt['prompt_version_id'] ?? 0) > 0
+            || trim((string) ($prompt['compiled_prompt_hash'] ?? '')) !== ''
+            || (int) ($prompt['result_id'] ?? 0) > 0;
+        $prompt['has_raw_output'] = in_array(
+            strtolower(trim((string) ($prompt['status'] ?? ''))),
+            ['completed', 'success', 'failed', 'error'],
+            true,
+        );
         $prompt['has_normalized_artifact'] = trim((string) $classification['normalized_payload']) !== '';
         $prompt['apply_count'] = $applyCount;
         $prompt['last_applied_at'] = $applyStat['last_applied_at'] ?? null;

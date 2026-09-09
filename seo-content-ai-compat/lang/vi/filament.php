@@ -182,6 +182,8 @@ return [
         'last_used' => 'Last used',
         'created_at' => 'Created',
         'updated_at' => 'Updated',
+        'version' => 'Version',
+        'current_version' => 'Current version',
         'duplicate' => 'Duplicate',
         'duplicate_success' => 'Đã nhân bản Prompt (không copy usage).',
         'duplicate_legacy_remapped' => 'Bản sao đã đổi Hook article.content.rewrite → article.content.generate.',

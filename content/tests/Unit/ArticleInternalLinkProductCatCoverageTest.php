@@ -295,18 +295,17 @@ final class ArticleInternalLinkProductCatCoverageTest extends TestCase
 
     public function test_suggestion_service_wires_product_cat_before_fallback(): void
     {
-        $source = (string) file_get_contents(
-            (new ReflectionClass(\Omnichannel\Addons\Content\Services\ArticleInternalLinkSuggestionService::class))->getFileName()
+        $pipeline = (string) file_get_contents(
+            (new ReflectionClass(\Omnichannel\Addons\Content\Services\ArticleInternalLinkPipeline::class))->getFileName()
         );
 
-        self::assertStringContainsString('ArticleInternalLinkProductCatMatcher', $source);
-        self::assertStringContainsString('matchForSite', $source);
-        self::assertStringContainsString('internal_link_catalog', $source);
-        self::assertStringContainsString('[INTERNAL_LINK_CATALOG]', $source);
+        self::assertStringContainsString('ArticleInternalLinkProductCatMatcher', $pipeline);
+        self::assertStringContainsString('matchForSite', $pipeline);
+        self::assertStringContainsString('internal_link_catalog', $pipeline);
+        self::assertStringContainsString('[INTERNAL_LINK_PIPELINE]', $pipeline);
 
-        $collectPos = strpos($source, 'function collectCandidates');
-        $productCatPos = strpos($source, 'matchForSite', $collectPos !== false ? $collectPos : 0);
-        $fallbackPos = strpos($source, 'contentKeywordFallback->supplement', $collectPos !== false ? $collectPos : 0);
+        $productCatPos = strpos($pipeline, 'Stage 1: FULL product_cat');
+        $fallbackPos = strpos($pipeline, 'contentKeywordFallback->supplement');
 
         self::assertNotFalse($productCatPos);
         self::assertNotFalse($fallbackPos);

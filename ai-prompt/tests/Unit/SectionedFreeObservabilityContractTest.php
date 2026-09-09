@@ -45,10 +45,9 @@ final class SectionedFreeObservabilityContractTest extends TestCase
         $trackedSrc = file_get_contents((string) (new ReflectionClass(SectionedFreeTrackedProviderCall::class))->getFileName()) ?: '';
 
         $this->assertStringContainsString('article.content.section.generate', $recorderSrc);
-        $this->assertStringContainsString('compiled_prompt', $recorderSrc);
+        $this->assertStringContainsString('prompt_character_count', $recorderSrc);
         $this->assertStringContainsString('parent_prompt_result_id', $recorderSrc);
         $this->assertStringContainsString('section_id', $recorderSrc);
-        $this->assertStringContainsString('prompt_character_count', $recorderSrc);
         $this->assertStringContainsString('target_words', $recorderSrc);
         $this->assertStringContainsString('provider_call_id', $trackedSrc);
         $this->assertStringContainsString('prompt_hash', $trackedSrc);

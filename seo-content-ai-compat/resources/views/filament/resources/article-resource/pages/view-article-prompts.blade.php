@@ -204,6 +204,14 @@
                 {{ __('seo-content-ai::filament.article_ai_history.clear_filters') }}
             </button>
 
+            <button
+                type="button"
+                class="fi-btn fi-btn-color-gray fi-btn-size-sm rounded-lg px-3 py-2 text-sm {{ $this->latestOnly ? 'ring-2 ring-primary-500' : '' }}"
+                wire:click="toggleLatestOnly"
+            >
+                Latest only
+            </button>
+
             @if ($selectedCount > 0)
                 <div class="ml-auto flex flex-wrap items-center gap-2">
                     <span class="text-sm text-gray-500">{{ $selectedCount }} {{ __('seo-content-ai::filament.article_ai_history.selected') }}</span>
@@ -255,44 +263,61 @@
 
         @forelse ($groups as $group)
             @php
-                $runId = $group['run_id'] ?? null;
-                $projectName = trim((string) ($group['project_name'] ?? ''));
-                $ranAt = $group['ran_at'] ?? null;
+                $promptKey = trim((string) ($group['prompt_key'] ?? ''));
+                $groupTitle = trim((string) ($group['title'] ?? $promptKey));
+                $groupStage = trim((string) ($group['stage'] ?? ''));
+                $ranAt = $group['ran_at'] ?? $group['latest_ran_at'] ?? null;
                 $prompts = is_array($group['prompts'] ?? null) ? $group['prompts'] : [];
-                $maxAttempt = $group['max_attempt'] ?? null;
-                $runStatus = strtoupper(trim((string) ($group['status'] ?? '')));
+                $latestModel = trim((string) ($group['latest_model'] ?? ''));
+                $latestCategory = strtoupper(trim((string) ($group['latest_failure_category'] ?? '')));
+                $latestStatus = strtoupper(trim((string) ($group['latest_status'] ?? '')));
             @endphp
 
             <section class="seo-run-history-group" x-data="{ groupOpen: true }">
                 <header class="seo-run-history-group__header cursor-pointer" x-on:click="groupOpen = ! groupOpen">
                     <div>
                         <p class="seo-run-history-group__eyebrow">
-                            @if ($runId)
-                                Run #{{ $runId }}
-                                @if ($maxAttempt)
-                                    · Attempt #{{ $maxAttempt }}
-                                @endif
+                            @if ($promptKey !== '')
+                                {{ $promptKey }}
                             @else
                                 {{ __('seo-content-ai::filament.article_ai_history.orphan_group') }}
                             @endif
-                            @if ($projectName !== '')
-                                · {{ $projectName }}
+                            @if ($groupStage !== '' && $groupStage !== $promptKey)
+                                · Stage: {{ $groupStage }}
                             @endif
                         </p>
                         <h2 class="seo-run-history-group__title">
-                            {{ count($prompts) }} {{ __('seo-content-ai::filament.article_ai_history.step_count_label') }}
+                            {{ $groupTitle !== '' ? $groupTitle : $promptKey }}
+                            <span class="text-sm font-normal text-gray-500">
+                                · {{ count($prompts) }} {{ __('seo-content-ai::filament.article_ai_history.step_count_label') }}
+                            </span>
                         </h2>
+                        @if ($latestModel !== '')
+                            <p class="mt-1 text-xs text-gray-500">Latest: {{ $latestModel }}
+                                @if ($latestCategory !== '')
+                                    · {{ $latestCategory }}
+                                @elseif ($latestStatus !== '')
+                                    · {{ $latestStatus }}
+                                @endif
+                            </p>
+                        @endif
                     </div>
 
                     <div class="seo-run-history-group__meta">
                         @php
                             $groupDateLabel = \Omnichannel\Addons\Content\Support\ArticleAiHistoryCardPresenter::groupDateLabel($ranAt);
+                            $groupTime = null;
+                            if ($ranAt instanceof \DateTimeInterface) {
+                                $groupTime = $ranAt->format('H:i');
+                            } elseif (is_string($ranAt) && trim($ranAt) !== '') {
+                                try { $groupTime = (new \DateTimeImmutable(trim($ranAt)))->format('H:i'); } catch (\Throwable) {}
+                            }
                         @endphp
+                        @if ($groupTime)
+                            <span>{{ $groupTime }}</span>
+                        @endif
                         @if ($groupDateLabel)
                             <span>{{ $groupDateLabel }}</span>
-                        @endif
-                        @if ($runStatus !== '')
-                            <span class="seo-run-history-status">{{ $runStatus }}</span>
                         @endif
                     </div>
                 </header>
@@ -303,10 +328,11 @@
                             $artifactRef = trim((string) ($promptItem['artifact_ref'] ?? ''));
                             $promptType = trim((string) ($promptItem['type'] ?? 'Prompt AI'));
                             $status = trim((string) ($promptItem['status'] ?? ''));
-                            $hookKey = trim((string) ($promptItem['hook_key'] ?? $promptItem['execution_role'] ?? ''));
+                            $hookKey = trim((string) ($promptItem['canonical_prompt_key'] ?? $promptItem['hook_key'] ?? $promptItem['execution_role'] ?? ''));
+                            $stageLabel = trim((string) ($promptItem['stage'] ?? $hookKey));
                             $artifactType = trim((string) ($promptItem['artifact_type'] ?? ''));
-                            $promptText = trim((string) ($promptItem['prompt'] ?? ''));
-                            $resultText = trim((string) ($promptItem['result'] ?? ''));
+                            $promptText = '';
+                            $resultText = '';
                             $normalized = trim((string) ($promptItem['normalized_artifact'] ?? ''));
                             $canApplyOutline = (bool) ($promptItem['can_apply_outline'] ?? false);
                             $canApplyContent = (bool) ($promptItem['can_apply_content'] ?? false);
@@ -314,7 +340,7 @@
                             $applyCount = (int) ($promptItem['apply_count'] ?? 0);
                             $appliedLabel = trim((string) ($promptItem['applied_label'] ?? ''));
                             $executionType = trim((string) ($promptItem['execution_type'] ?? ''));
-                            $model = trim((string) ($promptItem['model'] ?? $promptItem['render_model'] ?? ''));
+                            $model = trim((string) ($promptItem['model_display'] ?? $promptItem['model'] ?? $promptItem['render_model'] ?? ''));
                             $isFreeCandidate = array_key_exists('is_free_candidate', $promptItem)
                                 ? (is_bool($promptItem['is_free_candidate']) ? $promptItem['is_free_candidate'] : null)
                                 : null;
@@ -351,8 +377,11 @@
                                 $promptItem['actual_word_count'] ?? null,
                             );
                             $isFailed = in_array($status, ['failed', 'error'], true);
+                            $failureCategory = strtoupper(trim((string) ($promptItem['failure_category'] ?? '')));
                             $errorMessage = $isFailed
-                                ? \Omnichannel\Addons\Content\Support\PromptAiCallErrorNormalizer::display($promptItem['message'] ?? null)
+                                ? \Omnichannel\Addons\Content\Support\PromptAiCallErrorNormalizer::display(
+                                    $promptItem['failure_summary'] ?? $promptItem['message'] ?? null
+                                )
                                 : null;
                             $lengthValidation = strtolower(trim((string) ($promptItem['length_validation_result'] ?? '')));
                             $errorCode = ($isFailed && $lengthValidation === 'truncated') ? 'OUTPUT_TRUNCATED' : null;
@@ -365,6 +394,13 @@
                                 $attemptMeta['time_label'],
                             ]));
                             $metaLine = implode(' · ', $metaParts);
+                            $routingAttempts = is_array($promptItem['routing_attempts'] ?? null) ? $promptItem['routing_attempts'] : [];
+                            $versionLabel = trim((string) ($promptItem['prompt_version_label'] ?? ''));
+                            $apiAttemptCount = (int) ($promptItem['api_attempt_count'] ?? 0);
+                            $minWords = $promptItem['minimum_acceptable_words'] ?? null;
+                            $actualWords = $promptItem['actual_word_count'] ?? null;
+                            $validationContract = trim((string) ($promptItem['validation_contract'] ?? ''));
+                            $validatorsApplied = is_array($promptItem['validators_applied'] ?? null) ? $promptItem['validators_applied'] : [];
                         @endphp
 
                         <div class="seo-run-history-item">
@@ -383,7 +419,29 @@
                                         <div class="seo-run-history-item__copy min-w-0 flex-1">
                                             <div class="seo-run-history-item__title-row">
                                                 <span class="seo-run-history-item__type">{{ $promptType }}</span>
+                                                @if ($versionLabel !== '')
+                                                    <span class="seo-run-history-item__tag ml-2">Version {{ $versionLabel }}</span>
+                                                @endif
                                             </div>
+                                            @if ($hookKey !== '')
+                                                <p class="text-xs text-gray-500">{{ $hookKey }}
+                                                    @if ($stageLabel !== '')
+                                                        · Stage: {{ $stageLabel }}
+                                                    @endif
+                                                    · {{ $runMeta }}
+                                                </p>
+                                            @endif
+
+                                            @if ($attemptMeta['time_label'] || $failureCategory !== '')
+                                                <p class="seo-run-history-item__meta">
+                                                    @if ($attemptMeta['time_label'])
+                                                        <span>{{ $attemptMeta['time_label'] }}</span>
+                                                    @endif
+                                                    @if ($failureCategory !== '')
+                                                        <span class="font-semibold">· {{ $failureCategory }}</span>
+                                                    @endif
+                                                </p>
+                                            @endif
 
                                             @if ($attemptMeta['is_retry'] || $metaLine !== '')
                                                 <p class="seo-run-history-item__meta">
@@ -430,7 +488,15 @@
                                         </div>
                                     </div>
                                     @if ($status !== '')
-                                        <span class="seo-run-history-item__actions">
+                                        <span class="seo-run-history-item__actions flex flex-col items-end gap-1">
+                                            @if ($failureCategory !== '')
+                                                <span class="rounded px-1.5 py-0.5 text-[0.65rem] font-bold tracking-wide
+                                                    {{ $failureCategory === 'VALIDATION' ? 'bg-amber-100 text-amber-800' : '' }}
+                                                    {{ $failureCategory === 'PROVIDER' ? 'bg-orange-100 text-orange-800' : '' }}
+                                                    {{ $failureCategory === 'ROUTING' ? 'bg-slate-100 text-slate-700' : '' }}
+                                                    {{ $failureCategory === 'SYSTEM' ? 'bg-purple-100 text-purple-800' : '' }}
+                                                ">{{ $failureCategory }}</span>
+                                            @endif
                                             <span class="seo-run-history-status {{ $isFailed ? 'is-failed' : '' }}">
                                                 {{ strtoupper($status) }}
                                             </span>
@@ -452,18 +518,15 @@
 
                             <div class="seo-run-history-item__actions-row">
                                 @if (! $isDeleted)
-                                    <button
-                                        type="button"
-                                        class="fi-btn fi-btn-color-gray fi-btn-size-sm rounded-lg px-2 py-1 text-xs"
-                                        x-on:click="openTwoCol(
-                                            {{ \Illuminate\Support\Js::from($drawerTitle) }},
-                                            {{ \Illuminate\Support\Js::from($promptText) }},
-                                            {{ \Illuminate\Support\Js::from($previewResult) }},
-                                            {{ \Illuminate\Support\Js::from($previewMeta) }}
-                                        )"
-                                    >
-                                        {{ __('seo-content-ai::filament.article_ai_history.preview') }}
-                                    </button>
+                                    @if ($artifactRef !== '')
+                                        <button
+                                            type="button"
+                                            class="fi-btn fi-btn-color-gray fi-btn-size-sm rounded-lg px-2 py-1 text-xs"
+                                            x-on:click="openRawAiCall({{ \Illuminate\Support\Js::from($artifactRef) }})"
+                                        >
+                                            {{ __('seo-content-ai::filament.article_ai_history.view_prompt') }}
+                                        </button>
+                                    @endif
 
                                     @if ($canApplyOutline)
                                         <button
@@ -500,21 +563,6 @@
                                         </button>
                                     @endif
 
-                                    @if ($promptText !== '' || $resultText !== '')
-                                        <button
-                                            type="button"
-                                            class="fi-btn fi-btn-color-gray fi-btn-size-sm rounded-lg px-2 py-1 text-xs"
-                                            x-on:click="openTwoCol(
-                                                {{ \Illuminate\Support\Js::from($drawerTitle.' · RENDERED') }},
-                                                {{ \Illuminate\Support\Js::from($promptText) }},
-                                                {{ \Illuminate\Support\Js::from($resultText) }},
-                                                'RENDERED PROMPT · RAW OUTPUT'
-                                            )"
-                                        >
-                                            {{ __('seo-content-ai::filament.article_ai_history.view_prompt') }} / {{ __('seo-content-ai::filament.article_ai_history.view_output') }}
-                                        </button>
-                                    @endif
-
                                     <button
                                         type="button"
                                         class="fi-btn fi-btn-color-danger fi-btn-size-sm rounded-lg px-2 py-1 text-xs"
@@ -531,10 +579,33 @@
                             @php
                                 $applyBlockReason = trim((string) ($promptItem['apply_block_reason'] ?? ''));
                                 $showApplyBlock = $applyBlockReason !== '' && str_contains($hookKey, 'article.content');
-                                $showErrorBanner = $isFailed && ($wordCountLabel !== null || $errorCode !== null || filled($errorMessage));
+                                $showErrorBanner = $isFailed && ($wordCountLabel !== null || $errorCode !== null || filled($errorMessage) || $failureCategory !== '');
+                                $showRouting = $routingAttempts !== [] || $failureCategory === 'ROUTING' || $failureCategory === 'VALIDATION';
+                                $showDebug = $validationContract !== '' || filled($promptItem['correlation_id'] ?? null);
+                                $physicalAttempts = [];
+                                $skippedOnly = true;
+                                foreach ($routingAttempts as $attemptRow) {
+                                    if (! is_array($attemptRow)) {
+                                        continue;
+                                    }
+                                    $aResult = strtolower((string) ($attemptRow['result'] ?? ''));
+                                    $attempted = (bool) ($attemptRow['attempted'] ?? in_array($aResult, ['success', 'failed'], true));
+                                    if ($attempted) {
+                                        $skippedOnly = false;
+                                        $physicalAttempts[] = $attemptRow;
+                                    }
+                                }
+                                $validationFailed = $failureCategory === 'VALIDATION';
+                                $lastSuccess = null;
+                                foreach (array_reverse($physicalAttempts) as $attemptRow) {
+                                    if (strtolower((string) ($attemptRow['result'] ?? '')) === 'success') {
+                                        $lastSuccess = $attemptRow;
+                                        break;
+                                    }
+                                }
                             @endphp
 
-                            @if ($showApplyBlock || $showErrorBanner)
+                            @if ($showApplyBlock || $showErrorBanner || $showRouting || $showDebug)
                                 <div class="seo-run-history-item__notices mx-3 mb-2.5 space-y-1.5">
                                     @if ($showApplyBlock)
                                         <div class="seo-run-history-item__apply-block rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-snug text-amber-800 dark:border-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
@@ -542,18 +613,96 @@
                                         </div>
                                     @endif
 
-                                    @if ($showErrorBanner)
-                                        <div class="seo-run-history-item__error-banner rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 dark:border-red-900 dark:bg-red-950/60">
-                                            @if ($wordCountLabel !== null)
-                                                <p class="seo-run-history-item__error-words mb-1 text-xs font-bold text-red-800 dark:text-red-200">{{ $wordCountLabel }}</p>
+                                    @if ($showRouting)
+                                        <div class="rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-900/40">
+                                            @if ($validationFailed && is_array($lastSuccess))
+                                                <p class="font-medium">
+                                                    {{ \Omnichannel\Addons\Content\Support\ArticleAiHistoryPromptCentricPresenter::formatAttemptRoute($lastSuccess) }}
+                                                </p>
+                                                <p class="text-emerald-700 dark:text-emerald-300">PROVIDER SUCCESS</p>
+                                                <p class="mt-1 text-gray-500">↓ Validation</p>
+                                                @if ($actualWords !== null && $minWords !== null)
+                                                    <p class="font-semibold">{{ (int) $actualWords }} / {{ (int) $minWords }} words</p>
+                                                @elseif ($wordCountLabel)
+                                                    <p class="font-semibold">{{ $wordCountLabel }}</p>
+                                                @endif
+                                                <p class="font-extrabold tracking-wide text-amber-800">VALIDATION FAILED</p>
+                                                @if (filled($errorMessage))
+                                                    <p class="mt-1 text-rose-800">{{ $errorMessage }}</p>
+                                                @endif
+                                            @elseif ($physicalAttempts !== [])
+                                                <ol class="space-y-1 pl-0">
+                                                    @foreach ($physicalAttempts as $seq => $attemptRow)
+                                                        @php
+                                                            $ar = is_array($attemptRow) ? $attemptRow : [];
+                                                            $aResult = strtolower((string) ($ar['result'] ?? ''));
+                                                            $aModel = \Omnichannel\Addons\Content\Support\ArticleAiHistoryPromptCentricPresenter::formatAttemptRoute($ar);
+                                                            $aHttp = $ar['http_status'] ?? null;
+                                                            $aFail = $ar['failure_code'] ?? $ar['failure_class'] ?? $ar['failure_category'] ?? null;
+                                                        @endphp
+                                                        <li class="list-none">
+                                                            #{{ $seq + 1 }} {{ $aModel }}
+                                                            @if ($aHttp) · {{ $aHttp }} @endif
+                                                            @if ($aFail) · {{ strtoupper((string) $aFail) }} @endif
+                                                            @if ($aResult === 'success') · PROVIDER SUCCESS @endif
+                                                        </li>
+                                                    @endforeach
+                                                </ol>
+                                            @else
+                                                <p class="font-medium">No model attempted</p>
+                                                @php
+                                                    $skipReason = '';
+                                                    foreach ($routingAttempts as $attemptRow) {
+                                                        if (is_array($attemptRow) && trim((string) ($attemptRow['skip_reason'] ?? '')) !== '') {
+                                                            $skipReason = trim((string) $attemptRow['skip_reason']);
+                                                            break;
+                                                        }
+                                                    }
+                                                @endphp
+                                                @if ($skipReason !== '')
+                                                    <p class="mt-1 text-gray-600">Reason: {{ $skipReason }}</p>
+                                                @else
+                                                    <p class="mt-1 text-gray-600">Reason: All eligible candidates blocked by policy/health</p>
+                                                @endif
                                             @endif
-                                            @if ($errorCode !== null)
+                                            <p class="mt-2 text-gray-500">{{ $apiAttemptCount }} API attempt{{ $apiAttemptCount === 1 ? '' : 's' }}</p>
+                                        </div>
+                                    @endif
+
+                                    @if ($showErrorBanner && ! $validationFailed)
+                                        <div class="seo-run-history-item__error-banner rounded-lg border border-red-200 bg-red-50 px-3 py-2.5 dark:border-red-900 dark:bg-red-950/60">
+                                            @if ($failureCategory !== '')
+                                                <p class="m-0 mb-1 text-[0.6875rem] font-extrabold tracking-wide text-red-700 dark:text-red-300">{{ $failureCategory }}</p>
+                                            @endif
+                                            @if ($errorCode !== null && $failureCategory !== 'VALIDATION')
                                                 <p class="seo-run-history-item__error-code m-0 text-[0.6875rem] font-extrabold tracking-wide text-red-700 dark:text-red-300">{{ $errorCode }}</p>
                                             @endif
                                             @if (filled($errorMessage))
                                                 <p class="seo-run-history-item__error-msg mt-1 break-words text-xs leading-snug text-rose-800 dark:text-red-200">{{ $errorMessage }}</p>
                                             @endif
                                         </div>
+                                    @endif
+
+                                    @if ($showDebug)
+                                        <details class="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs dark:border-gray-700 dark:bg-gray-900/40">
+                                            <summary class="cursor-pointer font-semibold text-gray-700 dark:text-gray-200">Debug details</summary>
+                                            @if ($promptItem['routing_mode'] ?? null)
+                                                <p class="mt-2 text-gray-600">Routing mode: {{ $promptItem['routing_mode'] }}</p>
+                                            @endif
+                                            @if ($promptItem['correlation_id'] ?? null)
+                                                <p class="text-gray-600">Correlation: {{ $promptItem['correlation_id'] }}</p>
+                                            @endif
+                                            @if ($validationContract !== '')
+                                                <p class="mt-2 font-medium">Validation contract: {{ $validationContract }}</p>
+                                                @if ($validatorsApplied !== [])
+                                                    <ul class="mt-1 list-disc pl-4 text-gray-600">
+                                                        @foreach ($validatorsApplied as $validator)
+                                                            <li>{{ $validator }}</li>
+                                                        @endforeach
+                                                    </ul>
+                                                @endif
+                                            @endif
+                                        </details>
                                     @endif
                                 </div>
                             @endif

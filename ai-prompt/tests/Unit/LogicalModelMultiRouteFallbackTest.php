@@ -392,7 +392,9 @@ final class LogicalModelMultiRouteFallbackTest extends TestCase
 
         $this->assertSame('ds-ok', $output);
         $this->assertSame(['meta/llama:free', 'deepseek/deepseek-chat', 'deepseek-chat'], $calls);
-        $this->assertGreaterThanOrEqual(2, (int) ($attempts[0]['reserved_paid_slots'] ?? 0));
+        // Paid fallback reserve is exactly 1 (not one slot per paid physical route).
+        $this->assertSame(1, (int) ($attempts[0]['reserved_paid_slots'] ?? 0));
+        $this->assertSame(1, (int) ($attempts[0]['effective_max_free_attempts'] ?? 0));
     }
 
     /**

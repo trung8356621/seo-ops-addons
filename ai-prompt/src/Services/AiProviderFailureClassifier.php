@@ -106,6 +106,29 @@ final class AiProviderFailureClassifier
             );
         }
 
+        // Application output-contract failures after a successful provider transport:
+        // continue to the next physical route unless marked terminal (OutputQuality path above).
+        if ($exception instanceof \Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\OutputTruncated
+            || $exception instanceof \Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\InvalidOutput
+            || $exception instanceof \Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\MissingRequiredSection
+            || $exception instanceof \Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\InvalidSectionOutput
+        ) {
+            $code = $exception instanceof \Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\PromptHookFailure
+                ? $exception->failureCode->value
+                : 'output_validation';
+
+            return $this->allow(
+                category: AiFailureClass::ProviderInvalidOutput,
+                scope: AiFailureScope::Model,
+                safeMessage: 'Output failed prompt validation contract — trying next route.',
+                errorCode: $code,
+                failureStage: 'validation',
+                requestSent: true,
+                responseReceived: true,
+                affectsRuntimeHealth: false,
+            );
+        }
+
         if ($this->isSystemFailure($exception, $context)) {
             return $this->deny(
                 category: AiFailureClass::SystemError,
@@ -451,8 +474,16 @@ final class AiProviderFailureClassifier
             }
         }
 
-        if (preg_match('/\b(401|402|403|404|408|413|422|429|5\d{2})\b/', $exception->getMessage(), $matches)) {
-            return (int) $matches[1];
+        if (preg_match(
+            '/(?:\bHTTP[\/\s-]*)\b(401|402|403|404|408|413|422|429|5\d{2})\b|\((401|402|403|404|408|413|422|429|5\d{2})\)|\bstatus(?:\s+code)?[:\s]+(401|402|403|404|408|413|422|429|5\d{2})\b/i',
+            $exception->getMessage(),
+            $matches,
+        )) {
+            foreach ([1, 2, 3] as $group) {
+                if (isset($matches[$group]) && $matches[$group] !== '') {
+                    return (int) $matches[$group];
+                }
+            }
         }
 
         return 0;

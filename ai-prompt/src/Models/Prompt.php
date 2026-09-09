@@ -33,6 +33,14 @@ class Prompt extends Model
         'routing_mode' => 'string',
     ];
 
+    protected static function booted(): void
+    {
+        static::saved(function (self $prompt): void {
+            app(\Omnichannel\Addons\AiPrompt\Services\PromptVersionService::class)
+                ->syncFromSavedPrompt($prompt);
+        });
+    }
+
     public function user(): BelongsTo
     {
         return $this->belongsToOnDefaultConnection(User::class, 'user_id');
@@ -47,5 +55,15 @@ class Prompt extends Model
     {
         // Explicit FK: SeoPrompt child would otherwise guess seo_prompt_id.
         return $this->hasMany(PromptResult::class, 'prompt_id');
+    }
+
+    public function versions(): HasMany
+    {
+        return $this->hasMany(PromptVersion::class, 'prompt_id')->orderByDesc('sequence');
+    }
+
+    public function currentVersion(): BelongsTo
+    {
+        return $this->belongsTo(PromptVersion::class, 'current_prompt_version_id');
     }
 }

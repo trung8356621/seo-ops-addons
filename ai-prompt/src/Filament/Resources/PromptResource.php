@@ -97,6 +97,36 @@ class PromptResource extends SeoPanelResource
                                             ->label(__('seo-content-ai::filament.prompt.name'))
                                             ->required()
                                             ->maxLength(255),
+                                        Forms\Components\Placeholder::make('current_version_display')
+                                            ->label(__('seo-content-ai::filament.prompt.current_version'))
+                                            ->content(function (?SeoPrompt $record): HtmlString {
+                                                if (! $record instanceof SeoPrompt) {
+                                                    return new HtmlString('—');
+                                                }
+                                                $current = app(\Omnichannel\Addons\AiPrompt\Services\PromptVersionService::class)
+                                                    ->currentVersion($record);
+                                                $label = $current?->version_label ?? '—';
+                                                $created = $current?->created_at instanceof \DateTimeInterface
+                                                    ? $current->created_at->format('d/m/Y H:i')
+                                                    : '';
+                                                $history = app(\Omnichannel\Addons\AiPrompt\Services\PromptVersionService::class)
+                                                    ->historyForPrompt($record, 8);
+                                                $rows = [];
+                                                foreach ($history as $version) {
+                                                    $isCurrent = $current !== null && (int) $version->id === (int) $current->id;
+                                                    $rows[] = '<li class="text-sm'.($isCurrent ? ' font-semibold' : '').'">'
+                                                        .e((string) $version->version_label)
+                                                        .($isCurrent ? ' <span class="text-xs text-gray-500">Current</span>' : '')
+                                                        .'</li>';
+                                                }
+
+                                                return new HtmlString(
+                                                    '<p class="text-sm font-semibold">'.e((string) $label).'</p>'
+                                                    .($created !== '' ? '<p class="text-xs text-gray-500">Created: '.e($created).'</p>' : '')
+                                                    .($rows !== [] ? '<ul class="mt-2 space-y-0.5">'.implode('', $rows).'</ul>' : '')
+                                                );
+                                            })
+                                            ->visible(fn (?SeoPrompt $record): bool => $record instanceof SeoPrompt),
                                         Forms\Components\Textarea::make('description')
                                             ->label(__('seo-content-ai::filament.prompt.description'))
                                             ->rows(2)
@@ -690,6 +720,16 @@ class PromptResource extends SeoPanelResource
     {
         return $table
             ->columns([
+                Tables\Columns\TextColumn::make('currentVersion.version_label')
+                    ->label(__('seo-content-ai::filament.prompt.version'))
+                    ->placeholder('—')
+                    ->weight('bold')
+                    ->sortable(query: function (Builder $query, string $direction): Builder {
+                        return $query
+                            ->leftJoin('prompt_versions as current_prompt_versions', 'prompts.current_prompt_version_id', '=', 'current_prompt_versions.id')
+                            ->orderBy('current_prompt_versions.sequence', $direction)
+                            ->select('prompts.*');
+                    }),
                 Tables\Columns\TextColumn::make('name')
                     ->label(__('seo-content-ai::filament.prompt.name'))
                     ->searchable()
@@ -779,11 +819,6 @@ class PromptResource extends SeoPanelResource
                     ->dateTime('d/m/Y H:i')
                     ->sortable()
                     ->toggleable(isToggledHiddenByDefault: true),
-                Tables\Columns\TextColumn::make('updated_at')
-                    ->label(__('seo-content-ai::filament.prompt.updated_at'))
-                    ->dateTime('d/m/Y H:i')
-                    ->sortable()
-                    ->toggleable(),
             ])
             ->filters([
                 Tables\Filters\SelectFilter::make('hook_key')
@@ -889,7 +924,7 @@ class PromptResource extends SeoPanelResource
     public static function getEloquentQuery(): Builder
     {
         $query = parent::getEloquentQuery()
-            ->with('aiConnection')
+            ->with(['aiConnection', 'currentVersion'])
             ->withCount('promptResults')
             ->withMax('promptResults', 'started_at');
 

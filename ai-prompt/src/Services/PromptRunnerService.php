@@ -599,10 +599,20 @@ class PromptRunnerService
         );
 
         $usage = is_array($usage) ? $usage : [];
+        $routingPlan = $usage['_routing_plan'] ?? null;
+        $routingMode = $usage['_routing_mode'] ?? null;
+        $routingDecisionSource = $usage['_routing_decision_source'] ?? null;
+        $correlationId = $usage['_correlation_id'] ?? null;
+        unset($usage['_routing_plan'], $usage['_routing_mode'], $usage['_routing_decision_source'], $usage['_correlation_id']);
+
         $usage['routing'] = array_merge($candidate->toLogContext(), [
             'fallback_count' => $fallbackCount,
             'fallback_reasons' => $reasons,
             'routing_attempts' => $routingAttempts ?? [],
+            'routing_plan' => is_array($routingPlan) ? $routingPlan : null,
+            'routing_mode' => is_string($routingMode) ? $routingMode : null,
+            'routing_decision_source' => is_string($routingDecisionSource) ? $routingDecisionSource : null,
+            'correlation_id' => is_string($correlationId) ? $correlationId : null,
             'cost_policy' => (AiCostPolicyScope::current())->value,
             'attempt' => $fallbackCount + 1,
             'attempt_number' => $fallbackCount + 1,
@@ -1510,6 +1520,7 @@ class PromptRunnerService
     private function sanitizeInputSnapshot(array $snapshot): array
     {
         $snapshot = Utf8Sanitizer::arrayDeep($snapshot);
+        unset($snapshot['compiled_prompt']);
 
         return $this->withResolvedArticleLengthSnapshot($snapshot);
     }
@@ -2301,6 +2312,30 @@ class PromptRunnerService
             requirePreferredModel: $preferredModelId > 0 && $modelMode === 'required',
             itemGenerationMode: $generationMode !== '' ? $generationMode : null,
             hookKey: $hookKey !== '' ? $hookKey : null,
+            generationStrategy: isset($variables['generation_strategy'])
+                ? (string) $variables['generation_strategy']
+                : (isset($variables['generation_shape']) ? (string) $variables['generation_shape'] : null),
+            canonicalPromptKey: $hookKey !== '' ? $hookKey : null,
+            promptTaskType: isset($variables['_execution_stage'])
+                ? (string) $variables['_execution_stage']
+                : ($hookKey !== '' ? $hookKey : null),
+            correlationId: isset($variables['_correlation_id'])
+                ? (string) $variables['_correlation_id']
+                : (isset($variables['correlation_id']) ? (string) $variables['correlation_id'] : null),
+            workflowRunId: isset($variables['_workflow_run_id']) && is_numeric($variables['_workflow_run_id'])
+                ? (int) $variables['_workflow_run_id']
+                : (isset($variables['run_id']) && is_numeric($variables['run_id']) ? (int) $variables['run_id'] : null),
+            projectItemId: isset($variables['_project_item_id']) && is_numeric($variables['_project_item_id'])
+                ? (int) $variables['_project_item_id']
+                : (isset($variables['project_item_id']) && is_numeric($variables['project_item_id'])
+                    ? (int) $variables['project_item_id']
+                    : null),
+            workflowNodeId: isset($variables['_workflow_node_id'])
+                ? (string) $variables['_workflow_node_id']
+                : (isset($variables['node_id']) ? (string) $variables['node_id'] : null),
+            retryAttempt: isset($variables['_retry_attempt']) && is_numeric($variables['_retry_attempt'])
+                ? (int) $variables['_retry_attempt']
+                : (isset($variables['attempt']) && is_numeric($variables['attempt']) ? (int) $variables['attempt'] : null),
         );
     }
 

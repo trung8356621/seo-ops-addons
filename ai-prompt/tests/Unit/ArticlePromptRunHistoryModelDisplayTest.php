@@ -108,6 +108,6 @@ final class ArticlePromptRunHistoryModelDisplayTest extends TestCase
             0,
         );
 
-        self::assertSame('Unknown model', $item['model']);
+        self::assertSame('Legacy execution — routing metadata unavailable', $item['model']);
     }
 }

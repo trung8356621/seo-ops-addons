@@ -319,6 +319,18 @@ final class PromptHookRuntimeEngine
         }
 
         $snapshot = is_array($result->input_snapshot) ? $result->input_snapshot : [];
+        $contract = (new \Omnichannel\Addons\AiPrompt\Support\OutputValidationContractRegistry())
+            ->resolve(
+                is_string($input['hook_key'] ?? null) ? (string) $input['hook_key'] : null,
+                is_string($snapshot['hook_key'] ?? null) ? (string) $snapshot['hook_key'] : null,
+            );
+        $meta['validation_contract'] = $contract['contract'];
+        $meta['validators_applied'] = [
+            'non_empty',
+            'min_words:'.$meta['minimum_acceptable_words'],
+            'target_words:'.$meta['target_article_length'],
+        ];
+
         $variables = is_array($snapshot['variables'] ?? null) ? $snapshot['variables'] : [];
         foreach ($meta as $key => $value) {
             $variables[$key] = $value;
@@ -326,6 +338,25 @@ final class PromptHookRuntimeEngine
         }
         $snapshot['variables'] = $variables;
         $result->input_snapshot = $snapshot;
+
+        $tokenUsage = is_array($result->token_usage) ? $result->token_usage : [];
+        $routingAttempts = is_array($tokenUsage['routing']['routing_attempts'] ?? null)
+            ? $tokenUsage['routing']['routing_attempts']
+            : [];
+        $normalized = (new \Omnichannel\Addons\AiPrompt\Services\AiPrimaryFailureSelector())->select(
+            terminalException: $failure,
+            routingAttempts: $routingAttempts,
+            actualAttempts: 1,
+            promptKey: $contract['contract'],
+            stage: $contract['contract'],
+            correlationId: is_string($snapshot['correlation_id'] ?? null) ? (string) $snapshot['correlation_id'] : null,
+            validationTrace: $meta,
+        );
+        $tokenUsage['normalized_failure'] = $normalized->toArray();
+        $tokenUsage['validation_contract'] = $contract['contract'];
+        $tokenUsage['validators_applied'] = $meta['validators_applied'];
+        $result->token_usage = $tokenUsage;
+        $result->error_message = $normalized->userMessage;
         $result->save();
     }
 }

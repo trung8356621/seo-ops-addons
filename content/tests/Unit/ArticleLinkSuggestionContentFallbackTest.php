@@ -29,14 +29,14 @@ final class ArticleLinkSuggestionContentFallbackTest extends TestCase
 
     public function test_collect_candidates_invokes_fallback_when_short(): void
     {
-        $body = $this->methodBody(ArticleInternalLinkSuggestionService::class, 'collectCandidates');
+        $body = $this->methodBody(\Omnichannel\Addons\Content\Services\ArticleInternalLinkPipeline::class, 'collect');
 
         self::assertStringContainsString('contentKeywordFallback', $body);
-        self::assertStringContainsString('shouldRun($primaryValidInternal)', $body);
+        self::assertStringContainsString('shouldRun(count($preGenericMerged))', $body);
         self::assertStringContainsString('->supplement(', $body);
-        self::assertStringContainsString("'source' => 'primary'", $body);
         self::assertStringContainsString('matchForSite', $body);
         self::assertStringContainsString('internal_link_catalog', $body);
+        self::assertStringContainsString('priorityMerger->merge', $body);
     }
 
     public function test_fallback_reuses_popup_search_service(): void

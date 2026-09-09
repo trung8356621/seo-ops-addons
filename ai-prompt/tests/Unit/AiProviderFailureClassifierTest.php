@@ -87,8 +87,11 @@ final class AiProviderFailureClassifierTest extends TestCase
         $decision = $this->classifier->classify(new PromptRunException('organization quota exceeded', 429));
         $this->assertSame(AiFailureClass::RateLimited, $decision->category);
         $this->assertSame(AiFailureScope::Connection, $decision->scope);
-        $this->assertTrue($decision->applyCooldown);
-        $this->assertFalse($decision->lockConnection);
+        // In-request: suppress remaining routes on this connection (lockConnection).
+        // Persistent cooldown is a separate policy — currently OFF for account-wide 429.
+        $this->assertTrue($decision->lockConnection);
+        $this->assertFalse($decision->applyCooldown);
+        $this->assertTrue($decision->fallbackAllowed());
     }
 
     public function test_403_account_restriction_locks_connection(): void

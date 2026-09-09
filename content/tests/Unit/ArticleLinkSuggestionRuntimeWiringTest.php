@@ -59,10 +59,10 @@ final class ArticleLinkSuggestionRuntimeWiringTest extends TestCase
 
     public function test_primary_pipeline_filters_stop_phrases(): void
     {
-        $body = $this->methodBody(ArticleInternalLinkSuggestionService::class, 'collectCandidates');
+        $body = $this->methodBody(\Omnichannel\Addons\Content\Services\ArticleInternalLinkPipeline::class, 'collect');
 
         self::assertStringContainsString('LinkSuggestionStopPhraseFilter::isStopPhrase', $body);
-        self::assertStringContainsString('shouldRun($primaryValidInternal)', $body);
+        self::assertStringContainsString('shouldRun(count($preGenericMerged))', $body);
         self::assertStringNotContainsString('outlineHeadingPhrases', $body);
 
         $serviceSource = (string) file_get_contents(
@@ -76,9 +76,8 @@ final class ArticleLinkSuggestionRuntimeWiringTest extends TestCase
         $body = $this->methodBody(ArticleLinkSuggestionContentKeywordFallback::class, 'shouldRun');
         self::assertStringContainsString('$currentInternalCount < $this->targetCount()', $body);
 
-        $collect = $this->methodBody(ArticleInternalLinkSuggestionService::class, 'collectCandidates');
-        self::assertStringContainsString('$primaryValidInternal = count($internalSuggestions)', $collect);
-        self::assertStringContainsString('shouldRun($primaryValidInternal)', $collect);
+        $collect = $this->methodBody(\Omnichannel\Addons\Content\Services\ArticleInternalLinkPipeline::class, 'collect');
+        self::assertStringContainsString('shouldRun(count($preGenericMerged))', $collect);
     }
 
     public function test_extractor_pulls_strong_before_heading_from_real_html_shape(): void

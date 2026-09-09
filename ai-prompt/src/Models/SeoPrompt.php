@@ -14,6 +14,8 @@ class SeoPrompt extends Prompt
 {
     protected static function booted(): void
     {
+        parent::booted();
+
         static::saving(function (self $prompt): void {
             $settings = is_array($prompt->settings) ? $prompt->settings : [];
             $settings['detected_tags'] = app(\Omnichannel\Addons\AiPrompt\Services\WorkflowTagExtractorService::class)

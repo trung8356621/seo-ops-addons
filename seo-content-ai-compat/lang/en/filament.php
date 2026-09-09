@@ -182,6 +182,8 @@ return [
         'last_used' => 'Last used',
         'created_at' => 'Created',
         'updated_at' => 'Updated',
+        'version' => 'Version',
+        'current_version' => 'Current version',
         'duplicate' => 'Duplicate',
         'duplicate_success' => 'Prompt duplicated (usage not copied).',
         'delete_in_use_title' => 'Prompt is used by',

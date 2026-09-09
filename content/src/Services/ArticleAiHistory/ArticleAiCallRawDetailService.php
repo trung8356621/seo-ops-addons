@@ -6,17 +6,18 @@ namespace Omnichannel\Addons\Content\Services\ArticleAiHistory;
 
 use Omnichannel\Addons\AiPrompt\Models\PromptResult;
 use Omnichannel\Addons\AiPrompt\Models\SeoPromptResultLink;
+use Omnichannel\Addons\AiPrompt\Services\PromptReconstructor;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 
 /**
- * Resolve raw compiled prompt + output_text for a single AI call (PromptResult).
- * Separate from normalized artifact preview used by Apply.
+ * Resolve reconstructed prompt + output_text for a single AI call (PromptResult).
+ * List never preloads these blobs.
  */
 final class ArticleAiCallRawDetailService
 {
     public function __construct(
-        private readonly ArticleAiHistoryListService $listService,
+        private readonly PromptReconstructor $reconstructor,
     ) {}
 
     /**
@@ -49,12 +50,9 @@ final class ArticleAiCallRawDetailService
             ];
         }
 
-        $artifact = $this->listService->resolveOwnedArtifact($article, $artifactRef, $accessibleProjectIds);
-        if (is_array($artifact)) {
-            return $this->buildPayload($artifactRef, $promptResultId, $artifact);
-        }
-
-        $result = PromptResult::query()->with('prompt')->find($promptResultId);
+        $result = PromptResult::query()
+            ->with(['prompt', 'promptVersion'])
+            ->find($promptResultId);
         if (! $result instanceof PromptResult) {
             return [
                 'success' => false,
@@ -62,55 +60,40 @@ final class ArticleAiCallRawDetailService
             ];
         }
 
-        return $this->buildPayload($artifactRef, $promptResultId, [
-            'prompt' => self::resolveRawPromptText($result),
-            'result' => self::resolveRawOutputText($result),
-            'prompt_name' => trim((string) ($result->prompt?->name ?? '')),
-            'hook_key' => self::extractHookKey($result),
-            'model' => self::extractModel($result),
-            'provider' => trim((string) (is_array($result->input_snapshot) ? ($result->input_snapshot['provider'] ?? '') : '')),
-            'status' => (string) $result->status,
-        ]);
-    }
-
-    /**
-     * @param  array<string, mixed>  $artifact
-     * @return array{success: bool, title?: string, prompt?: string, output?: string, meta?: string, message?: string, prompt_result_id?: int, artifact_ref?: string}
-     */
-    private function buildPayload(string $artifactRef, int $promptResultId, array $artifact): array
-    {
-        $prompt = trim((string) ($artifact['prompt'] ?? ''));
-        $output = trim((string) ($artifact['result'] ?? ''));
-        $error = \Omnichannel\Addons\Content\Support\PromptAiCallErrorNormalizer::display($artifact['message'] ?? null);
+        $reconstructed = $this->reconstructor->reconstruct($result);
+        $promptText = trim((string) ($reconstructed['prompt'] ?? ''));
+        $output = self::resolveRawOutputText($result);
+        $error = \Omnichannel\Addons\Content\Support\PromptAiCallErrorNormalizer::display($result->error_message);
         if ($output === '' && $error !== null) {
             $output = $error;
         }
 
-        if ($prompt === '') {
-            $prompt = 'Không còn dữ liệu prompt.';
+        if ($promptText === '') {
+            $promptText = 'Không còn dữ liệu prompt.';
         }
-
         if ($output === '') {
             $output = 'Không có raw output được lưu cho AI call này.';
         }
 
+        $version = $reconstructed['version_label'] ?? null;
         $titleParts = array_values(array_filter([
-            trim((string) ($artifact['prompt_name'] ?? $artifact['type'] ?? 'AI Call')),
-            trim((string) ($artifact['hook_key'] ?? '')),
+            trim((string) ($result->prompt?->name ?? 'AI Call')),
+            trim((string) ($result->canonical_prompt_key ?? self::extractHookKey($result))),
+            is_string($version) && $version !== '' ? 'v'.$version : null,
         ]));
 
         $metaParts = array_values(array_filter([
-            trim((string) ($artifact['model'] ?? $artifact['render_model'] ?? '')),
-            trim((string) ($artifact['provider'] ?? '')),
-            trim((string) ($artifact['status'] ?? '')),
+            self::extractModel($result),
+            trim((string) $result->status),
             'PromptResult #'.$promptResultId,
+            $reconstructed['mismatch'] ? 'HASH MISMATCH' : null,
             $error,
         ]));
 
         return [
             'success' => true,
             'title' => implode(' · ', $titleParts),
-            'prompt' => $prompt,
+            'prompt' => $promptText,
             'output' => $output,
             'meta' => implode(' · ', $metaParts),
             'prompt_result_id' => $promptResultId,
@@ -146,26 +129,17 @@ final class ArticleAiCallRawDetailService
 
     public static function resolveRawPromptText(PromptResult $result, ?array $step = null): string
     {
-        $snapshot = is_array($result->input_snapshot) ? $result->input_snapshot : [];
-        $compiledPrompt = trim((string) ($snapshot['compiled_prompt'] ?? ''));
-        $promptTemplate = '';
-        if ($result->relationLoaded('prompt')) {
-            $prompt = $result->getRelation('prompt');
-            $promptTemplate = $prompt instanceof \Omnichannel\Addons\AiPrompt\Models\SeoPrompt
-                ? trim((string) ($prompt->markdown_content ?? ''))
-                : '';
-        }
-        $fallbackInput = trim((string) ($step['input_used'] ?? ''));
-
-        if ($compiledPrompt !== '') {
-            return $compiledPrompt;
+        try {
+            $reconstructed = app(PromptReconstructor::class)->reconstruct($result);
+            $compiled = trim((string) ($reconstructed['prompt'] ?? ''));
+            if ($compiled !== '') {
+                return $compiled;
+            }
+        } catch (\Throwable) {
+            // fall through
         }
 
-        if ($promptTemplate !== '') {
-            return $promptTemplate;
-        }
-
-        return $fallbackInput;
+        return trim((string) ($step['input_used'] ?? ''));
     }
 
     public static function resolveRawOutputText(PromptResult $result, ?array $step = null): string
@@ -180,6 +154,9 @@ final class ArticleAiCallRawDetailService
 
     private static function extractHookKey(PromptResult $result): string
     {
+        if (trim((string) ($result->canonical_prompt_key ?? '')) !== '') {
+            return trim((string) $result->canonical_prompt_key);
+        }
         $snapshot = is_array($result->input_snapshot) ? $result->input_snapshot : [];
 
         return trim((string) ($snapshot['hook_key'] ?? $snapshot['variables']['hook_key'] ?? ''));

@@ -43,12 +43,12 @@ final class ArticleEditorLinksPayloadService
             'suggested_internal_links_catalog' => [],
             'suggested_external_links' => [],
             'suggested_external_links_catalog' => [],
+            'internal_link_catalog' => [],
             'can_generate_suggestions' => true,
             'counts' => [
                 'internal' => count($extractedLinks['internal'] ?? []),
                 'external' => count($extractedLinks['external'] ?? []),
             ],
-            'suggested_orphan_links' => [],
         ];
     }
 
@@ -81,11 +81,11 @@ final class ArticleEditorLinksPayloadService
             $payload['suggestion_debug'] = $bundle['debug'];
         }
 
-        return $this->withOrphanSuggestions($payload, $article);
+        return $payload;
     }
 
     /**
-     * Chỉ chạy content-keyword fallback — nút debug «Tạo gợi ý bổ sung».
+     * «Tìm thêm gợi ý» — cùng staged pipeline, loại URL đã hiện.
      *
      * @param  list<array<string, mixed>>  $existingInternal
      * @return array<string, mixed>
@@ -113,28 +113,15 @@ final class ArticleEditorLinksPayloadService
             'suggested_internal_links_catalog' => $bundle['internal_catalog'],
             'suggested_external_links' => $bundle['external'],
             'suggested_external_links_catalog' => $bundle['external_catalog'],
+            'internal_link_catalog' => is_array($bundle['internal_link_catalog'] ?? null)
+                ? $bundle['internal_link_catalog']
+                : [],
             'content_source' => $this->describeContentSource($article, $submittedContent, $content),
         ]);
 
         if (isset($bundle['debug']) && is_array($bundle['debug'])) {
             $payload['suggestion_debug'] = $bundle['debug'];
         }
-
-        return $this->withOrphanSuggestions($payload, $article);
-    }
-
-    /**
-     * @param  array<string, mixed>  $payload
-     * @return array<string, mixed>
-     */
-    private function withOrphanSuggestions(array $payload, SeoArticle $article): array
-    {
-        $internal = array_merge(
-            is_array($payload['suggested_internal_links'] ?? null) ? $payload['suggested_internal_links'] : [],
-            is_array($payload['suggested_internal_links_catalog'] ?? null) ? $payload['suggested_internal_links_catalog'] : [],
-        );
-        $payload['suggested_orphan_links'] = app(ArticleInboundLinkGraphService::class)
-            ->pickOrphanSuggestions($internal, (int) $article->id);
 
         return $payload;
     }

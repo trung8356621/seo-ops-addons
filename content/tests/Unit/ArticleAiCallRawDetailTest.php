@@ -4,8 +4,6 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Tests\Unit;
 
-use Omnichannel\Addons\AiPrompt\Models\PromptResult;
-use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\Content\Services\ArticleAiHistory\ArticleAiCallRawDetailService;
 use Omnichannel\Addons\Content\Services\ArticleAiHistory\ArticleAiHistoryArtifactRef;
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource\Pages\ViewArticlePrompts;
@@ -15,29 +13,12 @@ use Tests\Support\LegacyAddonPath;
 
 final class ArticleAiCallRawDetailTest extends TestCase
 {
-    public function test_resolve_raw_prompt_prefers_compiled_prompt(): void
+    public function test_resolve_raw_prompt_reconstructs_via_prompt_reconstructor(): void
     {
-        $result = $this->makePromptResult(
-            inputSnapshot: ['compiled_prompt' => 'PROMPT ABC'],
-            outputText: 'OUTPUT XYZ',
-        );
-
-        self::assertSame('PROMPT ABC', ArticleAiCallRawDetailService::resolveRawPromptText($result));
-        self::assertSame('OUTPUT XYZ', ArticleAiCallRawDetailService::resolveRawOutputText($result));
-    }
-
-    public function test_resolve_raw_prompt_falls_back_to_markdown_content(): void
-    {
-        $prompt = new SeoPrompt;
-        $prompt->markdown_content = 'MARKDOWN TEMPLATE';
-
-        $result = $this->makePromptResult(
-            inputSnapshot: [],
-            outputText: 'OUTPUT XYZ',
-            prompt: $prompt,
-        );
-
-        self::assertSame('MARKDOWN TEMPLATE', ArticleAiCallRawDetailService::resolveRawPromptText($result));
+        $src = (string) file_get_contents((new ReflectionClass(ArticleAiCallRawDetailService::class))->getFileName());
+        self::assertStringContainsString('PromptReconstructor', $src);
+        self::assertStringContainsString('reconstruct', $src);
+        self::assertStringNotContainsString("snapshot['compiled_prompt']", $src);
     }
 
     public function test_artifact_ref_encodes_prompt_result_id_for_call_identity(): void
@@ -60,6 +41,10 @@ final class ArticleAiCallRawDetailTest extends TestCase
         );
         self::assertStringContainsString('openRawAiCall', $blade);
         self::assertStringContainsString('loadRawAiCallDetail', $blade);
+        self::assertStringContainsString('Version {{ $versionLabel }}', $blade);
+        self::assertStringContainsString('PROVIDER SUCCESS', $blade);
+        self::assertStringContainsString('No model attempted', $blade);
+        self::assertStringContainsString('loadRawAiCallDetail', $blade);
         self::assertStringContainsString('seo-run-history-page--workflow-tool', $blade);
         self::assertStringContainsString('seo-execution-history-workspace', $blade);
         self::assertStringNotContainsString('$wire.loadPreview($event.detail.ref)', $blade);
@@ -72,22 +57,5 @@ final class ArticleAiCallRawDetailTest extends TestCase
         );
         self::assertStringContainsString("'artifact_ref'", $src);
         self::assertStringContainsString("'prompt_result_id'", $src);
-    }
-
-    /**
-     * @param  array<string, mixed>  $inputSnapshot
-     */
-    private function makePromptResult(array $inputSnapshot, string $outputText, ?SeoPrompt $prompt = null): PromptResult
-    {
-        $result = new PromptResult;
-        $result->forceFill([
-            'input_snapshot' => $inputSnapshot,
-            'output_text' => $outputText,
-        ]);
-        if ($prompt instanceof SeoPrompt) {
-            $result->setRelation('prompt', $prompt);
-        }
-
-        return $result;
     }
 }

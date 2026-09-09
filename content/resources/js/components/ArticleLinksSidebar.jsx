@@ -984,8 +984,6 @@ export default function ArticleLinksSidebar({
     const stableExternalSuggestionsKeyRef = useRef('');
     /** Visible internal suggestions — kept in ref for domain-list cross-filter in event handlers. */
     const suggestedInternalRef = useRef([]);
-    const orphanCatalogRef = useRef([]);
-    const suggestedOrphanRef = useRef([]);
     const [links, setLinks] = useState(() => ({
         internal: editorSeoBootstrap.current?.extracted_links?.internal ?? [],
         external: (editorSeoBootstrap.current?.extracted_links?.external ?? []).filter(
@@ -1005,7 +1003,6 @@ export default function ArticleLinksSidebar({
     const [cycleByKey, setCycleByKey] = useState({});
     const [internalCollapsed, setInternalCollapsed] = useState(true);
     const [externalCollapsed, setExternalCollapsed] = useState(true);
-    const [orphanCollapsed, setOrphanCollapsed] = useState(true);
     const [mainDomainCollapsed, setMainDomainCollapsed] = useState(true);
     const [domainLinksCollapsed, setDomainLinksCollapsed] = useState(true);
     const [ctaCollapsed, setCtaCollapsed] = useState(true);
@@ -1165,9 +1162,6 @@ export default function ArticleLinksSidebar({
             payload.suggestedExternalLinksCatalog ?? [],
             payload.suggestedExternalLinks ?? [],
         );
-        const incomingOrphan = Array.isArray(payload.suggestedOrphanLinks)
-            ? payload.suggestedOrphanLinks
-            : [];
         const empty =
             incomingInternal.length === 0
             && incomingExternal.length === 0;
@@ -1191,10 +1185,6 @@ export default function ArticleLinksSidebar({
                 partitioned.external,
                 incomingExternal,
             );
-            orphanCatalogRef.current = mergeSuggestionCatalog(
-                orphanCatalogRef.current,
-                incomingOrphan,
-            );
             setCatalogVersion((value) => value + 1);
             if (!empty) {
                 bumpSuggestionCursor({
@@ -1205,7 +1195,6 @@ export default function ArticleLinksSidebar({
             return;
         }
 
-        orphanCatalogRef.current = incomingOrphan;
         window.dispatchEvent(
             new CustomEvent('seo-editor-links-updated', {
                 detail: {
@@ -1214,8 +1203,6 @@ export default function ArticleLinksSidebar({
                     suggested_internal_links_catalog: payload.suggestedInternalLinksCatalog,
                     suggested_external_links: payload.suggestedExternalLinks,
                     suggested_external_links_catalog: payload.suggestedExternalLinksCatalog,
-                    suggested_orphan: incomingOrphan,
-                    suggested_orphan_links: incomingOrphan,
                     domain_link_list: payload.domainLinkList,
                     domain_link_list_catalog: payload.domainLinkListCatalog,
                     domain_cta_list: payload.domainCtaList,
@@ -1304,36 +1291,9 @@ export default function ArticleLinksSidebar({
             applySuggestionPayload(payload, 'links-suggestions');
             suggestionsCacheRef.current.set(cacheKey, payload);
 
-            let usableCount = countUsableSuggestions();
-            // Avoid second HTTP round-trip when primary already has a usable set.
-            if (usableCount < 3) {
-                const fallbackPayload = await fetchEditorLinksSuggestions(articleId, {
-                    content,
-                    mode: 'fallback',
-                    existingInternal: buildExistingInternalPayload(),
-                    signal: controller.signal,
-                });
-                if (controller.signal.aborted) {
-                    return;
-                }
-                applySuggestionPayload(fallbackPayload, 'links-suggestions-fallback', { append: true });
-                usableCount = countUsableSuggestions(keywordCatalogRef.current);
-                suggestionsCacheRef.current.set(cacheKey, {
-                    ...payload,
-                    suggestedInternalLinks: [
-                        ...(payload.suggestedInternalLinks ?? []),
-                        ...(fallbackPayload.suggestedInternalLinks ?? []),
-                    ],
-                    suggestedInternalLinksCatalog: [
-                        ...(payload.suggestedInternalLinksCatalog ?? []),
-                        ...(fallbackPayload.suggestedInternalLinksCatalog ?? []),
-                    ],
-                    suggestedOrphanLinks: [
-                        ...(payload.suggestedOrphanLinks ?? []),
-                        ...(fallbackPayload.suggestedOrphanLinks ?? []),
-                    ],
-                });
-            }
+            const usableCount = countUsableSuggestions();
+            // Full staged pipeline already includes generic fallback when needed —
+            // do NOT fire a second blue-only HTTP pass.
 
             bumpSuggestionCursor({
                 phase: usableCount > 0 ? 'source1_done' : 'exhausted',
@@ -1639,14 +1599,6 @@ export default function ArticleLinksSidebar({
                             incomingExternalSuggested,
                         );
                     }
-                    const incomingOrphan = Array.isArray(detail.suggested_orphan_links)
-                        ? detail.suggested_orphan_links
-                        : Array.isArray(detail.suggested_orphan)
-                          ? detail.suggested_orphan
-                          : [];
-                    if (incomingOrphan.length > 0) {
-                        orphanCatalogRef.current = incomingOrphan;
-                    }
                     setCatalogVersion((value) => value + 1);
                     setHiddenRowKeys(new Set());
                 } else if (detail.source === 'links-suggestions-fallback') {
@@ -1885,27 +1837,6 @@ export default function ArticleLinksSidebar({
     }, [internal, external, excludedSuggestionLabels, articlePlainText, catalogVersion, anchorEditTick, mainDomainSuggestions.relationship, visibleMainDomainSuggestions]);
 
     suggestedInternalRef.current = suggestedInternal;
-
-    const suggestedOrphan = useMemo(() => {
-        const pool = orphanCatalogRef.current;
-        return buildVisibleInternalSuggestions({
-            catalog: pool,
-            internal,
-            external,
-            excludedLabels: [],
-            skipContentFilter: true,
-            maxSlots: Number.MAX_SAFE_INTEGER,
-        }).filter((item) => {
-            const href = String(item?.href ?? item?.target_url ?? '').trim();
-            if (href === '' || isSpecialOrContactHref(href)) {
-                return false;
-            }
-
-            return !isSuggestionExcluded(String(item?.text ?? ''), excludedSuggestionLabels);
-        });
-    }, [internal, external, excludedSuggestionLabels, catalogVersion, anchorEditTick]);
-
-    suggestedOrphanRef.current = suggestedOrphan;
 
     useEffect(() => {
         debouncedRebuildDomainLinks(internal, external, suggestedInternal);
@@ -2354,40 +2285,6 @@ export default function ArticleLinksSidebar({
                         onToggleError={(item, _index, itemKey) => togglePhraseError(item, itemKey)}
                         isContentSuggestionRow={isContentSuggestion}
                     />
-                </LinkAssistantSection>
-
-                <LinkAssistantSection
-                    title={t('links_orphan_pages_title', { count: suggestedOrphan.length })}
-                    count={suggestedOrphan.length}
-                    collapsed={orphanCollapsed}
-                    onToggle={() => setOrphanCollapsed((value) => !value)}
-                    sectionKey="links"
-                >
-                    <div className="wp-article-links-group">
-                        {suggestionsLoading && suggestedOrphan.length === 0 ? (
-                            <p className="wp-article-links-empty">{t('links_suggestions_loading')}</p>
-                        ) : suggestedOrphan.length > 0 ? (
-                            <KeywordList
-                                items={suggestedOrphan}
-                                title=""
-                                activeKey={activeKey}
-                                target="editor"
-                                variant="suggestion"
-                                hideTitle
-                                hiddenRowKeys={hiddenRowKeys}
-                                reviewLoadingKey={reviewLoadingKey}
-                                errorKeywordIds={errorKeywordIds}
-                                onKeywordClick={handleInternalSuggestionClick}
-                                onInsertSuggestion={insertSuggestedLink}
-                                onUpdateSuggestionAnchor={updateSuggestionAnchor}
-                                onCopyKeyword={copyKeyword}
-                                onToggleError={(item, _index, itemKey) => togglePhraseError(item, itemKey)}
-                                isContentSuggestionRow={isContentSuggestion}
-                            />
-                        ) : (
-                            <p className="wp-article-links-empty">{t('links_orphan_pages_empty')}</p>
-                        )}
-                    </div>
                 </LinkAssistantSection>
 
                 <LinkAssistantSection

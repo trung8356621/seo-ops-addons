@@ -778,12 +778,30 @@ class ArticleWritingExecutionService
             'prompt_owner_id' => $owner['owner_id'],
             'prompt_id' => $owner['prompt_id'],
             'hook_key' => self::HOOK_KEY,
+            'canonical_prompt_key' => self::HOOK_KEY,
+            'stage' => self::HOOK_KEY,
             'source_hash' => $variables['article_source_artifact_hash']
                 ?? ($variables['outline_artifact_hash'] ?? ($writing->metadata['article_source_artifact_hash'] ?? null)),
             'retry_or_rerun' => $variables['retry_or_rerun'] ?? 'rerun',
             'article_length' => $variables['article_length'] ?? ($writing->metadata['article_length'] ?? null),
             'legacy_adapter' => (bool) ($writing->metadata['legacy_rewrite_adapter'] ?? false),
             'legacy_caller' => $writing->metadata['legacy_caller'] ?? null,
+            'project_item_id' => isset($variables['project_item_id']) && is_numeric($variables['project_item_id'])
+                ? (int) $variables['project_item_id']
+                : (isset($writing->metadata['project_item_id']) && is_numeric($writing->metadata['project_item_id'])
+                    ? (int) $writing->metadata['project_item_id']
+                    : null),
+            'run_id' => isset($variables['run_id']) && is_numeric($variables['run_id'])
+                ? (int) $variables['run_id']
+                : (isset($writing->metadata['run_id']) && is_numeric($writing->metadata['run_id'])
+                    ? (int) $writing->metadata['run_id']
+                    : null),
+            'correlation_id' => isset($variables['correlation_id'])
+                ? (string) $variables['correlation_id']
+                : (isset($writing->metadata['correlation_id']) ? (string) $writing->metadata['correlation_id'] : null),
+            'retry_attempt' => isset($variables['attempt']) && is_numeric($variables['attempt'])
+                ? (int) $variables['attempt']
+                : null,
         ]);
     }
 

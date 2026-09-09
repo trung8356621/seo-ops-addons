@@ -8,6 +8,7 @@ use Omnichannel\Addons\AiPrompt\PromptHooks\Canonical\PromptHookDefinition;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\InvalidOutput;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\OutputTruncated;
 use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\ProviderRefused;
+use Omnichannel\Addons\AiPrompt\Support\OutputValidationContractRegistry;
 use Omnichannel\Addons\Content\Support\ArticleGenerationLengthValidator;
 use Omnichannel\Addons\AiPrompt\Support\PromptTextMetrics;
 
@@ -16,6 +17,7 @@ final class PromptHookRuntimeOutputPipeline
     public function __construct(
         private readonly MarkdownSectionsOutputParser $markdownSectionsParser = new MarkdownSectionsOutputParser,
         private readonly ArticleGenerationLengthValidator $articleLengthValidator = new ArticleGenerationLengthValidator,
+        private readonly OutputValidationContractRegistry $validationContracts = new OutputValidationContractRegistry,
     ) {}
 
     /**
@@ -33,7 +35,9 @@ final class PromptHookRuntimeOutputPipeline
      *         minimum_acceptable_words: int,
      *         target_article_length: int,
      *         length_validation_result: string
-     *     }
+     *     },
+     *     validation_contract?: string,
+     *     validators_applied?: list<string>
      * }
      */
     public function process(
@@ -42,6 +46,12 @@ final class PromptHookRuntimeOutputPipeline
         ?string $correlationId = null,
         array $input = [],
     ): array {
+        $contract = $this->validationContracts->resolve(
+            $definition->outputContractKey() ?? $definition->key->value,
+            $definition->key->value,
+        );
+        $validatorsApplied = [];
+
         if (($providerResponse['refused'] ?? false) === true) {
             throw new ProviderRefused('Provider refused to generate content.');
         }
@@ -61,6 +71,7 @@ final class PromptHookRuntimeOutputPipeline
 
         if ($definition->outputSchema->isMarkdownSections()) {
             $parsed = $this->markdownSectionsParser->parse($definition, $raw, $correlationId);
+            $validatorsApplied[] = 'outline_structure';
 
             return [
                 'type' => $type,
@@ -69,6 +80,8 @@ final class PromptHookRuntimeOutputPipeline
                 'warnings' => [],
                 'sections' => $parsed->sections,
                 'ports' => $parsed->ports,
+                'validation_contract' => $contract['contract'],
+                'validators_applied' => $validatorsApplied,
             ];
         }
 
@@ -87,7 +100,11 @@ final class PromptHookRuntimeOutputPipeline
 
         $validation = $definition->outputSchema->validation;
         if (($validation['not_empty'] ?? false) === true && trim((string) $value) === '') {
+            $validatorsApplied[] = 'non_empty';
             throw new InvalidOutput('Output is empty.');
+        }
+        if (($validation['not_empty'] ?? false) === true) {
+            $validatorsApplied[] = 'non_empty';
         }
 
         $rejectMarkers = ($validation['reject_previous_step_markers'] ?? false) === true
@@ -108,6 +125,7 @@ final class PromptHookRuntimeOutputPipeline
                 throw new InvalidOutput('Output is not valid JSON: '.$exception->getMessage());
             }
             $parsed = $decoded;
+            $validatorsApplied[] = 'json_schema';
         }
 
         if (($validation['json_object'] ?? false) === true && ! is_array($parsed)) {
@@ -120,7 +138,14 @@ final class PromptHookRuntimeOutputPipeline
 
         $lengthValidation = null;
         if (is_string($parsed)) {
-            $lengthValidation = $this->assertLengthConstraints($parsed, $validation, $input, $warnings);
+            $lengthValidation = $this->assertLengthConstraints(
+                $parsed,
+                $validation,
+                $input,
+                $warnings,
+                $contract,
+                $validatorsApplied,
+            );
         }
 
         $result = [
@@ -128,6 +153,8 @@ final class PromptHookRuntimeOutputPipeline
             'raw' => $raw,
             'value' => $parsed,
             'warnings' => $warnings,
+            'validation_contract' => $contract['contract'],
+            'validators_applied' => array_values(array_unique($validatorsApplied)),
         ];
         if ($lengthValidation !== null) {
             $result['length_validation'] = $lengthValidation;
@@ -139,7 +166,14 @@ final class PromptHookRuntimeOutputPipeline
     /**
      * @param  array<string, mixed>  $validation
      * @param  array<string, mixed>  $input
+     * @param  array{
+     *     contract: string,
+     *     validators: list<string>,
+     *     allows_article_min_words: bool,
+     *     length_unit: ?string
+     * }  $contract
      * @param  list<string>  $warnings
+     * @param  list<string>  $validatorsApplied
      * @return array{
      *     actual_word_count: int,
      *     minimum_acceptable_words: int,
@@ -152,8 +186,10 @@ final class PromptHookRuntimeOutputPipeline
         array $validation,
         array $input,
         array &$warnings,
+        array $contract,
+        array &$validatorsApplied,
     ): ?array {
-        $unit = strtolower(trim((string) ($validation['length_unit'] ?? 'chars')));
+        $unit = strtolower(trim((string) ($validation['length_unit'] ?? $contract['length_unit'] ?? 'chars')));
         if ($unit !== 'words') {
             $unit = 'chars';
         }
@@ -162,19 +198,34 @@ final class PromptHookRuntimeOutputPipeline
         $min = $schemaMin !== null ? (int) $schemaMin : null;
         $lengthMeta = null;
 
-        // Words + article_length: target = Prompt; hard min = config floor (≤ target).
-        if ($unit === 'words') {
+        // Article min-words when contract allows, OR schema explicitly uses words
+        // for a non-blocked prompt type. Never inherit into Outline/Vocab/Meta/FAQ.
+        $blockArticleMinWords = ! $contract['allows_article_min_words']
+            && $this->isKnownNonArticleContentContract((string) $contract['contract']);
+
+        if ($unit === 'words' && ! $blockArticleMinWords) {
             $articleLength = $this->resolveArticleLengthWords($input);
             if ($articleLength !== null && $articleLength > 0) {
                 $this->assertSectionedFreeDidNotReachLegacyValidator($input, $articleLength);
                 $lengthMeta = $this->articleLengthValidator->assertAcceptable($parsed, $articleLength);
                 $min = $lengthMeta['minimum_acceptable_words'];
+                $validatorsApplied[] = 'min_words:'.$min;
+                $validatorsApplied[] = 'target_words:'.$articleLength;
+            }
+        } elseif ($unit === 'words' && $blockArticleMinWords) {
+            // Explicitly block article_length inheritance for Outline/Vocab/Meta/FAQ.
+            $unit = 'chars';
+            if ($schemaMin === null && isset($validation['min_length'])) {
+                $min = (int) $validation['min_length'];
             }
         }
 
         $measured = PromptTextMetrics::measure($parsed, $unit);
 
         if ($lengthMeta === null && $min !== null && $measured < $min) {
+            if ($unit === 'chars') {
+                $validatorsApplied[] = 'min_chars:'.$min;
+            }
             throw new OutputTruncated(
                 $unit === 'words'
                     ? "Output shorter than minimum_length ({$measured} words < {$min} words)."
@@ -185,6 +236,7 @@ final class PromptHookRuntimeOutputPipeline
         if (isset($validation['max_length'])) {
             $max = (int) $validation['max_length'];
             if ($measured > $max) {
+                $validatorsApplied[] = 'max_'.$unit.':'.$max;
                 throw new InvalidOutput(
                     $unit === 'words'
                         ? "Output longer than max_length ({$measured} words > {$max} words)."
@@ -194,6 +246,18 @@ final class PromptHookRuntimeOutputPipeline
         }
 
         return $lengthMeta;
+    }
+
+    private function isKnownNonArticleContentContract(string $contract): bool
+    {
+        $c = strtolower(trim($contract));
+
+        return str_contains($c, 'outline')
+            || str_contains($c, 'vocabulary')
+            || str_contains($c, 'meta_description')
+            || str_contains($c, 'meta-description')
+            || str_contains($c, 'faq')
+            || $c === 'meta';
     }
 
     /**
@@ -229,7 +293,6 @@ final class PromptHookRuntimeOutputPipeline
             $input['resolved_generation_strategy'] ?? $input['generation_strategy'] ?? null,
         );
         if ($strategy === null || ! $strategy->isSectionedFree()) {
-            // Process-local guard still covers orchestrator-active cases without strategy on input.
             if (class_exists(\Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeExecutionGuard::class)) {
                 \Omnichannel\Addons\AiPrompt\SectionedFree\SectionedFreeExecutionGuard::assertLegacyValidatorNotReached(
                     self::class.'::assertLengthConstraints',
@@ -279,7 +342,7 @@ final class PromptHookRuntimeOutputPipeline
             return trim($matches[1]);
         }
 
-        return $trimmed;
+        return $value;
     }
 
     private function stripWrappingQuotes(string $value): string
@@ -289,21 +352,21 @@ final class PromptHookRuntimeOutputPipeline
             (str_starts_with($trimmed, '"') && str_ends_with($trimmed, '"'))
             || (str_starts_with($trimmed, "'") && str_ends_with($trimmed, "'"))
         ) {
-            return trim(mb_substr($trimmed, 1, -1));
+            return trim(substr($trimmed, 1, -1));
         }
 
-        return $trimmed;
+        return $value;
     }
 
     private function firstNonEmptyLine(string $value): string
     {
-        foreach (preg_split('/\r\n|\r|\n/', $value) ?: [] as $line) {
+        foreach (preg_split("/\r\n|\n|\r/", $value) ?: [] as $line) {
             $line = trim((string) $line);
             if ($line !== '') {
                 return $line;
             }
         }
 
-        return '';
+        return trim($value);
     }
 }

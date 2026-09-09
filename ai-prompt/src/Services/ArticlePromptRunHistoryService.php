@@ -9,8 +9,12 @@ use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Enums\WorkflowArtifactType;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRunItem;
+use Omnichannel\Addons\AiPrompt\Models\PromptResultRoutingAttempt;
+use Omnichannel\Addons\AiPrompt\Models\PromptVersion;
 use Omnichannel\Addons\AiPrompt\Models\SeoPromptResultLink;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Schema;
 
 final class ArticlePromptRunHistoryService
 {
@@ -192,8 +196,7 @@ final class ArticlePromptRunHistoryService
             ->values();
 
         // Nhiều luồng editor chỉ lưu article_id trong input_snapshot, cần suy luận thêm từ JSON snapshot.
-        $snapshotResults = PromptResult::query()
-            ->with('prompt')
+        $snapshotResults = $this->promptResultHotQuery()
             ->where(function ($query) use ($articleId): void {
                 $query
                     ->where('input_snapshot->article_id', (string) $articleId)
@@ -211,8 +214,7 @@ final class ArticlePromptRunHistoryService
             ->unique()
             ->values();
 
-        $results = PromptResult::query()
-            ->with('prompt')
+        $results = $this->promptResultHotQuery()
             ->whereIn('id', $resultIds)
             ->get()
             ->keyBy(fn (PromptResult $result): int => (int) $result->getKey());
@@ -229,8 +231,7 @@ final class ArticlePromptRunHistoryService
             }
         }
         if ($extraChildIds !== []) {
-            $extra = PromptResult::query()
-                ->with('prompt')
+            $extra = $this->promptResultHotQuery()
                 ->whereIn('id', array_values(array_unique($extraChildIds)))
                 ->get()
                 ->keyBy(fn (PromptResult $result): int => (int) $result->getKey());
@@ -462,19 +463,6 @@ final class ArticlePromptRunHistoryService
         int $index,
     ): array {
         $snapshot = is_array($result?->input_snapshot) ? $result->input_snapshot : [];
-        $compiledPrompt = trim((string) ($snapshot['compiled_prompt'] ?? ''));
-        $promptTemplate = trim((string) ($result?->prompt?->markdown_content ?? ''));
-        $fallbackInput = trim((string) ($step['input_used'] ?? ''));
-
-        $prompt = $compiledPrompt !== ''
-            ? $compiledPrompt
-            : ($promptTemplate !== '' ? $promptTemplate : $fallbackInput);
-
-        $output = trim((string) ($result?->output_text ?? ''));
-        if ($output === '') {
-            $output = trim((string) ($step['output'] ?? ''));
-        }
-
         $type = trim((string) ($step['type'] ?? ''));
         $source = trim((string) ($step['_source'] ?? ''));
         $name = trim((string) ($step['prompt_name'] ?? $step['title'] ?? $result?->prompt?->name ?? ''));
@@ -529,10 +517,7 @@ final class ArticlePromptRunHistoryService
         $primaryModel = '';
         $isFreeCandidate = $attribution->isFreeCandidate;
         $modelSource = $attribution->displayModelSource();
-        $routingAttempts = [];
-        if (is_array($tokenUsage['routing']['routing_attempts'] ?? null)) {
-            $routingAttempts = $tokenUsage['routing']['routing_attempts'];
-        }
+        $routingAttempts = $this->routingAttemptsForResult($result, $tokenUsage);
 
         if ($isSectionedFreeParent) {
             $childIds = array_values(array_filter(array_map(
@@ -572,9 +557,19 @@ final class ArticlePromptRunHistoryService
                 $attribution->displayModel() !== 'Unknown model' ? $attribution->displayModel() : ''
             );
         } else {
-            // Text path: actual → candidate → Unknown. NEVER silent requested/default/step.ai_model.
-            $primaryModel = $attribution->displayModel();
-            if ($plannerModel === '' && $primaryModel !== 'Unknown model') {
+            // Text path: prefer routing_attempts timeline; avoid opaque "Unknown model".
+            $primaryModel = \Omnichannel\Addons\AiPrompt\Support\AiHistoryRouteDisplay::resolveModelDisplay(
+                [
+                    'model' => $attribution->displayModel(),
+                    'render_model' => $renderModel,
+                    'status' => $result?->status,
+                ],
+                $routingAttempts,
+            );
+            if ($plannerModel === ''
+                && $primaryModel !== ''
+                && ! str_starts_with($primaryModel, 'No model attempted')
+                && ! str_starts_with($primaryModel, 'Legacy execution')) {
                 $plannerModel = $primaryModel;
             }
         }
@@ -727,16 +722,36 @@ final class ArticlePromptRunHistoryService
             default => trim((string) ($step['status'] ?? $result?->status ?? '')),
         };
 
+        $versionLabel = $result?->promptVersion instanceof PromptVersion
+            ? (string) $result->promptVersion->version_label
+            : null;
+        $apiAttemptCount = 0;
+        foreach ($routingAttempts as $attemptRow) {
+            if (is_array($attemptRow) && ! empty($attemptRow['attempted'])) {
+                $apiAttemptCount++;
+            } elseif (is_array($attemptRow)) {
+                $ar = strtolower((string) ($attemptRow['result'] ?? ''));
+                if (in_array($ar, ['success', 'failed'], true)) {
+                    $apiAttemptCount++;
+                }
+            }
+        }
+
         return [
             'key' => $result !== null
                 ? 'result-'.$result->id
                 : sprintf('run-%d-task-%d-step-%d', $runId, $taskId, $index),
             'result_id' => $result?->id,
             'prompt_id' => (int) ($step['prompt_id'] ?? $result?->prompt_id ?? 0),
+            'prompt_version_id' => $result?->prompt_version_id ? (int) $result->prompt_version_id : null,
+            'prompt_version_label' => $versionLabel,
             'type' => $displayType,
             'prompt_name' => $name,
-            'prompt' => $prompt,
-            'result' => $output,
+            'prompt' => '',
+            'result' => '',
+            'has_prompt_version' => $versionLabel !== null && $versionLabel !== '',
+            'compiled_prompt_hash' => $result?->compiled_prompt_hash,
+            'api_attempt_count' => $apiAttemptCount,
             'status' => $rawStatus,
             'status_label' => $uiStatus,
             'execution_type' => $executionType,
@@ -753,6 +768,42 @@ final class ArticlePromptRunHistoryService
             'provider' => $attribution->provider,
             'connection_id' => $attribution->connectionId,
             'routing_attempts' => $routingAttempts !== [] ? $routingAttempts : null,
+            'routing_plan' => is_array($tokenUsage['routing']['routing_plan'] ?? null)
+                ? $tokenUsage['routing']['routing_plan']
+                : null,
+            'routing_mode' => is_string($tokenUsage['routing']['routing_mode'] ?? null)
+                ? $tokenUsage['routing']['routing_mode']
+                : null,
+            'correlation_id' => is_string($tokenUsage['routing']['correlation_id'] ?? null)
+                ? $tokenUsage['routing']['correlation_id']
+                : ($debug['correlation_id'] ?? null),
+            'failure_category' => $result?->failure_category
+                ?? (is_array($tokenUsage['normalized_failure'] ?? null)
+                    ? ($tokenUsage['normalized_failure']['category'] ?? null)
+                    : null),
+            'failure_code' => $result?->failure_code
+                ?? (is_array($tokenUsage['normalized_failure'] ?? null)
+                    ? ($tokenUsage['normalized_failure']['code'] ?? $tokenUsage['normalized_failure']['failure_code'] ?? null)
+                    : null),
+            'normalized_failure' => is_array($tokenUsage['normalized_failure'] ?? null)
+                ? $tokenUsage['normalized_failure']
+                : null,
+            'validation_contract' => is_string($tokenUsage['validation_contract'] ?? null)
+                ? $tokenUsage['validation_contract']
+                : ($debug['validation_contract'] ?? null),
+            'validators_applied' => is_array($tokenUsage['validators_applied'] ?? null)
+                ? $tokenUsage['validators_applied']
+                : ($debug['validators_applied'] ?? null),
+            'canonical_prompt_key' => $result?->canonical_prompt_key
+                ?? $debug['hook_key']
+                ?? $debug['canonical_prompt_key']
+                ?? null,
+            'stage' => $result?->stage
+                ?? $debug['stage']
+                ?? $debug['execution_role']
+                ?? $debug['hook_key']
+                ?? null,
+            'token_usage' => $tokenUsage !== [] ? $tokenUsage : null,
             'strategy_override' => $strategyOverride,
             'strategy_resolved' => $strategyResolved,
             'strategy_source' => $strategySource,
@@ -797,6 +848,77 @@ final class ArticlePromptRunHistoryService
             'step_index' => $index,
             'attempt' => isset($step['attempt']) && $step['attempt'] !== null ? (int) $step['attempt'] : null,
         ];
+    }
+
+    private function promptResultHotQuery(): Builder
+    {
+        $query = PromptResult::query();
+        $schema = Schema::connection('omi_seo_ai');
+        $available = array_values(array_filter(
+            PromptResult::HOT_COLUMNS,
+            static fn (string $column): bool => $column === 'id' || $schema->hasColumn('prompt_results', $column),
+        ));
+        $query->select($available);
+
+        $with = ['prompt:id,name,hook_key'];
+        if ($schema->hasTable('prompt_versions')) {
+            $with[] = 'promptVersion:id,prompt_id,version_label,created_at';
+        }
+        if ($schema->hasTable('prompt_result_routing_attempts')) {
+            $with[] = 'routingAttempts';
+        }
+
+        return $query->with($with);
+    }
+
+    /**
+     * @param  array<string, mixed>  $tokenUsage
+     * @return list<array<string, mixed>>
+     */
+    private function routingAttemptsForResult(?PromptResult $result, array $tokenUsage): array
+    {
+        if ($result instanceof PromptResult
+            && $result->relationLoaded('routingAttempts')
+            && $result->routingAttempts->isNotEmpty()
+        ) {
+            return $result->routingAttempts
+                ->map(static function (PromptResultRoutingAttempt $row): array {
+                    $raw = is_array($row->raw) ? $row->raw : [];
+
+                    return $raw !== [] ? $raw : [
+                        'attempt' => $row->sequence,
+                        'sequence' => $row->sequence,
+                        'logical_model' => $row->logical_model,
+                        'physical_route' => $row->physical_route,
+                        'provider' => $row->provider,
+                        'connection_id' => $row->connection_id,
+                        'connection_name' => $row->connection_name,
+                        'model' => $row->provider_model,
+                        'actual_provider_model' => $row->provider_model,
+                        'cost_class' => $row->cost_class,
+                        'result' => strtolower((string) ($row->state ?? '')),
+                        'status' => $row->state,
+                        'attempted' => $row->attempted,
+                        'skip_reason' => $row->skip_reason,
+                        'http_status' => $row->http_status,
+                        'failure_class' => $row->failure_code,
+                        'failure_category' => $row->failure_category,
+                        'failure_scope' => $row->failure_scope,
+                        'health_mutation' => $row->health_mutation,
+                        'duration_ms' => $row->duration_ms,
+                    ];
+                })
+                ->all();
+        }
+
+        if (is_array($tokenUsage['routing']['routing_attempts'] ?? null)) {
+            return $tokenUsage['routing']['routing_attempts'];
+        }
+        if (is_array($tokenUsage['routing_attempts'] ?? null)) {
+            return $tokenUsage['routing_attempts'];
+        }
+
+        return [];
     }
 
     private function trimmedOrNull(mixed $value): ?string

@@ -31,6 +31,11 @@ final class ArticleAiHistoryCardPresenter
             return 'Unknown model';
         }
 
+        if (str_starts_with($full, 'No model attempted')
+            || str_starts_with($full, 'Legacy execution')) {
+            return $full;
+        }
+
         $withoutProvider = $full;
         $slashPos = strpos($full, '/');
         if ($slashPos !== false) {

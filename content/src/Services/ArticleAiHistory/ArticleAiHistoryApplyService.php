@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Services\ArticleAiHistory;
 
+use Omnichannel\Addons\AiPrompt\Models\PromptResult;
 use Omnichannel\Addons\ContentProjects\Enums\WorkflowArtifactType;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Models\SeoArticleAiHistoryApply;
@@ -56,6 +57,9 @@ final class ArticleAiHistoryApplyService
         }
 
         $payload = (string) ($artifact['normalized_artifact'] ?? '');
+        if (trim($payload) === '') {
+            $payload = $this->loadOutputPayload($artifact);
+        }
         $summary = $this->buildPreviewSummary($payload, $artifact['artifact_type'] ?? null);
 
         return ArticleAiHistoryActionResult::ok(
@@ -290,6 +294,9 @@ final class ArticleAiHistoryApplyService
 
         $payload = (string) ($artifact['normalized_artifact'] ?? '');
         if (trim($payload) === '') {
+            $payload = $this->loadOutputPayload($artifact);
+        }
+        if (trim($payload) === '') {
             return ArticleAiHistoryActionResult::fail(
                 'artifact_payload_empty',
                 'Nội dung AI rỗng, không thể áp dụng.',
@@ -394,6 +401,24 @@ final class ArticleAiHistoryApplyService
             'word_count' => $plain === '' ? 0 : str_word_count($plain),
             'preview_text' => mb_substr($plain, 0, 500),
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $artifact
+     */
+    private function loadOutputPayload(array $artifact): string
+    {
+        $resultId = (int) ($artifact['result_id'] ?? $artifact['prompt_result_id'] ?? 0);
+        if ($resultId <= 0) {
+            return '';
+        }
+
+        $result = PromptResult::query()->find($resultId);
+        if (! $result instanceof PromptResult) {
+            return '';
+        }
+
+        return trim((string) ($result->output_text ?? ''));
     }
 
     /**

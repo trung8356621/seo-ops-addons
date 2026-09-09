@@ -9,11 +9,14 @@ use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\AiPrompt\DataTransfer\AiFailureDecision;
 use Omnichannel\Addons\AiPrompt\Exceptions\AiRoutingException;
 use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext;
+use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingPlan;
 use Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate;
 use Omnichannel\Addons\AiPrompt\Models\SeoAiModel;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\Services\Ai\DeepSeekChatClient;
+use Omnichannel\Addons\AiPrompt\Support\AiAttemptBudgetPolicy;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
+use Omnichannel\Addons\AiPrompt\Support\AiExecutionRoutingMode;
 use Omnichannel\Addons\AiPrompt\Support\AiFailureClass;
 use Omnichannel\Addons\AiPrompt\Support\AiFailureScope;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
@@ -250,26 +253,41 @@ final class AiModelRouterService
             $userId = (int) (auth()->id() ?? 0);
         }
         $settings = $this->resilienceSettings()->get($userId);
-        $maxAiAttempts = (int) $settings[AiResilienceSettingsService::KEY_MAX_AI_ATTEMPTS];
-        $maxFreeAttempts = (int) $settings[AiResilienceSettingsService::KEY_MAX_FREE_ATTEMPTS];
-        // Free budget is configured MAX_FREE_ATTEMPTS, not a hidden one-shot/2-cap.
-        // Reserve at most 1 global AI attempt for attemptable paid fallback when present.
+        $maxAiAttempts = (int) ($context->maxAiAttempts
+            ?? $settings[AiResilienceSettingsService::KEY_MAX_AI_ATTEMPTS]);
+        $maxFreeAttempts = (int) ($context->maxFreeAttempts
+            ?? $settings[AiResilienceSettingsService::KEY_MAX_FREE_ATTEMPTS]);
         $classifier = $this->failureClassifier();
         $health = $this->runtimeHealth();
 
-        $attemptablePaidCount = $context->freeOnly
-            ? 0
-            : $this->countAttemptableNonFreeCandidates($userId, $candidates, $health);
-        $attemptablePaidExist = $attemptablePaidCount > 0;
-        // Reserve one global AI attempt per attemptable paid physical route (not per logical model).
-        // Sibling Direct+OR paid routes under DeepSeek Chat each need their own slot.
-        $reservedPaidSlots = $attemptablePaidExist
-            ? min($attemptablePaidCount, max(0, $maxAiAttempts))
-            : 0;
-        $effectiveMaxFreeAttempts = min(
-            max(0, $maxFreeAttempts),
-            max(0, $maxAiAttempts - $reservedPaidSlots),
+        $contextResolver = $this->routingContextResolver();
+        $enrichedContext = $contextResolver->enrich($context, $maxAiAttempts, $maxFreeAttempts);
+        $routingMode = $enrichedContext->routingMode ?? $contextResolver->resolveMode($enrichedContext);
+
+        [$routingPlan, $candidates] = $this->candidatePlanner()->plan(
+            profile: $profile,
+            context: $enrichedContext,
+            candidates: $candidates,
+            maxAiAttempts: $maxAiAttempts,
+            maxFreeAttempts: $maxFreeAttempts,
+            healthSkipReason: static fn (RoutedAiCandidate $candidate): ?string => $health->skipReason($userId, $candidate),
+            modelArea: (string) ($enrichedContext->modelArea ?? $parsed?->value ?? $profile),
         );
+
+        if ($candidates === []) {
+            if ($routingMode === AiExecutionRoutingMode::FreeOnly) {
+                throw AiRoutingException::noValidFreeConnection($profile);
+            }
+            $capability = $parsed?->requiredCapabilityKeys()[0] ?? 'text.generate';
+            throw AiRoutingException::noCandidate($profile, $capability);
+        }
+
+        $budgetPolicy = new AiAttemptBudgetPolicy();
+        $budget = $routingPlan->budget;
+        $reservedPaidSlots = (int) ($budget['reserved_paid_slots'] ?? 0);
+        $effectiveMaxFreeAttempts = (int) ($budget['free_budget'] ?? 0);
+        $attemptablePaidExist = (int) ($routingPlan->meta['attemptable_paid_count'] ?? 0) > 0;
+        $attemptablePaidCount = (int) ($routingPlan->meta['attemptable_paid_count'] ?? 0);
 
         $fallbackCount = 0;
         $reasons = [];
@@ -398,30 +416,17 @@ final class AiModelRouterService
                 $suppressedPaidLanes,
             );
             if (! $remainingPaid && $reservedPaidSlots > 0) {
-                $reservedPaidSlots = 0;
-                $effectiveMaxFreeAttempts = min(
-                    max(0, $maxFreeAttempts),
-                    max(0, $maxAiAttempts),
-                );
-            } elseif ($remainingPaid) {
-                $reservedPaidSlots = min(
-                    $this->countRemainingAttemptableNonFree(
-                        $userId,
-                        $candidates,
-                        $index,
-                        $health,
-                        $suppressedConnections,
-                        $suppressedPaidLanes,
-                    ),
-                    max(0, $maxAiAttempts - $actualAttempts),
-                );
-                // Keep at least 1 while remaining paid exist so free budget stays capped.
-                $reservedPaidSlots = max(1, $reservedPaidSlots);
-                $effectiveMaxFreeAttempts = min(
-                    max(0, $maxFreeAttempts),
-                    max(0, $maxAiAttempts - $reservedPaidSlots),
-                );
+                $budget = $budgetPolicy->reclaimPaidReserveWhenNoPaidRemain([
+                    'max_ai_attempts' => $maxAiAttempts,
+                    'max_free_attempts' => $maxFreeAttempts,
+                    'reserved_paid_slots' => $reservedPaidSlots,
+                    'free_budget' => $effectiveMaxFreeAttempts,
+                    'required_paid_fallback_reserve' => $reservedPaidSlots,
+                ]);
+                $reservedPaidSlots = (int) $budget['reserved_paid_slots'];
+                $effectiveMaxFreeAttempts = (int) $budget['free_budget'];
             }
+            // Do NOT re-reserve one slot per remaining paid candidate — that zeros freeBudget.
 
             if ($candidate->isFree && $freeAttempts >= $effectiveMaxFreeAttempts) {
                 $candidatesSkipped++;
@@ -490,7 +495,15 @@ final class AiModelRouterService
                     ),
                 );
 
-                return [$output, $usage, $candidate, $fallbackCount, $reasons, $routingAttempts];
+                return [$output, is_array($usage) ? array_merge($usage, [
+                    '_routing_plan' => $routingPlan->toDebugArray(),
+                    '_routing_mode' => $routingMode->value,
+                    '_routing_decision_source' => $enrichedContext->routingDecisionSource,
+                    '_correlation_id' => $enrichedContext->correlationId,
+                ]) : [
+                    '_routing_plan' => $routingPlan->toDebugArray(),
+                    '_routing_mode' => $routingMode->value,
+                ], $candidate, $fallbackCount, $reasons, $routingAttempts];
             } catch (\Throwable $exception) {
                 $lastException = $exception;
                 $decision = $classifier->classify($exception);
@@ -661,6 +674,10 @@ final class AiModelRouterService
             'routing_owner_user_id' => $userId,
             'profile' => $profile,
             'hook_key' => $context->hookKey,
+            'routing_mode' => $routingMode->value,
+            'routing_decision_source' => $enrichedContext->routingDecisionSource,
+            'routing_plan' => $routingPlan->toDebugArray(),
+            'correlation_id' => $enrichedContext->correlationId,
             'eligible_models' => $eligibleModels,
             'eligible_count' => count($candidates),
             'eligible_connection_count' => count($connectionIds),
@@ -670,12 +687,14 @@ final class AiModelRouterService
             'max_free_attempts' => $maxFreeAttempts,
             'effective_max_free_attempts' => $effectiveMaxFreeAttempts,
             'reserved_paid_slots' => $reservedPaidSlots,
+            'required_paid_fallback_reserve' => (int) ($budget['required_paid_fallback_reserve'] ?? $reservedPaidSlots),
             'free_attempts' => $freeAttempts,
             'paid_attempts' => $paidAttempts,
             'actual_attempts' => $actualAttempts,
             'candidates_tried' => $candidatesTried,
             'candidates_skipped' => $candidatesSkipped,
             'attemptable_paid_existed' => $attemptablePaidExist,
+            'attemptable_paid_count' => $attemptablePaidCount,
             'exhaustion_kind' => $classified['exhaustion_kind'],
             'retryable' => $classified['retryable'],
             'temporary' => $classified['temporary'],
@@ -690,6 +709,21 @@ final class AiModelRouterService
             'last_failure_class' => $lastFailureClass,
             'connection_lock_reason' => $lastFailureClass,
         ]);
+
+        $normalizedFailure = (new AiPrimaryFailureSelector())->select(
+            terminalException: $lastException instanceof \Throwable ? $lastException : null,
+            routingAttempts: $routingAttempts,
+            actualAttempts: $actualAttempts,
+            promptKey: $enrichedContext->canonicalPromptKey ?? $enrichedContext->hookKey,
+            stage: $enrichedContext->promptTaskType ?? $enrichedContext->hookKey,
+            correlationId: $enrichedContext->correlationId,
+        );
+        $diagnostics['normalized_failure'] = $normalizedFailure->toArray();
+        $diagnostics['routing_terminal_reason'] = 'routes_exhausted';
+        $diagnostics['primary_failure_category'] = $normalizedFailure->category->value;
+        $diagnostics['primary_failure_code'] = $normalizedFailure->code instanceof \Omnichannel\Addons\AiPrompt\Support\AiNormalizedFailureCode
+            ? $normalizedFailure->code->value
+            : (string) $normalizedFailure->code;
 
         if (function_exists('logger')) {
             logger()->info('ai.routing.exhausted', array_merge($diagnostics, [
@@ -1041,6 +1075,20 @@ final class AiModelRouterService
         return function_exists('app')
             ? app(AiResilienceSettingsService::class)
             : new AiResilienceSettingsService();
+    }
+
+    private function routingContextResolver(): AiRoutingContextResolver
+    {
+        return function_exists('app') && app()->bound(AiRoutingContextResolver::class)
+            ? app(AiRoutingContextResolver::class)
+            : new AiRoutingContextResolver();
+    }
+
+    private function candidatePlanner(): AiCandidatePlanner
+    {
+        return function_exists('app') && app()->bound(AiCandidatePlanner::class)
+            ? app(AiCandidatePlanner::class)
+            : new AiCandidatePlanner();
     }
 
     /** @deprecated Use AiProviderFailureClassifier via executeWithProfile resilience loop. */

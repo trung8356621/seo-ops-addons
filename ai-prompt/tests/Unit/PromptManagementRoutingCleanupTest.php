@@ -70,6 +70,14 @@ final class PromptManagementRoutingCleanupTest extends TestCase
         $this->assertStringNotContainsString("Select::make('ai_connection_id')", $source);
         $this->assertStringNotContainsString('resolvedRoutingSummary', $source);
         $this->assertStringContainsString('execution_profile_display', $source);
+        $this->assertStringContainsString('currentVersion.version_label', $source);
+        $this->assertStringContainsString("label(__('seo-content-ai::filament.prompt.version'))", $source);
+        $this->assertStringNotContainsString("TextColumn::make('updated_at')", $source);
+        $posVersion = strpos($source, "TextColumn::make('currentVersion.version_label')");
+        $posName = strpos($source, "TextColumn::make('name')");
+        $this->assertNotFalse($posVersion);
+        $this->assertNotFalse($posName);
+        $this->assertLessThan($posName, $posVersion);
         $this->assertStringContainsString('executionProfileDisplayHtml', $source);
         $this->assertStringContainsString('PromptExecutionProfileResolver', $source);
         $this->assertStringContainsString('SeoSettingsAiCenter::getUrl()', $source);

@@ -156,7 +156,8 @@ final class ArticleEditorStabilizationFaqSeoLinksTest extends TestCase
         self::assertStringContainsString('links-base', $source);
         self::assertStringContainsString('editor/links/suggestions', $source);
         self::assertStringContainsString('links_internal_title', $source);
-        self::assertStringContainsString('links_orphan_pages_title', $source);
+        self::assertStringContainsString('links_internal_title', $source);
+        self::assertStringNotContainsString('links_orphan_pages_title', $source);
         self::assertStringContainsString('loadLinkSuggestions', $source);
     }
 
