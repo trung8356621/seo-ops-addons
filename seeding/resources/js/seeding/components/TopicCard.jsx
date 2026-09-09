@@ -1,31 +1,31 @@
-import React, { useCallback, useState } from 'react';
-import { MoreHorizontal, Pencil, Trash2 } from 'lucide-react';
+import React, { useCallback } from 'react';
+import { MoreHorizontal, Pencil, Share2, Trash2 } from 'lucide-react';
 import ContentWithLinkPreviews from './ContentWithLinkPreviews';
-import FeedCommentsBlock from './FeedCommentsBlock';
 import useEnsureLinkPreviews from '../hooks/useEnsureLinkPreviews';
 import {
     detectPlatformLabel,
+    isTopicTrending,
     relativeTime,
-    shareStatusLabel,
-    shareStatusOf,
+    seedStatusLabel,
+    seedStatusOf,
     topicDistinctTitle,
-    topicStatusLabel,
 } from '../features/workspace/selectors';
-import { canDeleteTopic, canEditTopic } from '../features/workspace/auth';
+import { canDeleteTopic, canEditTopic, canSeedTopic } from '../features/workspace/auth';
 import { topicHasWorkHistory } from '../services/storage';
 
 /**
- * Vertical feed card — actions live on the card; no select→sidebar side effect.
+ * Vertical feed card — Chia sẻ opens ShareGeneratePanel (no claim / comments).
  *
  * @param {{
  *   topic: Record<string, unknown>,
  *   reports: Array<Record<string, unknown>>,
+ *   seedBatches?: Array<Record<string, unknown>>,
+ *   seedOutputs?: Array<Record<string, unknown>>,
  *   canMutate: boolean,
+ *   hasWorkspaceAccess?: boolean,
  *   userId: number|string,
- *   userDisplayName?: string,
  *   linkPreviewCache?: Record<string, Record<string, unknown>>,
  *   onOpenDetail: (topic: Record<string, unknown>) => void,
- *   onCommentsChange: (topic: Record<string, unknown>, comments: Array<Record<string, unknown>>) => void,
  *   onLinksChange: (topic: Record<string, unknown>, links: Array<Record<string, unknown>>) => void,
  *   onCacheUpdate?: (cache: Record<string, Record<string, unknown>>) => void,
  *   onEdit: (topic: Record<string, unknown>) => void,
@@ -36,12 +36,13 @@ import { topicHasWorkHistory } from '../services/storage';
 export default function TopicCard({
     topic,
     reports,
+    seedBatches = [],
+    seedOutputs = [],
     canMutate,
+    hasWorkspaceAccess = true,
     userId,
-    userDisplayName = '',
     linkPreviewCache = {},
     onOpenDetail,
-    onCommentsChange,
     onLinksChange,
     onCacheUpdate,
     onEdit,
@@ -49,13 +50,21 @@ export default function TopicCard({
     onShare,
 }) {
     const platform = detectPlatformLabel(topic.social_url);
-    const state = topic.state || 'draft';
     const title = topicDistinctTitle(topic);
-    const shareStatus = shareStatusOf(topic);
-    const [menuOpen, setMenuOpen] = useState(false);
+    const status = seedStatusOf(topic);
+    const trending = isTopicTrending(topic);
+    const [menuOpen, setMenuOpen] = React.useState(false);
 
     const canEdit = canEditTopic(topic, userId, canMutate);
-    const canDel = canDeleteTopic(topic, userId, canMutate, reports, topicHasWorkHistory);
+    const canDel = canDeleteTopic(
+        topic,
+        userId,
+        canMutate,
+        reports,
+        topicHasWorkHistory,
+        { seed_batches: seedBatches, seed_outputs: seedOutputs },
+    );
+    const canSeed = canSeedTopic(topic, { hasWorkspaceAccess });
 
     const onTopicLinksChange = useCallback((next) => {
         onLinksChange(topic, next);
@@ -68,16 +77,13 @@ export default function TopicCard({
     });
 
     return (
-        <article
-            className={`seeding-ws__vcard seeding-ws__vcard--${state}`}
-            data-topic-card
-        >
+        <article className="seeding-ws__vcard" data-topic-card>
             <div className="seeding-ws__vcard-head">
                 <div className="seeding-ws__vcard-chips">
+                    {trending ? <span className="seeding-ws__chip seeding-ws__chip--hot">Trending</span> : null}
                     {platform ? <span className="seeding-ws__chip">{platform}</span> : null}
-                    <span className={`seeding-ws__badge seeding-ws__badge--${state}`}>{topicStatusLabel(topic)}</span>
-                    <span className={`seeding-ws__share-pill seeding-ws__share-pill--${shareStatus}`}>
-                        {shareStatusLabel(shareStatus)}
+                    <span className={`seeding-ws__share-pill seeding-ws__share-pill--${status}`}>
+                        {seedStatusLabel(status)}
                     </span>
                 </div>
                 <div className="seeding-ws__menu">
@@ -124,31 +130,16 @@ export default function TopicCard({
                 className="seeding-ws__vcard-body"
             />
 
-            <FeedCommentsBlock
-                topic={topic}
-                canMutate={canMutate}
-                userId={userId}
-                userDisplayName={userDisplayName}
-                previewLimit={2}
-                linkPreviewCache={linkPreviewCache}
-                onCommentsChange={(comments) => onCommentsChange(topic, comments)}
-                onCacheUpdate={onCacheUpdate}
-                onExpandAll={() => onOpenDetail(topic)}
-            />
-
             <div className="seeding-ws__vcard-foot">
                 <time className="seeding-ws__time">{relativeTime(topic.updated_at)}</time>
-                {state === 'draft' ? (
-                    <button
-                        type="button"
-                        className="seeding-ws__btn seeding-ws__btn--primary"
-                        disabled={!canMutate || shareStatus !== 'ready'}
-                        title={shareStatus !== 'ready' ? 'Cần ít nhất 1 bình luận.' : undefined}
-                        onClick={() => onShare(topic)}
-                    >
-                        Đẩy chia sẻ
-                    </button>
-                ) : null}
+                <button
+                    type="button"
+                    className="seeding-ws__btn seeding-ws__btn--primary"
+                    disabled={!canSeed}
+                    onClick={() => onShare(topic)}
+                >
+                    <Share2 size={14} /> Chia sẻ
+                </button>
             </div>
         </article>
     );

@@ -64,6 +64,24 @@ final class AiProviderFailureClassifierTest extends TestCase
         $this->assertTrue($decision->fallbackAllowed());
     }
 
+    public function test_429_free_models_quota_stays_model_scoped(): void
+    {
+        $decision = $this->classifier->classify(new PromptRunException(
+            'Rate limit exceeded: free-models-per-day. Add ten credits.',
+            429,
+        ));
+        $this->assertSame(AiFailureClass::RateLimited, $decision->category);
+        $this->assertSame(AiFailureScope::Model, $decision->scope);
+        $this->assertFalse($decision->lockConnection);
+    }
+
+    public function test_429_bare_quota_exceeded_stays_model_scoped(): void
+    {
+        $decision = $this->classifier->classify(new PromptRunException('quota exceeded', 429));
+        $this->assertSame(AiFailureClass::RateLimited, $decision->category);
+        $this->assertSame(AiFailureScope::Model, $decision->scope);
+    }
+
     public function test_429_account_quota_is_connection_scoped(): void
     {
         $decision = $this->classifier->classify(new PromptRunException('organization quota exceeded', 429));

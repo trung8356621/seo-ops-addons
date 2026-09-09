@@ -13,7 +13,9 @@ use RuntimeException;
 use Throwable;
 
 /**
- * Stateless sample-comment generation via shared AiPrompt text providers.
+ * Stateless seed-content generation via shared AiPrompt text providers.
+ * API response still uses { comments: string[] } for contract stability;
+ * Flexible Seeding JS adapter maps that to seed_outputs.
  *
  * No Seeding DB writes. No SEO business imports beyond shared AI routing models.
  */
@@ -31,7 +33,7 @@ final class SeedingCommentGenerateService
         $count = max(1, min(12, $count));
         $fullText = trim($fullText);
         if ($fullText === '') {
-            throw new RuntimeException('Thiếu nội dung gốc để gen bình luận.');
+            throw new RuntimeException('Thiếu nội dung gốc để gen nội dung seeding.');
         }
 
         [$connection, $model] = $this->resolveActiveRoute();
@@ -53,7 +55,7 @@ final class SeedingCommentGenerateService
         );
 
         if (! $result->ok) {
-            throw new RuntimeException($result->message !== '' ? $result->message : 'AI không tạo được bình luận.');
+            throw new RuntimeException($result->message !== '' ? $result->message : 'AI không tạo được nội dung seeding.');
         }
 
         return $this->parseComments((string) $result->text, $count);
@@ -75,7 +77,7 @@ final class SeedingCommentGenerateService
             ->first();
 
         if (! $model instanceof SeoAiModel || ! $model->apiConnection instanceof ApiConnection) {
-            throw new RuntimeException('Chưa có model AI active. Đồng bộ AI Center trước khi gen bình luận.');
+            throw new RuntimeException('Chưa có model AI active. Đồng bộ AI Center trước khi gen nội dung seeding.');
         }
 
         return [$model->apiConnection, $model];
@@ -87,17 +89,17 @@ final class SeedingCommentGenerateService
         $urlLine = $socialUrl ? "Link bài: {$socialUrl}\n" : '';
 
         return <<<PROMPT
-Bạn là trợ lý viết bình luận mạng xã hội (tiếng Việt).
-Nhiệm vụ: tạo đúng {$count} bình luận mẫu ngắn, tự nhiên, không spam, không emoji quá nhiều.
+Bạn là trợ lý viết nội dung seeding mạng xã hội (tiếng Việt).
+Nhiệm vụ: tạo đúng {$count} nội dung seeding ngắn, tự nhiên, không spam, không emoji quá nhiều.
 Nền tảng: {$platformLabel}
 {$urlLine}
-Nội dung gốc:
+Nội dung gốc (topic):
 \"\"\"
 {$fullText}
 \"\"\"
 
-Trả về JSON array thuần (không markdown), mỗi phần tử là một chuỗi bình luận.
-Ví dụ: ["Bình luận 1","Bình luận 2"]
+Trả về JSON array thuần (không markdown), mỗi phần tử là một chuỗi nội dung seeding.
+Ví dụ: ["Nội dung seeding 1","Nội dung seeding 2"]
 PROMPT;
     }
 

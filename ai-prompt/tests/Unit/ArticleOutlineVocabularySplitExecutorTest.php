@@ -133,7 +133,7 @@ final class ArticleOutlineVocabularySplitExecutorTest extends TestCase
 
         $result = (new ReflectionMethod($executor, 'fail'))->invoke(
             $executor,
-            'Vocabulary generation failed: AI_ROUTES_EXHAUSTED: No eligible AI route was attempted',
+            'Vocabulary generation failed: AI_ROUTES_EXHAUSTED: No attemptable AI routes',
             [],
             ['error' => 'boom'],
             [],

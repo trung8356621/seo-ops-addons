@@ -48,7 +48,9 @@ export async function seedingApiFetch(url, options = {}) {
 }
 
 /**
- * Stateless AI comment generation — no Seeding DB writes.
+ * Stateless AI seed-content generation — no Seeding DB writes.
+ * Response shape kept as { comments: string[] } for route stability;
+ * Flexible Seeding maps comments → seed_outputs.
  * @param {{ full_text: string, social_url?: string, count?: number, platform?: string|null }} payload
  * @returns {Promise<{ comments: string[] }>}
  */

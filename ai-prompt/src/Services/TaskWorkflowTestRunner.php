@@ -1009,7 +1009,8 @@ final class TaskWorkflowTestRunner
                         'strategy_source' => $variables['strategy_source'] ?? null,
                     ];
 
-                    if ($this->isOutlineRoleNode($node, $hookBinding->hookKey)) {
+                    if ($this->isOutlineRoleNode($node, $hookBinding->hookKey)
+                        && $this->isOutlineSplitEnabled($variables)) {
                         $checkpoint = $this->resolveSplitOutlineCheckpoint($state, $context);
                         if ($checkpoint['body'] !== '') {
                             $contextExtras['reused_outline_markdown'] = $checkpoint['body'];
@@ -2781,6 +2782,30 @@ final class TaskWorkflowTestRunner
         $hookKey = trim((string) ($node['data']['hook_key'] ?? ''));
 
         return $hookKey === ArticleGenerationInputResolver::OUTLINE_HOOK_KEY;
+    }
+
+    /**
+     * Business feature: Split Outline Prompt (Structure + Vocabulary).
+     * Independent of writing_split_enabled and PromptBudget supportsSplit().
+     *
+     * @param  array<string, mixed>  $variables
+     */
+    private function isOutlineSplitEnabled(array $variables = []): bool
+    {
+        if (array_key_exists(SeoCreateArticleSettingsService::KEY_OUTLINE_SPLIT_ENABLED, $variables)) {
+            $raw = $variables[SeoCreateArticleSettingsService::KEY_OUTLINE_SPLIT_ENABLED];
+            if (is_bool($raw)) {
+                return $raw;
+            }
+
+            return in_array(strtolower(trim((string) $raw)), ['1', 'true', 'yes', 'on'], true);
+        }
+
+        try {
+            return $this->createArticleSettings->isOutlineSplitEnabled();
+        } catch (\Throwable) {
+            return true;
+        }
     }
 
     /**

@@ -112,7 +112,7 @@ final class AiRoutesExhaustedException extends PromptRunException
                 return 'No usable API credentials for eligible models';
             }
 
-            return 'No eligible AI route was attempted';
+            return 'No attemptable AI routes';
         }
 
         return $attemptCount.' AI attempt(s) failed';

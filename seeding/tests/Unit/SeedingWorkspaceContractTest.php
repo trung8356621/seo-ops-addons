@@ -47,6 +47,7 @@ final class SeedingWorkspaceContractTest extends TestCase
         self::assertStringNotContainsString('Omnichannel\\Addons\\Seo\\', $source);
         self::assertStringNotContainsString('SeoPrompt', $source);
         self::assertStringNotContainsString('PromptRunnerService', $source);
+        self::assertStringContainsString('nội dung seeding', $source);
     }
 
     public function test_workspace_page_has_no_domain_dependency(): void
@@ -68,38 +69,30 @@ final class SeedingWorkspaceContractTest extends TestCase
         self::assertStringContainsString('->navigation(false)', $source);
     }
 
-    public function test_storage_v5_links_comments_reports_and_proof_boundary(): void
+    public function test_storage_v7_seed_pool_and_outputs(): void
     {
         $storage = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/services/storage.js'
-        );
-        $proof = (string) file_get_contents(
-            $this->addonRoot().'/resources/js/seeding/services/proofStore.js'
         );
         $links = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/services/linkExtract.js'
         );
 
-        self::assertStringContainsString('SCHEMA_VERSION = 6', $storage);
+        self::assertStringContainsString('SCHEMA_VERSION = 7', $storage);
         self::assertMatchesRegularExpression(
             '/seeding:v5:\$\{installationId\}:\$\{userId\}:workspace/',
             $storage
         );
-        self::assertStringContainsString('reports', $storage);
+        self::assertStringContainsString('seed_links', $storage);
+        self::assertStringContainsString('seed_batches', $storage);
+        self::assertStringContainsString('seed_outputs', $storage);
         self::assertStringContainsString('normalized_url', $storage);
         self::assertStringContainsString('topicHasWorkHistory', $storage);
-        self::assertStringContainsString('findReportForComment', $storage);
         self::assertStringContainsString('importLegacyIfNeeded', $storage);
-
-        self::assertStringContainsString('indexedDB', $proof);
-        self::assertStringContainsString('saveProof', $proof);
-        self::assertStringContainsString('extractImageFromClipboard', $proof);
-
         self::assertStringContainsString('extractLinksFromPaste', $links);
-        self::assertStringContainsString('href', $links);
     }
 
-    public function test_react_workflow_immutable_share_drawer_and_no_topic_crud(): void
+    public function test_react_flexible_seeding_flow_no_claim_workflow(): void
     {
         $workspace = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/SeedingWorkspace.jsx'
@@ -110,55 +103,35 @@ final class SeedingWorkspaceContractTest extends TestCase
         $detail = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/components/TopicDetail.jsx'
         );
-        $comments = (string) file_get_contents(
-            $this->addonRoot().'/resources/js/seeding/components/TopicCommentsSection.jsx'
-        );
         $resources = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/components/ResourceLinks.jsx'
         );
-        $drawer = (string) file_get_contents(
-            $this->addonRoot().'/resources/js/seeding/components/GlobalWorkDrawer.jsx'
-        );
 
-        self::assertStringContainsString('activeWorkItemId', $workspace);
-        self::assertStringContainsString('GlobalWorkDrawer', $workspace);
+        self::assertStringContainsString('ShareGeneratePanel', $workspace);
+        self::assertStringContainsString('LinkPoolPanel', $workspace);
         self::assertStringContainsString('TeamStatsSidebar', $workspace);
-        self::assertStringContainsString('completeWithProof', $workspace);
-        self::assertStringContainsString('findReportForComment', $workspace);
-        self::assertStringContainsString('Hoàn tất +1', $workspace);
-        self::assertStringContainsString('Cần ít nhất 1 bình luận', $workspace);
+        self::assertStringContainsString('generateSeedBatch', $workspace);
+        self::assertStringContainsString('canSeedTopic', $workspace);
+        self::assertStringNotContainsString('GlobalWorkDrawer', $workspace);
+        self::assertStringNotContainsString('completeWithProof', $workspace);
+        self::assertStringNotContainsString('Cần ít nhất 1 bình luận', $workspace);
         self::assertStringNotContainsString('/api/seeding/topics', $workspace);
         self::assertStringNotContainsString('siteId', $workspace);
-        self::assertStringNotContainsString('Gợi ý triển khai', $workspace);
 
         self::assertStringContainsString('Tạo chủ đề', $composer);
         self::assertStringNotContainsString('Đẩy chia sẻ', $composer);
         self::assertStringNotContainsString('SampleComments', $composer);
         self::assertStringNotContainsString('Bình luận mẫu', $composer);
 
-        self::assertStringContainsString('Đẩy chia sẻ', $detail);
-        self::assertStringContainsString('canShareTopic', $detail);
-        self::assertStringContainsString('Cần ít nhất 1 bình luận', $detail);
-        self::assertStringContainsString('TopicCommentsSection', $detail);
+        self::assertStringContainsString('Chia sẻ', $detail);
+        self::assertStringContainsString('canSeedTopic', $detail);
         self::assertStringContainsString('ContentWithLinkPreviews', $detail);
+        self::assertStringNotContainsString('TopicCommentsSection', $detail);
         self::assertStringNotContainsString('SampleComments', $detail);
         self::assertStringNotContainsString('CommentWorkList', $detail);
-        self::assertStringNotContainsString('Gợi ý triển khai', $detail);
-
-        self::assertStringContainsString('Thêm bình luận', $comments);
-        self::assertStringContainsString('Gen bình luận', $comments);
-        self::assertStringContainsString('data-actions="comment-create"', $comments);
-        self::assertStringContainsString('data-empty="comment-work"', $comments);
-        self::assertStringContainsString('Nhận', $comments);
-        self::assertStringContainsString("source: 'ai'", $comments);
-        self::assertStringContainsString("source: 'manual'", $comments);
 
         self::assertStringContainsString('links-readonly', $resources);
         self::assertStringNotContainsString('Thêm link', $resources);
-
-        self::assertStringContainsString('Ctrl + V', $drawer);
-        self::assertStringContainsString('Copy bình luận', $drawer);
-        self::assertStringContainsString('NOT concurrency-safe', $drawer);
     }
 
     public function test_components_exist(): void
@@ -170,31 +143,16 @@ final class SeedingWorkspaceContractTest extends TestCase
             'TopicCard.jsx',
             'TopicComposer.jsx',
             'TopicDetail.jsx',
-            'TopicCommentsSection.jsx',
             'TeamStatsSidebar.jsx',
-            'FeedCommentsBlock.jsx',
-            'CommentRichBody.jsx',
+            'LinkPoolPanel.jsx',
+            'ShareGeneratePanel.jsx',
             'LinkPreviewCard.jsx',
             'ContentWithLinkPreviews.jsx',
-            'CommentWorkList.jsx',
-            'SampleComments.jsx',
             'ResourceLinks.jsx',
-            'GlobalWorkDrawer.jsx',
-            'LocalReport.jsx',
             'MetricCards.jsx',
         ] as $file) {
             self::assertFileExists($root.'/'.$file);
         }
-    }
-
-    public function test_shared_zero_comments_is_repaired_to_draft_in_storage(): void
-    {
-        $storage = (string) file_get_contents(
-            $this->addonRoot().'/resources/js/seeding/services/storage.js'
-        );
-        self::assertStringContainsString('Repair illegal state', $storage);
-        self::assertStringContainsString("state === 'shared'", $storage);
-        self::assertStringContainsString('count === 0', $storage);
     }
 
     public function test_db_plane_and_build_boundary(): void

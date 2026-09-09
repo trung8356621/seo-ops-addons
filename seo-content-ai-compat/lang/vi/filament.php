@@ -2104,6 +2104,8 @@ return [
         'translate_article_prompt' => 'Prompt dịch bài viết',
         'translate_article_prompt_hint' => 'Biến: {{input}} = markdown nội dung bài nguồn, {{language}} = tên ngôn ngữ đích (tiếng Anh, vd. Vietnamese, English). Đầu ra: Markdown nội dung bài dịch.',
         'prompt_hooks_section' => 'Prompt Hooks — Editor bài viết',
+        'outline_split_enabled' => 'Tách Outline Prompt (Structure + Vocabulary)',
+        'outline_split_enabled_hint' => 'Bật: chạy Structure rồi Vocabulary riêng. Tắt: một lần gọi Outline legacy (không chạy Vocabulary child). Không liên quan «Chia bài theo dàn ý».',
         'prompt_hooks_description' => 'Gán Prompt đã gắn đúng Hook. Chỉ hiện Prompt có hook_key khớp — không fallback Prompt thường.',
         'prompt_hooks_ownership_description' => 'Hook = loại Prompt. Settings binding = nơi sở hữu. Chỉ Prompt đúng hook_key. Prompt Unassigned không tự chạy runtime.',
         'open_prompt_management' => 'Mở Prompt Management',

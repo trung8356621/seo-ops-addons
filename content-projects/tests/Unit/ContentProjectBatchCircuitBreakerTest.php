@@ -41,7 +41,7 @@ final class ContentProjectBatchCircuitBreakerTest extends TestCase
                 taskId: 10950,
                 runItemId: 2,
                 status: ContentProjectArticleSemanticStatus::Failed,
-                message: 'Outline generation failed: AI_ROUTES_EXHAUSTED: No eligible AI route was attempted',
+                message: 'Outline generation failed: AI_ROUTES_EXHAUSTED: No attemptable AI routes',
                 errorCode: 'external_workflow_failed',
                 payload: ['failed_node' => 'outline'],
             ),

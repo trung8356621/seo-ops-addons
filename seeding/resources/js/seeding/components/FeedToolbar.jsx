@@ -1,5 +1,5 @@
 import React from 'react';
-import { Plus } from 'lucide-react';
+import { Link2, Plus } from 'lucide-react';
 
 /**
  * @param {{
@@ -10,6 +10,7 @@ import { Plus } from 'lucide-react';
  *   onFilter: (filter: string) => void,
  *   onSearch: (value: string) => void,
  *   onCreate: () => void,
+ *   onOpenLinkPool: () => void,
  * }} props
  */
 export default function FeedToolbar({
@@ -20,11 +21,12 @@ export default function FeedToolbar({
     onFilter,
     onSearch,
     onCreate,
+    onOpenLinkPool,
 }) {
     const tabs = [
-        { id: 'work', label: 'Đang làm', count: counts.work ?? 0 },
+        { id: 'all', label: 'Tất cả', count: counts.all ?? 0 },
         { id: 'draft', label: 'Mới', count: counts.draft ?? 0 },
-        { id: 'completed', label: 'Hoàn tất', count: counts.completed ?? 0 },
+        { id: 'recent', label: 'Đã dùng gần đây', count: counts.recent ?? 0 },
         { id: 'archived', label: 'Lưu trữ', count: counts.archived ?? 0 },
     ];
 
@@ -45,15 +47,25 @@ export default function FeedToolbar({
                         </button>
                     ))}
                 </div>
-                <button
-                    type="button"
-                    className="seeding-ws__btn seeding-ws__btn--primary"
-                    onClick={onCreate}
-                    disabled={!canMutate}
-                >
-                    <Plus size={14} />
-                    Tạo chủ đề
-                </button>
+                <div className="seeding-ws__toolbar-actions">
+                    <button
+                        type="button"
+                        className="seeding-ws__btn seeding-ws__btn--ghost"
+                        onClick={onOpenLinkPool}
+                    >
+                        <Link2 size={14} />
+                        Link của tôi
+                    </button>
+                    <button
+                        type="button"
+                        className="seeding-ws__btn seeding-ws__btn--primary"
+                        onClick={onCreate}
+                        disabled={!canMutate}
+                    >
+                        <Plus size={14} />
+                        Tạo chủ đề
+                    </button>
+                </div>
             </div>
             <div className="seeding-ws__search">
                 <input

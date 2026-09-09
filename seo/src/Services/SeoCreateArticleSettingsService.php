@@ -160,6 +160,13 @@ final class SeoCreateArticleSettingsService implements \Omnichannel\Addons\Conte
     /** Preferred Vision validation model (text + image_input, Gemini >= 3). */
     public const KEY_TYPOGRAPHY_VALIDATION_MODEL = 'typography_validation_model';
 
+    /**
+     * Split Outline Prompt: Structure + Vocabulary as separate provider executions.
+     * Default true (missing key = current production always-split behavior).
+     * Independent of writing_split_enabled.
+     */
+    public const KEY_OUTLINE_SPLIT_ENABLED = 'outline_split_enabled';
+
     /** Internal keys — metadata editor job, không phải settings form. */
     public const EDITOR_VAR_MEDIA_SOURCE = '_editor_media_source';
 
@@ -277,7 +284,21 @@ final class SeoCreateArticleSettingsService implements \Omnichannel\Addons\Conte
             self::KEY_TYPOGRAPHY_VALIDATION_MODEL => $this->normalizeOptionalModelSlug(
                 $data[self::KEY_TYPOGRAPHY_VALIDATION_MODEL] ?? null,
             ),
+            self::KEY_OUTLINE_SPLIT_ENABLED => array_key_exists(self::KEY_OUTLINE_SPLIT_ENABLED, $data)
+                ? (bool) $data[self::KEY_OUTLINE_SPLIT_ENABLED]
+                : true,
         ];
+    }
+
+    public function isOutlineSplitEnabled(): bool
+    {
+        $raw = WpOption::get(self::OPTION_KEY, []);
+        if (! is_array($raw) || ! array_key_exists(self::KEY_OUTLINE_SPLIT_ENABLED, $raw)) {
+            // Missing key = current production behavior (always split).
+            return true;
+        }
+
+        return (bool) $raw[self::KEY_OUTLINE_SPLIT_ENABLED];
     }
 
     public function isTypographyValidationEnabled(): bool
@@ -1292,6 +1313,9 @@ final class SeoCreateArticleSettingsService implements \Omnichannel\Addons\Conte
         if (array_key_exists(self::KEY_TYPOGRAPHY_VALIDATION_ENABLED, $settings)) {
             $patch[self::KEY_TYPOGRAPHY_VALIDATION_ENABLED] = (bool) ($settings[self::KEY_TYPOGRAPHY_VALIDATION_ENABLED] ?? true);
         }
+        if (array_key_exists(self::KEY_OUTLINE_SPLIT_ENABLED, $settings)) {
+            $patch[self::KEY_OUTLINE_SPLIT_ENABLED] = (bool) ($settings[self::KEY_OUTLINE_SPLIT_ENABLED] ?? true);
+        }
         if (array_key_exists(self::KEY_TYPOGRAPHY_VALIDATION_LEVEL, $settings)) {
             $patch[self::KEY_TYPOGRAPHY_VALIDATION_LEVEL] = TypographyValidationLevel::fromMixed(
                 $settings[self::KEY_TYPOGRAPHY_VALIDATION_LEVEL] ?? null,
@@ -1371,6 +1395,7 @@ final class SeoCreateArticleSettingsService implements \Omnichannel\Addons\Conte
             self::KEY_DEFAULT_AI_USAGE_MODE => 'economy',
             self::KEY_ADMIN_ENABLED_UNKNOWN_IMAGE_MODELS => [],
             self::KEY_TYPOGRAPHY_VALIDATION_ENABLED => true,
+            self::KEY_OUTLINE_SPLIT_ENABLED => true,
             self::KEY_TYPOGRAPHY_VALIDATION_LEVEL => TypographyValidationLevel::Balanced->value,
             self::KEY_TYPOGRAPHY_MAX_CANDIDATES => null,
             self::KEY_TYPOGRAPHY_PASS_THRESHOLD => null,

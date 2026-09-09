@@ -63,11 +63,11 @@ final class ContentProjectTransientAiRetryPolicyTest extends TestCase
     public function test_structured_hard_exhaustion_wins_over_legacy_message(): void
     {
         $itemRow = [
-            'message' => 'AI_ROUTES_EXHAUSTED: No eligible AI route was attempted',
+            'message' => 'AI_ROUTES_EXHAUSTED: No attemptable AI routes',
             'steps' => [[
                 'status' => 'failed',
                 'hook_key' => 'article.outline.structure.generate',
-                'message' => 'AI_ROUTES_EXHAUSTED: No eligible AI route was attempted',
+                'message' => 'AI_ROUTES_EXHAUSTED: No attemptable AI routes',
                 'ai_routing' => [
                     'classification' => AiRoutesExhaustedException::CLASSIFICATION,
                     'retryable' => false,
@@ -86,7 +86,7 @@ final class ContentProjectTransientAiRetryPolicyTest extends TestCase
     public function test_structured_temporary_health_retries_with_diagnostics(): void
     {
         $meta = ContentProjectTransientAiRetryPolicy::fromFailedItemRow([
-            'message' => 'AI_ROUTES_EXHAUSTED: No eligible AI route was attempted',
+            'message' => 'AI_ROUTES_EXHAUSTED: No attemptable AI routes',
             'steps' => [[
                 'status' => 'failed',
                 'hook_key' => 'article.vocabulary.generate',
@@ -119,7 +119,7 @@ final class ContentProjectTransientAiRetryPolicyTest extends TestCase
     public function test_structured_flags_at_item_row_level_are_ssot(): void
     {
         self::assertNull(ContentProjectTransientAiRetryPolicy::fromFailedItemRow([
-            'message' => 'AI_ROUTES_EXHAUSTED: No eligible AI route was attempted',
+            'message' => 'AI_ROUTES_EXHAUSTED: No attemptable AI routes',
             'classification' => AiRoutesExhaustedException::CLASSIFICATION,
             'retryable' => false,
             'exhaustion_kind' => AiRoutesExhaustionClassifier::KIND_HARD,
@@ -128,7 +128,7 @@ final class ContentProjectTransientAiRetryPolicyTest extends TestCase
 
     public function test_from_exception_walks_previous_chain(): void
     {
-        $hard = new \RuntimeException('Outline generation failed: AI_ROUTES_EXHAUSTED: No eligible AI route was attempted', 0, new AiRoutesExhaustedException(
+        $hard = new \RuntimeException('Outline generation failed: AI_ROUTES_EXHAUSTED: No attemptable AI routes', 0, new AiRoutesExhaustedException(
             attemptCount: 0,
             routingAttempts: [
                 ['result' => 'skipped', 'model' => 'a', 'skip_reason' => 'model_unavailable'],

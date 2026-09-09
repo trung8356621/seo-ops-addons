@@ -569,7 +569,7 @@ final class AiRuntimeFallbackTest extends TestCase
         }
     }
 
-    public function test_mixed_free_paid_allows_initial_plus_one_free_retry_then_paid(): void
+    public function test_mixed_free_paid_allows_configured_max_free_then_paid(): void
     {
         (new AiResilienceSettingsService())->save(80, ['max_ai_attempts' => 6, 'max_free_attempts' => 3]);
         $this->seedOrderedLongform(80, [
@@ -579,7 +579,7 @@ final class AiRuntimeFallbackTest extends TestCase
             ['d', 'paid/gpt', ApiConnectionProviders::OPENROUTER, false],
         ]);
         $calls = [];
-        [$output] = $this->router->executeWithProfile(
+        [$output, , , , , $routingAttempts] = $this->router->executeWithProfile(
             AiExecutionProfile::TextLongform->value,
             new AiRoutingContext(userId: 80),
             function ($candidate) use (&$calls): array {
@@ -592,8 +592,15 @@ final class AiRuntimeFallbackTest extends TestCase
             },
         );
         $this->assertSame('paid-ok', $output);
-        $this->assertSame(['free/a:free', 'free/b:free', 'paid/gpt'], $calls);
-        $this->assertNotContains('free/c:free', $calls);
+        $this->assertSame(['free/a:free', 'free/b:free', 'free/c:free', 'paid/gpt'], $calls);
+        $success = collect($routingAttempts)->firstWhere('result', 'success');
+        $this->assertSame(3, $success['free_attempts'] ?? null);
+        $this->assertSame(4, $success['actual_attempts'] ?? null);
+        $this->assertSame(1, $success['reserved_paid_slots'] ?? null);
+        $this->assertNotContains('free_oneshot_paid_available', array_column(
+            array_filter($routingAttempts, static fn (array $r): bool => ($r['result'] ?? '') === 'skipped'),
+            'skip_reason',
+        ));
     }
 
     public function test_mixed_free_paid_stops_after_first_free_success(): void
@@ -740,6 +747,520 @@ final class AiRuntimeFallbackTest extends TestCase
         } catch (AiRoutesExhaustedException) {
             $this->assertSame(['free/a:free', 'free/b:free', 'free/c:free'], $calls);
             $this->assertNotContains('free/d:free', $calls);
+        }
+    }
+
+    /** TEST A / G — free exhausted (max_free=3) then paid success; no hardcap-2 / oneshot */
+    public function test_a_free_retry_exhaustion_falls_back_to_deepseek_success(): void
+    {
+        (new AiResilienceSettingsService())->save(90, ['max_ai_attempts' => 6, 'max_free_attempts' => 3]);
+        $this->seedOrderedLongform(90, [
+            ['a', 'free/a:free', ApiConnectionProviders::OPENROUTER, true],
+            ['b', 'free/b:free', ApiConnectionProviders::OPENROUTER, true],
+            ['c', 'free/c:free', ApiConnectionProviders::OPENROUTER, true],
+            ['d', 'deepseek/deepseek-chat', ApiConnectionProviders::OPENROUTER, false],
+        ]);
+        $calls = [];
+        [$output, , $selected, , , $routingAttempts] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextLongform->value,
+            new AiRoutingContext(userId: 90),
+            function ($candidate) use (&$calls): array {
+                $calls[] = $candidate->model;
+                if ($candidate->isFree) {
+                    throw new PromptRunException('429 rate limit exceeded: free-models-per-min', 429);
+                }
+
+                return ['deepseek-ok', ['resolved_model' => $candidate->model]];
+            },
+        );
+        $this->assertSame('deepseek-ok', $output);
+        $this->assertSame('deepseek/deepseek-chat', $selected->model);
+        $this->assertSame(['free/a:free', 'free/b:free', 'free/c:free', 'deepseek/deepseek-chat'], $calls);
+        $success = collect($routingAttempts)->firstWhere('result', 'success');
+        $this->assertSame(3, $success['free_attempts'] ?? null);
+        $this->assertSame(4, $success['actual_attempts'] ?? null);
+        $this->assertSame(1, $success['paid_attempts'] ?? null);
+        $skipReasons = array_column(
+            array_filter($routingAttempts, static fn (array $r): bool => ($r['result'] ?? '') === 'skipped'),
+            'skip_reason',
+        );
+        $this->assertNotContains('free_oneshot_paid_available', $skipReasons);
+    }
+
+    /** TEST B — 429 free does not block DeepSeek on same connection */
+    public function test_b_429_free_does_not_connection_suppress_deepseek(): void
+    {
+        (new AiResilienceSettingsService())->save(91, ['max_ai_attempts' => 6, 'max_free_attempts' => 3]);
+        $conn = $this->connection(91, ApiConnectionProviders::OPENROUTER, 'OpenRouter');
+        $free = $this->model($conn, 'meta/llama:free', true);
+        $deepseek = $this->model($conn, 'deepseek/deepseek-chat', false);
+        $this->grantText($conn, $free);
+        $this->grantText($conn, $deepseek);
+        app(AiModelPriorityService::class)->appendToArea(91, AiModelArea::TextLongform, [(int) $free->id, (int) $deepseek->id]);
+
+        $calls = [];
+        [$output, , $selected] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextLongform->value,
+            new AiRoutingContext(userId: 91),
+            function ($candidate) use (&$calls): array {
+                $calls[] = $candidate->model;
+                if ($candidate->isFree) {
+                    throw new PromptRunException('Rate limit exceeded: free-models-per-day. quota exceeded', 429);
+                }
+
+                return ['ok', null];
+            },
+        );
+        $this->assertSame(['meta/llama:free', 'deepseek/deepseek-chat'], $calls);
+        $this->assertSame('deepseek/deepseek-chat', $selected->model);
+        $this->assertSame('ok', $output);
+        // Free 429 must not leave connection cooldown that blocks paid.
+        $paidCandidate = new \Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate(
+            profile: AiExecutionProfile::TextLongform->value,
+            connection: $conn,
+            provider: ApiConnectionProviders::OPENROUTER,
+            model: 'deepseek/deepseek-chat',
+            capabilities: [],
+            priority: 1,
+            options: [],
+            seoAiModelId: (int) $deepseek->id,
+            legacyFallback: false,
+            isFree: false,
+        );
+        $this->assertNull($this->health->skipReason(91, $paidCandidate));
+    }
+
+    /** TEST C — 402 locks paid lane only; free/other connection still attemptable */
+    public function test_c_402_paid_lock_does_not_block_other_connection(): void
+    {
+        (new AiResilienceSettingsService())->save(92, ['max_ai_attempts' => 6, 'max_free_attempts' => 3]);
+        $connA = $this->connection(92, ApiConnectionProviders::OPENROUTER, 'OR-A');
+        $connB = $this->connection(92, 'deepseek', 'DeepSeek');
+        $paidA = $this->model($connA, 'openrouter/paid-a', false);
+        $paidB = $this->model($connB, 'deepseek/deepseek-chat', false);
+        $this->grantText($connA, $paidA);
+        $this->grantText($connB, $paidB);
+        app(AiModelPriorityService::class)->appendToArea(92, AiModelArea::TextLongform, [(int) $paidA->id, (int) $paidB->id]);
+
+        $calls = [];
+        [$output, , $selected] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextLongform->value,
+            new AiRoutingContext(userId: 92),
+            function ($candidate) use (&$calls): array {
+                $calls[] = $candidate->model;
+                if ($candidate->model === 'openrouter/paid-a') {
+                    throw new PromptRunException('Provider API error (402): requires more credits', 402);
+                }
+
+                return ['b-ok', null];
+            },
+        );
+        $this->assertSame(['openrouter/paid-a', 'deepseek/deepseek-chat'], $calls);
+        $this->assertSame('deepseek/deepseek-chat', $selected->model);
+        $this->assertSame('b-ok', $output);
+    }
+
+    /** TEST D — model order respected */
+    public function test_d_candidate_order_respects_ai_center_priority(): void
+    {
+        (new AiResilienceSettingsService())->save(93, ['max_ai_attempts' => 6, 'max_free_attempts' => 3]);
+        $this->seedOrderedLongform(93, [
+            ['d', 'deepseek/deepseek-chat', ApiConnectionProviders::OPENROUTER, false],
+            ['f', 'free/a:free', ApiConnectionProviders::OPENROUTER, true],
+            ['g', 'google/gemini', ApiConnectionProviders::OPENROUTER, false],
+        ]);
+        $calls = [];
+        [$output] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextLongform->value,
+            new AiRoutingContext(userId: 93),
+            function ($candidate) use (&$calls): array {
+                $calls[] = $candidate->model;
+
+                return ['first-wins', null];
+            },
+        );
+        $this->assertSame(['deepseek/deepseek-chat'], $calls);
+        $this->assertSame('first-wins', $output);
+    }
+
+    /** TEST E — writing_split OFF / Outline split is independent; PromptBudget ≠ Outline Split */
+    public function test_e_outline_split_prompt_off_does_not_use_writing_multiple_pass(): void
+    {
+        $runner = file_get_contents(
+            (string) (new \ReflectionClass(\Omnichannel\Addons\AiPrompt\Services\TaskWorkflowTestRunner::class))->getFileName(),
+        ) ?: '';
+        $executor = file_get_contents(
+            (string) (new \ReflectionClass(\Omnichannel\Addons\AiPrompt\Services\ArticleOutlineVocabularySplitExecutor::class))->getFileName(),
+        ) ?: '';
+        $this->assertStringContainsString('outlineSplitExecutor->execute', $runner);
+        $this->assertStringContainsString('isOutlineSplitEnabled', $runner);
+        $this->assertStringContainsString('KEY_OUTLINE_SPLIT_ENABLED', $runner);
+        $this->assertStringNotContainsString('WritingMultiplePassStepPlanner', $executor);
+        $this->assertStringNotContainsString('writing_split_enabled', $executor);
+        $this->assertStringNotContainsString('SectionedFreeHookOrchestrator', $executor);
+        // PromptBudget article.outline stays DirectFit (no LongForm split) — unrelated to Outline Split feature.
+        $registry = new \Omnichannel\Addons\AiPrompt\PromptBudget\PromptSplitStrategyRegistry();
+        $this->assertFalse($registry->forHook('article.outline.structure.generate')->supportsSplit());
+        $settingsSrc = file_get_contents(
+            (string) (new \ReflectionClass(\Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService::class))->getFileName(),
+        ) ?: '';
+        $this->assertStringContainsString("KEY_OUTLINE_SPLIT_ENABLED = 'outline_split_enabled'", $settingsSrc);
+        $this->assertStringContainsString('function isOutlineSplitEnabled', $settingsSrc);
+    }
+
+    /** TEST F — one candidate retry exhaustion != route exhaustion */
+    public function test_f_one_candidate_failure_continues_to_next_success(): void
+    {
+        (new AiResilienceSettingsService())->save(94, ['max_ai_attempts' => 6, 'max_free_attempts' => 3]);
+        $this->seedOrderedLongform(94, [
+            ['a', 'paid/model-a', ApiConnectionProviders::OPENROUTER, false],
+            ['b', 'paid/model-b', ApiConnectionProviders::OPENROUTER, false],
+        ]);
+        $calls = [];
+        [$output, , $selected] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextLongform->value,
+            new AiRoutingContext(userId: 94),
+            function ($candidate) use (&$calls): array {
+                $calls[] = $candidate->model;
+                if ($candidate->model === 'paid/model-a') {
+                    throw new PromptRunException('503 unavailable', 503);
+                }
+
+                return ['b-ok', null];
+            },
+        );
+        $this->assertSame(['paid/model-a', 'paid/model-b'], $calls);
+        $this->assertSame('paid/model-b', $selected->model);
+        $this->assertSame('b-ok', $output);
+    }
+
+    /** TEST G — all candidates exhausted with clear skip/fail trace */
+    public function test_g_all_candidates_exhausted_keeps_trace(): void
+    {
+        (new AiResilienceSettingsService())->save(95, ['max_ai_attempts' => 6, 'max_free_attempts' => 3]);
+        $this->seedOrderedLongform(95, [
+            ['a', 'paid/model-a', ApiConnectionProviders::OPENROUTER, false],
+            ['b', 'paid/model-b', ApiConnectionProviders::OPENROUTER, false],
+            ['c', 'paid/model-c', ApiConnectionProviders::OPENROUTER, false],
+        ]);
+        try {
+            $this->router->executeWithProfile(
+                AiExecutionProfile::TextLongform->value,
+                new AiRoutingContext(userId: 95),
+                function ($candidate): array {
+                    throw new PromptRunException('503 unavailable', 503);
+                },
+            );
+            $this->fail('Expected AI_ROUTES_EXHAUSTED');
+        } catch (AiRoutesExhaustedException $e) {
+            $attempts = $e->context['routing_attempts'] ?? [];
+            $this->assertCount(3, $attempts);
+            foreach ($attempts as $row) {
+                $this->assertSame('failed', $row['result'] ?? null);
+                $this->assertArrayHasKey('actual_attempts', $row);
+                $this->assertArrayHasKey('is_free', $row);
+            }
+            $this->assertSame(3, $e->context['attempt_count'] ?? null);
+        }
+    }
+
+    /** Free attempts must not consume entire max_ai before paid when budget is tight */
+    public function test_free_budget_reserves_slot_for_paid_when_max_ai_is_tight(): void
+    {
+        (new AiResilienceSettingsService())->save(96, ['max_ai_attempts' => 2, 'max_free_attempts' => 2]);
+        $this->seedOrderedLongform(96, [
+            ['a', 'free/a:free', ApiConnectionProviders::OPENROUTER, true],
+            ['b', 'free/b:free', ApiConnectionProviders::OPENROUTER, true],
+            ['c', 'deepseek/deepseek-chat', ApiConnectionProviders::OPENROUTER, false],
+        ]);
+        $calls = [];
+        [$output] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextLongform->value,
+            new AiRoutingContext(userId: 96),
+            function ($candidate) use (&$calls): array {
+                $calls[] = $candidate->model;
+                if ($candidate->isFree) {
+                    throw new PromptRunException('503', 503);
+                }
+
+                return ['paid-ok', null];
+            },
+        );
+        $this->assertSame('paid-ok', $output);
+        $this->assertSame(['free/a:free', 'deepseek/deepseek-chat'], $calls);
+    }
+
+    /** TEST H — paid exists but paid_locked: do not reserve useless paid slot */
+    public function test_h_paid_locked_does_not_reserve_free_budget_slot(): void
+    {
+        (new AiResilienceSettingsService())->save(97, ['max_ai_attempts' => 3, 'max_free_attempts' => 3]);
+        $this->seedOrderedLongform(97, [
+            ['a', 'free/a:free', ApiConnectionProviders::OPENROUTER, true],
+            ['b', 'free/b:free', ApiConnectionProviders::OPENROUTER, true],
+            ['c', 'free/c:free', ApiConnectionProviders::OPENROUTER, true],
+            ['d', 'paid/gpt', ApiConnectionProviders::OPENROUTER, false],
+        ]);
+        $paid = $this->targets->eligibleCandidates(
+            97,
+            AiExecutionProfile::TextLongform,
+            new AiRoutingContext(userId: 97),
+        );
+        $paidCandidate = collect($paid)->first(static fn ($c) => ! $c->isFree);
+        $this->assertNotNull($paidCandidate);
+        $this->health->recordFailure(97, $paidCandidate, new AiFailureDecision(
+            category: AiFailureClass::InsufficientBudgetForRequest,
+            scope: AiFailureScope::ConnectionPaid,
+            recoverable: false,
+            runtimeAction: AiFailureRuntimeAction::Continue,
+            healthStatus: AiRuntimeHealthStatus::BudgetLimited,
+            safeMessage: '402 payment required',
+            httpStatus: 402,
+            applyCooldown: false,
+            affectsRuntimeHealth: true,
+            lockConnectionPaid: true,
+            failureStage: 'provider',
+        ));
+        $this->assertSame('connection_paid_locked', $this->health->skipReason(97, $paidCandidate));
+
+        $calls = [];
+        try {
+            $this->router->executeWithProfile(
+                AiExecutionProfile::TextLongform->value,
+                new AiRoutingContext(userId: 97),
+                function ($candidate) use (&$calls): array {
+                    $calls[] = $candidate->model;
+                    throw new PromptRunException('503 unavailable', 503);
+                },
+            );
+            $this->fail('Expected AI_ROUTES_EXHAUSTED');
+        } catch (AiRoutesExhaustedException $e) {
+            $this->assertSame(['free/a:free', 'free/b:free', 'free/c:free'], $calls);
+            $this->assertSame(3, $e->context['free_attempts'] ?? null);
+            $this->assertSame(0, $e->context['reserved_paid_slots'] ?? null);
+        }
+    }
+
+    /** TEST I — reclaim reserved paid slot when paid becomes unattemptable mid-run */
+    public function test_i_reclaims_reserved_paid_slot_when_paid_health_skipped(): void
+    {
+        (new AiResilienceSettingsService())->save(98, ['max_ai_attempts' => 4, 'max_free_attempts' => 3]);
+        $this->seedOrderedLongform(98, [
+            ['a', 'free/a:free', ApiConnectionProviders::OPENROUTER, true],
+            ['p', 'paid/gpt', ApiConnectionProviders::OPENROUTER, false],
+            ['b', 'free/b:free', ApiConnectionProviders::OPENROUTER, true],
+            ['c', 'free/c:free', ApiConnectionProviders::OPENROUTER, true],
+        ]);
+        $paid = collect($this->targets->eligibleCandidates(
+            98,
+            AiExecutionProfile::TextLongform,
+            new AiRoutingContext(userId: 98),
+        ))->first(static fn ($c) => ! $c->isFree);
+        $this->assertNotNull($paid);
+
+        $calls = [];
+        try {
+            $this->router->executeWithProfile(
+                AiExecutionProfile::TextLongform->value,
+                new AiRoutingContext(userId: 98),
+                function ($candidate) use (&$calls, $paid): array {
+                    $calls[] = $candidate->model;
+                    if ($candidate->model === 'free/a:free') {
+                        // After first free fail, lock paid so remaining free reclaim the reserved slot.
+                        $this->health->recordFailure(98, $paid, new AiFailureDecision(
+                            category: AiFailureClass::InsufficientBudgetForRequest,
+                            scope: AiFailureScope::ConnectionPaid,
+                            recoverable: false,
+                            runtimeAction: AiFailureRuntimeAction::Continue,
+                            healthStatus: AiRuntimeHealthStatus::BudgetLimited,
+                            safeMessage: '402',
+                            httpStatus: 402,
+                            applyCooldown: false,
+                            affectsRuntimeHealth: true,
+                            lockConnectionPaid: true,
+                            failureStage: 'provider',
+                        ));
+                        throw new PromptRunException('503', 503);
+                    }
+                    if ($candidate->isFree) {
+                        throw new PromptRunException('503', 503);
+                    }
+
+                    return ['should-not-reach-paid', null];
+                },
+            );
+            $this->fail('Expected AI_ROUTES_EXHAUSTED after reclaiming free budget');
+        } catch (AiRoutesExhaustedException $e) {
+            $routingAttempts = $e->context['routing_attempts'] ?? [];
+            $skipReasons = array_column(
+                array_filter($routingAttempts, static fn (array $r): bool => ($r['result'] ?? '') === 'skipped'),
+                'skip_reason',
+            );
+            $this->assertContains('connection_paid_locked', $skipReasons);
+            $this->assertContains('free/b:free', $calls);
+            $this->assertContains('free/c:free', $calls);
+            $this->assertNotContains('paid/gpt', $calls);
+            $this->assertGreaterThanOrEqual(3, count(array_filter($calls, static fn (string $m): bool => str_starts_with($m, 'free/'))));
+            $this->assertSame(0, $e->context['reserved_paid_slots'] ?? null);
+        }
+    }
+
+    /** TEST J — legacy RateLimited connection cooldown must not block DeepSeek */
+    public function test_j_legacy_rate_limited_connection_cooldown_does_not_block_deepseek(): void
+    {
+        (new AiResilienceSettingsService())->save(99, ['max_ai_attempts' => 6, 'max_free_attempts' => 3]);
+        $conn = $this->connection(99, ApiConnectionProviders::OPENROUTER, 'OpenRouter');
+        $free = $this->model($conn, 'meta/llama:free', true);
+        $deepseek = $this->model($conn, 'deepseek/deepseek-chat', false);
+        $this->grantText($conn, $free);
+        $this->grantText($conn, $deepseek);
+        app(AiModelPriorityService::class)->appendToArea(99, AiModelArea::TextLongform, [(int) $free->id, (int) $deepseek->id]);
+
+        // Persist legacy poison: connection cooldown attributed to RateLimited.
+        \Omnichannel\Addons\AiPrompt\Models\AiRuntimeHealthState::query()->create([
+            'user_id' => 99,
+            'subject_type' => \Omnichannel\Addons\AiPrompt\Models\AiRuntimeHealthState::SUBJECT_CONNECTION,
+            'subject_id' => (int) $conn->id,
+            'api_connection_id' => (int) $conn->id,
+            'health_status' => AiRuntimeHealthStatus::Degraded->value,
+            'cooldown_until' => now()->addMinutes(10),
+            'last_failure_class' => AiFailureClass::RateLimited->value,
+            'last_failure_message' => 'legacy 429 connection cooldown',
+            'failure_counts' => [
+                'last_scope' => AiFailureScope::Connection->value,
+                'last_category' => AiFailureClass::RateLimited->value,
+            ],
+            'total_attempts' => 1,
+            'failure_count' => 1,
+            'consecutive_failures' => 1,
+            'paid_locked' => false,
+            'manual_unlock_required' => false,
+        ]);
+
+        $paidCandidate = new \Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate(
+            profile: AiExecutionProfile::TextLongform->value,
+            connection: $conn,
+            provider: ApiConnectionProviders::OPENROUTER,
+            model: 'deepseek/deepseek-chat',
+            capabilities: [],
+            priority: 1,
+            options: [],
+            seoAiModelId: (int) $deepseek->id,
+            legacyFallback: false,
+            isFree: false,
+        );
+        $this->assertNull($this->health->skipReason(99, $paidCandidate));
+
+        $calls = [];
+        [$output, , $selected] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextLongform->value,
+            new AiRoutingContext(userId: 99),
+            function ($candidate) use (&$calls): array {
+                $calls[] = $candidate->model;
+
+                return ['ok', null];
+            },
+        );
+        $this->assertSame(['meta/llama:free'], $calls);
+        $this->assertSame('ok', $output);
+        $this->assertSame('meta/llama:free', $selected->model);
+    }
+
+    /** TEST N — FREE-first order is not Free Only; paid still fallbacks */
+    public function test_n_free_first_order_still_allows_paid_fallback(): void
+    {
+        (new AiResilienceSettingsService())->save(100, ['max_ai_attempts' => 6, 'max_free_attempts' => 1]);
+        $this->seedOrderedLongform(100, [
+            ['f', 'free/a:free', ApiConnectionProviders::OPENROUTER, true],
+            ['d', 'deepseek/deepseek-chat', ApiConnectionProviders::OPENROUTER, false],
+        ]);
+        $calls = [];
+        [$output, , $selected] = $this->router->executeWithProfile(
+            AiExecutionProfile::TextLongform->value,
+            new AiRoutingContext(userId: 100, freeOnly: false),
+            function ($candidate) use (&$calls): array {
+                $calls[] = $candidate->model;
+                if ($candidate->isFree) {
+                    throw new PromptRunException('503', 503);
+                }
+
+                return ['paid-ok', null];
+            },
+        );
+        $this->assertSame(['free/a:free', 'deepseek/deepseek-chat'], $calls);
+        $this->assertSame('deepseek/deepseek-chat', $selected->model);
+        $this->assertSame('paid-ok', $output);
+    }
+
+    /** TEST N2 — explicit freeOnly blocks paid */
+    public function test_n_explicit_free_only_blocks_paid(): void
+    {
+        (new AiResilienceSettingsService())->save(101, ['max_ai_attempts' => 6, 'max_free_attempts' => 3]);
+        $this->seedOrderedLongform(101, [
+            ['f', 'free/a:free', ApiConnectionProviders::OPENROUTER, true],
+            ['d', 'deepseek/deepseek-chat', ApiConnectionProviders::OPENROUTER, false],
+        ]);
+        $calls = [];
+        try {
+            $this->router->executeWithProfile(
+                AiExecutionProfile::TextLongform->value,
+                new AiRoutingContext(userId: 101, freeOnly: true),
+                function ($candidate) use (&$calls): array {
+                    $calls[] = $candidate->model;
+                    throw new PromptRunException('503', 503);
+                },
+            );
+            $this->fail('Expected AI_ROUTES_EXHAUSTED');
+        } catch (AiRoutesExhaustedException) {
+            $this->assertSame(['free/a:free'], $calls);
+            $this->assertNotContains('deepseek/deepseek-chat', $calls);
+        }
+    }
+
+    /** TEST O — 0 actual attempts must not say "N AI attempts failed" */
+    public function test_o_zero_actual_attempts_message_is_honest(): void
+    {
+        (new AiResilienceSettingsService())->save(102, ['max_ai_attempts' => 6, 'max_free_attempts' => 3]);
+        $this->seedOrderedLongform(102, [
+            ['a', 'paid/model-a', ApiConnectionProviders::OPENROUTER, false],
+            ['b', 'paid/model-b', ApiConnectionProviders::OPENROUTER, false],
+        ]);
+        $candidates = $this->targets->eligibleCandidates(
+            102,
+            AiExecutionProfile::TextLongform,
+            new AiRoutingContext(userId: 102),
+        );
+        foreach ($candidates as $candidate) {
+            $this->health->recordFailure(102, $candidate, new AiFailureDecision(
+                category: AiFailureClass::ModelNotFound,
+                scope: AiFailureScope::Model,
+                recoverable: false,
+                runtimeAction: AiFailureRuntimeAction::Continue,
+                healthStatus: AiRuntimeHealthStatus::Unavailable,
+                safeMessage: '404',
+                httpStatus: 404,
+                applyCooldown: false,
+                affectsRuntimeHealth: true,
+                markModelUnavailable: true,
+                failureStage: 'provider',
+            ));
+        }
+
+        try {
+            $this->router->executeWithProfile(
+                AiExecutionProfile::TextLongform->value,
+                new AiRoutingContext(userId: 102),
+                function (): array {
+                    $this->fail('Provider must not be called');
+                },
+            );
+            $this->fail('Expected AI_ROUTES_EXHAUSTED');
+        } catch (AiRoutesExhaustedException $e) {
+            $this->assertSame(0, $e->context['attempt_count'] ?? null);
+            $this->assertStringNotContainsString('AI attempt(s) failed', $e->getMessage());
+            $this->assertTrue(
+                str_contains($e->getMessage(), 'No attemptable AI routes')
+                || str_contains($e->getMessage(), 'All eligible routes marked unavailable'),
+            );
         }
     }
 

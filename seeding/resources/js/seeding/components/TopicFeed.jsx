@@ -2,18 +2,18 @@ import React from 'react';
 import TopicCard from './TopicCard';
 
 /**
- * Vertical CSS grid feed — max 3 columns via CSS, never forced 4.
- * Cards are direct grid children of `.seeding-ws__feed-grid`.
+ * Vertical CSS grid feed — max 3 columns via CSS.
  *
  * @param {{
  *   topics: Array<Record<string, unknown>>,
  *   reports: Array<Record<string, unknown>>,
+ *   seedBatches?: Array<Record<string, unknown>>,
+ *   seedOutputs?: Array<Record<string, unknown>>,
  *   canMutate: boolean,
+ *   hasWorkspaceAccess?: boolean,
  *   userId: number|string,
- *   userDisplayName?: string,
  *   linkPreviewCache?: Record<string, Record<string, unknown>>,
  *   onOpenDetail: (topic: Record<string, unknown>) => void,
- *   onCommentsChange: (topic: Record<string, unknown>, comments: Array<Record<string, unknown>>) => void,
  *   onLinksChange: (topic: Record<string, unknown>, links: Array<Record<string, unknown>>) => void,
  *   onCacheUpdate?: (cache: Record<string, Record<string, unknown>>) => void,
  *   onEdit: (topic: Record<string, unknown>) => void,
@@ -25,12 +25,13 @@ import TopicCard from './TopicCard';
 export default function TopicFeed({
     topics,
     reports,
+    seedBatches = [],
+    seedOutputs = [],
     canMutate,
+    hasWorkspaceAccess = true,
     userId,
-    userDisplayName = '',
     linkPreviewCache = {},
     onOpenDetail,
-    onCommentsChange,
     onLinksChange,
     onCacheUpdate,
     onEdit,
@@ -61,12 +62,13 @@ export default function TopicFeed({
                             key={id}
                             topic={topic}
                             reports={reports}
+                            seedBatches={seedBatches}
+                            seedOutputs={seedOutputs}
                             canMutate={canMutate}
+                            hasWorkspaceAccess={hasWorkspaceAccess}
                             userId={userId}
-                            userDisplayName={userDisplayName}
                             linkPreviewCache={linkPreviewCache}
                             onOpenDetail={onOpenDetail}
-                            onCommentsChange={onCommentsChange}
                             onLinksChange={onLinksChange}
                             onCacheUpdate={onCacheUpdate}
                             onEdit={onEdit}

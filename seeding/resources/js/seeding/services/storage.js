@@ -1,17 +1,18 @@
 /**
- * Seeding local repository — V6 workspace document.
+ * Seeding local repository — V7 Flexible Seeding document.
  *
  * Key: seeding:v5:{installationId}:{userId}:workspace (stable key; schema_version inside).
  * Scope: installation + user (no site/domain).
  *
- * Topic = immutable context after create.
- * Comment Item = work unit (may carry links[] for URL previews).
- * link_previews = shared OG metadata cache keyed by normalized_url (Topic + Comment).
- * Report events = completion ledger (counters derived).
+ * Topic = idea / trending signal (content references via topic.links).
+ * seed_links = personal Link Pool (soft daily_limit).
+ * seed_batches / seed_outputs = execution history (auto-recorded on Gen).
+ * link_previews = shared OG metadata cache keyed by normalized_url.
+ * Legacy comments / reports kept on migrate — not used in primary UX.
  * Proof binary lives in IndexedDB — never in this JSON.
  */
 
-const SCHEMA_VERSION = 6;
+const SCHEMA_VERSION = 7;
 const LOCAL_PERSIST_MS = 200;
 
 /**
@@ -61,15 +62,20 @@ function emptyDocument() {
         updated_at: new Date().toISOString(),
         topics: [],
         reports: [],
+        seed_links: [],
+        seed_batches: [],
+        seed_outputs: [],
         link_previews: {},
         ui: {
-            filter: 'work',
+            filter: 'all',
             search: '',
             detail_topic_id: null,
             active_work_item_id: null,
             history_open: false,
             composer_open: false,
             sidebar_collapsed: false,
+            link_pool_open: false,
+            share_topic_id: null,
         },
     };
 }
@@ -234,7 +240,7 @@ export function normalizeLinkPreviewCache(raw) {
     return out;
 }
 
-function resolveTopicState(topic, comments) {
+function resolveTopicState(topic) {
     let state = 'draft';
     if (topic.state === 'archived' || topic.is_archived || topic.archived_at) {
         state = 'archived';
@@ -247,17 +253,75 @@ function resolveTopicState(topic, comments) {
     ) {
         state = 'shared';
     } else if (topic.status === 'active' && topic.shared_at) {
-        // legacy V4 "active" only counts as shared when explicitly shared
         state = 'shared';
     }
-
-    // Repair illegal state: "Đang chạy" with zero comment work items
-    const count = Array.isArray(comments) ? comments.length : 0;
-    if ((state === 'shared' || state === 'completed') && count === 0) {
-        state = 'draft';
-    }
-
+    // V7: do not repair shared/completed → draft based on comment count.
+    // Flexible Seeding does not gate topics on sample comments.
     return state;
+}
+
+/**
+ * @param {unknown} raw
+ */
+function normalizeSeedBatch(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const topicId = raw.topic_id ?? raw.topicId;
+    if (!topicId) return null;
+    const requested = Math.max(1, Number(raw.requested_quantity ?? raw.quantity) || 1);
+    const generated = Math.max(0, Number(raw.generated_quantity ?? raw.generatedQuantity) || 0);
+    return {
+        id: String(raw.id || makeId('sbatch')),
+        topic_id: String(topicId),
+        user_id: raw.user_id ?? raw.userId ?? null,
+        requested_quantity: requested,
+        generated_quantity: generated,
+        created_at: raw.created_at || raw.createdAt || new Date().toISOString(),
+    };
+}
+
+/**
+ * @param {unknown} raw
+ */
+function normalizeSeedOutput(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const topicId = raw.topic_id ?? raw.topicId;
+    const content = String(raw.content ?? '').trim();
+    if (!topicId || !content) return null;
+    const now = new Date().toISOString();
+    return {
+        id: String(raw.id || makeId('sout')),
+        batch_id: raw.batch_id != null ? String(raw.batch_id) : null,
+        topic_id: String(topicId),
+        user_id: raw.user_id ?? raw.userId ?? null,
+        content,
+        seed_link_id: raw.seed_link_id != null && raw.seed_link_id !== ''
+            ? String(raw.seed_link_id)
+            : null,
+        url: raw.url ? String(raw.url) : null,
+        created_at: raw.created_at || raw.createdAt || now,
+        updated_at: raw.updated_at || raw.updatedAt || raw.created_at || now,
+    };
+}
+
+/**
+ * @param {unknown} raw
+ */
+function normalizeSeedLinkRecord(raw) {
+    if (!raw || typeof raw !== 'object') return null;
+    const url = String(raw.url || '').trim();
+    if (!url) return null;
+    const dailyLimit = Math.max(1, Number(raw.daily_limit) || 5);
+    const now = new Date().toISOString();
+    return {
+        id: String(raw.id || makeId('slink')),
+        url,
+        normalized_url: String(raw.normalized_url || normalizeUrlKey(url)),
+        daily_limit: dailyLimit,
+        is_active: raw.is_active !== false,
+        label: typeof raw.label === 'string' ? raw.label.trim() : '',
+        created_at: raw.created_at || now,
+        updated_at: raw.updated_at || now,
+    };
 }
 
 /**
@@ -269,7 +333,7 @@ export function normalizeTopic(topic) {
         : (Array.isArray(topic.sample_comments) ? topic.sample_comments : []);
     const comments = rawComments.map(normalizeComment).filter(Boolean);
 
-    const state = resolveTopicState(topic, comments);
+    const state = resolveTopicState(topic);
 
     // Prefer persisted links snapshot; fall back to legacy resources
     const rawLinks = Array.isArray(topic.links) && topic.links.length > 0
@@ -365,6 +429,16 @@ export function migrateVersion(raw) {
         ? doc.reports.map(normalizeReport).filter(Boolean)
         : [];
 
+    const seedLinks = Array.isArray(doc.seed_links)
+        ? doc.seed_links.map(normalizeSeedLinkRecord).filter(Boolean)
+        : [];
+    const seedBatches = Array.isArray(doc.seed_batches)
+        ? doc.seed_batches.map(normalizeSeedBatch).filter(Boolean)
+        : [];
+    const seedOutputs = Array.isArray(doc.seed_outputs)
+        ? doc.seed_outputs.map(normalizeSeedOutput).filter(Boolean)
+        : [];
+
     let linkPreviews = normalizeLinkPreviewCache(doc.link_previews);
     // Backfill shared cache from embedded topic/comment link metas (V5 → V6).
     for (const topic of topics) {
@@ -387,25 +461,31 @@ export function migrateVersion(raw) {
         || (doc.workspace && typeof doc.workspace === 'object' ? doc.workspace : {})
     );
 
-    let filter = typeof uiRaw.filter === 'string' ? uiRaw.filter : 'work';
+    let filter = typeof uiRaw.filter === 'string' ? uiRaw.filter : 'all';
     if (filter === 'archive') filter = 'archived';
-    if (filter === 'active') filter = 'shared';
+    if (filter === 'active' || filter === 'shared' || filter === 'work') filter = 'all';
     if (filter === 'new') filter = 'draft';
+    if (filter === 'completed') filter = 'all';
 
     return {
         schema_version: SCHEMA_VERSION,
         updated_at: typeof doc.updated_at === 'string' ? doc.updated_at : new Date().toISOString(),
         topics,
         reports,
+        seed_links: seedLinks,
+        seed_batches: seedBatches,
+        seed_outputs: seedOutputs,
         link_previews: linkPreviews,
         ui: {
             filter,
             search: String(uiRaw.search ?? ''),
             detail_topic_id: uiRaw.detail_topic_id ?? uiRaw.detailTopicId ?? null,
-            active_work_item_id: uiRaw.active_work_item_id ?? uiRaw.activeWorkItemId ?? null,
+            active_work_item_id: null,
             history_open: Boolean(uiRaw.history_open ?? uiRaw.historyOpen),
             composer_open: false,
             sidebar_collapsed: Boolean(uiRaw.sidebar_collapsed ?? uiRaw.sidebarCollapsed),
+            link_pool_open: Boolean(uiRaw.link_pool_open),
+            share_topic_id: uiRaw.share_topic_id ?? null,
         },
     };
 }
@@ -506,15 +586,26 @@ export function writeDocument(scope, doc) {
             updated_at: new Date().toISOString(),
             topics: Array.isArray(doc.topics) ? doc.topics.map((t) => normalizeTopic(t)) : [],
             reports: Array.isArray(doc.reports) ? doc.reports.map(normalizeReport).filter(Boolean) : [],
+            seed_links: Array.isArray(doc.seed_links)
+                ? doc.seed_links.map(normalizeSeedLinkRecord).filter(Boolean)
+                : [],
+            seed_batches: Array.isArray(doc.seed_batches)
+                ? doc.seed_batches.map(normalizeSeedBatch).filter(Boolean)
+                : [],
+            seed_outputs: Array.isArray(doc.seed_outputs)
+                ? doc.seed_outputs.map(normalizeSeedOutput).filter(Boolean)
+                : [],
             link_previews: normalizeLinkPreviewCache(doc.link_previews),
             ui: {
-                filter: doc.ui?.filter || 'work',
+                filter: doc.ui?.filter || 'all',
                 search: doc.ui?.search || '',
                 detail_topic_id: doc.ui?.detail_topic_id ?? null,
-                active_work_item_id: doc.ui?.active_work_item_id ?? null,
+                active_work_item_id: null,
                 history_open: Boolean(doc.ui?.history_open),
                 composer_open: false,
                 sidebar_collapsed: Boolean(doc.ui?.sidebar_collapsed),
+                link_pool_open: Boolean(doc.ui?.link_pool_open),
+                share_topic_id: doc.ui?.share_topic_id ?? null,
             },
         };
         localStorage.setItem(documentKey(scope), JSON.stringify(payload));
@@ -546,10 +637,18 @@ export function createDebouncedWriter(ms = LOCAL_PERSIST_MS) {
     };
 }
 
-/** Topic has work history → delete blocked */
-export function topicHasWorkHistory(topic, reports) {
+/**
+ * Topic has work history → delete blocked.
+ * V7: also treat seed batches/outputs as history.
+ * @param {Record<string, unknown>} topic
+ * @param {Array<Record<string, unknown>>} reports
+ * @param {{ seed_batches?: Array<Record<string, unknown>>, seed_outputs?: Array<Record<string, unknown>> }} [extra]
+ */
+export function topicHasWorkHistory(topic, reports, extra = {}) {
     const topicId = topicKeyOf(topic);
     if ((reports || []).some((r) => String(r.topic_id) === topicId)) return true;
+    if ((extra.seed_batches || []).some((b) => String(b.topic_id) === topicId)) return true;
+    if ((extra.seed_outputs || []).some((o) => String(o.topic_id) === topicId)) return true;
     const comments = Array.isArray(topic.comments) ? topic.comments : [];
     return comments.some((c) => c.state === 'in_progress' || c.state === 'completed' || c.claimed_by_user_id || c.completed_at);
 }

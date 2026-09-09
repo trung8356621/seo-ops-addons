@@ -1,6 +1,8 @@
 /**
  * Topic/comment authorization helpers for local-first workspace.
  * Mirrors SeedingTopicAuthorization (PHP) — manage ≈ canMutate until fine RBAC.
+ *
+ * Flexible Seeding: canSeedTopic is independent of topic author / canMutate.
  */
 
 /**
@@ -21,17 +23,41 @@ export function canEditTopic(topic, userId, canMutate) {
  * @param {number|string} userId
  * @param {boolean} canMutate
  * @param {Array<Record<string, unknown>>} [reports]
- * @param {(topic: Record<string, unknown>, reports: Array<Record<string, unknown>>) => boolean} [hasWorkHistory]
+ * @param {(topic: Record<string, unknown>, reports: Array<Record<string, unknown>>, extra?: object) => boolean} [hasWorkHistory]
+ * @param {object} [extra]
  */
-export function canDeleteTopic(topic, userId, canMutate, reports = [], hasWorkHistory = null) {
+export function canDeleteTopic(topic, userId, canMutate, reports = [], hasWorkHistory = null, extra = {}) {
     if (!canMutate || !topic) return false;
-    if (typeof hasWorkHistory === 'function' && hasWorkHistory(topic, reports)) return false;
+    if (typeof hasWorkHistory === 'function' && hasWorkHistory(topic, reports, extra)) return false;
     const owner = topic.created_by_user_id;
     if (owner != null && owner !== '' && String(owner) === String(userId)) return true;
     return true; // manage
 }
 
 /**
+ * Share / Gen eligibility — NOT tied to topic author or canMutate.
+ * @param {Record<string, unknown>|null|undefined} topic
+ * @param {{ hasWorkspaceAccess?: boolean }} [opts]
+ */
+export function canSeedTopic(topic, opts = {}) {
+    const hasAccess = opts.hasWorkspaceAccess !== false;
+    if (!hasAccess || !topic) return false;
+    const state = topic.state || 'draft';
+    if (state === 'archived' || topic.is_archived) return false;
+    return true;
+}
+
+/**
+ * @deprecated Use canSeedTopic — kept for migrate/tests naming only.
+ * @param {Record<string, unknown>} topic
+ * @param {{ hasWorkspaceAccess?: boolean }} [opts]
+ */
+export function canShareTopic(topic, opts = {}) {
+    return canSeedTopic(topic, opts);
+}
+
+/**
+ * Legacy comment helpers — unused in primary Flexible Seeding UX.
  * @param {Record<string, unknown>} comment
  * @param {number|string} userId
  * @param {boolean} canMutate
@@ -44,7 +70,6 @@ export function canEditComment(comment, userId, canMutate) {
 }
 
 /**
- * Author or manage.
  * @param {Record<string, unknown>} comment
  * @param {number|string} userId
  * @param {boolean} canMutate
@@ -60,33 +85,39 @@ export function canDeleteComment(comment, userId, canMutate) {
 }
 
 /**
- * Share eligibility — single source used by feed / sidebar / detail.
- * @param {Record<string, unknown>} topic
+ * Link Pool is scoped to the current user's localStorage document.
+ * @param {boolean} hasWorkspaceAccess
  */
-export function canShareTopic(topic) {
-    const state = topic?.state || 'draft';
-    if (state !== 'draft') return false;
-    const comments = Array.isArray(topic?.comments) ? topic.comments : [];
-    return comments.length >= 1;
+export function canManageOwnSeedLinks(hasWorkspaceAccess = true) {
+    return hasWorkspaceAccess !== false;
 }
 
 /**
+ * Soft status for feed chips (no comment gate).
  * @param {Record<string, unknown>} topic
- * @returns {'no_comments'|'ready'|'shared'|'completed'|'archived'}
+ * @returns {'ready'|'seeded'|'archived'|'draft'}
  */
-export function shareStatusOf(topic) {
+export function seedStatusOf(topic) {
     const state = topic?.state || 'draft';
     if (state === 'archived') return 'archived';
-    if (state === 'completed') return 'completed';
-    if (state === 'shared') return 'shared';
-    if (canShareTopic(topic)) return 'ready';
-    return 'no_comments';
+    if (topic?.last_seeded_at) return 'seeded';
+    if (state === 'draft') return 'draft';
+    return 'ready';
 }
 
-export function shareStatusLabel(status) {
-    if (status === 'ready') return 'Sẵn sàng chia sẻ';
-    if (status === 'shared') return 'Đã chia sẻ';
-    if (status === 'completed') return 'Hoàn tất';
+export function seedStatusLabel(status) {
+    if (status === 'seeded') return 'Đã dùng';
     if (status === 'archived') return 'Lưu trữ';
-    return 'Chưa có bình luận';
+    if (status === 'draft') return 'Chủ đề';
+    return 'Sẵn sàng';
+}
+
+/** @deprecated */
+export function shareStatusOf(topic) {
+    return seedStatusOf(topic);
+}
+
+/** @deprecated */
+export function shareStatusLabel(status) {
+    return seedStatusLabel(status);
 }

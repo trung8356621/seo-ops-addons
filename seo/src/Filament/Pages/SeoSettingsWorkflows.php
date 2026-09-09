@@ -98,7 +98,14 @@ class SeoSettingsWorkflows extends Page implements HasForms
 
                 Forms\Components\Section::make(__('seo-content-ai::filament.settings_workflows.prompt_hooks_section'))
                     ->headerActions([HelpUi::fieldHintAction('settings.workflow.prompt_hooks')])
-                    ->schema($this->dynamicHookBindingFields()),
+                    ->schema([
+                        Forms\Components\Toggle::make(SeoCreateArticleSettingsService::KEY_OUTLINE_SPLIT_ENABLED)
+                            ->label(__('seo-content-ai::filament.settings_workflows.outline_split_enabled'))
+                            ->helperText(__('seo-content-ai::filament.settings_workflows.outline_split_enabled_hint'))
+                            ->default(true)
+                            ->inline(false),
+                        ...$this->dynamicHookBindingFields(),
+                    ]),
             ])
             ->statePath('settingsData');
     }
@@ -355,6 +362,7 @@ class SeoSettingsWorkflows extends Page implements HasForms
             SeoCreateArticleSettingsService::KEY_REWRITE_ARTICLE => $settings->getSettings()[SeoCreateArticleSettingsService::KEY_REWRITE_ARTICLE] ?? null,
             SeoCreateArticleSettingsService::KEY_POST_REVIEW => $settings->getSettings()[SeoCreateArticleSettingsService::KEY_POST_REVIEW] ?? null,
             SeoCreateArticleSettingsService::KEY_PROMPT_HOOK_BINDINGS => $bindings,
+            SeoCreateArticleSettingsService::KEY_OUTLINE_SPLIT_ENABLED => (bool) ($data[SeoCreateArticleSettingsService::KEY_OUTLINE_SPLIT_ENABLED] ?? true),
             SeoCreateArticleSettingsService::KEY_CREATE_TYPOGRAPHY_IMAGE_SOURCE => $data[SeoCreateArticleSettingsService::KEY_CREATE_TYPOGRAPHY_IMAGE_SOURCE] ?? null,
             SeoCreateArticleSettingsService::KEY_CREATE_TYPOGRAPHY_IMAGE_PROMPT => $data[SeoCreateArticleSettingsService::KEY_CREATE_TYPOGRAPHY_IMAGE_PROMPT] ?? null,
             SeoCreateArticleSettingsService::KEY_CREATE_TYPOGRAPHY_IMAGE_TASK => $data[SeoCreateArticleSettingsService::KEY_CREATE_TYPOGRAPHY_IMAGE_TASK] ?? null,

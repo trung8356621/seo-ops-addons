@@ -1,29 +1,29 @@
 import React from 'react';
-import { ArrowLeft, ExternalLink, Pencil, Trash2 } from 'lucide-react';
+import { ArrowLeft, ExternalLink, Pencil, Share2, Trash2 } from 'lucide-react';
 import ResourceLinks from './ResourceLinks';
-import TopicCommentsSection from './TopicCommentsSection';
 import ContentWithLinkPreviews from './ContentWithLinkPreviews';
 import { detectPlatformLabel } from '../services/linkExtract';
-import { canShareTopic, shareStatusLabel, shareStatusOf, topicDistinctTitle, topicStatusLabel } from '../features/workspace/selectors';
+import {
+    isTopicTrending,
+    seedStatusLabel,
+    seedStatusOf,
+    topicDistinctTitle,
+} from '../features/workspace/selectors';
+import { canSeedTopic } from '../features/workspace/auth';
 
 /**
- * Topic detail — still available; feed remains primary surface.
+ * Topic detail — idea context only; no sample comments / claim.
  *
  * @param {{
  *   topic: Record<string, unknown>,
  *   canMutate: boolean,
  *   canDelete: boolean,
  *   canEdit?: boolean,
- *   userId: number|string,
- *   userDisplayName?: string,
- *   linkPreviewCache?: Record<string, Record<string, unknown>>,
+ *   hasWorkspaceAccess?: boolean,
  *   onBack: () => void,
  *   onDelete: () => void,
  *   onEdit?: () => void,
- *   onCommentsChange: (comments: Array<Record<string, unknown>>) => void,
- *   onCacheUpdate?: (cache: Record<string, Record<string, unknown>>) => void,
  *   onShare: () => void,
- *   onClaim: (comment: Record<string, unknown>) => void,
  * }} props
  */
 export default function TopicDetail({
@@ -31,23 +31,17 @@ export default function TopicDetail({
     canMutate,
     canDelete,
     canEdit = false,
-    userId,
-    userDisplayName = '',
-    linkPreviewCache = {},
+    hasWorkspaceAccess = true,
     onBack,
     onDelete,
     onEdit,
-    onCommentsChange,
-    onCacheUpdate,
     onShare,
-    onClaim,
 }) {
     const platform = detectPlatformLabel(topic.social_url);
-    const state = topic.state || 'draft';
-    const isDraft = state === 'draft';
-    const canShare = canShareTopic(topic);
-    const shareStatus = shareStatusOf(topic);
+    const status = seedStatusOf(topic);
     const title = topicDistinctTitle(topic);
+    const canSeed = canSeedTopic(topic, { hasWorkspaceAccess });
+    const trending = isTopicTrending(topic);
 
     return (
         <div className="seeding-ws__detail" data-view="topic-detail">
@@ -66,17 +60,14 @@ export default function TopicDetail({
                             <Trash2 size={14} /> Xóa
                         </button>
                     ) : null}
-                    {isDraft ? (
-                        <button
-                            type="button"
-                            className="seeding-ws__btn seeding-ws__btn--primary"
-                            onClick={onShare}
-                            disabled={!canMutate || !canShare}
-                            title={!canShare ? 'Cần ít nhất 1 bình luận.' : undefined}
-                        >
-                            Đẩy chia sẻ
-                        </button>
-                    ) : null}
+                    <button
+                        type="button"
+                        className="seeding-ws__btn seeding-ws__btn--primary"
+                        onClick={onShare}
+                        disabled={!canSeed}
+                    >
+                        <Share2 size={14} /> Chia sẻ
+                    </button>
                 </div>
             </div>
 
@@ -84,12 +75,10 @@ export default function TopicDetail({
                 <header className="seeding-ws__detail-head">
                     {title ? <h2 className="seeding-ws__detail-title">{title}</h2> : null}
                     <div className="seeding-ws__detail-meta">
-                        <span className={`seeding-ws__badge seeding-ws__badge--${state}`}>
-                            {topicStatusLabel(topic)}
-                        </span>
+                        {trending ? <span className="seeding-ws__chip seeding-ws__chip--hot">Trending</span> : null}
                         {platform ? <span className="seeding-ws__chip">{platform}</span> : null}
-                        <span className={`seeding-ws__share-pill seeding-ws__share-pill--${shareStatus}`}>
-                            {shareStatusLabel(shareStatus)}
+                        <span className={`seeding-ws__share-pill seeding-ws__share-pill--${status}`}>
+                            {seedStatusLabel(status)}
                         </span>
                     </div>
                 </header>
@@ -114,21 +103,6 @@ export default function TopicDetail({
                 </section>
 
                 <ResourceLinks links={topic.links || []} />
-
-                <TopicCommentsSection
-                    topic={topic}
-                    canMutate={canMutate}
-                    userId={userId}
-                    userDisplayName={userDisplayName}
-                    linkPreviewCache={linkPreviewCache}
-                    onChange={onCommentsChange}
-                    onCacheUpdate={onCacheUpdate}
-                    onClaim={onClaim}
-                />
-
-                {isDraft && !canShare ? (
-                    <div className="seeding-ws__warn">Cần ít nhất 1 bình luận trước khi đẩy chia sẻ.</div>
-                ) : null}
             </div>
         </div>
     );

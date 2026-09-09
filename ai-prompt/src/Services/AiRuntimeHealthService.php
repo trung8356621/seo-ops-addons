@@ -56,7 +56,11 @@ final class AiRuntimeHealthService
             }
 
             if ($this->isOnCooldown($connectionHealth)) {
-                return 'connection_cooldown';
+                if ($this->isLegacyRateLimitedConnectionCooldown($connectionHealth)) {
+                    $this->neutralizeLegacyRateLimitedConnectionCooldown($connectionHealth);
+                } else {
+                    return 'connection_cooldown';
+                }
             }
         }
 
@@ -561,6 +565,10 @@ final class AiRuntimeHealthService
         if ($errorCode !== null && $errorCode !== '') {
             $counts[$errorCode] = (int) ($counts[$errorCode] ?? 0) + 1;
         }
+        // Persist scope/category so legacy RateLimited connection cooldown can be reconciled safely.
+        $counts['last_scope'] = $decision->scope->value;
+        $counts['last_category'] = $decision->category->value;
+        $counts['last_http_status'] = $decision->httpStatus;
         $row->failure_counts = $counts;
     }
 
@@ -691,8 +699,52 @@ final class AiRuntimeHealthService
 
     private function cooldownAppliesToConnection(AiFailureDecision $decision): bool
     {
+        // Rate limits must never cool down the whole connection — free and paid models
+        // often share one OpenRouter key but have different rate-limit buckets.
+        if ($decision->category === AiFailureClass::RateLimited) {
+            return false;
+        }
+
         // Paid-lane failures must not cooldown the whole connection (free lane stays usable).
         return $decision->scope === AiFailureScope::Connection;
+    }
+
+    /**
+     * Pre-fix poison: RateLimited was persisted as connection_cooldown.
+     * Do not treat as full-connection block; keep valid 401/402/403 locks intact.
+     */
+    private function isLegacyRateLimitedConnectionCooldown(AiRuntimeHealthState $row): bool
+    {
+        if ($row->manual_unlock_required
+            || $row->paid_locked
+            || $row->health_status === AiRuntimeHealthStatus::ConnectionLocked->value
+            || $row->health_status === AiRuntimeHealthStatus::BudgetLimited->value) {
+            return false;
+        }
+
+        $class = (string) ($row->last_failure_class ?? '');
+        if ($class === AiFailureClass::RateLimited->value) {
+            return true;
+        }
+
+        $counts = is_array($row->failure_counts) ? $row->failure_counts : [];
+        $category = (string) ($counts['last_category'] ?? '');
+
+        return $category === AiFailureClass::RateLimited->value;
+    }
+
+    private function neutralizeLegacyRateLimitedConnectionCooldown(AiRuntimeHealthState $row): void
+    {
+        if (! $this->isLegacyRateLimitedConnectionCooldown($row)) {
+            return;
+        }
+
+        $row->cooldown_until = null;
+        if ($row->health_status === AiRuntimeHealthStatus::Degraded->value
+            || $row->health_status === AiRuntimeHealthStatus::Unavailable->value) {
+            $row->health_status = AiRuntimeHealthStatus::Healthy->value;
+        }
+        $row->save();
     }
 
     /**

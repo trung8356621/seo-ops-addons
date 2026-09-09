@@ -52,7 +52,7 @@ final class ContentProjectAiFailureRepairServiceTest extends TestCase
     public static function transientMessageProvider(): iterable
     {
         yield 'routes exhausted code' => ['AI_ROUTES_EXHAUSTED: no route completed'];
-        yield 'no eligible ai route' => ['No eligible AI route was attempted'];
+        yield 'no eligible ai route' => ['No attemptable AI routes'];
         yield 'routes exhausted prose' => ['All AI routes exhausted for this hook'];
         yield 'rate limit 429' => ['Provider returned 429 Too Many Requests'];
         yield 'rate limit prose' => ['Upstream rate limit reached, retry later'];
@@ -100,7 +100,7 @@ final class ContentProjectAiFailureRepairServiceTest extends TestCase
         $snapshot = self::snapshot([
             'message' => 'Workflow failed',
             'steps' => [
-                ['hook_key' => 'content.generate', 'message' => 'No eligible AI route was attempted'],
+                ['hook_key' => 'content.generate', 'message' => 'No attemptable AI routes'],
             ],
         ]);
 
@@ -115,7 +115,7 @@ final class ContentProjectAiFailureRepairServiceTest extends TestCase
     public function test_structured_retryable_false_wins_over_transient_message(): void
     {
         $snapshot = self::snapshot([
-            'message' => 'No eligible AI route was attempted',
+            'message' => 'No attemptable AI routes',
             'ai_routing' => [
                 'classification' => AiRoutesExhaustedException::CLASSIFICATION,
                 'exhaustion_kind' => AiRoutesExhaustionClassifier::KIND_HARD,

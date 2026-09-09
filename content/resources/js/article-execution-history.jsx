@@ -214,7 +214,26 @@ function ExecutionInspector({ node, execution, labels, workflow, run, onPreview,
         <dl className="space-y-1 text-xs">
           <div><dt className="text-slate-500">Action</dt><dd className="font-mono">{execution?.action ?? node.data?.actionType ?? actionTypeCanvasLabel(node.data?.actionType)}</dd></div>
           {execution?.message && (
-            <div><dt className="text-slate-500">Error</dt><dd className="text-red-700 darkfunction RunWorkflowPanel({
+            <div><dt className="text-slate-500">Error</dt><dd className="text-red-700 dark:text-red-400">{execution.message}</dd></div>
+          )}
+        </dl>
+      )}
+
+      {isFilter && (
+        <dl className="space-y-1 text-xs">
+          <div><dt className="text-slate-500">Processor</dt><dd>{filterTypeLabel(node.data?.filterType ?? execution?.filter_type)}</dd></div>
+          {execution?.message && (
+            <div><dt className="text-slate-500">Output</dt><dd className="whitespace-pre-wrap">{execution.message}</dd></div>
+          )}
+        </dl>
+      )}
+
+      <TechnicalDetails node={node} execution={execution} workflow={workflow} run={run} />
+    </div>
+  );
+}
+
+function RunWorkflowPanel({
   run,
   labels,
   prompts,
@@ -507,30 +526,6 @@ export function ArticleExecutionHistoryApp({ runs = [], labels = {}, prompts = [
         activeHistory={activeHistory}
         onSelectHistory={(item) => setSelectedHistoryKey(item.key)}
       />
-    </div>
-  );
-}
-
-empt}
-              {run.project_name ? ` · ${run.project_name}` : ''}
-            </p>
-            <p className="text-xs text-slate-500">
-              {String(run.status ?? '').toUpperCase()}
-              {run.ran_at ? ` · ${formatRanAt(run.ran_at)}` : ''}
-            </p>
-          </button>
-        ))}
-      </div>
-      {activeRun && (
-        <div className="min-h-0 flex-1">
-          <RunWorkflowPanel
-            run={activeRun}
-            labels={labels}
-            prompts={resolvedPrompts}
-            onPreview={onPreview}
-          />
-        </div>
-      )}
     </div>
   );
 }

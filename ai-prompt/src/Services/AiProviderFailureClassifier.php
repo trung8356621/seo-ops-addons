@@ -549,9 +549,16 @@ final class AiProviderFailureClassifier
 
     /**
      * Account / organization / API-key quota (connection-scoped), not a single-model limit.
+     *
+     * Free-tier / per-model rate limits (OpenRouter free-models-per-*) MUST stay Model-scoped
+     * so sibling paid models on the same API connection remain attemptable.
      */
     private function matchesAccountWideQuota(string $lower, ?string $providerCode): bool
     {
+        if ($this->matchesFreeTierOrModelRateLimit($lower)) {
+            return false;
+        }
+
         if ($providerCode !== null && in_array($providerCode, [
             'insufficient_quota',
             'billing_hard_limit_reached',
@@ -566,15 +573,45 @@ final class AiProviderFailureClassifier
             || str_contains($lower, 'account quota')
             || str_contains($lower, 'api key quota')
             || str_contains($lower, 'key quota')
-            || str_contains($lower, 'quota exceeded')
             || str_contains($lower, 'monthly limit')
-            || str_contains($lower, 'usage limit')
             || (str_contains($lower, 'quota') && (
                 str_contains($lower, 'account')
                 || str_contains($lower, 'organization')
                 || str_contains($lower, 'billing')
                 || str_contains($lower, 'credits')
             ));
+    }
+
+    /**
+     * OpenRouter / provider free-tier RPM-RPD style limits — model/lane scoped, not whole key.
+     */
+    private function matchesFreeTierOrModelRateLimit(string $lower): bool
+    {
+        if (
+            str_contains($lower, 'free-models')
+            || str_contains($lower, 'free models')
+            || str_contains($lower, 'free_models')
+            || str_contains($lower, 'free tier')
+            || str_contains($lower, 'free-tier')
+            || str_contains($lower, 'free route')
+            || str_contains($lower, ':free')
+        ) {
+            return true;
+        }
+
+        // "quota exceeded" alone is common on free RPM messages — treat as model rate limit
+        // unless clearly account/org/billing (handled by matchesAccountWideQuota after this gate).
+        if (
+            (str_contains($lower, 'quota exceeded') || str_contains($lower, 'usage limit'))
+            && ! str_contains($lower, 'organization')
+            && ! str_contains($lower, 'account')
+            && ! str_contains($lower, 'billing')
+            && ! str_contains($lower, 'api key')
+        ) {
+            return true;
+        }
+
+        return false;
     }
 
     private function matchesTransientProvider(int $httpStatus, string $lower, ?string $providerCode): bool

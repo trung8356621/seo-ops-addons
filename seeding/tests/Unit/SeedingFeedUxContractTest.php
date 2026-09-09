@@ -7,7 +7,7 @@ namespace Omnichannel\Addons\Seeding\Tests\Unit;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Frontend UX contracts for feed refactor (source-level; localStorage SoT).
+ * Frontend UX contracts for Flexible Seeding feed (source-level; localStorage SoT).
  */
 final class SeedingFeedUxContractTest extends TestCase
 {
@@ -51,35 +51,20 @@ final class SeedingFeedUxContractTest extends TestCase
         self::assertStringContainsString('maxRichPreviews', $rich);
     }
 
-    public function test_feed_comment_preview_limited(): void
-    {
-        $content = (string) file_get_contents(
-            $this->addonRoot().'/resources/js/seeding/features/workspace/content.js'
-        );
-        $feedComments = (string) file_get_contents(
-            $this->addonRoot().'/resources/js/seeding/components/FeedCommentsBlock.jsx'
-        );
-        self::assertStringContainsString('latestCommentsPreview', $content);
-        self::assertStringContainsString('previewLimit = 2', $feedComments);
-        self::assertStringContainsString('Xem thêm', $feedComments);
-    }
-
-    public function test_auth_helpers_author_vs_non_author(): void
+    public function test_auth_helpers_seed_vs_edit(): void
     {
         $auth = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/features/workspace/auth.js'
         );
         self::assertStringContainsString('canEditTopic', $auth);
         self::assertStringContainsString('canDeleteTopic', $auth);
-        self::assertStringContainsString('canEditComment', $auth);
-        self::assertStringContainsString('canDeleteComment', $auth);
-        self::assertStringContainsString('canShareTopic', $auth);
+        self::assertStringContainsString('canSeedTopic', $auth);
         self::assertStringContainsString('created_by_user_id', $auth);
-        self::assertStringContainsString('author_user_id', $auth);
-        self::assertStringContainsString('comments.length >= 1', $auth);
+        self::assertStringContainsString('hasWorkspaceAccess', $auth);
+        self::assertStringNotContainsString('comments.length >= 1', $auth);
     }
 
-    public function test_sidebar_is_team_stats_not_topic_detail(): void
+    public function test_sidebar_is_personal_stats_not_topic_detail(): void
     {
         $workspace = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/SeedingWorkspace.jsx'
@@ -101,24 +86,19 @@ final class SeedingFeedUxContractTest extends TestCase
         self::assertStringContainsString('data-layout="shell"', $workspace);
         self::assertStringNotContainsString('TopicContextSidebar', $workspace);
         self::assertStringNotContainsString('selectedId', $workspace);
-        self::assertStringNotContainsString('selected_topic_id', $workspace);
         self::assertStringNotContainsString('TopicContextSidebar', $composer);
 
         self::assertFileExists($this->addonRoot().'/resources/js/seeding/components/TeamStatsSidebar.jsx');
         self::assertFileDoesNotExist($this->addonRoot().'/resources/js/seeding/components/TopicContextSidebar.jsx');
-        self::assertStringContainsString('data-sidebar="team-stats"', $sidebar);
-        self::assertStringContainsString('deriveTeamStats', $sidebar);
-        self::assertStringContainsString('Thống kê hôm nay', $sidebar);
-        self::assertStringContainsString('Nhân viên', $sidebar);
-        self::assertStringContainsString('Xem báo cáo', $sidebar);
+        self::assertStringContainsString('data-sidebar="personal-stats"', $sidebar);
+        self::assertStringContainsString('derivePersonalSeedingStats', $sidebar);
+        self::assertStringContainsString('Seeding hôm nay', $sidebar);
         self::assertStringNotContainsString('Chi tiết chủ đề', $sidebar);
         self::assertStringNotContainsString('FeedCommentsBlock', $sidebar);
-        self::assertStringNotContainsString('LinkPreviewCard', $sidebar);
-        self::assertStringNotContainsString('onSelect', $sidebar);
+        self::assertStringNotContainsString('Nhân viên', $sidebar);
 
-        self::assertStringContainsString('export function deriveTeamStats', $selectors);
-        self::assertStringContainsString('commentsCreated', $selectors);
-        self::assertStringContainsString('completed_at', $selectors);
+        self::assertStringContainsString('export function derivePersonalSeedingStats', $selectors);
+        self::assertStringContainsString('genBatches', $selectors);
 
         self::assertStringContainsString('seeding-ws--shell', $css);
         self::assertStringContainsString('seeding-ws__feed-host', $css);
@@ -151,7 +131,7 @@ final class SeedingFeedUxContractTest extends TestCase
         self::assertStringContainsString('seeding-ws__link-preview-img', $css);
     }
 
-    public function test_share_eligibility_reused(): void
+    public function test_share_uses_can_seed_not_comment_gate(): void
     {
         $detail = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/components/TopicDetail.jsx'
@@ -159,9 +139,10 @@ final class SeedingFeedUxContractTest extends TestCase
         $card = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/components/TopicCard.jsx'
         );
-        self::assertStringContainsString('canShareTopic', $detail);
-        self::assertStringContainsString('shareStatusOf', $card);
-        self::assertStringContainsString('Cần ít nhất 1 bình luận', $card);
+        self::assertStringContainsString('canSeedTopic', $detail);
+        self::assertStringContainsString('canSeedTopic', $card);
+        self::assertStringContainsString('Chia sẻ', $card);
+        self::assertStringNotContainsString('Cần ít nhất 1 bình luận', $card);
         self::assertStringNotContainsString('onSelect', $card);
         self::assertStringNotContainsString('is-selected', $card);
     }
@@ -171,11 +152,12 @@ final class SeedingFeedUxContractTest extends TestCase
         $root = $this->addonRoot().'/resources/js/seeding/components';
         foreach ([
             'TeamStatsSidebar.jsx',
-            'FeedCommentsBlock.jsx',
             'LinkPreviewCard.jsx',
             'ContentWithLinkPreviews.jsx',
             'TopicCard.jsx',
             'TopicFeed.jsx',
+            'ShareGeneratePanel.jsx',
+            'LinkPoolPanel.jsx',
         ] as $file) {
             self::assertFileExists($root.'/'.$file);
         }
@@ -192,11 +174,11 @@ final class SeedingFeedUxContractTest extends TestCase
             $this->addonRoot().'/resources/js/seeding/services/storage.js'
         );
         self::assertStringContainsString('created_by_user_id', $storage);
-        self::assertStringContainsString('author_user_id', $storage);
         self::assertStringContainsString('preview_image_url', $storage);
         self::assertStringContainsString('preview_fetched_at', $storage);
         self::assertStringContainsString('sidebar_collapsed', $storage);
         self::assertStringContainsString('link_previews', $storage);
+        self::assertStringContainsString('seed_links', $storage);
         self::assertStringNotContainsString('selected_topic_id', $storage);
     }
 }

@@ -2109,6 +2109,8 @@ return [
         'translate_article_prompt' => 'Translate article prompt',
         'translate_article_prompt_hint' => 'Variables: {{input}} = source article markdown, {{language}} = target language name in English (e.g. Vietnamese, English). Output: translated article Markdown.',
         'prompt_hooks_section' => 'Prompt Hooks — Settings bindings',
+        'outline_split_enabled' => 'Split Outline Prompt (Structure + Vocabulary)',
+        'outline_split_enabled_hint' => 'On: run Structure then Vocabulary as separate executions. Off: legacy single Outline call (no Vocabulary child). Independent of “Split writing by outline”.',
         'prompt_hooks_description' => 'Assign Prompts that already have the matching Hook. Only Prompts with the correct hook_key appear — no fallback to plain Prompts.',
         'prompt_hooks_ownership_description' => 'Hook = Prompt type. Settings binding = ownership. Only Prompts with matching hook_key appear. Unassigned Prompts are not used at runtime.',
         'open_prompt_management' => 'Open Prompt Management',

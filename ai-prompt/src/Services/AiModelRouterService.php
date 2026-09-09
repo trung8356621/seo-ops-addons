@@ -252,31 +252,27 @@ final class AiModelRouterService
         $settings = $this->resilienceSettings()->get($userId);
         $maxAiAttempts = (int) $settings[AiResilienceSettingsService::KEY_MAX_AI_ATTEMPTS];
         $maxFreeAttempts = (int) $settings[AiResilienceSettingsService::KEY_MAX_FREE_ATTEMPTS];
-        // Mixed Free Pool + paid routes: initial free provider attempt + one free retry,
-        // then continue to next outer route. Honors max_free_attempts when lower than 2.
-        // Rescue Mode (no paid candidates) keeps configured MAX_FREE_ATTEMPTS rotation.
-        // freeOnly (sectioned_free) always uses full max_free_attempts — paid are already filtered out.
-        $paidCandidatesExist = false;
-        if (! $context->freeOnly) {
-            foreach ($candidates as $probe) {
-                if (! $probe->isFree) {
-                    $paidCandidatesExist = true;
-                    break;
-                }
-            }
-        }
-        $effectiveMaxFreeAttempts = $paidCandidatesExist
-            ? min(2, max(0, $maxFreeAttempts))
-            : $maxFreeAttempts;
-
+        // Free budget is configured MAX_FREE_ATTEMPTS, not a hidden one-shot/2-cap.
+        // Reserve at most 1 global AI attempt for attemptable paid fallback when present.
         $classifier = $this->failureClassifier();
         $health = $this->runtimeHealth();
+
+        $attemptablePaidExist = ! $context->freeOnly
+            && $this->hasAttemptableNonFreeCandidate($userId, $candidates, $health);
+        $reservedPaidSlots = $attemptablePaidExist ? 1 : 0;
+        $effectiveMaxFreeAttempts = min(
+            max(0, $maxFreeAttempts),
+            max(0, $maxAiAttempts - $reservedPaidSlots),
+        );
 
         $fallbackCount = 0;
         $reasons = [];
         $routingAttempts = [];
         $actualAttempts = 0;
         $freeAttempts = 0;
+        $paidAttempts = 0;
+        $candidatesTried = 0;
+        $candidatesSkipped = 0;
         $lastException = null;
         $routeRevision = null;
         if ($parsed !== null) {
@@ -301,46 +297,108 @@ final class AiModelRouterService
         $suppressedPaidLanes = [];
 
         foreach ($candidates as $index => $candidate) {
-            $attemptNumber = $index + 1;
+            $candidateIndex = $index + 1;
             $connectionId = (int) $candidate->connection->id;
+            $healthBefore = $health->skipReason($userId, $candidate);
+            $budgetMeta = static function () use (
+                &$actualAttempts,
+                &$freeAttempts,
+                &$paidAttempts,
+                &$effectiveMaxFreeAttempts,
+                $maxAiAttempts,
+                $maxFreeAttempts,
+                &$reservedPaidSlots,
+                $healthBefore,
+            ): array {
+                return [
+                    'actual_attempts' => $actualAttempts,
+                    'free_attempts' => $freeAttempts,
+                    'paid_attempts' => $paidAttempts,
+                    'effective_max_free_attempts' => $effectiveMaxFreeAttempts,
+                    'max_ai_attempts' => $maxAiAttempts,
+                    'max_free_attempts' => $maxFreeAttempts,
+                    'reserved_paid_slots' => $reservedPaidSlots,
+                    'health_state_before' => $healthBefore,
+                    'candidate_attempt_number' => 1,
+                ];
+            };
 
             if (isset($suppressedConnections[$connectionId])) {
+                $candidatesSkipped++;
                 $routingAttempts[] = $this->attemptLog(
                     $candidate,
-                    $attemptNumber,
+                    $candidateIndex,
                     'skipped',
                     'connection_suppressed',
+                    null,
+                    array_filter($budgetMeta(), static fn (mixed $v): bool => $v !== null && $v !== ''),
                 );
                 continue;
             }
 
             if (! $candidate->isFree && isset($suppressedPaidLanes[$connectionId])) {
+                $candidatesSkipped++;
                 $routingAttempts[] = $this->attemptLog(
                     $candidate,
-                    $attemptNumber,
+                    $candidateIndex,
                     'skipped',
                     'paid_lane_suppressed',
+                    null,
+                    array_filter($budgetMeta(), static fn (mixed $v): bool => $v !== null && $v !== ''),
                 );
                 continue;
             }
 
-            $skipReason = $health->skipReason($userId, $candidate);
-            if ($skipReason !== null) {
-                $routingAttempts[] = $this->attemptLog($candidate, $attemptNumber, 'skipped', $skipReason);
-                if ($skipReason === 'connection_locked' || $skipReason === 'connection_cooldown') {
+            if ($healthBefore !== null) {
+                $candidatesSkipped++;
+                $routingAttempts[] = $this->attemptLog(
+                    $candidate,
+                    $candidateIndex,
+                    'skipped',
+                    $healthBefore,
+                    null,
+                    array_filter($budgetMeta(), static fn (mixed $v): bool => $v !== null && $v !== ''),
+                );
+                if ($healthBefore === 'connection_locked') {
                     $suppressedConnections[$connectionId] = true;
-                } elseif ($skipReason === 'connection_paid_locked') {
+                } elseif ($healthBefore === 'connection_paid_locked') {
                     $suppressedPaidLanes[$connectionId] = true;
                 }
                 continue;
             }
 
+            // Reclaim reserved paid slot when no remaining paid is attemptable.
+            $remainingPaid = $this->hasRemainingAttemptableNonFree(
+                $userId,
+                $candidates,
+                $index,
+                $health,
+                $suppressedConnections,
+                $suppressedPaidLanes,
+            );
+            if (! $remainingPaid && $reservedPaidSlots > 0) {
+                $reservedPaidSlots = 0;
+                $effectiveMaxFreeAttempts = min(
+                    max(0, $maxFreeAttempts),
+                    max(0, $maxAiAttempts),
+                );
+            } elseif ($remainingPaid) {
+                $reservedPaidSlots = 1;
+                $effectiveMaxFreeAttempts = min(
+                    max(0, $maxFreeAttempts),
+                    max(0, $maxAiAttempts - 1),
+                );
+            }
+
             if ($candidate->isFree && $freeAttempts >= $effectiveMaxFreeAttempts) {
+                $candidatesSkipped++;
                 $routingAttempts[] = $this->attemptLog(
                     $candidate,
-                    $attemptNumber,
+                    $candidateIndex,
                     'skipped',
-                    $paidCandidatesExist ? 'free_oneshot_paid_available' : 'free_attempt_budget_exhausted',
+                    'free_attempt_budget_exhausted',
+                    null,
+                    array_filter($budgetMeta(), static fn (mixed $v): bool => $v !== null && $v !== ''),
                 );
                 continue;
             }
@@ -350,9 +408,13 @@ final class AiModelRouterService
             }
 
             $actualAttempts++;
+            $candidatesTried++;
             if ($candidate->isFree) {
                 $freeAttempts++;
+            } else {
+                $paidAttempts++;
             }
+            $providerAttempt = $actualAttempts;
 
             try {
                 [$output, $usage] = $executor($candidate);
@@ -362,16 +424,32 @@ final class AiModelRouterService
                     : '';
                 $routingAttempts[] = $this->attemptLog(
                     $candidate,
-                    $attemptNumber,
+                    $providerAttempt,
                     'success',
                     null,
                     null,
-                    array_filter([
-                        'actual_provider_model' => $actualProviderModel !== '' ? $actualProviderModel : null,
-                        'requested_model' => is_array($usage)
-                            ? (trim((string) ($usage['requested_model'] ?? '')) ?: null)
-                            : null,
-                    ], static fn (mixed $v): bool => $v !== null && $v !== ''),
+                    array_merge(
+                        $this->attemptBudgetMeta(
+                            $actualAttempts,
+                            $freeAttempts,
+                            $paidAttempts,
+                            $effectiveMaxFreeAttempts,
+                            $maxAiAttempts,
+                            $maxFreeAttempts,
+                            $reservedPaidSlots,
+                            null,
+                        ),
+                        array_filter([
+                            'candidate_index' => $candidateIndex,
+                            'candidates_tried' => $candidatesTried,
+                            'candidates_skipped' => $candidatesSkipped,
+                            'request_sent' => true,
+                            'actual_provider_model' => $actualProviderModel !== '' ? $actualProviderModel : null,
+                            'requested_model' => is_array($usage)
+                                ? (trim((string) ($usage['requested_model'] ?? '')) ?: null)
+                                : null,
+                        ], static fn (mixed $v): bool => $v !== null && $v !== ''),
+                    ),
                 );
 
                 return [$output, $usage, $candidate, $fallbackCount, $reasons, $routingAttempts];
@@ -385,16 +463,32 @@ final class AiModelRouterService
                 if ($isCapabilitySkip) {
                     // Pre-execution filter — not a provider attempt failure.
                     $actualAttempts = max(0, $actualAttempts - 1);
+                    $candidatesTried = max(0, $candidatesTried - 1);
+                    $candidatesSkipped++;
                     if ($candidate->isFree) {
                         $freeAttempts = max(0, $freeAttempts - 1);
+                    } else {
+                        $paidAttempts = max(0, $paidAttempts - 1);
                     }
                     $routingAttempts[] = $this->attemptLog(
                         $candidate,
-                        $attemptNumber,
+                        $candidateIndex,
                         'skipped',
                         'capability_mismatch',
                         null,
-                        $decision->toAttemptDiagnostics(),
+                        array_merge(
+                            $this->attemptBudgetMeta(
+                                $actualAttempts,
+                                $freeAttempts,
+                                $paidAttempts,
+                                $effectiveMaxFreeAttempts,
+                                $maxAiAttempts,
+                                $maxFreeAttempts,
+                                $reservedPaidSlots,
+                                $healthBefore,
+                            ),
+                            $decision->toAttemptDiagnostics(),
+                        ),
                     );
                     continue;
                 }
@@ -415,28 +509,44 @@ final class AiModelRouterService
                 }
 
                 $fallbackCount++;
-                $reasons[] = 'position '.$candidate->priority.' attempt '.$attemptNumber.' '
+                $reasons[] = 'position '.$candidate->priority.' attempt '.$providerAttempt.' '
                     .$candidate->provider.'/'.$candidate->model.': '.$decision->safeMessage;
                 $routingAttempts[] = $this->attemptLog(
                     $candidate,
-                    $attemptNumber,
+                    $providerAttempt,
                     'failed',
                     $decision->category->value,
                     $decision->httpStatus,
                     array_merge(
                         $this->qualityAttemptMeta($exception),
                         $decision->toAttemptDiagnostics(),
+                        $this->attemptBudgetMeta(
+                            $actualAttempts,
+                            $freeAttempts,
+                            $paidAttempts,
+                            $effectiveMaxFreeAttempts,
+                            $maxAiAttempts,
+                            $maxFreeAttempts,
+                            $reservedPaidSlots,
+                            $healthBefore,
+                        ),
                         [
+                            'candidate_index' => $candidateIndex,
+                            'candidates_tried' => $candidatesTried,
+                            'candidates_skipped' => $candidatesSkipped,
                             'failure_scope' => $decision->scope->value,
                             'billing_lane' => $candidate->isFree ? 'free' : 'paid',
+                            'retryable' => $decision->recoverable,
+                            'fallbackable' => $decision->fallbackAllowed(),
                             'connection_suppressed' => $this->isFullConnectionSuppressDecision($decision),
                             'paid_lane_suppressed' => $this->isPaidLaneSuppressDecision($decision),
+                            'request_sent' => $decision->requestSent ?? true,
                         ],
                     ),
                 );
 
                 logger()->warning('AI routing infrastructure fallback', array_merge(
-                    $candidate->toAttemptLogContext($attemptNumber, $routeRevision),
+                    $candidate->toAttemptLogContext($providerAttempt, $routeRevision),
                     [
                         'failure_class' => $decision->category->value,
                         'failure_scope' => $decision->scope->value,
@@ -449,6 +559,9 @@ final class AiModelRouterService
                         'next' => $decision->fallbackAllowed() && isset($candidates[$index + 1]),
                         'routing_owner_user_id' => $userId,
                         'eligible_models' => $eligibleModels,
+                        'free_attempts' => $freeAttempts,
+                        'actual_attempts' => $actualAttempts,
+                        'effective_max_free_attempts' => $effectiveMaxFreeAttempts,
                     ],
                     $this->qualityAttemptMeta($exception),
                 ));
@@ -498,6 +611,14 @@ final class AiModelRouterService
             'candidates_before_health' => count($candidates),
             'max_ai_attempts' => $maxAiAttempts,
             'max_free_attempts' => $maxFreeAttempts,
+            'effective_max_free_attempts' => $effectiveMaxFreeAttempts,
+            'reserved_paid_slots' => $reservedPaidSlots,
+            'free_attempts' => $freeAttempts,
+            'paid_attempts' => $paidAttempts,
+            'actual_attempts' => $actualAttempts,
+            'candidates_tried' => $candidatesTried,
+            'candidates_skipped' => $candidatesSkipped,
+            'attemptable_paid_existed' => $attemptablePaidExist,
             'exhaustion_kind' => $classified['exhaustion_kind'],
             'retryable' => $classified['retryable'],
             'temporary' => $classified['temporary'],
@@ -537,9 +658,14 @@ final class AiModelRouterService
      */
     /**
      * Full connection suppress (credential / account) — blocks paid and free on that connection.
+     * RateLimited must NEVER full-suppress: free/paid often share one key with separate buckets.
      */
     private function isFullConnectionSuppressDecision(AiFailureDecision $decision): bool
     {
+        if ($decision->category === AiFailureClass::RateLimited) {
+            return false;
+        }
+
         return $decision->lockConnection
             || $decision->scope === AiFailureScope::Connection;
     }
@@ -589,6 +715,85 @@ final class AiModelRouterService
         } catch (\Throwable) {
             return [];
         }
+    }
+
+    /**
+     * @param  list<RoutedAiCandidate>  $candidates
+     */
+    private function hasAttemptableNonFreeCandidate(
+        int $userId,
+        array $candidates,
+        AiRuntimeHealthService $health,
+    ): bool {
+        foreach ($candidates as $candidate) {
+            if ($candidate->isFree) {
+                continue;
+            }
+            if ($health->skipReason($userId, $candidate) !== null) {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  list<RoutedAiCandidate>  $candidates
+     * @param  array<int, true>  $suppressedConnections
+     * @param  array<int, true>  $suppressedPaidLanes
+     */
+    private function hasRemainingAttemptableNonFree(
+        int $userId,
+        array $candidates,
+        int $currentIndex,
+        AiRuntimeHealthService $health,
+        array $suppressedConnections,
+        array $suppressedPaidLanes,
+    ): bool {
+        foreach ($candidates as $index => $candidate) {
+            if ($index < $currentIndex || $candidate->isFree) {
+                continue;
+            }
+            $connectionId = (int) $candidate->connection->id;
+            if (isset($suppressedConnections[$connectionId]) || isset($suppressedPaidLanes[$connectionId])) {
+                continue;
+            }
+            if ($health->skipReason($userId, $candidate) !== null) {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function attemptBudgetMeta(
+        int $actualAttempts,
+        int $freeAttempts,
+        int $paidAttempts,
+        int $effectiveMaxFreeAttempts,
+        int $maxAiAttempts,
+        int $maxFreeAttempts,
+        int $reservedPaidSlots,
+        ?string $healthBefore,
+    ): array {
+        return array_filter([
+            'actual_attempts' => $actualAttempts,
+            'free_attempts' => $freeAttempts,
+            'paid_attempts' => $paidAttempts,
+            'effective_max_free_attempts' => $effectiveMaxFreeAttempts,
+            'max_ai_attempts' => $maxAiAttempts,
+            'max_free_attempts' => $maxFreeAttempts,
+            'reserved_paid_slots' => $reservedPaidSlots,
+            'health_state_before' => $healthBefore,
+            'eligible_before_attempt' => $healthBefore === null,
+        ], static fn (mixed $v): bool => $v !== null && $v !== '');
     }
 
     /**

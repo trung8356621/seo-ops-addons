@@ -7,7 +7,8 @@ namespace Omnichannel\Addons\Seeding\Tests\Unit;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Contract: Comment reuses Topic link-preview pipeline (no duplicate impl).
+ * Contract: shared link-preview pipeline (Topic + seed outputs).
+ * Legacy comment components may remain on disk but are not primary UX.
  */
 final class SeedingCommentLinkPreviewContractTest extends TestCase
 {
@@ -31,49 +32,24 @@ final class SeedingCommentLinkPreviewContractTest extends TestCase
         self::assertStringContainsString('extractLinksFromPaste', $pipeline);
     }
 
-    public function test_comment_create_edit_gen_use_build_comment_record(): void
+    public function test_seed_output_and_topic_reuse_content_renderer(): void
     {
-        $feed = (string) file_get_contents(
-            $this->addonRoot().'/resources/js/seeding/components/FeedCommentsBlock.jsx'
-        );
-        $detail = (string) file_get_contents(
-            $this->addonRoot().'/resources/js/seeding/components/TopicCommentsSection.jsx'
-        );
-
-        foreach ([$feed, $detail] as $src) {
-            self::assertStringContainsString('buildCommentRecord', $src);
-            self::assertStringContainsString('CommentRichBody', $src);
-            self::assertStringContainsString("source: 'ai'", $src);
-            self::assertStringContainsString("source: 'manual'", $src);
-            self::assertStringContainsString('canEditComment', $src);
-            self::assertStringContainsString('canDeleteComment', $src);
-        }
-    }
-
-    public function test_comment_rich_body_reuses_content_renderer_and_hook(): void
-    {
-        $body = (string) file_get_contents(
-            $this->addonRoot().'/resources/js/seeding/components/CommentRichBody.jsx'
-        );
-        $hook = (string) file_get_contents(
-            $this->addonRoot().'/resources/js/seeding/hooks/useEnsureLinkPreviews.js'
+        $share = (string) file_get_contents(
+            $this->addonRoot().'/resources/js/seeding/components/ShareGeneratePanel.jsx'
         );
         $card = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/components/TopicCard.jsx'
         );
+        $hook = (string) file_get_contents(
+            $this->addonRoot().'/resources/js/seeding/hooks/useEnsureLinkPreviews.js'
+        );
 
-        self::assertStringContainsString('ContentWithLinkPreviews', $body);
-        self::assertStringContainsString('useEnsureLinkPreviews', $body);
-        self::assertStringContainsString("variant = 'comment'", $body);
-        self::assertStringContainsString('maxRichPreviews = 1', $body);
-        self::assertStringContainsString('syncLinksWithText', $body);
-
-        self::assertStringContainsString('ensureLinkPreviews', $hook);
-        self::assertStringContainsString('hydrateLinksFromCache', $hook);
-
-        // Topic card uses same hook — no private fetch loop.
+        self::assertStringContainsString('ContentWithLinkPreviews', $share);
+        self::assertStringContainsString('normalizeUrlKey', $share);
         self::assertStringContainsString('useEnsureLinkPreviews', $card);
         self::assertStringNotContainsString('fetchLinkPreview', $card);
+        self::assertStringContainsString('ensureLinkPreviews', $hook);
+        self::assertStringContainsString('hydrateLinksFromCache', $hook);
     }
 
     public function test_preview_card_has_topic_and_comment_variants(): void
@@ -96,19 +72,19 @@ final class SeedingCommentLinkPreviewContractTest extends TestCase
         self::assertStringContainsString('grid-template-columns: 56px minmax(0, 1fr)', $css);
     }
 
-    public function test_document_has_shared_link_previews_cache(): void
+    public function test_document_has_shared_link_previews_cache_v7(): void
     {
         $storage = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/services/storage.js'
         );
-        self::assertStringContainsString('SCHEMA_VERSION = 6', $storage);
+        self::assertStringContainsString('SCHEMA_VERSION = 7', $storage);
         self::assertStringContainsString('link_previews', $storage);
         self::assertStringContainsString('normalizeLinkPreviewCache', $storage);
         self::assertStringContainsString('function mergeLinksWithText', $storage);
-        self::assertStringContainsString('links,', $storage);
+        self::assertStringContainsString('seed_links', $storage);
     }
 
-    public function test_workspace_wires_shared_cache_to_feed_and_detail(): void
+    public function test_workspace_wires_shared_cache_to_feed(): void
     {
         $workspace = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/SeedingWorkspace.jsx'
@@ -119,15 +95,15 @@ final class SeedingCommentLinkPreviewContractTest extends TestCase
         self::assertStringContainsString('onCacheUpdate={updateLinkPreviewCache}', $workspace);
     }
 
-    public function test_multiple_link_feed_caps_rich_preview(): void
+    public function test_rich_preview_caps_on_share_outputs(): void
     {
-        $feed = (string) file_get_contents(
-            $this->addonRoot().'/resources/js/seeding/components/FeedCommentsBlock.jsx'
+        $share = (string) file_get_contents(
+            $this->addonRoot().'/resources/js/seeding/components/ShareGeneratePanel.jsx'
         );
         $rich = (string) file_get_contents(
             $this->addonRoot().'/resources/js/seeding/components/ContentWithLinkPreviews.jsx'
         );
-        self::assertStringContainsString('maxRichPreviews={1}', $feed);
+        self::assertStringContainsString('maxRichPreviews={1}', $share);
         self::assertStringContainsString('maxRichPreviews', $rich);
         self::assertStringContainsString('seeding-ws__inline-url', $rich);
     }

@@ -1,193 +1,176 @@
 import { previewText, stateLabel, topicKeyOf } from '../../services/storage';
 import { detectPlatformLabel, hostOf } from '../../services/linkExtract';
+import { startOfLocalDay, linkPoolCapacity, usedTodayByLinkId } from '../../services/linkPool';
 import { isAutoCopiedTitle } from './content';
-import { canShareTopic, shareStatusLabel, shareStatusOf } from './auth';
+import {
+    canSeedTopic,
+    canShareTopic,
+    seedStatusLabel,
+    seedStatusOf,
+    shareStatusLabel,
+    shareStatusOf,
+} from './auth';
 
 export { detectPlatformLabel, hostOf, previewText, stateLabel, topicKeyOf };
-export { canShareTopic, shareStatusLabel, shareStatusOf };
+export { canSeedTopic, canShareTopic, seedStatusLabel, seedStatusOf, shareStatusLabel, shareStatusOf };
 export { isAutoCopiedTitle };
+
+/** Recent window for "Đã dùng gần đây" (local days). */
+export const RECENT_SEEDED_DAYS = 7;
 
 /**
  * @param {string} filter
  * @param {Record<string, unknown>} topic
+ * @param {{
+ *   batches?: Array<Record<string, unknown>>,
+ *   userId?: number|string,
+ *   nowMs?: number,
+ * }} [ctx]
  */
-export function topicMatchesFilter(filter, topic) {
+export function topicMatchesFilter(filter, topic, ctx = {}) {
     const state = topic.state || 'draft';
     if (filter === 'archived') return state === 'archived';
     if (state === 'archived') return false;
-    if (filter === 'draft') return state === 'draft';
-    if (filter === 'shared') return state === 'shared';
-    if (filter === 'completed') return state === 'completed';
-    return state === 'draft' || state === 'shared';
-}
-
-/**
- * @param {Array<Record<string, unknown>>} topics
- * @param {Array<Record<string, unknown>>} reports
- * @param {number|string} userId
- */
-export function deriveMetrics(topics, reports, userId) {
-    const list = Array.isArray(topics) ? topics : [];
-    const reps = Array.isArray(reports) ? reports : [];
-    const work = list.filter((t) => topicMatchesFilter('work', t)).length;
-    const shared = list.filter((t) => topicMatchesFilter('shared', t)).length;
-    const completed = list.filter((t) => topicMatchesFilter('completed', t)).length;
-
-    const start = startOfLocalDay();
-    // Semantics: completed comment-tasks today (report.completed_at), scoped to current user.
-    const todayCount = reps.filter((r) => {
-        if (String(r.user_id) !== String(userId)) return false;
-        const ts = Date.parse(String(r.completed_at || ''));
-        return Number.isFinite(ts) && ts >= start;
-    }).length;
-
-    return { work, shared, completed, todayComments: todayCount };
-}
-
-/**
- * Single-pass team / employee Seeding stats for the module sidebar.
- * Actors: topic creator, comment author, claimer, report completer (local-first model).
- *
- * @param {Array<Record<string, unknown>>} topics
- * @param {Array<Record<string, unknown>>} reports
- */
-export function deriveTeamStats(topics, reports) {
-    const list = Array.isArray(topics) ? topics : [];
-    const reps = Array.isArray(reports) ? reports : [];
-    const start = startOfLocalDay();
-
-    /** @type {Map<string, {
-     *   key: string,
-     *   displayName: string,
-     *   commentsCreated: number,
-     *   topicsOwned: number,
-     *   shares: number,
-     *   inProgressClaims: number,
-     *   completedReports: number,
-     * }>} */
-    const byActor = new Map();
-
-    const bump = (id, name, patch) => {
-        const label = String(name || '').trim();
-        if ((id == null || id === '') && !label) return;
-        const key = id != null && id !== '' ? `u:${id}` : `n:${label}`;
-        const displayName = label || `User #${id}`;
-        const prev = byActor.get(key) || {
-            key,
-            displayName,
-            commentsCreated: 0,
-            topicsOwned: 0,
-            shares: 0,
-            inProgressClaims: 0,
-            completedReports: 0,
-        };
-        if (label) prev.displayName = label;
-        for (const [k, v] of Object.entries(patch)) {
-            prev[k] = (prev[k] || 0) + v;
-        }
-        byActor.set(key, prev);
-    };
-
-    let commentsCreatedToday = 0;
-    let sharedToday = 0;
-    let completedToday = 0;
-    let newTopicsToday = 0;
-    let inProgressTopics = 0;
-    let pendingDrafts = 0;
-    let inProgressComments = 0;
-
-    for (const topic of list) {
-        const state = topic.state || 'draft';
-        const createdTs = Date.parse(String(topic.created_at || ''));
-        if (Number.isFinite(createdTs) && createdTs >= start) newTopicsToday += 1;
-        if (state === 'draft') pendingDrafts += 1;
-        if (state === 'shared') inProgressTopics += 1;
-
-        const sharedTs = Date.parse(String(topic.shared_at || ''));
-        if (Number.isFinite(sharedTs) && sharedTs >= start) sharedToday += 1;
-
-        bump(topic.created_by_user_id, topic.created_by_display_name, { topicsOwned: 1 });
-        if (state === 'shared' || state === 'completed') {
-            bump(topic.created_by_user_id, topic.created_by_display_name, { shares: 1 });
-        }
-
-        for (const comment of (topic.comments || [])) {
-            const cCreated = Date.parse(String(comment.created_at || ''));
-            if (Number.isFinite(cCreated) && cCreated >= start) commentsCreatedToday += 1;
-            bump(
-                comment.author_user_id ?? comment.created_by_user_id,
-                comment.author_display_name ?? comment.created_by_display_name,
-                { commentsCreated: 1 },
-            );
-            if (comment.state === 'in_progress') {
-                inProgressComments += 1;
-                bump(
-                    comment.claimed_by_user_id,
-                    comment.claimed_by_display_name,
-                    { inProgressClaims: 1 },
-                );
-            }
-        }
+    if (filter === 'draft' || filter === 'new') {
+        return !lastSeededAtForUser(topic, ctx.batches || [], ctx.userId, ctx.nowMs);
     }
-
-    for (const report of reps) {
-        const ts = Date.parse(String(report.completed_at || ''));
-        if (Number.isFinite(ts) && ts >= start) completedToday += 1;
-        bump(report.user_id, report.user_display_name, { completedReports: 1 });
+    if (filter === 'recent') {
+        return Boolean(lastSeededAtForUser(topic, ctx.batches || [], ctx.userId, ctx.nowMs));
     }
-
-    const employees = [...byActor.values()]
-        .filter((e) => e.commentsCreated > 0 || e.topicsOwned > 0 || e.shares > 0 || e.completedReports > 0 || e.inProgressClaims > 0)
-        .sort((a, b) => (
-            (b.commentsCreated + b.completedReports * 2) - (a.commentsCreated + a.completedReports * 2)
-            || a.displayName.localeCompare(b.displayName)
-        ));
-
-    return {
-        today: {
-            commentsCreated: commentsCreatedToday,
-            shared: sharedToday,
-            completed: completedToday,
-            newTopics: newTopicsToday,
-        },
-        workload: {
-            inProgressTopics,
-            pendingDrafts,
-            inProgressComments,
-        },
-        employees,
-    };
-}
-
-function startOfLocalDay() {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d.getTime();
+    // all
+    return true;
 }
 
 /**
  * @param {Record<string, unknown>} topic
- * @param {Array<Record<string, unknown>>} reports
+ * @param {Array<Record<string, unknown>>} batches
+ * @param {number|string} [userId]
+ * @param {number} [nowMs]
+ * @returns {string|null} ISO timestamp
  */
-export function topicProgress(topic, reports) {
+export function lastSeededAtForUser(topic, batches, userId, nowMs = Date.now()) {
     const topicId = topicKeyOf(topic);
-    const total = Array.isArray(topic.comments) ? topic.comments.length : 0;
-    const done = (reports || []).filter((r) => String(r.topic_id) === topicId).length;
-    return { done, total };
+    const windowStart = nowMs - RECENT_SEEDED_DAYS * 24 * 60 * 60 * 1000;
+    let latest = null;
+    let latestTs = 0;
+    for (const b of batches || []) {
+        if (String(b.topic_id) !== topicId) continue;
+        if (userId != null && userId !== '' && String(b.user_id) !== String(userId)) continue;
+        const ts = Date.parse(String(b.created_at || ''));
+        if (!Number.isFinite(ts) || ts < windowStart) continue;
+        if (ts >= latestTs) {
+            latestTs = ts;
+            latest = b.created_at;
+        }
+    }
+    return latest;
 }
 
 /**
- * Active work list: available + current user's in_progress (not completed).
- * @param {Array<Record<string, unknown>>} comments
+ * Sort: trending flag first (real data only) → recent seed / updated_at.
+ * @param {Array<Record<string, unknown>>} topics
+ * @param {Array<Record<string, unknown>>} batches
  * @param {number|string} userId
  */
-export function visibleWorkComments(comments, userId) {
-    return (comments || []).filter((c) => {
-        if (c.state === 'completed') return false;
-        if (c.state === 'available') return true;
-        if (c.state === 'in_progress' && String(c.claimed_by_user_id) === String(userId)) return true;
-        return false;
+export function sortTopicsForFeed(topics, batches, userId) {
+    return [...topics].sort((a, b) => {
+        const ta = isTopicTrending(a) ? 1 : 0;
+        const tb = isTopicTrending(b) ? 1 : 0;
+        if (tb !== ta) return tb - ta;
+        const sa = Date.parse(String(lastSeededAtForUser(a, batches, userId) || '')) || 0;
+        const sb = Date.parse(String(lastSeededAtForUser(b, batches, userId) || '')) || 0;
+        if (sb !== sa) return sb - sa;
+        return String(b.updated_at || '').localeCompare(String(a.updated_at || ''));
     });
+}
+
+/**
+ * Only true when real trending fields exist — never fake.
+ * @param {Record<string, unknown>} topic
+ */
+export function isTopicTrending(topic) {
+    if (topic?.is_trending === true || topic?.trending === true) return true;
+    if (typeof topic?.trending === 'string' && topic.trending.trim() !== '') return true;
+    return false;
+}
+
+/**
+ * Personal metrics from local document (current user only).
+ * Nội dung đã tạo = COUNT(outputs), never SUM(batch.quantity).
+ *
+ * @param {{
+ *   topics: Array<Record<string, unknown>>,
+ *   batches: Array<Record<string, unknown>>,
+ *   outputs: Array<Record<string, unknown>>,
+ *   seedLinks: Array<Record<string, unknown>>,
+ *   userId: number|string,
+ * }} args
+ */
+export function derivePersonalSeedingStats({ topics, batches, outputs, seedLinks, userId }) {
+    const dayStart = startOfLocalDay();
+    const batchesToday = (batches || []).filter((b) => {
+        if (String(b.user_id) !== String(userId)) return false;
+        const ts = Date.parse(String(b.created_at || ''));
+        return Number.isFinite(ts) && ts >= dayStart;
+    });
+    const outputsToday = (outputs || []).filter((o) => {
+        if (String(o.user_id) !== String(userId)) return false;
+        const ts = Date.parse(String(o.created_at || ''));
+        return Number.isFinite(ts) && ts >= dayStart;
+    });
+
+    const topicIds = new Set(batchesToday.map((b) => String(b.topic_id)));
+    const usedMap = usedTodayByLinkId(outputs || []);
+    const capacity = linkPoolCapacity(seedLinks || [], usedMap);
+
+    return {
+        today: {
+            genBatches: batchesToday.length,
+            contents: outputsToday.length,
+            topicsUsed: topicIds.size,
+            linksActive: capacity.active,
+            linksAtLimit: capacity.atLimit,
+        },
+        capacity,
+        // Totals (all time in local doc) for metric cards
+        totals: {
+            topics: (topics || []).filter((t) => (t.state || 'draft') !== 'archived').length,
+            batches: (batches || []).filter((b) => String(b.user_id) === String(userId)).length,
+            outputs: (outputs || []).filter((o) => String(o.user_id) === String(userId)).length,
+        },
+    };
+}
+
+/**
+ * @deprecated Use derivePersonalSeedingStats — do not fake team from local-only doc.
+ */
+export function deriveTeamStats(topics, reports) {
+    return {
+        today: { commentsCreated: 0, shared: 0, completed: 0, newTopics: 0 },
+        workload: { inProgressTopics: 0, pendingDrafts: 0, inProgressComments: 0 },
+        employees: [],
+        _deprecated: true,
+        _note: 'local-only SoT — use derivePersonalSeedingStats',
+    };
+}
+
+/**
+ * Metric cards for Flexible Seeding personal view.
+ */
+export function deriveMetrics(topics, batches, outputs, userId) {
+    const stats = derivePersonalSeedingStats({
+        topics,
+        batches,
+        outputs,
+        seedLinks: [],
+        userId,
+    });
+    return {
+        topics: stats.totals.topics,
+        genToday: stats.today.genBatches,
+        contentsToday: stats.today.contents,
+        topicsUsedToday: stats.today.topicsUsed,
+    };
 }
 
 export function relativeTime(iso) {

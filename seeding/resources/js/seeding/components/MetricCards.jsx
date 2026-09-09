@@ -1,16 +1,23 @@
 import React from 'react';
 
 /**
+ * Personal Flexible Seeding metrics (local document).
+ *
  * @param {{
- *   metrics: { work: number, shared: number, completed: number, todayComments: number },
+ *   metrics: {
+ *     topics: number,
+ *     genToday: number,
+ *     contentsToday: number,
+ *     topicsUsedToday: number,
+ *   },
  * }} props
  */
 export default function MetricCards({ metrics }) {
     const cards = [
-        { key: 'work', label: 'Đang làm', value: metrics.work, hint: 'Nháp + đang chạy' },
-        { key: 'shared', label: 'Đã chia sẻ', value: metrics.shared, hint: 'Đang chạy' },
-        { key: 'completed', label: 'Hoàn tất', value: metrics.completed, hint: 'Chủ đề xong' },
-        { key: 'today', label: 'Bình luận hôm nay', value: metrics.todayComments, hint: 'Từ báo cáo local' },
+        { key: 'topics', label: 'Chủ đề', value: metrics.topics, hint: 'Đang trên feed' },
+        { key: 'gen', label: 'Lượt Gen hôm nay', value: metrics.genToday, hint: 'Theo batch' },
+        { key: 'contents', label: 'Nội dung đã tạo', value: metrics.contentsToday, hint: 'Theo output' },
+        { key: 'topicsUsed', label: 'Topic đã dùng', value: metrics.topicsUsedToday, hint: 'Distinct hôm nay' },
     ];
 
     return (
