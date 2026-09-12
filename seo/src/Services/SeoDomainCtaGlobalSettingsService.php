@@ -40,11 +40,33 @@ final class SeoDomainCtaGlobalSettingsService
         }
 
         $intro = trim((string) ($data[self::KEY_DEFAULT_CTA_INTRO] ?? ''));
+        $ctaIntroService = app(SiteDomainPromptContextService::class);
+        if ($intro === '') {
+            $intro = SiteDomainPromptContextService::DEFAULT_CTA_INTRO;
+        } else {
+            $cleaned = $ctaIntroService->stripFeaturedSnippetFromCtaIntro($intro);
+            if ($cleaned !== $intro) {
+                $intro = $cleaned !== ''
+                    ? $cleaned
+                    : SiteDomainPromptContextService::DEFAULT_CTA_INTRO;
+                // Persist ownership fix — FS must not remain stored as CTA default.
+                WpOption::set(self::OPTION_KEY, [
+                    self::KEY_DEFAULT_CTA_INTRO => $intro,
+                    self::KEY_GLOBAL_CTA => $this->normalizeGlobalCtaRows(
+                        is_array($data[self::KEY_GLOBAL_CTA] ?? null) ? $data[self::KEY_GLOBAL_CTA] : [],
+                    ),
+                    self::KEY_CTA_QUICK_TEMPLATES => CtaQuickTemplates::normalize(
+                        is_array($data[self::KEY_CTA_QUICK_TEMPLATES] ?? null)
+                            ? $data[self::KEY_CTA_QUICK_TEMPLATES]
+                            : [],
+                    ),
+                ]);
+                $data[self::KEY_DEFAULT_CTA_INTRO] = $intro;
+            }
+        }
 
         $settings = [
-            self::KEY_DEFAULT_CTA_INTRO => $intro !== ''
-                ? $intro
-                : SiteDomainPromptContextService::DEFAULT_CTA_INTRO,
+            self::KEY_DEFAULT_CTA_INTRO => $intro,
             self::KEY_GLOBAL_CTA => $this->normalizeGlobalCtaRows(
                 is_array($data[self::KEY_GLOBAL_CTA] ?? null) ? $data[self::KEY_GLOBAL_CTA] : [],
             ),

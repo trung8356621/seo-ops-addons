@@ -28,6 +28,9 @@ final class SeoUserNavigation
 
     public const SORT_SEO = 50;
 
+    /** Peer addon Seeding — top-level shortcut to /seeding (not under SEO module). */
+    public const SORT_SEEDING = 55;
+
     public const SORT_DOMAINS = 60;
 
     public const SORT_TEAM = 70;

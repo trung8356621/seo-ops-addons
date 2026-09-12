@@ -60,6 +60,7 @@ final class ArticleFeaturedSnippetGeneratorService
             ],
             $promptVars,
             $this->sitePromptContext->promptVariablesForSite($article->site),
+            $this->sitePromptContext->featuredSnippetVariables(),
         );
         $variables['tone'] = $this->sitePromptContext->resolveToneForSite(
             $article->site,

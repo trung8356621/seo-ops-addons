@@ -101,6 +101,15 @@ final class PromptHookExplicitBindingExecutor implements PromptHookBindingRunner
             $this->flags->experimentalAllowlist(),
         );
 
+        // Featured Snippet namespace — never flatten into site_cta / CTA Context.
+        if ($effectiveHookKey === 'article.featured_snippet.generate') {
+            $variables = array_merge(
+                $variables,
+                app(\Omnichannel\Addons\AiPrompt\Services\SiteDomainPromptContextService::class)
+                    ->featuredSnippetVariables(),
+            );
+        }
+
         // CRITICAL: resolve primary + shape BEFORE legacy whole-article compile / provider call.
         $mergedVars = array_merge(
             $variables,

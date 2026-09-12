@@ -6,6 +6,8 @@ namespace Omnichannel\Addons\Seeding;
 
 use App\Core\Capability\CapabilityRegistry;
 use App\Core\Settings\SettingsSectionRegistry;
+use Filament\Facades\Filament;
+use Filament\Navigation\NavigationItem;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
@@ -16,6 +18,7 @@ use Illuminate\Support\Facades\Route;
 use Illuminate\Support\ServiceProvider;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 use Omnichannel\Addons\Seeding\Console\SeedingDbCheckCommand;
+use Omnichannel\Addons\Seeding\Filament\Pages\SeedingTopicsPage;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingBootstrapController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingCommentGenerateController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingFeedController;
@@ -42,6 +45,7 @@ use Omnichannel\Addons\Seeding\Support\SeedingServiceResolver;
 use Omnichannel\Addons\Seeding\Support\SeedingTargetCalculator;
 use Omnichannel\Addons\Seeding\Support\SeedingTopicAuthorization;
 use Omnichannel\Addons\Seeding\Support\SeedingVite;
+use Omnichannel\Addons\Seo\Support\SeoUserNavigation;
 use Throwable;
 
 final class SeedingServiceProvider extends ServiceProvider
@@ -101,6 +105,33 @@ final class SeedingServiceProvider extends ServiceProvider
 
         $this->registerRoutes();
         $this->registerLegacyUiRedirects();
+        $this->registerSeoPanelTopLevelNav();
+    }
+
+    /**
+     * Peer shortcut on SEO sidebar — top-level, not nested under SEO module.
+     * Canonical surface remains /seeding (own Filament panel).
+     */
+    private function registerSeoPanelTopLevelNav(): void
+    {
+        Filament::serving(function (): void {
+            $panelId = Filament::getCurrentPanel()?->getId();
+            if (! in_array($panelId, ['seo', 'seo-main'], true)) {
+                return;
+            }
+
+            if (! SeedingTopicsPage::canAccess()) {
+                return;
+            }
+
+            Filament::registerNavigationItems([
+                NavigationItem::make(SeedingTopicsPage::getNavigationLabel())
+                    ->icon('heroicon-o-chat-bubble-left-right')
+                    ->url(url('/seeding'))
+                    ->sort(SeoUserNavigation::SORT_SEEDING)
+                    ->isActiveWhen(static fn (): bool => request()->is('seeding') || request()->is('seeding/*')),
+            ]);
+        });
     }
 
     private function registerRoutes(): void

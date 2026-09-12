@@ -270,7 +270,8 @@ final class SeoPanelRoutes
     }
 
     /**
-     * Seeding lives on its own panel (/seeding). SEO menu only links there.
+     * Seeding lives on its own panel (/seeding). Not part of the SEO module;
+     * SEO sidebar may still expose a top-level shortcut owned by the Seeding addon.
      */
     public static function isSeedingTopicsNav(?string $route = null): bool
     {

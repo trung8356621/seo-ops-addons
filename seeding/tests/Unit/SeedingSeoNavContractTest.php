@@ -6,20 +6,34 @@ namespace Omnichannel\Addons\Seeding\Tests\Unit;
 
 use Omnichannel\Addons\SearchIntelligence\Filament\Pages\SeoPerformanceHub;
 use Omnichannel\Addons\Seo\Support\SeoPanelRoutes;
+use Omnichannel\Addons\Seo\Support\SeoUserNavigation;
+use Omnichannel\Addons\Seeding\SeedingServiceProvider;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 
 final class SeedingSeoNavContractTest extends TestCase
 {
-    public function test_seo_module_nav_shortcut_points_at_canonical_seeding_url(): void
+    public function test_seo_module_nav_does_not_nest_seeding(): void
     {
         $source = (string) file_get_contents(
             (new ReflectionClass(SeoPerformanceHub::class))->getFileName()
         );
+        self::assertStringNotContainsString('SeedingTopicsPage', $source);
+        self::assertStringNotContainsString("url('/seeding')", $source);
+        self::assertStringNotContainsString('class_exists($seedingPage)', $source);
+    }
+
+    public function test_seeding_registers_top_level_seo_sidebar_shortcut(): void
+    {
+        $source = (string) file_get_contents(
+            (new ReflectionClass(SeedingServiceProvider::class))->getFileName()
+        );
+        self::assertStringContainsString('registerSeoPanelTopLevelNav', $source);
         self::assertStringContainsString("url('/seeding')", $source);
-        self::assertStringContainsString('class_exists($seedingPage)', $source);
-        self::assertStringNotContainsString('SeedingTopicsPage::getUrl()', $source);
-        self::assertStringNotContainsString('isSeedingTopicsNav()', $source);
+        self::assertStringContainsString('Filament::registerNavigationItems', $source);
+        self::assertStringContainsString('SeoUserNavigation::SORT_SEEDING', $source);
+        self::assertStringNotContainsString('parentItem(', $source);
+        self::assertSame(55, SeoUserNavigation::SORT_SEEDING);
     }
 
     public function test_seo_panel_does_not_peer_discover_seeding_pages(): void

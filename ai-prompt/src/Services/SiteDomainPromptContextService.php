@@ -63,7 +63,20 @@ final class SiteDomainPromptContextService implements DomainPromptContextFieldPa
     /** @var array<string, mixed>|null */
     private ?array $testSitePayload = null;
 
-    public const DEFAULT_CTA_INTRO = 'Tạo một bảng so sánh hoặc danh sách liệt kê (bullet points) để tăng khả năng đạt Featured Snippet. Kêu gọi hành động (CTA) ở mỗi heading — chỉ dùng thông tin liên hệ đã resolve bên dưới, không bịa số điện thoại / email / mạng xã hội.';
+    /**
+     * CTA writing guidance only — never Featured Snippet formatting instructions.
+     * Featured Snippet ownership: {@see DEFAULT_FEATURED_SNIPPET_INSTRUCTION}.
+     */
+    public const DEFAULT_CTA_INTRO = 'Kêu gọi hành động (CTA) ở mỗi heading — chỉ dùng thông tin liên hệ đã resolve bên dưới, không bịa số điện thoại / email / mạng xã hội.';
+
+    /**
+     * Featured Snippet formatting instruction — article.featured_snippet.generate only.
+     * Must never be flattened into site_cta / CTA Context.
+     */
+    public const DEFAULT_FEATURED_SNIPPET_INSTRUCTION = 'Tạo một bảng so sánh hoặc danh sách liệt kê (bullet points) để tăng khả năng đạt Featured Snippet.';
+
+    /** Legacy contaminated CTA default that mixed FS instruction into CTA ownership. */
+    public const LEGACY_CONTAMINATED_CTA_INTRO = 'Tạo một bảng so sánh hoặc danh sách liệt kê (bullet points) để tăng khả năng đạt Featured Snippet. Kêu gọi hành động (CTA) ở mỗi heading — chỉ dùng thông tin liên hệ đã resolve bên dưới, không bịa số điện thoại / email / mạng xã hội.';
 
     public const COMPANY_SHORT_IDENTITY_MAX = 80;
 
@@ -477,11 +490,66 @@ final class SiteDomainPromptContextService implements DomainPromptContextFieldPa
 
     public function resolveEffectiveCtaIntro(string $domainCtaIntro): string
     {
-        $domainCtaIntro = trim($domainCtaIntro);
+        $domainCtaIntro = $this->stripFeaturedSnippetFromCtaIntro(trim($domainCtaIntro));
+        if ($domainCtaIntro !== '') {
+            return $domainCtaIntro;
+        }
 
-        return $domainCtaIntro !== ''
-            ? $domainCtaIntro
-            : app(SeoDomainCtaGlobalSettingsService::class)->getDefaultCtaIntro();
+        $global = $this->stripFeaturedSnippetFromCtaIntro(
+            app(SeoDomainCtaGlobalSettingsService::class)->getDefaultCtaIntro(),
+        );
+
+        return $global !== '' ? $global : self::DEFAULT_CTA_INTRO;
+    }
+
+    /**
+     * Remove Featured Snippet formatting sentences wrongly stored under CTA ownership.
+     * Keeps remaining legitimate CTA guidance.
+     */
+    public function stripFeaturedSnippetFromCtaIntro(string $intro): string
+    {
+        $intro = trim($intro);
+        if ($intro === '') {
+            return '';
+        }
+
+        if ($intro === self::LEGACY_CONTAMINATED_CTA_INTRO
+            || $intro === self::DEFAULT_FEATURED_SNIPPET_INSTRUCTION
+        ) {
+            return $intro === self::DEFAULT_FEATURED_SNIPPET_INSTRUCTION
+                ? ''
+                : self::DEFAULT_CTA_INTRO;
+        }
+
+        // Drop FS lead-in sentence(s); preserve any trailing CTA guidance.
+        $stripped = preg_replace(
+            '/Tạo một bảng so sánh hoặc danh sách liệt kê[^.]*Featured Snippet\.\s*/iu',
+            '',
+            $intro,
+        );
+        $stripped = trim((string) ($stripped ?? $intro));
+
+        return $stripped;
+    }
+
+    /**
+     * Featured Snippet namespace variables — only for article.featured_snippet.generate.
+     *
+     * @return array{
+     *     featured_snippet_instruction: string,
+     *     featured_snippet_context: string,
+     *     featured_snippet_format: string
+     * }
+     */
+    public function featuredSnippetVariables(): array
+    {
+        $instruction = self::DEFAULT_FEATURED_SNIPPET_INSTRUCTION;
+
+        return [
+            'featured_snippet_instruction' => $instruction,
+            'featured_snippet_context' => $instruction,
+            'featured_snippet_format' => $instruction,
+        ];
     }
 
     /**
@@ -547,7 +615,7 @@ final class SiteDomainPromptContextService implements DomainPromptContextFieldPa
         $tone = trim((string) ($payload['tone'] ?? ''));
         $companyShort = $this->clampCompanyShortIdentity((string) ($payload['company_short_identity'] ?? ''));
         $shortDescription = trim((string) ($payload['short_description'] ?? ''));
-        $ctaIntro = trim((string) ($payload['cta_intro'] ?? ''));
+        $ctaIntro = $this->stripFeaturedSnippetFromCtaIntro(trim((string) ($payload['cta_intro'] ?? '')));
         $address = trim((string) ($payload['address'] ?? ''));
 
         if ($this->countWords($shortDescription) > self::MAX_SHORT_DESCRIPTION_WORDS) {
@@ -781,6 +849,30 @@ final class SiteDomainPromptContextService implements DomainPromptContextFieldPa
     }
 
     /**
+     * Persist ownership fix for one site: strip FS instruction wrongly stored as cta_intro.
+     * No-op when already clean. Does not special-case any article id.
+     */
+    public function reconcileContaminatedCtaIntroForSite(Site|int $site): bool
+    {
+        if ($this->testSitePayload !== null) {
+            return false;
+        }
+
+        $site = $site instanceof Site ? $site : Site::query()->findOrFail((int) $site);
+        $raw = $this->getRawPayloadForSite($site);
+        $intro = trim((string) ($raw['cta_intro'] ?? ''));
+        $cleaned = $this->stripFeaturedSnippetFromCtaIntro($intro);
+        if ($cleaned === $intro) {
+            return false;
+        }
+
+        $raw['cta_intro'] = $cleaned;
+        $this->saveForSite($site, $raw);
+
+        return true;
+    }
+
+    /**
      * @return array<string, string> Biến gợi ý cho prompt (site_domain, site_short_description, site_cta)
      */
     public function promptVariablesForSite(?Site $site): array
@@ -795,6 +887,9 @@ final class SiteDomainPromptContextService implements DomainPromptContextFieldPa
                 'site_links' => '',
             ];
         }
+
+        // Heal persisted FS→CTA contamination when building Writing/site variables.
+        $this->reconcileContaminatedCtaIntroForSite($site);
 
         $payload = $this->getForSite($site);
         $websiteType = trim((string) ($site->getMeta('seo_domain_type') ?? ''));
@@ -823,7 +918,7 @@ final class SiteDomainPromptContextService implements DomainPromptContextFieldPa
      */
     public function formatCtaForPrompt(array $items, string $intro = '', Site|int|null $site = null): string
     {
-        $intro = trim($intro);
+        $intro = $this->stripFeaturedSnippetFromCtaIntro(trim($intro));
         // Writing guidance must not leak unresolved placeholders into AI prompts.
         $intro = $this->stripCtaPlaceholders($intro);
         $resolved = $this->resolveContactContextForPrompt($items, $site);
