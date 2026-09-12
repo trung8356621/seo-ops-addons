@@ -254,60 +254,141 @@
     border-top: 1px solid #f3f4f6;
 }
 
-/* Vertical card grid — available-width driven, hard-capped at 3 columns.
- *
- * Root cause of prior 1-column feed:
- * 1) @supports (1cqw) forced a single column then relied only on @container
- *    against .seeding-ws__main-column — container queries often never upgraded.
- * 2) auto-fit + percentage-based min track sizing could collapse to one track.
- * Fix: dedicated feed host as container + viewport media fallbacks; never 4 cols.
+/* Single-column feed — full-width cards for readable previews + Gen panel.
+ * Do not split into multi-column card grids (hard to read link preview / Gen).
  */
 .seeding-ws__feed-host {
     width: 100%;
     min-width: 0;
-    container-type: inline-size;
-    container-name: seeding-feed;
+    max-width: 920px;
 }
 
 .seeding-ws__feed-grid {
     display: grid;
-    grid-template-columns: repeat(1, minmax(0, 1fr));
+    grid-template-columns: minmax(0, 1fr);
     gap: 0.85rem;
     max-width: 100%;
     width: 100%;
 }
 
-/* Viewport fallbacks (reliable when container queries lag / unsupported) */
-@media (min-width: 900px) {
-    .seeding-ws__feed-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
+.seeding-ws__main-tabs {
+    display: flex;
+    gap: 0.35rem;
+    flex-wrap: wrap;
+    margin-bottom: 0.85rem;
+    border-bottom: 1px solid #e5e7eb;
+    padding-bottom: 0.55rem;
 }
 
-/* ~1366 + sidebar collapsed, or wide desktop with sidebar open */
-@media (min-width: 1400px) {
-    .seeding-ws--shell.sidebar-collapsed .seeding-ws__feed-grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
+.seeding-ws__main-tab {
+    border: 1px solid transparent;
+    background: transparent;
+    border-radius: 0.5rem;
+    padding: 0.4rem 0.85rem;
+    font-size: 0.875rem;
+    font-weight: 650;
+    color: #6b7280;
+    cursor: pointer;
 }
 
-@media (min-width: 1600px) {
-    .seeding-ws--shell.has-sidebar .seeding-ws__feed-grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
+.seeding-ws__main-tab:hover {
+    color: #111827;
+    background: #f9fafb;
 }
 
-/* Preferred: columns from available feed width (not full viewport) */
-@container seeding-feed (min-width: 620px) {
-    .seeding-ws__feed-grid {
-        grid-template-columns: repeat(2, minmax(0, 1fr));
-    }
+.seeding-ws__main-tab.is-active {
+    color: #c2410c;
+    background: #fff7ed;
+    border-color: #fed7aa;
 }
 
-@container seeding-feed (min-width: 980px) {
-    .seeding-ws__feed-grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-    }
+.seeding-ws__manager-table-wrap {
+    overflow-x: auto;
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.75rem;
+}
+
+.seeding-ws__manager-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.8125rem;
+}
+
+.seeding-ws__manager-table th,
+.seeding-ws__manager-table td {
+    padding: 0.65rem 0.75rem;
+    border-bottom: 1px solid #f3f4f6;
+    text-align: left;
+    vertical-align: top;
+}
+
+.seeding-ws__manager-table th {
+    font-size: 0.6875rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #6b7280;
+    background: #f9fafb;
+}
+
+.seeding-ws__manager-filters {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+    align-items: center;
+}
+
+.seeding-ws__manager-subtabs {
+    display: flex;
+    gap: 0.35rem;
+    margin-bottom: 0.75rem;
+    flex-wrap: wrap;
+}
+
+.seeding-ws__ws-card {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.85rem;
+    padding: 0.85rem;
+    display: flex;
+    flex-direction: column;
+    gap: 0.65rem;
+    max-width: 920px;
+}
+
+.seeding-ws__ws-thumb {
+    width: 100%;
+    max-height: 180px;
+    object-fit: cover;
+    border-radius: 0.55rem;
+    background: #f3f4f6;
+}
+
+.seeding-ws__stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 0.65rem;
+}
+
+.seeding-ws__stat-tile {
+    background: #fff;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.65rem;
+    padding: 0.7rem 0.8rem;
+}
+
+.seeding-ws__stat-tile strong {
+    display: block;
+    font-size: 1.25rem;
+    color: #111827;
+}
+
+.seeding-ws__stat-tile span {
+    font-size: 0.6875rem;
+    color: #6b7280;
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
 }
 
 .seeding-ws__vcard {
@@ -364,6 +445,37 @@
     margin-top: auto;
     padding-top: 0.35rem;
     border-top: 1px solid #f3f4f6;
+}
+
+.seeding-ws__feed-item {
+    display: flex;
+    flex-direction: column;
+    gap: 0;
+    min-width: 0;
+}
+
+.seeding-ws__feed-item.is-gen-open {
+    grid-column: 1 / -1;
+}
+
+.seeding-ws__panel--inline {
+    margin-top: 0;
+    border: 1px solid #fdba74;
+    border-top: none;
+    border-radius: 0 0 0.85rem 0.85rem;
+    background: #fff7ed;
+    padding: 0.85rem 1rem 1rem;
+    box-shadow: none;
+}
+
+.seeding-ws__feed-item.is-gen-open > .seeding-ws__vcard {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+    border-color: #fdba74;
+}
+
+.seeding-ws__btn.is-active {
+    background: #ea580c;
 }
 
 .seeding-ws__rich-content {

@@ -56,17 +56,62 @@ export async function fetchSharedFeed(signal) {
 }
 
 /**
- * Commit point A: share local draft → DB.
+ * Commit point A: share local draft → DB (Manager). May expand to nhiều topic.
  * @param {{
  *   title?: string,
  *   full_text: string,
  *   source_html?: string|null,
  *   social_url?: string,
+ *   social_platform?: string,
+ *   target_comments?: number,
+ *   social_targets?: Array<{ social_platform: string, target_comments: number }>,
  *   links?: Array<Record<string, unknown>>,
  * }} payload
  */
 export async function shareTopic(payload) {
     return seedingApiFetch('/api/seeding/topics/share', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+}
+
+export async function fetchManagerTopics(params = {}) {
+    const qs = new URLSearchParams();
+    Object.entries(params).forEach(([k, v]) => {
+        if (v != null && String(v) !== '') qs.set(k, String(v));
+    });
+    const suffix = qs.toString() ? `?${qs}` : '';
+    return seedingApiFetch(`/api/seeding/manager/topics${suffix}`, { method: 'GET' });
+}
+
+export async function pauseManagerTopic(topicId) {
+    return seedingApiFetch(`/api/seeding/manager/topics/${topicId}/pause`, { method: 'POST' });
+}
+
+export async function resumeManagerTopic(topicId) {
+    return seedingApiFetch(`/api/seeding/manager/topics/${topicId}/resume`, { method: 'POST' });
+}
+
+export async function cancelManagerTopic(topicId) {
+    return seedingApiFetch(`/api/seeding/manager/topics/${topicId}/cancel`, { method: 'POST' });
+}
+
+export async function fetchWebsiteShareFeed(filter = 'all') {
+    const qs = filter && filter !== 'all' ? `?filter=${encodeURIComponent(filter)}` : '';
+    return seedingApiFetch(`/api/seeding/website-share${qs}`, { method: 'GET' });
+}
+
+export async function updateWebsiteShareContent(jobId, shareContent) {
+    return seedingApiFetch(`/api/seeding/website-share/${jobId}/content`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ share_content: shareContent }),
+    });
+}
+
+export async function reportWebsiteShare(jobId, payload) {
+    return seedingApiFetch(`/api/seeding/website-share/${jobId}/report`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),

@@ -17,6 +17,7 @@ final class ResumeProjectItemFromFailedStepCommand implements ContentProjectComm
         public readonly string|int $projectRef,
         public readonly array $itemRefs,
         public readonly string $mode = 'full',
+        public readonly array $settings = [],
     ) {}
 
     public function name(): string

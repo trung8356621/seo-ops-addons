@@ -12,6 +12,7 @@ import { notifySuccess, notifyWarning } from '../services/toast';
  *
  * @param {{
  *   open: boolean,
+ *   inline?: boolean,
  *   topic: Record<string, unknown>|null,
  *   seedLinks: Array<Record<string, unknown>>,
  *   linkUsageToday?: Record<string, number>,
@@ -30,6 +31,7 @@ import { notifySuccess, notifyWarning } from '../services/toast';
  */
 export default function ShareGeneratePanel({
     open,
+    inline = false,
     topic,
     seedLinks,
     linkUsageToday = {},
@@ -119,7 +121,11 @@ export default function ShareGeneratePanel({
     };
 
     return (
-        <div className="seeding-ws__panel seeding-ws__panel--share" data-panel="share-generate">
+        <div
+            className={`seeding-ws__panel seeding-ws__panel--share${inline ? ' seeding-ws__panel--inline' : ''}`}
+            data-panel="share-generate"
+            data-inline={inline ? '1' : '0'}
+        >
             <div className="seeding-ws__panel-head">
                 <h2>Gen comment</h2>
                 <button type="button" className="seeding-ws__icon-btn" onClick={onClose} aria-label="Đóng">

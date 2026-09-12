@@ -39,6 +39,14 @@ final class SeedingSocialPlatformDetector
             return SeedingSocialPlatform::TikTok;
         }
 
+        if ($host === 'pinterest.com' || str_ends_with($host, '.pinterest.com') || $host === 'pin.it') {
+            return SeedingSocialPlatform::Pinterest;
+        }
+
+        if ($host === 'reddit.com' || str_ends_with($host, '.reddit.com')) {
+            return SeedingSocialPlatform::Reddit;
+        }
+
         return SeedingSocialPlatform::Other;
     }
 }

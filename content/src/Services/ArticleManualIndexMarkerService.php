@@ -4,6 +4,8 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Services;
 
+use App\Core\Event\ArticleIndexStatusChanged;
+use App\Core\Event\EventBus;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectArchive;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectArchiveItem;
@@ -126,7 +128,7 @@ final class ArticleManualIndexMarkerService
             $item->article_snapshot = $snapshot;
             $item->save();
 
-            return [
+            $result = [
                 'item_id' => (int) $item->getKey(),
                 'article_id' => $articleId > 0 ? $articleId : null,
                 'indexed_at' => $indexedAt->toIso8601String(),
@@ -134,6 +136,18 @@ final class ArticleManualIndexMarkerService
                 'project_restored' => false,
                 'workspace_recreated' => false,
             ];
+
+            $this->emitIndexStatusChanged(
+                articleId: $articleId,
+                siteId: $archiveSiteId,
+                indexed: true,
+                indexedAtIso: $indexedAt->toIso8601String(),
+                previousIndexedAtIso: $previousIndexedAt?->toIso8601String(),
+                article: $article,
+                snapshot: $snapshot,
+            );
+
+            return $result;
         });
     }
 
@@ -232,7 +246,7 @@ final class ArticleManualIndexMarkerService
             $item->article_snapshot = $snapshot;
             $item->save();
 
-            return [
+            $result = [
                 'item_id' => (int) $item->getKey(),
                 'article_id' => $articleId > 0 ? $articleId : null,
                 'indexed_at' => null,
@@ -240,7 +254,77 @@ final class ArticleManualIndexMarkerService
                 'project_restored' => false,
                 'workspace_recreated' => false,
             ];
+
+            $this->emitIndexStatusChanged(
+                articleId: $articleId,
+                siteId: $archiveSiteId,
+                indexed: false,
+                indexedAtIso: null,
+                previousIndexedAtIso: $previousIndexedAt?->toIso8601String(),
+                article: $article,
+                snapshot: $snapshot,
+            );
+
+            return $result;
         });
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     */
+    private function emitIndexStatusChanged(
+        int $articleId,
+        int $siteId,
+        bool $indexed,
+        ?string $indexedAtIso,
+        ?string $previousIndexedAtIso,
+        ?SeoArticle $article,
+        array $snapshot,
+    ): void {
+        if ($articleId <= 0 || $siteId <= 0) {
+            return;
+        }
+
+        try {
+            if (! app()->bound(EventBus::class)) {
+                return;
+            }
+
+            $title = null;
+            $url = null;
+            $thumb = null;
+            $domain = null;
+            if ($article instanceof SeoArticle) {
+                $title = is_string($article->title ?? null) ? (string) $article->title : null;
+                $url = is_string($article->url ?? null) ? (string) $article->url : null;
+            }
+            if ($title === null && isset($snapshot['title'])) {
+                $title = (string) $snapshot['title'];
+            }
+            if ($url === null && isset($snapshot['url'])) {
+                $url = (string) $snapshot['url'];
+            }
+            if (isset($snapshot['featured_image_url'])) {
+                $thumb = (string) $snapshot['featured_image_url'];
+            }
+            if (isset($snapshot['domain'])) {
+                $domain = (string) $snapshot['domain'];
+            }
+
+            app(EventBus::class)->dispatch(new ArticleIndexStatusChanged(
+                articleId: $articleId,
+                siteId: $siteId,
+                indexed: $indexed,
+                indexedAtIso: $indexedAtIso,
+                previousIndexedAtIso: $previousIndexedAtIso,
+                articleTitle: $title,
+                articleUrl: $url !== '' ? $url : null,
+                thumbnailUrl: $thumb !== '' ? $thumb : null,
+                domain: $domain !== '' ? $domain : null,
+            ));
+        } catch (Throwable) {
+            // Index mark must succeed even if listeners fail.
+        }
     }
 
     /**

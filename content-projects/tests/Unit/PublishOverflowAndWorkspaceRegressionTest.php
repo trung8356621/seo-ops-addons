@@ -136,7 +136,8 @@ final class PublishOverflowAndWorkspaceRegressionTest extends TestCase
         $edit = (string) file_get_contents((string) (new ReflectionClass(EditSeoProject::class))->getFileName());
         $view = (string) file_get_contents((string) (new ReflectionClass(ViewSeoProject::class))->getFileName());
 
-        self::assertStringContainsString('makeGeneratePendingItemsAction', $view);
+        self::assertStringContainsString('makeCreateWithAiAction', $view);
+        self::assertStringNotContainsString('makeGeneratePendingItemsAction', $view);
         self::assertStringNotContainsString('makeGeneratePendingItemsAction', $edit);
         self::assertStringContainsString('open_project_workspace', $edit);
         self::assertStringContainsString('getProjectWorkspaceUrl', $edit);

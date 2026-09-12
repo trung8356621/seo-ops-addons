@@ -13,7 +13,8 @@ use Illuminate\Support\Facades\Auth;
 /**
  * Addon-neutral Seeding access — Core User + SiteAccess + Service activation.
  *
- * Fine-grained Seeding RBAC is deferred.
+ * Manager: SEO Manager (seo_role=manager) inherits Seeding Manager automatically.
+ * Seeder: any other user with Seeding access.
  */
 final class SeedingAccess
 {
@@ -41,6 +42,34 @@ final class SeedingAccess
     public function canMutate(?User $user = null): bool
     {
         return $this->canAccess($user);
+    }
+
+    /**
+     * Seeding Manager — create/edit/pause topics, management table, stats.
+     * SEO Manager (seo_role) auto-inherits; Core owner/admin also manage.
+     */
+    public function isManager(?User $user = null): bool
+    {
+        $user ??= Auth::user();
+        if (! $user instanceof User || ! $this->canAccess($user)) {
+            return false;
+        }
+
+        if (in_array((string) ($user->role ?? ''), [User::ROLE_OWNER, User::ROLE_ADMIN], true)) {
+            return true;
+        }
+
+        return (string) ($user->seo_role ?? '') === User::SEO_ROLE_MANAGER;
+    }
+
+    public function canManageTopics(?User $user = null): bool
+    {
+        return $this->isManager($user);
+    }
+
+    public function assertCanManage(?User $user = null): void
+    {
+        abort_unless($this->canManageTopics($user), 403);
     }
 
     public function canAccessSite(int $siteId, ?User $user = null): bool

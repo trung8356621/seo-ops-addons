@@ -22,6 +22,7 @@ final class RerunProjectItemStepCommand implements ContentProjectCommand
         public readonly ?int $sourceArticleId = null,
         public readonly string $mode = 'full',
         public readonly bool $syncExecution = false,
+        public readonly array $settings = [],
     ) {}
 
     public function name(): string

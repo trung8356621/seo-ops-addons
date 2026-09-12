@@ -238,6 +238,7 @@ final class GenerateProjectItemsHandler extends AbstractPublishingHandler
                         $projectId,
                         $stepTaskIds,
                         $command->mode,
+                        $command->settings,
                     ),
                     $actor,
                 );

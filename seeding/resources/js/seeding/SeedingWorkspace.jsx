@@ -7,8 +7,9 @@ import TopicComposer from './components/TopicComposer';
 import TopicDetail from './components/TopicDetail';
 import TeamStatsSidebar from './components/TeamStatsSidebar';
 import LinkPoolPanel from './components/LinkPoolPanel';
-import ShareGeneratePanel from './components/ShareGeneratePanel';
 import ReportModal from './components/ReportModal';
+import ManagerPanel from './components/ManagerPanel';
+import WebsiteShareFeed from './components/WebsiteShareFeed';
 import {
     createDebouncedWriter,
     documentKey,
@@ -31,6 +32,7 @@ import {
     canSeedTopic,
     canShareDraftTopic,
     canManageOwnSeedLinks,
+    canCreateTopic,
 } from './features/workspace/auth';
 import { generateSeedBatch, regenerateSeedOutput } from './services/seedGenerate';
 import { normalizeSeedLinks } from './services/linkPool';
@@ -49,6 +51,9 @@ function emptyComposerDraft() {
         title: '',
         full_text: '',
         social_url: '',
+        social_platform: 'facebook',
+        target_comments: 5,
+        social_targets: [{ social_platform: 'facebook', target_comments: 5 }],
         links: [],
         source_html: null,
         _mode: 'create',
@@ -58,13 +63,27 @@ function emptyComposerDraft() {
 /**
  * React-owned Seeding workspace — local-first UX, DB only at commit points.
  */
-export default function SeedingWorkspace({ canMutate = true, bootstrap = null }) {
+export default function SeedingWorkspace({
+    canMutate = true,
+    isManager = false,
+    canCreateTopic: canCreateTopicProp = null,
+    bootstrap = null,
+}) {
     const installationId = bootstrap?.client?.installation_id || 'app:local';
     const userId = bootstrap?.user?.id ?? 0;
     const userDisplayName = bootstrap?.user?.display_name || '';
+    const manager = Boolean(
+        isManager
+        || bootstrap?.user?.is_manager
+        || bootstrap?.permissions?.is_manager
+    );
+    const allowCreate = canCreateTopicProp != null
+        ? Boolean(canCreateTopicProp)
+        : canCreateTopic(manager, canMutate);
     const scope = useMemo(() => ({ installationId, userId }), [installationId, userId]);
     const hasWorkspaceAccess = true;
 
+    const [mainTab, setMainTab] = useState('feed');
     const [topics, setTopics] = useState([]);
     const [reports, setReports] = useState([]);
     const [seedLinks, setSeedLinks] = useState([]);
@@ -79,7 +98,7 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
     const [detailId, setDetailId] = useState(null);
     const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
     const [linkPoolOpen, setLinkPoolOpen] = useState(false);
-    const [genTopicId, setGenTopicId] = useState(null);
+    const [activeGenTopicId, setActiveGenTopicId] = useState(null);
     const [generating, setGenerating] = useState(false);
     const [sharingTopicKey, setSharingTopicKey] = useState(null);
     const [reportTarget, setReportTarget] = useState(null);
@@ -111,9 +130,9 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
             history_open: false,
             sidebar_collapsed: sidebarCollapsed,
             link_pool_open: linkPoolOpen,
-            share_topic_id: genTopicId,
+            share_topic_id: activeGenTopicId,
         };
-    }, [filter, search, detailId, sidebarCollapsed, linkPoolOpen, genTopicId]);
+    }, [filter, search, detailId, sidebarCollapsed, linkPoolOpen, activeGenTopicId]);
 
     const persistNow = useCallback((partial = {}) => {
         const current = readDocument(scope);
@@ -209,7 +228,7 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
         setDetailId(doc.ui?.detail_topic_id ? String(doc.ui.detail_topic_id) : null);
         setSidebarCollapsed(Boolean(doc.ui?.sidebar_collapsed));
         setLinkPoolOpen(Boolean(doc.ui?.link_pool_open));
-        setGenTopicId(doc.ui?.share_topic_id ? String(doc.ui.share_topic_id) : null);
+        setActiveGenTopicId(doc.ui?.share_topic_id ? String(doc.ui.share_topic_id) : null);
         setComposerOpen(false);
         setComposer(null);
         refreshFeed();
@@ -255,17 +274,19 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
     );
 
     const genTopic = useMemo(
-        () => (genTopicId ? topics.find((t) => topicKeyOf(t) === String(genTopicId)) || null : null),
-        [genTopicId, topics],
+        () => (activeGenTopicId ? topics.find((t) => topicKeyOf(t) === String(activeGenTopicId)) || null : null),
+        [activeGenTopicId, topics],
     );
 
-    const topicOutputs = useMemo(() => {
-        if (!genTopicId) return [];
+    const outputsForTopic = useCallback((topic) => {
+        if (!topic) return [];
+        const key = topicKeyOf(topic);
+        const topicId = topic.id;
         return seedOutputs
-            .filter((o) => String(o.topic_id) === String(genTopicId) || String(o.topic_id) === String(genTopic?.id))
+            .filter((o) => String(o.topic_id) === String(key) || String(o.topic_id) === String(topicId))
             .filter((o) => String(o.user_id) === String(userId))
             .sort((a, b) => String(b.created_at || '').localeCompare(String(a.created_at || '')));
-    }, [seedOutputs, genTopicId, genTopic, userId]);
+    }, [seedOutputs, userId]);
 
     const updateLinkPreviewCache = useCallback((nextCache) => {
         const merged = { ...linkPreviewsRef.current, ...nextCache };
@@ -280,9 +301,10 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
     }, [applyDoc]);
 
     const openComposer = () => {
-        if (!canMutate) return;
+        if (!allowCreate) return;
         setComposer(emptyComposerDraft());
         setComposerOpen(true);
+        setMainTab('feed');
     };
 
     const pendingPasteRef = useRef(null);
@@ -314,35 +336,42 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
         pendingPasteRef.current = { html, text, links };
     };
 
-    const createTopic = () => {
-        if (!composer || !canMutate) return;
+    const createTopic = async () => {
+        if (!composer || !allowCreate) return;
         const fullText = String(composer.full_text || '').trim();
         if (!fullText) return;
         const links = Array.isArray(composer.links) && composer.links.length > 0
             ? composer.links
             : extractLinksFromPaste(fullText, composer.source_html);
-        const now = new Date().toISOString();
-        const topic = {
-            localId: composer.localId || makeLocalDraftId(),
-            title: String(composer.title || '').trim(),
-            full_text: fullText,
-            social_url: String(composer.social_url || '').trim(),
-            links,
-            comments: [],
-            state: 'draft',
-            created_at: now,
-            updated_at: now,
-            preview: previewText(fullText),
-            created_by_user_id: userId,
-            created_by_display_name: userDisplayName,
-        };
-        const nextTopics = [topic, ...topicsRef.current];
-        applyDoc({ topics: nextTopics }, false);
-        writer.current.flush(() => persistNow({ topics: nextTopics }));
-        setComposerOpen(false);
-        setComposer(null);
-        setFilter('draft');
-        notifySuccess('Đã tạo chủ đề');
+        const socialTargets = Array.isArray(composer.social_targets) && composer.social_targets.length > 0
+            ? composer.social_targets
+            : [{
+                social_platform: composer.social_platform || 'facebook',
+                target_comments: Number(composer.target_comments) || 5,
+            }];
+
+        setSharingTopicKey('create');
+        try {
+            const data = await shareTopicApi({
+                title: String(composer.title || '').trim(),
+                full_text: fullText,
+                source_html: composer.source_html || null,
+                social_url: String(composer.social_url || '').trim(),
+                social_targets: socialTargets,
+                links,
+            });
+            const createdCount = Array.isArray(data?.topics) ? data.topics.length : 1;
+            notifySuccess(createdCount > 1
+                ? `Đã tạo ${createdCount} topic execution`
+                : 'Đã chia sẻ chủ đề');
+            setComposerOpen(false);
+            setComposer(null);
+            await refreshFeed();
+        } catch (e) {
+            notifyError(e?.message || 'Tạo chủ đề thất bại');
+        } finally {
+            setSharingTopicKey(null);
+        }
     };
 
     const saveEditedTopic = () => {
@@ -392,14 +421,15 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
 
     const openGen = (topic) => {
         if (!canSeedTopic(topic, { hasWorkspaceAccess, userId })) return;
-        setGenTopicId(topicKeyOf(topic));
+        const key = topicKeyOf(topic);
+        setActiveGenTopicId((prev) => (prev === key ? null : key));
         setLinkPoolOpen(false);
     };
 
-    const closeGen = () => setGenTopicId(null);
+    const closeGen = () => setActiveGenTopicId(null);
 
     const shareDraft = async (topic) => {
-        if (!canShareDraftTopic(topic, userId, canMutate)) return;
+        if (!canShareDraftTopic(topic, userId, canMutate, manager)) return;
         const key = topicKeyOf(topic);
         const draftSnapshot = { ...topic };
         const draftIndex = topicsRef.current.findIndex((t) => topicKeyOf(t) === key);
@@ -415,6 +445,9 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
                 full_text: topic.full_text || '',
                 source_html: topic.source_html || null,
                 social_url: topic.social_url || '',
+                social_platform: topic.social_platform || undefined,
+                target_comments: topic.target_comments || undefined,
+                social_targets: topic.social_targets || undefined,
                 links: topic.links || [],
             });
             notifySuccess('Đã chia sẻ chủ đề');
@@ -441,7 +474,7 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
         const nextTopics = topicsRef.current.filter((t) => topicKeyOf(t) !== key);
         applyDoc({ topics: nextTopics });
         if (detailId === key) setDetailId(null);
-        if (genTopicId === key) setGenTopicId(null);
+        if (activeGenTopicId === key) setActiveGenTopicId(null);
         notifySuccess('Đã xóa chủ đề');
     };
 
@@ -478,6 +511,7 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
                 userId,
                 userDisplayName,
                 quantity,
+                linkPreviewCache: linkPreviews,
             });
             const nextBatches = [batch, ...seedBatchesRef.current];
             const nextOutputs = [...outputs, ...seedOutputsRef.current];
@@ -510,6 +544,7 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
             const updated = await regenerateSeedOutput({
                 output,
                 topic: genTopic,
+                linkPreviewCache: linkPreviews,
             });
             const next = seedOutputsRef.current.map((o) => (
                 String(o.id) === String(updated.id) ? updated : o
@@ -552,6 +587,9 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
                 commentId: comment.id,
                 userReportCount: data.user_report_count,
                 required: data.required_report_count,
+                topicDone: data.topic_done,
+                globalCompleted: data.global_completed,
+                globalTarget: data.global_target,
                 linkUsageToday: data.link_usage_today || linkUsageRef.current,
                 seedLinkId: comment.selected_seed_link_id || comment.seed_link_id,
             });
@@ -569,7 +607,7 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
 
             setReportTarget(null);
             if (local.completed) {
-                setGenTopicId(null);
+                setActiveGenTopicId(null);
                 notifySuccess('Đã hoàn thành chủ đề');
             } else {
                 notifySuccess('Đã báo cáo');
@@ -593,7 +631,7 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
         'seeding-ws--feed',
         'seeding-ws--shell',
         !sidebarCollapsed ? 'has-sidebar' : 'sidebar-collapsed',
-        (genTopicId || linkPoolOpen) ? 'has-drawer' : '',
+        linkPoolOpen ? 'has-drawer' : '',
     ].filter(Boolean).join(' ');
 
     return (
@@ -621,7 +659,7 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
                         onDelete={() => deleteTopic(detailTopic)}
                         onEdit={() => editTopic(detailTopic)}
                         onShare={() => {
-                            if (canShareDraftTopic(detailTopic, userId, canMutate)) {
+                            if (canShareDraftTopic(detailTopic, userId, canMutate, manager)) {
                                 shareDraft(detailTopic);
                             } else {
                                 openGen(detailTopic);
@@ -634,7 +672,7 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
                             <div>
                                 <h1 className="seeding-ws__page-title">Seeding</h1>
                                 <p className="seeding-ws__page-sub">
-                                    React-first — nháp local, chia sẻ DB, Gen comment local, báo cáo commit
+                                    Feed comment · Bài website · Quản lý (Manager)
                                 </p>
                             </div>
                             <div className="seeding-ws__page-head-actions">
@@ -646,50 +684,101 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
                             </div>
                         </header>
 
-                        <MetricCards metrics={metrics} />
+                        <nav className="seeding-ws__main-tabs" data-main-tabs>
+                            <button
+                                type="button"
+                                className={`seeding-ws__main-tab${mainTab === 'feed' ? ' is-active' : ''}`}
+                                onClick={() => setMainTab('feed')}
+                            >
+                                Feed Seeding
+                            </button>
+                            <button
+                                type="button"
+                                className={`seeding-ws__main-tab${mainTab === 'website' ? ' is-active' : ''}`}
+                                onClick={() => setMainTab('website')}
+                            >
+                                Bài từ Website
+                            </button>
+                            {manager ? (
+                                <button
+                                    type="button"
+                                    className={`seeding-ws__main-tab${mainTab === 'manage' ? ' is-active' : ''}`}
+                                    onClick={() => setMainTab('manage')}
+                                >
+                                    Quản lý / Tổng kết
+                                </button>
+                            ) : null}
+                        </nav>
 
-                        <FeedToolbar
-                            filter={filter}
-                            search={search}
-                            counts={counts}
-                            canMutate={canMutate}
-                            onFilter={(f) => { setFilter(f); schedulePersist(); }}
-                            onSearch={(v) => { setSearch(v); schedulePersist(); }}
-                            onCreate={openComposer}
-                            onOpenLinkPool={() => { setLinkPoolOpen(true); setGenTopicId(null); }}
-                        />
+                        {mainTab === 'feed' ? (
+                            <>
+                                <MetricCards metrics={metrics} />
 
-                        {composerOpen && composer ? (
-                            <TopicComposer
-                                topic={composer}
-                                canMutate={canMutate}
-                                mode={composer._mode === 'edit' ? 'edit' : 'create'}
-                                onChange={patchComposer}
-                                onPasteContent={onPasteContent}
-                                onCancel={cancelComposer}
-                                onCreate={composer._mode === 'edit' ? saveEditedTopic : createTopic}
-                            />
+                                <FeedToolbar
+                                    filter={filter}
+                                    search={search}
+                                    counts={counts}
+                                    canMutate={allowCreate}
+                                    onFilter={(f) => { setFilter(f); schedulePersist(); }}
+                                    onSearch={(v) => { setSearch(v); schedulePersist(); }}
+                                    onCreate={openComposer}
+                                    onOpenLinkPool={() => { setLinkPoolOpen(true); setActiveGenTopicId(null); }}
+                                />
+
+                                {composerOpen && composer ? (
+                                    <TopicComposer
+                                        topic={composer}
+                                        canMutate={allowCreate}
+                                        mode={composer._mode === 'edit' ? 'edit' : 'create'}
+                                        onChange={patchComposer}
+                                        onPasteContent={onPasteContent}
+                                        onCancel={cancelComposer}
+                                        onCreate={composer._mode === 'edit' ? saveEditedTopic : createTopic}
+                                    />
+                                ) : null}
+
+                                <TopicFeed
+                                    topics={filteredTopics}
+                                    reports={reports}
+                                    seedBatches={seedBatches}
+                                    seedOutputs={seedOutputs}
+                                    canMutate={canMutate}
+                                    hasWorkspaceAccess={hasWorkspaceAccess}
+                                    isManager={manager}
+                                    userId={userId}
+                                    linkPreviewCache={linkPreviews}
+                                    sharingTopicKey={sharingTopicKey}
+                                    activeGenTopicId={activeGenTopicId}
+                                    seedLinks={seedLinks}
+                                    linkUsageToday={linkUsageToday}
+                                    generating={generating}
+                                    outputsForTopic={outputsForTopic}
+                                    canSeedTopicFn={(t) => canSeedTopic(t, { hasWorkspaceAccess, userId })}
+                                    onOpenDetail={openDetail}
+                                    onLinksChange={updateTopicLinks}
+                                    onCacheUpdate={updateLinkPreviewCache}
+                                    onEdit={editTopic}
+                                    onDelete={deleteTopic}
+                                    onShareDraft={shareDraft}
+                                    onGenComment={openGen}
+                                    onCreate={openComposer}
+                                    onCloseGen={closeGen}
+                                    onGenerate={runGenerate}
+                                    onUpdateOutput={updateOutput}
+                                    onRegenerateOutput={regenOutput}
+                                    onDeleteOutput={deleteOutput}
+                                    onReport={openReport}
+                                />
+                            </>
                         ) : null}
 
-                        <TopicFeed
-                            topics={filteredTopics}
-                            reports={reports}
-                            seedBatches={seedBatches}
-                            seedOutputs={seedOutputs}
-                            canMutate={canMutate}
-                            hasWorkspaceAccess={hasWorkspaceAccess}
-                            userId={userId}
-                            linkPreviewCache={linkPreviews}
-                            sharingTopicKey={sharingTopicKey}
-                            onOpenDetail={openDetail}
-                            onLinksChange={updateTopicLinks}
-                            onCacheUpdate={updateLinkPreviewCache}
-                            onEdit={editTopic}
-                            onDelete={deleteTopic}
-                            onShareDraft={shareDraft}
-                            onGenComment={openGen}
-                            onCreate={openComposer}
-                        />
+                        {mainTab === 'website' ? (
+                            <WebsiteShareFeed canMutate={canMutate} />
+                        ) : null}
+
+                        {mainTab === 'manage' && manager ? (
+                            <ManagerPanel />
+                        ) : null}
                     </>
                 )}
             </div>
@@ -714,28 +803,6 @@ export default function SeedingWorkspace({ canMutate = true, bootstrap = null })
                         canManage={canManageOwnSeedLinks(hasWorkspaceAccess)}
                         onClose={() => setLinkPoolOpen(false)}
                         onChange={onSeedLinksChange}
-                    />
-                </aside>
-            ) : null}
-
-            {genTopic ? (
-                <aside className="seeding-ws__drawer" data-drawer="share-generate">
-                    <ShareGeneratePanel
-                        open
-                        topic={genTopic}
-                        seedLinks={seedLinks}
-                        linkUsageToday={linkUsageToday}
-                        seedOutputs={seedOutputs}
-                        topicOutputs={topicOutputs}
-                        linkPreviewCache={linkPreviews}
-                        canSeed={canSeedTopic(genTopic, { hasWorkspaceAccess, userId })}
-                        generating={generating}
-                        onClose={closeGen}
-                        onGenerate={runGenerate}
-                        onUpdateOutput={updateOutput}
-                        onRegenerateOutput={regenOutput}
-                        onDeleteOutput={deleteOutput}
-                        onReport={openReport}
                     />
                 </aside>
             ) : null}

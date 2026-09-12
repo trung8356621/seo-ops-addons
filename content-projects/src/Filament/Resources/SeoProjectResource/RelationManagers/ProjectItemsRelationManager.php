@@ -286,8 +286,14 @@ final class ProjectItemsRelationManager extends RelationManager
             return;
         }
 
+        $policy = \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationModePreference::forUserId((int) auth()->id());
+        $settings = [
+            \Omnichannel\Addons\AiPrompt\Support\AiCostPolicy::SETTING_KEY => $policy->value,
+            'ai_generation_mode' => $policy->generationModeValue(),
+        ];
+
         $this->dispatchCommand(
-            new GenerateProjectItemsCommand((int) $project->id, $taskIds),
+            new GenerateProjectItemsCommand((int) $project->id, $taskIds, settings: $settings),
             $project,
         );
     }

@@ -2853,7 +2853,7 @@ final class TaskWorkflowTestRunner
         );
         $routingContext = new \Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext(
             userId: $userId > 0 ? $userId : null,
-            freeOnly: false,
+            freeOnly: $effectivePolicy->isFreeOnly(),
             costPolicy: $effectivePolicy,
             hookKey: ArticleGenerationInputResolver::OUTLINE_HOOK_KEY,
         );

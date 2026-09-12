@@ -8,11 +8,12 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Omnichannel\Addons\Seeding\Enums\SeedingSocialPlatform;
+use Omnichannel\Addons\Seeding\Enums\SeedingTopicSourceType;
 use Omnichannel\Addons\Seeding\Enums\SeedingTopicStatus;
 use Omnichannel\Addons\Seeding\Support\SeedingServiceConfig;
 
 /**
- * Shared topic persistence on omi_seeding (commit point: Chia sẻ).
+ * Shared topic persistence on omi_seeding — one execution topic = one social.
  */
 class SeedingTopic extends Model
 {
@@ -32,11 +33,16 @@ class SeedingTopic extends Model
         'social_platform',
         'links_json',
         'status',
+        'source_type',
         'max_comments_target',
         'member_count_at_share',
         'required_comments_per_user',
+        'completed_comments',
         'shared_at',
         'archived_at',
+        'paused_at',
+        'cancelled_at',
+        'completed_at',
     ];
 
     protected $casts = [
@@ -44,11 +50,16 @@ class SeedingTopic extends Model
         'links_json' => 'array',
         'status' => SeedingTopicStatus::class,
         'social_platform' => SeedingSocialPlatform::class,
+        'source_type' => SeedingTopicSourceType::class,
         'max_comments_target' => 'integer',
         'member_count_at_share' => 'integer',
         'required_comments_per_user' => 'integer',
+        'completed_comments' => 'integer',
         'shared_at' => 'datetime',
         'archived_at' => 'datetime',
+        'paused_at' => 'datetime',
+        'cancelled_at' => 'datetime',
+        'completed_at' => 'datetime',
     ];
 
     /** @return HasMany<SeedingReport, $this> */
@@ -68,10 +79,9 @@ class SeedingTopic extends Model
     {
         return $query
             ->whereNull('archived_at')
-            ->whereIn('status', [
-                SeedingTopicStatus::Shared->value,
-                SeedingTopicStatus::Active->value,
-            ]);
+            ->whereNull('cancelled_at')
+            ->whereIn('status', SeedingTopicStatus::feedVisibleValues())
+            ->whereColumn('completed_comments', '<', 'max_comments_target');
     }
 
     public function preview(int $max = 80): string
@@ -93,8 +103,39 @@ class SeedingTopic extends Model
             || $this->status === SeedingTopicStatus::Archived;
     }
 
+    public function isPaused(): bool
+    {
+        return $this->status === SeedingTopicStatus::Paused
+            || $this->paused_at !== null;
+    }
+
+    public function isCancelled(): bool
+    {
+        return $this->status === SeedingTopicStatus::Cancelled
+            || $this->cancelled_at !== null;
+    }
+
+    public function isGloballyComplete(): bool
+    {
+        return $this->status === SeedingTopicStatus::Done
+            || (int) $this->completed_comments >= $this->targetComments();
+    }
+
+    public function targetComments(): int
+    {
+        return max(1, (int) $this->max_comments_target);
+    }
+
     public function requiredCommentsPerUser(): int
     {
         return max(1, (int) $this->required_comments_per_user);
+    }
+
+    public function progressPercent(): int
+    {
+        $target = $this->targetComments();
+        $done = max(0, (int) $this->completed_comments);
+
+        return (int) min(100, (int) floor(($done / $target) * 100));
     }
 }

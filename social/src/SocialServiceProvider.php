@@ -18,6 +18,13 @@ final class SocialServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->registerCapabilities();
+        $this->app->singleton(\Omnichannel\Addons\Social\Ai\SocialAiTaskRegistry::class);
+        $this->app->singleton(\Omnichannel\Addons\Social\Ai\Services\SocialAiExecutionService::class, function ($app) {
+            return new \Omnichannel\Addons\Social\Ai\Services\SocialAiExecutionService(
+                aiText: $app->make(\Omnichannel\Addons\AiPrompt\Services\CanonicalAiTextExecutionService::class),
+                taskRegistry: $app->make(\Omnichannel\Addons\Social\Ai\SocialAiTaskRegistry::class),
+            );
+        });
     }
 
     public function boot(): void

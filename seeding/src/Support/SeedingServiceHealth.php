@@ -79,10 +79,14 @@ final class SeedingServiceHealth
             'user' => $user instanceof User ? [
                 'id' => (int) $user->id,
                 'display_name' => (string) ($user->name ?? ''),
+                'seo_role' => (string) ($user->seo_role ?? ''),
+                'is_manager' => $access->isManager($user),
+                'role' => $access->isManager($user) ? 'manager' : 'seeder',
             ] : null,
             'sites' => $sites,
             'settings' => [
                 'max_comments_per_day' => $maxComments,
+                'website_share_delay_minutes' => 10,
             ],
             'storage' => [
                 'mode' => 'hybrid',
@@ -92,6 +96,12 @@ final class SeedingServiceHealth
                 'seeding.workspace',
                 'seeding.topic',
                 'link.intelligence',
+                'seeding.website_share',
+            ],
+            'permissions' => [
+                'is_manager' => $user instanceof User && $access->isManager($user),
+                'can_create_topic' => $user instanceof User && $access->canManageTopics($user),
+                'can_manage' => $user instanceof User && $access->canManageTopics($user),
             ],
         ];
     }

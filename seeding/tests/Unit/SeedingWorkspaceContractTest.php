@@ -48,11 +48,13 @@ final class SeedingWorkspaceContractTest extends TestCase
         $source = (string) file_get_contents(
             (new ReflectionClass(SeedingCommentGenerateService::class))->getFileName()
         );
-        self::assertStringContainsString('AiProviderResolver', $source);
-        self::assertStringContainsString('AiTextRequest', $source);
+        self::assertStringContainsString('CanonicalAiTextExecutionService', $source);
+        self::assertStringContainsString('seeding.comment_generate', $source);
         self::assertStringNotContainsString('Omnichannel\\Addons\\Seo\\', $source);
         self::assertStringNotContainsString('SeoPrompt', $source);
         self::assertStringNotContainsString('PromptRunnerService', $source);
+        self::assertStringNotContainsString('SeoAiModel::query', $source);
+        self::assertStringNotContainsString('allow_unverified_outbound', $source);
         self::assertStringContainsString('nội dung seeding', $source);
     }
 
@@ -110,13 +112,16 @@ final class SeedingWorkspaceContractTest extends TestCase
             $this->addonRoot().'/resources/js/seeding/components/TopicDetail.jsx'
         );
 
-        self::assertStringContainsString('ShareGeneratePanel', $workspace);
+        self::assertStringContainsString('TopicFeed', $workspace);
+        self::assertStringContainsString('activeGenTopicId', $workspace);
+        self::assertStringContainsString('outputsForTopic', $workspace);
         self::assertStringContainsString('LinkPoolPanel', $workspace);
         self::assertStringContainsString('TeamStatsSidebar', $workspace);
         self::assertStringContainsString('generateSeedBatch', $workspace);
         self::assertStringContainsString('canSeedTopic', $workspace);
         self::assertStringContainsString('shareTopicApi', $workspace);
         self::assertStringContainsString('ReportModal', $workspace);
+        self::assertStringNotContainsString('data-drawer="share-generate"', $workspace);
         self::assertStringNotContainsString('GlobalWorkDrawer', $workspace);
         self::assertStringNotContainsString('completeWithProof', $workspace);
         self::assertStringNotContainsString('Cần ít nhất 1 bình luận', $workspace);

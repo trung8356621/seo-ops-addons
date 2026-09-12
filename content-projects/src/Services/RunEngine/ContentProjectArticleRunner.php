@@ -80,7 +80,10 @@ final class ContentProjectArticleRunner
 
         try {
             $settings = is_array($run->settings) ? $run->settings : [];
-            $policy = AiCostPolicy::tryFromMixed($settings[AiCostPolicy::SETTING_KEY] ?? null);
+            $policy = \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationModePreference::resolveForRun(
+                $settings,
+                (int) ($run->user_id ?? 0),
+            );
             $execution = AiCostPolicyScope::run(
                 $policy,
                 fn () => $this->taskExecution->execute(

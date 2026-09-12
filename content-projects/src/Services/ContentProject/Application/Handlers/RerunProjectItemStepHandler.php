@@ -121,7 +121,8 @@ final class RerunProjectItemStepHandler extends AbstractPublishingHandler
             }
 
             $itemIds = $gate['eligible_ids'];
-            $settings = [
+            $commandSettings = is_array($command->settings) ? $command->settings : [];
+            $settings = array_merge($commandSettings, [
                 'task_ids' => $itemIds,
                 'rerun' => true,
                 'rerun_scope' => 'step',
@@ -129,7 +130,7 @@ final class RerunProjectItemStepHandler extends AbstractPublishingHandler
                 'rerun_include_downstream' => $command->includeDownstream,
                 'rerun_sync' => $command->syncExecution,
                 'use_php_engine' => true,
-            ];
+            ]);
             if ($command->sourceArticleId !== null && $command->sourceArticleId > 0) {
                 $settings['source_article_id'] = $command->sourceArticleId;
                 $settings['article_id'] = $command->sourceArticleId;

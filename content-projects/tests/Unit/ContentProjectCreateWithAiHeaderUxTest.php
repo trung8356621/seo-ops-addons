@@ -35,22 +35,19 @@ final class ContentProjectCreateWithAiHeaderUxTest extends TestCase
         self::assertStringNotContainsString('updatedArticleGenerationMode', $bar);
     }
 
-    public function test_header_has_ai_generation_action_beside_generate_working_items(): void
+    public function test_header_has_ai_generation_action_without_legacy_generate_working_items(): void
     {
         $view = (string) file_get_contents((string) (new ReflectionClass(ViewSeoProject::class))->getFileName());
 
-        self::assertStringContainsString('makeGeneratePendingItemsAction', $view);
+        self::assertStringNotContainsString('makeGeneratePendingItemsAction', $view);
         self::assertStringContainsString('makeCreateWithAiAction', $view);
         self::assertStringContainsString('makeCreateWithAiModeGroup', $view);
 
-        $genPos = strpos($view, 'makeGeneratePendingItemsAction');
         $aiPos = strpos($view, 'makeCreateWithAiAction');
         $modePos = strpos($view, 'makeCreateWithAiModeGroup');
 
-        self::assertNotFalse($genPos);
         self::assertNotFalse($aiPos);
         self::assertNotFalse($modePos);
-        self::assertGreaterThan($genPos, $aiPos);
         self::assertGreaterThan($aiPos, $modePos);
 
         // Single primary AI control — not duplicated into overflow More group as a second generate.
@@ -127,7 +124,7 @@ final class ContentProjectCreateWithAiHeaderUxTest extends TestCase
         $view = (string) file_get_contents((string) (new ReflectionClass(ViewSeoProject::class))->getFileName());
         $resource = (string) file_get_contents((string) (new ReflectionClass(SeoProjectResource::class))->getFileName());
 
-        self::assertStringContainsString('makeGeneratePendingItemsAction', $view);
+        self::assertStringNotContainsString('makeGeneratePendingItemsAction', $view);
         self::assertStringContainsString("'generate_pending_items'", $resource);
         self::assertStringContainsString('generate_working_items', $resource);
     }

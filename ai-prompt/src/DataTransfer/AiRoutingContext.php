@@ -51,6 +51,11 @@ final class AiRoutingContext
         return $this->costPolicy ?? AiCostPolicy::Default;
     }
 
+    public function isFreeOnly(): bool
+    {
+        return $this->freeOnly || $this->costPolicy()->isFreeOnly();
+    }
+
     public function withRoutingDecision(
         AiExecutionRoutingMode $routingMode,
         ?int $maxAiAttempts = null,

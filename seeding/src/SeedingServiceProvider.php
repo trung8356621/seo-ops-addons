@@ -5,6 +5,8 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Seeding;
 
 use App\Core\Capability\CapabilityRegistry;
+use App\Core\Event\ArticleIndexStatusChanged;
+use App\Core\Event\EventBus;
 use App\Core\Settings\SettingsSectionRegistry;
 use Filament\Facades\Filament;
 use Filament\Navigation\NavigationItem;
@@ -24,18 +26,22 @@ use Omnichannel\Addons\Seeding\Http\Controllers\SeedingCommentGenerateController
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingFeedController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingHealthController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingLinkPreviewController;
+use Omnichannel\Addons\Seeding\Http\Controllers\SeedingManagerTopicsController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingReportController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingShareTopicController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingTopicController;
+use Omnichannel\Addons\Seeding\Http\Controllers\WebsiteShareFeedController;
 use Omnichannel\Addons\Seeding\LinkIntelligence\LinkExtractor;
 use Omnichannel\Addons\Seeding\LinkIntelligence\LinkResourceService;
 use Omnichannel\Addons\Seeding\LinkIntelligence\UrlNormalizer;
+use Omnichannel\Addons\Seeding\Listeners\ArticleIndexStatusChangedListener;
 use Omnichannel\Addons\Seeding\Services\SeedingCommentGenerateService;
 use Omnichannel\Addons\Seeding\Services\SeedingDatabaseConnectionService;
 use Omnichannel\Addons\Seeding\Services\SeedingLinkPreviewService;
 use Omnichannel\Addons\Seeding\Services\SeedingReportService;
 use Omnichannel\Addons\Seeding\Services\SeedingSharedTopicService;
 use Omnichannel\Addons\Seeding\Services\SeedingSocialPlatformDetector;
+use Omnichannel\Addons\Seeding\Services\WebsiteShareJobService;
 use Omnichannel\Addons\Seeding\Settings\SeedingSettingsSectionContributor;
 use Omnichannel\Addons\Seeding\Support\SeedingAccess;
 use Omnichannel\Addons\Seeding\Support\SeedingDatabaseHealth;
@@ -45,7 +51,6 @@ use Omnichannel\Addons\Seeding\Support\SeedingServiceResolver;
 use Omnichannel\Addons\Seeding\Support\SeedingTargetCalculator;
 use Omnichannel\Addons\Seeding\Support\SeedingTopicAuthorization;
 use Omnichannel\Addons\Seeding\Support\SeedingVite;
-use Omnichannel\Addons\Seo\Support\SeoUserNavigation;
 use Throwable;
 
 final class SeedingServiceProvider extends ServiceProvider
@@ -61,6 +66,7 @@ final class SeedingServiceProvider extends ServiceProvider
         $this->app->singleton(SeedingTargetCalculator::class);
         $this->app->singleton(SeedingSharedTopicService::class);
         $this->app->singleton(SeedingReportService::class);
+        $this->app->singleton(WebsiteShareJobService::class);
         $this->app->singleton(SeedingCommentGenerateService::class);
         $this->app->singleton(SeedingOutboundUrlPolicy::class);
         $this->app->singleton(SeedingLinkPreviewService::class);
@@ -106,6 +112,21 @@ final class SeedingServiceProvider extends ServiceProvider
         $this->registerRoutes();
         $this->registerLegacyUiRedirects();
         $this->registerSeoPanelTopLevelNav();
+        $this->registerIndexStatusListener();
+    }
+
+    private function registerIndexStatusListener(): void
+    {
+        if (! $this->app->bound(EventBus::class)) {
+            return;
+        }
+
+        /** @var EventBus $bus */
+        $bus = $this->app->make(EventBus::class);
+        $bus->listen(
+            ArticleIndexStatusChanged::NAME,
+            $this->app->make(ArticleIndexStatusChangedListener::class)
+        );
     }
 
     /**
@@ -124,11 +145,16 @@ final class SeedingServiceProvider extends ServiceProvider
                 return;
             }
 
+            $sort = 55;
+            if (class_exists(\Omnichannel\Addons\Seo\Support\SeoUserNavigation::class)) {
+                $sort = (int) constant(\Omnichannel\Addons\Seo\Support\SeoUserNavigation::class.'::SORT_SEEDING');
+            }
+
             Filament::registerNavigationItems([
                 NavigationItem::make(SeedingTopicsPage::getNavigationLabel())
                     ->icon('heroicon-o-chat-bubble-left-right')
                     ->url(url('/seeding'))
-                    ->sort(SeoUserNavigation::SORT_SEEDING)
+                    ->sort($sort)
                     ->isActiveWhen(static fn (): bool => request()->is('seeding') || request()->is('seeding/*')),
             ]);
         });
@@ -164,6 +190,27 @@ final class SeedingServiceProvider extends ServiceProvider
                     ->name('seeding.comments.generate');
                 Route::post('/link-preview', SeedingLinkPreviewController::class)
                     ->name('seeding.link-preview');
+
+                Route::get('/manager/topics', [SeedingManagerTopicsController::class, 'index'])
+                    ->name('seeding.manager.topics');
+                Route::post('/manager/topics/{topicId}/pause', [SeedingManagerTopicsController::class, 'pause'])
+                    ->whereNumber('topicId')
+                    ->name('seeding.manager.topics.pause');
+                Route::post('/manager/topics/{topicId}/resume', [SeedingManagerTopicsController::class, 'resume'])
+                    ->whereNumber('topicId')
+                    ->name('seeding.manager.topics.resume');
+                Route::post('/manager/topics/{topicId}/cancel', [SeedingManagerTopicsController::class, 'cancel'])
+                    ->whereNumber('topicId')
+                    ->name('seeding.manager.topics.cancel');
+
+                Route::get('/website-share', [WebsiteShareFeedController::class, 'index'])
+                    ->name('seeding.website-share.index');
+                Route::post('/website-share/{jobId}/content', [WebsiteShareFeedController::class, 'updateContent'])
+                    ->whereNumber('jobId')
+                    ->name('seeding.website-share.content');
+                Route::post('/website-share/{jobId}/report', [WebsiteShareFeedController::class, 'report'])
+                    ->whereNumber('jobId')
+                    ->name('seeding.website-share.report');
             });
 
         // Legacy site-scoped CRUD retired — JSON 410 only (no Livewire/Filament toast).

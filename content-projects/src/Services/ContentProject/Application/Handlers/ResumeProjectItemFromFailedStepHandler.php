@@ -139,6 +139,7 @@ final class ResumeProjectItemFromFailedStepHandler extends AbstractPublishingHan
                 null,
                 $command->mode,
                 false,
+                $command->settings,
             ), $actor);
 
             $meta = is_array($stepResult->metadata) ? $stepResult->metadata : [];

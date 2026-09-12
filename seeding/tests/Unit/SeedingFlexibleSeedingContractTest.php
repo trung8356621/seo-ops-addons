@@ -90,7 +90,11 @@ final class SeedingFlexibleSeedingContractTest extends TestCase
     public function test_workspace_primary_ux_has_no_claim_drawer(): void
     {
         $workspace = $this->js('SeedingWorkspace.jsx');
-        self::assertStringContainsString('ShareGeneratePanel', $workspace);
+        $feed = $this->js('components/TopicFeed.jsx');
+        self::assertStringContainsString('TopicFeed', $workspace);
+        self::assertStringContainsString('activeGenTopicId', $workspace);
+        self::assertStringContainsString('ShareGeneratePanel', $feed);
+        self::assertStringNotContainsString('data-drawer="share-generate"', $workspace);
         self::assertStringContainsString('LinkPoolPanel', $workspace);
         self::assertStringContainsString('generateSeedBatch', $workspace);
         self::assertStringContainsString('canSeedTopic', $workspace);

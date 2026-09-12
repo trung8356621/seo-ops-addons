@@ -192,8 +192,9 @@ final class AiRoutingTargetService
             'production_eligibility_skip_count' => max(0, count($beforeEligibility) - count($canonical)),
         ]);
 
-        $policy = $context->costPolicy ?? AiCostPolicyScope::current();
-        if (! $profile->isMedia() && $policy === AiCostPolicy::FreeOnly) {
+        $isFreeOnly = $context->isFreeOnly() || AiCostPolicyScope::current()->isFreeOnly();
+        $this->lastEligibilityDiagnostics['free_only'] = $isFreeOnly;
+        if (! $profile->isMedia() && $isFreeOnly) {
             $resolved = (new FreeRoutingResolver())->resolve($canonical);
             $this->lastEligibilityDiagnostics['candidates_after_free_only'] = count($resolved);
             $expanded = $this->expandFreePool($userId, $profile, $resolved);

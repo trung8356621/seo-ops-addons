@@ -23,6 +23,8 @@ function boot() {
     createRoot(el).render(
         <SeedingWorkspace
             canMutate={props.canMutate !== false}
+            isManager={Boolean(props.isManager || props.bootstrap?.permissions?.is_manager)}
+            canCreateTopic={props.canCreateTopic ?? props.bootstrap?.permissions?.can_create_topic}
             bootstrap={props.bootstrap ?? null}
         />,
     );

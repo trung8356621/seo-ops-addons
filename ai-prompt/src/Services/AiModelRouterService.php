@@ -216,20 +216,62 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
         $parsed = AiExecutionProfile::tryFrom($profile);
         $candidates = $this->resolveAll($profile, $context);
         if ($candidates === []) {
+            $diagnostics = [
+                'routing_context' => [
+                    'profile' => $profile,
+                    'hook_key' => $context->hookKey,
+                    'use_case' => $context->hookKey ?? $profile,
+                    'free_only' => $context->isFreeOnly(),
+                ],
+                'free_only' => $context->isFreeOnly(),
+                'rejection_reason' => 'no_candidates_resolved_for_profile',
+                'routes_evaluated' => [],
+            ];
+            if (function_exists('logger')) {
+                logger()->warning('ai.routing.no_candidates_resolved', $diagnostics);
+            }
+            if ($context->isFreeOnly()) {
+                throw AiRoutingException::noValidFreeConnection($profile);
+            }
             $capability = $parsed?->requiredCapabilityKeys()[0] ?? 'text.generate';
             throw AiRoutingException::noCandidate($profile, $capability);
         }
 
         // Per-execution isolation for sectioned_free: free candidates only.
         // Does not mutate global routing / cost policy / session state.
-        if ($context->freeOnly) {
-            $candidates = array_values(array_filter(
+        if ($context->isFreeOnly()) {
+            $freeCandidates = array_values(array_filter(
                 $candidates,
                 static fn (RoutedAiCandidate $candidate): bool => $candidate->isFree,
             ));
-            if ($candidates === []) {
+            if ($freeCandidates === []) {
+                $diagnostics = [
+                    'routing_context' => [
+                        'profile' => $profile,
+                        'hook_key' => $context->hookKey,
+                        'use_case' => $context->hookKey ?? $profile,
+                        'free_only' => true,
+                    ],
+                    'free_only' => true,
+                    'rejection_reason' => 'all_candidates_filtered_by_free_only_policy',
+                    'routes_evaluated' => array_map(static fn (RoutedAiCandidate $c): array => [
+                        'provider' => $c->provider,
+                        'route_model' => $c->model,
+                        'connection_id' => (int) $c->connection->id,
+                        'connection_name' => (string) $c->connection->name,
+                        'cost_classification' => $c->isFree ? 'free' : 'paid',
+                        'enabled' => true,
+                        'health_state' => 'unknown',
+                        'eligibility_result' => false,
+                        'rejection_reason' => 'cost_class_paid_disallowed_in_free_only',
+                    ], $candidates),
+                ];
+                if (function_exists('logger')) {
+                    logger()->warning('ai.routing.free_only_no_free_candidates', $diagnostics);
+                }
                 throw AiRoutingException::noValidFreeConnection($profile);
             }
+            $candidates = $freeCandidates;
         }
 
         if ($context->requirePreferredModel && $context->preferredModelId !== null && $context->preferredModelId > 0) {
@@ -239,7 +281,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                 static fn (RoutedAiCandidate $candidate): bool => (int) ($candidate->seoAiModelId ?? 0) === $preferredId,
             ));
             if ($candidates === []) {
-                if ($context->freeOnly) {
+                if ($context->isFreeOnly()) {
                     throw AiRoutingException::noValidFreeConnection($profile);
                 }
                 throw AiRoutingException::noCandidate($profile, 'model.override.'.$preferredId);
@@ -279,6 +321,40 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
         );
 
         if ($candidates === []) {
+            $diagnostics = [
+                'routing_context' => [
+                    'profile' => $profile,
+                    'hook_key' => $context->hookKey,
+                    'use_case' => $context->hookKey ?? $profile,
+                    'item_generation_mode' => $context->itemGenerationMode,
+                    'free_only' => $context->isFreeOnly(),
+                    'routing_mode' => $routingMode->value,
+                    'routing_decision_source' => $enrichedContext->routingDecisionSource,
+                ],
+                'free_only' => $context->isFreeOnly(),
+                'routing_mode' => $routingMode->value,
+                'rejection_reason' => $routingMode === AiExecutionRoutingMode::FreeOnly
+                    ? 'no_eligible_free_routes_after_planning'
+                    : 'no_eligible_routes_after_planning',
+                'routes_evaluated' => array_map(static fn (AiPlannedRoute $route): array => [
+                    'provider' => $route->provider,
+                    'route_model' => $route->providerModel,
+                    'connection_id' => $route->connectionId,
+                    'connection_name' => $route->connectionName,
+                    'cost_classification' => $route->costClass,
+                    'enabled' => $route->staticEligibility['enabled'] ?? true,
+                    'health_state' => $route->staticEligibility['runtime_health_skip'] ?? 'healthy',
+                    'eligibility_result' => $route->staticEligibility['eligible'] ?? false,
+                    'rejection_reason' => $route->staticEligibility['reason']
+                        ?? $route->staticEligibility['runtime_health_skip']
+                        ?? 'not_eligible',
+                ], array_merge($routingPlan->freePhase, $routingPlan->paidPhase)),
+            ];
+
+            if (function_exists('logger')) {
+                logger()->warning('ai.routing.planner_empty_routes', $diagnostics);
+            }
+
             if ($routingMode === AiExecutionRoutingMode::FreeOnly) {
                 throw AiRoutingException::noValidFreeConnection($profile);
             }
@@ -679,6 +755,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
             'routing_owner_user_id' => $userId,
             'profile' => $profile,
             'hook_key' => $context->hookKey,
+            'free_only' => $context->isFreeOnly(),
             'routing_mode' => $routingMode->value,
             'routing_decision_source' => $enrichedContext->routingDecisionSource,
             'routing_plan' => $routingPlan->toDebugArray(),

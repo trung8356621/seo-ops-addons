@@ -655,10 +655,6 @@ final class ViewSeoProject extends Page
                     'class' => 'pointer-events-none animate-pulse',
                 ])
                 ->visible(fn (): bool => $this->runningCount > 0),
-            SeoProjectResource::makeGeneratePendingItemsAction(
-                $project,
-                fn (): array => $this->createWithAiLaunchSettings(),
-            ),
             SeoProjectResource::makeCreateWithAiAction(
                 $project,
                 fn (): array => $this->createWithAiLaunchSettings(),
@@ -2452,11 +2448,11 @@ final class ViewSeoProject extends Page
             SeoProjectResource::startGeneratePendingItems(
                 $project,
                 SeoProjectRun::MODE_FULL,
-                [
+                array_merge($this->createWithAiLaunchSettings(), [
                     'task_ids' => $eligible,
                     'use_php_engine' => true,
                     'generate_post_images' => $this->generatePostImages,
-                ],
+                ]),
             );
             $this->invalidateOpsCache();
             $this->dispatch('cp-ops-generation-started', taskIds: $eligible);

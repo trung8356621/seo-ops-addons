@@ -28,9 +28,11 @@ function TopicCard({
     seedOutputs = [],
     canMutate,
     hasWorkspaceAccess = true,
+    isManager = false,
     userId,
     linkPreviewCache = {},
     sharing = false,
+    genOpen = false,
     onOpenDetail,
     onLinksChange,
     onCacheUpdate,
@@ -39,7 +41,10 @@ function TopicCard({
     onShareDraft,
     onGenComment,
 }) {
-    const platform = detectPlatformLabel(topic.social_url);
+    const platform = topic.social_platform_label
+        || detectPlatformLabel(topic.social_url)
+        || topic.social_platform
+        || null;
     const title = topicDistinctTitle(topic);
     const status = seedStatusOf(topic);
     const trending = isTopicTrending(topic);
@@ -55,7 +60,7 @@ function TopicCard({
         topicHasWorkHistory,
         { seed_batches: seedBatches, seed_outputs: seedOutputs },
     );
-    const canShare = canShareDraftTopic(topic, userId, canMutate);
+    const canShare = canShareDraftTopic(topic, userId, canMutate, isManager);
     const canGen = canSeedTopic(topic, { hasWorkspaceAccess, userId });
 
     const onTopicLinksChange = useCallback((next) => {
@@ -68,20 +73,26 @@ function TopicCard({
         onCacheUpdate,
     });
 
-    const progress = Number(topic.current_user_report_count || 0);
-    const required = Number(topic.required_report_count || topic.required_comments_per_user || 0);
+    const progress = Number(topic.completed_comments ?? topic.current_user_report_count ?? 0);
+    const required = Number(topic.target_comments || topic.max_comments_target || topic.required_report_count || 0);
 
     return (
-        <article className="seeding-ws__vcard" data-topic-card data-topic-id={String(topic.id || topic.localId)}>
+        <article
+            className={`seeding-ws__vcard${genOpen ? ' is-gen-open' : ''}`}
+            data-topic-card
+            data-topic-id={String(topic.id || topic.localId)}
+            data-gen-open={genOpen ? '1' : '0'}
+        >
             <div className="seeding-ws__vcard-head">
                 <div className="seeding-ws__vcard-chips">
                     {trending ? <span className="seeding-ws__chip seeding-ws__chip--hot">Trending</span> : null}
                     {platform ? <span className="seeding-ws__chip">{platform}</span> : null}
+                    <span className="seeding-ws__chip">Comment</span>
                     <span className={`seeding-ws__share-pill seeding-ws__share-pill--${status}`}>
                         {seedStatusLabel(status)}
                     </span>
                     {!isDraft && required > 0 ? (
-                        <span className="seeding-ws__chip">{progress}/{required}</span>
+                        <span className="seeding-ws__chip">{progress} / {required}</span>
                     ) : null}
                 </div>
                 <div className="seeding-ws__menu">
@@ -142,11 +153,12 @@ function TopicCard({
                 ) : (
                     <button
                         type="button"
-                        className="seeding-ws__btn seeding-ws__btn--primary"
+                        className={`seeding-ws__btn seeding-ws__btn--primary${genOpen ? ' is-active' : ''}`}
                         disabled={!canGen}
+                        aria-expanded={genOpen}
                         onClick={() => onGenComment(topic)}
                     >
-                        <Sparkles size={14} /> Gen comment
+                        <Sparkles size={14} /> {genOpen ? 'Đóng Gen' : 'Gen comment'}
                     </button>
                 )}
             </div>

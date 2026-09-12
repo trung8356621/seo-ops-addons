@@ -35,10 +35,18 @@ export function canDeleteTopic(topic, userId, canMutate, reports = [], hasWorkHi
 }
 
 /**
- * Author may share local draft → DB commit.
+ * Author may share local draft → DB commit (Manager).
  */
-export function canShareDraftTopic(topic, userId, canMutate) {
+export function canShareDraftTopic(topic, userId, canMutate, isManager = false) {
+    if (!isManager) return false;
     return canEditTopic(topic, userId, canMutate);
+}
+
+/**
+ * Manager may create topics.
+ */
+export function canCreateTopic(isManager, canMutate) {
+    return Boolean(isManager && canMutate);
 }
 
 /**

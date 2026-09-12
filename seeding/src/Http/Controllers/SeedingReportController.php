@@ -61,8 +61,13 @@ final class SeedingReportController extends Controller
             'user_report_count' => $result['user_report_count'],
             'required_report_count' => $result['required'],
             'completed' => $result['completed'],
+            'global_completed' => $result['global_completed'],
+            'global_target' => $result['global_target'],
+            'topic_done' => $result['topic_done'],
             'link_usage_today' => $this->topics->linkUsageTodayForUser($userId),
-            'message' => $result['completed'] ? 'Đã hoàn thành chủ đề' : 'Đã báo cáo',
+            'message' => $result['topic_done']
+                ? 'Chủ đề đã đủ quota'
+                : ($result['completed'] ? 'Đã hoàn thành chủ đề' : 'Đã báo cáo'),
         ], 201);
     }
 }

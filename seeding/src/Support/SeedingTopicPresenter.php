@@ -28,6 +28,7 @@ final class SeedingTopicPresenter
             'social_url' => $topic->social_url,
             'social_platform' => $topic->social_platform?->value,
             'social_platform_label' => $topic->social_platform?->label(),
+            'source_type' => $topic->source_type?->value ?? 'manual',
             'status' => $topic->status?->value ?? 'shared',
             'status_label' => $topic->status?->label(),
             'state' => 'shared',
@@ -35,11 +36,17 @@ final class SeedingTopicPresenter
             'links_count' => count($links),
             'preview' => $topic->preview(60),
             'max_comments_target' => (int) $topic->max_comments_target,
+            'target_comments' => $topic->targetComments(),
+            'completed_comments' => (int) $topic->completed_comments,
+            'progress_percent' => $topic->progressPercent(),
             'member_count_at_share' => (int) $topic->member_count_at_share,
             'required_comments_per_user' => $topic->requiredCommentsPerUser(),
             'required_report_count' => $topic->requiredCommentsPerUser(),
             'shared_at' => $topic->shared_at?->toIso8601String(),
             'archived_at' => $topic->archived_at?->toIso8601String(),
+            'paused_at' => $topic->paused_at?->toIso8601String(),
+            'cancelled_at' => $topic->cancelled_at?->toIso8601String(),
+            'completed_at' => $topic->completed_at?->toIso8601String(),
             'is_archived' => $topic->isArchived(),
             'created_at' => $topic->created_at?->toIso8601String(),
             'updated_at' => $topic->updated_at?->toIso8601String(),
@@ -47,8 +54,6 @@ final class SeedingTopicPresenter
     }
 
     /**
-     * Feed card payload with eligibility + progress for current user.
-     *
      * @return array<string, mixed>
      */
     public static function feedItem(
@@ -67,11 +72,27 @@ final class SeedingTopicPresenter
                 'eligible' => $eligible,
                 'is_author' => (int) $topic->created_by === $userId,
                 'remaining' => max(0, $required - $currentUserReportCount),
+                'global_remaining' => max(0, $topic->targetComments() - (int) $topic->completed_comments),
             ],
             'author' => [
                 'id' => (int) $topic->created_by,
                 'display_name' => $topic->created_by_display_name,
             ],
+        ]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public static function managerRow(SeedingTopic $topic): array
+    {
+        $base = self::topic($topic);
+
+        return array_merge($base, [
+            'progress_label' => ((int) $topic->completed_comments).' / '.$topic->targetComments(),
+            'creator_name' => $topic->created_by_display_name ?: ('#'.$topic->created_by),
+            'created_date_label' => $topic->shared_at?->format('d/m/Y')
+                ?? $topic->created_at?->format('d/m/Y'),
         ]);
     }
 

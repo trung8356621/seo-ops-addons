@@ -82,7 +82,10 @@ export function applyReportSuccessLocal(opts) {
     const topicId = String(opts.topicId);
     const required = Math.max(1, Number(opts.required) || 1);
     const count = Math.max(0, Number(opts.userReportCount) || 0);
-    const completed = count >= required;
+    const topicDone = Boolean(opts.topicDone);
+    const globalCompleted = opts.globalCompleted != null ? Number(opts.globalCompleted) : null;
+    const globalTarget = opts.globalTarget != null ? Number(opts.globalTarget) : null;
+    const completed = count >= required || topicDone;
 
     let topics = (opts.topics || []).map((t) => {
         if (String(t.id) !== topicId) return t;
@@ -90,6 +93,8 @@ export function applyReportSuccessLocal(opts) {
             ...t,
             current_user_report_count: count,
             required_report_count: required,
+            completed_comments: globalCompleted ?? t.completed_comments,
+            target_comments: globalTarget ?? t.target_comments,
             eligibility: {
                 ...(t.eligibility || {}),
                 eligible: !completed,

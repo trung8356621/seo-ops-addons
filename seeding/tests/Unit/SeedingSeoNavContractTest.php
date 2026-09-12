@@ -31,7 +31,9 @@ final class SeedingSeoNavContractTest extends TestCase
         self::assertStringContainsString('registerSeoPanelTopLevelNav', $source);
         self::assertStringContainsString("url('/seeding')", $source);
         self::assertStringContainsString('Filament::registerNavigationItems', $source);
-        self::assertStringContainsString('SeoUserNavigation::SORT_SEEDING', $source);
+        self::assertStringContainsString('SeoUserNavigation::class', $source);
+        self::assertStringContainsString('SORT_SEEDING', $source);
+        self::assertStringNotContainsString('use Omnichannel\\Addons\\Seo\\Support\\SeoUserNavigation', $source);
         self::assertStringNotContainsString('parentItem(', $source);
         self::assertSame(55, SeoUserNavigation::SORT_SEEDING);
     }

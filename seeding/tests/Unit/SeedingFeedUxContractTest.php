@@ -104,14 +104,15 @@ final class SeedingFeedUxContractTest extends TestCase
         self::assertStringContainsString('seeding-ws--shell', $css);
         self::assertStringContainsString('seeding-ws__feed-host', $css);
         self::assertStringContainsString('seeding-ws__feed-grid', $css);
-        self::assertStringContainsString('@container seeding-feed (min-width: 620px)', $css);
-        self::assertStringContainsString('@container seeding-feed (min-width: 980px)', $css);
-        self::assertStringContainsString('repeat(2, minmax(0, 1fr))', $css);
-        self::assertStringContainsString('repeat(3, minmax(0, 1fr))', $css);
-        self::assertDoesNotMatchRegularExpression(
-            '/seeding-ws__feed-grid[^{]*\{[^}]*repeat\(\s*4/s',
+        self::assertMatchesRegularExpression(
+            '/\.seeding-ws__feed-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s',
             $css
         );
+        self::assertDoesNotMatchRegularExpression(
+            '/\.seeding-ws__feed-grid\s*\{[^}]*repeat\(\s*[234]/s',
+            $css
+        );
+        self::assertStringNotContainsString('@container seeding-feed', $css);
         self::assertStringNotContainsString('minmax(min(100%, 320px)', $css);
     }
 
@@ -167,8 +168,12 @@ final class SeedingFeedUxContractTest extends TestCase
         $feed = (string) file_get_contents($root.'/TopicFeed.jsx');
         self::assertStringContainsString('seeding-ws__feed-grid', $feed);
         self::assertStringContainsString('seeding-ws__feed-host', $feed);
+        self::assertStringContainsString('ShareGeneratePanel', $feed);
+        self::assertStringContainsString('activeGenTopicId', $feed);
+        self::assertStringContainsString('is-gen-open', $feed);
         self::assertStringNotContainsString('selectedId', $feed);
         self::assertStringNotContainsString('onSelect', $feed);
+        self::assertStringNotContainsString('data-drawer="share-generate"', $feed);
     }
 
     public function test_storage_tracks_ownership_and_preview_fields(): void

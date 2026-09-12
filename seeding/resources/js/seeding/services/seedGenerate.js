@@ -8,11 +8,36 @@ import { makeId } from './storage';
 export const DEFAULT_SEED_QUANTITY = 3;
 
 /**
+ * Extract preview metadata for topic URL if present.
+ *
+ * @param {Record<string, unknown>} topic
+ * @param {Record<string, Record<string, unknown>>} [linkPreviewCache]
+ * @returns {{ title?: string|null, description?: string|null, domain?: string|null }}
+ */
+function extractTopicPreviewMeta(topic, linkPreviewCache = {}) {
+    const links = Array.isArray(topic.links) ? topic.links : [];
+    const firstLink = links[0] || null;
+    const url = String(topic.social_url || firstLink?.url || '').trim();
+
+    if (!url) return {};
+
+    const cached = linkPreviewCache[url] || (firstLink?.preview_title ? firstLink : null);
+    if (!cached) return {};
+
+    return {
+        title: cached.preview_title || cached.title || null,
+        description: cached.preview_description || cached.description || null,
+        domain: cached.preview_domain || cached.domain || null,
+    };
+}
+
+/**
  * @param {{
  *   topic: Record<string, unknown>,
  *   userId: number|string,
  *   userDisplayName?: string,
  *   quantity?: number,
+ *   linkPreviewCache?: Record<string, Record<string, unknown>>,
  * }} opts
  * @returns {Promise<{ batch: Record<string, unknown>, outputs: Array<Record<string, unknown>>, texts: string[] }>}
  */
@@ -22,11 +47,26 @@ export async function generateSeedBatch(opts) {
     const topicId = String(topic.id ?? topic.localId);
     const now = new Date().toISOString();
 
+    const fullText = String(topic.full_text || topic.content || '').trim();
+    const socialUrl = String(topic.social_url || topic.url || '').trim();
+    const platform = String(topic.social_platform || topic.platform || 'threads').trim();
+    const sourceType = socialUrl && !fullText ? 'url' : 'text';
+    const previewMeta = extractTopicPreviewMeta(topic, opts.linkPreviewCache);
+
     const data = await generateSampleComments({
-        full_text: String(topic.full_text || ''),
-        social_url: String(topic.social_url || ''),
+        source_type: sourceType,
+        content: fullText,
+        url: socialUrl,
+        social: platform || 'threads',
+        quantity: requested,
+        title: previewMeta.title,
+        description: previewMeta.description,
+        domain: previewMeta.domain,
+        // Legacy parameter fallbacks
+        full_text: fullText,
+        social_url: socialUrl,
         count: requested,
-        platform: null,
+        platform: platform || null,
     });
 
     const texts = Array.isArray(data?.comments)
@@ -65,17 +105,38 @@ export async function generateSeedBatch(opts) {
 
 /**
  * Regenerate one comment text (keeps selected link if any).
+ *
+ * @param {{
+ *   output: Record<string, unknown>,
+ *   topic: Record<string, unknown>,
+ *   linkPreviewCache?: Record<string, Record<string, unknown>>,
+ * }} opts
  */
 export async function regenerateSeedOutput(opts) {
     const output = opts.output;
     const topic = opts.topic;
     const now = new Date().toISOString();
 
+    const fullText = String(topic.full_text || topic.content || '').trim();
+    const socialUrl = String(topic.social_url || topic.url || '').trim();
+    const platform = String(topic.social_platform || topic.platform || 'threads').trim();
+    const sourceType = socialUrl && !fullText ? 'url' : 'text';
+    const previewMeta = extractTopicPreviewMeta(topic, opts.linkPreviewCache);
+
     const data = await generateSampleComments({
-        full_text: String(topic.full_text || ''),
-        social_url: String(topic.social_url || ''),
+        source_type: sourceType,
+        content: fullText,
+        url: socialUrl,
+        social: platform || 'threads',
+        quantity: 1,
+        title: previewMeta.title,
+        description: previewMeta.description,
+        domain: previewMeta.domain,
+        // Legacy parameter fallbacks
+        full_text: fullText,
+        social_url: socialUrl,
         count: 1,
-        platform: null,
+        platform: platform || null,
     });
 
     const texts = Array.isArray(data?.comments)
