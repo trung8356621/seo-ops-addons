@@ -372,6 +372,18 @@ final class ArticleEditorDocumentWriter
             ];
         }
 
+        // Empty body: never prefer stale editor_document as content SoT.
+        if (trim($bodyHtml) === '') {
+            return [
+                'source' => 'body_html',
+                'document' => null,
+                'body_html' => $bodyHtml,
+                'hash' => null,
+                'schema_version' => null,
+                'status' => is_string($status) ? $status : ArticleEditorDocumentSchema::STATUS_PENDING,
+            ];
+        }
+
         if (
             $this->readPreferred()
             && $this->columnsReady($article)

@@ -18,10 +18,26 @@ use Omnichannel\Addons\Content\Services\OutlineStructuredRowsNormalizer;
  * Isolation contract:
  * - outline/input = CURRENT SECTION SUBTREE only (not full article Outline)
  * - article_length = section target words (not whole-article budget)
- * - whole-article allocation instructional blocks are stripped after compile
+ * - whole-article allocation / OUTPUT FORMAT / SEO metadata contracts are stripped after compile
+ * - article title aliases are INPUT context only (never H1/output requirement)
  */
 final class WritingSectionPromptCompiler
 {
+    public const SECTION_OUTPUT_FORMAT_BLOCK = <<<'TXT'
+## OUTPUT FORMAT — CURRENT SECTION ONLY
+
+Return ONLY the content body for the CURRENT OUTLINE SLICE in `{{language}}`.
+Do NOT output:
+- SEO metadata fields (meta description / SEO title labels)
+- article title / H1
+- metadata label lines
+- content belonging to another section
+- a complete-article body wrapper
+
+Structural headings are owned by the deterministic assembler.
+Do not invent article-level SEO metadata for this section.
+TXT;
+
     public function __construct(
         private readonly PromptRunnerService $promptRunner,
     ) {}
@@ -36,15 +52,21 @@ final class WritingSectionPromptCompiler
     ): string {
         $slice = $unit->scopeMarkdown();
         $kind = $this->kindForUnit($unit);
-        $assemblerRendersHeading = $unit->emitParentHeading
+        // Contract SSOT: assembler owns structural H2/H3 for non-intro units.
+        // Must stay aligned with SectionedFreeAssembleArticle::renderUnit().
+        $assemblerOwnsStructuralHeadings = $unit->emitParentHeading
             || $unit->role !== SectionedFreeSectionUnit::ROLE_INTRO;
+
+        $vars = $this->normalizeArticleTitleAliases($baseVariables);
+        $canonicalTitle = trim((string) ($vars['article_title'] ?? ''));
+
         $scoped = WritingSectionScopeInstructions::wrapSlice(
             $slice,
             $kind,
-            $assemblerRendersHeading,
+            $assemblerOwnsStructuralHeadings,
+            $canonicalTitle !== '' ? $canonicalTitle : null,
         );
 
-        $vars = $baseVariables;
         // Allow compilePrompt while parent run is sectioned.
         $vars['generation_shape'] = ArticleGenerationStrategy::SinglePass->value;
         $vars['generation_strategy'] = ArticleGenerationStrategy::SinglePass->value;
@@ -55,7 +77,8 @@ final class WritingSectionPromptCompiler
         $vars['writing_scope'] = WritingSectionScopeInstructions::SCOPE_SECTION;
         $vars['writing_scope_instructions'] = WritingSectionScopeInstructions::forSection(
             $kind,
-            $assemblerRendersHeading,
+            $assemblerOwnsStructuralHeadings,
+            $canonicalTitle !== '' ? $canonicalTitle : null,
         );
         $vars['writing_section_kind'] = $kind;
         $vars['writing_section_id'] = $unit->sectionId;
@@ -96,8 +119,36 @@ final class WritingSectionPromptCompiler
     }
 
     /**
-     * Remove whole-article allocation / length-plan instruction blocks from the shared Writing SeoPrompt.
-     * Section children keep global style/SEO/input guidance; not full-article budget or ROLE&GOAL plan.
+     * Stamp title / post_title / article_title from the first non-empty alias.
+     *
+     * @param  array<string, mixed>  $vars
+     * @return array<string, mixed>
+     */
+    public function normalizeArticleTitleAliases(array $vars): array
+    {
+        $canonical = '';
+        foreach (['article_title', 'post_title', 'title'] as $key) {
+            $candidate = trim((string) ($vars[$key] ?? ''));
+            if ($candidate !== '') {
+                $canonical = $candidate;
+                break;
+            }
+        }
+
+        if ($canonical === '') {
+            return $vars;
+        }
+
+        $vars['title'] = $canonical;
+        $vars['post_title'] = $canonical;
+        $vars['article_title'] = $canonical;
+
+        return $vars;
+    }
+
+    /**
+     * Remove whole-article allocation / length-plan / OUTPUT FORMAT SEO contracts
+     * from the shared Writing SeoPrompt. Inject section-only OUTPUT FORMAT.
      *
      * Must also clear markers enforced by SectionedFreePromptIsolationGuard at the provider boundary.
      */
@@ -108,6 +159,7 @@ final class WritingSectionPromptCompiler
             'ROLE & GOAL',
             'STRICT LENGTH REQUIREMENT',
             'ARTICLE BODY ONLY',
+            'OUTPUT FORMAT',
         ];
 
         $out = $compiled;
@@ -138,10 +190,18 @@ final class WritingSectionPromptCompiler
             'target = 2000',
             'Target word count = 2000',
             'target word count = 2000',
+            'Complete Article Body',
+            'Meta description:',
+            'SEO title:',
         ] as $marker) {
             if ($marker !== '' && str_contains($out, $marker)) {
                 $out = str_replace($marker, '[section-scope]', $out);
             }
+        }
+
+        $out = trim($out);
+        if (! str_contains($out, 'OUTPUT FORMAT — CURRENT SECTION ONLY')) {
+            $out = $out."\n\n".self::SECTION_OUTPUT_FORMAT_BLOCK;
         }
 
         return trim($out)."\n";

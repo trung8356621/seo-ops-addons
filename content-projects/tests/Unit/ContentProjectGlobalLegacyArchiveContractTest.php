@@ -96,5 +96,17 @@ final class ContentProjectGlobalLegacyArchiveContractTest extends TestCase
         self::assertStringContainsString('monthLabel()', $view);
         self::assertStringContainsString('badgeLabel()', $view);
         self::assertStringContainsString('bg-amber-50/70', $view);
+        self::assertStringNotContainsString('archive_tab_legacy', $view);
+        self::assertStringNotContainsString('archive-dashboard', $view);
+        self::assertStringNotContainsString('Legacy bài lẻ', $view);
+        self::assertStringNotContainsString('setActiveTab', $view);
+    }
+
+    public function test_list_page_has_no_legacy_tab_state(): void
+    {
+        $src = (string) file_get_contents((new ReflectionClass(ContentProjectArchive::class))->getFileName());
+        self::assertStringNotContainsString('activeTab', $src);
+        self::assertStringNotContainsString('setActiveTab', $src);
+        self::assertStringNotContainsString('reopenArticle', $src);
     }
 }

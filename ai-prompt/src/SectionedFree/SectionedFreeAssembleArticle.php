@@ -9,10 +9,18 @@ use Omnichannel\Addons\AiPrompt\Support\PromptTextMetrics;
 
 /**
  * Deterministic assemble — NEVER calls an LLM.
- * Keys only by section_id / section_order — never by heading or artifact key.
+ *
+ * Contract:
+ * - AI child outputs CONTENT for the current slice (may omit structural headings).
+ * - Assembler owns structural H2/H3 from plannedUnits outlineNodes (SSOT).
+ * - Parent H2 for an H3 group is emitted once (track open parent), never per H3.
  */
 final class SectionedFreeAssembleArticle
 {
+    public function __construct(
+        private readonly SectionedFreeChildOutputNormalizer $childNormalizer = new SectionedFreeChildOutputNormalizer(),
+    ) {}
+
     /**
      * @param  list<array{
      *   section_id?: string,
@@ -59,7 +67,6 @@ final class SectionedFreeAssembleArticle
             }
         }
 
-        // Index by section_id when present; otherwise fall back to order index (legacy callers).
         $byId = [];
         foreach ($sections as $index => $row) {
             $id = trim((string) ($row['section_id'] ?? ''));
@@ -82,78 +89,247 @@ final class SectionedFreeAssembleArticle
             $byId[$id] = $row;
         }
 
-        $ordered = [];
-        if ($plannedUnits !== []) {
-            foreach ($plannedUnits as $unit) {
-                if (! isset($byId[$unit->sectionId])) {
-                    throw new PromptRunException(
-                        'SECTIONED_FREE_SECTION_FAILED: missing completed section '.$unit->sectionId,
-                        0,
-                        null,
-                        [
-                            'failure_code' => 'SECTIONED_FREE_SECTION_FAILED',
-                            'section_id' => $unit->sectionId,
-                            'planned_sections' => $plannedCount,
-                            'completed_sections' => count($byId),
-                            'retryable' => false,
-                        ],
-                    );
-                }
-                $row = $byId[$unit->sectionId];
-                $row['emit_parent_heading'] = $unit->emitParentHeading;
-                $row['parent_h2'] = $unit->parentH2;
-                $ordered[] = $row;
-            }
-        } else {
+        if ($plannedUnits === []) {
             $ordered = array_values($byId);
             usort(
                 $ordered,
                 static fn (array $a, array $b): int => ((int) $a['section_order']) <=> ((int) $b['section_order']),
             );
+            $bodies = [];
+            foreach ($ordered as $row) {
+                $bodies[] = trim((string) $row['output']);
+            }
+
+            return trim(implode("\n\n", $bodies));
         }
 
-        $bodies = [];
-        foreach ($ordered as $row) {
-            $content = trim((string) $row['output']);
-            if (($row['emit_parent_heading'] ?? true) === false) {
-                $content = $this->stripLeadingParentH2(
-                    $content,
-                    isset($row['parent_h2']) ? (string) $row['parent_h2'] : null,
+        $parts = [];
+        $openParentH2 = null;
+        foreach ($plannedUnits as $unit) {
+            if (! isset($byId[$unit->sectionId])) {
+                throw new PromptRunException(
+                    'SECTIONED_FREE_SECTION_FAILED: missing completed section '.$unit->sectionId,
+                    0,
+                    null,
+                    [
+                        'failure_code' => 'SECTIONED_FREE_SECTION_FAILED',
+                        'section_id' => $unit->sectionId,
+                        'planned_sections' => $plannedCount,
+                        'completed_sections' => count($byId),
+                        'retryable' => false,
+                    ],
                 );
             }
-            $bodies[] = $content;
+            $childOutput = $this->childNormalizer->stripArticleMetadataWrappers(
+                (string) ($byId[$unit->sectionId]['output'] ?? ''),
+            );
+            $rendered = $this->renderUnit($unit, $childOutput, $openParentH2);
+            $openParentH2 = $rendered['open_parent_h2'];
+            if ($rendered['markdown'] !== '') {
+                $parts[] = $rendered['markdown'];
+            }
         }
 
-        return trim(implode("\n\n", $bodies));
+        $assembled = trim(implode("\n\n", $parts));
+        $this->assertStructure($assembled, $plannedUnits);
+
+        return $assembled;
     }
 
     /**
-     * @param  list<array{word_count?: int, output?: string}>  $sections
-     * @return array{sum_section_words: int, assembled_words: int, delta: int}
+     * @return array{markdown: string, open_parent_h2: ?string}
      */
-    public function assertWordParity(array $sections, string $assembled, int $tolerance = 40): array
+    public function renderUnit(
+        SectionedFreeSectionUnit $unit,
+        string $childOutput,
+        ?string $previousParentH2,
+    ): array {
+        $headingLines = [];
+        $openParentH2 = $previousParentH2;
+        $plannedLeadings = [];
+
+        $parentH2 = trim((string) ($unit->parentH2 ?? ''));
+        if ($parentH2 !== '' && $parentH2 !== $openParentH2) {
+            $headingLines[] = '## '.$parentH2;
+            $plannedLeadings[] = ['level' => 2, 'title' => $parentH2];
+            $openParentH2 = $parentH2;
+        }
+
+        foreach ($unit->outlineNodes as $node) {
+            if (! is_array($node)) {
+                continue;
+            }
+            $emit = array_key_exists('emit_heading', $node) ? (bool) $node['emit_heading'] : true;
+            if (! $emit) {
+                continue;
+            }
+            $level = max(1, min(4, (int) ($node['level'] ?? 2)));
+            $title = trim((string) ($node['heading'] ?? ''));
+            if ($title === '') {
+                continue;
+            }
+            // Intro: never invent structural H2/H3 from planner nodes unless explicitly body-like.
+            if ($unit->role === SectionedFreeSectionUnit::ROLE_INTRO) {
+                continue;
+            }
+            $headingLines[] = str_repeat('#', $level).' '.$title;
+            $plannedLeadings[] = ['level' => $level, 'title' => $title];
+        }
+
+        $normalized = $this->childNormalizer->stripArticleMetadataWrappers(trim($childOutput));
+        $body = $this->stripLeadingPlannedHeadings($normalized, $plannedLeadings);
+        // Continuation chunks: also strip accidental duplicate open parent H2 at lead.
+        if ($parentH2 !== '' && $unit->emitParentHeading === false) {
+            $body = $this->stripLeadingParentH2($body, $parentH2);
+        }
+
+        $chunks = $headingLines;
+        if ($body !== '') {
+            $chunks[] = $body;
+        }
+
+        return [
+            'markdown' => trim(implode("\n\n", $chunks)),
+            'open_parent_h2' => $openParentH2,
+        ];
+    }
+
+    /**
+     * @param  list<SectionedFreeSectionUnit>  $plannedUnits
+     * @return list<string> e.g. ["## Parent", "### A"]
+     */
+    public function computeExpectedHeadingSequence(array $plannedUnits): array
     {
-        $sum = 0;
-        foreach ($sections as $row) {
-            if (isset($row['word_count']) && is_numeric($row['word_count'])) {
-                $sum += (int) $row['word_count'];
-            } else {
-                $sum += PromptTextMetrics::wordCount((string) ($row['output'] ?? ''));
+        $expected = [];
+        $openParentH2 = null;
+        foreach ($plannedUnits as $unit) {
+            if (! $unit instanceof SectionedFreeSectionUnit) {
+                continue;
+            }
+            $parentH2 = trim((string) ($unit->parentH2 ?? ''));
+            if ($parentH2 !== '' && $parentH2 !== $openParentH2) {
+                $expected[] = '## '.$parentH2;
+                $openParentH2 = $parentH2;
+            }
+            if ($unit->role === SectionedFreeSectionUnit::ROLE_INTRO) {
+                continue;
+            }
+            foreach ($unit->outlineNodes as $node) {
+                if (! is_array($node)) {
+                    continue;
+                }
+                $emit = array_key_exists('emit_heading', $node) ? (bool) $node['emit_heading'] : true;
+                if (! $emit) {
+                    continue;
+                }
+                $level = max(1, min(4, (int) ($node['level'] ?? 2)));
+                $title = trim((string) ($node['heading'] ?? ''));
+                if ($title === '') {
+                    continue;
+                }
+                $expected[] = str_repeat('#', $level).' '.$title;
             }
         }
+
+        return $expected;
+    }
+
+    /**
+     * @param  list<SectionedFreeSectionUnit>  $plannedUnits
+     */
+    public function assertStructure(string $assembled, array $plannedUnits): void
+    {
+        $expected = $this->computeExpectedHeadingSequence($plannedUnits);
+        if ($expected === []) {
+            return;
+        }
+
+        $actual = $this->parseHeadingSequence($assembled);
+        $missing = [];
+        $cursor = 0;
+        foreach ($expected as $need) {
+            $foundAt = null;
+            for ($i = $cursor; $i < count($actual); $i++) {
+                if ($this->headingsMatch($actual[$i], $need)) {
+                    $foundAt = $i;
+                    break;
+                }
+            }
+            if ($foundAt === null) {
+                $missing[] = $need;
+            } else {
+                $cursor = $foundAt + 1;
+            }
+        }
+
+        if ($missing !== []) {
+            throw new PromptRunException(
+                'SECTIONED_FREE_STRUCTURE_MISMATCH: missing planned structural headings.',
+                0,
+                null,
+                [
+                    'failure_code' => 'SECTIONED_FREE_STRUCTURE_MISMATCH',
+                    'expected_headings' => $expected,
+                    'actual_headings' => $actual,
+                    'missing_headings' => $missing,
+                    'planned_sections' => count($plannedUnits),
+                    'completed_sections' => count($plannedUnits),
+                    'retryable' => false,
+                ],
+            );
+        }
+    }
+
+    /**
+     * @param  list<array{word_count?: int, output?: string, section_id?: string}>  $sections
+     * @param  list<SectionedFreeSectionUnit>  $plannedUnits
+     * @return array{sum_section_words: int, assembled_words: int, delta: int, heading_words: int}
+     */
+    public function assertWordParity(
+        array $sections,
+        string $assembled,
+        int $tolerance = 40,
+        array $plannedUnits = [],
+    ): array {
+        $sum = 0;
+        foreach ($sections as $row) {
+            $normalized = $this->childNormalizer->stripArticleMetadataWrappers(
+                (string) ($row['output'] ?? ''),
+            );
+            // Prefer recount after metadata strip so Meta/SEO wrappers do not inflate parity.
+            $sum += PromptTextMetrics::wordCount($normalized);
+        }
+        $headingWords = 0;
+        foreach ($this->computeExpectedHeadingSequence($plannedUnits) as $heading) {
+            $headingWords += PromptTextMetrics::wordCount(
+                trim((string) preg_replace('/^#{1,6}\s+/u', '', $heading)),
+            );
+        }
         $assembledWords = PromptTextMetrics::wordCount($assembled);
-        $delta = abs($sum - $assembledWords);
-        $allowed = max($tolerance, (int) floor($sum * 0.08));
+        $expectedFloor = $sum; // body words at least present
+        $delta = abs($assembledWords - ($sum + $headingWords));
+        $allowed = max($tolerance, (int) floor($sum * 0.08)) + max(8, $headingWords);
+
+        // Assembled must not lose body mass: allow heading overhead but not body disappearance.
+        if ($sum > 0 && $assembledWords + $tolerance < (int) floor($sum * 0.85)) {
+            throw new PromptRunException(
+                'SECTIONED_FREE_ASSEMBLY_MISMATCH: assembled lost section body mass'
+                .' sum_section_words='.$sum.' assembled_words='.$assembledWords,
+                0,
+                null,
+                [
+                    'failure_code' => 'SECTIONED_FREE_ASSEMBLY_MISMATCH',
+                    'planned_sections' => count($sections),
+                    'completed_sections' => count($sections),
+                    'sum_section_words' => $sum,
+                    'assembled_words' => $assembledWords,
+                    'heading_words' => $headingWords,
+                    'retryable' => false,
+                ],
+            );
+        }
 
         if ($sum > 0 && $delta > $allowed) {
-            $perSection = [];
-            foreach ($sections as $row) {
-                $perSection[] = [
-                    'section_id' => $row['section_id'] ?? null,
-                    'words' => (int) ($row['word_count']
-                        ?? PromptTextMetrics::wordCount((string) ($row['output'] ?? ''))),
-                ];
-            }
             throw new PromptRunException(
                 'SECTIONED_FREE_ASSEMBLY_MISMATCH: sum_section_words='.$sum
                 .' assembled_words='.$assembledWords,
@@ -163,13 +339,10 @@ final class SectionedFreeAssembleArticle
                     'failure_code' => 'SECTIONED_FREE_ASSEMBLY_MISMATCH',
                     'planned_sections' => count($sections),
                     'completed_sections' => count($sections),
-                    'section_ids' => array_values(array_filter(array_map(
-                        static fn (array $r): string => (string) ($r['section_id'] ?? ''),
-                        $sections,
-                    ))),
-                    'per_section_words' => $perSection,
                     'sum_section_words' => $sum,
                     'assembled_words' => $assembledWords,
+                    'heading_words' => $headingWords,
+                    'expected_floor' => $expectedFloor,
                     'retryable' => false,
                 ],
             );
@@ -179,14 +352,55 @@ final class SectionedFreeAssembleArticle
             'sum_section_words' => $sum,
             'assembled_words' => $assembledWords,
             'delta' => $delta,
+            'heading_words' => $headingWords,
         ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function parseHeadingSequence(string $markdown): array
+    {
+        preg_match_all('/^(#{2,4})\s+(.+)$/mu', $markdown, $matches, PREG_SET_ORDER);
+        $out = [];
+        foreach ($matches as $m) {
+            $out[] = $m[1].' '.trim($m[2]);
+        }
+
+        return $out;
+    }
+
+    /**
+     * @param  list<array{level: int, title: string}>  $plannedLeadings
+     */
+    private function stripLeadingPlannedHeadings(string $content, array $plannedLeadings): string
+    {
+        $trimmed = ltrim($content);
+        if ($trimmed === '' || $plannedLeadings === []) {
+            return $trimmed;
+        }
+
+        foreach ($plannedLeadings as $planned) {
+            $level = (int) $planned['level'];
+            $title = trim((string) $planned['title']);
+            if ($title === '') {
+                continue;
+            }
+            $hashes = str_repeat('#', max(1, min(4, $level)));
+            $quoted = preg_quote($title, '/');
+            $pattern = '/^'.preg_quote($hashes, '/').'\s*'.$quoted.'\s*\R*/iu';
+            if (preg_match($pattern, $trimmed) === 1) {
+                $trimmed = ltrim((string) preg_replace($pattern, '', $trimmed, 1));
+            }
+        }
+
+        return trim($trimmed);
     }
 
     private function stripLeadingParentH2(string $content, ?string $parentH2): string
     {
         $trimmed = ltrim($content);
         if ($parentH2 === null || $parentH2 === '') {
-            // Strip any leading ## heading once for continuation chunks.
             if (preg_match('/^##\s+.+\R+/u', $trimmed) === 1) {
                 return trim((string) preg_replace('/^##\s+.+\R+/u', '', $trimmed, 1));
             }
@@ -201,5 +415,17 @@ final class SectionedFreeAssembleArticle
         }
 
         return $trimmed;
+    }
+
+    private function headingsMatch(string $actual, string $expected): bool
+    {
+        $norm = static function (string $h): string {
+            $h = trim($h);
+            $h = preg_replace('/\s+/u', ' ', $h) ?? $h;
+
+            return mb_strtolower($h);
+        };
+
+        return $norm($actual) === $norm($expected);
     }
 }

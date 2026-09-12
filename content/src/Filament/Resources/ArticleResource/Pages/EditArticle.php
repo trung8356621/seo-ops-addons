@@ -857,9 +857,10 @@ class EditArticle extends SeoEditRecord
     }
 
     /**
-     * Auto-load WP HTML into the editor cache without materializing articles.body.
+     * Auto-hydrate WP editor HTML into `articles.body` (content SoT).
+     * Does not run destructive full WP sync (title/slug/SEO/category/images).
      *
-     * @return array{success: bool, html: string, source: string, fetched: bool, body_unchanged: bool}
+     * @return array{success: bool, html: string, source: string, fetched: bool, persisted: bool, body_unchanged: bool}
      */
     public function loadWpEditorHtmlFromWordPress(): array
     {
@@ -868,10 +869,10 @@ class EditArticle extends SeoEditRecord
         $this->record->refresh();
         $this->record->loadMissing(['site', 'wordpressLink']);
 
-        $resolved = app(WordPressArticleContentService::class)->resolveEditorHtmlDetailed($this->record);
+        $resolved = app(WordPressArticleContentService::class)->hydrateEditorBodyFromWordPress($this->record);
         $html = trim((string) ($resolved['html'] ?? ''));
         $source = (string) ($resolved['source'] ?? '');
-        $failed = $source === 'wp_fetch_failed';
+        $failed = ($resolved['success'] ?? false) !== true;
 
         if ($html !== '') {
             $html = app(ArticleCtaPlaceholderService::class)->highlightBlankPlaceholdersInHtml(
@@ -882,12 +883,16 @@ class EditArticle extends SeoEditRecord
             $this->bootstrapEditorHtml = $html;
         }
 
+        $this->record->refresh();
+        $bodyEmpty = trim((string) ($this->record->body ?? '')) === '';
+
         return [
             'success' => ! $failed,
             'html' => $html,
             'source' => $source !== '' ? $source : 'empty',
             'fetched' => (bool) ($resolved['fetched'] ?? false),
-            'body_unchanged' => trim((string) ($this->record->fresh()?->body ?? '')) === '',
+            'persisted' => (bool) ($resolved['persisted'] ?? false),
+            'body_unchanged' => $bodyEmpty,
         ];
     }
 
@@ -918,12 +923,8 @@ class EditArticle extends SeoEditRecord
         // Phase 2: album stays out of Livewire snapshot until Images/gallery actions load it.
         $this->productGallery = [];
 
-        // Editor HTML: body (local unsynced) OR temporary WP cache.
-        // Cache miss: client auto-fetches; view-only must NOT materialize articles.body.
+        // Editor HTML SoT: articles.body only. Empty + WP-linked → client auto-hydrates.
         $editorHtml = trim((string) ($this->record->body ?? ''));
-        if ($editorHtml === '') {
-            $editorHtml = trim((string) ($this->wpEditorBootstrapHtml ?? ''));
-        }
         $this->bootstrapEditorHtml = app(ArticleCtaPlaceholderService::class)->highlightBlankPlaceholdersInHtml(
             $editorHtml,
             (int) ($this->record->site_id ?? 0) > 0 ? (int) $this->record->site_id : null,
@@ -984,28 +985,15 @@ class EditArticle extends SeoEditRecord
     }
 
     /**
-     * Load editor bootstrap HTML for WP-backed articles without writing articles.body.
-     * Uses temporary WP content cache (TTL 7d) or fetches WP content JSON once.
+     * Retained for Livewire property BC after auto-hydrate; paint SoT is articles.body.
      */
     private string $wpEditorBootstrapHtml = '';
 
     private function restoreArticleBodyFromWordPressCacheIfMissing(): void
     {
+        // WP cache must not paint or decide content presence. Body empty + WP-linked
+        // → CONTENT_LOADING → loadWpEditorHtmlFromWordPress() persists body.
         $this->wpEditorBootstrapHtml = '';
-
-        if (trim((string) ($this->record->body ?? '')) !== '') {
-            return;
-        }
-
-        $this->record->loadMissing('wordpressLink');
-        if ((int) ($this->record->wordpressLink?->wp_post_id ?? 0) <= 0) {
-            return;
-        }
-
-        $resolved = app(WordPressArticleContentService::class)->resolveEditorHtmlLocalOnly($this->record);
-        $this->wpEditorBootstrapHtml = trim((string) ($resolved['html'] ?? ''));
-        // Intentionally do NOT persist into articles.body on open/view.
-        // Cache miss: client auto-fetches via loadWpEditorHtmlFromWordPress().
     }
 
     private function articleHadSubstantialContent(): bool

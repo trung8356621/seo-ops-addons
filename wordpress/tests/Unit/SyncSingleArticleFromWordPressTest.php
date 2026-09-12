@@ -114,7 +114,8 @@ final class SyncSingleArticleFromWordPressTest extends TestCase
         $this->assertSame([3, 7], $result['category_ids'] ?? []);
 
         $article->refresh();
-        $this->assertNull($article->body);
+        $this->assertNotNull($article->body);
+        $this->assertStringContainsString('Fresh from WordPress', (string) $article->body);
         $this->assertSame('WordPress Title', (string) $article->title);
         $this->assertFalse($flags->hasLocalEditPending($article));
         $this->assertFalse($flags->hasDataOutOfSync($article));
@@ -122,7 +123,6 @@ final class SyncSingleArticleFromWordPressTest extends TestCase
         $this->assertNull(
             $article->articleMetas()->where('meta_key', 'wp_post_content')->value('meta_value'),
         );
-        $this->assertNull($article->body);
 
         $auditRaw = $article->articleMetas()
             ->where('meta_key', SyncDomainContentService::META_PULL_SYNC_AUDIT)

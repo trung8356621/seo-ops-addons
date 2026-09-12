@@ -1,7 +1,7 @@
 /**
- * Article Editor content lifecycle — WP cache / auto-fetch vs empty new article.
- * Server SoT: core bootstrap `contentLifecycle`.
- * WP-backed + no body/cache → CONTENT_LOADING (client auto-fetches).
+ * Article Editor content lifecycle — body SoT vs WP auto-hydrate.
+ * Server SoT: core bootstrap `contentLifecycle` (`articles.body` only).
+ * WP-backed + empty body → CONTENT_LOADING (client auto-fetches + persists body).
  * SYNC_REQUIRED is retired from the happy path (normalized to CONTENT_LOADING).
  */
 

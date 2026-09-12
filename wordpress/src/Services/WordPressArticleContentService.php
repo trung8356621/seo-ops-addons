@@ -28,13 +28,13 @@ class WordPressArticleContentService
     ) {}
 
     /**
-     * Resolve HTML for Article Editor.
+     * Resolve HTML for Article Editor (read path).
      *
-     * body non-null → local unsynced content (canonical for edit).
-     * body null + WP-backed → temporary WP cache (TTL) or fresh WP fetch into cache.
-     * Never materializes WP HTML into articles.body on open/view.
+     * `articles.body` is the editor SoT. WP cache is HTTP optimization only
+     * (not a content-presence SoT). Prefer {@see hydrateEditorBodyFromWordPress()}
+     * when opening an empty WP-backed article so body is persisted.
      *
-     * @return array{html: string, source: 'body'|'wp_cache'|'wp_fetch'|'empty', fetched: bool}
+     * @return array{html: string, source: 'body'|'wp_cache'|'wp_fetch'|'empty'|'wp_fetch_failed', fetched: bool}
      */
     public function resolveEditorHtmlDetailed(SeoArticle $article): array
     {
@@ -103,10 +103,80 @@ class WordPressArticleContentService
     }
 
     /**
-     * Body or valid WP cache only — never HTTP. Used on editor shell open
-     * so title/slug/permalink paint before a cache-miss fetch.
+     * Auto-hydrate path for Article Editor: resolve WP HTML → persist `articles.body`.
+     * Does not sync title/slug/SEO/category/images (use SyncDomainContentService for that).
      *
-     * @return array{html: string, source: 'body'|'wp_cache'|'pending_wp_fetch'|'empty', fetched: bool}
+     * @return array{
+     *     success: bool,
+     *     html: string,
+     *     source: string,
+     *     fetched: bool,
+     *     persisted: bool,
+     * }
+     */
+    public function hydrateEditorBodyFromWordPress(SeoArticle $article): array
+    {
+        $article->loadMissing(['site', 'wordpressLink']);
+
+        $existingBody = trim((string) ($article->body ?? ''));
+        if ($existingBody !== '') {
+            return [
+                'success' => true,
+                'html' => $this->normalizeEditorHtmlForSite($existingBody, $article->site),
+                'source' => 'body',
+                'fetched' => false,
+                'persisted' => false,
+            ];
+        }
+
+        $resolved = $this->resolveEditorHtmlDetailed($article);
+        $html = trim((string) ($resolved['html'] ?? ''));
+        $source = (string) ($resolved['source'] ?? 'empty');
+        $fetched = (bool) ($resolved['fetched'] ?? false);
+
+        if ($source === 'wp_fetch_failed') {
+            return [
+                'success' => false,
+                'html' => '',
+                'source' => $source,
+                'fetched' => $fetched,
+                'persisted' => false,
+            ];
+        }
+
+        if ($html === '') {
+            return [
+                'success' => true,
+                'html' => '',
+                'source' => $source !== '' ? $source : 'empty',
+                'fetched' => $fetched,
+                'persisted' => false,
+            ];
+        }
+
+        app(\Omnichannel\Addons\Content\Services\ArticleEditor\Document\ArticleEditorDocumentWriter::class)
+            ->writeLegacyHtmlAndInvalidateDocument(
+                $article,
+                $html,
+                'wp_editor_auto_hydrate',
+            );
+        app(ArticleWpContentCacheService::class)->forget($article);
+        $article->refresh();
+
+        return [
+            'success' => true,
+            'html' => $html,
+            'source' => $source,
+            'fetched' => $fetched,
+            'persisted' => true,
+        ];
+    }
+
+    /**
+     * Body only on shell open — never HTTP, never WP cache as editor paint SoT.
+     * Empty body + WP-linked → pending auto-hydrate via Livewire.
+     *
+     * @return array{html: string, source: 'body'|'pending_wp_fetch'|'empty', fetched: bool}
      */
     public function resolveEditorHtmlLocalOnly(SeoArticle $article): array
     {
@@ -124,11 +194,6 @@ class WordPressArticleContentService
         $wpId = (int) ($article->wordpressLink?->wp_post_id ?? $article->getAttribute('wp_post_id') ?? 0);
         if ($wpId <= 0) {
             return ['html' => '', 'source' => 'empty', 'fetched' => false];
-        }
-
-        $fromCache = $this->resolveEditorHtmlFromWpCache($article);
-        if ($fromCache !== null) {
-            return $fromCache;
         }
 
         return ['html' => '', 'source' => 'pending_wp_fetch', 'fetched' => false];

@@ -22,37 +22,11 @@
             </p>
         </div>
 
-        <div class="flex flex-wrap gap-2 border-b border-gray-200 pb-3 dark:border-gray-700">
-            <button
-                type="button"
-                wire:click="setActiveTab('projects')"
-                @class([
-                    'inline-flex items-center rounded-lg px-3 py-2 text-sm font-medium transition',
-                    'bg-primary-600 text-white shadow-sm' => $activeTab === 'projects',
-                    'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700' => $activeTab !== 'projects',
-                ])
-            >
-                {{ __('seo-content-ai::filament.projects.archive_tab_projects') }}
-            </button>
-            <button
-                type="button"
-                wire:click="setActiveTab('legacy')"
-                @class([
-                    'inline-flex items-center rounded-lg px-3 py-2 text-sm font-medium transition',
-                    'bg-primary-600 text-white shadow-sm' => $activeTab === 'legacy',
-                    'bg-gray-100 text-gray-700 hover:bg-gray-200 dark:bg-gray-800 dark:text-gray-200 dark:hover:bg-gray-700' => $activeTab !== 'legacy',
-                ])
-            >
-                {{ __('seo-content-ai::filament.projects.archive_tab_legacy') }}
-            </button>
-        </div>
-
-        @if ($activeTab === 'projects')
-            @php
-                $monthOptions = $this->getPlanningMonthOptions();
-                $domainChart = $this->getArchivedDomainChart();
-                $writerChart = $this->getArchivedWriterChart();
-            @endphp
+        @php
+            $monthOptions = $this->getPlanningMonthOptions();
+            $domainChart = $this->getArchivedDomainChart();
+            $writerChart = $this->getArchivedWriterChart();
+        @endphp
 
             <div class="mb-2 flex flex-wrap items-center gap-2">
                 <label class="text-sm font-medium text-gray-700 dark:text-gray-200" for="archive-planning-month">
@@ -325,7 +299,7 @@
 
                 <x-seo-content-ai::list-table-loading-shell
                     preset="livewire-page"
-                    targets="search,applySearch,clearSearch,siteFilter,monthFilter,yearFilter,ownerFilter,archivedByFilter,clearFilters,setActiveTab,exportMonth,saveExcelDataLayoutMode,excelTemplateUpload,downloadExcelTemplate,deleteExcelTemplate,downloadRawTemplate"
+                    targets="search,applySearch,clearSearch,siteFilter,monthFilter,yearFilter,ownerFilter,archivedByFilter,clearFilters,planningMonth,exportMonth,saveExcelDataLayoutMode,excelTemplateUpload,downloadExcelTemplate,deleteExcelTemplate,downloadRawTemplate"
                 >
                 <div class="w-full overflow-x-auto rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
                     <table class="w-full min-w-full table-fixed divide-y divide-gray-200 text-sm dark:divide-gray-700">
@@ -451,18 +425,5 @@
                 @endif
                 </x-seo-content-ai::list-table-loading-shell>
             </div>
-        @else
-            <div class="w-full overflow-visible">
-                <div class="mb-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-100">
-                    {{ __('seo-content-ai::filament.projects.archive_legacy_banner') }}
-                </div>
-
-                @include('seo-content-ai::filament.resources.seo-project-resource.partials.archive-dashboard', [
-                    'siteId' => (int) ($this->siteId ?? 0),
-                    'siteIds' => $this->scopedSiteIds,
-                    'canReopen' => $this->canReopenArchivedArticles(),
-                ])
-            </div>
-        @endif
     </div>
 </x-filament-panels::page>

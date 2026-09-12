@@ -231,6 +231,72 @@ TXT;
         self::assertStringNotContainsString('2000 words', $out);
     }
 
+    public function test_strip_removes_output_format_seo_metadata_contract(): void
+    {
+        $compiler = new WritingSectionPromptCompiler($this->createMock(PromptRunnerService::class));
+        $raw = <<<'TXT'
+## Bối cảnh
+Keep me
+
+## OUTPUT FORMAT
+Return ONLY the requested output in `vi`:
+
+Meta description: [120-150 characters]
+
+SEO title: [Catchy title]
+
+[Complete Article Body starting directly from Introduction]
+
+## SEO, GEO & FACTUAL INTEGRITY
+Keep SEO
+TXT;
+        $out = $compiler->stripWholeArticleAllocationBlocks($raw);
+        self::assertStringContainsString('Keep me', $out);
+        self::assertStringContainsString('Keep SEO', $out);
+        self::assertStringContainsString('OUTPUT FORMAT — CURRENT SECTION ONLY', $out);
+        self::assertStringNotContainsString('Meta description:', $out);
+        self::assertStringNotContainsString('SEO title:', $out);
+        self::assertStringNotContainsString('Complete Article Body', $out);
+    }
+
+    public function test_title_aliases_normalized_before_compile(): void
+    {
+        $plan = $this->plan(self::FULL_OUTLINE);
+        $unit = $plan->units[0];
+        $capturedVars = null;
+        $canonical = 'Túi vải dù in logo: giải pháp quảng cáo';
+
+        $runner = $this->createMock(PromptRunnerService::class);
+        $runner->method('compilePrompt')->willReturnCallback(
+            function (SeoPrompt $prompt, array $vars) use (&$capturedVars, $unit): string {
+                $capturedVars = $vars;
+
+                return WritingSectionScopeInstructions::wrapSlice(
+                    $unit->scopeMarkdown(),
+                    'intro',
+                    true,
+                    (string) ($vars['article_title'] ?? ''),
+                );
+            },
+        );
+
+        $compiled = (new WritingSectionPromptCompiler($runner))->compile($this->fakePrompt(), [
+            'article_outline' => self::FULL_OUTLINE,
+            'post_title' => $canonical,
+            'title' => '',
+            'keyword' => 'túi vải dù',
+            'language' => 'vi',
+            'article_vocabulary' => self::VOCABULARY,
+        ], $unit);
+
+        self::assertSame($canonical, $capturedVars['title'] ?? null);
+        self::assertSame($canonical, $capturedVars['post_title'] ?? null);
+        self::assertSame($canonical, $capturedVars['article_title'] ?? null);
+        self::assertStringContainsString('Article title: '.$canonical, $compiled);
+        self::assertStringContainsString('CURRENT OUTLINE SLICE', $compiled);
+        self::assertStringNotContainsString('Meta description:', $compiled);
+    }
+
     public function test_section_article_length_uses_section_target_not_2000(): void
     {
         $plan = $this->plan(self::FULL_OUTLINE);

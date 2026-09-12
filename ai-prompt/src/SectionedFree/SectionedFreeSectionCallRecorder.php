@@ -56,9 +56,12 @@ final class SectionedFreeSectionCallRecorder
             'user_id' => (int) (auth()->id() ?? 0),
             'site_id' => (int) ($meta['site_id'] ?? 0),
             'status' => 'running',
+            'compiled_prompt_hash' => hash('sha256', $sectionPrompt),
             'input_snapshot' => array_merge([
                 'compiled_prompt' => $sectionPrompt,
+                'compiled_prompt_hash' => hash('sha256', $sectionPrompt),
                 'manual_compiled' => true,
+                'retain_compiled_prompt' => true,
                 'hook_key' => self::HOOK_KEY,
                 'display_hook_key' => self::DISPLAY_HOOK,
                 'display_name' => $label,

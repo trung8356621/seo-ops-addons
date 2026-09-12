@@ -5,14 +5,15 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Content\Support;
 
 use Omnichannel\Addons\Content\Models\SeoArticle;
-use Omnichannel\Addons\Content\Services\ArticleEditor\Document\ArticleEditorDocumentWriter;
 
 /**
- * Content lifecycle for Article Editor — distinguishes missing local snapshot
- * from a legitimately empty new article.
+ * Content lifecycle for Article Editor.
  *
- * WP-backed + no body/cache → CONTENT_LOADING (client auto-fetches WP JSON).
- * SYNC_REQUIRED is retired from the happy path (legacy alias only).
+ * Contract: `articles.body` is the only SoT for "has local content".
+ * `editor_document`, WP cache, and bootstrapHtml must not change that semantic.
+ *
+ * WP-backed + empty body → CONTENT_LOADING (client auto-hydrates WP → persist body).
+ * SYNC_REQUIRED is a legacy alias only (normalized to CONTENT_LOADING).
  */
 final class ArticleEditorContentLifecycle
 {
@@ -85,31 +86,17 @@ final class ArticleEditorContentLifecycle
         return false;
     }
 
+    /**
+     * Local content = meaningful `articles.body` only.
+     *
+     * `$bootstrapHtml` is accepted for call-site BC but never participates
+     * in the presence decision (must not change local_content_present).
+     */
     public function hasLocalContentSnapshot(SeoArticle $article, ?string $bootstrapHtml = null): bool
     {
-        if ($bootstrapHtml !== null && $this->htmlHasMeaningfulContent($bootstrapHtml)) {
-            return true;
-        }
+        unset($bootstrapHtml);
 
-        if ($this->htmlHasMeaningfulContent((string) ($article->body ?? ''))) {
-            return true;
-        }
-
-        $document = $article->editor_document;
-        if (is_array($document) && $document !== []) {
-            if (app(ArticleEditorDocumentWriter::class)->isUsableBootstrapDocument(
-                $document,
-                (string) ($article->body ?? ''),
-            )) {
-                return true;
-            }
-
-            if ($this->editorDocumentHasMeaningfulText($document)) {
-                return true;
-            }
-        }
-
-        return false;
+        return $this->htmlHasMeaningfulContent((string) ($article->body ?? ''));
     }
 
     /**
@@ -122,7 +109,7 @@ final class ArticleEditorContentLifecycle
      *     allow_fetch_from_wordpress: bool,
      * }
      */
-    public function bootstrapPayload(SeoArticle $article, string $bootstrapHtml, bool $allowFetchFromWordPress = true): array
+    public function bootstrapPayload(SeoArticle $article, string $bootstrapHtml = '', bool $allowFetchFromWordPress = true): array
     {
         $article->loadMissing('wordpressLink');
         $wordpressLinked = $this->isWordPressLinked($article);
@@ -150,8 +137,8 @@ final class ArticleEditorContentLifecycle
     }
 
     /**
-     * Empty editor save must not hydrate-overwrite a WP-linked article that never had local content.
-     * Intentional clear after hydrate is different: local snapshot already existed (body/cache/document).
+     * Empty editor save must not wipe a WP-linked article that never had local body.
+     * Intentional clear after hydrate is different: body already had meaningful content.
      */
     public function shouldRejectEmptyPersist(SeoArticle $article, string $incomingHtml): bool
     {
@@ -163,8 +150,6 @@ final class ArticleEditorContentLifecycle
             return false;
         }
 
-        // Still has local snapshot in DB → existing guards handle wipe-of-substantial-content.
-        // Reject only when local snapshot is missing (unhydrated).
         return ! $this->hasLocalContentSnapshot($article);
     }
 
@@ -180,35 +165,11 @@ final class ArticleEditorContentLifecycle
         $plain = preg_replace('/\s+/u', ' ', $plain) ?? $plain;
         $plain = trim($plain);
 
-        return $plain !== '';
-    }
-
-    /**
-     * @param  array<string, mixed>  $document
-     */
-    private function editorDocumentHasMeaningfulText(array $document): bool
-    {
-        $blocks = is_array($document['blocks'] ?? null) ? $document['blocks'] : [];
-        foreach ($blocks as $block) {
-            if (! is_array($block)) {
-                continue;
-            }
-            $type = (string) ($block['type'] ?? 'text');
-            if ($type === 'image') {
-                $image = is_array($block['image'] ?? null) ? $block['image'] : [];
-                $src = trim((string) ($image['src'] ?? $image['url'] ?? ''));
-                if ($src !== '') {
-                    return true;
-                }
-
-                continue;
-            }
-            $content = trim((string) ($block['content'] ?? ''));
-            if ($this->htmlHasMeaningfulContent($content)) {
-                return true;
-            }
+        if ($plain !== '') {
+            return true;
         }
 
-        return false;
+        // Media-only markup still counts as local content (body SoT).
+        return preg_match('/<(img|video|audio|iframe|figure)\b/i', $trimmed) === 1;
     }
 }

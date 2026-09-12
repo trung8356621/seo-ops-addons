@@ -8,7 +8,8 @@ use Omnichannel\Addons\ContentProjects\Services\ImportLegacyContentArchiveServic
 use Illuminate\Console\Command;
 
 /**
- * Stage Legacy bài lẻ into one canonical archived Content Project (dual-view verification).
+ * Import historical `seo_content_archive_items` into the canonical
+ * “Legacy articles” archived Content Project.
  *
  * Does not call the normal strong archive() / workspace destroy path.
  */
@@ -20,7 +21,7 @@ final class ImportLegacyContentArchiveCommand extends Command
         {--reconcile : Compare seo_content_archive_items vs imported SeoProjectArchiveItem}
         {--actor= : Optional archived_by / owner user id}';
 
-    protected $description = 'Import Legacy bài lẻ into canonical “Legacy articles” archived Content Project (staging; keeps old tab).';
+    protected $description = 'Import historical seo_content_archive_items into canonical “Legacy articles” archived Content Project.';
 
     public function handle(ImportLegacyContentArchiveService $importer): int
     {

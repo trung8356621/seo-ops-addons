@@ -81,12 +81,12 @@ final class ArticleEditorWpAutoLoadInsertLinkOrphanTest extends TestCase
         self::assertStringNotContainsString('inbound_sources', $src);
     }
 
-    public function test_editor_open_uses_local_sources_then_livewire_fetch(): void
+    public function test_editor_open_uses_body_then_livewire_hydrate(): void
     {
         $edit = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content/src/Filament/Resources/ArticleResource/Pages/EditArticle.php',
         );
-        self::assertStringContainsString('resolveEditorHtmlLocalOnly', $edit);
+        self::assertStringContainsString('hydrateEditorBodyFromWordPress', $edit);
         self::assertStringContainsString('loadWpEditorHtmlFromWordPress', $edit);
         self::assertStringContainsString('body_unchanged', $edit);
         self::assertStringContainsString('wordpressPermalink', $edit);

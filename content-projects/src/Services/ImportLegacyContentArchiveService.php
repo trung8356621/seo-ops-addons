@@ -23,7 +23,8 @@ use Illuminate\Support\Facades\Schema;
 use RuntimeException;
 
 /**
- * Materialize post-archive canonical state for Legacy bài lẻ (seo_content_archive_items).
+ * Materialize historical `seo_content_archive_items` into the canonical
+ * “Legacy articles” archived Content Project (SeoProjectArchive + items).
  *
  * Does NOT call the normal strong archive() path — no workspace destroy.
  * Task shells keep article_id=null so active CP ownership elsewhere is never stolen.
@@ -320,7 +321,7 @@ final class ImportLegacyContentArchiveService
                     'status' => SeoProject::STATUS_COMPLETED,
                     'kind' => SeoProject::KIND_MONTHLY,
                     'total_tasks' => 0,
-                    'description' => 'Imported historical Legacy bài lẻ archive (staging dual-view).',
+                    'description' => 'Imported historical articles into Legacy articles archive project.',
                 ]);
                 $createdProject = true;
             }

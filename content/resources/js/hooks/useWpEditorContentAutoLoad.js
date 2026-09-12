@@ -23,7 +23,8 @@ function resolveEditArticleWire() {
 }
 
 /**
- * Auto-fetch WP editor HTML on cache miss. Does not write articles.body.
+ * Auto-fetch WP editor HTML when body is empty + WP-linked, then hydrate blocks.
+ * Server persists into articles.body via loadWpEditorHtmlFromWordPress().
  */
 export default function useWpEditorContentAutoLoad({
     contentLifecycle,

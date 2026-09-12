@@ -4,13 +4,9 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Pages;
 
-use Omnichannel\Addons\Content\Enums\ArticleReviewActionType;
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource;
-use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectArchive;
-use Omnichannel\Addons\ContentProjects\Services\ArchiveContentProjectService;
-use Omnichannel\Addons\Content\Services\ArticleReviewService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectArchiveAccessScope;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ActorContext;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RestoreContentProjectCommand;
@@ -21,7 +17,6 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectExc
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectExcelTemplateSettingsService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectMonthlyWorkloadService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectArchiveExportService;
-use Omnichannel\Addons\Content\Exceptions\ArticleReviewException;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectArchiveVaultListPresenter;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGlobalLegacyArchive;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthChartPresenter;
@@ -65,8 +60,6 @@ final class ContentProjectArchive extends Page
      */
     public array $scopedSiteIds = [];
 
-    public string $activeTab = 'projects';
-
     public string $search = '';
 
     public string $searchInput = '';
@@ -92,13 +85,10 @@ final class ContentProjectArchive extends Page
     /** @var array<string, mixed>|null Request-local cache for archived forMonth(). */
     private ?array $archivedMonthWorkloadCache = null;
 
-    public ?int $reopenSubmittingId = null;
-
     public ?int $restoreSubmittingId = null;
 
     /** @var array<string, mixed> */
     protected $queryString = [
-        'activeTab' => ['except' => 'projects'],
         'search' => ['except' => ''],
         'siteFilter' => ['except' => ''],
         'monthFilter' => ['except' => ''],
@@ -117,7 +107,7 @@ final class ContentProjectArchive extends Page
         $this->applyTenantArchiveScope();
         $this->searchInput = $this->search;
         $this->planningMonth = $this->resolvePlanningMonth();
-        $this->syncPlanningMonthToLegacyFilters();
+        $this->syncPlanningMonthToFilters();
         $this->excelDataLayoutMode = app(ContentProjectExcelTemplateSettingsService::class)
             ->dataLayoutMode()
             ->value;
@@ -126,7 +116,7 @@ final class ContentProjectArchive extends Page
     public function updatedPlanningMonth(mixed $value): void
     {
         $this->planningMonth = ContentProjectMonthContext::normalize(is_string($value) ? $value : null);
-        $this->syncPlanningMonthToLegacyFilters();
+        $this->syncPlanningMonthToFilters();
         $this->resetPage();
     }
 
@@ -189,7 +179,7 @@ final class ContentProjectArchive extends Page
         return ContentProjectMonthContext::current();
     }
 
-    private function syncPlanningMonthToLegacyFilters(): void
+    private function syncPlanningMonthToFilters(): void
     {
         $normalized = ContentProjectMonthContext::normalize($this->planningMonth ?: null);
         $this->planningMonth = $normalized;
@@ -223,15 +213,6 @@ final class ContentProjectArchive extends Page
                 ->color('gray')
                 ->url(SeoProjectResource::getUrl('index')),
         ];
-    }
-
-    public function setActiveTab(string $tab): void
-    {
-        if (! in_array($tab, ['projects', 'legacy'], true)) {
-            return;
-        }
-
-        $this->activeTab = $tab;
     }
 
     public function applySearch(): void
@@ -278,7 +259,7 @@ final class ContentProjectArchive extends Page
         $this->ownerFilter = '';
         $this->archivedByFilter = '';
         $this->planningMonth = ContentProjectMonthContext::current();
-        $this->syncPlanningMonthToLegacyFilters();
+        $this->syncPlanningMonthToFilters();
         $this->resetPage();
     }
 
@@ -438,11 +419,6 @@ final class ContentProjectArchive extends Page
     public function canRestoreArchives(): bool
     {
         return SeoAccessControl::canArchiveContentProjects();
-    }
-
-    public function canReopenArchivedArticles(): bool
-    {
-        return SeoAccessControl::canFinalizeArticleReview() || SeoAccessControl::canApproveArticleReview();
     }
 
     public function canRestoreArchive(SeoProjectArchive $archive): bool
@@ -699,77 +675,6 @@ final class ContentProjectArchive extends Page
             ->title(__('seo-content-ai::filament.projects.excel_tpl_removed'))
             ->success()
             ->send();
-    }
-
-    public function reopenArticle(int $articleId): void
-    {
-        abort_unless($this->canReopenArchivedArticles(), 403);
-
-        if ($articleId <= 0) {
-            $this->skipRender();
-
-            return;
-        }
-
-        $this->reopenSubmittingId = $articleId;
-
-        try {
-            $article = SeoArticle::query()->find($articleId);
-            if (! $article instanceof SeoArticle) {
-                Notification::make()
-                    ->title(__('seo-content-ai::filament.projects.unarchive_item_not_found'))
-                    ->danger()
-                    ->send();
-
-                return;
-            }
-
-            $siteId = (int) ($article->site_id ?? 0);
-            if ($siteId <= 0 || ! SeoAccessControl::canAccessSite($siteId)) {
-                abort(403);
-            }
-
-            if ($this->scopedSiteIds !== [] && ! in_array($siteId, $this->scopedSiteIds, true)) {
-                abort(403);
-            }
-
-            $user = auth()->user();
-            if (! $user instanceof User) {
-                abort(403);
-            }
-
-            app(ArticleReviewService::class)->performAction(
-                $article,
-                $user,
-                ArticleReviewActionType::Reopen,
-            );
-
-            Notification::make()
-                ->title(__('seo-content-ai::filament.article_review.success.reopen'))
-                ->success()
-                ->send();
-
-            $this->activeTab = 'legacy';
-            $this->redirect(static::getUrl());
-        } catch (ArticleReviewException $exception) {
-            Notification::make()
-                ->title($exception->getMessage())
-                ->danger()
-                ->send();
-        } catch (Throwable $exception) {
-            RuntimeLogger::report($exception, [
-                'endpoint' => 'content_project_archive.reopen',
-                'article_id' => $articleId,
-            ]);
-
-            Notification::make()
-                ->title(__('seo-content-ai::filament.projects.unarchive_failed'))
-                ->body($exception->getMessage())
-                ->danger()
-                ->send();
-        } finally {
-            $this->reopenSubmittingId = null;
-        }
     }
 
     /**

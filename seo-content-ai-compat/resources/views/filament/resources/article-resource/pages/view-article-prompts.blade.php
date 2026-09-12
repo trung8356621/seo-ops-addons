@@ -733,6 +733,85 @@
                                     @endif
                                 </div>
                             @endif
+
+                            @php
+                                $historyChildren = is_array($promptItem['children'] ?? null) ? $promptItem['children'] : [];
+                            @endphp
+                            @if ($historyChildren !== [])
+                                <ul class="seo-run-history-children ml-6 border-l border-gray-200 pl-3 dark:border-gray-700">
+                                    @foreach ($historyChildren as $childItem)
+                                        @php
+                                            $childRef = trim((string) ($childItem['artifact_ref'] ?? ''));
+                                            $childName = trim((string) ($childItem['prompt_name'] ?? $childItem['type'] ?? 'Child'));
+                                            $childStatus = trim((string) ($childItem['status'] ?? ''));
+                                            $childRole = trim((string) ($childItem['history_role'] ?? ''));
+                                            $childAiCall = array_key_exists('ai_call', $childItem)
+                                                ? (bool) $childItem['ai_call']
+                                                : $childRole === 'provider_call';
+                                            $childType = trim((string) ($childItem['type'] ?? ($childAiCall ? 'Prompt AI' : 'Step')));
+                                            $childAttempts = is_array($childItem['attempts'] ?? null) ? $childItem['attempts'] : [];
+                                        @endphp
+                                        <li class="seo-run-history-item seo-run-history-item--child py-2">
+                                            <div class="seo-run-history-item__row">
+                                                <div class="seo-run-history-item__copy min-w-0 flex-1">
+                                                    <div class="seo-run-history-item__title-row">
+                                                        <span class="seo-run-history-item__type">{{ $childType }}</span>
+                                                        @if ($childRole !== '')
+                                                            <span class="seo-run-history-item__tag ml-2">{{ $childRole }}</span>
+                                                        @endif
+                                                        @if (! $childAiCall)
+                                                            <span class="seo-run-history-item__tag ml-2">not AI call</span>
+                                                        @endif
+                                                    </div>
+                                                    <p class="text-sm font-medium text-gray-800 dark:text-gray-100">{{ $childName }}</p>
+                                                </div>
+                                                @if ($childStatus !== '')
+                                                    <span class="seo-run-history-status text-[0.65rem]">{{ strtoupper($childStatus) }}</span>
+                                                @endif
+                                            </div>
+                                            @if ($childAttempts !== [])
+                                                <ul class="mt-1 space-y-1 border-l border-dashed border-gray-300 pl-3 text-xs dark:border-gray-600">
+                                                    @foreach ($childAttempts as $attemptItem)
+                                                        @php
+                                                            $attemptRef = trim((string) ($attemptItem['artifact_ref'] ?? ''));
+                                                            $attemptName = trim((string) ($attemptItem['prompt_name'] ?? 'Attempt'));
+                                                            $attemptStatus = trim((string) ($attemptItem['status'] ?? ''));
+                                                            $attemptModel = trim((string) ($attemptItem['model'] ?? $attemptItem['actual_provider_model'] ?? ''));
+                                                        @endphp
+                                                        <li class="flex flex-wrap items-center gap-2">
+                                                            <span class="font-medium">{{ $attemptName }}</span>
+                                                            @if ($attemptStatus !== '')
+                                                                <span class="uppercase tracking-wide text-gray-500">{{ $attemptStatus }}</span>
+                                                            @endif
+                                                            @if ($attemptModel !== '')
+                                                                <span class="text-gray-500">{{ $attemptModel }}</span>
+                                                            @endif
+                                                            @if ($attemptRef !== '')
+                                                                <button
+                                                                    type="button"
+                                                                    class="text-indigo-600 hover:underline dark:text-indigo-400"
+                                                                    x-on:click="openRawAiCall({{ \Illuminate\Support\Js::from($attemptRef) }})"
+                                                                >View</button>
+                                                            @endif
+                                                        </li>
+                                                    @endforeach
+                                                </ul>
+                                            @endif
+                                            @if ($childRef !== '' && $childAiCall)
+                                                <div class="seo-run-history-item__actions-row mt-1">
+                                                    <button
+                                                        type="button"
+                                                        class="fi-btn fi-btn-color-gray fi-btn-size-sm rounded-lg px-2 py-1 text-xs"
+                                                        x-on:click="openRawAiCall({{ \Illuminate\Support\Js::from($childRef) }})"
+                                                    >
+                                                        {{ __('seo-content-ai::filament.article_ai_history.view_prompt') }}
+                                                    </button>
+                                                </div>
+                                            @endif
+                                        </li>
+                                    @endforeach
+                                </ul>
+                            @endif
                         </div>
                     @endforeach
                 </div>

@@ -1538,15 +1538,20 @@ class SeoProjectResource extends SeoPanelResource
     /**
      * @param  (\Closure(): array<string, mixed>)|null  $launchSettings
      *         Optional page-level launch settings resolver (e.g. generate_post_images from ViewSeoProject).
+     * @param  (\Closure(): string)|null  $labelResolver
      */
     public static function makeGeneratePendingItemsAction(
         SeoProject $project,
         ?\Closure $launchSettings = null,
+        string $actionName = 'generate_pending_items',
+        ?\Closure $labelResolver = null,
+        string $icon = 'heroicon-o-play',
+        string $color = 'success',
     ): \Filament\Actions\Action {
-        return \Filament\Actions\Action::make('generate_pending_items')
-            ->label(__('seo-content-ai::filament.projects.generate_working_items'))
-            ->icon('heroicon-o-play')
-            ->color('success')
+        return \Filament\Actions\Action::make($actionName)
+            ->label($labelResolver ?? fn (): string => (string) __('seo-content-ai::filament.projects.generate_working_items'))
+            ->icon($icon)
+            ->color($color)
             ->visible(fn (): bool => SeoAccessControl::canAccessContentProjectRun($project)
                 && ! $project->isDraftPlanning())
             // Never use silent disabled clicks in overflow menus — gate inside action + tooltip.
@@ -1627,15 +1632,24 @@ class SeoProjectResource extends SeoPanelResource
 
                     $extra = is_callable($launchSettings) ? (array) $launchSettings() : [];
 
+                    $runSettings = [
+                        'generate_post_images' => (bool) ($extra['generate_post_images'] ?? false),
+                        'use_php_engine' => true,
+                        'task_ids' => $taskIds,
+                        'technical_confirm_full_rerun' => (bool) ($data['technical_confirm_full_rerun'] ?? false),
+                    ];
+
+                    $costKey = \Omnichannel\Addons\AiPrompt\Support\AiCostPolicy::SETTING_KEY;
+                    if (array_key_exists($costKey, $extra)) {
+                        $runSettings[$costKey] = \Omnichannel\Addons\AiPrompt\Support\AiCostPolicy::tryFromMixed(
+                            $extra[$costKey],
+                        )->value;
+                    }
+
                     static::startGeneratePendingItems(
                         $project,
                         SeoProjectRun::MODE_FULL,
-                        [
-                            'generate_post_images' => (bool) ($extra['generate_post_images'] ?? false),
-                            'use_php_engine' => true,
-                            'task_ids' => $taskIds,
-                            'technical_confirm_full_rerun' => (bool) ($data['technical_confirm_full_rerun'] ?? false),
-                        ],
+                        $runSettings,
                     );
 
                     SeoConnectionContext::applyUrlDefaults();
@@ -1659,6 +1673,81 @@ class SeoProjectResource extends SeoPanelResource
                         ->send();
                 }
             });
+    }
+
+    /**
+     * Primary header control: run bulk generation with the selected article generation mode.
+     *
+     * @param  (\Closure(): array<string, mixed>)|null  $launchSettings
+     * @param  (\Closure(): string)|null  $modeLabelResolver
+     */
+    public static function makeCreateWithAiAction(
+        SeoProject $project,
+        ?\Closure $launchSettings = null,
+        ?\Closure $modeLabelResolver = null,
+    ): \Filament\Actions\Action {
+        return static::makeGeneratePendingItemsAction(
+            $project,
+            $launchSettings,
+            'create_with_ai',
+            function () use ($modeLabelResolver): string {
+                $base = (string) __('seo-content-ai::filament.projects.create_with_ai');
+                $mode = is_callable($modeLabelResolver) ? trim((string) $modeLabelResolver()) : '';
+
+                return $mode !== '' ? $base.' · '.$mode : $base;
+            },
+            'heroicon-o-sparkles',
+            'primary',
+        );
+    }
+
+    /**
+     * Mode dropdown only — does not start generation.
+     *
+     * @param  (\Closure(string): void)  $setMode
+     * @param  (\Closure(): string)  $currentMode
+     */
+    public static function makeCreateWithAiModeGroup(
+        SeoProject $project,
+        \Closure $setMode,
+        \Closure $currentMode,
+    ): \Filament\Actions\ActionGroup {
+        $visible = fn (): bool => SeoAccessControl::canAccessContentProjectRun($project)
+            && ! $project->isDraftPlanning();
+
+        return \Filament\Actions\ActionGroup::make([
+            \Filament\Actions\Action::make('create_with_ai_mode_fast')
+                ->label(fn (): string => (string) __('seo-content-ai::filament.projects.mode_fast'))
+                ->icon(fn (): ?string => ($currentMode)() === 'normal' ? 'heroicon-o-check' : 'heroicon-o-bolt')
+                ->extraAttributes([
+                    'title' => (string) __('seo-content-ai::filament.projects.mode_fast_description'),
+                ])
+                ->action(function () use ($setMode): void {
+                    $setMode('normal');
+                })
+                ->visible($visible),
+            \Filament\Actions\Action::make('create_with_ai_mode_free')
+                ->label(fn (): string => (string) __('seo-content-ai::filament.projects.mode_free'))
+                ->icon(fn (): ?string => ($currentMode)() === 'free_only' ? 'heroicon-o-check' : 'heroicon-o-gift')
+                ->extraAttributes([
+                    'title' => (string) __('seo-content-ai::filament.projects.mode_free_description'),
+                ])
+                ->action(function () use ($setMode): void {
+                    $setMode('free_only');
+                })
+                ->visible($visible),
+        ])
+            ->label((string) __('seo-content-ai::filament.projects.create_with_ai_mode_menu'))
+            ->icon('heroicon-m-chevron-down')
+            ->iconButton()
+            ->color('primary')
+            ->tooltip(fn (): string => (string) __('seo-content-ai::filament.projects.create_with_ai_mode_menu'))
+            ->dropdownPlacement('bottom-end')
+            ->visible($visible)
+            ->extraAttributes([
+                'class' => 'cp-create-with-ai-mode',
+                'aria-label' => (string) __('seo-content-ai::filament.projects.create_with_ai_mode_menu'),
+            ]);
     }
 
     public static function generatePendingPreviewHtml(SeoProject $project): HtmlString

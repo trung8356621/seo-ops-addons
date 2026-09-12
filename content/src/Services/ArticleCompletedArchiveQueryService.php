@@ -19,9 +19,10 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
 /**
- * Nguồn truy vấn tab "Legacy bài lẻ" trong kho archive:
- * chỉ bài có mirror `seo_content_archive_items`.
- * Không dùng `review_status=archived` (đó là “Hoàn tất duyệt”, không phải archive lẻ).
+ * Historical query over articles mirrored in `seo_content_archive_items`.
+ * Kept for import/reconcile compatibility — not used by Content Project Archive vault UI
+ * (vault + Legacy articles project use SeoProjectArchive / ArchivePreviewArticlePresenter).
+ * Does not use `review_status=archived` (that means review-complete, not historical archive rows).
  */
 final class ArticleCompletedArchiveQueryService
 {
@@ -40,8 +41,7 @@ final class ArticleCompletedArchiveQueryService
 
         $query = SeoArticle::query()
             ->with(['site', 'user', 'latestReview.reviewer', 'contentArchiveItem'])
-            // Legacy bài lẻ: mirror seo_content_archive_items.
-            // review_status=archived sau khi bỏ archive-lẻ = “Hoàn tất duyệt”, không vào tab legacy.
+            // Historical mirror rows only (not review_status=archived).
             ->where(function (Builder $builder): void {
                 $builder->whereExists(function ($sub): void {
                     $sub->selectRaw('1')
@@ -197,7 +197,8 @@ final class ArticleCompletedArchiveQueryService
     }
 
     /**
-     * Shape tương thích UI `archive-dashboard.blade.php` cũ (groups theo ngày hoàn tất),
+     * Shape tương thích CanonicalArchiveListDashboardBuilder (groups theo ngày hoàn tất).
+     * Retained for import/reconcile tooling — vault UI no longer includes archive-dashboard.
      * nhưng nguồn là article/review — không đụng bảng archive project.
      *
      * @param  list<int>|int  $siteIds

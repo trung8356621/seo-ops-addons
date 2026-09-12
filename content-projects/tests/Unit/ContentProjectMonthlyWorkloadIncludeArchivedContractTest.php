@@ -54,8 +54,9 @@ final class ContentProjectMonthlyWorkloadIncludeArchivedContractTest extends Tes
         self::assertStringContainsString('capacityByUserId', $src);
         self::assertStringContainsString('ContentProjectWriterCapacitySettingsService', $src);
         self::assertStringContainsString('STATUS_DRAFT', $src);
+        self::assertStringContainsString('seo_project_archive_items as ai', $src);
+        self::assertStringContainsString('COUNT(ai.id)', $src);
         self::assertStringNotContainsString('MAX_WRITER_MONTHLY_ITEMS', $src);
-        self::assertStringNotContainsString("->whereNull('p.archived_at')", $src);
     }
 
     public function test_all_projects_charts_use_scope_all_by_default(): void
@@ -124,6 +125,8 @@ final class ContentProjectMonthlyWorkloadIncludeArchivedContractTest extends Tes
         );
         self::assertStringContainsString('t.site_id', $src);
         self::assertStringContainsString('accessibleSitesQuery', $src);
+        self::assertStringContainsString('seo_project_archive_items as ai', $src);
+        self::assertStringContainsString('COUNT(ai.id)', $src);
         self::assertStringNotContainsString('groupBy(\'p.site_id\')', $src);
         self::assertStringNotContainsString('p.site_id as site_id', $src);
     }

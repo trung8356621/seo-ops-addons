@@ -264,10 +264,52 @@ final class ArticlePromptResultOwnershipAndRawDetailTest extends TestCase
         self::assertTrue($out['success']);
         self::assertTrue((bool) ($out['hash_mismatch'] ?? false));
         self::assertStringContainsString(
-            ArticleAiCallRawDetailService::HASH_MISMATCH_WARNING,
+            ArticleAiCallRawDetailService::LEGACY_RECONSTRUCTED_WARNING,
             (string) ($out['meta'] ?? ''),
         );
         self::assertStringContainsString('Gamma', (string) ($out['prompt'] ?? ''));
+    }
+
+    public function test_exact_compiled_prompt_wins_in_detail_resolve(): void
+    {
+        $article = $this->makeArticle(92);
+        $prompt = $this->makePrompt(['markdown_content' => 'Write {{title}} whole article']);
+        app(PromptVersionService::class)->syncFromSavedPrompt($prompt);
+        $exact = 'EXACT SECTION PROMPT ONLY';
+        $result = $this->makeResult([
+            'prompt_id' => (int) $prompt->id,
+            'prompt_version_id' => (int) $prompt->fresh()->current_prompt_version_id,
+            'input_snapshot' => [
+                'article_id' => 92,
+                'compiled_prompt' => $exact,
+                'manual_compiled' => true,
+                'sectioned_free_section' => true,
+                'variables' => ['title' => 'ShouldNotWin'],
+            ],
+            'compiled_prompt_hash' => hash('sha256', $exact),
+            'output_text' => 'section out',
+        ]);
+        SeoPromptResultLink::query()->create([
+            'prompt_result_id' => (int) $result->id,
+            'article_id' => 92,
+            'source' => 'test',
+        ]);
+
+        $out = $this->detail->resolve(
+            $article,
+            ArticleAiHistoryArtifactRef::encodePromptResult((int) $result->id),
+            [],
+        );
+
+        self::assertTrue($out['success']);
+        self::assertSame($exact, $out['prompt'] ?? null);
+        self::assertTrue((bool) ($out['exact_execution_prompt'] ?? false));
+        self::assertFalse((bool) ($out['hash_mismatch'] ?? true));
+        self::assertStringNotContainsString(
+            ArticleAiCallRawDetailService::HASH_MISMATCH_WARNING,
+            (string) ($out['meta'] ?? ''),
+        );
+        self::assertStringNotContainsString('ShouldNotWin', (string) ($out['prompt'] ?? ''));
     }
 
     public function test_snapshot_helpers_match_history_sources(): void
@@ -284,7 +326,8 @@ final class ArticlePromptResultOwnershipAndRawDetailTest extends TestCase
         );
         self::assertStringContainsString('ArticlePromptResultOwnershipResolver', $src);
         self::assertStringNotContainsString('SeoPromptResultLink::query()', $src);
-        self::assertStringNotContainsString("snapshot['compiled_prompt']", $src);
+        self::assertStringContainsString("snapshot['compiled_prompt']", $src);
+        self::assertStringContainsString('resolvePromptAuthority', $src);
     }
 
     private function makeArticle(int $id): SeoArticle

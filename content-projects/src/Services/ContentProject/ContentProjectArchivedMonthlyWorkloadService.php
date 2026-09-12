@@ -5,12 +5,10 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject;
 
 use Omnichannel\Addons\Content\Models\SeoArticle;
-use Omnichannel\Addons\ContentProjects\Models\SeoProjectArchiveItem;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterMonthlyCapacityService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ArchiveArticleHistoricalFieldResolver;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExportReviewedAtResolver;
-use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\WordPress\Support\WordPressPermalinkBuilder;
 use App\Models\Site;
 use App\Models\User;
@@ -22,6 +20,7 @@ use Illuminate\Support\Collection;
  * Archived-only monthly workload. Same item set as Archived Projects charts.
  *
  * Domain = item.site_id. Never project.site_id.
+ * Cardinality = SeoProjectArchiveItem (1 article row), not live tasks.
  */
 final class ContentProjectArchivedMonthlyWorkloadService
 {
@@ -37,6 +36,7 @@ final class ContentProjectArchivedMonthlyWorkloadService
             $this->reviewedAtResolver,
         );
     }
+
     /**
      * @return array{
      *     month: string,
@@ -95,7 +95,7 @@ final class ContentProjectArchivedMonthlyWorkloadService
     }
 
     /**
-     * Flattened archived execution items for the selected month (one row per task).
+     * Flattened archived articles for the selected month (one row per archive item / article).
      *
      * @return list<array{
      *     writer_id: int,
@@ -115,22 +115,25 @@ final class ContentProjectArchivedMonthlyWorkloadService
      */
     public function itemRows(CarbonImmutable|Carbon|string|null $month = null): array
     {
-        $raw = $this->workload->archivedExecutionItemQuery($month)
+        $raw = $this->workload->archivedCanonicalItemQuery($month)
             ->select([
-                't.id as task_id',
-                't.site_id as site_id',
-                't.article_id as article_id',
-                't.keyword as keyword',
-                't.title as title',
+                'ai.id as archive_item_id',
+                'ai.article_id as article_id',
+                'ai.task_id as task_id',
+                'ai.article_snapshot as article_snapshot',
+                'ai.position as position',
+                't.site_id as task_site_id',
+                'art.site_id as article_site_id',
                 't.post_type as post_type',
                 't.type as plan_type',
-                't.project_id as project_id',
                 'p.name as project_name',
                 'p.user_id as writer_id',
                 'p.archived_by as archived_by',
+                'p.id as project_id',
             ])
             ->orderBy('p.user_id')
-            ->orderBy('t.id')
+            ->orderBy('ai.position')
+            ->orderBy('ai.id')
             ->get();
 
         if ($raw->isEmpty()) {
@@ -139,7 +142,6 @@ final class ContentProjectArchivedMonthlyWorkloadService
 
         $writerIds = [];
         $archivedByIds = [];
-        $taskIds = [];
         $articleIds = [];
 
         foreach ($raw as $row) {
@@ -151,10 +153,6 @@ final class ContentProjectArchivedMonthlyWorkloadService
             if ($archivedBy > 0) {
                 $archivedByIds[$archivedBy] = $archivedBy;
             }
-            $taskId = (int) ($row->task_id ?? 0);
-            if ($taskId > 0) {
-                $taskIds[] = $taskId;
-            }
             $articleId = (int) ($row->article_id ?? 0);
             if ($articleId > 0) {
                 $articleIds[$articleId] = $articleId;
@@ -163,31 +161,30 @@ final class ContentProjectArchivedMonthlyWorkloadService
 
         $writerNames = $this->writerCapacity->displayNamesByUserId(array_values($writerIds));
         $archivedByNames = $this->userNames(array_values($archivedByIds));
-        $resolvedArticleIds = $this->hydrateArchiveItemMaps($taskIds, $articleIds);
-        $indexedByArticle = $this->indexedArticleIds($resolvedArticleIds);
-        $articles = $this->loadArticles($resolvedArticleIds);
+        $indexedByArticle = $this->indexedArticleIds(array_values($articleIds));
+        $articles = $this->loadArticles(array_values($articleIds));
 
         $rows = [];
         foreach ($raw as $row) {
-            $siteId = (int) ($row->site_id ?? 0);
             $articleId = (int) ($row->article_id ?? 0);
+            if ($articleId <= 0) {
+                continue;
+            }
+
+            $taskSiteId = (int) ($row->task_site_id ?? 0);
+            $articleSiteId = (int) ($row->article_site_id ?? 0);
+            $siteId = $taskSiteId > 0 ? $taskSiteId : $articleSiteId;
             $writerId = (int) ($row->writer_id ?? 0);
             $archivedBy = (int) ($row->archived_by ?? 0);
-            $taskId = (int) ($row->task_id ?? 0);
-            $resolvedArticleId = $articleId > 0
-                ? $articleId
-                : (int) ($this->taskArticleMap[$taskId] ?? 0);
 
-            $article = $resolvedArticleId > 0
-                ? $articles->get($resolvedArticleId)
-                : null;
-            $snapshot = $this->snapshotsByTaskId[$taskId] ?? [];
+            $article = $articles->get($articleId);
+            $snapshot = $this->decodeSnapshot($row->article_snapshot ?? null);
             $articleFields = $this->historicalFields->resolve(
                 $article instanceof SeoArticle ? $article : null,
                 $snapshot,
             );
 
-            $isIndexed = isset($indexedByArticle[$resolvedArticleId])
+            $isIndexed = isset($indexedByArticle[$articleId])
                 || $this->isIndexedFromHistorical($articleFields['indexed_at'] ?? null);
 
             $rows[] = [
@@ -195,7 +192,7 @@ final class ContentProjectArchivedMonthlyWorkloadService
                 'writer_name' => $writerNames[$writerId] ?? ($writerId > 0 ? '#'.$writerId : 'Unknown'),
                 'project_name' => trim((string) ($row->project_name ?? '')),
                 'site_id' => $siteId > 0 ? $siteId : null,
-                'article_id' => $resolvedArticleId,
+                'article_id' => $articleId,
                 'title' => $articleFields['title'],
                 'keyword' => $articleFields['keyword'],
                 'wordpress_url' => $articleFields['wordpress_url'],
@@ -212,50 +209,22 @@ final class ContentProjectArchivedMonthlyWorkloadService
         return $rows;
     }
 
-    /** @var array<int, int> task_id => article_id from archive items */
-    private array $taskArticleMap = [];
-
-    /** @var array<int, array<string, mixed>> task_id => article_snapshot */
-    private array $snapshotsByTaskId = [];
-
     /**
-     * @param  list<int>  $taskIds
-     * @param  array<int, int>  $articleIds
-     * @return list<int>
+     * @return array<string, mixed>
      */
-    private function hydrateArchiveItemMaps(array $taskIds, array $articleIds): array
+    private function decodeSnapshot(mixed $raw): array
     {
-        $this->taskArticleMap = [];
-        $this->snapshotsByTaskId = [];
-
-        if ($taskIds === []) {
-            return array_values($articleIds);
+        if (is_array($raw)) {
+            return $raw;
         }
 
-        $archiveItems = SeoProjectArchiveItem::query()
-            ->whereIn('task_id', $taskIds)
-            ->get(['task_id', 'article_id', 'article_snapshot']);
-
-        foreach ($archiveItems as $item) {
-            if (! $item instanceof SeoProjectArchiveItem) {
-                continue;
-            }
-            $taskId = (int) ($item->task_id ?? 0);
-            if ($taskId <= 0) {
-                continue;
-            }
-            $articleId = (int) ($item->article_id ?? 0);
-            if ($articleId > 0) {
-                $this->taskArticleMap[$taskId] = $articleId;
-                $articleIds[$articleId] = $articleId;
-            }
-            $snapshot = is_array($item->article_snapshot) ? $item->article_snapshot : [];
-            if ($snapshot !== []) {
-                $this->snapshotsByTaskId[$taskId] = $snapshot;
-            }
+        if (! is_string($raw) || trim($raw) === '') {
+            return [];
         }
 
-        return array_values($articleIds);
+        $decoded = json_decode($raw, true);
+
+        return is_array($decoded) ? $decoded : [];
     }
 
     private function isIndexedFromHistorical(mixed $indexedAt): bool

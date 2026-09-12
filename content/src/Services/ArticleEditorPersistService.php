@@ -112,7 +112,7 @@ final class ArticleEditorPersistService
         return [
             'success' => false,
             'code' => ArticleEditorSessionErrorCode::LOCAL_CONTENT_SYNC_REQUIRED,
-            'message' => 'Nội dung bài viết chưa được đồng bộ từ WordPress. Đồng bộ trước khi lưu.',
+            'message' => 'Nội dung bài viết chưa được tải từ WordPress. Đợi hydrate xong hoặc bấm Thử lại trước khi lưu.',
         ];
     }
 
@@ -184,23 +184,15 @@ final class ArticleEditorPersistService
         $publishAt = $context->resolvePublishAtForSave();
         $postType = SeoProjectTask::normalizePostType($context->postType);
 
-        $existingBody = trim((string) ($article->body ?? ''));
         $wpCache = app(\Omnichannel\Addons\WordPress\Services\ArticleWpContentCacheService::class);
-        $article->loadMissing('wordpressLink');
-        $wpBacked = (int) ($article->wordpressLink?->wp_post_id ?? 0) > 0;
 
-        // No-change save: WP-backed + body null + editor HTML matches temporary WP cache hash
-        // → keep body null (do not materialize a local unsynced copy).
-        $keepBodyNull = $wpBacked
-            && $existingBody === ''
-            && $wpCache->matchesIncomingHtml($article, $html);
-
+        // articles.body is always the editor SoT — never keep body null when saving HTML.
         $payload = [
             'title' => trim($context->title),
             'slug' => $slug !== '' ? $slug : null,
             'status' => $context->status,
             'published_at' => $publishAt,
-            'body' => $keepBodyNull ? null : $html,
+            'body' => $html,
             'user_id' => auth()->id(),
         ];
 
@@ -215,11 +207,7 @@ final class ArticleEditorPersistService
         }
 
         $article->update($payload);
-
-        if (! $keepBodyNull) {
-            // Local unsynced content is now body — WP cache is no longer the working source.
-            $wpCache->forget($article);
-        }
+        $wpCache->forget($article);
 
         // Prefer explicit page content_type from editor context when present.
         $classification = ArticleContentClassification::fromTaskPostType($postType);
@@ -238,9 +226,6 @@ final class ArticleEditorPersistService
                 'published_at' => $publishAt,
             ]);
         }
-
-        // Stash flag for side effects: skip markLocalEditPending when no body materialize.
-        $article->setAttribute('_content_lifecycle_keep_body_null', $keepBodyNull);
 
         return $html;
     }
@@ -278,8 +263,7 @@ final class ArticleEditorPersistService
             );
             $article->refresh();
 
-            $keepBodyNull = (bool) $article->getAttribute('_content_lifecycle_keep_body_null');
-            if (! $keepBodyNull && trim((string) ($article->body ?? '')) !== '') {
+            if (trim((string) ($article->body ?? '')) !== '') {
                 $this->syncFlags->markLocalEditPending($article);
             }
 

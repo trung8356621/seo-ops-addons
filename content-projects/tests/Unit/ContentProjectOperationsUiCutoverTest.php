@@ -36,6 +36,9 @@ final class ContentProjectOperationsUiCutoverTest extends TestCase
         // Header shortcut to independent Publishing Queue hub (not nested lifecycle tab).
         self::assertStringContainsString("Action::make('publishing_queue')", $src);
         self::assertStringContainsString('getPublishingQueueUrl', $src);
+        self::assertStringContainsString('makeCreateWithAiAction', $src);
+        self::assertStringContainsString('makeCreateWithAiModeGroup', $src);
+        self::assertStringContainsString('makeGeneratePendingItemsAction', $src);
     }
 
     public function test_operations_blade_kpi_grid_and_toolbar(): void

@@ -9,7 +9,7 @@ use Omnichannel\Addons\WordPress\Services\WordPressArticleSyncService;
 use PHPUnit\Framework\TestCase;
 
 /**
- * Contract: temporary WP content cache + body lifecycle (no legacy meta).
+ * Contract: articles.body is editor SoT; WP cache is HTTP optimization only.
  */
 final class ArticleWpContentLifecycleContractTest extends TestCase
 {
@@ -18,46 +18,53 @@ final class ArticleWpContentLifecycleContractTest extends TestCase
         self::assertSame(7, ArticleWpContentCacheService::TTL_DAYS);
     }
 
-    public function test_content_service_uses_cache_without_materializing_body(): void
+    public function test_content_service_exposes_hydrate_and_keeps_cache_as_optimization(): void
     {
         $path = dirname(__DIR__, 2).'/src/Services/WordPressArticleContentService.php';
         $src = (string) file_get_contents($path);
 
+        self::assertStringContainsString('hydrateEditorBodyFromWordPress', $src);
         self::assertStringContainsString('resolveEditorHtmlDetailed', $src);
         self::assertStringContainsString('resolveEditorHtmlLocalOnly', $src);
         self::assertStringContainsString('ArticleWpContentCacheService', $src);
         self::assertStringContainsString("'source' => 'wp_cache'", $src);
         self::assertStringContainsString("'source' => 'wp_fetch'", $src);
         self::assertStringContainsString("'source' => 'wp_fetch_failed'", $src);
-        self::assertStringContainsString('persistMeta: false', $src);
-        self::assertStringContainsString('persistMeta = true', $src);
-        self::assertStringContainsString('SearchFoundation\\Services\\ArticleKeywordLinkReconcileService', $src);
+        self::assertStringContainsString('writeLegacyHtmlAndInvalidateDocument', $src);
+        self::assertStringContainsString('pending_wp_fetch', $src);
         self::assertStringNotContainsString("meta_key' => 'wp_post_content'", $src);
-        self::assertStringNotContainsString('wp_post_content_source', $src);
     }
 
-    public function test_edit_article_open_does_not_persist_body(): void
+    public function test_edit_article_auto_hydrate_persists_body(): void
     {
         $path = dirname(__DIR__, 3)
             .'/content/src/Filament/Resources/ArticleResource/Pages/EditArticle.php';
         $src = (string) file_get_contents($path);
 
-        self::assertStringContainsString('resolveEditorHtmlLocalOnly', $src);
+        self::assertStringContainsString('hydrateEditorBodyFromWordPress', $src);
         self::assertStringContainsString('loadWpEditorHtmlFromWordPress', $src);
-        self::assertStringContainsString('wpEditorBootstrapHtml', $src);
-        self::assertStringContainsString('Intentionally do NOT persist into articles.body', $src);
-        self::assertStringNotContainsString("update(['body' => \$html])", $src);
+        self::assertStringContainsString("'persisted'", $src);
+        self::assertStringNotContainsString('Intentionally do NOT persist into articles.body', $src);
     }
 
-    public function test_persist_keeps_body_null_when_cache_hash_matches(): void
+    public function test_persist_always_writes_body_html(): void
     {
         $path = dirname(__DIR__, 3).'/content/src/Services/ArticleEditorPersistService.php';
         $src = (string) file_get_contents($path);
 
-        self::assertStringContainsString('matchesIncomingHtml', $src);
-        self::assertStringContainsString('keepBodyNull', $src);
-        self::assertStringContainsString("'body' => \$keepBodyNull ? null : \$html", $src);
+        self::assertStringContainsString("'body' => \$html", $src);
+        self::assertStringNotContainsString('keepBodyNull', $src);
         self::assertStringContainsString('forget($article)', $src);
+    }
+
+    public function test_force_overwrite_pull_persists_prepared_body(): void
+    {
+        $path = dirname(__DIR__, 2).'/src/Services/SyncDomainContentService.php';
+        $src = (string) file_get_contents($path);
+
+        self::assertStringContainsString("'body' => \$htmlForBody !== '' ? \$htmlForBody : null", $src);
+        self::assertStringContainsString('wp_force_overwrite_pull', $src);
+        self::assertStringNotContainsString("// Body null is valid for WP-synced articles until editor opens", $src);
     }
 
     public function test_wp_sync_success_clears_body_and_cache(): void

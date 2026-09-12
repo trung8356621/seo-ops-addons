@@ -307,13 +307,58 @@ final class ArticlePromptRunHistoryService
                                         $seenResultIds[$resultId] = true;
                                     }
 
-                                    $normalizedChildren[] = $this->normalizePromptItem(
+                                    $normalized = $this->normalizePromptItem(
                                         $childStep,
                                         $result instanceof PromptResult ? $result : null,
                                         (int) $run->id,
                                         (int) ($item['task_id'] ?? 0),
                                         ($index * 10) + $childIndex,
                                     );
+
+                                    $nestedSteps = is_array($childStep['child_steps'] ?? null)
+                                        ? $childStep['child_steps']
+                                        : [];
+                                    if ($nestedSteps !== []) {
+                                        $nestedNormalized = [];
+                                        foreach ($nestedSteps as $nestedIndex => $nestedStep) {
+                                            if (! is_array($nestedStep)) {
+                                                continue;
+                                            }
+                                            $nestedResultId = (int) ($nestedStep['result_id'] ?? 0);
+                                            $nestedResult = $nestedResultId > 0 ? $results->get($nestedResultId) : null;
+                                            if ($nestedResultId > 0) {
+                                                $seenResultIds[$nestedResultId] = true;
+                                            }
+                                            $nestedItem = $this->normalizePromptItem(
+                                                $nestedStep,
+                                                $nestedResult instanceof PromptResult ? $nestedResult : null,
+                                                (int) $run->id,
+                                                (int) ($item['task_id'] ?? 0),
+                                                ($index * 10) + $childIndex + $nestedIndex + 1,
+                                            );
+                                            if (($nestedStep['history_role'] ?? '') === 'provider_call'
+                                                && $nestedResult instanceof PromptResult
+                                            ) {
+                                                $attemptBundle = $this->sectionAttemptChildren(
+                                                    $nestedResult,
+                                                    (int) ($childStep['result_id'] ?? 0),
+                                                    $results,
+                                                    (int) $run->id,
+                                                    (int) ($item['task_id'] ?? 0),
+                                                    $seenResultIds,
+                                                );
+                                                if ($attemptBundle !== []) {
+                                                    $nestedItem['attempts'] = $attemptBundle;
+                                                    $nestedItem['status'] = strtolower((string) ($nestedResult->status ?? $nestedItem['status']));
+                                                }
+                                            }
+                                            $nestedNormalized[] = $nestedItem;
+                                        }
+                                        $normalized['children'] = $nestedNormalized;
+                                        $normalized['child_count'] = count($nestedNormalized);
+                                    }
+
+                                    $normalizedChildren[] = $normalized;
                                 }
 
                                 return $normalizedChildren;
@@ -516,17 +561,51 @@ final class ArticlePromptRunHistoryService
         }
 
         $isSectionedFreeParent = ! empty($snapshot['sectioned_free_orchestrator'])
-            || ! empty($snapshot['suppress_single_model_display']);
+            || ! empty($snapshot['suppress_single_model_display'])
+            || ($step['history_role'] ?? '') === 'orchestrator';
+
+        $historyRole = trim((string) ($step['history_role'] ?? ''));
+        if ($historyRole === '' && $isSectionedFreeParent) {
+            $historyRole = 'orchestrator';
+        }
+        if ($historyRole === '' && ! empty($snapshot['sectioned_free_section'])) {
+            $historyRole = 'provider_call';
+        }
+        if ($historyRole === '' && ($step['type'] ?? '') === 'assemble') {
+            $historyRole = 'assemble';
+        }
+
+        $aiCall = array_key_exists('ai_call', $step)
+            ? (bool) $step['ai_call']
+            : ! in_array($historyRole, ['orchestrator', 'assemble'], true);
+
+        $exactPromptAvailable = array_key_exists('exact_prompt_available', $step)
+            ? (bool) $step['exact_prompt_available']
+            : (
+                trim((string) ($snapshot['compiled_prompt'] ?? '')) !== ''
+                || (! empty($snapshot['manual_compiled']) && ! empty($snapshot['sectioned_free_section']))
+            );
 
         $primaryModel = '';
         $isFreeCandidate = $attribution->isFreeCandidate;
         $modelSource = $attribution->displayModelSource();
         $routingAttempts = $this->routingAttemptsForResult($result, $tokenUsage);
 
-        if ($isSectionedFreeParent) {
+        if ($historyRole === 'assemble') {
+            $primaryModel = '';
+            $isFreeCandidate = null;
+            $modelSource = 'deterministic_assemble';
+            $displayType = 'Assemble';
+            if ($name === '' || str_ends_with($name, ' — Section')) {
+                $name = trim((string) ($step['prompt_name'] ?? $step['title'] ?? 'Assemble'));
+            }
+        } elseif ($isSectionedFreeParent || $historyRole === 'orchestrator') {
+            $displayType = 'Orchestrator';
             $childIds = array_values(array_filter(array_map(
                 'intval',
-                is_array($snapshot['child_prompt_result_ids'] ?? null) ? $snapshot['child_prompt_result_ids'] : [],
+                is_array($snapshot['child_prompt_result_ids'] ?? null) ? $snapshot['child_prompt_result_ids'] : (
+                    is_array($step['child_prompt_result_ids'] ?? null) ? $step['child_prompt_result_ids'] : []
+                ),
             )));
             $uniqueModels = [];
             foreach ($routingAttempts as $attemptRow) {
@@ -874,6 +953,20 @@ final class ArticlePromptRunHistoryService
             'execution_sequence' => isset($step['execution_sequence']) && is_numeric($step['execution_sequence'])
                 ? (int) $step['execution_sequence']
                 : null,
+            'history_role' => $historyRole !== '' ? $historyRole : null,
+            'ai_call' => $aiCall,
+            'exact_prompt_available' => $exactPromptAvailable,
+            'final_output_authority' => (bool) ($step['final_output_authority'] ?? $isSectionedFreeParent),
+            'mode' => $this->trimmedOrNull($step['mode'] ?? null),
+            'parent_prompt_result_id' => isset($step['parent_prompt_result_id'])
+                ? (int) $step['parent_prompt_result_id']
+                : (isset($snapshot['parent_prompt_result_id']) ? (int) $snapshot['parent_prompt_result_id'] : null),
+            'section_order' => isset($snapshot['section_order']) ? (int) $snapshot['section_order'] : null,
+            'section_count' => isset($snapshot['section_count']) ? (int) $snapshot['section_count'] : (
+                isset($step['child_count']) ? (int) $step['child_count'] : null
+            ),
+            'child_count' => isset($step['child_count']) ? (int) $step['child_count'] : null,
+            'children' => [],
             'article_length' => $debug['article_length'] ?? null,
             'actual_word_count' => $debug['actual_word_count'] ?? null,
             'minimum_acceptable_words' => $debug['minimum_acceptable_words'] ?? null,
@@ -1121,59 +1214,130 @@ final class ArticlePromptRunHistoryService
     }
 
     /**
+     * Group failed/retry PromptResults under the selected successful section card.
+     *
+     * @param  Collection<int, PromptResult>  $results
+     * @param  array<int, true>  $seenResultIds
+     * @return list<array<string, mixed>>
+     */
+    private function sectionAttemptChildren(
+        PromptResult $selected,
+        int $parentPromptResultId,
+        Collection $results,
+        int $runId,
+        int $taskId,
+        array &$seenResultIds,
+    ): array {
+        $selectedSnap = is_array($selected->input_snapshot) ? $selected->input_snapshot : [];
+        $sectionId = trim((string) ($selectedSnap['section_id'] ?? ''));
+        if ($sectionId === '') {
+            return [];
+        }
+
+        $parentId = $parentPromptResultId > 0
+            ? $parentPromptResultId
+            : (int) ($selectedSnap['parent_prompt_result_id'] ?? 0);
+
+        $attempts = [];
+        foreach ($results as $candidate) {
+            if (! $candidate instanceof PromptResult) {
+                continue;
+            }
+            $snap = is_array($candidate->input_snapshot) ? $candidate->input_snapshot : [];
+            if (empty($snap['sectioned_free_section'])) {
+                continue;
+            }
+            if (trim((string) ($snap['section_id'] ?? '')) !== $sectionId) {
+                continue;
+            }
+            $candParent = (int) ($snap['parent_prompt_result_id'] ?? 0);
+            if ($parentId > 0 && $candParent > 0 && $candParent !== $parentId) {
+                continue;
+            }
+            $attempts[] = $candidate;
+            $seenResultIds[(int) $candidate->id] = true;
+        }
+
+        usort($attempts, static function (PromptResult $a, PromptResult $b): int {
+            $sa = is_array($a->input_snapshot) ? $a->input_snapshot : [];
+            $sb = is_array($b->input_snapshot) ? $b->input_snapshot : [];
+            $aa = (int) ($sa['attempt'] ?? $sa['attempt_number'] ?? $a->retry_attempt ?? 0);
+            $bb = (int) ($sb['attempt'] ?? $sb['attempt_number'] ?? $b->retry_attempt ?? 0);
+            if ($aa !== $bb) {
+                return $aa <=> $bb;
+            }
+
+            return (int) $a->id <=> (int) $b->id;
+        });
+
+        if (count($attempts) <= 1) {
+            return [];
+        }
+
+        $rows = [];
+        foreach ($attempts as $index => $attempt) {
+            $snap = is_array($attempt->input_snapshot) ? $attempt->input_snapshot : [];
+            $attemptNo = (int) ($snap['attempt'] ?? $snap['attempt_number'] ?? $index + 1);
+            $rows[] = $this->normalizePromptItem(
+                [
+                    'type' => 'provider_call',
+                    'history_role' => 'provider_attempt',
+                    'ai_call' => true,
+                    'title' => sprintf('Attempt %d', max(1, $attemptNo)),
+                    'prompt_name' => sprintf('Attempt %d', max(1, $attemptNo)),
+                    'status' => (string) $attempt->status,
+                    'result_id' => (int) $attempt->id,
+                    'hook_key' => 'article.content.section.generate',
+                    'outline_subtask' => 'section_attempt',
+                    'execution_source' => 'sectioned_free_section_attempt',
+                    'attempt' => $attemptNo,
+                    'parent_prompt_result_id' => $parentId > 0 ? $parentId : null,
+                ],
+                $attempt,
+                $runId,
+                $taskId,
+                $index,
+            );
+        }
+
+        return $rows;
+    }
+
+    /**
      * @param  array<string, mixed>  $step
      * @return list<array<string, mixed>>
      */
     private function expandSectionedFreeChildSteps(array $step): array
     {
         $parentId = (int) ($step['result_id'] ?? 0);
-        $allIds = [];
-        foreach (is_array($step['prompt_result_ids'] ?? null) ? $step['prompt_result_ids'] : [] as $rid) {
-            $id = (int) $rid;
-            if ($id > 0) {
-                $allIds[] = $id;
-            }
-        }
+        $childIds = [];
         foreach (is_array($step['child_prompt_result_ids'] ?? null) ? $step['child_prompt_result_ids'] : [] as $rid) {
             $id = (int) $rid;
-            if ($id > 0) {
-                $allIds[] = $id;
+            if ($id > 0 && $id !== $parentId) {
+                $childIds[] = $id;
             }
         }
-        if ($parentId > 0) {
-            array_unshift($allIds, $parentId);
+        if ($childIds === []) {
+            foreach (is_array($step['prompt_result_ids'] ?? null) ? $step['prompt_result_ids'] : [] as $rid) {
+                $id = (int) $rid;
+                if ($id > 0 && $id !== $parentId) {
+                    $childIds[] = $id;
+                }
+            }
         }
-        $allIds = array_values(array_unique($allIds));
+        $childIds = array_values(array_unique($childIds));
 
         $baseTitle = trim((string) ($step['title'] ?? $step['prompt_name'] ?? 'Viết bài'));
-        $baseTitle = preg_replace('/\s*[—-]\s*(Outline|Vocabulary|Sectioned free.*)\s*$/iu', '', $baseTitle) ?? $baseTitle;
+        $baseTitle = preg_replace('/\s*[—-]\s*(Outline|Vocabulary|Sectioned free.*|MULTIPLE_PASS.*)\s*$/iu', '', $baseTitle) ?? $baseTitle;
 
-        $rows = [];
+        $sectionChildren = [];
         $seq = 10;
-        foreach ($allIds as $index => $resultId) {
-            $isParent = $parentId > 0 && $resultId === $parentId;
-            if ($isParent || ($parentId <= 0 && $index === 0 && count($allIds) > 1)) {
-                // Orchestrator aggregate — not a provider prompt.
-                $rows[] = array_merge($step, [
-                    'result_id' => $resultId,
-                    'title' => $baseTitle.' — Sectioned free',
-                    'prompt_name' => $baseTitle.' — Sectioned free',
-                    'outline_subtask' => 'sectioned_free_parent',
-                    'execution_sequence' => $seq++,
-                    'hook_key' => (string) ($step['hook_key'] ?? 'article.content.generate'),
-                    'artifact_type' => null,
-                    'outline_markdown' => null,
-                    'persists_as_outline' => false,
-                    'generation_strategy' => 'sectioned_free',
-                    'prompt_result_ids' => [$resultId],
-                    'child_prompt_result_ids' => [],
-                    'output' => null,
-                ]);
-                continue;
-            }
-
-            $rows[] = [
-                'type' => $step['type'] ?? 'prompt',
+        foreach ($childIds as $resultId) {
+            $sectionChildren[] = [
+                'type' => 'provider_call',
+                'history_role' => 'provider_call',
+                'ai_call' => true,
+                'exact_prompt_available' => true,
                 'title' => $baseTitle.' — Section',
                 'prompt_name' => $baseTitle.' — Section',
                 'status' => (string) ($step['status'] ?? ''),
@@ -1189,6 +1353,8 @@ final class ArticlePromptRunHistoryService
                 'outline_markdown' => null,
                 'persists_as_outline' => false,
                 'prompt_result_ids' => [$resultId],
+                'child_prompt_result_ids' => [],
+                'parent_prompt_result_id' => $parentId > 0 ? $parentId : null,
                 'node_id' => $step['node_id'] ?? null,
                 'execution_type' => $step['execution_type'] ?? null,
                 'persist_status' => $step['persist_status'] ?? null,
@@ -1198,7 +1364,39 @@ final class ArticlePromptRunHistoryService
             ];
         }
 
-        if ($rows === []) {
+        $assembleSeq = $seq;
+        $sectionChildren[] = [
+            'type' => 'assemble',
+            'history_role' => 'assemble',
+            'ai_call' => false,
+            'mode' => 'deterministic_concat',
+            'title' => $baseTitle.' — Assemble',
+            'prompt_name' => $baseTitle.' — Assemble',
+            'status' => (string) ($step['status'] ?? 'completed'),
+            'message' => null,
+            'result_id' => null,
+            'prompt_id' => $step['prompt_id'] ?? null,
+            'hook_key' => (string) ($step['hook_key'] ?? 'article.content.generate'),
+            'outline_subtask' => 'assemble',
+            'execution_sequence' => $assembleSeq,
+            'execution_source' => 'sectioned_free_assemble',
+            'generation_strategy' => 'sectioned_free',
+            'artifact_type' => null,
+            'outline_markdown' => null,
+            'persists_as_outline' => false,
+            'prompt_result_ids' => [],
+            'child_prompt_result_ids' => [],
+            'parent_prompt_result_id' => $parentId > 0 ? $parentId : null,
+            'node_id' => $step['node_id'] ?? null,
+            'execution_type' => $step['execution_type'] ?? null,
+            'persist_status' => $step['persist_status'] ?? null,
+            'attempt' => $step['attempt'] ?? null,
+            'run_item_id' => $step['run_item_id'] ?? null,
+            'output' => $step['output'] ?? null,
+            'child_count' => count($childIds),
+        ];
+
+        if ($parentId <= 0 && $childIds === []) {
             if (! isset($step['execution_sequence'])) {
                 $step['execution_sequence'] = 10;
             }
@@ -1206,7 +1404,28 @@ final class ArticlePromptRunHistoryService
             return [$step];
         }
 
-        return $rows;
+        return [[
+            ...$step,
+            'type' => 'orchestrator',
+            'history_role' => 'orchestrator',
+            'ai_call' => false,
+            'final_output_authority' => true,
+            'title' => $baseTitle.' — MULTIPLE_PASS',
+            'prompt_name' => $baseTitle.' — MULTIPLE_PASS',
+            'result_id' => $parentId > 0 ? $parentId : ($step['result_id'] ?? null),
+            'outline_subtask' => 'sectioned_free_parent',
+            'execution_sequence' => 1,
+            'hook_key' => (string) ($step['hook_key'] ?? 'article.content.generate'),
+            'artifact_type' => null,
+            'outline_markdown' => null,
+            'persists_as_outline' => false,
+            'generation_strategy' => 'sectioned_free',
+            'prompt_result_ids' => $parentId > 0 ? [$parentId] : [],
+            'child_prompt_result_ids' => $childIds,
+            'child_steps' => $sectionChildren,
+            'child_count' => count($childIds),
+            'output' => $step['output'] ?? null,
+        ]];
     }
 
     /**

@@ -630,14 +630,21 @@ final class ArticleExecutionHistoryService
 
             $displayName = trim((string) ($result->prompt?->name ?? ''));
             $sectionId = trim((string) ($snapshot['section_id'] ?? ''));
-            if (! empty($snapshot['sectioned_free_section']) || $sectionId !== '') {
+            $isOrchestrator = ! empty($snapshot['sectioned_free_orchestrator'])
+                || ! empty($snapshot['suppress_single_model_display']);
+            $isSectionCall = ! empty($snapshot['sectioned_free_section']) || $sectionId !== '';
+            if ($isOrchestrator) {
+                $label = trim((string) ($snapshot['display_name'] ?? ''));
+                $displayName = $label !== '' ? $label : (($displayName !== '' ? $displayName.' — ' : '').'MULTIPLE_PASS');
+            } elseif ($isSectionCall) {
                 $label = trim((string) ($snapshot['display_name'] ?? ''));
                 if ($label !== '') {
                     $displayName = $label;
                 } else {
                     $order = (int) ($snapshot['section_order'] ?? 0);
+                    $count = (int) ($snapshot['section_count'] ?? 0);
                     $displayName = ($displayName !== '' ? $displayName.' — ' : '')
-                        .'Section '.($order > 0 ? (string) $order : $sectionId);
+                        .'Section '.($count > 0 ? ($order + 1).'/'.$count : ($order > 0 ? (string) $order : $sectionId));
                 }
                 if ($hookKey === '' || $hookKey === 'article.content.generate') {
                     $hookKey = trim((string) ($snapshot['display_hook_key'] ?? $snapshot['hook_key'] ?? 'article.content.section.generate'));
@@ -657,6 +664,11 @@ final class ArticleExecutionHistoryService
             $stepsTotal = (int) ($snapshot['steps_total'] ?? $snapshot['sectioned_free']['steps_total'] ?? 0);
             $stepsSuccess = (int) ($snapshot['steps_success'] ?? $snapshot['sectioned_free']['steps_success'] ?? 0);
 
+            $childIds = array_values(array_filter(array_map(
+                'intval',
+                is_array($snapshot['child_prompt_result_ids'] ?? null) ? $snapshot['child_prompt_result_ids'] : [],
+            )));
+
             $calls[] = [
                 'result_id' => $resultId,
                 'prompt_result_id' => $resultId,
@@ -671,6 +683,8 @@ final class ArticleExecutionHistoryService
                 'message' => $message !== '' ? $message : null,
                 'outline_subtask' => $subtask !== '' ? $subtask : null,
                 'section_id' => $sectionId !== '' ? $sectionId : null,
+                'section_order' => isset($snapshot['section_order']) ? (int) $snapshot['section_order'] : null,
+                'section_count' => isset($snapshot['section_count']) ? (int) $snapshot['section_count'] : null,
                 'attempt' => $attempt > 0 ? $attempt : null,
                 'mapping_confidence' => $nodeId !== '' ? 'workflow_node_id' : 'legacy',
                 'route_position' => $snapshot['route_position'] ?? null,
@@ -678,33 +692,88 @@ final class ArticleExecutionHistoryService
                 'pass_mode' => $passMode !== '' ? strtoupper($passMode) : null,
                 'steps_total' => $stepsTotal > 0 ? $stepsTotal : null,
                 'steps_success' => $stepsSuccess > 0 ? $stepsSuccess : null,
+                'history_role' => $isOrchestrator ? 'orchestrator' : ($isSectionCall ? 'provider_call' : null),
+                'ai_call' => ! $isOrchestrator,
+                'exact_prompt_available' => $isSectionCall && trim((string) ($snapshot['compiled_prompt'] ?? '')) !== '',
+                'final_output_authority' => $isOrchestrator,
+                'child_prompt_result_ids' => $childIds,
+                'parent_prompt_result_id' => isset($snapshot['parent_prompt_result_id'])
+                    ? (int) $snapshot['parent_prompt_result_id']
+                    : null,
+                'children' => [],
             ];
         }
 
-        usort($calls, static function (array $a, array $b): int {
+        // Nest sectioned children under orchestrator + synthetic Assemble node.
+        $byId = [];
+        foreach ($calls as $call) {
+            $byId[(int) $call['result_id']] = $call;
+        }
+        $nested = [];
+        $claimed = [];
+        foreach ($calls as $call) {
+            $id = (int) $call['result_id'];
+            if (($call['history_role'] ?? '') !== 'orchestrator') {
+                continue;
+            }
+            $children = [];
+            foreach (is_array($call['child_prompt_result_ids'] ?? null) ? $call['child_prompt_result_ids'] : [] as $cid) {
+                $cid = (int) $cid;
+                if ($cid <= 0 || ! isset($byId[$cid])) {
+                    continue;
+                }
+                $children[] = $byId[$cid];
+                $claimed[$cid] = true;
+            }
+            usort($children, static function (array $a, array $b): int {
+                $ao = (int) ($a['section_order'] ?? 0);
+                $bo = (int) ($b['section_order'] ?? 0);
+                if ($ao !== $bo) {
+                    return $ao <=> $bo;
+                }
+
+                return (int) ($a['result_id'] ?? 0) <=> (int) ($b['result_id'] ?? 0);
+            });
+            $children[] = [
+                'result_id' => null,
+                'prompt_result_id' => null,
+                'artifact_ref' => null,
+                'prompt_name' => 'Assemble',
+                'hook_key' => $call['hook_key'] ?? null,
+                'status' => $call['status'] ?? 'completed',
+                'status_label' => 'SUCCESS',
+                'history_role' => 'assemble',
+                'ai_call' => false,
+                'mode' => 'deterministic_concat',
+                'final_output_authority' => false,
+                'child_count' => count($children),
+            ];
+            $call['children'] = $children;
+            $call['child_count'] = max(0, count($children) - 1);
+            $nested[] = $call;
+            $claimed[$id] = true;
+        }
+        foreach ($calls as $call) {
+            $id = (int) $call['result_id'];
+            if (! isset($claimed[$id])) {
+                $nested[] = $call;
+            }
+        }
+
+        usort($nested, static function (array $a, array $b): int {
             $order = ['outline' => 0, 'vocabulary' => 1];
             $aSub = (string) ($a['outline_subtask'] ?? '');
             $bSub = (string) ($b['outline_subtask'] ?? '');
-            $aRank = $order[$aSub] ?? (str_starts_with($aSub, 'section') ? 10 : 99);
-            $bRank = $order[$bSub] ?? (str_starts_with($bSub, 'section') ? 10 : 99);
+            $aRank = $order[$aSub] ?? (($a['history_role'] ?? '') === 'orchestrator' ? 5 : (str_starts_with($aSub, 'section') ? 10 : 99));
+            $bRank = $order[$bSub] ?? (($b['history_role'] ?? '') === 'orchestrator' ? 5 : (str_starts_with($bSub, 'section') ? 10 : 99));
             if ($aRank !== $bRank) {
                 return $aRank <=> $bRank;
-            }
-            $aSection = (string) ($a['section_id'] ?? $aSub);
-            $bSection = (string) ($b['section_id'] ?? $bSub);
-            if ($aSection !== $bSection) {
-                return $aSection <=> $bSection;
-            }
-            $aAttempt = (int) ($a['attempt'] ?? 0);
-            $bAttempt = (int) ($b['attempt'] ?? 0);
-            if ($aAttempt !== $bAttempt) {
-                return $aAttempt <=> $bAttempt;
             }
 
             return (int) ($a['result_id'] ?? 0) <=> (int) ($b['result_id'] ?? 0);
         });
 
-        return $calls;
+        return $nested;
     }
 
     /**

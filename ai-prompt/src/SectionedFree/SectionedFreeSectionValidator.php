@@ -79,6 +79,13 @@ final class SectionedFreeSectionValidator
         }
 
         $words = $this->countWords($trimmed);
+        if (
+            $unit->role === SectionedFreeSectionUnit::ROLE_FAQ
+            && (strcasecmp($trimmed, '[omi_faq]') === 0 || str_contains($trimmed, '[omi_faq]'))
+        ) {
+            return max(1, $words);
+        }
+
         if ($words < self::INCOMPLETE_WORD_THRESHOLD) {
             throw new PromptRunException(
                 'Sectioned free section below minimum word threshold ('

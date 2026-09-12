@@ -1465,13 +1465,27 @@ class SyncDomainContentService
         }
 
         if ($forceOverwrite) {
-            // Body null is valid for WP-synced articles until editor opens (explicit WP fetch).
-            $article->update([
-                'body' => null,
+            // Persist prepared WP HTML into articles.body (editor SoT). Empty → null;
+            // editor reopen auto-hydrates when WP still has content.
+            $htmlForBody = trim((string) ($item['post_content'] ?? ''));
+            $documentWriter = app(\Omnichannel\Addons\Content\Services\ArticleEditor\Document\ArticleEditorDocumentWriter::class);
+            if ($htmlForBody !== '') {
+                $documentWriter->invalidateForLegacyBodyWrite($article, 'wp_force_overwrite_pull');
+            } elseif (is_array($article->editor_document) && $article->editor_document !== []) {
+                $documentWriter->invalidateForLegacyBodyWrite($article, 'wp_force_overwrite_pull_empty');
+            }
+
+            $payload = [
+                'body' => $htmlForBody !== '' ? $htmlForBody : null,
                 'blocks' => null,
                 'excerpt' => null,
                 'slug' => null,
-            ]);
+            ];
+            if ($article->isDirty('editor_document_status')) {
+                $payload['editor_document_status'] = $article->editor_document_status;
+            }
+            $article->update($payload);
+            app(ArticleWpContentCacheService::class)->forget($article);
         }
 
         $this->syncSeoMetaFromWordPress($article, $item);

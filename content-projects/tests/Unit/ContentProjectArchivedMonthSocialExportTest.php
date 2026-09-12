@@ -26,7 +26,11 @@ final class ContentProjectArchivedMonthSocialExportTest extends TestCase
         self::assertStringContainsString('linksGroupedByArticle', $src);
         self::assertStringContainsString('appendSocialEvidenceRows', $src);
         self::assertStringContainsString(ContentProjectArchiveSocialExportRowExpander::class, $src);
-        self::assertStringContainsString('hyperlink_url', $src);
+        // Child hyperlink_url is owned by the expander, not the export service shell.
+        $expanderSrc = (string) file_get_contents(
+            (string) (new ReflectionClass(ContentProjectArchiveSocialExportRowExpander::class))->getFileName(),
+        );
+        self::assertStringContainsString('hyperlink_url', $expanderSrc);
     }
 
     public function test_expander_emits_parent_then_social_children_in_order(): void
@@ -136,7 +140,8 @@ final class ContentProjectArchivedMonthSocialExportTest extends TestCase
             ))->getFileName(),
         );
 
-        self::assertStringContainsString("'article_id' => \$resolvedArticleId", $src);
+        self::assertStringContainsString("'article_id' => \$articleId", $src);
+        self::assertStringContainsString('archivedCanonicalItemQuery', $src);
     }
 
     /**

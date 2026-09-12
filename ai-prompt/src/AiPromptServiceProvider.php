@@ -79,6 +79,7 @@ final class AiPromptServiceProvider extends ServiceProvider
         if ($this->app->runningInConsole()) {
             $this->commands([
                 \Omnichannel\Addons\AiPrompt\Console\DebugArticleGenerationCommand::class,
+                \Omnichannel\Addons\AiPrompt\Console\RepairMultiplePassArticleCommand::class,
                 \Omnichannel\Addons\AiPrompt\Console\ResetAiHistoryCommand::class,
             ]);
         }

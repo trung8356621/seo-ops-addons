@@ -176,13 +176,14 @@ function ExecutionInspector({ node, execution, labels, workflow, run, onPreview,
           </p>
           <ul className="space-y-2">
             {aiCalls.map((call) => (
-              <li key={call.result_id} className="rounded border border-slate-200 p-2 text-xs dark:border-slate-700">
+              <li key={call.result_id ?? call.prompt_name} className="rounded border border-slate-200 p-2 text-xs dark:border-slate-700">
                 <div className="flex items-start justify-between gap-2">
                   <p className="font-medium">{call.prompt_name || call.hook_key || `#${call.result_id}`}</p>
                   {call.status_label && (
                     <span className="shrink-0 text-[10px] uppercase tracking-wide text-slate-500">{call.status_label}</span>
                   )}
                 </div>
+                {call.history_role && <p className="text-[10px] uppercase tracking-wide text-slate-400">{call.history_role}{call.ai_call === false ? ' · not AI call' : ''}</p>}
                 {call.hook_key && <p className="font-mono text-[10px] text-slate-500">{call.hook_key}</p>}
                 {call.outline_subtask && <p>Subtask: {call.outline_subtask}</p>}
                 {call.section_id && <p>Section: {call.section_id}</p>}
@@ -195,7 +196,7 @@ function ExecutionInspector({ node, execution, labels, workflow, run, onPreview,
                 {call.message && (
                   <p className="mt-1 text-red-700 dark:text-red-400">{call.message}</p>
                 )}
-                {call.result_id && onPreview && (
+                {call.result_id && onPreview && call.ai_call !== false && (
                   <button
                     type="button"
                     className="mt-1 text-indigo-600 hover:underline dark:text-indigo-400"
@@ -203,6 +204,25 @@ function ExecutionInspector({ node, execution, labels, workflow, run, onPreview,
                   >
                     View prompt / output
                   </button>
+                )}
+                {Array.isArray(call.children) && call.children.length > 0 && (
+                  <ul className="mt-2 space-y-1 border-l border-slate-200 pl-2 dark:border-slate-700">
+                    {call.children.map((child, idx) => (
+                      <li key={child.result_id ?? `child-${idx}`} className="text-[11px]">
+                        <span className="font-medium">{child.prompt_name || child.history_role || `#${child.result_id}`}</span>
+                        {child.history_role && <span className="ml-1 text-slate-400">({child.history_role})</span>}
+                        {child.result_id && onPreview && child.ai_call !== false && (
+                          <button
+                            type="button"
+                            className="ml-2 text-indigo-600 hover:underline dark:text-indigo-400"
+                            onClick={() => onPreview(child.artifact_ref ?? `pr:${child.result_id}`)}
+                          >
+                            View
+                          </button>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
                 )}
               </li>
             ))}

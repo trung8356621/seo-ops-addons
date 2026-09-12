@@ -3,8 +3,8 @@ import { Loader2, RefreshCw } from 'lucide-react';
 import { t } from '../utils/i18n';
 
 /**
- * WP content auto-load panel — loading while fetching cache-miss HTML,
- * error+retry only when the WP JSON fetch actually fails.
+ * WP content auto-hydrate panel — loading while fetching empty-body HTML,
+ * error+retry only when the WP content fetch fails (not manual full sync).
  */
 export default function ArticleContentSyncRequiredBlocker({
     status = 'loading',

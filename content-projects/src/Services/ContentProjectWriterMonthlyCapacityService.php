@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\ContentProjects\Services;
 
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGlobalLegacyArchive;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use App\Models\User;
 use App\Services\Users\SeoOpsSystemUser;
@@ -18,7 +19,9 @@ use Illuminate\Support\Facades\Schema;
  * Writer monthly workload / capacity.
  *
  * used_capacity(user, month) = ACTIVE execution items + ARCHIVED execution items.
- * Shared Planning Draft excluded. Archive does NOT free capacity.
+ * Include archived projects — archive does NOT free capacity.
+ * Archived slots count SeoProjectArchiveItem rows (canonical articles), not duplicate tasks.
+ * Shared Planning Draft excluded.
  *
  * Effective capacity comes from {@see ContentProjectWriterCapacitySettingsService}
  * (per-user override ?? global default) — not from execution project packing limits.
@@ -68,10 +71,11 @@ final class ContentProjectWriterMonthlyCapacityService
         }
 
         $monthDate = ContentProjectMonthContext::toDateString($month);
-        $query = DB::connection('omi_seo_ai')
+
+        // Active cardinality = live tasks on non-archived projects.
+        $activeQuery = DB::connection('omi_seo_ai')
             ->table('seo_project_tasks as t')
             ->join('seo_projects as p', 'p.id', '=', 't.project_id')
-            // Include archived projects — archive does not free writer capacity.
             ->where('p.status', '!=', SeoProject::STATUS_DRAFT)
             ->where(function ($builder): void {
                 $builder
@@ -80,36 +84,62 @@ final class ContentProjectWriterMonthlyCapacityService
             })
             ->whereDate('p.month', $monthDate)
             ->whereIn('p.user_id', $ids)
+            ->whereNull('p.archived_at')
             ->whereNull('t.archived_at')
             ->where('t.status', '!=', SeoProjectTask::STATUS_CANCELLED);
 
         if (Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'deleted_at')) {
-            $query->whereNull('t.deleted_at');
+            $activeQuery->whereNull('t.deleted_at');
         }
+        ContentProjectGlobalLegacyArchive::excludeFromProjectAlias($activeQuery, 'p');
 
-        $rows = $query
-            ->groupBy('p.user_id')
-            ->selectRaw(
-                'p.user_id as user_id, '
-                .'SUM(CASE WHEN p.archived_at IS NULL THEN 1 ELSE 0 END) as active_count, '
-                .'SUM(CASE WHEN p.archived_at IS NOT NULL THEN 1 ELSE 0 END) as archived_count, '
-                .'COUNT(t.id) as item_count'
-            )
-            ->get();
-
-        foreach ($rows as $row) {
+        foreach (
+            $activeQuery
+                ->groupBy('p.user_id')
+                ->selectRaw('p.user_id as user_id, COUNT(t.id) as item_count')
+                ->get() as $row
+        ) {
             $userId = (int) ($row->user_id ?? 0);
             if ($userId <= 0 || ! array_key_exists($userId, $counts)) {
                 continue;
             }
-            $active = max(0, (int) ($row->active_count ?? 0));
-            $archived = max(0, (int) ($row->archived_count ?? 0));
-            $total = max(0, (int) ($row->item_count ?? 0));
-            $counts[$userId] = [
-                'active' => $active,
-                'archived' => $archived,
-                'total' => $total,
-            ];
+            $counts[$userId]['active'] = max(0, (int) ($row->item_count ?? 0));
+        }
+
+        // Archived cardinality = canonical archive items (1 / article), not duplicate tasks.
+        $archivedQuery = DB::connection('omi_seo_ai')
+            ->table('seo_project_archive_items as ai')
+            ->join('seo_project_archives as a', 'a.id', '=', 'ai.seo_project_archive_id')
+            ->join('seo_projects as p', 'p.id', '=', 'a.project_id')
+            ->whereNull('a.restored_at')
+            ->whereNotNull('p.archived_at')
+            ->where('p.status', '!=', SeoProject::STATUS_DRAFT)
+            ->where(function ($builder): void {
+                $builder
+                    ->where('p.kind', SeoProject::KIND_MONTHLY)
+                    ->orWhereNull('p.kind');
+            })
+            ->whereDate('p.month', $monthDate)
+            ->whereIn('p.user_id', $ids)
+            ->whereNotNull('ai.article_id')
+            ->where('ai.article_id', '>', 0);
+        ContentProjectGlobalLegacyArchive::excludeFromProjectAlias($archivedQuery, 'p');
+
+        foreach (
+            $archivedQuery
+                ->groupBy('p.user_id')
+                ->selectRaw('p.user_id as user_id, COUNT(ai.id) as item_count')
+                ->get() as $row
+        ) {
+            $userId = (int) ($row->user_id ?? 0);
+            if ($userId <= 0 || ! array_key_exists($userId, $counts)) {
+                continue;
+            }
+            $counts[$userId]['archived'] = max(0, (int) ($row->item_count ?? 0));
+        }
+
+        foreach ($counts as $userId => $row) {
+            $counts[$userId]['total'] = (int) $row['active'] + (int) $row['archived'];
         }
 
         return $counts;

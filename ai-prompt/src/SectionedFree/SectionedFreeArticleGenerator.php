@@ -143,6 +143,30 @@ final class SectionedFreeArticleGenerator
             }
 
             $state->markRunning($unit->sectionId);
+
+            // MULTIPLE_PASS: FAQ answers are owned by article.faq.generate (micro prompt).
+            // Writing only reserves the FAQ slot — no AI section call.
+            if ($writingSplit && $unit->role === SectionedFreeSectionUnit::ROLE_FAQ) {
+                $output = '[omi_faq]';
+                $state->markCompleted($unit->sectionId, $output, 1, [
+                    'model' => null,
+                    'provider' => null,
+                    'connection_id' => null,
+                    'attempt_count' => 0,
+                    'fallback_count' => 0,
+                    'first_attempt_success' => true,
+                    'ai_call' => false,
+                    'faq_deferred_to' => 'article.faq.generate',
+                    'prompt_character_count' => 0,
+                    'target_words' => $unit->preferredTargetWords,
+                    'minimum_words' => 0,
+                    'emit_parent_heading' => $unit->emitParentHeading,
+                    'parent_h2' => $unit->parentH2,
+                ]);
+                $previousSummary = '[omi_faq]';
+                continue;
+            }
+
             if ($sectionPromptFactory !== null) {
                 $prompt = $sectionPromptFactory($unit);
             } else {
@@ -270,7 +294,7 @@ final class SectionedFreeArticleGenerator
 
         $assembleCalled = true;
         $assembled = $this->assembler->assemble($rows, $units);
-        $parity = $this->assembler->assertWordParity($rows, $assembled);
+        $parity = $this->assembler->assertWordParity($rows, $assembled, 40, $units);
         $assembledWords = $parity['assembled_words'];
 
         $this->assertFinalLengthContract(

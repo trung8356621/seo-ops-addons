@@ -117,12 +117,19 @@ final class LegacyContentArchiveImportContractTest extends TestCase
         self::assertCount(2, $dashboard['domain_options']);
     }
 
-    public function test_legacy_tab_query_service_still_exists(): void
+    public function test_historical_query_service_kept_for_import_compat_not_vault_ui(): void
     {
         self::assertTrue(class_exists(ArticleCompletedArchiveQueryService::class));
         $src = (string) file_get_contents(
             (new ReflectionClass(ArticleCompletedArchiveQueryService::class))->getFileName(),
         );
         self::assertStringContainsString('seo_content_archive_items', $src);
+
+        $vaultPage = (string) file_get_contents(
+            (new ReflectionClass(
+                \Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Pages\ContentProjectArchive::class,
+            ))->getFileName(),
+        );
+        self::assertStringNotContainsString('ArticleCompletedArchiveQueryService', $vaultPage);
     }
 }

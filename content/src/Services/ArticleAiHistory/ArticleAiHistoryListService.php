@@ -130,9 +130,38 @@ final class ArticleAiHistoryListService
         $groups = $this->list($article, $accessibleProjectIds, ['include_deleted' => true]);
         foreach ($groups as $group) {
             foreach ((array) ($group['prompts'] ?? []) as $prompt) {
-                if (is_array($prompt) && (string) ($prompt['artifact_ref'] ?? '') === $artifactRef) {
-                    return $prompt;
+                $found = $this->findPromptByArtifactRef($prompt, $artifactRef);
+                if ($found !== null) {
+                    return $found;
                 }
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>|mixed  $prompt
+     * @return array<string, mixed>|null
+     */
+    private function findPromptByArtifactRef(mixed $prompt, string $artifactRef): ?array
+    {
+        if (! is_array($prompt)) {
+            return null;
+        }
+        if ((string) ($prompt['artifact_ref'] ?? '') === $artifactRef) {
+            return $prompt;
+        }
+        foreach ((array) ($prompt['children'] ?? []) as $child) {
+            $found = $this->findPromptByArtifactRef($child, $artifactRef);
+            if ($found !== null) {
+                return $found;
+            }
+        }
+        foreach ((array) ($prompt['attempts'] ?? []) as $attempt) {
+            $found = $this->findPromptByArtifactRef($attempt, $artifactRef);
+            if ($found !== null) {
+                return $found;
             }
         }
 
@@ -190,7 +219,8 @@ final class ArticleAiHistoryListService
         $prompt['apply_block_reason'] = $this->applyBlockReason($prompt, $classification);
         $prompt['has_raw_prompt'] = (int) ($prompt['prompt_version_id'] ?? 0) > 0
             || trim((string) ($prompt['compiled_prompt_hash'] ?? '')) !== ''
-            || (int) ($prompt['result_id'] ?? 0) > 0;
+            || (int) ($prompt['result_id'] ?? 0) > 0
+            || ! empty($prompt['exact_prompt_available']);
         $prompt['has_raw_output'] = in_array(
             strtolower(trim((string) ($prompt['status'] ?? ''))),
             ['completed', 'success', 'failed', 'error'],
@@ -207,6 +237,35 @@ final class ArticleAiHistoryListService
         $prompt['run_id'] = $prompt['run_id'] ?? $groupRunId;
         $prompt['run_item_id'] = $prompt['run_item_id'] ?? null;
         $prompt['attempt'] = $prompt['attempt'] ?? null;
+
+        $children = is_array($prompt['children'] ?? null) ? $prompt['children'] : [];
+        if ($children !== []) {
+            $prompt['children'] = array_map(
+                fn (mixed $child): array => is_array($child)
+                    ? $this->enrichPrompt($child, $groupRunId, $tombstones, $applyStats)
+                    : [],
+                $children,
+            );
+            $prompt['children'] = array_values(array_filter(
+                $prompt['children'],
+                static fn (array $child): bool => $child !== [],
+            ));
+            $prompt['child_count'] = count($prompt['children']);
+        }
+
+        $attempts = is_array($prompt['attempts'] ?? null) ? $prompt['attempts'] : [];
+        if ($attempts !== []) {
+            $prompt['attempts'] = array_map(
+                fn (mixed $attempt): array => is_array($attempt)
+                    ? $this->enrichPrompt($attempt, $groupRunId, $tombstones, $applyStats)
+                    : [],
+                $attempts,
+            );
+            $prompt['attempts'] = array_values(array_filter(
+                $prompt['attempts'],
+                static fn (array $attempt): bool => $attempt !== [],
+            ));
+        }
 
         return $prompt;
     }

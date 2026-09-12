@@ -13,14 +13,15 @@ use Tests\Support\LegacyAddonPath;
 
 final class ArticleAiCallRawDetailTest extends TestCase
 {
-    public function test_resolve_raw_prompt_reconstructs_via_prompt_reconstructor(): void
+    public function test_resolve_raw_prompt_prefers_exact_execution_snapshot(): void
     {
         $src = (string) file_get_contents((new ReflectionClass(ArticleAiCallRawDetailService::class))->getFileName());
         self::assertStringContainsString('PromptReconstructor', $src);
-        self::assertStringContainsString('reconstruct', $src);
+        self::assertStringContainsString('resolvePromptAuthority', $src);
+        self::assertStringContainsString("snapshot['compiled_prompt']", $src);
+        self::assertStringContainsString('PROMPT_SOURCE_EXECUTION_SNAPSHOT', $src);
+        self::assertStringContainsString('LEGACY_RECONSTRUCTED_WARNING', $src);
         self::assertStringContainsString('ArticlePromptResultOwnershipResolver', $src);
-        self::assertStringContainsString('HASH_MISMATCH_WARNING', $src);
-        self::assertStringNotContainsString("snapshot['compiled_prompt']", $src);
         self::assertStringNotContainsString('SeoPromptResultLink::query()', $src);
     }
 

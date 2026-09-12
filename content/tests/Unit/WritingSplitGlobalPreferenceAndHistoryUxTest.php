@@ -70,14 +70,15 @@ final class WritingSplitGlobalPreferenceAndHistoryUxTest extends TestCase
 
         self::assertStringContainsString('x-filament::dropdown', $blade);
         self::assertStringContainsString('placement="bottom-end"', $blade);
-        self::assertStringContainsString('writing_split_auto_hint', $blade);
-        self::assertStringContainsString('wire:model.live="articleGenerationMode"', $blade);
         self::assertStringNotContainsString('wire:model.live="writingSplitEnabled"', $blade);
         self::assertStringContainsString('simulatedRole', $blade);
         self::assertStringContainsString('h-9 w-9', $blade);
         self::assertStringContainsString('options_heading', $blade);
-        self::assertStringContainsString('ai_generation_heading', $blade);
-        self::assertStringContainsString('generation_mode_label', $blade);
+        self::assertStringContainsString('view_as', $blade);
+        // Article generation mode moved to Content Project header — not gear menu.
+        self::assertStringNotContainsString('wire:model.live="articleGenerationMode"', $blade);
+        self::assertStringNotContainsString('ai_generation_heading', $blade);
+        self::assertStringNotContainsString('generation_mode_label', $blade);
     }
 
     public function test_execution_history_defaults_to_ai_calls_and_lazy_workflow(): void

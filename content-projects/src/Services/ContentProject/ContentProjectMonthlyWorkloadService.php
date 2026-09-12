@@ -23,8 +23,12 @@ use Illuminate\Support\Facades\Schema;
  * Canonical monthly execution workload.
  *
  * MONTHLY PRODUCTION / CAPACITY = ACTIVE execution + ARCHIVED execution.
+ * SCOPE_ALL intentionally includes both active and archived.
  * Shared Planning Draft is always excluded.
  * Archive is lifecycle only — does not remove production/capacity ownership.
+ *
+ * Active cardinality = seo_project_tasks.
+ * Archived cardinality = seo_project_archive_items (1 item / article), not live tasks.
  */
 final class ContentProjectMonthlyWorkloadService
 {
@@ -174,30 +178,22 @@ final class ContentProjectMonthlyWorkloadService
      */
     private function aggregateByDomain(string $monthDate, string $scope): array
     {
-        $raw = $this->baseItemQuery($monthDate, $scope)
-            ->whereNotNull('t.site_id')
-            ->where('t.site_id', '>', 0)
-            ->groupBy('t.site_id')
-            ->selectRaw(
-                't.site_id as site_id, '
-                .'SUM(CASE WHEN p.archived_at IS NULL THEN 1 ELSE 0 END) as active_count, '
-                .'SUM(CASE WHEN p.archived_at IS NOT NULL THEN 1 ELSE 0 END) as archived_count, '
-                .'COUNT(t.id) as total_count'
-            )
-            ->get();
-
+        /** @var array<int, array{active_count: int, archived_count: int}> $countsBySiteId */
         $countsBySiteId = [];
-        foreach ($raw as $row) {
-            $siteId = (int) ($row->site_id ?? 0);
-            if ($siteId <= 0) {
-                continue;
-            }
 
-            $countsBySiteId[$siteId] = [
-                'active_count' => max(0, (int) ($row->active_count ?? 0)),
-                'archived_count' => max(0, (int) ($row->archived_count ?? 0)),
-                'total_count' => max(0, (int) ($row->total_count ?? 0)),
-            ];
+        if ($scope === self::SCOPE_ACTIVE || $scope === self::SCOPE_ALL) {
+            $this->accumulateDomainTaskCounts(
+                $countsBySiteId,
+                $this->baseItemQuery($monthDate, self::SCOPE_ACTIVE),
+                active: true,
+            );
+        }
+
+        if ($scope === self::SCOPE_ARCHIVED || $scope === self::SCOPE_ALL) {
+            $this->accumulateDomainArchiveItemCounts(
+                $countsBySiteId,
+                $this->archivedCanonicalItemQuery($monthDate),
+            );
         }
 
         $sites = SeoAccessControl::accessibleSitesQuery()
@@ -214,16 +210,17 @@ final class ContentProjectMonthlyWorkloadService
             $counts = $countsBySiteId[$siteId] ?? [
                 'active_count' => 0,
                 'archived_count' => 0,
-                'total_count' => 0,
             ];
             $domain = trim((string) ($site->domain ?? ''));
+            $active = max(0, (int) $counts['active_count']);
+            $archived = max(0, (int) $counts['archived_count']);
 
             $rows[] = [
                 'site_id' => $siteId,
                 'domain' => $domain !== '' ? $domain : '#'.$siteId,
-                'active_count' => $counts['active_count'],
-                'archived_count' => $counts['archived_count'],
-                'total_count' => $counts['total_count'],
+                'active_count' => $active,
+                'archived_count' => $archived,
+                'total_count' => $active + $archived,
             ];
         }
 
@@ -247,24 +244,29 @@ final class ContentProjectMonthlyWorkloadService
      */
     private function aggregateByWriter(string $monthDate, string $scope): array
     {
-        $query = $this->baseItemQuery($monthDate, $scope)
-            ->whereNotNull('p.user_id')
-            ->where('p.user_id', '>', 0)
-            ->groupBy('p.user_id')
-            ->selectRaw(
-                'p.user_id as user_id, '
-                .'SUM(CASE WHEN p.archived_at IS NULL THEN 1 ELSE 0 END) as active_count, '
-                .'SUM(CASE WHEN p.archived_at IS NOT NULL THEN 1 ELSE 0 END) as archived_count, '
-                .'COUNT(t.id) as total_count'
-            )
-            ->orderByDesc('total_count');
+        /** @var array<int, array{active_count: int, archived_count: int}> $countsByUserId */
+        $countsByUserId = [];
 
-        $raw = $query->get();
+        if ($scope === self::SCOPE_ACTIVE || $scope === self::SCOPE_ALL) {
+            $this->accumulateWriterTaskCounts(
+                $countsByUserId,
+                $this->baseItemQuery($monthDate, self::SCOPE_ACTIVE),
+                active: true,
+            );
+        }
+
+        if ($scope === self::SCOPE_ARCHIVED || $scope === self::SCOPE_ALL) {
+            $this->accumulateWriterArchiveItemCounts(
+                $countsByUserId,
+                $this->archivedCanonicalItemQuery($monthDate),
+            );
+        }
+
         $userIds = [];
-        foreach ($raw as $row) {
-            $id = (int) ($row->user_id ?? 0);
-            if ($id > 0 && ! SeoOpsSystemUser::isSystemUserId($id)) {
-                $userIds[] = $id;
+        foreach ($countsByUserId as $userId => $counts) {
+            $total = (int) $counts['active_count'] + (int) $counts['archived_count'];
+            if ($userId > 0 && $total > 0 && ! SeoOpsSystemUser::isSystemUserId($userId)) {
+                $userIds[] = $userId;
             }
         }
 
@@ -272,11 +274,10 @@ final class ContentProjectMonthlyWorkloadService
         $capacities = $this->writerCapacity->capacityByUserId($userIds);
         $defaultCapacity = $this->capacitySettings->defaultMonthlyCapacity();
         $rows = [];
-        foreach ($raw as $row) {
-            $userId = (int) ($row->user_id ?? 0);
-            $active = max(0, (int) ($row->active_count ?? 0));
-            $archived = max(0, (int) ($row->archived_count ?? 0));
-            $total = max(0, (int) ($row->total_count ?? 0));
+        foreach ($countsByUserId as $userId => $counts) {
+            $active = max(0, (int) $counts['active_count']);
+            $archived = max(0, (int) $counts['archived_count']);
+            $total = $active + $archived;
             if ($userId <= 0 || $total <= 0 || SeoOpsSystemUser::isSystemUserId($userId)) {
                 continue;
             }
@@ -292,7 +293,124 @@ final class ContentProjectMonthlyWorkloadService
             ];
         }
 
+        usort(
+            $rows,
+            static fn (array $left, array $right): int => ($right['total_count'] ?? 0) <=> ($left['total_count'] ?? 0),
+        );
+
         return $rows;
+    }
+
+    /**
+     * @param  array<int, array{active_count: int, archived_count: int}>  $countsBySiteId
+     * @param  \Illuminate\Database\Query\Builder  $query
+     */
+    private function accumulateDomainTaskCounts(array &$countsBySiteId, $query, bool $active): void
+    {
+        $raw = (clone $query)
+            ->whereNotNull('t.site_id')
+            ->where('t.site_id', '>', 0)
+            ->groupBy('t.site_id')
+            ->selectRaw('t.site_id as site_id, COUNT(t.id) as item_count')
+            ->get();
+
+        foreach ($raw as $row) {
+            $siteId = (int) ($row->site_id ?? 0);
+            $count = max(0, (int) ($row->item_count ?? 0));
+            if ($siteId <= 0 || $count <= 0) {
+                continue;
+            }
+            if (! isset($countsBySiteId[$siteId])) {
+                $countsBySiteId[$siteId] = ['active_count' => 0, 'archived_count' => 0];
+            }
+            if ($active) {
+                $countsBySiteId[$siteId]['active_count'] += $count;
+            } else {
+                $countsBySiteId[$siteId]['archived_count'] += $count;
+            }
+        }
+    }
+
+    /**
+     * @param  array<int, array{active_count: int, archived_count: int}>  $countsBySiteId
+     * @param  \Illuminate\Database\Query\Builder  $query
+     */
+    private function accumulateDomainArchiveItemCounts(array &$countsBySiteId, $query): void
+    {
+        $raw = (clone $query)
+            ->whereRaw('COALESCE(t.site_id, art.site_id) IS NOT NULL')
+            ->whereRaw('COALESCE(t.site_id, art.site_id) > 0')
+            ->groupByRaw('COALESCE(t.site_id, art.site_id)')
+            ->selectRaw('COALESCE(t.site_id, art.site_id) as site_id, COUNT(ai.id) as item_count')
+            ->get();
+
+        foreach ($raw as $row) {
+            $siteId = (int) ($row->site_id ?? 0);
+            $count = max(0, (int) ($row->item_count ?? 0));
+            if ($siteId <= 0 || $count <= 0) {
+                continue;
+            }
+            if (! isset($countsBySiteId[$siteId])) {
+                $countsBySiteId[$siteId] = ['active_count' => 0, 'archived_count' => 0];
+            }
+            $countsBySiteId[$siteId]['archived_count'] += $count;
+        }
+    }
+
+    /**
+     * @param  array<int, array{active_count: int, archived_count: int}>  $countsByUserId
+     * @param  \Illuminate\Database\Query\Builder  $query
+     */
+    private function accumulateWriterTaskCounts(array &$countsByUserId, $query, bool $active): void
+    {
+        $raw = (clone $query)
+            ->whereNotNull('p.user_id')
+            ->where('p.user_id', '>', 0)
+            ->groupBy('p.user_id')
+            ->selectRaw('p.user_id as user_id, COUNT(t.id) as item_count')
+            ->get();
+
+        foreach ($raw as $row) {
+            $userId = (int) ($row->user_id ?? 0);
+            $count = max(0, (int) ($row->item_count ?? 0));
+            if ($userId <= 0 || $count <= 0) {
+                continue;
+            }
+            if (! isset($countsByUserId[$userId])) {
+                $countsByUserId[$userId] = ['active_count' => 0, 'archived_count' => 0];
+            }
+            if ($active) {
+                $countsByUserId[$userId]['active_count'] += $count;
+            } else {
+                $countsByUserId[$userId]['archived_count'] += $count;
+            }
+        }
+    }
+
+    /**
+     * @param  array<int, array{active_count: int, archived_count: int}>  $countsByUserId
+     * @param  \Illuminate\Database\Query\Builder  $query
+     */
+    private function accumulateWriterArchiveItemCounts(array &$countsByUserId, $query): void
+    {
+        $raw = (clone $query)
+            ->whereNotNull('p.user_id')
+            ->where('p.user_id', '>', 0)
+            ->groupBy('p.user_id')
+            ->selectRaw('p.user_id as user_id, COUNT(ai.id) as item_count')
+            ->get();
+
+        foreach ($raw as $row) {
+            $userId = (int) ($row->user_id ?? 0);
+            $count = max(0, (int) ($row->item_count ?? 0));
+            if ($userId <= 0 || $count <= 0) {
+                continue;
+            }
+            if (! isset($countsByUserId[$userId])) {
+                $countsByUserId[$userId] = ['active_count' => 0, 'archived_count' => 0];
+            }
+            $countsByUserId[$userId]['archived_count'] += $count;
+        }
     }
 
     /**
@@ -319,18 +437,52 @@ final class ContentProjectMonthlyWorkloadService
     }
 
     /**
-     * Same filter as SCOPE_ARCHIVED charts: execution month, archived projects, live tasks.
+     * Canonical archived monthly items: one row per SeoProjectArchiveItem (article identity).
+     * Tasks are metadata only (site_id / plan / post_type) — not cardinality.
+     *
+     * @return \Illuminate\Database\Query\Builder
+     */
+    public function archivedCanonicalItemQuery(CarbonImmutable|Carbon|string|null $month = null)
+    {
+        $monthDate = ContentProjectMonthContext::toDateString($month);
+
+        $query = DB::connection('omi_seo_ai')
+            ->table('seo_project_archive_items as ai')
+            ->join('seo_project_archives as a', 'a.id', '=', 'ai.seo_project_archive_id')
+            ->join('seo_projects as p', 'p.id', '=', 'a.project_id')
+            ->leftJoin('seo_project_tasks as t', 't.id', '=', 'ai.task_id')
+            ->leftJoin('articles as art', 'art.id', '=', 'ai.article_id')
+            ->whereNull('a.restored_at')
+            ->whereNotNull('p.archived_at')
+            ->where('p.status', '!=', SeoProject::STATUS_DRAFT)
+            ->where(function ($builder): void {
+                $builder
+                    ->where('p.kind', SeoProject::KIND_MONTHLY)
+                    ->orWhereNull('p.kind');
+            })
+            // Execution month — never archived_at month.
+            ->whereDate('p.month', $monthDate)
+            ->whereNotNull('ai.article_id')
+            ->where('ai.article_id', '>', 0);
+
+        ContentProjectGlobalLegacyArchive::excludeFromProjectAlias($query, 'p');
+
+        return $query;
+    }
+
+    /**
+     * Same filter as SCOPE_ARCHIVED charts / Excel: canonical archive items for the month.
      *
      * @return \Illuminate\Database\Query\Builder
      */
     public function archivedExecutionItemQuery(CarbonImmutable|Carbon|string|null $month = null)
     {
-        $monthDate = ContentProjectMonthContext::toDateString($month);
-
-        return $this->baseItemQuery($monthDate, self::SCOPE_ARCHIVED);
+        return $this->archivedCanonicalItemQuery($month);
     }
 
     /**
+     * Active execution items (tasks on non-archived monthly projects).
+     *
      * @return \Illuminate\Database\Query\Builder
      */
     private function baseItemQuery(string $monthDate, string $scope)
@@ -356,9 +508,10 @@ final class ContentProjectMonthlyWorkloadService
         if ($scope === self::SCOPE_ACTIVE) {
             $query->whereNull('p.archived_at');
         } elseif ($scope === self::SCOPE_ARCHIVED) {
+            // Kept for callers that still request archived via task query — prefer archivedCanonicalItemQuery.
             $query->whereNotNull('p.archived_at');
         }
-        // SCOPE_ALL: intentionally includes both active and archived projects.
+        // SCOPE_ALL on the task query is unused for aggregates (merged active + archive-item paths).
 
         // Global Legacy import is pinned UI only — never monthly execution workload.
         ContentProjectGlobalLegacyArchive::excludeFromProjectAlias($query, 'p');

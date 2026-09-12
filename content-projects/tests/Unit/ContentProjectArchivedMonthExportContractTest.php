@@ -105,10 +105,11 @@ final class ContentProjectArchivedMonthExportContractTest extends TestCase
         self::assertStringContainsString('SCOPE_ARCHIVED', $workloadSrc);
         self::assertStringContainsString('item_count', $workloadSrc);
         self::assertStringContainsString('writer_name', $workloadSrc);
-        self::assertStringContainsString('t.site_id', $workloadSrc);
-        self::assertStringContainsString('archivedExecutionItemQuery', $workloadSrc);
+        self::assertStringContainsString('archivedCanonicalItemQuery', $workloadSrc);
+        self::assertStringContainsString('SeoProjectArchiveItem', $workloadSrc);
 
-        self::assertStringContainsString('t.site_id', $coreSrc);
+        self::assertStringContainsString('seo_project_archive_items as ai', $coreSrc);
+        self::assertStringContainsString('archivedCanonicalItemQuery', $coreSrc);
         self::assertStringContainsString('archivedExecutionItemQuery', $coreSrc);
         self::assertStringNotContainsString('groupBy(\'p.site_id\')', $coreSrc);
         self::assertStringNotContainsString('p.site_id as site_id', $coreSrc);
@@ -361,7 +362,9 @@ final class ContentProjectArchivedMonthExportContractTest extends TestCase
 
         self::assertStringContainsString('ArchiveArticleHistoricalFieldResolver', $src);
         self::assertStringContainsString('article_snapshot', $src);
-        self::assertStringContainsString('hydrateArchiveItemMaps', $src);
+        self::assertStringContainsString('archivedCanonicalItemQuery', $src);
+        self::assertStringContainsString('decodeSnapshot', $src);
+        self::assertStringNotContainsString('hydrateArchiveItemMaps', $src);
         self::assertStringNotContainsString('resolveArticleExportFields', $src);
     }
 

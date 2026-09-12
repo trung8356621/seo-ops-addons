@@ -25,19 +25,44 @@ final class PromptExecutionPersistence
     public function normalizeBeforeSave(PromptResult $result): void
     {
         $snapshot = is_array($result->input_snapshot) ? $result->input_snapshot : [];
-        $canStripCompiled = Schema::connection(self::CONNECTION)->hasColumn('prompt_results', 'compiled_prompt_hash');
+        $canHashCompiled = Schema::connection(self::CONNECTION)->hasColumn('prompt_results', 'compiled_prompt_hash');
         $compiled = trim((string) ($snapshot['compiled_prompt'] ?? ''));
-        if ($canStripCompiled && $compiled !== '') {
-            $hash = hash('sha256', $compiled);
+        $retainExact = $this->shouldRetainExactCompiledPrompt($snapshot);
+
+        if ($canHashCompiled && $compiled !== '') {
+            $hash = $this->compiledPromptHash($compiled);
             $result->compiled_prompt_hash = $hash;
             $snapshot['compiled_prompt_hash'] = $hash;
-            unset($snapshot['compiled_prompt']);
-            $result->input_snapshot = $this->slimSnapshot($snapshot);
-        } elseif ($canStripCompiled) {
-            $result->input_snapshot = $this->slimSnapshot($snapshot);
+            if (! $retainExact) {
+                unset($snapshot['compiled_prompt']);
+            }
+            $result->input_snapshot = $this->slimSnapshot($snapshot, $retainExact);
+        } elseif ($canHashCompiled) {
+            $result->input_snapshot = $this->slimSnapshot($snapshot, $retainExact);
         }
 
         $this->fillExecutionColumns($result, is_array($result->input_snapshot) ? $result->input_snapshot : []);
+    }
+
+    /**
+     * Exact provider-boundary prompts (sectioned / manual_compiled) must remain inspectable
+     * in AI History — hash alone is not enough for "Xem prompt".
+     *
+     * @param  array<string, mixed>  $snapshot
+     */
+    public function shouldRetainExactCompiledPrompt(array $snapshot): bool
+    {
+        if (! empty($snapshot['retain_compiled_prompt'])) {
+            return true;
+        }
+        if (! empty($snapshot['manual_compiled'])) {
+            return true;
+        }
+        if (! empty($snapshot['sectioned_free_section'])) {
+            return true;
+        }
+
+        return ! empty($snapshot['sectioned_free_orchestrator']);
     }
 
     /**
@@ -234,14 +259,18 @@ final class PromptExecutionPersistence
     }
 
     /**
-     * Strip large compiled blobs; keep joinable refs + small execution metadata.
+     * Strip large compiled blobs (unless exact execution prompt must be retained);
+     * keep joinable refs + small execution metadata.
      *
      * @param  array<string, mixed>  $snapshot
      * @return array<string, mixed>
      */
-    public function slimSnapshot(array $snapshot): array
+    public function slimSnapshot(array $snapshot, ?bool $retainExactCompiled = null): array
     {
-        unset($snapshot['compiled_prompt']);
+        $retainExactCompiled ??= $this->shouldRetainExactCompiledPrompt($snapshot);
+        if (! $retainExactCompiled) {
+            unset($snapshot['compiled_prompt']);
+        }
 
         $largeKeys = [
             'post_content', 'post_excerpt', 'outline', 'outline_markdown',

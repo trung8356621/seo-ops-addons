@@ -257,9 +257,10 @@ MD;
             ],
         ], [$unit]);
 
-        // emitParentHeading=false → strip leading parent H2; no duplicate from assembler.
-        self::assertSame(0, substr_count($assembled, '## Parent'));
-        self::assertStringContainsString('### Child', $assembled);
+        // Assembler owns parent H2 once for the group; strip duplicate leading H2 from child.
+        self::assertSame(1, preg_match_all('/^##\s+Parent\s*$/mu', $assembled));
+        self::assertSame(1, preg_match_all('/^###\s+Child\s*$/mu', $assembled));
+        self::assertStringContainsString('Body text here', $assembled);
     }
 
     public function test_planner_source_does_not_use_sectioned_free_prepare_sections(): void

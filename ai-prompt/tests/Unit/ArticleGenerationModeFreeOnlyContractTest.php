@@ -229,20 +229,38 @@ final class ArticleGenerationModeFreeOnlyContractTest extends TestCase
         self::assertSame(ArticleGenerationShape::SinglePass, $contentSnap->generationShape);
     }
 
-    public function test_ui_lives_in_global_seo_bar_tao_bai_bang_ai(): void
+    public function test_ui_lives_on_content_project_header_not_global_seo_bar_gear(): void
     {
         $bar = (string) file_get_contents((string) (new ReflectionClass(GlobalSeoBar::class))->getFileName());
         $blade = (string) file_get_contents(
             ProjectRoot::addonsPath().'/seo/resources/views/livewire/global-seo-bar.blade.php',
         );
+        $view = (string) file_get_contents(
+            (string) (new ReflectionClass(
+                \Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Pages\ViewSeoProject::class
+            ))->getFileName(),
+        );
+        $resource = (string) file_get_contents(
+            (string) (new ReflectionClass(
+                \Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource::class
+            ))->getFileName(),
+        );
 
-        self::assertStringContainsString('articleGenerationMode', $bar);
-        self::assertStringContainsString('ArticleGenerationModePreference', $bar);
-        self::assertStringContainsString('wire:model.live="articleGenerationMode"', $blade);
-        self::assertStringContainsString('generation_mode_normal', $blade);
-        self::assertStringContainsString('generation_mode_free_only', $blade);
-        self::assertStringContainsString('settings.ai.free_single_split', $blade);
-        self::assertStringContainsString('ai_generation_heading', $blade);
+        self::assertStringNotContainsString('articleGenerationMode', $bar);
+        self::assertStringNotContainsString('wire:model.live="articleGenerationMode"', $blade);
+        self::assertStringNotContainsString('ai_generation_heading', $blade);
+        self::assertStringNotContainsString('generation_mode_normal', $blade);
+
+        self::assertStringContainsString('makeCreateWithAiAction', $view);
+        self::assertStringContainsString('makeCreateWithAiModeGroup', $view);
+        self::assertStringContainsString('articleGenerationMode', $view);
+        self::assertStringContainsString('ArticleGenerationModePreference', $view);
+        self::assertStringContainsString('setArticleGenerationMode', $view);
+
+        self::assertStringContainsString("'create_with_ai'", $resource);
+        self::assertStringContainsString('create_with_ai_mode_fast', $resource);
+        self::assertStringContainsString('create_with_ai_mode_free', $resource);
+        self::assertStringContainsString('AiCostPolicy::SETTING_KEY', $resource);
     }
 
     public function test_scope_run_snapshots_policy_without_live_preference_read(): void

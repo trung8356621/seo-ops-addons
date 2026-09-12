@@ -23,8 +23,8 @@ final class WritingSectionScopeInstructions
     public static function forSection(
         string $sectionKind,
         bool $assemblerRendersHeading = true,
-    ): string
-    {
+        ?string $articleTitle = null,
+    ): string {
         $kind = strtolower(trim($sectionKind));
         $lines = [
             '=== WRITING SCOPE: SECTION ===',
@@ -37,6 +37,11 @@ final class WritingSectionScopeInstructions
             'Không tự mở rộng scope ngoài parent H2 / current H3 được giao.',
         ];
 
+        $title = trim((string) $articleTitle);
+        if ($title !== '') {
+            $lines[] = 'ARTICLE CONTEXT (input only — không output H1/title): Article title: '.$title;
+        }
+
         if ($kind === OutlineStructuredRowsNormalizer::KIND_INTRO
             || $kind === SectionedFreeSectionUnit::ROLE_INTRO
         ) {
@@ -48,7 +53,9 @@ final class WritingSectionScopeInstructions
         } elseif ($kind === OutlineStructuredRowsNormalizer::KIND_FAQ
             || $kind === SectionedFreeSectionUnit::ROLE_FAQ
         ) {
-            $lines[] = 'Step hiện tại là FAQ — chỉ viết khối FAQ; không viết intro/body/kết luận.';
+            $lines[] = 'Step hiện tại là FAQ SLOT — không viết Q&A FAQ.';
+            $lines[] = 'FAQ content authority = prompt article.faq.generate (micro task sau Assemble).';
+            $lines[] = 'Chỉ output placeholder [omi_faq] nếu cần giữ vị trí; không sinh cặp câu hỏi/trả lời.';
         } else {
             $lines[] = 'Không tạo intro/conclusion trừ khi current step có đúng kind đó.';
         }
@@ -70,11 +77,16 @@ final class WritingSectionScopeInstructions
         string $sliceMarkdown,
         string $sectionKind,
         bool $assemblerRendersHeading = true,
+        ?string $articleTitle = null,
     ): string {
-        $scope = self::forSection($sectionKind, $assemblerRendersHeading);
+        $scope = self::forSection($sectionKind, $assemblerRendersHeading, $articleTitle);
         $slice = trim($sliceMarkdown);
+        $title = trim((string) $articleTitle);
+        $context = $title !== ''
+            ? "=== ARTICLE CONTEXT ===\nArticle title: {$title}\n(Input only — do not output as H1 / SEO title / Meta description)\n=== END ARTICLE CONTEXT ===\n\n"
+            : '';
 
-        return $scope."\n\n=== CURRENT OUTLINE SLICE ===\n"
+        return $scope."\n\n".$context."=== CURRENT OUTLINE SLICE ===\n"
             .($slice !== '' ? $slice : '(empty slice)')
             ."\n=== END CURRENT OUTLINE SLICE ===";
     }

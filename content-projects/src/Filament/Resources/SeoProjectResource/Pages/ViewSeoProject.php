@@ -96,6 +96,12 @@ final class ViewSeoProject extends Page
      */
     public bool $generatePostImages = false;
 
+    /**
+     * Article generation mode for "Tạo bài bằng AI" — normal|free_only.
+     * Persisted via ArticleGenerationModePreference (user_meta ai_cost_policy).
+     */
+    public string $articleGenerationMode = 'normal';
+
     public bool $executionDetailsOpen = false;
 
     public ?int $executionDetailsTaskId = null;
@@ -256,6 +262,49 @@ final class ViewSeoProject extends Page
         $this->mountInteractsWithAuditNotes();
         $this->mountInteractsWithIdeaCandidates();
         $this->mountInteractsWithDraftSplit();
+        $this->syncArticleGenerationModePreference();
+    }
+
+    public function setArticleGenerationMode(string $mode): void
+    {
+        $policy = \Omnichannel\Addons\AiPrompt\Support\AiCostPolicy::tryFromMixed($mode);
+        $this->articleGenerationMode = $policy->generationModeValue();
+
+        $userId = (int) (auth()->id() ?? 0);
+        if ($userId <= 0) {
+            return;
+        }
+
+        \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationModePreference::persistForUserId($userId, $policy);
+    }
+
+    private function syncArticleGenerationModePreference(): void
+    {
+        $userId = (int) (auth()->id() ?? 0);
+        $policy = \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationModePreference::forUserId(
+            $userId > 0 ? $userId : null,
+        );
+        $this->articleGenerationMode = $policy->generationModeValue();
+    }
+
+    private function articleGenerationModeLabel(): string
+    {
+        return $this->articleGenerationMode === 'free_only'
+            ? (string) __('seo-content-ai::filament.projects.mode_free')
+            : (string) __('seo-content-ai::filament.projects.mode_fast');
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function createWithAiLaunchSettings(): array
+    {
+        $policy = \Omnichannel\Addons\AiPrompt\Support\AiCostPolicy::tryFromMixed($this->articleGenerationMode);
+
+        return [
+            'generate_post_images' => $this->generatePostImages,
+            \Omnichannel\Addons\AiPrompt\Support\AiCostPolicy::SETTING_KEY => $policy->value,
+        ];
     }
 
     public function getTitle(): string|Htmlable
@@ -608,7 +657,19 @@ final class ViewSeoProject extends Page
                 ->visible(fn (): bool => $this->runningCount > 0),
             SeoProjectResource::makeGeneratePendingItemsAction(
                 $project,
-                fn (): array => ['generate_post_images' => $this->generatePostImages],
+                fn (): array => $this->createWithAiLaunchSettings(),
+            ),
+            SeoProjectResource::makeCreateWithAiAction(
+                $project,
+                fn (): array => $this->createWithAiLaunchSettings(),
+                fn (): string => $this->articleGenerationModeLabel(),
+            ),
+            SeoProjectResource::makeCreateWithAiModeGroup(
+                $project,
+                function (string $mode): void {
+                    $this->setArticleGenerationMode($mode);
+                },
+                fn (): string => $this->articleGenerationMode,
             ),
             Actions\Action::make('publishing_queue')
                 ->label(__('seo-content-ai::filament.projects.publishing_queue'))
