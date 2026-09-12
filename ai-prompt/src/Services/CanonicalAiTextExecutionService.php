@@ -106,15 +106,47 @@ final class CanonicalAiTextExecutionService
             );
         }
 
-        [$output, $usage, $candidate] = $this->router->executeWithProfile(
-            $profile->value,
-            $context,
-            function (RoutedAiCandidate $routed) use ($compiledPrompt, $hookKey, $options): array {
-                return $this->executeCandidate($routed, $compiledPrompt, $hookKey, $options);
-            },
-        );
+        try {
+            [$output, $usage, $candidate, $fallbackCount, $reasons, $routingAttempts] = $this->router->executeWithProfile(
+                $profile->value,
+                $context,
+                function (RoutedAiCandidate $routed) use ($compiledPrompt, $hookKey, $options): array {
+                    return $this->executeCandidate($routed, $compiledPrompt, $hookKey, $options);
+                },
+            );
 
-        return [$output, is_array($usage) ? $usage : null, $candidate];
+            if (is_array($routingAttempts) && $routingAttempts !== []) {
+                try {
+                    app(PromptExecutionPersistence::class)->recordRoutingAttempts(
+                        attempts: $routingAttempts,
+                        context: [
+                            'canonical_prompt_key' => $context->canonicalPromptKey ?? $hookKey,
+                            'hook_key' => $hookKey,
+                            'stage' => $context->promptTaskType ?? 'atomic_text',
+                            'usage' => is_array($usage) ? $usage : null,
+                        ]
+                    );
+                } catch (\Throwable) {}
+            }
+
+            return [$output, is_array($usage) ? $usage : null, $candidate];
+        } catch (\Omnichannel\Addons\AiPrompt\Exceptions\AiRoutesExhaustedException $e) {
+            if ($e->routingAttempts !== []) {
+                try {
+                    app(PromptExecutionPersistence::class)->recordRoutingAttempts(
+                        attempts: $e->routingAttempts,
+                        context: [
+                            'canonical_prompt_key' => $context->canonicalPromptKey ?? $hookKey,
+                            'hook_key' => $hookKey,
+                            'stage' => $context->promptTaskType ?? 'atomic_text',
+                            'usage' => null,
+                        ]
+                    );
+                } catch (\Throwable) {}
+            }
+
+            throw $e;
+        }
     }
 
     /**

@@ -572,6 +572,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                             'requested_model' => is_array($usage)
                                 ? (trim((string) ($usage['requested_model'] ?? '')) ?: null)
                                 : null,
+                            'token_usage' => is_array($usage) ? $usage : null,
                         ], static fn (mixed $v): bool => $v !== null && $v !== ''),
                     ),
                 );
@@ -688,6 +689,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                             'health_mutation' => $healthMutation,
                             'logical_model_exhausted' => ! (bool) ($siblingMeta['sibling_routes_remain_eligible'] ?? false),
                             'request_sent' => $decision->requestSent ?? true,
+                            'token_usage' => $this->extractFailureUsage($exception),
                         ],
                     ),
                 );
@@ -1121,6 +1123,17 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
             'quality_rules' => is_array($rules) ? array_values(array_map('strval', $rules)) : null,
             'quality_sample' => is_string($sample) && $sample !== '' ? mb_substr($sample, 0, 120) : null,
         ], static fn (mixed $value): bool => $value !== null && $value !== []);
+    }
+
+    private function extractFailureUsage(\Throwable $exception): ?array
+    {
+        if (! $exception instanceof PromptRunException) {
+            return null;
+        }
+
+        $usage = $exception->context['token_usage'] ?? $exception->context['usage'] ?? null;
+
+        return is_array($usage) && $usage !== [] ? $usage : null;
     }
 
     /**

@@ -24,7 +24,15 @@ final class AiRuntimeHealthService
 
     private const DEGRADED_THRESHOLD = 3;
 
-    private const UNAVAILABLE_THRESHOLD = 5;
+    public const UNAVAILABLE_THRESHOLD = 5;
+
+    /** @var array<int, \Illuminate\Support\Carbon> */
+    private static array $runtimeSuppressedFreeLanes = [];
+
+    public static function clearSuppressedFreeLanes(): void
+    {
+        self::$runtimeSuppressedFreeLanes = [];
+    }
 
     public function __construct(
         private readonly ?AiRuntimeHealthNotificationPublisher $notifications = null,
@@ -36,6 +44,11 @@ final class AiRuntimeHealthService
         // Deprecated: ai_runtime_health_states.paid_locked is observability — not enforcement.
         if ($candidate->isFree === false && $this->connectionPaidLaneLocked($candidate->connection)) {
             return 'connection_paid_locked';
+        }
+
+        // Connection-level free lane suppression (e.g. OpenRouter free-tier daily quota exhausted)
+        if ($candidate->isFree && $this->isConnectionFreeLaneSuppressed($candidate->connection)) {
+            return 'free_lane_suppressed';
         }
 
         if (! $this->tableReady()) {
@@ -137,6 +150,24 @@ final class AiRuntimeHealthService
         $now = now();
         $connectionId = (int) $candidate->connection->id;
         $errorCode = $decision->errorCode ?? ($decision->httpStatus !== null ? (string) $decision->httpStatus : null);
+
+        if ($decision->suppressConnectionFree
+            || $decision->scope === AiFailureScope::ConnectionFree
+            || $decision->category === AiFailureClass::DailyFreeQuotaExhausted
+        ) {
+            $this->suppressConnectionFreeLane($candidate->connection, $decision);
+
+            // Observability: mutate connection subject for failure counts, but do NOT lock connection, do NOT lock paid lane, do NOT cooldown connection.
+            $this->mutateSubject($userId, AiRuntimeHealthState::SUBJECT_CONNECTION, $connectionId, $connectionId, function (AiRuntimeHealthState $row) use ($decision, $now, $errorCode, $userId): void {
+                $previous = AiRuntimeHealthStatus::tryFrom($row->health_status) ?? AiRuntimeHealthStatus::NoData;
+                $this->incrementFailureCounters($row, $errorCode, $decision, $now);
+                $this->maybeNotifyFailure($userId, $row, $previous, $decision);
+            });
+
+            // CRITICAL: DO NOT mark model cooldown on SUBJECT_MODEL!
+            // Requirement 2: KHÔNG mark từng physical model cooldown.
+            return;
+        }
 
         $applyConnectionPaidLock = false;
         $this->mutateSubject($userId, AiRuntimeHealthState::SUBJECT_CONNECTION, $connectionId, $connectionId, function (AiRuntimeHealthState $row) use ($decision, $now, $errorCode, $userId, &$applyConnectionPaidLock): void {
@@ -727,6 +758,80 @@ final class AiRuntimeHealthService
         return AiRuntimeHealthStatus::Degraded;
     }
 
+    public function isConnectionFreeLaneSuppressed(ApiConnection $connection): bool
+    {
+        $connectionId = (int) $connection->id;
+        if (isset(self::$runtimeSuppressedFreeLanes[$connectionId])) {
+            $resetAt = self::$runtimeSuppressedFreeLanes[$connectionId];
+            if (now()->lessThan($resetAt)) {
+                return true;
+            }
+            unset(self::$runtimeSuppressedFreeLanes[$connectionId]);
+        }
+
+        $meta = $connection->getAttribute('metadata');
+        if (! is_array($meta)) {
+            return false;
+        }
+
+        $until = $meta['free_lane_suppressed_until'] ?? null;
+        if (! is_string($until) || $until === '') {
+            return false;
+        }
+
+        try {
+            $resetAt = \Illuminate\Support\Carbon::parse($until);
+            if (now()->lessThan($resetAt)) {
+                return true;
+            }
+        } catch (\Throwable) {
+            return false;
+        }
+
+        return false;
+    }
+
+    public function suppressConnectionFreeLane(ApiConnection $connection, AiFailureDecision $decision): void
+    {
+        $connectionId = (int) $connection->id;
+        $resetAt = null;
+        if ($decision->freeDailyResetAt !== null && $decision->freeDailyResetAt !== '') {
+            try {
+                $resetAt = \Illuminate\Support\Carbon::parse($decision->freeDailyResetAt);
+            } catch (\Throwable) {
+            }
+        }
+        if ($resetAt === null) {
+            $resetAt = now()->addDay()->startOfDay();
+        }
+
+        self::$runtimeSuppressedFreeLanes[$connectionId] = $resetAt;
+
+        $meta = is_array($connection->getAttribute('metadata')) ? $connection->getAttribute('metadata') : [];
+        $meta['free_lane_suppressed_until'] = $resetAt->toIso8601String();
+        $meta['free_daily_reset_at'] = $resetAt->toIso8601String();
+        if ($decision->limitSource !== null) {
+            $meta['free_tier_daily_limit_source'] = $decision->limitSource;
+        }
+        if ($decision->rateLimitLimit !== null) {
+            $meta['rate_limit_limit'] = $decision->rateLimitLimit;
+        }
+        if ($decision->rateLimitRemaining !== null) {
+            $meta['rate_limit_remaining'] = $decision->rateLimitRemaining;
+        }
+        if ($decision->rateLimitReset !== null) {
+            $meta['rate_limit_reset'] = $decision->rateLimitReset;
+        }
+
+        $connection->setAttribute('metadata', $meta);
+        if ($connection->exists) {
+            try {
+                $connection->save();
+            } catch (\Throwable) {
+            }
+        }
+    }
+
     private function isOnCooldown(AiRuntimeHealthState $row): bool
     {
         return $row->cooldown_until !== null && $row->cooldown_until->isFuture();
@@ -734,9 +839,10 @@ final class AiRuntimeHealthService
 
     private function cooldownAppliesToConnection(AiFailureDecision $decision): bool
     {
-        // Rate limits must never cool down the whole connection — free and paid models
+        // Rate limits and daily free quotas must never cool down the whole connection — free and paid models
         // often share one OpenRouter key but have different rate-limit buckets.
-        if ($decision->category === AiFailureClass::RateLimited) {
+        if ($decision->category === AiFailureClass::RateLimited
+            || $decision->category === AiFailureClass::DailyFreeQuotaExhausted) {
             return false;
         }
 

@@ -36,6 +36,8 @@ use Omnichannel\Addons\AiPrompt\Services\SyncAllAiConnectionModelsService;
 use Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\AiProviderTemplateCatalog;
 use Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\AiProviderTemplateParser;
 use Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\AiProviderTemplateStore;
+use Omnichannel\Addons\AiPrompt\Services\Wallet\AiProviderWalletService;
+use Omnichannel\Addons\AiPrompt\Services\AiTokenUsageAnalyticsService;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
 use Omnichannel\Addons\AiPrompt\Support\AiModelArea;
 use Omnichannel\Addons\AiPrompt\Support\AiUsageMode;
@@ -88,6 +90,16 @@ class SeoSettingsAiCenter extends Page
     public bool $resilienceHydrated = false;
 
     public bool $healthHydrated = false;
+
+    public bool $usageHydrated = false;
+
+    public string $usageDateRange = '30d';
+
+    public string $usageAddonFilter = 'all';
+
+    public ?int $editingThresholdConnectionId = null;
+
+    public float $editingThresholdValue = 5.0;
 
     public int $maxAiAttempts = 6;
 
@@ -164,7 +176,7 @@ class SeoSettingsAiCenter extends Page
 
             return;
         }
-        $allowed = ['models', 'routing', 'resilience', 'health'];
+        $allowed = ['models', 'routing', 'resilience', 'health', 'usage'];
         if (! in_array($this->tab, $allowed, true)) {
             $this->tab = 'models';
         }
@@ -173,6 +185,7 @@ class SeoSettingsAiCenter extends Page
         $this->routingHydrated = $this->tab === 'routing';
         $this->resilienceHydrated = $this->tab === 'resilience';
         $this->healthHydrated = $this->tab === 'health';
+        $this->usageHydrated = $this->tab === 'usage';
         $userId = (int) auth()->id();
         app(AiModelPrimaryTypeClassifier::class)->classifyForUser($userId);
         $bootstrap->bootstrapForUser($userId);
@@ -194,6 +207,9 @@ class SeoSettingsAiCenter extends Page
         }
         if ($panel === 'health') {
             $this->healthHydrated = true;
+        }
+        if ($panel === 'usage') {
+            $this->usageHydrated = true;
         }
     }
 
@@ -257,6 +273,11 @@ class SeoSettingsAiCenter extends Page
         }
 
         return $rows;
+    }
+
+    public function isSeo(?string $provider): bool
+    {
+        return ApiConnectionProviders::isSeo($provider);
     }
 
     /**
@@ -1389,6 +1410,112 @@ class SeoSettingsAiCenter extends Page
             ? (string) constant($class.'::KEY_DEFAULT_AI_USAGE_MODE')
             : 'default_ai_usage_mode';
         $service->saveSettings([$key => $mode]);
+    }
+
+    public function refreshConnectionBalance(int $connectionId): void
+    {
+        $this->assertManager();
+        $connection = ApiConnection::query()->find($connectionId);
+        if (! $connection instanceof ApiConnection) {
+            Notification::make()->title('Không tìm thấy connection')->danger()->send();
+
+            return;
+        }
+
+        $service = app(AiProviderWalletService::class);
+        $result = $service->checkConnectionBalance($connection);
+
+        if (! $result->supported) {
+            Notification::make()
+                ->title("Provider {$connection->provider} không hỗ trợ balance API")
+                ->warning()
+                ->send();
+
+            return;
+        }
+
+        if ($result->success) {
+            Notification::make()
+                ->title("Đã cập nhật số dư {$connection->name}")
+                ->body("Số dư hiện tại: {$result->currency} ".number_format((float) $result->balance, 2))
+                ->success()
+                ->send();
+        } else {
+            Notification::make()
+                ->title("Không thể cập nhật số dư {$connection->name}")
+                ->body($result->error ?: 'Lỗi không xác định khi kết nối API.')
+                ->danger()
+                ->send();
+        }
+    }
+
+    public function openEditThresholdModal(int $connectionId): void
+    {
+        $connection = ApiConnection::query()->find($connectionId);
+        if (! $connection instanceof ApiConnection) {
+            return;
+        }
+
+        $this->editingThresholdConnectionId = $connectionId;
+        $this->editingThresholdValue = (float) ($connection->balance_warning_threshold ?? 5.0);
+    }
+
+    public function closeEditThresholdModal(): void
+    {
+        $this->editingThresholdConnectionId = null;
+    }
+
+    public function saveThreshold(): void
+    {
+        $this->assertManager();
+        if ($this->editingThresholdConnectionId === null) {
+            return;
+        }
+
+        $connection = ApiConnection::query()->find($this->editingThresholdConnectionId);
+        if ($connection instanceof ApiConnection) {
+            app(AiProviderWalletService::class)->updateWarningThreshold($connection, $this->editingThresholdValue);
+
+            Notification::make()
+                ->title("Đã lưu ngưỡng cảnh báo cho {$connection->name}")
+                ->body('Ngưỡng mới: $'.number_format($this->editingThresholdValue, 2))
+                ->success()
+                ->send();
+        }
+
+        $this->editingThresholdConnectionId = null;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function walletCards(): array
+    {
+        return app(AiProviderWalletService::class)->getWalletCards()->all();
+    }
+
+    /**
+     * @return array{seo: array{calls: int, tokens: int}, seeding: array{calls: int, tokens: int}, total_tokens: int, total_calls: int}
+     */
+    public function tokenSummary(): array
+    {
+        return app(AiTokenUsageAnalyticsService::class)->getSummary($this->usageDateRange, $this->usageAddonFilter);
+    }
+
+    /**
+     * @return array{labels: list<string>, dates: list<string>, seo_series: list<int>, seeding_series: list<int>, total_series: list<int>, max_tokens: int}
+     */
+    public function tokenDailyTrend(): array
+    {
+        return app(AiTokenUsageAnalyticsService::class)->getDailyTrend($this->usageDateRange);
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function tokenTableData(): array
+    {
+        return app(AiTokenUsageAnalyticsService::class)->getTableData($this->usageDateRange, $this->usageAddonFilter);
     }
 
     private function assertManager(): void

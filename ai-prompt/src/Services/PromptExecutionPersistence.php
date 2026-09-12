@@ -189,6 +189,13 @@ final class PromptExecutionPersistence
 
         PromptResultRoutingAttempt::query()->where('prompt_result_id', $resultId)->delete();
 
+        $taxonomy = AiUsageTaxonomy::resolve(
+            $result->canonical_prompt_key,
+            $result->stage,
+            null,
+            is_array($result->input_snapshot) ? $result->input_snapshot : []
+        );
+
         $rows = [];
         $sequence = 1;
         foreach ($attempts as $row) {
@@ -197,6 +204,17 @@ final class PromptExecutionPersistence
             }
             $resultState = strtolower(trim((string) ($row['result'] ?? $row['state'] ?? '')));
             $attempted = (bool) ($row['attempted'] ?? in_array($resultState, ['success', 'failed'], true));
+
+            $rawUsage = isset($row['token_usage']) && is_array($row['token_usage'])
+                ? $row['token_usage']
+                : (isset($row['usage']) && is_array($row['usage']) ? $row['usage'] : null);
+
+            if ($rawUsage === null && ($resultState === 'success' || strtoupper($resultState) === 'SUCCESS') && is_array($result->token_usage)) {
+                $rawUsage = $result->token_usage;
+            }
+
+            $tokens = AiUsageTaxonomy::extractTokens($rawUsage);
+
             $rows[] = [
                 'prompt_result_id' => $resultId,
                 // Route-event order, not router "attempt" (API attempt #1 collides with skipped candidate #1).
@@ -221,10 +239,94 @@ final class PromptExecutionPersistence
                 'failure_scope' => $this->nullableString($row['failure_scope'] ?? $row['scope'] ?? null),
                 'health_mutation' => $this->nullableString($row['health_mutation'] ?? null),
                 'duration_ms' => isset($row['duration_ms']) && is_numeric($row['duration_ms']) ? (int) $row['duration_ms'] : null,
-                'token_usage' => isset($row['token_usage']) && is_array($row['token_usage'])
-                    ? json_encode($row['token_usage'])
-                    : null,
+                'token_usage' => $rawUsage !== null ? json_encode($rawUsage) : null,
                 'raw' => json_encode($row),
+                'addon' => $taxonomy['addon'],
+                'module' => $taxonomy['module'],
+                'action' => $taxonomy['action'],
+                'input_tokens' => $tokens['input_tokens'],
+                'output_tokens' => $tokens['output_tokens'],
+                'total_tokens' => $tokens['total_tokens'],
+                'created_at' => now(),
+                'updated_at' => now(),
+            ];
+            $sequence++;
+        }
+
+        if ($rows !== []) {
+            PromptResultRoutingAttempt::query()->insert($rows);
+        }
+    }
+
+    /**
+     * Persist physical routing attempts directly for standalone/stateless executions.
+     *
+     * @param  list<array<string, mixed>>  $attempts
+     * @param  array<string, mixed>  $context
+     */
+    public function recordRoutingAttempts(array $attempts, array $context = [], ?int $promptResultId = null): void
+    {
+        if (! Schema::connection(self::CONNECTION)->hasTable('prompt_result_routing_attempts') || $attempts === []) {
+            return;
+        }
+
+        $taxonomy = AiUsageTaxonomy::resolve(
+            $context['canonical_prompt_key'] ?? $context['hook_key'] ?? null,
+            $context['stage'] ?? null,
+            $context['hook_key'] ?? null,
+            $context
+        );
+
+        $rows = [];
+        $sequence = 1;
+        foreach ($attempts as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $resultState = strtolower(trim((string) ($row['result'] ?? $row['state'] ?? '')));
+            $attempted = (bool) ($row['attempted'] ?? in_array($resultState, ['success', 'failed'], true));
+
+            $rawUsage = isset($row['token_usage']) && is_array($row['token_usage'])
+                ? $row['token_usage']
+                : (isset($row['usage']) && is_array($row['usage']) ? $row['usage'] : null);
+
+            if ($rawUsage === null && ($resultState === 'success' || strtoupper($resultState) === 'SUCCESS') && isset($context['usage']) && is_array($context['usage'])) {
+                $rawUsage = $context['usage'];
+            }
+
+            $tokens = AiUsageTaxonomy::extractTokens($rawUsage);
+
+            $rows[] = [
+                'prompt_result_id' => $promptResultId,
+                'sequence' => $sequence,
+                'logical_model' => $this->nullableString($row['logical_model'] ?? null),
+                'physical_route' => $this->nullableString($row['physical_route'] ?? null),
+                'provider' => $this->nullableString($row['provider'] ?? null),
+                'connection_id' => isset($row['connection_id']) ? (int) $row['connection_id'] : null,
+                'connection_name' => $this->nullableString($row['connection_name'] ?? null),
+                'provider_model' => $this->nullableString(
+                    $row['actual_provider_model'] ?? $row['provider_model'] ?? $row['model'] ?? $row['candidate_model'] ?? null,
+                ),
+                'cost_class' => $this->nullableString(
+                    $row['cost_class'] ?? ((isset($row['is_free']) && $row['is_free']) || ($row['is_free_candidate'] ?? false) ? 'free' : 'paid'),
+                ),
+                'state' => $this->nullableString($row['status'] ?? $row['state'] ?? strtoupper($resultState)),
+                'attempted' => $attempted,
+                'skip_reason' => $this->nullableString($row['skip_reason'] ?? null),
+                'http_status' => isset($row['http_status']) && is_numeric($row['http_status']) ? (int) $row['http_status'] : null,
+                'failure_category' => $this->nullableString($row['failure_category'] ?? $row['failure_class'] ?? null),
+                'failure_code' => $this->nullableString($row['failure_code'] ?? $row['failure_class'] ?? null),
+                'failure_scope' => $this->nullableString($row['failure_scope'] ?? $row['scope'] ?? null),
+                'health_mutation' => $this->nullableString($row['health_mutation'] ?? null),
+                'duration_ms' => isset($row['duration_ms']) && is_numeric($row['duration_ms']) ? (int) $row['duration_ms'] : null,
+                'token_usage' => $rawUsage !== null ? json_encode($rawUsage) : null,
+                'raw' => json_encode($row),
+                'addon' => $taxonomy['addon'],
+                'module' => $taxonomy['module'],
+                'action' => $taxonomy['action'],
+                'input_tokens' => $tokens['input_tokens'],
+                'output_tokens' => $tokens['output_tokens'],
+                'total_tokens' => $tokens['total_tokens'],
                 'created_at' => now(),
                 'updated_at' => now(),
             ];

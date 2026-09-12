@@ -305,6 +305,10 @@ final class AiPrimaryFailureSelector
             return [AiNormalizedFailureCode::ProviderBillingLimit, 'Provider: hết credit / giới hạn thanh toán'
                 .($http !== null ? ' · HTTP '.$http : '').'.'];
         }
+        if ($failureClass === AiFailureClass::DailyFreeQuotaExhausted->value) {
+            return [AiNormalizedFailureCode::ProviderRateLimited, 'Provider: hết hạn mức gọi model miễn phí trong ngày (free-models-per-day)'
+                .($http !== null ? ' · HTTP '.$http : '').'.'];
+        }
         if ($http === 429 || $failureClass === AiFailureClass::RateLimited->value) {
             return [AiNormalizedFailureCode::ProviderRateLimited, 'Provider: bị giới hạn tốc độ (rate limit)'
                 .($http !== null ? ' · HTTP '.$http : '').'.'];

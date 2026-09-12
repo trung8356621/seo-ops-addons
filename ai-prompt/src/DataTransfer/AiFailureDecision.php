@@ -30,11 +30,17 @@ final readonly class AiFailureDecision
         public bool $markModelUnavailable = false,
         public bool $lockConnection = false,
         public bool $lockConnectionPaid = false,
+        public bool $suppressConnectionFree = false,
         public bool $affectsRuntimeHealth = true,
         public ?string $failureStage = null,
         public ?string $providerErrorCode = null,
         public ?bool $requestSent = null,
         public ?bool $responseReceived = null,
+        public ?string $limitSource = null,
+        public ?string $rateLimitLimit = null,
+        public ?string $rateLimitRemaining = null,
+        public ?string $rateLimitReset = null,
+        public ?string $freeDailyResetAt = null,
         public string $source = 'AiProviderFailureClassifier',
     ) {}
 
@@ -64,6 +70,12 @@ final readonly class AiFailureDecision
             'request_sent' => $this->requestSent,
             'response_received' => $this->responseReceived,
             'source' => $this->source,
+            'limit_source' => $this->limitSource,
+            'rate_limit_limit' => $this->rateLimitLimit,
+            'rate_limit_remaining' => $this->rateLimitRemaining,
+            'rate_limit_reset' => $this->rateLimitReset,
+            'free_daily_reset_at' => $this->freeDailyResetAt,
+            'free_lane_suppressed' => $this->suppressConnectionFree ? true : null,
         ], static fn (mixed $value): bool => $value !== null && $value !== '');
     }
 }

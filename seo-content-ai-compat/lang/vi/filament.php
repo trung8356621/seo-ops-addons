@@ -1699,6 +1699,7 @@ return [
         'tab_routing' => 'Routing',
         'tab_resilience' => 'Resilience',
         'tab_health' => 'Health',
+        'tab_usage' => 'Usage',
         'health_page_title' => 'AI Health',
         'health_intro' => 'Theo dõi tình trạng vận hành của connection và model AI.',
         'health_intro_extra' => 'Health được cập nhật sau các request provider thực tế.',

@@ -30,6 +30,7 @@ final class AiRoutesExhaustionClassifier
         'connection_paid_locked',
         'connection_suppressed',
         'paid_lane_suppressed',
+        'free_lane_suppressed',
     ];
 
     /** @var list<string> */
@@ -43,6 +44,7 @@ final class AiRoutesExhaustionClassifier
 
     /** @var list<string> */
     private const HARD_FAILURES = [
+        AiFailureClass::DailyFreeQuotaExhausted->value,
         AiFailureClass::ModelNotFound->value,
         AiFailureClass::CredentialInvalid->value,
         AiFailureClass::BillingExhausted->value,

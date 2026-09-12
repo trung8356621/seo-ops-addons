@@ -266,6 +266,33 @@ final class AiProviderFailureClassifier
         }
 
         if ($httpStatus === 429 || $this->matchesRateLimit($lower, $providerCode)) {
+            if ($dailyFreeQuota = $this->extractDailyFreeQuotaExhausted($exception, $lower)) {
+                return $this->allow(
+                    category: AiFailureClass::DailyFreeQuotaExhausted,
+                    scope: AiFailureScope::ConnectionFree,
+                    safeMessage: 'OpenRouter daily free model quota exhausted.',
+                    errorCode: '429',
+                    httpStatus: 429,
+                    healthStatus: AiRuntimeHealthStatus::Degraded,
+                    manualUnlockRequired: false,
+                    applyCooldown: false,
+                    markModelUnavailable: false,
+                    lockConnection: false,
+                    lockConnectionPaid: false,
+                    suppressConnectionFree: true,
+                    failureStage: 'provider_http',
+                    providerErrorCode: $providerCode,
+                    requestSent: true,
+                    responseReceived: true,
+                    affectsRuntimeHealth: true,
+                    limitSource: $dailyFreeQuota['limit_source'],
+                    rateLimitLimit: $dailyFreeQuota['rate_limit_limit'],
+                    rateLimitRemaining: $dailyFreeQuota['rate_limit_remaining'],
+                    rateLimitReset: $dailyFreeQuota['rate_limit_reset'],
+                    freeDailyResetAt: $dailyFreeQuota['free_daily_reset_at'],
+                );
+            }
+
             if ($this->matchesAccountWideQuota($lower, $providerCode) || $this->matchesBilling($lower, $providerCode)) {
                 return $this->allow(
                     category: AiFailureClass::RateLimited,
@@ -782,11 +809,17 @@ final class AiProviderFailureClassifier
         bool $markModelUnavailable = false,
         bool $lockConnection = false,
         bool $lockConnectionPaid = false,
+        bool $suppressConnectionFree = false,
         ?string $failureStage = null,
         ?string $providerErrorCode = null,
         ?bool $requestSent = null,
         ?bool $responseReceived = null,
         bool $affectsRuntimeHealth = true,
+        ?string $limitSource = null,
+        ?string $rateLimitLimit = null,
+        ?string $rateLimitRemaining = null,
+        ?string $rateLimitReset = null,
+        ?string $freeDailyResetAt = null,
     ): AiFailureDecision {
         return new AiFailureDecision(
             category: $category,
@@ -802,12 +835,110 @@ final class AiProviderFailureClassifier
             markModelUnavailable: $markModelUnavailable,
             lockConnection: $lockConnection,
             lockConnectionPaid: $lockConnectionPaid,
+            suppressConnectionFree: $suppressConnectionFree,
             affectsRuntimeHealth: $affectsRuntimeHealth,
             failureStage: $failureStage,
             providerErrorCode: $providerErrorCode,
             requestSent: $requestSent,
             responseReceived: $responseReceived,
+            limitSource: $limitSource,
+            rateLimitLimit: $rateLimitLimit,
+            rateLimitRemaining: $rateLimitRemaining,
+            rateLimitReset: $rateLimitReset,
+            freeDailyResetAt: $freeDailyResetAt,
         );
+    }
+
+    /**
+     * Detect OpenRouter free-tier daily quota exhaustion (free-models-per-day).
+     *
+     * Detection priority:
+     * A. structured: metadata.limit_source === "openrouter_free_tier_daily"
+     * B. fallback: provider error/message contains "free-models-per-day"
+     *
+     * @return array{
+     *   limit_source: string,
+     *   rate_limit_limit: ?string,
+     *   rate_limit_remaining: ?string,
+     *   rate_limit_reset: ?string,
+     *   free_daily_reset_at: ?string
+     * }|null
+     */
+    private function extractDailyFreeQuotaExhausted(\Throwable $exception, string $lower): ?array
+    {
+        $limitSource = null;
+        $limit = null;
+        $remaining = null;
+        $reset = null;
+
+        // Structured JSON inspection from context or raw message
+        $json = null;
+        if ($exception instanceof PromptRunException && is_array($exception->context['response_body'] ?? null)) {
+            $json = $exception->context['response_body'];
+        }
+        if ($json === null) {
+            $rawMessage = $exception->getMessage();
+            if (preg_match('/\{[\s\S]*\}/', $rawMessage, $matches)) {
+                $decoded = json_decode($matches[0], true);
+                if (is_array($decoded)) {
+                    $json = $decoded;
+                }
+            }
+        }
+
+        if (is_array($json)) {
+            $metadata = data_get($json, 'error.metadata');
+            if (is_array($metadata)) {
+                if ((string) ($metadata['limit_source'] ?? '') === 'openrouter_free_tier_daily') {
+                    $limitSource = 'openrouter_free_tier_daily';
+                }
+                $headers = is_array($metadata['headers'] ?? null) ? $metadata['headers'] : [];
+                $limit = isset($headers['X-RateLimit-Limit']) ? (string) $headers['X-RateLimit-Limit'] : null;
+                $remaining = isset($headers['X-RateLimit-Remaining']) ? (string) $headers['X-RateLimit-Remaining'] : null;
+                $reset = isset($headers['X-RateLimit-Reset']) ? (string) $headers['X-RateLimit-Reset'] : null;
+            }
+        }
+
+        // Detection priority A (structured / explicit limit_source)
+        if ($limitSource === null && str_contains($lower, 'openrouter_free_tier_daily')) {
+            $limitSource = 'openrouter_free_tier_daily';
+        }
+
+        // Detection priority B (fallback wording: free-models-per-day)
+        if ($limitSource === null && str_contains($lower, 'free-models-per-day')) {
+            $limitSource = 'openrouter_free_tier_daily';
+        }
+
+        if ($limitSource === null) {
+            return null;
+        }
+
+        // Check context headers if not already found in metadata.headers
+        if ($exception instanceof PromptRunException && is_array($exception->context['headers'] ?? null)) {
+            $hdrs = $exception->context['headers'];
+            $limit = $limit ?? (isset($hdrs['x-ratelimit-limit'][0]) ? (string) $hdrs['x-ratelimit-limit'][0] : null);
+            $remaining = $remaining ?? (isset($hdrs['x-ratelimit-remaining'][0]) ? (string) $hdrs['x-ratelimit-remaining'][0] : null);
+            $reset = $reset ?? (isset($hdrs['x-ratelimit-reset'][0]) ? (string) $hdrs['x-ratelimit-reset'][0] : null);
+        }
+
+        // Calculate free_daily_reset_at from reset timestamp (supports milliseconds or seconds)
+        $freeDailyResetAt = null;
+        if ($reset !== null && is_numeric($reset)) {
+            $rawVal = (float) $reset;
+            $seconds = $rawVal > 100_000_000_000 ? (int) ($rawVal / 1000) : (int) $rawVal;
+            try {
+                $freeDailyResetAt = \Illuminate\Support\Carbon::createFromTimestamp($seconds)->toIso8601String();
+            } catch (\Throwable) {
+            }
+        }
+
+        return [
+            'limit_source' => $limitSource,
+            'rate_limit_limit' => $limit,
+            'rate_limit_remaining' => $remaining,
+            'rate_limit_reset' => $reset,
+            'free_daily_reset_at' => $freeDailyResetAt,
+        ];
     }
 
     private function deny(

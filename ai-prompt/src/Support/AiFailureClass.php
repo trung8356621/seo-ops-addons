@@ -13,6 +13,7 @@ enum AiFailureClass: string
     case ModelAccessDenied = 'model_access_denied';
     case ModelNotFound = 'model_not_found';
     case RateLimited = 'rate_limited';
+    case DailyFreeQuotaExhausted = 'daily_free_quota_exhausted';
     case TransientProvider = 'transient_provider';
     case ProviderRefusal = 'provider_refusal';
     case ProviderEmptyOutput = 'provider_empty_output';

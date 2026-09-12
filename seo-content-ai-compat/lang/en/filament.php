@@ -1706,6 +1706,7 @@ return [
         'tab_routing' => 'Routing',
         'tab_resilience' => 'Resilience',
         'tab_health' => 'Health',
+        'tab_usage' => 'Usage',
         'health_page_title' => 'AI Health',
         'health_intro' => 'Monitor the operational health of AI connections and models.',
         'health_intro_extra' => 'Health is updated after actual provider requests.',

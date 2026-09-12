@@ -26,6 +26,9 @@ class PromptResultRoutingAttempt extends Model
         'duration_ms' => 'integer',
         'token_usage' => 'array',
         'raw' => 'array',
+        'input_tokens' => 'integer',
+        'output_tokens' => 'integer',
+        'total_tokens' => 'integer',
     ];
 
     public function promptResult(): BelongsTo

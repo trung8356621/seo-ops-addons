@@ -135,6 +135,12 @@ final class OpenAiCompatibleProtocolAdapter
             throw new PromptRunException(
                 'Provider API error ('.$response->status().'): '.AiProviderSecureHttpClient::redact($response->body()),
                 $response->status(),
+                null,
+                [
+                    'http_status' => $response->status(),
+                    'response_body' => $response->json(),
+                    'headers' => $response->headers(),
+                ],
             );
         }
 
