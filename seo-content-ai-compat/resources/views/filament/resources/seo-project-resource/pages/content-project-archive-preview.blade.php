@@ -5,7 +5,11 @@
 
     $month = (int) ($summary['month'] ?? 0);
     $year = (int) ($summary['year'] ?? 0);
-    $period = ($month > 0 && $year > 0) ? sprintf('%02d/%d', $month, $year) : '—';
+    $period = trim((string) ($summary['period_label'] ?? ''));
+    if ($period === '') {
+        $period = ($month > 0 && $year > 0) ? sprintf('%02d/%d', $month, $year) : '—';
+    }
+    $isGlobalLegacy = (bool) ($summary['is_global_legacy'] ?? false);
 @endphp
 
 <x-filament-panels::page>
@@ -23,6 +27,11 @@
         <div class="fi-archive-preview-summary rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900 sm:p-5">
             <h2 class="text-base font-semibold text-gray-950 dark:text-white">
                 {{ e((string) ($summary['project_name'] ?? '')) ?: '—' }}
+                @if ($isGlobalLegacy)
+                    <span class="ml-2 inline-flex items-center rounded-md bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-900 dark:bg-amber-500/20 dark:text-amber-100">
+                        {{ \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGlobalLegacyArchive::badgeLabel() }}
+                    </span>
+                @endif
             </h2>
 
             <div class="fi-archive-preview-summary-grid mt-4">
@@ -78,6 +87,44 @@
             </div>
         @endif
 
+        <div class="flex flex-wrap items-center justify-between gap-3">
+            <h3 class="text-sm font-semibold text-gray-950 dark:text-white">
+                {{ __('seo-content-ai::filament.projects.archive_preview_articles') }}
+            </h3>
+            <div class="inline-flex rounded-lg border border-gray-200 bg-white p-0.5 dark:border-gray-700 dark:bg-gray-900">
+                <button
+                    type="button"
+                    wire:click="setArticleViewMode('table')"
+                    @class([
+                        'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition',
+                        'bg-primary-600 text-white shadow-sm' => ($this->articleViewMode ?? 'table') !== 'list',
+                        'text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800' => ($this->articleViewMode ?? 'table') === 'list',
+                    ])
+                >
+                    <x-filament::icon icon="heroicon-o-table-cells" class="h-4 w-4" />
+                    {{ __('seo-content-ai::filament.projects.archive_view_table') }}
+                </button>
+                <button
+                    type="button"
+                    wire:click="setArticleViewMode('list')"
+                    @class([
+                        'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-medium transition',
+                        'bg-primary-600 text-white shadow-sm' => ($this->articleViewMode ?? 'table') === 'list',
+                        'text-gray-600 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-gray-800' => ($this->articleViewMode ?? 'table') !== 'list',
+                    ])
+                >
+                    <x-filament::icon icon="heroicon-o-bars-3-bottom-left" class="h-4 w-4" />
+                    {{ __('seo-content-ai::filament.projects.archive_view_list') }}
+                </button>
+            </div>
+        </div>
+
+        @if (($this->articleViewMode ?? 'table') === 'list')
+            @include('seo-content-ai::filament.resources.seo-project-resource.partials.archive-preview-list', [
+                'rows' => $rows,
+                'dashboard' => $this->getListDashboard(),
+            ])
+        @else
         <div class="fi-archive-preview-table w-full overflow-x-auto rounded-xl border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-900">
             <table class="w-full min-w-full table-auto divide-y divide-gray-200 text-sm dark:divide-gray-700">
                 <thead class="sticky top-0 z-10 bg-gray-50 dark:bg-gray-800/95">
@@ -237,6 +284,7 @@
                 </tbody>
             </table>
         </div>
+        @endif
     </div>
 
     @if (is_array($this->gscInspectionRun) && $this->gscInspectionRun !== [])

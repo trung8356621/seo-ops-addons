@@ -32,8 +32,9 @@ final class AiRuntimeHealthService
 
     public function skipReason(int $userId, RoutedAiCandidate $candidate): ?string
     {
-        // Connection preference Free only (api_connections.paid_locked) — before provider call.
-        if ($candidate->isFree === false && $this->connectionPrefersFreeOnly($candidate->connection)) {
+        // SSOT: api_connections.paid_locked only (paid lane). Free candidates ignore this.
+        // Deprecated: ai_runtime_health_states.paid_locked is observability — not enforcement.
+        if ($candidate->isFree === false && $this->connectionPaidLaneLocked($candidate->connection)) {
             return 'connection_paid_locked';
         }
 
@@ -47,12 +48,6 @@ final class AiRuntimeHealthService
         if ($connectionHealth !== null) {
             if ($connectionHealth->health_status === AiRuntimeHealthStatus::ConnectionLocked->value) {
                 return 'connection_locked';
-            }
-
-            if ($candidate->isFree === false
-                && $connectionHealth->paid_locked
-                && $connectionHealth->health_status === AiRuntimeHealthStatus::BudgetLimited->value) {
-                return 'connection_paid_locked';
             }
 
             if ($this->isOnCooldown($connectionHealth)) {
@@ -143,7 +138,8 @@ final class AiRuntimeHealthService
         $connectionId = (int) $candidate->connection->id;
         $errorCode = $decision->errorCode ?? ($decision->httpStatus !== null ? (string) $decision->httpStatus : null);
 
-        $this->mutateSubject($userId, AiRuntimeHealthState::SUBJECT_CONNECTION, $connectionId, $connectionId, function (AiRuntimeHealthState $row) use ($decision, $now, $errorCode, $userId): void {
+        $applyConnectionPaidLock = false;
+        $this->mutateSubject($userId, AiRuntimeHealthState::SUBJECT_CONNECTION, $connectionId, $connectionId, function (AiRuntimeHealthState $row) use ($decision, $now, $errorCode, $userId, &$applyConnectionPaidLock): void {
             $previous = AiRuntimeHealthStatus::tryFrom($row->health_status) ?? AiRuntimeHealthStatus::NoData;
             $this->incrementFailureCounters($row, $errorCode, $decision, $now);
             $this->bumpScopedConsecutiveCounters($row, $decision);
@@ -156,9 +152,11 @@ final class AiRuntimeHealthService
             } elseif ($decision->lockConnectionPaid
                 || (($this->scopedConsecutive($row, 'consecutive_paid_lane') >= self::DEGRADED_THRESHOLD)
                     && ($decision->scope === AiFailureScope::ConnectionPaid || $decision->lockConnectionPaid))) {
+                // Observability only — authoritative paid lock is api_connections via ConnectionPaidLockService.
                 $row->health_status = AiRuntimeHealthStatus::BudgetLimited->value;
-                $row->paid_locked = true;
+                $row->paid_locked = true; // deprecated mirror; not used for route enforcement
                 $row->manual_unlock_required = true;
+                $applyConnectionPaidLock = true;
             } elseif ($decision->applyCooldown && $this->cooldownAppliesToConnection($decision)) {
                 // Model-scoped transient/429 must not cooldown the whole connection —
                 // sibling models on the same connection must still be tried in-route.
@@ -168,6 +166,14 @@ final class AiRuntimeHealthService
 
             $this->maybeNotifyFailure($userId, $row, $previous, $decision);
         });
+
+        if ($applyConnectionPaidLock) {
+            app(ConnectionPaidLockService::class)->addReason(
+                $candidate->connection,
+                \Omnichannel\Addons\AiPrompt\Support\PaidLockReason::BudgetLimited,
+            );
+            $candidate->connection->refresh();
+        }
 
         if ($candidate->seoAiModelId !== null) {
             $this->mutateSubject(
@@ -210,9 +216,10 @@ final class AiRuntimeHealthService
         $previous = AiRuntimeHealthStatus::tryFrom($row->health_status) ?? AiRuntimeHealthStatus::NoData;
         $row->health_status = AiRuntimeHealthStatus::Healthy->value;
         $row->manual_unlock_required = false;
-        $row->paid_locked = false;
+        $row->paid_locked = false; // deprecated mirror
         $row->cooldown_until = null;
         $row->save();
+        $this->clearConnectionBudgetLockReason($connectionId);
         $this->maybeNotifyRecovery($userId, $row, $previous);
     }
 
@@ -246,18 +253,23 @@ final class AiRuntimeHealthService
             }
             $row->health_status = AiRuntimeHealthStatus::Healthy->value;
             $row->manual_unlock_required = false;
-            $row->paid_locked = false;
+            $row->paid_locked = false; // deprecated mirror
             $row->cooldown_until = null;
             $row->save();
             $cleared++;
             $this->maybeNotifyRecovery((int) $row->user_id, $row, $previous);
         }
 
+        $this->clearConnectionBudgetLockReason($connectionId);
+
         return $cleared;
     }
 
     public function enablePaidRoutes(int $userId, int $connectionId): void
     {
+        // Authoritative: remove budget_limited from api_connections (keeps manual_free_only).
+        $this->clearConnectionBudgetLockReason($connectionId);
+
         if (! $this->tableReady()) {
             return;
         }
@@ -268,7 +280,7 @@ final class AiRuntimeHealthService
         }
 
         $previous = AiRuntimeHealthStatus::tryFrom($row->health_status) ?? AiRuntimeHealthStatus::NoData;
-        $row->paid_locked = false;
+        $row->paid_locked = false; // deprecated mirror
         if ($row->health_status === AiRuntimeHealthStatus::BudgetLimited->value) {
             $row->health_status = AiRuntimeHealthStatus::Healthy->value;
             $row->manual_unlock_required = false;
@@ -400,7 +412,13 @@ final class AiRuntimeHealthService
             'provider' => $connection !== null ? (string) $connection->provider : '',
             'health_status' => $status->value,
             'health_label' => $status->label(),
-            'paid_locked' => (bool) ($row?->paid_locked ?? false),
+            'paid_locked' => (bool) ($row?->paid_locked ?? false), // deprecated mirror; SSOT is api_connections
+            'paid_lock_reasons' => $connection !== null
+                ? app(ConnectionPaidLockService::class)->reasonValues($connection)
+                : [],
+            'connection_paid_locked' => $connection !== null
+                ? app(ConnectionPaidLockService::class)->isPaidLocked($connection)
+                : false,
             'manual_unlock_required' => (bool) ($row?->manual_unlock_required ?? false),
             'success_count' => (int) ($row?->success_count ?? 0),
             'failure_count' => (int) ($row?->failure_count ?? 0),
@@ -469,9 +487,9 @@ final class AiRuntimeHealthService
     }
 
     /**
-     * User preference on api_connections.paid_locked (Free only) — not runtime health budget lock.
+     * Authoritative paid-lane lock on api_connections (manual_free_only and/or budget_limited).
      */
-    private function connectionPrefersFreeOnly(ApiConnection $connection): bool
+    private function connectionPaidLaneLocked(ApiConnection $connection): bool
     {
         if (array_key_exists('paid_locked', $connection->getAttributes())) {
             return (bool) $connection->getAttribute('paid_locked');
@@ -487,6 +505,23 @@ final class AiRuntimeHealthService
         }
 
         return (bool) ($connection->getAttribute('paid_locked') ?? false);
+    }
+
+    private function clearConnectionBudgetLockReason(int $connectionId): void
+    {
+        if ($connectionId <= 0) {
+            return;
+        }
+
+        $connection = ApiConnection::query()->find($connectionId);
+        if (! $connection instanceof ApiConnection) {
+            return;
+        }
+
+        app(ConnectionPaidLockService::class)->removeReason(
+            $connection,
+            \Omnichannel\Addons\AiPrompt\Support\PaidLockReason::BudgetLimited,
+        );
     }
 
     private function connectionName(): string
@@ -756,7 +791,8 @@ final class AiRuntimeHealthService
             return ['label' => 'Enable connection', 'action' => 'unlock_connection'];
         }
 
-        if ($row->paid_locked) {
+        if ($row->paid_locked
+            || $row->health_status === AiRuntimeHealthStatus::BudgetLimited->value) {
             return ['label' => 'Enable paid routes', 'action' => 'enable_paid_routes'];
         }
 

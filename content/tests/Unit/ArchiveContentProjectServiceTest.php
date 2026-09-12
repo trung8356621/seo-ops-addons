@@ -27,9 +27,20 @@ final class ArchiveContentProjectServiceTest extends TestCase
         self::assertNotNull($ctor);
         self::assertGreaterThanOrEqual(4, count($ctor->getParameters()));
 
-        foreach (['buildSummary', 'archive', 'restore', 'getCurrentArchive', 'previewStats', 'archiveGate', 'assertCanArchive'] as $method) {
+        foreach (['buildSummary', 'archive', 'restore', 'getCurrentArchive', 'previewStats', 'archiveGate', 'assertCanArchive', 'cleanupArchivedWorkspace'] as $method) {
             self::assertTrue($ref->hasMethod($method), "Missing method {$method}");
         }
+    }
+
+    public function test_manual_cleanup_archived_workspace_is_gc_not_lifecycle_reset(): void
+    {
+        $method = (new ReflectionClass(ArchiveContentProjectService::class))->getMethod('cleanupArchivedWorkspace');
+        $source = $this->readMethodSource($method);
+
+        self::assertStringContainsString('partitionHistoricalArticles', $source);
+        self::assertStringContainsString('destroyManualGarbageCollection', $source);
+        self::assertStringContainsString('workspace_articles_skipped_reused', $source);
+        self::assertStringNotContainsString('resetProjectTasksForFreshFlow', $source);
     }
 
     public function test_archive_uses_transaction_lock_and_does_not_touch_task_lifecycle(): void

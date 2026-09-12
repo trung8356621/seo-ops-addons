@@ -18,11 +18,33 @@ final class ContentProjectsServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->registerCapabilities();
+        $this->registerWorkspaceCleanup();
     }
 
     public function boot(): void
     {
         // Routes/migrations attach as extraction progresses.
+    }
+
+    private function registerWorkspaceCleanup(): void
+    {
+        $this->app->singleton(
+            \Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\ContentProjectWorkspaceCleanupRegistry::class,
+            function ($app) {
+                return new \Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\ContentProjectWorkspaceCleanupRegistry([
+                    $app->make(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaners\ExecutionWorkspaceCleaner::class),
+                    $app->make(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaners\PromptWorkspaceCleaner::class),
+                    $app->make(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaners\RuntimeWorkspaceCleaner::class),
+                    $app->make(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaners\LocalMediaWorkspaceCleaner::class),
+                    $app->make(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaners\GalleryExecutionWorkspaceCleaner::class),
+                    $app->make(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaners\EditorRevisionWorkspaceCleaner::class),
+                    $app->make(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaners\PendingArtifactsWorkspaceCleaner::class),
+                    $app->make(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\Cleaners\CacheLockWorkspaceCleaner::class),
+                ]);
+            },
+        );
+        $this->app->singleton(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\ContentProjectAiWorkspaceDestroyer::class);
+        $this->app->singleton(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\ContentProjectWorkspaceArticleOwnershipGuard::class);
     }
 
     private function registerCapabilities(): void

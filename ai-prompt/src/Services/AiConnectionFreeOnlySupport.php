@@ -55,7 +55,8 @@ final class AiConnectionFreeOnlySupport
         }
 
         if ($this->supports($connection)) {
-            if ((bool) $connection->paid_locked && ! OpenRouterModelEconomics::isOpenRouterProvider((string) $connection->provider)
+            if ((bool) app(ConnectionPaidLockService::class)->hasReason($connection, \Omnichannel\Addons\AiPrompt\Support\PaidLockReason::ManualFreeOnly)
+                && ! OpenRouterModelEconomics::isOpenRouterProvider((string) $connection->provider)
                 && ! $this->hasActiveFreeModel((int) $connection->id)) {
                 return (string) __('seo-content-ai::filament.api_connections.free_only_no_active_free');
             }

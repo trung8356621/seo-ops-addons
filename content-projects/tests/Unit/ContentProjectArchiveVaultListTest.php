@@ -115,8 +115,9 @@ final class ContentProjectArchiveVaultListTest extends TestCase
     {
         $source = (string) file_get_contents((new ReflectionClass(ContentProjectArchive::class))->getFileName());
 
-        self::assertStringContainsString('whereIn(\'site_id\'', $source);
-        self::assertStringContainsString('where(\'site_id\'', $source);
+        self::assertStringContainsString('ContentProjectArchiveAccessScope', $source);
+        self::assertStringContainsString('constrainQuery', $source);
+        self::assertStringContainsString('constrainQueryToSiteFilter', $source);
         self::assertStringContainsString('where(\'project_month\'', $source);
         self::assertStringContainsString('where(\'project_year\'', $source);
         self::assertStringContainsString('where(\'owner_id\'', $source);
@@ -129,6 +130,7 @@ final class ContentProjectArchiveVaultListTest extends TestCase
         self::assertStringContainsString('updatedOwnerFilter', $source);
         self::assertStringContainsString('updatedArchivedByFilter', $source);
         self::assertStringContainsString('resetPage()', $source);
+        self::assertStringNotContainsString("orWhereNull('site_id')", $source);
     }
 
     public function test_active_filter_count_excludes_search_and_defaults(): void

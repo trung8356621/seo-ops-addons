@@ -25,6 +25,7 @@ final class AiRuntimeHealthState extends Model
         'subject_id',
         'api_connection_id',
         'health_status',
+        // Deprecated non-authoritative mirror — SSOT is api_connections.paid_locked + paid_lock_reasons.
         'paid_locked',
         'manual_unlock_required',
         'cooldown_until',

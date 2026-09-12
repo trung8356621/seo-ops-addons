@@ -19,6 +19,8 @@ class EditAiConnection extends SeoEditRecord
 
     protected static string $view = 'seo-content-ai::filament.pages.seo-settings-ai-form';
 
+    private ?bool $pendingManualFreeOnly = null;
+
     public function getTitle(): string
     {
         return __('seo-content-ai::filament.api_connections.edit_ai');
@@ -128,6 +130,11 @@ class EditAiConnection extends SeoEditRecord
         if (ApiConnectionProviders::isAi($provider)) {
             $data['metadata'] = app(\Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\ProviderConnectionResolver::class)
                 ->sanitizeSubmittedMetadata((int) auth()->id(), $provider, is_array($data['metadata'] ?? null) ? $data['metadata'] : []);
+            // paid_locked form toggle = manual_free_only intent; never write boolean raw (budget_limited may coexist).
+            $this->pendingManualFreeOnly = array_key_exists('paid_locked', $data)
+                ? (bool) $data['paid_locked']
+                : null;
+            unset($data['paid_locked']);
         }
 
         return $data;
@@ -166,7 +173,14 @@ class EditAiConnection extends SeoEditRecord
             return;
         }
 
-        // New credentials invalidate prior connection_locked / paid_locked health.
+        if ($this->pendingManualFreeOnly !== null) {
+            app(\Omnichannel\Addons\AiPrompt\Services\SetAiConnectionFreeOnly::class)
+                ->handle($this->record, $this->pendingManualFreeOnly);
+            $this->pendingManualFreeOnly = null;
+            $this->record->refresh();
+        }
+
+        // New credentials invalidate prior connection_locked / budget health locks (not manual_free_only).
         if (\Omnichannel\Addons\AiPrompt\Support\AiConnectionCredential::isUsable($this->record->api_key)) {
             app(\Omnichannel\Addons\AiPrompt\Services\AiRuntimeHealthService::class)
                 ->unlockConnectionForApiConnection((int) $this->record->id);
@@ -174,7 +188,7 @@ class EditAiConnection extends SeoEditRecord
 
         app(AiModelRouterService::class)->syncModelsForConnection((int) $this->record->id);
         app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionInventoryService::class)->forgetCache();
-            app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionCoverageService::class)
-                ->reconcileAllAreas((int) auth()->id());
-        }
+        app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionCoverageService::class)
+            ->reconcileAllAreas((int) auth()->id());
     }
+}

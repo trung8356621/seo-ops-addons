@@ -694,6 +694,7 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
                 \Omnichannel\Addons\AiPrompt\Console\PromptHookParityReportCommand::class,
                 \Omnichannel\Addons\ContentProjects\Console\BackfillContentProjectRunItemsCommand::class,
                 \Omnichannel\Addons\ContentProjects\Console\DiagnoseContentProjectArchiveCommand::class,
+                \Omnichannel\Addons\ContentProjects\Console\ImportLegacyContentArchiveCommand::class,
                 \Omnichannel\Addons\SiteSync\Console\DiagnoseContentProjectSyncCommand::class,
                 \Omnichannel\Addons\ContentProjects\Console\DiagnoseContentProjectCommand::class,
                 \Omnichannel\Addons\ContentProjects\Console\ContentProjectRunStatusCommand::class,

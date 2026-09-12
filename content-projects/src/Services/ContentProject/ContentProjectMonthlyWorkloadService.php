@@ -10,6 +10,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProjectStaffAvailabilityS
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterCapacitySettingsService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterMonthlyCapacityService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGlobalLegacyArchive;
 use App\Models\User;
 use App\Services\Users\SeoOpsSystemUser;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
@@ -358,6 +359,9 @@ final class ContentProjectMonthlyWorkloadService
             $query->whereNotNull('p.archived_at');
         }
         // SCOPE_ALL: intentionally includes both active and archived projects.
+
+        // Global Legacy import is pinned UI only — never monthly execution workload.
+        ContentProjectGlobalLegacyArchive::excludeFromProjectAlias($query, 'p');
 
         return $query;
     }

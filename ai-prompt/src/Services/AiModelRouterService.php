@@ -400,6 +400,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                     array_merge(
                         array_filter($budgetMeta(), static fn (mixed $v): bool => $v !== null && $v !== ''),
                         $this->siblingRouteMeta($candidates, $index, $suppressedConnections, $suppressedPaidLanes, $attemptedPhysicalRoutes),
+                        $this->connectionPaidLockAttemptMeta($candidate, $healthBefore),
                     ),
                 );
                 if ($healthBefore === 'connection_locked') {
@@ -1043,6 +1044,24 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
             'quality_rules' => is_array($rules) ? array_values(array_map('strval', $rules)) : null,
             'quality_sample' => is_string($sample) && $sample !== '' ? mb_substr($sample, 0, 120) : null,
         ], static fn (mixed $value): bool => $value !== null && $value !== []);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function connectionPaidLockAttemptMeta(RoutedAiCandidate $candidate, ?string $skipReason): array
+    {
+        if ($skipReason !== 'connection_paid_locked') {
+            return [];
+        }
+
+        $reasons = app(ConnectionPaidLockService::class)->reasonValues($candidate->connection);
+
+        return [
+            'connection_paid_locked' => true,
+            'lock_reasons' => $reasons,
+            'paid_lock_reasons' => $reasons,
+        ];
     }
 
     private function applyLegacyHealthSideEffects(RoutedAiCandidate $candidate, AiFailureDecision $decision): void

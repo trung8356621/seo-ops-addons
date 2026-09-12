@@ -13,6 +13,9 @@ use Omnichannel\Addons\AiPrompt\Filament\Resources\AiConnectionResource;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Services\ArticleManualIndexMarkerService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ArchivePreviewArticlePresenter;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\CanonicalArchiveListDashboardBuilder;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGlobalLegacyArchive;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectArchiveAccessScope;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoGscUrlInspectionRunItem;
 use Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\UrlInspection\GscUrlInspectionBindingResolver;
 use Omnichannel\Addons\SearchIntelligence\Services\GscIntelligence\UrlInspection\GscUrlInspectionPolicy;
@@ -57,6 +60,14 @@ final class ContentProjectArchivePreview extends Page
     /** @var list<array<string, mixed>> */
     public array $articleRows = [];
 
+    /** table|list — default table; persist via ?view=list */
+    public string $articleViewMode = 'table';
+
+    /** @var array<string, mixed> */
+    protected $queryString = [
+        'articleViewMode' => ['as' => 'view', 'except' => 'table'],
+    ];
+
     public bool $cleanupWorkspaceBusy = false;
 
     public bool $markingIndexBusy = false;
@@ -79,6 +90,9 @@ final class ContentProjectArchivePreview extends Page
         $this->archive = (int) $archive;
         $this->snapshotLoadError = null;
         $this->articleRows = [];
+        $this->articleViewMode = $this->normalizeArticleViewMode(
+            $this->articleViewMode !== 'table' ? $this->articleViewMode : request()->query('view'),
+        );
 
         try {
             $this->archiveRecord = SeoProjectArchive::query()
@@ -122,10 +136,26 @@ final class ContentProjectArchivePreview extends Page
             }
         }
 
-        $siteId = (int) ($this->archiveRecord->site_id ?? 0);
-        abort_unless($siteId > 0 && SeoAccessControl::canAccessSite($siteId), 403);
+        $this->assertCanAccessArchivePreview($this->archiveRecord);
 
         $this->refreshGscInspectionRun();
+    }
+
+    public function setArticleViewMode(string $mode): void
+    {
+        $this->articleViewMode = $this->normalizeArticleViewMode($mode);
+    }
+
+    /**
+     * @return array{
+     *     groups: list<array<string, mixed>>,
+     *     month_options: list<array{value: string, label: string}>,
+     *     domain_options: list<array{value: int, label: string}>
+     * }
+     */
+    public function getListDashboard(): array
+    {
+        return app(CanonicalArchiveListDashboardBuilder::class)->build($this->articleRows);
     }
 
     public function getTitle(): string|Htmlable
@@ -144,7 +174,7 @@ final class ContentProjectArchivePreview extends Page
                 ->label('Check Index All')
                 ->icon('heroicon-o-magnifying-glass-circle')
                 ->color('gray')
-                ->visible(fn (): bool => $this->countGscInspectableArticles() > 0)
+                ->visible(fn (): bool => $this->archivePrimarySiteId() > 0 && $this->countGscInspectableArticles() > 0)
                 ->disabled(fn (): bool => $this->isGscInspectionRunning())
                 ->action(fn (): null => $this->startCheckIndexAll()),
             Actions\Action::make('cleanup_workspace')
@@ -237,8 +267,8 @@ final class ContentProjectArchivePreview extends Page
             return null;
         }
 
-        // 1) Current site
-        $siteId = (int) ($this->archiveRecord->site_id ?? 0);
+        // 1) Current site (single-domain archives only)
+        $siteId = $this->archivePrimarySiteId();
         abort_unless($siteId > 0 && SeoAccessControl::canAccessSite($siteId), 403);
 
         if ($this->isGscInspectionRunning()) {
@@ -877,13 +907,21 @@ final class ContentProjectArchivePreview extends Page
         }
 
         $snapshot = is_array($this->archiveRecord->summary_snapshot) ? $this->archiveRecord->summary_snapshot : [];
+        $domain = $this->resolveArchiveDomainLabel($this->archiveRecord, $snapshot);
+        $isGlobalLegacy = ContentProjectGlobalLegacyArchive::isGlobalLegacyArchive($this->archiveRecord);
 
         return [
             'project_name' => (string) ($this->archiveRecord->project_name ?: ($snapshot['project_name'] ?? '')),
-            'domain' => trim((string) ($this->archiveRecord->site?->domain ?? ($snapshot['domain_name'] ?? ''))),
+            'domain' => $domain,
+            'multi_domain' => (int) ($this->archiveRecord->site_id ?? 0) <= 0
+                || (bool) ($snapshot['multi_domain'] ?? false),
             'owner' => trim((string) ($this->archiveRecord->owner?->name ?? ($snapshot['owner_name'] ?? ''))),
-            'month' => (int) ($this->archiveRecord->project_month ?? ($snapshot['month'] ?? 0)),
-            'year' => (int) ($this->archiveRecord->project_year ?? ($snapshot['year'] ?? 0)),
+            'month' => $isGlobalLegacy ? 0 : (int) ($this->archiveRecord->project_month ?? ($snapshot['month'] ?? 0)),
+            'year' => $isGlobalLegacy ? 0 : (int) ($this->archiveRecord->project_year ?? ($snapshot['year'] ?? 0)),
+            'period_label' => $isGlobalLegacy
+                ? ContentProjectGlobalLegacyArchive::monthLabel()
+                : null,
+            'is_global_legacy' => $isGlobalLegacy,
             'total_articles' => (int) ($this->archiveRecord->total_articles ?? $this->archiveRecord->articles_count ?? ($snapshot['total_articles'] ?? 0)),
             'completed_articles' => (int) ($this->archiveRecord->completed_articles ?? ($snapshot['completed_articles'] ?? 0)),
             'synced_articles' => (int) ($this->archiveRecord->synced_articles ?? ($snapshot['synced_articles'] ?? 0)),
@@ -917,8 +955,30 @@ final class ContentProjectArchivePreview extends Page
      */
     private function formatCleanupStats(array $stats): string
     {
+        $safe = (int) ($stats['workspace_articles_safe'] ?? 0);
+        $skipped = (int) ($stats['workspace_articles_skipped_reused'] ?? 0);
+
+        $summary = __('seo-content-ai::filament.projects.archive_cleanup_workspace_summary', [
+            'safe' => $safe,
+            'skipped' => $skipped,
+        ]);
+
+        $detailKeys = [
+            'runs_deleted',
+            'run_items_deleted',
+            'prompt_result_links_deleted',
+            'prompt_results_deleted',
+            'runtime_metas_deleted',
+            'wp_sync_jobs_deleted',
+            'local_media_deleted',
+            'editor_revisions_deleted',
+            'gallery_executions_deleted',
+            'pending_internal_links_deleted',
+        ];
+
         $parts = [];
-        foreach ($stats as $key => $value) {
+        foreach ($detailKeys as $key) {
+            $value = (int) ($stats[$key] ?? 0);
             if ($value <= 0) {
                 continue;
             }
@@ -926,9 +986,23 @@ final class ContentProjectArchivePreview extends Page
             $parts[] = str_replace('_', ' ', $key).': '.$value;
         }
 
-        return $parts !== []
-            ? implode(' | ', array_slice($parts, 0, 6))
-            : __('seo-content-ai::filament.projects.archive_cleanup_workspace_noop');
+        if ($parts === []) {
+            $hasAnyPositive = false;
+            foreach ($stats as $value) {
+                if ((int) $value > 0) {
+                    $hasAnyPositive = true;
+                    break;
+                }
+            }
+
+            if (! $hasAnyPositive && $safe === 0 && $skipped === 0) {
+                return __('seo-content-ai::filament.projects.archive_cleanup_workspace_noop');
+            }
+
+            return $summary;
+        }
+
+        return $summary.' · '.implode(' | ', array_slice($parts, 0, 4));
     }
 
     private function rebuildArticleRows(): void
@@ -958,6 +1032,50 @@ final class ContentProjectArchivePreview extends Page
             }
         }
         $socialCounts = app(ArticleSocialLinkService::class)->countsForArticles(array_values($articleIds));
-        $this->articleRows = $presenter->presentItems($items, $articlesById, $socialCounts);
+        $rows = $presenter->presentItems($items, $articlesById, $socialCounts);
+        $this->articleRows = app(ContentProjectArchiveAccessScope::class)->filterPresenterRows(
+            $rows,
+            SeoAccessControl::accessibleSiteIds(),
+            $this->archiveRecord,
+        );
+    }
+
+    private function normalizeArticleViewMode(mixed $mode): string
+    {
+        $normalized = strtolower(trim((string) $mode));
+
+        return $normalized === 'list' ? 'list' : 'table';
+    }
+
+    private function archivePrimarySiteId(): int
+    {
+        return (int) ($this->archiveRecord?->site_id ?? 0);
+    }
+
+    /**
+     * @param  array<string, mixed>  $snapshot
+     */
+    private function resolveArchiveDomainLabel(SeoProjectArchive $archive, array $snapshot): string
+    {
+        if ((int) ($archive->site_id ?? 0) <= 0 || (bool) ($snapshot['multi_domain'] ?? false)) {
+            $fromSnapshot = trim((string) ($snapshot['domain_name'] ?? ''));
+
+            return $fromSnapshot !== ''
+                ? $fromSnapshot
+                : (string) __('seo-content-ai::filament.projects.archive_domain_multiple');
+        }
+
+        return trim((string) ($archive->site?->domain ?? ($snapshot['domain_name'] ?? '')));
+    }
+
+    private function assertCanAccessArchivePreview(SeoProjectArchive $archive): void
+    {
+        abort_unless(
+            app(ContentProjectArchiveAccessScope::class)->userCanAccessArchive(
+                $archive,
+                SeoAccessControl::accessibleSiteIds(),
+            ),
+            403,
+        );
     }
 }

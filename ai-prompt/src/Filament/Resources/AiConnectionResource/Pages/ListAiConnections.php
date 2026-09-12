@@ -9,6 +9,7 @@ use Omnichannel\Addons\AiPrompt\Filament\Resources\AiConnectionResource;
 use Omnichannel\Addons\AiPrompt\Services\ApiConnectionsListService;
 use Omnichannel\Addons\AiPrompt\Services\SetAiConnectionActive;
 use Omnichannel\Addons\AiPrompt\Services\SetAiConnectionFreeOnly;
+use Omnichannel\Addons\AiPrompt\Services\ConnectionPaidLockService;
 use Omnichannel\Addons\SearchIntelligence\Services\SeoProviderCapabilityResolver;
 use Omnichannel\Addons\SearchIntelligence\Services\SeoProviderRegistry;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
@@ -139,7 +140,8 @@ class ListAiConnections extends ListRecords
             return;
         }
 
-        $nextFreeOnly = ! (bool) ($connection->paid_locked ?? false);
+        $nextFreeOnly = ! app(ConnectionPaidLockService::class)
+            ->hasReason($connection, \Omnichannel\Addons\AiPrompt\Support\PaidLockReason::ManualFreeOnly);
         try {
             $updated = app(SetAiConnectionFreeOnly::class)->handle($connection, $nextFreeOnly);
         } catch (\Throwable $e) {

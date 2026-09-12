@@ -11,6 +11,7 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectArchive;
 use Omnichannel\Addons\ContentProjects\Services\ArchiveContentProjectService;
 use Omnichannel\Addons\Content\Services\ArticleReviewService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectArchiveAccessScope;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ActorContext;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RestoreContentProjectCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectActionResultNotifier;
@@ -22,6 +23,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectMon
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectArchiveExportService;
 use Omnichannel\Addons\Content\Exceptions\ArticleReviewException;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectArchiveVaultListPresenter;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGlobalLegacyArchive;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthChartPresenter;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ExcelTemplate\ExcelDataLayoutMode;
@@ -306,15 +308,13 @@ final class ContentProjectArchive extends Page
                     ->orWhereHas('project', function (Builder $projectQuery): void {
                         $projectQuery->whereNotNull('archived_at');
                     });
-            })
-            ->orderByDesc('archived_at')
-            ->orderByDesc('id');
+            });
 
         ContentProjectArchiveVaultListPresenter::applyIndexSummaryAggregates($query);
+        ContentProjectGlobalLegacyArchive::orderPinnedFirst($query);
 
-        if ($this->scopedSiteIds !== []) {
-            $query->whereIn('site_id', $this->scopedSiteIds);
-        }
+        $accessScope = app(ContentProjectArchiveAccessScope::class);
+        $accessScope->constrainQuery($query, $this->scopedSiteIds);
 
         $search = trim($this->search);
         if ($search !== '') {
@@ -330,15 +330,14 @@ final class ContentProjectArchive extends Page
         }
 
         if ($this->siteFilter !== '' && (int) $this->siteFilter > 0) {
-            $query->where('site_id', (int) $this->siteFilter);
+            $accessScope->constrainQueryToSiteFilter($query, (int) $this->siteFilter);
         }
 
-        if ($this->monthFilter !== '' && (int) $this->monthFilter > 0) {
-            $query->where('project_month', (int) $this->monthFilter);
-        }
-
-        if ($this->yearFilter !== '' && (int) $this->yearFilter > 0) {
-            $query->where('project_year', (int) $this->yearFilter);
+        $month = ($this->monthFilter !== '' && (int) $this->monthFilter > 0) ? (int) $this->monthFilter : 0;
+        $year = ($this->yearFilter !== '' && (int) $this->yearFilter > 0) ? (int) $this->yearFilter : 0;
+        if ($month > 0 || $year > 0) {
+            // Monthly rows obey planning month; global Legacy is pinned outside monthly scope.
+            ContentProjectGlobalLegacyArchive::applyMonthYearOrGlobal($query, $month, $year);
         }
 
         if ($this->ownerFilter !== '' && (int) $this->ownerFilter > 0) {
@@ -446,6 +445,15 @@ final class ContentProjectArchive extends Page
         return SeoAccessControl::canFinalizeArticleReview() || SeoAccessControl::canApproveArticleReview();
     }
 
+    public function canRestoreArchive(SeoProjectArchive $archive): bool
+    {
+        if (! $this->canRestoreArchives()) {
+            return false;
+        }
+
+        return ! ContentProjectGlobalLegacyArchive::isGlobalLegacyArchive($archive);
+    }
+
     public function restoreArchive(int $archiveId): void
     {
         abort_unless($this->canRestoreArchives(), 403);
@@ -464,6 +472,14 @@ final class ContentProjectArchive extends Page
 
             if (! $project instanceof SeoProject) {
                 throw new RuntimeException('Project không tồn tại.');
+            }
+
+            if (ContentProjectGlobalLegacyArchive::isGlobalLegacyArchive($archive)
+                || ContentProjectGlobalLegacyArchive::isGlobalLegacyArchive($project)
+            ) {
+                throw new RuntimeException(
+                    (string) __('seo-content-ai::filament.projects.archive_legacy_restore_forbidden'),
+                );
             }
 
             $user = auth()->user();
@@ -771,9 +787,7 @@ final class ContentProjectArchive extends Page
                     });
             });
 
-        if ($this->scopedSiteIds !== []) {
-            $query->whereIn('site_id', $this->scopedSiteIds);
-        }
+        app(ContentProjectArchiveAccessScope::class)->constrainQuery($query, $this->scopedSiteIds);
 
         return $query;
     }
@@ -856,16 +870,14 @@ final class ContentProjectArchive extends Page
             throw new RuntimeException('Không tìm thấy bản lưu trữ.');
         }
 
-        $siteId = (int) ($archive->site_id ?? 0);
-        if ($siteId > 0) {
-            if (! SeoAccessControl::canAccessSite($siteId)) {
-                abort(403);
-            }
+        $accessible = $this->scopedSiteIds !== []
+            ? $this->scopedSiteIds
+            : SeoAccessControl::accessibleSiteIds();
 
-            if ($this->scopedSiteIds !== [] && ! in_array($siteId, $this->scopedSiteIds, true)) {
-                abort(403);
-            }
-        }
+        abort_unless(
+            app(ContentProjectArchiveAccessScope::class)->userCanAccessArchive($archive, $accessible),
+            403,
+        );
 
         return $archive;
     }

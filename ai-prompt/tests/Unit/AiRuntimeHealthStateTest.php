@@ -30,6 +30,20 @@ final class AiRuntimeHealthStateTest extends TestCase
         parent::setUp();
         Schema::dropIfExists('ai_runtime_health_states');
         Schema::connection('mysql')->dropIfExists('ai_runtime_health_states');
+        Schema::dropIfExists('api_connections');
+        Schema::create('api_connections', function (Blueprint $table): void {
+            $table->id();
+            $table->unsignedBigInteger('user_id')->nullable();
+            $table->string('provider');
+            $table->string('name');
+            $table->text('api_key')->nullable();
+            $table->boolean('is_global')->default(false);
+            $table->string('status')->default('active');
+            $table->boolean('paid_locked')->default(false);
+            $table->json('paid_lock_reasons')->nullable();
+            $table->json('metadata')->nullable();
+            $table->timestamps();
+        });
         Schema::create('ai_runtime_health_states', function (Blueprint $table): void {
             $table->id();
             $table->unsignedBigInteger('user_id')->index();
@@ -58,15 +72,15 @@ final class AiRuntimeHealthStateTest extends TestCase
 
     private function connection(int $id, string $provider): ApiConnection
     {
-        $connection = new ApiConnection();
-        $connection->forceFill([
+        return ApiConnection::query()->create([
             'id' => $id,
             'provider' => $provider,
             'status' => 'active',
             'name' => 'Test '.$provider,
+            'api_key' => 'k',
+            'paid_locked' => false,
+            'paid_lock_reasons' => [],
         ]);
-
-        return $connection;
     }
 
     public function test_402_sets_paid_lock_and_skip_paid_candidate(): void

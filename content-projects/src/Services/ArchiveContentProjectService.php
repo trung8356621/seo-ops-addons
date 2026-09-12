@@ -16,8 +16,10 @@ use Omnichannel\Addons\Content\Services\ArticleEditor\ArticleEditorSessionServic
 use Omnichannel\Addons\Content\Services\ArticleLastSavedTimestampService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\McpPlanning\McpPlanningMetaStore;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\ContentProjectAiWorkspaceDestroyer;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\ContentProjectWorkspaceArticleOwnershipGuard;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Workspace\ContentProjectWorkspaceCleanupContext;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExportReviewedAtResolver;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGlobalLegacyArchive;
 use Omnichannel\Addons\WordPress\Support\WordPressPermalinkBuilder;
 use App\Models\User;
 use App\Support\RuntimeLogger;
@@ -40,6 +42,7 @@ final class ArchiveContentProjectService
         private readonly WordPressPermalinkBuilder $permalinkBuilder,
         private readonly ContentProjectAiWorkspaceDestroyer $workspaceDestroyer,
         private readonly ArticleEditorSessionService $editorSessions,
+        private readonly ContentProjectWorkspaceArticleOwnershipGuard $articleOwnershipGuard,
         private readonly ContentProjectExportReviewedAtResolver $reviewedAtResolver = new ContentProjectExportReviewedAtResolver(),
         private readonly McpPlanningMetaStore $mcpPlanningMeta = new McpPlanningMetaStore,
     ) {}
@@ -326,6 +329,13 @@ final class ArchiveContentProjectService
     public function restore(SeoProject $project, int $userId): SeoProjectArchive
     {
         $this->assertValidUserId($userId);
+
+        if (ContentProjectGlobalLegacyArchive::isGlobalLegacyArchive($project)) {
+            throw new RuntimeException(
+                (string) __('seo-content-ai::filament.projects.archive_legacy_restore_forbidden'),
+            );
+        }
+
         $now = now();
 
         return DB::connection('omi_seo_ai')->transaction(function () use ($project, $userId, $now): SeoProjectArchive {
@@ -371,7 +381,10 @@ final class ArchiveContentProjectService
     }
 
     /**
-     * Re-run archive cleanup for projects that were archived before workspace-reset cleanup existed.
+     * Manual garbage collection for an already-archived project.
+     *
+     * GC only — does not reset tasks / mutate Content Project business lifecycle.
+     * Article-scoped cleaners receive only articles that are not owned by another active project.
      *
      * @return array<string, int>
      */
@@ -394,15 +407,26 @@ final class ArchiveContentProjectService
         $cleanupContext = null;
         $stats = DB::connection('omi_seo_ai')->transaction(function () use ($project, $archive, $userId, &$cleanupContext): array {
             $lockedProject = $this->lockProject($project);
-            $articleIds = $this->archiveArticleIds($archive);
+            $historicalArticleIds = $this->archiveArticleIds($archive);
+            $partition = $this->articleOwnershipGuard->partitionHistoricalArticles($historicalArticleIds);
+            $safeArticleIds = $partition['safe'];
+            $skippedReusedArticleIds = $partition['skipped_reused'];
 
-            if ($articleIds !== []) {
-                $this->editorSessions->revokeActiveSessionsForArticles($articleIds, 'content_project_archive_cleanup');
+            if ($safeArticleIds !== []) {
+                $this->editorSessions->revokeActiveSessionsForArticles(
+                    $safeArticleIds,
+                    'content_project_archive_cleanup',
+                );
             }
 
-            $cleanupContext = $this->workspaceDestroyer->destroyInTransaction($lockedProject, $articleIds);
-            $resetTasks = $this->resetProjectTasksForFreshFlow($lockedProject);
-            $cleanupContext->bumpStat('project_tasks_reset_for_fresh_flow', $resetTasks);
+            // Project/run/task leftovers for THIS archived project; article scope = safe IDs only.
+            $cleanupContext = $this->workspaceDestroyer->destroyManualGarbageCollection(
+                $lockedProject,
+                $safeArticleIds,
+            );
+            $cleanupContext->bumpStat('workspace_articles_considered', count($partition['considered']));
+            $cleanupContext->bumpStat('workspace_articles_safe', count($safeArticleIds));
+            $cleanupContext->bumpStat('workspace_articles_skipped_reused', count($skippedReusedArticleIds));
 
             $stats = $cleanupContext->stats();
 
@@ -410,7 +434,13 @@ final class ArchiveContentProjectService
                 'project_id' => (int) $lockedProject->getKey(),
                 'archive_id' => (int) $archive->getKey(),
                 'user_id' => $userId,
-                'article_count' => count($articleIds),
+                'workspace_articles_considered' => count($partition['considered']),
+                'workspace_articles_safe' => count($safeArticleIds),
+                'workspace_articles_skipped_reused' => count($skippedReusedArticleIds),
+                'safe_article_ids' => array_slice($safeArticleIds, 0, 50),
+                'skipped_reused_article_ids' => array_slice($skippedReusedArticleIds, 0, 50),
+                'safe_article_ids_truncated' => count($safeArticleIds) > 50,
+                'skipped_reused_article_ids_truncated' => count($skippedReusedArticleIds) > 50,
                 'stats' => $stats,
             ]);
 

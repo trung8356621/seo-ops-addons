@@ -24,6 +24,8 @@ class CreateAiConnection extends SeoCreateRecord
 
     protected static string $view = 'seo-content-ai::filament.pages.seo-settings-ai-form';
 
+    private ?bool $pendingManualFreeOnly = null;
+
     public function getTitle(): string
     {
         return __('seo-content-ai::filament.api_connections.add_connection');
@@ -115,6 +117,10 @@ class CreateAiConnection extends SeoCreateRecord
         if (ApiConnectionProviders::isAi($provider)) {
             $data['metadata'] = app(\Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\ProviderConnectionResolver::class)
                 ->sanitizeSubmittedMetadata((int) auth()->id(), $provider, is_array($data['metadata'] ?? null) ? $data['metadata'] : []);
+            $this->pendingManualFreeOnly = array_key_exists('paid_locked', $data)
+                ? (bool) $data['paid_locked']
+                : null;
+            unset($data['paid_locked']);
         }
 
         return $data;
@@ -122,6 +128,15 @@ class CreateAiConnection extends SeoCreateRecord
 
     protected function afterCreate(): void
     {
+        if ($this->record instanceof \App\Models\ApiConnection
+            && ApiConnectionProviders::isAi((string) $this->record->provider)
+            && $this->pendingManualFreeOnly === true) {
+            app(\Omnichannel\Addons\AiPrompt\Services\SetAiConnectionFreeOnly::class)
+                ->handle($this->record, true);
+            $this->pendingManualFreeOnly = null;
+            $this->record->refresh();
+        }
+
         app(AiModelRouterService::class)->syncModelsForConnection((int) $this->record->id);
         if ($this->record instanceof \App\Models\ApiConnection && ApiConnectionProviders::isAi((string) $this->record->provider)) {
             app(\Omnichannel\Addons\AiPrompt\Services\AiModelPriorityService::class)

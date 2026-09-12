@@ -14,6 +14,11 @@ use Omnichannel\Addons\Content\Services\OutlineStructuredRowsNormalizer;
  * Compile SAME Writing SeoPrompt for one MULTIPLE_PASS section slice.
  * Temporarily clears sectioned shape so compilePrompt does not throw.
  * Scope instructions are prepended into input/outline so they always appear in compiled text.
+ *
+ * Isolation contract:
+ * - outline/input = CURRENT SECTION SUBTREE only (not full article Outline)
+ * - article_length = section target words (not whole-article budget)
+ * - whole-article allocation instructional blocks are stripped after compile
  */
 final class WritingSectionPromptCompiler
 {
@@ -62,8 +67,84 @@ final class WritingSectionPromptCompiler
         $vars['article_outline'] = $scoped;
         $vars['outline'] = $scoped;
         $vars['article_writing_raw_input'] = $slice;
+        $vars['section_outline'] = $slice;
 
-        return $this->promptRunner->compilePrompt($prompt, $this->stringifyVars($vars));
+        // Section budget — never whole-article length in section child.
+        $sectionWords = max(1, (int) $unit->preferredTargetWords);
+        $vars['article_length'] = (string) $sectionWords;
+        $vars['target_article_length'] = (string) $sectionWords;
+        $vars['resolved_article_length'] = (string) $sectionWords;
+        $vars['target_words'] = (string) $sectionWords;
+
+        // Drop aliases that could still carry the full Outline into obscure placeholders.
+        foreach ([
+            'outline_markdown',
+            'direct_publish_outline_markdown',
+            'reused_outline_markdown',
+            'original_outline',
+            'full_outline',
+            'article_outline_full',
+        ] as $alias) {
+            if (array_key_exists($alias, $vars)) {
+                $vars[$alias] = $scoped;
+            }
+        }
+
+        $compiled = $this->promptRunner->compilePrompt($prompt, $this->stringifyVars($vars));
+
+        return $this->stripWholeArticleAllocationBlocks($compiled);
+    }
+
+    /**
+     * Remove whole-article allocation / length-plan instruction blocks from the shared Writing SeoPrompt.
+     * Section children keep global style/SEO/input guidance; not full-article budget or ROLE&GOAL plan.
+     *
+     * Must also clear markers enforced by SectionedFreePromptIsolationGuard at the provider boundary.
+     */
+    public function stripWholeArticleAllocationBlocks(string $compiled): string
+    {
+        $sectionHeadings = [
+            'DYNAMIC WORD ALLOCATION',
+            'ROLE & GOAL',
+            'STRICT LENGTH REQUIREMENT',
+            'ARTICLE BODY ONLY',
+        ];
+
+        $out = $compiled;
+        foreach ($sectionHeadings as $heading) {
+            $quoted = preg_quote($heading, '/');
+            $patterns = [
+                '/^##[^\n]*'.$quoted.'[^\n]*\R.*?(?=^##\s|\z)/msu',
+                '/^[^\n]*'.$quoted.'[^\n]*\R.*?(?=^##\s|\z)/msu',
+            ];
+            foreach ($patterns as $pattern) {
+                $next = preg_replace($pattern, '', $out);
+                if (is_string($next)) {
+                    $out = $next;
+                }
+            }
+        }
+
+        // Residual inline markers (non-heading) — neutralize without deleting unrelated guidance.
+        foreach ([
+            'DYNAMIC WORD ALLOCATION',
+            'STRICT LENGTH REQUIREMENT',
+            'ARTICLE BODY ONLY',
+            'ROLE & GOAL',
+            'target 1000 words',
+            '80% of 1000',
+            '1900–2100',
+            '1900-2100',
+            'target = 2000',
+            'Target word count = 2000',
+            'target word count = 2000',
+        ] as $marker) {
+            if ($marker !== '' && str_contains($out, $marker)) {
+                $out = str_replace($marker, '[section-scope]', $out);
+            }
+        }
+
+        return trim($out)."\n";
     }
 
     private function kindForUnit(SectionedFreeSectionUnit $unit): string

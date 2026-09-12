@@ -48,12 +48,18 @@ use Throwable;
  *     created_at: string|null,
  *     updated_at: string|null,
  *     completed_at: string|null,
+ *     completed_at_raw: string|null,
+ *     archived_at_raw: string|null,
  *     last_saved_at: string|null,
  *     last_synced_at: string|null,
  *     article_exists: bool,
  *     can_edit: bool,
  *     edit_url: string|null,
  *     social_links_count: int,
+ *     site_id: int,
+ *     domain: string,
+ *     author: string,
+ *     completed_by: string,
  * }
  */
 final class ArchivePreviewArticlePresenter
@@ -210,6 +216,17 @@ final class ArchivePreviewArticlePresenter
             $completedAt = $item->task?->completed_at;
         }
 
+        $archivedAtRaw = $snapshot['archived_at'] ?? $completedAt;
+        $siteId = (int) ($snapshot['site_id'] ?? ($article?->site_id ?? 0));
+        $domain = $this->firstNonEmpty([
+            $snapshot['domain'] ?? null,
+            $article?->relationLoaded('site') ? ($article->site?->domain ?? null) : null,
+        ]);
+        $author = $this->firstNonEmpty([
+            $snapshot['author'] ?? null,
+            $article?->relationLoaded('user') ? ($article->user?->name ?? $article->user?->email ?? null) : null,
+        ]);
+
         $internalFromArticle = null;
         $externalFromArticle = null;
         if ($article instanceof SeoArticle) {
@@ -260,6 +277,8 @@ final class ArchivePreviewArticlePresenter
             'created_at' => SeoProjectResource::formatTaskTimestamp($snapshot['created_at'] ?? $article?->created_at),
             'updated_at' => SeoProjectResource::formatTaskTimestamp($snapshot['updated_at'] ?? $article?->updated_at),
             'completed_at' => SeoProjectResource::formatTaskTimestamp($completedAt),
+            'completed_at_raw' => $this->toIsoOrNull($completedAt),
+            'archived_at_raw' => $this->toIsoOrNull($archivedAtRaw),
             'last_saved_at' => SeoProjectResource::formatTaskTimestamp($snapshot['last_saved_at'] ?? null),
             'last_synced_at' => SeoProjectResource::formatTaskTimestamp(
                 $snapshot['last_synced_at']
@@ -271,6 +290,10 @@ final class ArchivePreviewArticlePresenter
             'can_edit' => $canEdit,
             'edit_url' => $editUrl,
             'social_links_count' => (int) ($socialCountsByArticleId[$articleId] ?? 0),
+            'site_id' => $siteId,
+            'domain' => is_string($domain) && trim($domain) !== '' ? trim($domain) : '—',
+            'author' => is_string($author) && trim($author) !== '' ? trim($author) : '—',
+            'completed_by' => '—',
         ];
     }
 
@@ -298,7 +321,7 @@ final class ArchivePreviewArticlePresenter
 
         return SeoArticle::query()
             ->whereIn('id', array_values($ids))
-            ->with(['articleMetas', 'site', 'seoProfile', 'wordpressLink', 'indexHealth'])
+            ->with(['articleMetas', 'site', 'seoProfile', 'wordpressLink', 'indexHealth', 'user'])
             ->get()
             ->keyBy(static fn (SeoArticle $article): int => (int) $article->getKey());
     }

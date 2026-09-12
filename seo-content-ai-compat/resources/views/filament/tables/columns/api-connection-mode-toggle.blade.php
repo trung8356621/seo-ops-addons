@@ -8,7 +8,8 @@
             && \Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders::isAi((string) $record->provider);
         $support = app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionFreeOnlySupport::class);
         $supportsFreeOnly = $isAi && $support->supports($record);
-        $freeOnly = $isAi && (bool) ($record->paid_locked ?? false);
+        $freeOnly = $isAi && app(\Omnichannel\Addons\AiPrompt\Services\ConnectionPaidLockService::class)
+            ->hasReason($record, \Omnichannel\Addons\AiPrompt\Support\PaidLockReason::ManualFreeOnly);
     @endphp
 
     @if (! $isAi)

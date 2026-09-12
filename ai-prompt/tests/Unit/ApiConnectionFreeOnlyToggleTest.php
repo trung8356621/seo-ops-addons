@@ -69,6 +69,7 @@ final class ApiConnectionFreeOnlyToggleTest extends TestCase
             $table->boolean('is_global')->default(false);
             $table->string('status')->default('active');
             $table->boolean('paid_locked')->default(false);
+            $table->json('paid_lock_reasons')->nullable();
             $table->json('metadata')->nullable();
             $table->timestamps();
         });
@@ -432,6 +433,7 @@ final class ApiConnectionFreeOnlyToggleTest extends TestCase
             'api_key' => 'sk-test-key-long-enough',
             'status' => 'active',
             'paid_locked' => $paidLocked,
+            'paid_lock_reasons' => $paidLocked ? ['manual_free_only'] : [],
             'is_global' => false,
             'metadata' => [],
         ]);

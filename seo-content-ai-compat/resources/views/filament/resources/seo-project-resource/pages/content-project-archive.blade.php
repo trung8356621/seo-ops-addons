@@ -344,16 +344,33 @@
                         <tbody class="divide-y divide-gray-200 dark:divide-gray-700">
                             @forelse ($archives as $archive)
                                 @php
+                                    $isGlobalLegacy = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGlobalLegacyArchive::isGlobalLegacyArchive($archive);
                                     $ownerName = trim((string) ($archive->owner?->name ?? ''));
                                     $archivedByName = trim((string) ($archive->archivedByUser?->name ?? ''));
                                     $month = (int) ($archive->project_month ?? 0);
                                     $year = (int) ($archive->project_year ?? 0);
-                                    $period = ($month > 0 && $year > 0) ? sprintf('%02d/%d', $month, $year) : '—';
+                                    $period = $isGlobalLegacy
+                                        ? \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGlobalLegacyArchive::monthLabel()
+                                        : (($month > 0 && $year > 0) ? sprintf('%02d/%d', $month, $year) : '—');
                                     $listTotal = $vaultPresenter::listTotal($archive);
                                     $indexSummary = $vaultPresenter::indexSummary($archive);
                                 @endphp
-                                <tr wire:key="archive-row-{{ $archive->id }}">
-                                    <td class="truncate px-3 py-2 font-semibold text-gray-950 dark:text-white" title="{{ $archive->project_name ?: '' }}">{{ $archive->project_name ?: '—' }}</td>
+                                <tr
+                                    wire:key="archive-row-{{ $archive->id }}"
+                                    @class([
+                                        'bg-amber-50/70 dark:bg-amber-500/10' => $isGlobalLegacy,
+                                    ])
+                                >
+                                    <td class="truncate px-3 py-2 font-semibold text-gray-950 dark:text-white" title="{{ $archive->project_name ?: '' }}">
+                                        <span class="inline-flex items-center gap-2">
+                                            @if ($isGlobalLegacy)
+                                                <span class="inline-flex shrink-0 items-center rounded-md bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900 dark:bg-amber-500/20 dark:text-amber-100">
+                                                    {{ \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGlobalLegacyArchive::badgeLabel() }}
+                                                </span>
+                                            @endif
+                                            <span class="truncate">{{ $archive->project_name ?: '—' }}</span>
+                                        </span>
+                                    </td>
                                     <td class="truncate px-3 py-2 text-gray-700 dark:text-gray-200" title="{{ $ownerName }}">{{ $ownerName !== '' ? $ownerName : '—' }}</td>
                                     <td class="px-3 py-2 text-gray-700 dark:text-gray-200">{{ $period }}</td>
                                     <td class="px-3 py-2 text-right tabular-nums text-gray-700 dark:text-gray-200">{{ $listTotal }}</td>
@@ -399,7 +416,7 @@
                                                 <span wire:loading.remove wire:target="exportArchive({{ $archive->id }})">{{ __('seo-content-ai::filament.projects.archive_export') }}</span>
                                                 <span wire:loading wire:target="exportArchive({{ $archive->id }})">{{ __('seo-content-ai::filament.projects.archive_export_running') }}</span>
                                             </button>
-                                            @if ($this->canRestoreArchives())
+                                            @if ($this->canRestoreArchive($archive))
                                                 <button
                                                     type="button"
                                                     wire:click="restoreArchive({{ $archive->id }})"

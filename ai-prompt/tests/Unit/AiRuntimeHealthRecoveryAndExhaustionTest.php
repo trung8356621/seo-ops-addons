@@ -59,6 +59,8 @@ final class AiRuntimeHealthRecoveryAndExhaustionTest extends TestCase
             $table->text('api_key')->nullable();
             $table->boolean('is_global')->default(false);
             $table->string('status')->default('active');
+            $table->boolean('paid_locked')->default(false);
+            $table->json('paid_lock_reasons')->nullable();
             $table->json('metadata')->nullable();
             $table->timestamps();
         });

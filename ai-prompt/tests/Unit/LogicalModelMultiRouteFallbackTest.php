@@ -59,6 +59,7 @@ final class LogicalModelMultiRouteFallbackTest extends TestCase
             $table->boolean('is_global')->default(false);
             $table->string('status')->default('active');
             $table->boolean('paid_locked')->default(false);
+            $table->json('paid_lock_reasons')->nullable();
             $table->json('metadata')->nullable();
             $table->timestamps();
         });
@@ -183,6 +184,11 @@ final class LogicalModelMultiRouteFallbackTest extends TestCase
             ->where('subject_type', 'connection')
             ->where('subject_id', (int) $seed['or']->id)
             ->value('paid_locked'));
+        $this->assertTrue((bool) $seed['or']->fresh()->paid_locked);
+        $this->assertContains(
+            'budget_limited',
+            (array) ($seed['or']->fresh()->paid_lock_reasons ?? []),
+        );
         $failed = collect($attempts)->firstWhere('result', 'failed');
         $this->assertNotNull($failed);
         $this->assertSame(402, (int) ($failed['http_status'] ?? 0));
@@ -261,6 +267,7 @@ final class LogicalModelMultiRouteFallbackTest extends TestCase
             ->where('subject_type', 'connection')
             ->where('subject_id', (int) $seed['or']->id)
             ->value('paid_locked'));
+        $this->assertTrue((bool) $seed['or']->fresh()->paid_locked);
         $orFail = collect($attempts)->firstWhere('result', 'failed');
         $this->assertTrue((bool) ($orFail['paid_lane_suppressed'] ?? false));
         $this->assertTrue((bool) ($orFail['sibling_routes_remain_eligible'] ?? false));

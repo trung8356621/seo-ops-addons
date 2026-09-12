@@ -151,7 +151,16 @@ final class ApiConnectionFormSchema
                 ->helperText(__('seo-content-ai::filament.api_connections.free_only_form_help'))
                 ->default(false)
                 ->visible(fn (Get $get): bool => ApiConnectionProviders::isAi($get('provider')))
-                ->dehydrated(fn (Get $get): bool => ApiConnectionProviders::isAi($get('provider'))),
+                ->dehydrated(fn (Get $get): bool => ApiConnectionProviders::isAi($get('provider')))
+                ->afterStateHydrated(function (Forms\Components\Toggle $component, mixed $state, ?\Illuminate\Database\Eloquent\Model $record): void {
+                    if (! $record instanceof \App\Models\ApiConnection) {
+                        return;
+                    }
+                    $component->state(
+                        app(\Omnichannel\Addons\AiPrompt\Services\ConnectionPaidLockService::class)
+                            ->hasReason($record, \Omnichannel\Addons\AiPrompt\Support\PaidLockReason::ManualFreeOnly)
+                    );
+                }),
             Forms\Components\Section::make(__('seo-content-ai::filament.api_connections.gsc_heading'))
                 ->description(__('seo-content-ai::filament.api_connections.gsc_hint'))
                 ->visible(fn (Get $get): bool => $get('provider') === ApiConnectionProviders::GOOGLE_SEARCH_CONSOLE)

@@ -87,7 +87,21 @@ final class ContentProjectWorkspaceDestroyArchitectureTest extends TestCase
         self::assertStringContainsString('workspaceDestroyer->destroyInTransaction', $source);
         self::assertStringContainsString('releaseDeferredSideEffects', $source);
         self::assertStringContainsString('workspace_destroyed', $source);
+        self::assertStringContainsString('resetProjectTasksForFreshFlow', $source);
         self::assertStringContainsString("DB::connection('omi_seo_ai')->transaction", $source);
+    }
+
+    public function test_manual_cleanup_uses_ownership_guarded_gc_path(): void
+    {
+        $source = $this->readMethodSource(
+            (new ReflectionClass(ArchiveContentProjectService::class))->getMethod('cleanupArchivedWorkspace'),
+        );
+        self::assertStringContainsString('destroyManualGarbageCollection', $source);
+        self::assertStringContainsString('partitionHistoricalArticles', $source);
+        self::assertStringNotContainsString('resetProjectTasksForFreshFlow', $source);
+
+        $destroyer = new ReflectionClass(ContentProjectAiWorkspaceDestroyer::class);
+        self::assertTrue($destroyer->hasMethod('destroyManualGarbageCollection'));
     }
 
     public function test_restore_does_not_reuse_old_workspace(): void

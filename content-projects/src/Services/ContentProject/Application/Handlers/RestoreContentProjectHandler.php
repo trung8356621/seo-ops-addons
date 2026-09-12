@@ -13,6 +13,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Contr
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectBusinessLock;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectPreviewToken;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectTenantGuard;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGlobalLegacyArchive;
 use InvalidArgumentException;
 
 final class RestoreContentProjectHandler extends AbstractPublishingHandler
@@ -41,6 +42,14 @@ final class RestoreContentProjectHandler extends AbstractPublishingHandler
                 return ContentProjectActionResult::fail(
                     ContentProjectActionCodes::LIFECYCLE_INVALID,
                     'Project chưa được lưu trữ.',
+                    $projectId,
+                );
+            }
+
+            if (ContentProjectGlobalLegacyArchive::isGlobalLegacyArchive($project)) {
+                return ContentProjectActionResult::fail(
+                    ContentProjectActionCodes::LIFECYCLE_INVALID,
+                    (string) __('seo-content-ai::filament.projects.archive_legacy_restore_forbidden'),
                     $projectId,
                 );
             }
