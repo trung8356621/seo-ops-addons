@@ -52,6 +52,7 @@ final class OpenRouterFreeOnlyRoutingRegressionTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        AiRuntimeHealthService::clearSuppressedFreeLanes();
         foreach (['ai_routing_targets', 'ai_routing_profiles', 'ai_model_capabilities', 'seo_ai_models', 'api_connections'] as $table) {
             Schema::dropIfExists($table);
         }

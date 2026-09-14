@@ -42,6 +42,8 @@ final class SeoServiceProvider extends ServiceProvider
     {
         $this->loadViewsFrom(dirname(__DIR__).'/resources/views', 'seo');
 
+        $this->registerAddonPermissions();
+
         // Members capacity contributor must register whenever SEO boots (Admin panel included).
         // SearchFoundation alone is not register_early — do not rely on it for Admin requests.
         if ($this->app->bound(MembersSectionRegistry::class)) {
@@ -57,6 +59,27 @@ final class SeoServiceProvider extends ServiceProvider
             if (! $settings->hasContributor('seo')) {
                 $settings->register($this->app->make(SeoSettingsSectionContributor::class));
             }
+        }
+    }
+
+    private function registerAddonPermissions(): void
+    {
+        if (! $this->app->bound(\App\Core\Permissions\AddonPermissionRegistry::class)) {
+            return;
+        }
+
+        /** @var \App\Core\Permissions\AddonPermissionRegistry $registry */
+        $registry = $this->app->make(\App\Core\Permissions\AddonPermissionRegistry::class);
+        $registry->register(self::SLUG, [
+            \App\Core\Permissions\LegacySeoRoleBridge::ROLE_MANAGER,
+            \App\Core\Permissions\LegacySeoRoleBridge::ROLE_PLANNER,
+            \App\Core\Permissions\LegacySeoRoleBridge::ROLE_CONTENT_MANAGER,
+        ]);
+
+        try {
+            $registry->ensureSynced();
+        } catch (\Throwable) {
+            // Tables may not exist until migrate.
         }
     }
 

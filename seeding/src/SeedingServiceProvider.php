@@ -105,6 +105,8 @@ final class SeedingServiceProvider extends ServiceProvider
             }
         }
 
+        $this->registerAddonPermissions();
+
         if ($this->app->runningInConsole()) {
             $this->commands([SeedingDbCheckCommand::class]);
         }
@@ -127,6 +129,27 @@ final class SeedingServiceProvider extends ServiceProvider
             ArticleIndexStatusChanged::NAME,
             $this->app->make(ArticleIndexStatusChangedListener::class)
         );
+    }
+
+    private function registerAddonPermissions(): void
+    {
+        if (! $this->app->bound(\App\Core\Permissions\AddonPermissionRegistry::class)) {
+            return;
+        }
+
+        /** @var \App\Core\Permissions\AddonPermissionRegistry $registry */
+        $registry = $this->app->make(\App\Core\Permissions\AddonPermissionRegistry::class);
+        $registry->register(self::SLUG, [
+            SeedingAccess::ROLE_MANAGER,
+            SeedingAccess::ROLE_TOPIC_CREATOR,
+            SeedingAccess::ROLE_SEEDER,
+        ]);
+
+        try {
+            $registry->ensureSynced();
+        } catch (Throwable) {
+            // Tables may not exist until migrate.
+        }
     }
 
     /**

@@ -150,10 +150,22 @@ final class AiRoutesExhaustedException extends PromptRunException
         $hasExplicitQuotaFailure = ((int) ($failCounts[AiFailureClass::InsufficientBudgetForRequest->value] ?? 0) > 0)
             || ((int) ($failCounts[AiFailureClass::BillingExhausted->value] ?? 0) > 0);
 
+        $dailyFreeFailures = (int) ($failCounts[AiFailureClass::DailyFreeQuotaExhausted->value] ?? 0);
+        $freeLaneSkips = (int) ($skipCounts['free_lane_suppressed'] ?? 0);
+
         $paidLaneSkipCount = (int) ($skipCounts['connection_paid_locked'] ?? 0)
             + (int) ($skipCounts['paid_lane_suppressed'] ?? 0);
         $freeAttempted = self::countFreeProviderAttempts($routingAttempts);
         $nonQuotaFailures = self::countNonQuotaFailures($failCounts);
+
+        $isFreeOnly = (bool) ($diagnostics['free_only'] ?? $diagnostics['free_only_policy'] ?? false)
+            || (self::allProviderAttemptsWereFree($routingAttempts) && $freeAttempted > 0);
+
+        if ($isFreeOnly && ($dailyFreeFailures > 0 || ($attemptCount <= 0 && $freeLaneSkips > 0))) {
+            if (($nonQuotaFailures - $dailyFreeFailures) <= 0) {
+                return 'Tài khoản OpenRouter đã hết hạn mức gọi model miễn phí trong ngày. Hãy đợi hạn mức được reset hoặc tăng hạn mức OpenRouter.';
+            }
+        }
 
         $noConfigured = ((int) ($diagnostics['live_compatible_count'] ?? -1) === 0
                 && (int) ($rejectionCounts['missing_credentials'] ?? 0) > 0)

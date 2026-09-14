@@ -91,6 +91,19 @@ final class SeoMembersSectionContributor implements MembersSectionContributor
 
     public function afterUserSaved(User $user, array $formState): void
     {
+        if (array_key_exists('seo_role', $formState)) {
+            $raw = $formState['seo_role'];
+            $legacy = is_string($raw) ? trim($raw) : '';
+            try {
+                app(\App\Core\Permissions\LegacySeoRoleBridge::class)
+                    ->assign($user, $legacy !== '' ? $legacy : null);
+            } catch (\Throwable) {
+                if ((string) ($user->seo_role ?? '') !== $legacy) {
+                    $user->forceFill(['seo_role' => $legacy !== '' ? $legacy : null])->saveQuietly();
+                }
+            }
+        }
+
         $settings = app(ContentProjectWriterCapacitySettingsService::class);
         if (! empty($formState['seo_capacity_use_default'])) {
             $settings->setUserOverride($user, null);
@@ -114,10 +127,11 @@ final class SeoMembersSectionContributor implements MembersSectionContributor
             $fields[] = Forms\Components\Select::make('seo_role')
                 ->label('SEO role')
                 ->options([
-                    'manager' => 'Manager',
-                    'planner' => 'Planner',
-                    'content_manager' => 'Content manager',
+                    'manager' => 'Manager (seo.manager)',
+                    'planner' => 'Planner (seo.planner)',
+                    'content_manager' => 'Content manager (seo.content_manager)',
                 ])
+                ->helperText('Addon role (Spatie). Không phải Manager tổ chức Core.')
                 ->native(false)
                 ->nullable();
         }

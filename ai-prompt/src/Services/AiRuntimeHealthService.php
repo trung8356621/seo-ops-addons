@@ -24,7 +24,7 @@ final class AiRuntimeHealthService
 
     private const DEGRADED_THRESHOLD = 3;
 
-    public const UNAVAILABLE_THRESHOLD = 5;
+    private const UNAVAILABLE_THRESHOLD = 5;
 
     /** @var array<int, \Illuminate\Support\Carbon> */
     private static array $runtimeSuppressedFreeLanes = [];

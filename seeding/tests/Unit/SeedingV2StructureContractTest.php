@@ -45,6 +45,8 @@ final class SeedingV2StructureContractTest extends TestCase
     {
         $access = (string) file_get_contents($this->addonRoot().'/src/Support/SeedingAccess.php');
         self::assertStringContainsString('function isManager', $access);
+        self::assertStringContainsString('ROLE_MANAGER', $access);
+        self::assertStringContainsString('seeding.manager', $access);
         self::assertStringContainsString('SEO_ROLE_MANAGER', $access);
         self::assertStringContainsString('function canManageTopics', $access);
     }

@@ -34,6 +34,7 @@ final class ConnectionPaidLockSsotTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        AiRuntimeHealthService::clearSuppressedFreeLanes();
 
         Schema::dropIfExists('ai_runtime_health_states');
         Schema::connection('mysql')->dropIfExists('ai_runtime_health_states');

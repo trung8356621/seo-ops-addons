@@ -53,26 +53,78 @@ final class AiProviderFailureClassifierTest extends TestCase
         $this->assertTrue($decision->fallbackAllowed());
     }
 
-    public function test_429_rate_limited_continues_with_cooldown_not_billing(): void
-    {
-        $decision = $this->classifier->classify(new PromptRunException('429 rate limit', 429));
-        $this->assertSame(AiFailureClass::RateLimited, $decision->category);
-        $this->assertSame(AiFailureScope::Model, $decision->scope);
-        $this->assertTrue($decision->applyCooldown);
-        $this->assertFalse($decision->manualUnlockRequired);
-        $this->assertFalse($decision->lockConnectionPaid);
-        $this->assertTrue($decision->fallbackAllowed());
-    }
-
-    public function test_429_free_models_quota_stays_model_scoped(): void
+    public function test_429_free_models_per_day_is_daily_free_quota_exhausted(): void
     {
         $decision = $this->classifier->classify(new PromptRunException(
             'Rate limit exceeded: free-models-per-day. Add ten credits.',
             429,
         ));
+        $this->assertSame(AiFailureClass::DailyFreeQuotaExhausted, $decision->category);
+        $this->assertSame(AiFailureScope::ConnectionFree, $decision->scope);
+        $this->assertTrue($decision->suppressConnectionFree);
+        $this->assertFalse($decision->lockConnection);
+        $this->assertFalse($decision->lockConnectionPaid);
+        $this->assertFalse($decision->applyCooldown);
+        $this->assertSame('openrouter_free_tier_daily', $decision->limitSource);
+    }
+
+    public function test_429_structured_openrouter_free_tier_daily_limit_source(): void
+    {
+        $body = [
+            'error' => [
+                'message' => 'Rate limit exceeded: free-models-per-day',
+                'code' => 429,
+                'metadata' => [
+                    'limit_source' => 'openrouter_free_tier_daily',
+                    'headers' => [
+                        'X-RateLimit-Limit' => '50',
+                        'X-RateLimit-Remaining' => '0',
+                        'X-RateLimit-Reset' => '1789257600000',
+                    ],
+                ],
+            ],
+        ];
+        $decision = $this->classifier->classify(new PromptRunException(
+            'Provider API error (429): '.json_encode($body),
+            429,
+            null,
+            [
+                'http_status' => 429,
+                'response_body' => $body,
+            ],
+        ));
+        $this->assertSame(AiFailureClass::DailyFreeQuotaExhausted, $decision->category);
+        $this->assertSame(AiFailureScope::ConnectionFree, $decision->scope);
+        $this->assertTrue($decision->suppressConnectionFree);
+        $this->assertSame('openrouter_free_tier_daily', $decision->limitSource);
+        $this->assertSame('50', $decision->rateLimitLimit);
+        $this->assertSame('0', $decision->rateLimitRemaining);
+        $this->assertSame('1789257600000', $decision->rateLimitReset);
+        $this->assertNotNull($decision->freeDailyResetAt);
+        $diag = $decision->toAttemptDiagnostics();
+        $this->assertTrue($diag['free_lane_suppressed'] ?? false);
+    }
+
+    public function test_429_generic_rate_limit_stays_model_scoped(): void
+    {
+        $decision = $this->classifier->classify(new PromptRunException('429 rate limit', 429));
+        $this->assertSame(AiFailureClass::RateLimited, $decision->category);
+        $this->assertSame(AiFailureScope::Model, $decision->scope);
+        $this->assertTrue($decision->applyCooldown);
+        $this->assertFalse($decision->suppressConnectionFree);
+    }
+
+    public function test_429_free_models_quota_stays_model_scoped(): void
+    {
+        // Legacy name retained: non-daily free-models wording (e.g. RPM) stays model-scoped.
+        $decision = $this->classifier->classify(new PromptRunException(
+            'Rate limit exceeded: free-models-per-minute.',
+            429,
+        ));
         $this->assertSame(AiFailureClass::RateLimited, $decision->category);
         $this->assertSame(AiFailureScope::Model, $decision->scope);
         $this->assertFalse($decision->lockConnection);
+        $this->assertFalse($decision->suppressConnectionFree);
     }
 
     public function test_429_bare_quota_exceeded_stays_model_scoped(): void

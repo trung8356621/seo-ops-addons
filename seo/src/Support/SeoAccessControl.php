@@ -41,10 +41,27 @@ final class SeoAccessControl
     {
         /** @var User|null $user */
         $user = auth()->user();
+        if (! $user instanceof User) {
+            return self::ROLE_CONTENT_MANAGER;
+        }
 
-        // seo_role is the only SEO rank source (including owner).
-        // owner + content_manager keeps content_manager SEO rules while client setup stays owner-gated.
-        return self::normalizeRole((string) ($user?->seo_role ?? self::ROLE_CONTENT_MANAGER));
+        $rank = null;
+        try {
+            $rank = app(\App\Core\Permissions\LegacySeoRoleBridge::class)->resolveLegacyRank($user);
+        } catch (\Throwable) {
+            $rank = null;
+        }
+
+        if ($rank !== null) {
+            return self::normalizeRole($rank);
+        }
+
+        // Owner: full SEO capability without requiring Spatie seo.manager assignment.
+        if ($user->isOwner()) {
+            return self::ROLE_MANAGER;
+        }
+
+        return self::normalizeRole((string) ($user->seo_role ?? self::ROLE_CONTENT_MANAGER));
     }
 
     public static function effectiveRole(): string

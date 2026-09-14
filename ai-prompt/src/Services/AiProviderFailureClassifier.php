@@ -610,7 +610,8 @@ final class AiProviderFailureClassifier
     /**
      * Account / organization / API-key quota (connection-scoped), not a single-model limit.
      *
-     * Free-tier / per-model rate limits (OpenRouter free-models-per-*) MUST stay Model-scoped
+     * OpenRouter free-models-per-day is handled separately as DailyFreeQuotaExhausted
+     * (ConnectionFree lane). Other free-tier / per-model rate limits MUST stay Model-scoped
      * so sibling paid models on the same API connection remain attemptable.
      */
     private function matchesAccountWideQuota(string $lower, ?string $providerCode): bool

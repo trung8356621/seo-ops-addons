@@ -44,6 +44,7 @@ final class AiRuntimeFallbackTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+        AiRuntimeHealthService::clearSuppressedFreeLanes();
         foreach (['ai_routing_targets', 'ai_routing_profiles', 'ai_model_capabilities', 'seo_ai_models', 'api_connections'] as $table) {
             Schema::dropIfExists($table);
         }
@@ -788,7 +789,7 @@ final class AiRuntimeFallbackTest extends TestCase
         $this->assertNotContains('free_oneshot_paid_available', $skipReasons);
     }
 
-    /** TEST B — 429 free does not block DeepSeek on same connection */
+    /** TEST B — free-models-per-day suppresses FREE lane only; DeepSeek paid on same connection stays attemptable */
     public function test_b_429_free_does_not_connection_suppress_deepseek(): void
     {
         (new AiResilienceSettingsService())->save(91, ['max_ai_attempts' => 6, 'max_free_attempts' => 3]);
@@ -800,7 +801,7 @@ final class AiRuntimeFallbackTest extends TestCase
         app(AiModelPriorityService::class)->appendToArea(91, AiModelArea::TextLongform, [(int) $free->id, (int) $deepseek->id]);
 
         $calls = [];
-        [$output, , $selected] = $this->router->executeWithProfile(
+        [$output, , $selected, , , $routingAttempts] = $this->router->executeWithProfile(
             AiExecutionProfile::TextLongform->value,
             new AiRoutingContext(userId: 91),
             function ($candidate) use (&$calls): array {
@@ -815,7 +816,12 @@ final class AiRuntimeFallbackTest extends TestCase
         $this->assertSame(['meta/llama:free', 'deepseek/deepseek-chat'], $calls);
         $this->assertSame('deepseek/deepseek-chat', $selected->model);
         $this->assertSame('ok', $output);
-        // Free 429 must not leave connection cooldown that blocks paid.
+        $this->assertSame(
+            AiFailureClass::DailyFreeQuotaExhausted->value,
+            $routingAttempts[0]['failure_class'] ?? null,
+        );
+        $this->assertTrue((bool) ($routingAttempts[0]['free_lane_suppressed'] ?? false));
+        // Free daily quota must not leave connection lock that blocks paid.
         $paidCandidate = new \Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate(
             profile: AiExecutionProfile::TextLongform->value,
             connection: $conn,
@@ -829,6 +835,7 @@ final class AiRuntimeFallbackTest extends TestCase
             isFree: false,
         );
         $this->assertNull($this->health->skipReason(91, $paidCandidate));
+        $this->assertTrue($this->health->isConnectionFreeLaneSuppressed($conn->fresh()));
     }
 
     /** TEST C — 402 locks paid lane only; free/other connection still attemptable */

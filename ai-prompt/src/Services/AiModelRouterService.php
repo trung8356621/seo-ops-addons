@@ -403,6 +403,8 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
         $suppressedConnections = [];
         /** @var array<int, true> paid billing-lane suppress — free routes on same connection remain eligible */
         $suppressedPaidLanes = [];
+        /** @var array<int, true> free billing-lane suppress — paid routes on same connection remain eligible */
+        $suppressedFreeLanes = [];
         /** @var array<string, true> physical routes already attempted this execution */
         $attemptedPhysicalRoutes = [];
 
@@ -443,7 +445,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                     null,
                     array_merge(
                         array_filter($budgetMeta(), static fn (mixed $v): bool => $v !== null && $v !== ''),
-                        $this->siblingRouteMeta($candidates, $index, $suppressedConnections, $suppressedPaidLanes, $attemptedPhysicalRoutes),
+                        $this->siblingRouteMeta($candidates, $index, $suppressedConnections, $suppressedPaidLanes, $attemptedPhysicalRoutes, $suppressedFreeLanes),
                     ),
                 );
                 continue;
@@ -459,7 +461,23 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                     null,
                     array_merge(
                         array_filter($budgetMeta(), static fn (mixed $v): bool => $v !== null && $v !== ''),
-                        $this->siblingRouteMeta($candidates, $index, $suppressedConnections, $suppressedPaidLanes, $attemptedPhysicalRoutes),
+                        $this->siblingRouteMeta($candidates, $index, $suppressedConnections, $suppressedPaidLanes, $attemptedPhysicalRoutes, $suppressedFreeLanes),
+                    ),
+                );
+                continue;
+            }
+
+            if ($candidate->isFree && isset($suppressedFreeLanes[$connectionId])) {
+                $candidatesSkipped++;
+                $routingAttempts[] = $this->attemptLog(
+                    $candidate,
+                    $candidateIndex,
+                    'skipped',
+                    'free_lane_suppressed',
+                    null,
+                    array_merge(
+                        array_filter($budgetMeta(), static fn (mixed $v): bool => $v !== null && $v !== ''),
+                        $this->siblingRouteMeta($candidates, $index, $suppressedConnections, $suppressedPaidLanes, $attemptedPhysicalRoutes, $suppressedFreeLanes),
                     ),
                 );
                 continue;
@@ -475,7 +493,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                     null,
                     array_merge(
                         array_filter($budgetMeta(), static fn (mixed $v): bool => $v !== null && $v !== ''),
-                        $this->siblingRouteMeta($candidates, $index, $suppressedConnections, $suppressedPaidLanes, $attemptedPhysicalRoutes),
+                        $this->siblingRouteMeta($candidates, $index, $suppressedConnections, $suppressedPaidLanes, $attemptedPhysicalRoutes, $suppressedFreeLanes),
                         $this->connectionPaidLockAttemptMeta($candidate, $healthBefore),
                     ),
                 );
@@ -483,6 +501,8 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                     $suppressedConnections[$connectionId] = true;
                 } elseif ($healthBefore === 'connection_paid_locked') {
                     $suppressedPaidLanes[$connectionId] = true;
+                } elseif ($healthBefore === 'free_lane_suppressed') {
+                    $suppressedFreeLanes[$connectionId] = true;
                 }
                 continue;
             }
@@ -519,7 +539,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                     null,
                     array_merge(
                         array_filter($budgetMeta(), static fn (mixed $v): bool => $v !== null && $v !== ''),
-                        $this->siblingRouteMeta($candidates, $index, $suppressedConnections, $suppressedPaidLanes, $attemptedPhysicalRoutes),
+                        $this->siblingRouteMeta($candidates, $index, $suppressedConnections, $suppressedPaidLanes, $attemptedPhysicalRoutes, $suppressedFreeLanes),
                     ),
                 );
                 continue;
@@ -562,7 +582,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                             $reservedPaidSlots,
                             null,
                         ),
-                        $this->siblingRouteMeta($candidates, $index, $suppressedConnections, $suppressedPaidLanes, $attemptedPhysicalRoutes),
+                        $this->siblingRouteMeta($candidates, $index, $suppressedConnections, $suppressedPaidLanes, $attemptedPhysicalRoutes, $suppressedFreeLanes),
                         array_filter([
                             'candidate_index' => $candidateIndex,
                             'candidates_tried' => $candidatesTried,
@@ -621,7 +641,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                                 $reservedPaidSlots,
                                 $healthBefore,
                             ),
-                            $this->siblingRouteMeta($candidates, $index, $suppressedConnections, $suppressedPaidLanes, $attemptedPhysicalRoutes),
+                            $this->siblingRouteMeta($candidates, $index, $suppressedConnections, $suppressedPaidLanes, $attemptedPhysicalRoutes, $suppressedFreeLanes),
                             $decision->toAttemptDiagnostics(),
                         ),
                     );
@@ -644,6 +664,9 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                 } elseif ($this->isPaidLaneSuppressDecision($decision)) {
                     $suppressedPaidLanes[$connectionId] = true;
                     $healthMutation = 'connection_paid_locked';
+                } elseif ($this->isFreeLaneSuppressDecision($decision)) {
+                    $suppressedFreeLanes[$connectionId] = true;
+                    $healthMutation = 'free_lane_suppressed';
                 }
 
                 $fallbackCount++;
@@ -655,6 +678,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                     $suppressedConnections,
                     $suppressedPaidLanes,
                     $attemptedPhysicalRoutes,
+                    $suppressedFreeLanes,
                 );
                 $routingAttempts[] = $this->attemptLog(
                     $candidate,
@@ -686,6 +710,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                             'fallbackable' => $decision->fallbackAllowed(),
                             'connection_suppressed' => $this->isFullConnectionSuppressDecision($decision),
                             'paid_lane_suppressed' => $this->isPaidLaneSuppressDecision($decision),
+                            'free_lane_suppressed' => $this->isFreeLaneSuppressDecision($decision),
                             'health_mutation' => $healthMutation,
                             'logical_model_exhausted' => ! (bool) ($siblingMeta['sibling_routes_remain_eligible'] ?? false),
                             'request_sent' => $decision->requestSent ?? true,
@@ -705,6 +730,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                         'failure_stage' => $decision->failureStage,
                         'connection_suppressed' => $this->isFullConnectionSuppressDecision($decision),
                         'paid_lane_suppressed' => $this->isPaidLaneSuppressDecision($decision),
+                        'free_lane_suppressed' => $this->isFreeLaneSuppressDecision($decision),
                         'health_mutation' => $healthMutation,
                         'sibling_routes_remain_eligible' => $siblingMeta['sibling_routes_remain_eligible'] ?? false,
                         'eligible_sibling_physical_routes' => $siblingMeta['eligible_sibling_physical_routes'] ?? [],
@@ -794,6 +820,22 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
             'connection_lock_reason' => $lastFailureClass,
         ]);
 
+        foreach (array_reverse($routingAttempts) as $row) {
+            if (! is_array($row) || (string) ($row['result'] ?? '') !== 'failed') {
+                continue;
+            }
+            if ((string) ($row['failure_class'] ?? '') !== AiFailureClass::DailyFreeQuotaExhausted->value) {
+                continue;
+            }
+            foreach (['limit_source', 'rate_limit_limit', 'rate_limit_remaining', 'rate_limit_reset', 'free_daily_reset_at'] as $diagKey) {
+                if (isset($row[$diagKey]) && $row[$diagKey] !== null && $row[$diagKey] !== '') {
+                    $diagnostics[$diagKey] = $row[$diagKey];
+                }
+            }
+            $diagnostics['free_lane_suppressed'] = true;
+            break;
+        }
+
         $normalizedFailure = (new AiPrimaryFailureSelector())->select(
             terminalException: $lastException instanceof \Throwable ? $lastException : null,
             routingAttempts: $routingAttempts,
@@ -854,6 +896,17 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
     {
         return $decision->lockConnectionPaid
             || $decision->scope === AiFailureScope::ConnectionPaid;
+    }
+
+    /**
+     * Free billing-lane suppress — paid routes on the same connection stay eligible.
+     * Scope: connection_id + FREE lane only (OpenRouter free-models-per-day).
+     */
+    private function isFreeLaneSuppressDecision(AiFailureDecision $decision): bool
+    {
+        return $decision->suppressConnectionFree
+            || $decision->scope === AiFailureScope::ConnectionFree
+            || $decision->category === AiFailureClass::DailyFreeQuotaExhausted;
     }
 
     /** @deprecated Use isFullConnectionSuppressDecision / isPaidLaneSuppressDecision */
@@ -989,6 +1042,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
      * @param  array<int, true>  $suppressedConnections
      * @param  array<int, true>  $suppressedPaidLanes
      * @param  array<string, true>  $attemptedPhysicalRoutes
+     * @param  array<int, true>  $suppressedFreeLanes
      * @return array<string, mixed>
      */
     private function siblingRouteMeta(
@@ -997,6 +1051,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
         array $suppressedConnections,
         array $suppressedPaidLanes,
         array $attemptedPhysicalRoutes,
+        array $suppressedFreeLanes = [],
     ): array {
         $current = $candidates[$currentIndex] ?? null;
         if (! $current instanceof RoutedAiCandidate) {
@@ -1022,6 +1077,9 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                 continue;
             }
             if (! $candidate->isFree && isset($suppressedPaidLanes[$connectionId])) {
+                continue;
+            }
+            if ($candidate->isFree && isset($suppressedFreeLanes[$connectionId])) {
                 continue;
             }
             if (isset($attemptedPhysicalRoutes[$candidate->physicalRouteKey()])) {

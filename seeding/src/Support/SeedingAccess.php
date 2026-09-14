@@ -11,14 +11,20 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
 
 /**
- * Addon-neutral Seeding access — Core User + SiteAccess + Service activation.
+ * Addon-neutral Seeding access — Core User + SiteAccess + Service activation + Spatie roles.
  *
- * Manager: SEO Manager (seo_role=manager) inherits Seeding Manager automatically.
- * Seeder: any other user with Seeding access.
+ * Seeding Manager: Spatie seeding.manager, or Core owner/admin.
+ * Compat: seo.manager / legacy seo_role=manager still inherit Seeding Manager until Seeding UI assigns roles.
  */
 final class SeedingAccess
 {
     public const CAPABILITY_TOPIC = 'seeding.topic';
+
+    public const ROLE_MANAGER = 'seeding.manager';
+
+    public const ROLE_TOPIC_CREATOR = 'seeding.topic_creator';
+
+    public const ROLE_SEEDER = 'seeding.seeder';
 
     public function __construct(
         private readonly SiteAccess $sites,
@@ -46,7 +52,6 @@ final class SeedingAccess
 
     /**
      * Seeding Manager — create/edit/pause topics, management table, stats.
-     * SEO Manager (seo_role) auto-inherits; Core owner/admin also manage.
      */
     public function isManager(?User $user = null): bool
     {
@@ -57,6 +62,20 @@ final class SeedingAccess
 
         if (in_array((string) ($user->role ?? ''), [User::ROLE_OWNER, User::ROLE_ADMIN], true)) {
             return true;
+        }
+
+        try {
+            $auth = app(\App\Core\Permissions\AddonAuthorization::class);
+            if ($auth->hasAddonRole($user, self::ROLE_MANAGER, ownerBypass: false)) {
+                return true;
+            }
+
+            // Temporary compat: SEO Manager inherits Seeding Manager.
+            if ($auth->hasAddonRole($user, \App\Core\Permissions\LegacySeoRoleBridge::ROLE_MANAGER, ownerBypass: false)) {
+                return true;
+            }
+        } catch (\Throwable) {
+            // Fall through to legacy column.
         }
 
         return (string) ($user->seo_role ?? '') === User::SEO_ROLE_MANAGER;
