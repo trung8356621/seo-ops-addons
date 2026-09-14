@@ -15,6 +15,8 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Suppo
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectPreviewToken;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectTenantGuard;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectDraftExecutionGuard;
+use Omnichannel\Addons\ContentProjects\Services\RunEngine\ContentProjectRunEngine;
+use App\Support\RuntimeLogger;
 use InvalidArgumentException;
 
 final class ResumeProjectExecutionHandler extends AbstractPublishingHandler
@@ -23,6 +25,7 @@ final class ResumeProjectExecutionHandler extends AbstractPublishingHandler
         ContentProjectTenantGuard $tenantGuard,
         ContentProjectBusinessLock $businessLock,
         ContentProjectPreviewToken $previewToken,
+        private readonly ContentProjectRunEngine $runEngine,
     ) {
         parent::__construct($tenantGuard, $businessLock, $previewToken);
     }
@@ -64,9 +67,27 @@ final class ResumeProjectExecutionHandler extends AbstractPublishingHandler
                 );
             }
 
-            $run->forceFill([
-                'status' => SeoProjectRun::STATUS_RUNNING,
-            ])->saveQuietly();
+            // Engine owns stopping→running + next pending dispatch (no live worker required).
+            try {
+                $this->runEngine->resume($run);
+            } catch (\Throwable $e) {
+                RuntimeLogger::report($e, [
+                    'endpoint' => 'content_project.resume_execution',
+                    'project_id' => $projectId,
+                    'run_id' => (int) $run->getKey(),
+                ]);
+
+                return ContentProjectActionResult::fail(
+                    ContentProjectActionCodes::FAILED,
+                    'Resume failed: '.$e->getMessage(),
+                    $projectId,
+                    metadata: [
+                        'execution_ref' => ContentProjectPublicRef::execution((int) $run->getKey()),
+                    ],
+                );
+            }
+
+            $run->refresh();
 
             return ContentProjectActionResult::ok(
                 ContentProjectActionCodes::EXECUTION_RESUMED,
@@ -74,6 +95,8 @@ final class ResumeProjectExecutionHandler extends AbstractPublishingHandler
                 $projectId,
                 metadata: [
                     'execution_ref' => ContentProjectPublicRef::execution((int) $run->getKey()),
+                    'status' => (string) $run->status,
+                    'engine_resumed' => true,
                 ],
             );
         });

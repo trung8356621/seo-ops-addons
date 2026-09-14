@@ -206,6 +206,90 @@ final class ArticleGenerationInputResolverTest extends TestCase
         self::assertStringContainsString(ArticleGenerationInputResolver::VOCABULARY_START, (string) $matched);
     }
 
+    public function test_split_outline_vocabulary_persisted_separately_reassembles_on_reload(): void
+    {
+        $outlineOnly = "## H2 Structure\n### H3 Detail\n- point";
+        $vocabOnly = "### Holonymy\n- Capsule\n### Synonyms\n- Chic";
+
+        $step = [
+            'type' => 'prompt',
+            'title' => 'Split Outline',
+            'hook_key' => 'article.outline.structure.generate',
+            'persists_as_outline' => true,
+            'status' => 'completed',
+            // Combined transport gone after reload — only semantic parts remain.
+            'output' => '',
+            'outputs' => [],
+            'outline_markdown' => $outlineOnly,
+            'vocabulary_markdown' => $vocabOnly,
+            'sections' => [
+                'outline' => $outlineOnly,
+                'vocabulary' => $vocabOnly,
+            ],
+            'result_id' => 501,
+        ];
+
+        $item = $this->fakeRunItem(42, 7, [$step]);
+        $result = $this->resolveFromInjectedItems([$item]);
+
+        self::assertSame(ArticleGenerationSourceResult::SOURCE_RUN_OUTLINE_ARTIFACT, $result->sourceType);
+        self::assertSame(42, $result->sourceRunItemId);
+        self::assertStringContainsString('H2 Structure', $result->outlineSection);
+        self::assertStringContainsString('Holonymy', $result->writingInstructionsSection);
+        self::assertStringContainsString(ArticleGenerationInputResolver::OUTLINE_START, $result->rawArtifact);
+        self::assertStringContainsString(ArticleGenerationInputResolver::VOCABULARY_START, $result->rawArtifact);
+        self::assertTrue($result->outlineMarkerFound);
+        self::assertTrue($result->writingInstructionsMarkerFound);
+    }
+
+    public function test_canonical_outline_only_meta_reassembles_with_run_vocabulary(): void
+    {
+        $outlineOnly = "## Canonical Outline\n### Section A\n- note";
+        $vocabOnly = "### Synonyms\n- alpha\n- beta";
+
+        $step = [
+            'type' => 'prompt',
+            'hook_key' => 'article.outline.structure.generate',
+            'persists_as_outline' => true,
+            'status' => 'completed',
+            'output' => '',
+            'outputs' => [],
+            'outline_markdown' => $outlineOnly,
+            'vocabulary_markdown' => $vocabOnly,
+            'sections' => [
+                'outline' => $outlineOnly,
+                'vocabulary' => $vocabOnly,
+            ],
+        ];
+
+        // Prefer empty combined candidates path already covered; this asserts meta+vocab assemble.
+        $outline = \Mockery::mock(ArticleOutlineResolver::class);
+        $outline->shouldReceive('resolveMarkdown')->andReturn($outlineOnly);
+        $outline->shouldReceive('isUsable')->with($outlineOnly)->andReturn(true);
+
+        $resolver = new class($outline, [$this->fakeRunItem(11, 3, [$step])]) extends ArticleGenerationInputResolver
+        {
+            /** @param list<object> $items */
+            public function __construct(ArticleOutlineResolver $outline, private readonly array $items)
+            {
+                parent::__construct($outline);
+            }
+
+            protected function fetchSuccessfulRunItems(int $articleId, ?int $preferRunId): \Illuminate\Support\Collection
+            {
+                unset($articleId, $preferRunId);
+
+                return collect($this->items);
+            }
+        };
+
+        $result = $resolver->resolveForArticle($this->article(9, $outlineOnly));
+
+        self::assertStringContainsString('Canonical Outline', $result->outlineSection);
+        self::assertStringContainsString('Synonyms', $result->writingInstructionsSection);
+        self::assertTrue($resolver->isValidArtifact($result->rawArtifact));
+    }
+
     public function test_debug_variables_shape(): void
     {
         $result = $this->resolver('')->resolveFromRawArtifact(
@@ -276,6 +360,9 @@ final class ArticleGenerationInputResolverTest extends TestCase
     {
         $outline = \Mockery::mock(ArticleOutlineResolver::class);
         $outline->shouldReceive('resolveMarkdown')->andReturn($canonical);
+        $outline->shouldReceive('isUsable')->andReturnUsing(
+            static fn (string $markdown): bool => trim($markdown) !== '' && mb_strlen(trim($markdown)) >= 8,
+        );
 
         return new ArticleGenerationInputResolver($outline);
     }
@@ -284,6 +371,9 @@ final class ArticleGenerationInputResolverTest extends TestCase
     {
         $outline = \Mockery::mock(ArticleOutlineResolver::class);
         $outline->shouldReceive('resolveMarkdown')->andReturn($canonical);
+        $outline->shouldReceive('isUsable')->andReturnUsing(
+            static fn (string $markdown): bool => trim($markdown) !== '' && mb_strlen(trim($markdown)) >= 8,
+        );
 
         return new class($outline) extends ArticleGenerationInputResolver
         {

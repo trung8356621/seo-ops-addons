@@ -429,13 +429,13 @@ final class SeoProjectRunItemService
 
             $version = $this->buildOperationVersion($task, $action);
             $attempt = (int) $runItem->attempt;
-            if (
-                $forceRetry
-                || $status === SeoProjectRunItemStatus::Failed->value
+            $statusIsRetryableTerminal = $status === SeoProjectRunItemStatus::Failed->value
                 || $status === SeoProjectRunItemStatus::Processing->value
                 || $status === SeoProjectRunItemStatus::Success->value
-                || $status === SeoProjectRunItemStatus::Skipped->value
-            ) {
+                || $status === SeoProjectRunItemStatus::Skipped->value;
+            // Pending (lazy membership / transient re-queue): keep attempt — do not bump on claim.
+            // forceRetry only reclaims terminal rows; it must not double-bump Pending.
+            if ($statusIsRetryableTerminal) {
                 $attempt++;
             }
 

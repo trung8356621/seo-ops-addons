@@ -91,7 +91,9 @@ final class ContentProjectArticleRunner
                     $taskId,
                     markCompleted: false,
                     forcedArticleId: null,
-                    forceRetry: true,
+                    // Engine-owned pending claims must not forceRetry-bump attempt.
+                    // Explicit terminal/manual retry keeps forceRetry via retryTask().
+                    forceRetry: false,
                 ),
             );
         } catch (\Throwable $exception) {

@@ -405,19 +405,7 @@ final class TaskWorkflowTestRunner
 
         $article = $context->article ?? $state->article;
         if ($article instanceof SeoArticle) {
-            $article->loadMissing('articleMetas');
-            $fromMeta = trim((string) (
-                $article->articleMetas->firstWhere('meta_key', 'seo_article_outline')?->meta_value ?? ''
-            ));
-            if ($fromMeta !== '') {
-                // Meta may be marked artifact or usable plain outline.
-                if ($this->articleGenerationInput->isValidArtifact($fromMeta)
-                    || $this->isUsablePlainOutline($fromMeta)
-                ) {
-                    return $this->applySeededOutlineToState($state, $fromMeta);
-                }
-            }
-
+            // Prefer writing-source boundary: reconstruct Outline+Vocabulary transport.
             try {
                 $resolved = $this->articleGenerationInput->resolveForArticle($article);
                 $raw = trim((string) ($resolved->rawArtifact ?? ''));
@@ -425,7 +413,16 @@ final class TaskWorkflowTestRunner
                     return $this->applySeededOutlineToState($state, $raw);
                 }
             } catch (\Throwable) {
-                // fail closed to empty — caller throws Vietnamese message
+                // fall through to meta / reject
+            }
+
+            $article->loadMissing('articleMetas');
+            $fromMeta = trim((string) (
+                $article->articleMetas->firstWhere('meta_key', 'seo_article_outline')?->meta_value ?? ''
+            ));
+            // Full two-marker artifact only — plain outline-only meta is not enough for Content.
+            if ($fromMeta !== '' && $this->articleGenerationInput->isValidArtifact($fromMeta)) {
+                return $this->applySeededOutlineToState($state, $fromMeta);
             }
         }
 
@@ -1009,12 +1006,9 @@ final class TaskWorkflowTestRunner
                         'strategy_source' => $variables['strategy_source'] ?? null,
                     ];
 
+                    // Outline is always Structure + Vocabulary (paid/free, single_pass/sectioned).
+                    // generation_shape must NOT gate Outline orchestration — it applies to Content only.
                     if ($this->isOutlineRoleNode($node, $hookBinding->hookKey)) {
-                        $variables = $this->ensureRouteCostGenerationShapeSnapshot($variables);
-                    }
-
-                    if ($this->isOutlineRoleNode($node, $hookBinding->hookKey)
-                        && $this->isOutlineSplitEnabled($variables)) {
                         $checkpoint = $this->resolveSplitOutlineCheckpoint($state, $context);
                         if ($checkpoint['body'] !== '') {
                             $contextExtras['reused_outline_markdown'] = $checkpoint['body'];
@@ -2788,80 +2782,6 @@ final class TaskWorkflowTestRunner
         $hookKey = trim((string) ($node['data']['hook_key'] ?? ''));
 
         return $hookKey === ArticleGenerationInputResolver::OUTLINE_HOOK_KEY;
-    }
-
-    /**
-     * Outline Structure+Vocabulary when snapshotted generation_shape is SPLIT (sectioned).
-     * Authority: route_cost_auto via GenerationShapeResolver — NOT outline_split_enabled /
-     * writing_split_enabled / PromptBudget supportsSplit().
-     *
-     * @param  array<string, mixed>  $variables
-     */
-    private function isOutlineSplitEnabled(array $variables = []): bool
-    {
-        $shape = \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationShape::tryFromMixed(
-            $variables['generation_shape'] ?? null,
-        );
-        if ($shape !== null) {
-            return $shape->isSectioned();
-        }
-
-        $decision = $this->resolveOutlineGenerationShape($variables);
-
-        return $decision['decision']->shape->isSectioned();
-    }
-
-    /**
-     * @param  array<string, mixed>  $variables
-     * @return array<string, mixed>
-     */
-    private function ensureRouteCostGenerationShapeSnapshot(array $variables): array
-    {
-        $existing = \Omnichannel\Addons\AiPrompt\Support\GenerationShapeDecision::tryFromVariables($variables);
-        if ($existing !== null) {
-            return array_merge($variables, $existing->toVariableFields());
-        }
-
-        $resolved = $this->resolveOutlineGenerationShape($variables);
-
-        return array_merge($resolved['variables'], $resolved['decision']->toVariableFields());
-    }
-
-    /**
-     * @param  array<string, mixed>  $variables
-     * @return array{decision: \Omnichannel\Addons\AiPrompt\Support\GenerationShapeDecision, variables: array<string, mixed>}
-     */
-    private function resolveOutlineGenerationShape(array $variables): array
-    {
-        $userId = (int) ($variables['preference_user_id']
-            ?? $variables['actor_user_id']
-            ?? $variables['initiated_by_user_id']
-            ?? $variables['user_id']
-            ?? auth()->id()
-            ?? 0);
-
-        $profile = \Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile::TextReasoning->value;
-        $variables = \Omnichannel\Addons\AiPrompt\Support\ArticleGenerationModePreference::stampIntoVariables(
-            $variables,
-            $userId > 0 ? $userId : null,
-        );
-        $effectivePolicy = (new \Omnichannel\Addons\AiPrompt\Services\EffectiveAiCostPolicyResolver())->resolve(
-            contextPolicy: \Omnichannel\Addons\AiPrompt\Support\AiCostPolicyScope::current(),
-            explicitFreeOnlyFlag: false,
-            hookKey: ArticleGenerationInputResolver::OUTLINE_HOOK_KEY,
-            variables: $variables,
-        );
-        $routingContext = new \Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext(
-            userId: $userId > 0 ? $userId : null,
-            freeOnly: $effectivePolicy->isFreeOnly(),
-            costPolicy: $effectivePolicy,
-            hookKey: ArticleGenerationInputResolver::OUTLINE_HOOK_KEY,
-        );
-
-        return [
-            'decision' => app(GenerationShapeResolver::class)->resolveDecision($profile, $routingContext, $variables),
-            'variables' => $variables,
-        ];
     }
 
     /**

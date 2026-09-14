@@ -893,7 +893,7 @@ final class AiRuntimeFallbackTest extends TestCase
         $this->assertSame('first-wins', $output);
     }
 
-    /** TEST E — Outline split is route_cost_auto; PromptBudget ≠ Outline Split */
+    /** TEST E — Outline always Structure+Vocabulary; PromptBudget ≠ Outline Split; shape ≠ Outline gate */
     public function test_e_outline_split_prompt_off_does_not_use_writing_multiple_pass(): void
     {
         $runner = file_get_contents(
@@ -903,9 +903,9 @@ final class AiRuntimeFallbackTest extends TestCase
             (string) (new \ReflectionClass(\Omnichannel\Addons\AiPrompt\Services\ArticleOutlineVocabularySplitExecutor::class))->getFileName(),
         ) ?: '';
         $this->assertStringContainsString('outlineSplitExecutor->execute', $runner);
-        $this->assertStringContainsString('isOutlineSplitEnabled', $runner);
-        $this->assertStringContainsString('GenerationShapeResolver', $runner);
-        $this->assertStringContainsString('ensureRouteCostGenerationShapeSnapshot', $runner);
+        $this->assertStringContainsString('isOutlineRoleNode', $runner);
+        $this->assertStringNotContainsString('isOutlineSplitEnabled', $runner);
+        $this->assertStringNotContainsString('ensureRouteCostGenerationShapeSnapshot', $runner);
         $this->assertStringNotContainsString('WritingMultiplePassStepPlanner', $executor);
         $this->assertStringNotContainsString('writing_split_enabled', $executor);
         $this->assertStringNotContainsString('SectionedFreeHookOrchestrator', $executor);

@@ -2146,7 +2146,7 @@ return [
         'translate_article_prompt_hint' => 'Variables: {{input}} = source article markdown, {{language}} = target language name in English (e.g. Vietnamese, English). Output: translated article Markdown.',
         'prompt_hooks_section' => 'Prompt Hooks — Settings bindings',
         'outline_split_enabled' => 'Split Outline Prompt (Structure + Vocabulary)',
-        'outline_split_enabled_hint' => 'LEGACY — no longer runtime authority. Outline shape follows route_cost_auto (FREE→SPLIT / PAID→SINGLE).',
+        'outline_split_enabled_hint' => 'LEGACY — no longer runtime authority. Outline is always Structure + Vocabulary (paid/free); generation_shape applies to Content only.',
         'prompt_hooks_description' => 'Assign Prompts that already have the matching Hook. Only Prompts with the correct hook_key appear — no fallback to plain Prompts.',
         'prompt_hooks_ownership_description' => 'Hook = Prompt type. Settings binding = ownership. Only Prompts with matching hook_key appear. Unassigned Prompts are not used at runtime.',
         'open_prompt_management' => 'Open Prompt Management',

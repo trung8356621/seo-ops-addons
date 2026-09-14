@@ -145,6 +145,11 @@ final class ContentProjectRunEngine
     {
         $run->refresh();
 
+        if ((string) $run->status === SeoProjectRun::STATUS_STOPPING) {
+            $this->clearStoppingToRunning($run);
+            $run->refresh();
+        }
+
         if ($this->tryResumeAfterCircuitBreaker($run)) {
             return;
         }
@@ -156,6 +161,40 @@ final class ContentProjectRunEngine
         }
 
         $this->dispatchNextArticle($run);
+    }
+
+    /**
+     * Cooperative stop → running so dispatch can continue without a live worker.
+     */
+    private function clearStoppingToRunning(SeoProjectRun $run): void
+    {
+        DB::connection('omi_seo_ai')->transaction(function () use ($run): void {
+            /** @var SeoProjectRun|null $locked */
+            $locked = SeoProjectRun::query()
+                ->whereKey((int) $run->id)
+                ->lockForUpdate()
+                ->first();
+            if (! $locked instanceof SeoProjectRun) {
+                return;
+            }
+            if ((string) $locked->status !== SeoProjectRun::STATUS_STOPPING) {
+                return;
+            }
+
+            $previousStatus = (string) $locked->status;
+            $locked->update([
+                'status' => $this->statusMapper->runToDb(ContentProjectRunSemanticStatus::Running),
+                'finished_at' => null,
+            ]);
+
+            RuntimeLogger::info('content_project_run.transition', [
+                'run_id' => (int) $locked->id,
+                'before' => $previousStatus,
+                'after' => 'running',
+                'decision' => 'dispatch_resume',
+                'reason' => 'resume_from_stopping',
+            ]);
+        });
     }
 
     /**

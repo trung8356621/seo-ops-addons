@@ -20,6 +20,10 @@ use Omnichannel\Addons\Content\Support\ArticleGenerationSourceResult;
  * [START_TASK_2_VOCABULARY]…[END_TASK_2_VOCABULARY]
  *
  * Section 2 trong product language = writing instructions / vocabulary.
+ *
+ * Split Outline may persist ArticleOutline + ArticleVocabulary separately.
+ * Writing-source boundary reconstructs the transport artifact at resolve time —
+ * never by permanently repacking vocabulary into outline meta.
  */
 class ArticleGenerationInputResolver
 {
@@ -238,6 +242,22 @@ class ArticleGenerationInputResolver
     }
 
     /**
+     * Build transport artifact from separate semantic Outline + Vocabulary bodies.
+     * Does not persist — writing-source boundary only.
+     */
+    public function assembleTransportArtifact(string $outlineBody, string $vocabularyBody): string
+    {
+        $outline = $this->normalizeSemanticBody($outlineBody);
+        $vocab = $this->normalizeSemanticBody($vocabularyBody);
+        if ($outline === '' || $vocab === '') {
+            return '';
+        }
+
+        return self::OUTLINE_START."\n".$outline."\n".self::OUTLINE_END."\n\n"
+            .self::VOCABULARY_START."\n".$vocab."\n".self::VOCABULARY_END;
+    }
+
+    /**
      * @return list<string>
      */
     public function candidatePayloadsFromStep(array $step): array
@@ -251,6 +271,8 @@ class ArticleGenerationInputResolver
             trim((string) ($outputs['out_main'] ?? '')),
             // Ghép lại từ section ports nếu total bị strip.
             $this->reassembleFromPorts($outputs),
+            // Split persist: outline_markdown + vocabulary_markdown / sections (no combined blob).
+            $this->reassembleFromSemanticStepParts($step),
             // Chỉ dùng outline_markdown / out_outline khi vẫn còn marker.
             trim((string) ($step['outline_markdown'] ?? '')),
             trim((string) ($outputs['out_outline'] ?? '')),
@@ -275,13 +297,63 @@ class ArticleGenerationInputResolver
     {
         $outline = trim((string) ($outputs['task_1_outline'] ?? $outputs['out_task_1_outline'] ?? ''));
         $vocab = trim((string) ($outputs['task_2_vocabulary'] ?? $outputs['out_task_2_vocabulary'] ?? ''));
-        if ($outline === '' || $vocab === '') {
+
+        return $this->assembleTransportArtifact($outline, $vocab);
+    }
+
+    /**
+     * Reconstruct transport from separately persisted Outline + Vocabulary on a step.
+     *
+     * @param  array<string, mixed>  $step
+     */
+    private function reassembleFromSemanticStepParts(array $step): string
+    {
+        $outputs = is_array($step['outputs'] ?? null) ? $step['outputs'] : [];
+        $sections = is_array($step['sections'] ?? null) ? $step['sections'] : [];
+
+        $outline = trim((string) (
+            $sections['outline']
+            ?? $step['outline_markdown']
+            ?? $outputs['task_1_outline']
+            ?? $outputs['out_task_1_outline']
+            ?? ''
+        ));
+        $vocab = trim((string) (
+            $sections['vocabulary']
+            ?? $step['vocabulary_markdown']
+            ?? $outputs['task_2_vocabulary']
+            ?? $outputs['out_task_2_vocabulary']
+            ?? ''
+        ));
+
+        return $this->assembleTransportArtifact($outline, $vocab);
+    }
+
+    /**
+     * Strip accidental transport wrappers from a semantic body — keep content only.
+     */
+    private function normalizeSemanticBody(string $raw): string
+    {
+        $text = trim($raw);
+        if ($text === '') {
             return '';
         }
 
-        // Ports đã strip marker — gắn lại đúng contract để article assembler nhận đủ 2 phần.
-        return self::OUTLINE_START."\n".$outline."\n".self::OUTLINE_END."\n\n"
-            .self::VOCABULARY_START."\n".$vocab."\n".self::VOCABULARY_END;
+        $pairs = [
+            [self::OUTLINE_START, self::OUTLINE_END],
+            [self::VOCABULARY_START, self::VOCABULARY_END],
+        ];
+        foreach ($pairs as [$start, $end]) {
+            $extracted = $this->extractSection($text, $start, $end);
+            if ($extracted !== null && trim($extracted) !== '') {
+                return trim($extracted);
+            }
+        }
+
+        $text = (string) preg_replace('/^\s*\[START_TASK_[^\]]+\]\s*/u', '', $text);
+        $text = (string) preg_replace('/\s*\[END_TASK_[^\]]+\]\s*$/u', '', $text);
+
+        return trim($text);
     }
 
     private function resolveFromOutlineProducerRun(int $articleId, ?int $preferRunId): ?ArticleGenerationSourceResult
@@ -374,20 +446,118 @@ class ArticleGenerationInputResolver
         }
 
         $parsed = $this->tryParseArtifact($markdown);
-        if ($parsed === null) {
-            // Heading-only / cleaned-without-markers ≠ full artifact.
+        if ($parsed !== null) {
+            return $this->toResult(
+                raw: $parsed['raw'],
+                outlineSection: $parsed['outline_section'],
+                writingSection: $parsed['writing_instructions_section'],
+                sourceType: ArticleGenerationSourceResult::SOURCE_CANONICAL_OUTLINE_ARTIFACT,
+                sourceRunId: null,
+                sourceRunItemId: null,
+                sourcePromptResultId: null,
+            );
+        }
+
+        // Split persist: outline meta is outline-only — reconstruct with vocabulary from run steps.
+        if (! $this->outlineResolver->isUsable($markdown)) {
             return null;
         }
 
-        return $this->toResult(
-            raw: $parsed['raw'],
-            outlineSection: $parsed['outline_section'],
-            writingSection: $parsed['writing_instructions_section'],
-            sourceType: ArticleGenerationSourceResult::SOURCE_CANONICAL_OUTLINE_ARTIFACT,
-            sourceRunId: null,
-            sourceRunItemId: null,
-            sourcePromptResultId: null,
+        $assembled = $this->tryAssembleFromCanonicalOutlineAndRunVocabulary(
+            $article,
+            $markdown,
         );
+        if ($assembled === null) {
+            return null;
+        }
+
+        return $assembled;
+    }
+
+    /**
+     * Outline meta (clean) + Vocabulary semantic body from a prior outline producer step.
+     */
+    private function tryAssembleFromCanonicalOutlineAndRunVocabulary(
+        SeoArticle $article,
+        string $outlineMarkdown,
+    ): ?ArticleGenerationSourceResult {
+        $articleId = (int) $article->getKey();
+        if ($articleId <= 0) {
+            return null;
+        }
+
+        foreach ($this->fetchSuccessfulRunItems($articleId, null) as $item) {
+            $steps = is_array($item->output_snapshot['steps'] ?? null)
+                ? $item->output_snapshot['steps']
+                : [];
+
+            foreach ($steps as $step) {
+                if (! is_array($step)) {
+                    continue;
+                }
+                if (! $this->isOutlineProducerStep($step) && ! $this->isLegacyOutlineArtifactStep($step)) {
+                    continue;
+                }
+
+                $vocab = $this->extractVocabularyBodyFromStep($step);
+                if ($vocab === '') {
+                    continue;
+                }
+
+                $raw = $this->assembleTransportArtifact($outlineMarkdown, $vocab);
+                $parsed = $this->tryParseArtifact($raw);
+                if ($parsed === null) {
+                    continue;
+                }
+
+                $resultId = (int) ($step['vocabulary_result_id'] ?? $step['result_id'] ?? 0);
+
+                return $this->toResult(
+                    raw: $parsed['raw'],
+                    outlineSection: $parsed['outline_section'],
+                    writingSection: $parsed['writing_instructions_section'],
+                    sourceType: ArticleGenerationSourceResult::SOURCE_CANONICAL_OUTLINE_ARTIFACT,
+                    sourceRunId: (int) $item->run_id > 0 ? (int) $item->run_id : null,
+                    sourceRunItemId: (int) $item->id > 0 ? (int) $item->id : null,
+                    sourcePromptResultId: $resultId > 0 ? $resultId : null,
+                );
+            }
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $step
+     */
+    private function extractVocabularyBodyFromStep(array $step): string
+    {
+        $outputs = is_array($step['outputs'] ?? null) ? $step['outputs'] : [];
+        $sections = is_array($step['sections'] ?? null) ? $step['sections'] : [];
+
+        $candidates = [
+            trim((string) ($sections['vocabulary'] ?? '')),
+            trim((string) ($step['vocabulary_markdown'] ?? '')),
+            trim((string) ($outputs['task_2_vocabulary'] ?? '')),
+            trim((string) ($outputs['out_task_2_vocabulary'] ?? '')),
+        ];
+
+        $combined = trim((string) ($outputs['total'] ?? $step['output'] ?? ''));
+        if ($combined !== '') {
+            $fromMarkers = $this->extractSection($combined, self::VOCABULARY_START, self::VOCABULARY_END);
+            if ($fromMarkers !== null) {
+                $candidates[] = trim($fromMarkers);
+            }
+        }
+
+        foreach ($candidates as $candidate) {
+            $body = $this->normalizeSemanticBody($candidate);
+            if ($body !== '') {
+                return $body;
+            }
+        }
+
+        return '';
     }
 
     private function extractSection(string $raw, string $start, string $end): ?string
