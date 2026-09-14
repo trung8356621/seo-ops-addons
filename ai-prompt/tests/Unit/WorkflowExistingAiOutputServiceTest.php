@@ -67,6 +67,22 @@ final class WorkflowExistingAiOutputServiceTest extends TestCase
         self::assertNull($reuse);
     }
 
+    public function test_it_does_not_reuse_editor_skeleton_with_zero_semantic_words(): void
+    {
+        $prompt = (new SeoPrompt)->forceFill(['name' => 'Anything']);
+        $svc = new WorkflowExistingAiOutputService;
+
+        foreach (['<p></p>', '<p><br></p>', '<p>&nbsp;</p>'] as $body) {
+            $reuse = $svc->resolve([
+                'data' => [
+                    'execution_role' => WorkflowExecutionRole::ArticleContentGenerate->value,
+                    'mergeOutlineToSave' => true,
+                ],
+            ], $prompt, (new SeoArticle)->forceFill(['body' => $body]));
+            self::assertNull($reuse, $body);
+        }
+    }
+
     public function test_allow_reuse_false_always_null(): void
     {
         $article = (new SeoArticle)->forceFill(['body' => '<p>Nội dung đã có</p>']);

@@ -40,12 +40,7 @@ final class WorkflowExistingAiOutputService
 
         if ($type === self::TYPE_CONTENT) {
             $body = trim((string) ($article->body ?? ''));
-            if ($body === '') {
-                return null;
-            }
-
-            // Contaminated body (outline markers) must never short-circuit as article_content.
-            if ($this->looksLikeOutlineMarkerPayload($body)) {
+            if (! $this->hasSemanticArticleBody($body)) {
                 return null;
             }
 
@@ -110,7 +105,7 @@ final class WorkflowExistingAiOutputService
         return null;
     }
 
-    private function looksLikeOutlineMarkerPayload(string $payload): bool
+    public function looksLikeOutlineMarkerPayload(string $payload): bool
     {
         $payload = trim($payload);
         if ($payload === '') {
@@ -119,5 +114,26 @@ final class WorkflowExistingAiOutputService
 
         return (bool) preg_match('/\[START_TASK_\d+_OUTLINE\]/i', $payload)
             || (bool) preg_match('/\[END_TASK_\d+_OUTLINE\]/i', $payload);
+    }
+
+    /**
+     * True when body has real readable words — empty editor skeleton / markup-only is false.
+     */
+    public function hasSemanticArticleBody(string $body): bool
+    {
+        $body = trim($body);
+        if ($body === '') {
+            return false;
+        }
+
+        if ($this->looksLikeOutlineMarkerPayload($body)) {
+            return false;
+        }
+
+        $plain = html_entity_decode(strip_tags($body), ENT_QUOTES | ENT_HTML5, 'UTF-8');
+        $plain = str_replace("\u{00A0}", ' ', $plain);
+        $plain = trim(preg_replace('/\s+/u', ' ', $plain) ?? '');
+
+        return \Omnichannel\Addons\AiPrompt\Support\PromptTextMetrics::wordCount($plain) > 0;
     }
 }

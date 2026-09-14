@@ -561,6 +561,53 @@ class ArticleWritingExecutionService
             );
         }
 
+        // PublishGraph / ContentNode: Outline-only is not success — need Content evidence.
+        if (in_array($context->mode, [
+            ArticleWritingExecutionMode::PublishGraph,
+            ArticleWritingExecutionMode::ContentNode,
+        ], true)) {
+            $article = $taskContext->article;
+            if ($articleId !== null && $articleId > 0) {
+                $fresh = SeoArticle::query()->find($articleId);
+                if ($fresh instanceof SeoArticle) {
+                    $article = $fresh;
+                }
+            }
+            $evidence = \Omnichannel\Addons\AiPrompt\Support\WorkflowPublishContentEvidence::evaluate(
+                $steps,
+                $article instanceof SeoArticle ? $article : null,
+                requireContent: true,
+            );
+            if (! $evidence['ok']) {
+                $steps[] = [
+                    'node_id' => 'content-evidence-guard',
+                    'type' => 'guard',
+                    'title' => 'Content evidence',
+                    'status' => 'failed',
+                    'message' => $evidence['message'],
+                    'skip_reason' => $evidence['code'],
+                    'error_code' => $evidence['code'],
+                ];
+
+                return new ArticleWritingExecutionResult(
+                    success: false,
+                    message: $evidence['message'],
+                    sourceType: $writing->sourceType,
+                    promptOwnerType: $owner['type'],
+                    hookKey: self::HOOK_KEY,
+                    articleId: $articleId,
+                    promptId: $owner['prompt_id'],
+                    promptOwnerId: $owner['owner_id'],
+                    persistStatus: ArticleWritingExecutionResult::PERSIST_FAILED,
+                    steps: $steps,
+                    historyMetadata: array_merge($history, [
+                        'error_code' => $evidence['code'],
+                    ]),
+                    writing: $writing,
+                );
+            }
+        }
+
         return new ArticleWritingExecutionResult(
             success: true,
             message: 'Đã chạy article writing.',

@@ -278,6 +278,7 @@ final class CreateArticlesFromTaskService
                 isset($context->variables['focus_keyword']) ? (string) $context->variables['focus_keyword'] : null,
             ) ?: 'rewrite',
             $steps,
+            requireContent: false,
         );
     }
 
@@ -478,6 +479,7 @@ final class CreateArticlesFromTaskService
         int $resolvedSiteId,
         string $keyword,
         array $steps,
+        bool $requireContent = true,
     ): array {
         $failed = collect($steps)->contains(
             static fn (array $step): bool => in_array((string) ($step['status'] ?? ''), ['failed', 'blocked'], true),
@@ -504,6 +506,36 @@ final class CreateArticlesFromTaskService
         );
         $this->workflowRunner->applyParsedMetaFromSteps($article, $steps);
         $this->syncFocusKeywordFromContext($article, $resolvedSiteId, $context);
+
+        $evidence = \Omnichannel\Addons\AiPrompt\Support\WorkflowPublishContentEvidence::evaluate(
+            $steps,
+            $article->fresh() ?? $article,
+            requireContent: $requireContent,
+        );
+        if (! $evidence['ok']) {
+            $steps[] = [
+                'node_id' => 'content-evidence-guard',
+                'type' => 'guard',
+                'title' => 'Content evidence',
+                'status' => 'failed',
+                'message' => $evidence['message'],
+                'skip_reason' => $evidence['code'],
+                'error_code' => $evidence['code'],
+            ];
+
+            return [
+                'success' => false,
+                'article_id' => (int) $article->id,
+                'steps' => $steps,
+                'message' => $evidence['message'],
+                'failed_step' => [
+                    'title' => 'Content evidence',
+                    'prompt_name' => '',
+                    'message' => $evidence['message'],
+                ],
+                'error_code' => $evidence['code'],
+            ];
+        }
 
         return [
             'success' => true,

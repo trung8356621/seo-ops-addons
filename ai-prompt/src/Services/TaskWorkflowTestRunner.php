@@ -291,7 +291,7 @@ final class TaskWorkflowTestRunner
                     'title' => (string) ($node['title'] ?? 'Bước'),
                     'status' => 'skipped',
                     'message' => 'Bỏ qua — phạm vi outline/vocabulary (không viết bài).',
-                    'skip_reason' => 'outline_vocabulary_scope',
+                    'skip_reason' => \Omnichannel\Addons\AiPrompt\Support\WorkflowPublishContentEvidence::SKIP_REASON_OUTLINE_ONLY_SCOPE,
                 ];
                 // Non-blocking: save_vocabulary may sit after content in some graphs.
                 $statusByNodeId[$nodeId] = 'skipped_scope';
@@ -348,7 +348,16 @@ final class TaskWorkflowTestRunner
                 if (in_array($status, ['failed', 'blocked'], true)) {
                     $statusByNodeId[$nodeId] = $status;
                 } elseif ($status === 'skipped') {
-                    $statusByNodeId[$nodeId] = 'skipped_upstream';
+                    $skipReason = trim((string) ($step['skip_reason'] ?? ''));
+                    // Legitimate reuse must not block downstream save/persist as "upstream failed".
+                    if (in_array($skipReason, [
+                        \Omnichannel\Addons\AiPrompt\Support\WorkflowPublishContentEvidence::SKIP_REASON_EXISTING_CONTENT,
+                        'existing_outline_reuse',
+                    ], true)) {
+                        $statusByNodeId[$nodeId] = 'completed';
+                    } else {
+                        $statusByNodeId[$nodeId] = 'skipped_upstream';
+                    }
                 } else {
                     $statusByNodeId[$nodeId] = 'completed';
                 }
@@ -926,10 +935,13 @@ final class TaskWorkflowTestRunner
                     $state->nodeOutputs[$nodeId] = $this->buildPromptNodeOutputs($prompt, $output, $state);
 
                     $outlinePersistedMarkdown = '';
+                    $skipReason = null;
                     if ($reused['type'] === WorkflowExistingAiOutputService::TYPE_OUTLINE) {
                         $outlinePersistedMarkdown = $this->captureOutlinePromptOutput($node, $prompt, $output, $state);
+                        $skipReason = 'existing_outline_reuse';
                     } elseif ($reused['type'] === WorkflowExistingAiOutputService::TYPE_CONTENT) {
                         $state->meta['preserve_existing_article_body'] = true;
+                        $skipReason = \Omnichannel\Addons\AiPrompt\Support\WorkflowPublishContentEvidence::SKIP_REASON_EXISTING_CONTENT;
                     }
 
                     return [
@@ -946,6 +958,7 @@ final class TaskWorkflowTestRunner
                         'outline_markdown' => $outlinePersistedMarkdown !== '' ? $outlinePersistedMarkdown : null,
                         'persists_as_outline' => $outlinePersistedMarkdown !== '',
                         'message' => $reused['message'],
+                        'skip_reason' => $skipReason,
                     ];
                 }
 
