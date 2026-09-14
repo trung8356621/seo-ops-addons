@@ -78,6 +78,7 @@ final class ContentProjectRunSettings
      */
     public const OPERATIONAL_KEYS = [
         'task_ids',
+        'lazy_bulk',
         'rerun',
         'rerun_scope',
         'rerun_from_step',

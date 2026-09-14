@@ -99,8 +99,9 @@ final class ContentProjectRunItemEvidenceIndex
     /**
      * Whether this row may be the task's latest REAL execution evidence.
      *
-     * Excludes unvisited membership AND live JIT claim pending that has not
-     * started yet (those belong only to current membership / runtime).
+     * Pending without started/finished timestamps is never historical execution —
+     * it is bulk membership and/or a live claim (runtime via active_dispatch only).
+     * This must not depend solely on settings.lazy_bulk surviving snapshotForRun.
      *
      * @param  array<string, mixed>  $item
      * @param  array<string, mixed>|null  $activeDispatch
@@ -110,25 +111,20 @@ final class ContentProjectRunItemEvidenceIndex
         bool $lazyBulk,
         ?array $activeDispatch,
     ): bool {
-        if (self::isUnvisitedLazyBulkMembership($item, $lazyBulk, $activeDispatch)) {
-            return false;
-        }
-
         $status = strtolower(trim((string) ($item['status'] ?? '')));
+
+        // Terminal / in-progress statuses are always execution evidence.
         if ($status !== 'pending') {
             return true;
         }
 
+        // Pending that already started (or finished) is a real attempt.
         if (self::hasExecutionTimestamps($item)) {
             return true;
         }
 
-        // Legacy non-lazy pending = prepareOperation queue attempt (real history).
-        if (! $lazyBulk) {
-            return true;
-        }
-
-        // Lazy pending + active_dispatch only = current claim, not historical yet.
+        // Pending + no timestamps: membership or pre-start claim — never latest execution.
+        // (Live claim is exposed via current_membership + active_dispatch for runtime.)
         return false;
     }
 

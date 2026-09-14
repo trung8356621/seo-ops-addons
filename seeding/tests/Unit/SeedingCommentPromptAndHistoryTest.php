@@ -205,9 +205,16 @@ final class SeedingCommentPromptAndHistoryTest extends TestCase
         $panel = (string) file_get_contents(
             dirname(__DIR__, 2).'/resources/js/seeding/components/ManagerPanel.jsx'
         );
+        self::assertStringContainsString("id: 'summary'", $panel);
+        self::assertStringContainsString("subTab === 'summary'", $panel);
+        self::assertStringContainsString('data-section="gen-comment-prompt"', $panel);
+        self::assertStringContainsString('data-section="gen-comment-history"', $panel);
         self::assertStringContainsString('Prompt Gen Comment', $panel);
         self::assertStringContainsString('{{mcp_context}}', $panel);
+        self::assertStringContainsString('Biến hỗ trợ duy nhất', $panel);
         self::assertStringContainsString('Lịch sử Gen Comment', $panel);
+        self::assertStringContainsString('Chưa có lần Gen nào.', $panel);
+        self::assertStringContainsString('promptError', $panel);
         self::assertStringContainsString('fetchCommentPrompt', $panel);
         self::assertStringContainsString('saveCommentPrompt', $panel);
         self::assertStringContainsString('MCP Context', $panel);

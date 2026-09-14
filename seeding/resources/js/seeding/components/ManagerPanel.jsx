@@ -47,6 +47,7 @@ export default function ManagerPanel({ websiteStats = null }) {
     const [promptBody, setPromptBody] = useState('');
     const [promptLoading, setPromptLoading] = useState(false);
     const [promptSaving, setPromptSaving] = useState(false);
+    const [promptError, setPromptError] = useState('');
     const [history, setHistory] = useState([]);
     const [detailOpen, setDetailOpen] = useState(false);
     const [detailLoading, setDetailLoading] = useState(false);
@@ -67,12 +68,16 @@ export default function ManagerPanel({ websiteStats = null }) {
 
     const loadPrompt = async () => {
         setPromptLoading(true);
+        setPromptError('');
         try {
             const data = await fetchCommentPrompt();
             setPromptBody(String(data?.prompt_body ?? ''));
             setHistory(Array.isArray(data?.history) ? data.history : []);
         } catch (e) {
-            notifyError(e?.message || 'Không tải được Prompt Gen Comment');
+            const message = e?.message || 'Không tải được Prompt Gen Comment';
+            setPromptError(message);
+            notifyError(message);
+            // Keep sections visible — empty prompt/history + error banner.
         } finally {
             setPromptLoading(false);
         }
@@ -162,37 +167,33 @@ export default function ManagerPanel({ websiteStats = null }) {
 
                     <section className="seeding-ws__prompt-section" data-section="gen-comment-prompt">
                         <h3 className="seeding-ws__section-title">Prompt Gen Comment</h3>
-                        {promptLoading ? (
-                            <div className="seeding-ws__prompt-skeleton" aria-busy="true">
-                                <div className="seeding-ws__skeleton-block" />
-                                <div className="seeding-ws__skeleton-block seeding-ws__skeleton-block--sm" />
-                            </div>
-                        ) : (
-                            <>
-                                <textarea
-                                    className="seeding-ws__textarea seeding-ws__textarea--prompt"
-                                    value={promptBody}
-                                    onChange={(e) => setPromptBody(e.target.value)}
-                                    rows={12}
-                                    spellCheck={false}
-                                />
-                                <p className="seeding-ws__prompt-help">
-                                    Biến hỗ trợ: <code>{'{{mcp_context}}'}</code>
-                                </p>
-                                <button
-                                    type="button"
-                                    className="seeding-ws__btn seeding-ws__btn--primary"
-                                    onClick={onSavePrompt}
-                                    disabled={promptSaving}
-                                >
-                                    {promptSaving ? (
-                                        <>
-                                            <Loader2 size={14} className="seeding-ws__spin" /> Đang lưu…
-                                        </>
-                                    ) : 'Lưu'}
-                                </button>
-                            </>
-                        )}
+                        {promptError ? (
+                            <p className="seeding-ws__prompt-error" role="alert">{promptError}</p>
+                        ) : null}
+                        <textarea
+                            className="seeding-ws__textarea seeding-ws__textarea--prompt"
+                            value={promptBody}
+                            onChange={(e) => setPromptBody(e.target.value)}
+                            rows={12}
+                            spellCheck={false}
+                            disabled={promptLoading || promptSaving}
+                            aria-busy={promptLoading}
+                        />
+                        <p className="seeding-ws__prompt-help">
+                            Biến hỗ trợ duy nhất: <code>{'{{mcp_context}}'}</code>
+                        </p>
+                        <button
+                            type="button"
+                            className="seeding-ws__btn seeding-ws__btn--primary"
+                            onClick={onSavePrompt}
+                            disabled={promptSaving || promptLoading}
+                        >
+                            {promptSaving ? (
+                                <>
+                                    <Loader2 size={14} className="seeding-ws__spin" /> Đang lưu…
+                                </>
+                            ) : 'Lưu'}
+                        </button>
                     </section>
 
                     <section className="seeding-ws__prompt-section" data-section="gen-comment-history">
@@ -201,19 +202,25 @@ export default function ManagerPanel({ websiteStats = null }) {
                             <table className="seeding-ws__manager-table seeding-ws__history-table">
                                 <thead>
                                     <tr>
-                                        <th>Time</th>
-                                        <th>Topic</th>
-                                        <th>Social</th>
-                                        <th>Qty</th>
+                                        <th>Thời gian</th>
+                                        <th>Chủ đề</th>
+                                        <th>MXH</th>
+                                        <th>Số lượng</th>
                                         <th>Model</th>
-                                        <th>Status</th>
+                                        <th>Trạng thái</th>
                                         <th />
                                     </tr>
                                 </thead>
                                 <tbody>
                                     {history.length === 0 ? (
                                         <tr>
-                                            <td colSpan={7}>{promptLoading ? 'Đang tải…' : 'Chưa có lần Gen nào.'}</td>
+                                            <td colSpan={7}>
+                                                {promptLoading
+                                                    ? 'Đang tải…'
+                                                    : promptError
+                                                        ? 'Không tải được lịch sử. Thử lại sau.'
+                                                        : 'Chưa có lần Gen nào.'}
+                                            </td>
                                         </tr>
                                     ) : history.map((row) => (
                                         <tr key={`${row.slot}-${row.sequence}`}>

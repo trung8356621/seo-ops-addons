@@ -427,6 +427,16 @@
     color: #6b7280;
 }
 
+.seeding-ws__prompt-error {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: #b91c1c;
+    background: #fef2f2;
+    border: 1px solid #fecaca;
+    border-radius: 0.45rem;
+    padding: 0.45rem 0.6rem;
+}
+
 .seeding-ws__prompt-help code {
     font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     background: #f3f4f6;

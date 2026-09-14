@@ -17,6 +17,7 @@ final class ContentProjectRunSettingsSnapshotTest extends TestCase
             'generate_post_images' => false,
             'use_php_engine' => true,
             'task_ids' => [427],
+            'lazy_bulk' => true,
             'rerun' => true,
             'rerun_scope' => 'full',
             'rerun_from_step' => 'outline',
@@ -27,11 +28,24 @@ final class ContentProjectRunSettingsSnapshotTest extends TestCase
         $snapshot = ContentProjectRunSettings::snapshotForRun($raw);
 
         self::assertSame([427], $snapshot['task_ids']);
+        self::assertTrue($snapshot['lazy_bulk']);
         self::assertTrue($snapshot['rerun']);
         self::assertSame('full', $snapshot['rerun_scope']);
         self::assertSame('outline', $snapshot['rerun_from_step']);
         self::assertTrue($snapshot['use_php_engine']);
         self::assertSame('free_only', $snapshot['ai_cost_policy']);
+    }
+
+    public function test_snapshot_for_run_must_persist_lazy_bulk_for_ops_read_model(): void
+    {
+        $snapshot = ContentProjectRunSettings::snapshotForRun([
+            'lazy_bulk' => true,
+            'task_ids' => [3341, 3343, 3344],
+            'use_php_engine' => true,
+        ]);
+
+        self::assertTrue((bool) ($snapshot['lazy_bulk'] ?? false));
+        self::assertContains('lazy_bulk', ContentProjectRunSettings::OPERATIONAL_KEYS);
     }
 
     public function test_to_array_alone_does_not_include_task_ids(): void

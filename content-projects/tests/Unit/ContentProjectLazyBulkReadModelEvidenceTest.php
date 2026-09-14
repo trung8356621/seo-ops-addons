@@ -9,6 +9,7 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectItemOperationsReadModel;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectArticleRuntimeStatus;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectFailedOpsDefinition;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemOpsEvidencePresenter;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectRunItemEvidenceIndex;
 use PHPUnit\Framework\TestCase;
@@ -200,6 +201,95 @@ final class ContentProjectLazyBulkReadModelEvidenceTest extends TestCase
         self::assertSame('generated', $row1['generation_key']);
         self::assertSame('queued', $row2['generation_key']);
         self::assertSame(ContentProjectArticleRuntimeStatus::STATE_QUEUED, $row2['runtime_state']);
+    }
+
+    public function test_refresh_sequence_a_failed_b_dispatched_c_never_keeps_failed_filter(): void
+    {
+        // Exact production sequence after F5 rebuild from DB evidence:
+        // A(#3341) failed historically; current membership pending (unvisited)
+        // B(#3343) owns active_dispatch (queued)
+        // C(#3344) never executed — membership only
+        $dispatch = [
+            'run_item_id' => 33430,
+            'task_id' => 3343,
+            'claimed_at' => null,
+            'dispatched_at' => $this->now->copy()->subSeconds(4)->toIso8601String(),
+            'last_heartbeat_at' => $this->now->copy()->subSeconds(4)->toIso8601String(),
+            'current_step' => 'queued',
+        ];
+
+        // Cover both: settings.lazy_bulk stripped (pre-fix) AND lazy_bulk=true.
+        foreach ([false, true] as $lazyBulkFlag) {
+            $partition = ContentProjectRunItemEvidenceIndex::partition([
+                $this->item(33440, 3344, 900, 'pending', lazyBulk: $lazyBulkFlag),
+                $this->item(33430, 3343, 900, 'pending', lazyBulk: $lazyBulkFlag),
+                $this->item(33410, 3341, 900, 'pending', lazyBulk: $lazyBulkFlag),
+                $this->item(33411, 3341, 800, 'failed', lazyBulk: false, finished: true),
+            ], $dispatch, 900);
+
+            self::assertSame(
+                'failed',
+                $partition['latest_execution_by_task'][3341]['status'] ?? null,
+                'A latest_execution must remain historical failed (lazy_bulk='.($lazyBulkFlag ? '1' : '0').')',
+            );
+            self::assertSame(33410, $partition['current_membership_by_task'][3341]['id']);
+            self::assertArrayNotHasKey(3343, $partition['latest_execution_by_task']);
+            self::assertArrayNotHasKey(3344, $partition['latest_execution_by_task']);
+
+            $rowA = $this->present(
+                SeoProjectTask::STATUS_FAILED,
+                $partition['latest_execution_by_task'][3341] ?? null,
+                $partition['current_membership_by_task'][3341] ?? null,
+                $dispatch,
+                900,
+            );
+            $rowB = $this->present(
+                SeoProjectTask::STATUS_PENDING,
+                $partition['latest_execution_by_task'][3343] ?? null,
+                $partition['current_membership_by_task'][3343] ?? null,
+                $dispatch,
+                900,
+            );
+            $rowC = $this->present(
+                SeoProjectTask::STATUS_PENDING,
+                $partition['latest_execution_by_task'][3344] ?? null,
+                $partition['current_membership_by_task'][3344] ?? null,
+                $dispatch,
+                900,
+            );
+
+            self::assertSame('failed', $rowA['generation_key']);
+            self::assertSame('failed', $rowA['execution_status']);
+            self::assertTrue(ContentProjectFailedOpsDefinition::matches([
+                'generation_status' => $rowA['generation_status'],
+                'execution_status' => $rowA['execution_status'],
+                'runtime_status' => $rowA['runtime_status'],
+                'is_genuinely_running' => $rowA['is_genuinely_running'],
+            ]));
+
+            self::assertSame('queued', $rowB['generation_key']);
+            self::assertSame(ContentProjectArticleRuntimeStatus::STATE_QUEUED, $rowB['runtime_state']);
+            self::assertSame('Đang chờ worker', $rowB['runtime_label']);
+
+            self::assertSame('not_started', $rowC['generation_key']);
+            self::assertSame('Chưa chạy', $rowC['runtime_label']);
+            self::assertNotSame('queued', $rowC['generation_key']);
+        }
+    }
+
+    public function test_pending_without_timestamps_never_enters_latest_execution_even_when_lazy_bulk_missing(): void
+    {
+        $partition = ContentProjectRunItemEvidenceIndex::partition([
+            $this->item(20, 3341, 2, 'pending', lazyBulk: false),
+            $this->item(10, 3341, 1, 'failed', lazyBulk: false, finished: true),
+        ], null, 2);
+
+        self::assertSame('failed', $partition['latest_execution_by_task'][3341]['status']);
+        self::assertFalse(ContentProjectRunItemEvidenceIndex::countsAsLatestExecution(
+            $partition['current_membership_by_task'][3341],
+            false,
+            null,
+        ));
     }
 
     public function test_read_model_wires_evidence_index_into_map_row(): void
