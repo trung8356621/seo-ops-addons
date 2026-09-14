@@ -41,14 +41,18 @@ final class SeedingV2StructureContractTest extends TestCase
         self::assertStringNotContainsString('@container seeding-feed', $css);
     }
 
-    public function test_access_manager_inherits_seo_role(): void
+    public function test_access_manager_is_isolated_from_seo_roles(): void
     {
         $access = (string) file_get_contents($this->addonRoot().'/src/Support/SeedingAccess.php');
         self::assertStringContainsString('function isManager', $access);
         self::assertStringContainsString('ROLE_MANAGER', $access);
         self::assertStringContainsString('seeding.manager', $access);
-        self::assertStringContainsString('SEO_ROLE_MANAGER', $access);
         self::assertStringContainsString('function canManageTopics', $access);
+        self::assertStringContainsString('NEVER grant', $access);
+        self::assertStringNotContainsString('SEO_ROLE_MANAGER', $access);
+        self::assertStringNotContainsString('LegacySeoRoleBridge', $access);
+        self::assertStringNotContainsString('$user->seo_role', $access);
+        self::assertStringNotContainsString("('seo_role'", $access);
     }
 
     public function test_share_requires_social_and_can_expand(): void

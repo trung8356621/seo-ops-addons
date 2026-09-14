@@ -60,6 +60,31 @@ final class SeoServiceProvider extends ServiceProvider
                 $settings->register($this->app->make(SeoSettingsSectionContributor::class));
             }
         }
+
+        $this->registerWorkspaceDestination();
+    }
+
+    private function registerWorkspaceDestination(): void
+    {
+        if (! $this->app->bound(\App\Core\Workspace\WorkspaceDestinationRegistry::class)) {
+            return;
+        }
+
+        /** @var \App\Core\Workspace\WorkspaceDestinationRegistry $registry */
+        $registry = $this->app->make(\App\Core\Workspace\WorkspaceDestinationRegistry::class);
+        if ($registry->has('seo')) {
+            return;
+        }
+
+        $registry->register(new \App\Core\Workspace\WorkspaceDestination(
+            key: 'seo',
+            label: 'SEO',
+            url: url('/seo'),
+            sort: 10,
+            description: 'Nội dung, dự án và tối ưu SEO',
+            icon: 'heroicon-o-magnifying-glass',
+            panelId: 'seo',
+        ));
     }
 
     private function registerAddonPermissions(): void

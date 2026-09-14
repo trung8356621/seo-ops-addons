@@ -106,6 +106,7 @@ final class SeedingServiceProvider extends ServiceProvider
         }
 
         $this->registerAddonPermissions();
+        $this->registerWorkspaceDestination();
 
         if ($this->app->runningInConsole()) {
             $this->commands([SeedingDbCheckCommand::class]);
@@ -150,6 +151,36 @@ final class SeedingServiceProvider extends ServiceProvider
         } catch (Throwable) {
             // Tables may not exist until migrate.
         }
+    }
+
+    private function registerWorkspaceDestination(): void
+    {
+        if (! $this->app->bound(\App\Core\Workspace\WorkspaceDestinationRegistry::class)) {
+            return;
+        }
+
+        /** @var \App\Core\Workspace\WorkspaceDestinationRegistry $registry */
+        $registry = $this->app->make(\App\Core\Workspace\WorkspaceDestinationRegistry::class);
+        if ($registry->has('seeding')) {
+            return;
+        }
+
+        $registry->register(new \App\Core\Workspace\WorkspaceDestination(
+            key: 'seeding',
+            label: 'Seeding',
+            url: url('/seeding'),
+            sort: 20,
+            description: 'Feed seeding & quản lý chủ đề',
+            icon: 'heroicon-o-chat-bubble-left-right',
+            panelId: 'seeding',
+            canAccess: static function (\App\Models\User $user): bool {
+                if (! $user->canAccessPanel(\Filament\Facades\Filament::getPanel('seeding'))) {
+                    return false;
+                }
+
+                return app(SeedingAccess::class)->canAccess($user);
+            },
+        ));
     }
 
     /**

@@ -7,20 +7,34 @@ namespace Omnichannel\Addons\SearchFoundation\Members;
 use App\Core\Members\MembersSectionContributor;
 use App\Models\User;
 use Filament\Forms;
+use Filament\Forms\Get;
+use Filament\Forms\Set;
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterCapacitySettingsService;
 
 /**
- * SEO contributes monthly capacity into Core Members customize modal / edit form.
+ * SEO contributes role + monthly capacity into Core Members tabs / customize modal.
  *
- * Availability = capacity service exists and SEO stack is enabled (AddonRegistry).
- * Does NOT depend on current Filament panel URL.
- * Does NOT import SEO peer classes (search-foundation must stay SEO-optional).
+ * Persistence invariant for monthly capacity:
+ *   null  = inherit system default (SSOT: ContentProjectWriterCapacitySettingsService)
+ *   int N = explicit per-user override
+ *
+ * UI may display the effective default while override remains null.
  */
 final class SeoMembersSectionContributor implements MembersSectionContributor
 {
     public function addonSlug(): string
     {
         return 'seo-members';
+    }
+
+    public function tabLabel(): string
+    {
+        return 'SEO';
+    }
+
+    public function tabIcon(): ?string
+    {
+        return 'heroicon-o-magnifying-glass';
     }
 
     public function sort(): int
@@ -61,11 +75,10 @@ final class SeoMembersSectionContributor implements MembersSectionContributor
     public function formSections(): array
     {
         return [
-            Forms\Components\Section::make('SEO')
+            Forms\Components\Section::make()
                 ->description('Vai trò SEO và hạn mức bài viết hàng tháng.')
                 ->schema($this->capacityAndRoleFields(includeSeoRole: true))
-                ->columns(2)
-                ->collapsible(),
+                ->columns(1),
         ];
     }
 
@@ -82,10 +95,12 @@ final class SeoMembersSectionContributor implements MembersSectionContributor
     {
         $settings = app(ContentProjectWriterCapacitySettingsService::class);
         $override = $settings->overrideForUserId((int) $user->getKey());
+        $default = $settings->defaultMonthlyCapacity();
 
         return [
             'seo_capacity_use_default' => $override === null,
-            'seo_monthly_capacity_override' => $override ?? $settings->defaultMonthlyCapacity(),
+            // Effective display value — may equal default while override is null.
+            'seo_monthly_capacity_override' => $override ?? $default,
         ];
     }
 
@@ -104,14 +119,24 @@ final class SeoMembersSectionContributor implements MembersSectionContributor
             }
         }
 
+        if (! array_key_exists('seo_capacity_use_default', $formState)
+            && ! array_key_exists('seo_monthly_capacity_override', $formState)
+        ) {
+            return;
+        }
+
         $settings = app(ContentProjectWriterCapacitySettingsService::class);
         if (! empty($formState['seo_capacity_use_default'])) {
+            // Displayed default must NOT become an explicit override.
             $settings->setUserOverride($user, null);
 
             return;
         }
 
-        if (array_key_exists('seo_monthly_capacity_override', $formState)) {
+        if (array_key_exists('seo_monthly_capacity_override', $formState)
+            && $formState['seo_monthly_capacity_override'] !== null
+            && $formState['seo_monthly_capacity_override'] !== ''
+        ) {
             $settings->setUserOverride($user, (int) $formState['seo_monthly_capacity_override']);
         }
     }
@@ -136,17 +161,11 @@ final class SeoMembersSectionContributor implements MembersSectionContributor
                 ->nullable();
         }
 
-        $defaultCapacity = 30;
+        $defaultCapacity = ContentProjectWriterCapacitySettingsService::DEFAULT_CAPACITY;
         try {
             $defaultCapacity = app(ContentProjectWriterCapacitySettingsService::class)->defaultMonthlyCapacity();
         } catch (\Throwable) {
         }
-
-        $fields[] = Forms\Components\Toggle::make('seo_capacity_use_default')
-            ->label('Dùng mặc định ('.$defaultCapacity.')')
-            ->dehydrated(false)
-            ->live()
-            ->default(true);
 
         $fields[] = Forms\Components\TextInput::make('seo_monthly_capacity_override')
             ->label('Giới hạn bài SEO / tháng')
@@ -154,10 +173,32 @@ final class SeoMembersSectionContributor implements MembersSectionContributor
             ->integer()
             ->minValue(ContentProjectWriterCapacitySettingsService::MIN_CAPACITY)
             ->maxValue(ContentProjectWriterCapacitySettingsService::MAX_CAPACITY)
-            ->dehydrated(false)
-            ->disabled(fn (Forms\Get $get): bool => (bool) $get('seo_capacity_use_default'))
-            ->required(fn (Forms\Get $get): bool => ! (bool) $get('seo_capacity_use_default'))
-            ->helperText('Để trống / bật mặc định nếu dùng hạn mức hệ thống.');
+            ->default($defaultCapacity)
+            // Only dehydrate when custom mode — never persist displayed default as override.
+            ->dehydrated(fn (Get $get): bool => ! (bool) $get('seo_capacity_use_default'))
+            ->disabled(fn (Get $get): bool => (bool) $get('seo_capacity_use_default'))
+            ->required(fn (Get $get): bool => ! (bool) $get('seo_capacity_use_default'))
+            ->helperText(fn (Get $get): ?string => (bool) $get('seo_capacity_use_default')
+                ? 'Đang dùng hạn mức hệ thống — lưu sẽ không ghi đè giá trị hiển thị.'
+                : 'Hạn mức riêng cho thành viên này.');
+
+        $fields[] = Forms\Components\Checkbox::make('seo_capacity_use_default')
+            ->label('Dùng hạn mức mặc định ('.$defaultCapacity.' bài/tháng)')
+            ->dehydrated(true)
+            ->live()
+            ->default(true)
+            ->afterStateUpdated(function (Set $set, Get $get, mixed $state) use ($defaultCapacity): void {
+                if ($state) {
+                    $set('seo_monthly_capacity_override', $defaultCapacity);
+
+                    return;
+                }
+
+                $current = $get('seo_monthly_capacity_override');
+                if ($current === null || $current === '') {
+                    $set('seo_monthly_capacity_override', $defaultCapacity);
+                }
+            });
 
         return $fields;
     }

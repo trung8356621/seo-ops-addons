@@ -4,17 +4,19 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Seeding\Support;
 
+use App\Core\Permissions\AddonAuthorization;
 use App\Core\Sites\SiteAccess;
 use App\Models\Site;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Auth;
+use Throwable;
 
 /**
  * Addon-neutral Seeding access — Core User + SiteAccess + Service activation + Spatie roles.
  *
- * Seeding Manager: Spatie seeding.manager, or Core owner/admin.
- * Compat: seo.manager / legacy seo_role=manager still inherit Seeding Manager until Seeding UI assigns roles.
+ * Seeding Manager = Core owner/admin bypass OR Spatie seeding.manager only.
+ * SEO addon roles and legacy users.seo_role NEVER grant Seeding Manager.
  */
 final class SeedingAccess
 {
@@ -65,20 +67,11 @@ final class SeedingAccess
         }
 
         try {
-            $auth = app(\App\Core\Permissions\AddonAuthorization::class);
-            if ($auth->hasAddonRole($user, self::ROLE_MANAGER, ownerBypass: false)) {
-                return true;
-            }
-
-            // Temporary compat: SEO Manager inherits Seeding Manager.
-            if ($auth->hasAddonRole($user, \App\Core\Permissions\LegacySeoRoleBridge::ROLE_MANAGER, ownerBypass: false)) {
-                return true;
-            }
-        } catch (\Throwable) {
-            // Fall through to legacy column.
+            return app(AddonAuthorization::class)
+                ->hasAddonRole($user, self::ROLE_MANAGER, ownerBypass: false);
+        } catch (Throwable) {
+            return false;
         }
-
-        return (string) ($user->seo_role ?? '') === User::SEO_ROLE_MANAGER;
     }
 
     public function canManageTopics(?User $user = null): bool
