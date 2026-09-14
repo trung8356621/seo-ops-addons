@@ -307,18 +307,9 @@ final class ContentProjectArticleRuntimeStatusResolver
             );
         }
 
-        // No reservation: circuit breaker / stopped run leftovers stay plain pending.
-        return new ContentProjectArticleRuntimeStatus(
-            state: ContentProjectArticleRuntimeStatus::STATE_PENDING,
-            label: 'Chờ chạy',
-            tone: 'gray',
-            isActive: false,
-            showSpinner: false,
-            detail: null,
-            stepLabel: null,
-            attempt: $attempt,
-            maxAttempts: $maxAttempts,
-        );
+        // Lazy-bulk membership pending ≠ task queued / waiting_worker.
+        // Unvisited run-items keep the real SeoProjectTask lifecycle.
+        return $this->resolveWithoutExecution($context, $attempt, $maxAttempts);
     }
 
     /**

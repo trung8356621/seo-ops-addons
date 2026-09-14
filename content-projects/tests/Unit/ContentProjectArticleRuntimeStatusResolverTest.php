@@ -179,14 +179,27 @@ final class ContentProjectArticleRuntimeStatusResolverTest extends TestCase
 
     public function test_7_no_dispatch_and_no_processing_is_not_active(): void
     {
-        $pending = $this->resolve([
+        // Membership pending without active_dispatch → task lifecycle, not waiting_worker.
+        $pendingFailed = $this->resolve([
             'run_item' => $this->item(['status' => 'pending']),
+            'task_status' => 'failed',
             'active_dispatch' => null,
         ]);
 
-        self::assertSame(ContentProjectArticleRuntimeStatus::STATE_PENDING, $pending->state);
-        self::assertFalse($pending->isActive);
-        self::assertFalse($pending->showSpinner);
+        self::assertSame(ContentProjectArticleRuntimeStatus::STATE_FAILED, $pendingFailed->state);
+        self::assertFalse($pendingFailed->isActive);
+        self::assertFalse($pendingFailed->showSpinner);
+        self::assertSame('Lỗi', $pendingFailed->label);
+
+        $pendingNever = $this->resolve([
+            'run_item' => $this->item(['status' => 'pending']),
+            'task_status' => 'pending',
+            'active_dispatch' => null,
+        ]);
+
+        self::assertSame(ContentProjectArticleRuntimeStatus::STATE_NO_ACTIVE_EXECUTION, $pendingNever->state);
+        self::assertFalse($pendingNever->isActive);
+        self::assertSame('Chưa chạy', $pendingNever->label);
 
         // Sticky task.status=writing with no execution row at all — the original bug.
         $sticky = $this->resolve([

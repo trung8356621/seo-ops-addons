@@ -157,14 +157,24 @@ final class McpPlanningAndSitePlanningContractTest extends TestCase
         self::assertStringContainsString('STATUS_RUNNING', $src);
     }
 
-    public function test_planner_ui_has_site_planning_tab_internal(): void
+    public function test_planner_ui_has_site_planning_as_third_column(): void
     {
         $planner = LegacyAddonPath::read('resources/views/components/content-project-draft-planner.blade.php');
-        self::assertStringContainsString("createTab === 'site-planning'", $planner);
-        self::assertStringContainsString('data-create-tab="site-planning"', $planner);
+        $page = LegacyAddonPath::read('resources/views/filament/pages/content-project-seo-audit-planner.blade.php');
+        $css = LegacyAddonPath::read('resources/views/components/content-project-ops-styles.blade.php');
+
+        self::assertStringContainsString('data-site-planning-section="1"', $planner);
+        self::assertStringContainsString('data-planner-card="site-planning"', $planner);
         self::assertStringContainsString('content-project-site-planning', $planner);
-        self::assertStringContainsString('target="_blank"', $planner);
         self::assertStringContainsString('data-create-tab="ai-history"', $planner);
+        self::assertStringContainsString('data-create-tab="ideas"', $planner);
+        self::assertStringContainsString('data-create-tab="ai"', $planner);
+        self::assertStringNotContainsString('data-create-tab="site-planning"', $planner);
+        self::assertStringNotContainsString("createTab === 'site-planning'", $planner);
+        self::assertStringNotContainsString('data-create-panel="site-planning"', $planner);
+        self::assertStringNotContainsString('content-project-site-planning', $page);
+        self::assertStringContainsString('repeat(3, minmax(0, 1fr))', $css);
+        self::assertStringContainsString('[data-planner-card="site-planning"]', $css);
 
         $sitePlanning = LegacyAddonPath::read('resources/views/components/content-project-site-planning.blade.php');
         self::assertStringContainsString('data-site-planning="1"', $sitePlanning);

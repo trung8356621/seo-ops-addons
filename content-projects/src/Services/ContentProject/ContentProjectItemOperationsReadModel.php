@@ -517,11 +517,13 @@ final class ContentProjectItemOperationsReadModel
         }
 
         $execStatusEarly = strtolower((string) ($exec['status'] ?? ''));
-        $latestAttemptQueued = in_array($execStatusEarly, ['pending', 'processing'], true);
+        $isCurrentDispatchedItem = $this->isCurrentDispatchedRunItem($runtimeContext, $exec);
+        $latestAttemptQueued = $isCurrentDispatchedItem
+            && in_array($execStatusEarly, ['pending', 'processing'], true);
 
         $message = $state->currentError ?? '';
         if ($latestAttemptQueued) {
-            // New attempt accepted — hide stale failed message on the row.
+            // Current claimed/queued item only — hide stale failed message on THAT row.
             $message = '';
         }
         if ($message === '' && $state->currentErrorSource->value === 'publish' && $task->last_publish_error !== null) {
@@ -529,11 +531,12 @@ final class ContentProjectItemOperationsReadModel
         }
 
         // Latest run-item attempt is SoT for Generation — independent from article lifecycle.
+        // Membership-only pending must NOT rewrite failed/completed task lifecycle.
         $genStatus = (string) ($task->status ?? 'pending');
         if (in_array($execStatusEarly, ['failed', 'error', 'cancelled', 'stopped', 'timeout'], true)) {
             $genStatus = SeoProjectTask::STATUS_FAILED;
         } elseif ($latestAttemptQueued && $genStatus === SeoProjectTask::STATUS_FAILED) {
-            // Prefer latest run-item attempt over sticky task.failed until worker claims.
+            // Prefer current dispatch attempt over sticky task.failed until worker claims.
             $genStatus = SeoProjectTask::STATUS_PENDING;
         } elseif (in_array($execStatusEarly, ['success', 'completed'], true)
             && in_array($genStatus, [SeoProjectTask::STATUS_COMPLETED, SeoProjectTask::STATUS_REVIEWING, 'completed', 'reviewing'], true)
@@ -761,7 +764,7 @@ final class ContentProjectItemOperationsReadModel
             'is_scheduled' => $task->scheduled_publish_at !== null,
             'publish_published_at' => $rowBase['publish_published_at'],
             'message' => $message !== '' ? $message : null,
-            'last_activity' => $runtime->timeLabel ?? ($lastActivityCarbon?->diffForHumans() ?? '—'),
+            'last_activity' => $this->resolveDisplayLastActivity($runtime, $lastActivityCarbon),
             'last_activity_relative' => $lastActivityCarbon?->diffForHumans() ?? '—',
             'last_activity_full' => $lastActivityCarbon?->format('d/m/Y H:i:s'),
             'last_run_at' => $exec['finished_at'] ?? $exec['started_at'] ?? null,
@@ -1053,6 +1056,55 @@ final class ContentProjectItemOperationsReadModel
         usort($candidates, static fn (Carbon $a, Carbon $b): int => $b <=> $a);
 
         return $candidates[0];
+    }
+
+    /**
+     * Runtime time labels (waiting worker / processing elapsed) only for the claimed item.
+     * Membership-only pending must keep the task/article Last Activity timestamp.
+     */
+    private function resolveDisplayLastActivity(
+        ContentProjectArticleRuntimeStatus $runtime,
+        ?Carbon $lastActivityCarbon,
+    ): string {
+        $preferRuntime = in_array($runtime->state, [
+            ContentProjectArticleRuntimeStatus::STATE_ACTIVELY_PROCESSING,
+            ContentProjectArticleRuntimeStatus::STATE_QUEUED,
+            ContentProjectArticleRuntimeStatus::STATE_WAITING_AI_RETRY,
+            ContentProjectArticleRuntimeStatus::STATE_STALE_PROCESSING,
+            ContentProjectArticleRuntimeStatus::STATE_INCONSISTENT_PROCESSING,
+        ], true);
+
+        if ($preferRuntime && is_string($runtime->timeLabel) && trim($runtime->timeLabel) !== '') {
+            return $runtime->timeLabel;
+        }
+
+        return $lastActivityCarbon?->diffForHumans() ?? '—';
+    }
+
+    /**
+     * True only when this run-item owns the live active_dispatch reservation.
+     *
+     * @param  array<string, mixed>  $runtimeContext
+     * @param  array<string, mixed>|null  $exec
+     */
+    private function isCurrentDispatchedRunItem(array $runtimeContext, ?array $exec): bool
+    {
+        if ($exec === null) {
+            return false;
+        }
+        $dispatch = is_array($runtimeContext['active_dispatch'] ?? null)
+            ? $runtimeContext['active_dispatch']
+            : null;
+        if ($dispatch === null) {
+            return false;
+        }
+        $execId = (int) ($exec['id'] ?? 0);
+        $taskId = (int) ($exec['task_id'] ?? 0);
+        if ($execId > 0 && (int) ($dispatch['run_item_id'] ?? 0) === $execId) {
+            return true;
+        }
+
+        return $taskId > 0 && (int) ($dispatch['task_id'] ?? 0) === $taskId;
     }
 
     /**

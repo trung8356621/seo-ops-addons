@@ -1192,7 +1192,7 @@
         }
         @media (min-width: 1024px) {
             .cp-plan-grid {
-                grid-template-columns: repeat(2, minmax(0, 1fr));
+                grid-template-columns: repeat(3, minmax(0, 1fr));
                 align-items: stretch;
                 transition: grid-template-columns 0.2s ease;
             }
@@ -1206,7 +1206,8 @@
                 max-height: 100%;
                 min-height: 0;
             }
-            .cp-plan-slide--create .cp-plan-card--create {
+            .cp-plan-slide--create .cp-plan-card--create,
+            .cp-plan-slide--create .cp-plan-card--site-planning {
                 display: flex;
                 flex-direction: column;
                 min-height: 0;
@@ -1216,16 +1217,23 @@
                 min-height: 0;
                 overflow: hidden;
             }
-            /* Gen AI focused: Improve card hidden; AI workspace full width */
+            .cp-plan-slide--create .cp-plan-card--site-planning .cp-plan-card__scroll {
+                flex: 1 1 auto;
+                min-height: 0;
+                overflow: auto;
+            }
+            /* Gen AI focused: Improve + Site Planning hidden; AI workspace full width */
             .cp-plan-grid.is-ai-focused {
                 grid-template-columns: minmax(0, 1fr);
             }
-            .cp-plan-grid.is-ai-focused > [data-planner-card="improve"] {
+            .cp-plan-grid.is-ai-focused > [data-planner-card="improve"],
+            .cp-plan-grid.is-ai-focused > [data-planner-card="site-planning"] {
                 display: none;
             }
         }
-        /* Mobile / all breakpoints: hide Improve pane while AI focus */
-        .cp-plan-grid.is-ai-focused > [data-planner-card="improve"] {
+        /* Mobile / all breakpoints: hide Improve + Site Planning while AI focus */
+        .cp-plan-grid.is-ai-focused > [data-planner-card="improve"],
+        .cp-plan-grid.is-ai-focused > [data-planner-card="site-planning"] {
             display: none;
         }
         .cp-plan-card--with-sticky-cta {
@@ -1256,6 +1264,15 @@
         }
         .cp-plan-card--improve { border-top: 3px solid var(--cp-plan-green); }
         .cp-plan-card--create { border-top: 3px solid var(--cp-plan-blue); }
+        .cp-plan-card--site-planning { border-top: 3px solid #64748b; }
+        .cp-plan-card__icon--site-planning {
+            color: #64748b;
+            background: #f1f5f9;
+        }
+        .dark .cp-plan-card__icon--site-planning {
+            color: #94a3b8;
+            background: rgb(148 163 184 / 0.15);
+        }
         .cp-plan-card__scroll {
             flex: 1 1 auto;
             min-height: 0;

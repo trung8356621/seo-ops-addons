@@ -59,8 +59,7 @@ final class ContentProjectPendingOpsDefinition
             return true;
         }
 
-        $exec = strtolower(trim((string) ($row['execution_status'] ?? '')));
-
-        return in_array($exec, ['pending', 'processing'], true);
+        // SeoProjectRunItem pending = bulk membership only — not live Pending / waiting_worker.
+        return false;
     }
 }

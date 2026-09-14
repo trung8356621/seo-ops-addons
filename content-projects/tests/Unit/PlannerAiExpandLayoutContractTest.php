@@ -31,13 +31,17 @@ final class PlannerAiExpandLayoutContractTest extends TestCase
         $css = LegacyAddonPath::read('resources/views/components/content-project-ops-styles.blade.php');
 
         self::assertMatchesRegularExpression(
-            '/@media \(min-width: 1024px\)\s*\{\s*\.cp-plan-grid\s*\{\s*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/',
+            '/@media \(min-width: 1024px\)\s*\{\s*\.cp-plan-grid\s*\{\s*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/',
             $css,
         );
         self::assertStringContainsString('.cp-plan-grid.is-ai-focused', $css);
         self::assertStringContainsString('grid-template-columns: minmax(0, 1fr)', $css);
         self::assertStringContainsString(
             '.cp-plan-grid.is-ai-focused > [data-planner-card="improve"]',
+            $css,
+        );
+        self::assertStringContainsString(
+            '.cp-plan-grid.is-ai-focused > [data-planner-card="site-planning"]',
             $css,
         );
         self::assertStringContainsString('display: none', $css);

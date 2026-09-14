@@ -112,7 +112,7 @@
         data-planner-grid="1"
         :data-planner-layout="plannerLayout"
     >
-        {{-- Improve existing — full card only in balanced 50/50 mode --}}
+        {{-- Improve | Create tabs | Site Planning (3 columns on desktop) --}}
         <div class="cp-plan-card cp-plan-card--improve cp-plan-card--with-sticky-cta" data-planner-card="improve">
             <div class="cp-plan-card__head">
                 <span class="cp-plan-card__icon cp-plan-card__icon--improve" aria-hidden="true">
@@ -304,17 +304,6 @@
                 >
                     {{ __('seo-content-ai::filament.projects.idea_candidate_tab_ai') }}
                 </button>
-                <button
-                    type="button"
-                    role="tab"
-                    class="cp-plan-create-tab"
-                    :class="createTab === 'site-planning' && 'is-active'"
-                    :aria-selected="createTab === 'site-planning'"
-                    @click="createTab = 'site-planning'; plannerLayout = 'balanced'"
-                    data-create-tab="site-planning"
-                >
-                    {{ __('seo-content-ai::filament.projects.site_planning_tab') }}
-                </button>
                 @php
                     $aiHistoryTabUrl = method_exists($this, 'draftAiHistoryUrl')
                         ? $this->draftAiHistoryUrl()
@@ -354,14 +343,28 @@
                 >
                     <x-seo-content-ai::content-project-new-content-card :embedded="true" />
                 </div>
-                <div
-                    class="cp-plan-tab-panel"
-                    data-create-panel="site-planning"
-                    :class="createTab === 'site-planning' ? 'is-active' : 'is-inactive'"
-                    :aria-hidden="createTab !== 'site-planning'"
-                >
-                    <x-seo-content-ai::content-project-site-planning />
+            </div>
+        </div>
+
+        {{-- Site Planning: 3rd column overview (not a create tab) --}}
+        <div
+            class="cp-plan-card cp-plan-card--site-planning"
+            data-planner-card="site-planning"
+            data-site-planning-section="1"
+            aria-labelledby="cp-site-planning-heading"
+        >
+            <div class="cp-plan-card__head">
+                <span class="cp-plan-card__icon cp-plan-card__icon--site-planning" aria-hidden="true">
+                    <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 3h18v4H3z"/><path d="M3 10h18v11H3z"/><path d="M8 14h2v4H8z"/><path d="M14 14h2v4h-2z"/></svg>
+                </span>
+                <div>
+                    <h3 id="cp-site-planning-heading" class="cp-plan-card__title">
+                        {{ __('seo-content-ai::filament.projects.site_planning_tab') }}
+                    </h3>
                 </div>
+            </div>
+            <div class="cp-plan-card__scroll min-h-0 overflow-auto">
+                <x-seo-content-ai::content-project-site-planning />
             </div>
         </div>
     </div>
