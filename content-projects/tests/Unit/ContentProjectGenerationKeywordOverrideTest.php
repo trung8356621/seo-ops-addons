@@ -133,14 +133,20 @@ final class ContentProjectGenerationKeywordOverrideTest extends TestCase
         self::assertSame('content_project.set_generation_keyword_override', $command->name());
     }
 
-    public function test_generate_handler_partitions_keyword_restart(): void
+    public function test_generate_handler_defers_keyword_restart_to_lazy_jit(): void
     {
         $handler = (string) file_get_contents((new ReflectionClass(GenerateProjectItemsHandler::class))->getFileName());
-        self::assertStringContainsString('ContentProjectBulkGenerationPlanner', $handler);
-        self::assertStringContainsString('RestartGenerationWithKeywordCommand', $handler);
-        self::assertStringContainsString('ContentProjectGenerationKeyword::effective', $handler);
-        self::assertStringContainsString('ResumeProjectItemFromFailedStepCommand', $handler);
-        self::assertStringContainsString('partitionResumableFailed', $handler);
+        self::assertStringContainsString('lazy_bulk', $handler);
+        self::assertStringNotContainsString('ContentProjectBulkGenerationPlanner', $handler);
+        self::assertStringNotContainsString('RestartGenerationWithKeywordCommand', $handler);
+        self::assertStringNotContainsString('partitionResumableFailed', $handler);
+
+        $decision = (string) file_get_contents(
+            (new ReflectionClass(\Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectBulkItemDecisionService::class))->getFileName()
+        );
+        self::assertStringContainsString('REASON_DIRTY', $decision);
+        self::assertStringContainsString('OP_RESTART_WITH_KEYWORD', $decision);
+        self::assertStringContainsString('ContentProjectGenerationKeyword::effective', $decision);
     }
 
     public function test_commit_canonical_keyword_preserves_original_task_keyword(): void

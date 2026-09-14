@@ -4,15 +4,11 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers;
 
-use Omnichannel\Addons\ContentProjects\Enums\ContentProjectItemAction;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ActorContext;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\GenerateProjectItemsCommand;
-use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RestartGenerationWithKeywordCommand;
-use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ResumeProjectItemFromFailedStepCommand;
-use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectCommandBus;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectActionCodes;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectActionResult;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectPublicRef;
@@ -22,24 +18,21 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Event
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectBusinessLock;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectPreviewToken;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectTenantGuard;
-use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectBulkGenerationPlanner;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectActiveGenerationRunDetector;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectDraftExecutionGuard;
-use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectWriterAssignment;
-use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectGenerationCapabilityResolver;
-use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectGenerationRecoveryDecision;
-use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectGenerationRecoveryService;
-use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectItemGenerationClassifier;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectImproveManualOnlyGenerationGuard;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectWriterAssignment;
 use Omnichannel\Addons\ContentProjects\Services\RunEngine\ContentProjectRunEngine;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectWorkflowRunService;
 use Omnichannel\Addons\Agent\Extension\Resolvers\PipelineResolver;
-use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGenerationKeyword;
-use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemActionGuard;
 use App\Support\RuntimeLogger;
 use InvalidArgumentException;
 use RuntimeException;
 
+/**
+ * Bulk generate: one SeoProjectRun envelope + lazy per-item JIT decisions.
+ * Does not partition into resume/restart child runs.
+ */
 final class GenerateProjectItemsHandler extends AbstractPublishingHandler
 {
     public function __construct(
@@ -49,14 +42,8 @@ final class GenerateProjectItemsHandler extends AbstractPublishingHandler
         private readonly SeoProjectWorkflowRunService $workflowRunService,
         private readonly ContentProjectDomainEvents $domainEvents,
         private readonly PipelineResolver $pipelineResolver,
-        private readonly ContentProjectGenerationRecoveryService $generationRecovery,
-        private readonly ContentProjectItemGenerationClassifier $classifier,
         private readonly ContentProjectRunEngine $runEngine,
         private readonly ContentProjectActiveGenerationRunDetector $activeRuns,
-        private readonly ContentProjectBulkGenerationPlanner $bulkPlanner,
-        private readonly ContentProjectCommandBus $commandBus,
-        private readonly ContentProjectGenerationCapabilityResolver $capability,
-        private readonly ContentProjectItemActionGuard $actionGuard = new ContentProjectItemActionGuard,
     ) {
         parent::__construct($tenantGuard, $businessLock, $previewToken);
     }
@@ -115,70 +102,20 @@ final class GenerateProjectItemsHandler extends AbstractPublishingHandler
                 );
             }
 
-            $itemIds = $this->resolveItemIds($command->itemRefs);
-            if ($itemIds !== []) {
-                $this->tenantGuard->assertTasksBelongToProject($project, $itemIds);
-            }
-
-            $this->generationRecovery->reconcileProject($project);
-            $preview = $this->classifier->preview($project);
-
+            $itemIds = $this->resolveVisitTaskIds($project, $command);
             if ($itemIds === []) {
-                if ($preview->runCount() <= 0) {
-                    return ContentProjectActionResult::fail(
-                        ContentProjectActionCodes::VALIDATION_FAILED,
-                        'No truly pending items to generate.',
-                        $projectId,
-                        metadata: ['preview' => $preview->toArray()],
-                    );
-                }
-                $itemIds = $preview->runnableTaskIds();
-            } else {
-                $allowed = array_flip($preview->runnableTaskIds());
-                $itemIds = array_values(array_filter(
-                    $itemIds,
-                    static fn (int $id): bool => isset($allowed[$id]),
-                ));
-                if ($itemIds === []) {
-                    return ContentProjectActionResult::fail(
-                        ContentProjectActionCodes::VALIDATION_FAILED,
-                        'Selected items are not eligible for generate-pending (already generated or blocked).',
-                        $projectId,
-                        metadata: ['preview' => $preview->toArray()],
-                    );
-                }
-            }
-
-            // «improve» is manual-only by default: generic generation must never enqueue AI for it.
-            $allowImproveGeneration = (bool) ($command->settings[ContentProjectImproveManualOnlyGenerationGuard::ALLOW_IMPROVE_GENERATION_SETTING] ?? false);
-            if (! $allowImproveGeneration && $itemIds !== []) {
-                $typesById = SeoProjectTask::query()
-                    ->whereIn('id', $itemIds)
-                    ->pluck('type', 'id')
-                    ->all();
-
-                $guard = ContentProjectImproveManualOnlyGenerationGuard::filterItemIds(
-                    $itemIds,
-                    $typesById,
-                    allowImproveGeneration: false,
+                return ContentProjectActionResult::fail(
+                    ContentProjectActionCodes::VALIDATION_FAILED,
+                    'No items to visit for bulk generation.',
+                    $projectId,
                 );
-
-                $itemIds = $guard['eligible_ids'];
-                if ($itemIds === []) {
-                    return ContentProjectActionResult::fail(
-                        ContentProjectActionCodes::VALIDATION_FAILED,
-                        'Improve items are manual-only — AI generation is blocked.',
-                        $projectId,
-                        metadata: [
-                            'skipped_improve_count' => $guard['skipped_improve_count'],
-                            'skipped_improve_ids' => $guard['skipped_improve_ids'],
-                        ],
-                    );
-                }
             }
+
+            $this->tenantGuard->assertTasksBelongToProject($project, $itemIds);
 
             $isTestMode = $command->mode === SeoProjectRun::MODE_TEST;
-            $isProjectLevelBulk = ! $isTestMode && ($command->itemRefs === [] || count($itemIds) > 1);
+            // Project-level concurrency: any active bulk blocks another bulk OR single-item generate
+            // for the same project (max 1 AI article executing per project bulk).
             if ($isTestMode && $this->activeRuns->hasActiveTestRun($projectId)) {
                 return ContentProjectActionResult::fail(
                     ContentProjectActionCodes::VALIDATION_FAILED,
@@ -187,7 +124,7 @@ final class GenerateProjectItemsHandler extends AbstractPublishingHandler
                     metadata: ['conflict' => 'test_run_active'],
                 );
             }
-            if ($isProjectLevelBulk && $this->activeRuns->hasActiveBulkGeneration($projectId)) {
+            if ($this->activeRuns->hasActiveBulkGeneration($projectId)) {
                 return ContentProjectActionResult::fail(
                     ContentProjectActionCodes::VALIDATION_FAILED,
                     'Đang có một bulk generation chạy.',
@@ -196,184 +133,85 @@ final class GenerateProjectItemsHandler extends AbstractPublishingHandler
                 );
             }
 
-            $this->assertGenerateAllowed($itemIds);
+            // technicalConfirmFullRerun ignored (deprecated) — whole-project visit is safe under JIT.
 
-            if ($command->itemRefs === [] && $preview->failClosed && ! $command->technicalConfirmFullRerun) {
-                return ContentProjectActionResult::fail(
-                    ContentProjectActionCodes::VALIDATION_FAILED,
-                    'Generate pending fail-closed: would select entire project despite historical execution.',
-                    $projectId,
-                    metadata: ['preview' => $preview->toArray()],
-                );
-            }
+            $baseSettings = is_array($command->settings) ? $command->settings : [];
+            $settings = array_merge($baseSettings, [
+                'task_ids' => $itemIds,
+                'lazy_bulk' => true,
+                'use_php_engine' => true,
+            ]);
+            // Do not persist obsolete gate flag into run settings.
+            unset($settings['technical_confirm_full_rerun']);
 
-            $partition = $this->bulkPlanner->partition($preview, $itemIds);
-            $generateIds = $partition['generate_ids'];
-            $restartIds = $partition['restart_with_keyword_ids'];
+            $run = $this->businessLock->withLock(
+                $this->businessLock->projectGenerate($projectId),
+                function () use ($project, $projectId, $command, $itemIds, $settings): SeoProjectRun {
+                    if ($this->activeRuns->hasActiveBulkGeneration($projectId)) {
+                        throw new InvalidArgumentException('Đang có một bulk generation chạy.');
+                    }
 
-            // Failed + resumable → Resume from failed step (reuse upstream); never-generated stay on generate.
-            $resumePartition = $this->partitionResumableFailed($project, $generateIds);
-            $generateIds = $resumePartition['generate_ids'];
-            /** @var array<string, list<int>> $resumeByStep */
-            $resumeByStep = $resumePartition['resume_by_step'];
-            $resumeIds = $resumePartition['resume_ids'];
-
-            if ($generateIds === [] && $restartIds === [] && $resumeIds === []) {
-                return ContentProjectActionResult::fail(
-                    ContentProjectActionCodes::VALIDATION_FAILED,
-                    'No truly pending items to generate.',
-                    $projectId,
-                    metadata: ['preview' => $preview->toArray()],
-                );
-            }
-
-            $runsStarted = [];
-            $restartResults = [];
-            $resumeResults = [];
-            $allAffected = [];
-
-            foreach ($resumeByStep as $fromStep => $stepTaskIds) {
-                $resumeResult = $this->commandBus->dispatch(
-                    new ResumeProjectItemFromFailedStepCommand(
+                    $run = $this->workflowRunService->startRun($project, $command->mode, $settings);
+                    $limit = $command->mode === SeoProjectRun::MODE_TEST
+                        ? SeoProjectWorkflowRunService::TEST_RUN_LIMIT
+                        : null;
+                    $run = $this->workflowRunService->prepareRunQueue($project, $run, $limit);
+                    $executionRef = ContentProjectPublicRef::execution((int) $run->getKey());
+                    $this->domainEvents->dispatchAfterCommit(new ContentProjectGenerationRequested(
                         $projectId,
-                        $stepTaskIds,
-                        $command->mode,
-                        $command->settings,
-                    ),
-                    $actor,
-                );
-                $resumeResults[] = array_merge($resumeResult->toArray(), [
-                    'from_step' => $fromStep,
-                    'task_ids' => $stepTaskIds,
+                        $executionRef,
+                        $itemIds,
+                    ));
+
+                    return $run;
+                },
+            );
+
+            try {
+                $this->runEngine->start($run);
+            } catch (\Throwable $e) {
+                RuntimeLogger::report($e, [
+                    'endpoint' => 'content_project.generate_engine_start',
+                    'project_id' => $projectId,
+                    'run_id' => (int) $run->getKey(),
+                    'task_ids' => $itemIds,
                 ]);
-                if ($resumeResult->success) {
-                    $allAffected = array_merge($allAffected, $stepTaskIds);
-                    $ref = is_string($resumeResult->metadata['execution_ref'] ?? null)
-                        ? (string) $resumeResult->metadata['execution_ref']
-                        : null;
-                    if ($ref !== null) {
-                        $runsStarted[] = $ref;
-                    }
-                }
-            }
-
-            if ($generateIds !== []) {
-                $generateResult = $this->dispatchNormalGenerate(
-                    $project,
-                    $projectId,
-                    $command,
-                    $generateIds,
-                    is_array($command->settings) ? $command->settings : [],
-                );
-                if (! $generateResult['ok']) {
-                    return $generateResult['result'];
-                }
-                $runsStarted[] = $generateResult['execution_ref'];
-                $allAffected = array_merge($allAffected, $generateIds);
-            }
-
-            foreach ($restartIds as $restartTaskId) {
-                $task = SeoProjectTask::query()->find((int) $restartTaskId);
-                if (! $task instanceof SeoProjectTask) {
-                    continue;
-                }
-                $keyword = ContentProjectGenerationKeyword::effective($task);
-                if ($keyword === '') {
-                    continue;
-                }
-
-                $restartResult = $this->commandBus->dispatch(
-                    new RestartGenerationWithKeywordCommand(
-                        $projectId,
-                        [(int) $restartTaskId],
-                        $keyword,
-                        $command->mode,
-                        $command->settings,
-                    ),
-                    $actor,
-                );
-                $restartResults[] = $restartResult->toArray();
-                if ($restartResult->success) {
-                    $allAffected[] = (int) $restartTaskId;
-                    $ref = is_string($restartResult->metadata['execution_ref'] ?? null)
-                        ? (string) $restartResult->metadata['execution_ref']
-                        : null;
-                    if ($ref !== null) {
-                        $runsStarted[] = $ref;
-                    }
-                }
-            }
-
-            $failedRestarts = array_filter(
-                $restartResults,
-                static fn (array $row): bool => ! (bool) ($row['success'] ?? false),
-            );
-            $failedResumes = array_filter(
-                $resumeResults,
-                static fn (array $row): bool => ! (bool) ($row['success'] ?? false),
-            );
-            if ($generateIds === [] && $failedRestarts !== [] && $resumeIds === []) {
-                $first = reset($failedRestarts);
 
                 return ContentProjectActionResult::fail(
                     ContentProjectActionCodes::FAILED,
-                    (string) ($first['message'] ?? 'Keyword restart failed.'),
+                    'Generate queue prepared but engine start failed: '.$e->getMessage(),
                     $projectId,
-                    affectedItemIds: $restartIds,
-                    metadata: ['restart_results' => $restartResults],
+                    affectedItemIds: $itemIds,
+                    metadata: [
+                        'execution_ref' => ContentProjectPublicRef::execution((int) $run->getKey()),
+                        'execution_refs' => [ContentProjectPublicRef::execution((int) $run->getKey())],
+                        'task_ids' => $itemIds,
+                        'engine_started' => false,
+                    ],
                 );
             }
-            if ($generateIds === [] && $restartIds === [] && $failedResumes !== [] && $allAffected === []) {
-                $first = reset($failedResumes);
 
-                return ContentProjectActionResult::fail(
-                    ContentProjectActionCodes::FAILED,
-                    (string) ($first['message'] ?? 'Resume from failed step failed.'),
-                    $projectId,
-                    affectedItemIds: $resumeIds,
-                    metadata: ['resume_results' => $resumeResults],
-                );
-            }
+            $executionRef = ContentProjectPublicRef::execution((int) $run->getKey());
 
             RuntimeLogger::info('content_project.generate_started', [
                 'project_id' => $projectId,
-                'generate_task_ids' => $generateIds,
-                'restart_task_ids' => $restartIds,
-                'resume_task_ids' => $resumeIds,
-                'resume_by_step' => $resumeByStep,
-                'execution_refs' => $runsStarted,
+                'task_ids' => $itemIds,
+                'execution_ref' => $executionRef,
+                'execution_refs' => [$executionRef],
+                'lazy_bulk' => true,
             ]);
-
-            $allAffected = array_values(array_unique($allAffected));
-            if ($allAffected !== []) {
-                SeoProjectTask::query()->whereIn('id', $allAffected)->update(['updated_at' => now()]);
-            }
-
-            $messageParts = [];
-            if ($resumeIds !== []) {
-                $messageParts[] = 'Resume from failed step started for '.count($resumeIds).' item(s).';
-            }
-            if ($generateIds !== []) {
-                $messageParts[] = 'Generate pending started for '.count($generateIds).' item(s).';
-            }
-            if ($restartIds !== []) {
-                $messageParts[] = 'Keyword restart started for '.count($restartIds).' item(s).';
-            }
 
             return ContentProjectActionResult::ok(
                 ContentProjectActionCodes::ITEMS_GENERATE_REQUESTED,
-                implode(' ', $messageParts),
+                'Bulk generation started for '.count($itemIds).' item(s) (lazy JIT).',
                 $projectId,
-                $allAffected,
+                // Do not touch task updated_at / lifecycle — membership only.
+                [],
                 metadata: [
-                    'execution_ref' => $runsStarted[0] ?? null,
-                    'execution_refs' => $runsStarted,
-                    'generate_task_ids' => $generateIds,
-                    'restart_task_ids' => $restartIds,
-                    'resume_task_ids' => $resumeIds,
-                    'resume_by_step' => $resumeByStep,
-                    'restart_results' => $restartResults,
-                    'resume_results' => $resumeResults,
+                    'execution_ref' => $executionRef,
+                    'execution_refs' => [$executionRef],
+                    'task_ids' => $itemIds,
+                    'lazy_bulk' => true,
                     'engine_started' => true,
                 ],
             );
@@ -381,160 +219,65 @@ final class GenerateProjectItemsHandler extends AbstractPublishingHandler
     }
 
     /**
-     * Split generate-pending IDs: resumable Failed → Resume; rest stay on full generate.
+     * Snapshot visit order only — not an execution plan.
      *
-     * @param  list<int>  $generateIds
-     * @return array{
-     *     generate_ids: list<int>,
-     *     resume_ids: list<int>,
-     *     resume_by_step: array<string, list<int>>,
-     * }
+     * @return list<int>
      */
-    private function partitionResumableFailed(SeoProject $project, array $generateIds): array
+    private function resolveVisitTaskIds(SeoProject $project, GenerateProjectItemsCommand $command): array
     {
-        if ($generateIds === []) {
-            return [
-                'generate_ids' => [],
-                'resume_ids' => [],
-                'resume_by_step' => [],
-            ];
+        $explicit = $this->resolveItemIds($command->itemRefs);
+        if ($explicit !== []) {
+            return $this->orderTaskIds($project, $explicit);
         }
 
-        $stillGenerate = [];
-        $resumeByStep = [];
-        $resumeIds = [];
+        $query = $project->tasks()
+            ->planned()
+            ->orderBy('target_date')
+            ->orderBy('id');
 
-        $tasks = SeoProjectTask::query()
-            ->whereIn('id', $generateIds)
-            ->with(['article'])
-            ->get()
-            ->keyBy(static fn (SeoProjectTask $t): int => (int) $t->getKey());
-
-        foreach ($generateIds as $rawId) {
-            $taskId = (int) $rawId;
-            $task = $tasks->get($taskId);
-            if (! $task instanceof SeoProjectTask) {
-                continue;
-            }
-
-            $decision = $this->capability->decide($project, $task, [
-                'recover_stale' => true,
-                'persist_article_repair' => true,
-            ]);
-
-            $fromStep = trim((string) ($decision->resumableFromStep ?? ''));
-            if (
-                $decision->action === ContentProjectGenerationRecoveryDecision::ACTION_RESUME
-                && $fromStep !== ''
-            ) {
-                $resumeByStep[$fromStep] ??= [];
-                $resumeByStep[$fromStep][] = $taskId;
-                $resumeIds[] = $taskId;
-                continue;
-            }
-
-            $stillGenerate[] = $taskId;
+        if ($command->mode === SeoProjectRun::MODE_TEST) {
+            $query->limit(SeoProjectWorkflowRunService::TEST_RUN_LIMIT);
         }
 
-        return [
-            'generate_ids' => array_values($stillGenerate),
-            'resume_ids' => array_values(array_unique($resumeIds)),
-            'resume_by_step' => $resumeByStep,
-        ];
+        /** @var list<int> $ids */
+        $ids = $query->pluck('id')->map(static fn (mixed $id): int => (int) $id)->all();
+
+        $allowImprove = (bool) ($command->settings[ContentProjectImproveManualOnlyGenerationGuard::ALLOW_IMPROVE_GENERATION_SETTING] ?? false);
+        if ($allowImprove || $ids === []) {
+            return $ids;
+        }
+
+        // Soft-exclude improve from visit list when known at launch (JIT also skips).
+        $typesById = SeoProjectTask::query()
+            ->whereIn('id', $ids)
+            ->pluck('type', 'id')
+            ->all();
+        $guard = ContentProjectImproveManualOnlyGenerationGuard::filterItemIds($ids, $typesById, false);
+
+        return $guard['eligible_ids'];
     }
 
     /**
-     * @param  list<int>  $itemIds
-     * @param  array<string, mixed>  $baseSettings
-     * @return array{ok: bool, result?: ContentProjectActionResult, execution_ref?: string|null}
+     * Preserve caller order when explicit; otherwise project planner order.
+     *
+     * @param  list<int>  $ids
+     * @return list<int>
      */
-    private function dispatchNormalGenerate(
-        SeoProject $project,
-        int $projectId,
-        GenerateProjectItemsCommand $command,
-        array $itemIds,
-        array $baseSettings,
-    ): array {
-        $settings = array_merge(
-            $baseSettings,
-            [
-                'task_ids' => $itemIds,
-                'technical_confirm_full_rerun' => $command->technicalConfirmFullRerun,
-                'use_php_engine' => true,
-            ],
-        );
-
-        $run = $this->businessLock->withLock(
-            $this->businessLock->projectGenerate($projectId),
-            function () use ($project, $projectId, $command, $itemIds, $settings): SeoProjectRun {
-                $run = $this->workflowRunService->startRun($project, $command->mode, $settings);
-                $limit = $command->mode === SeoProjectRun::MODE_TEST
-                    ? SeoProjectWorkflowRunService::TEST_RUN_LIMIT
-                    : null;
-                $run = $this->workflowRunService->prepareRunQueue($project, $run, $limit);
-                $executionRef = ContentProjectPublicRef::execution((int) $run->getKey());
-                $this->domainEvents->dispatchAfterCommit(new ContentProjectGenerationRequested(
-                    $projectId,
-                    $executionRef,
-                    $itemIds,
-                ));
-
-                return $run;
-            },
-        );
-
-        try {
-            $this->runEngine->start($run);
-        } catch (\Throwable $e) {
-            RuntimeLogger::report($e, [
-                'endpoint' => 'content_project.generate_engine_start',
-                'project_id' => $projectId,
-                'run_id' => (int) $run->getKey(),
-                'task_ids' => $itemIds,
-            ]);
-
-            return [
-                'ok' => false,
-                'result' => ContentProjectActionResult::fail(
-                    ContentProjectActionCodes::FAILED,
-                    'Generate queue prepared but engine start failed: '.$e->getMessage(),
-                    $projectId,
-                    affectedItemIds: $itemIds,
-                    metadata: [
-                        'execution_ref' => ContentProjectPublicRef::execution((int) $run->getKey()),
-                        'task_ids' => $itemIds,
-                        'engine_started' => false,
-                    ],
-                ),
-            ];
-        }
-
-        return [
-            'ok' => true,
-            'execution_ref' => ContentProjectPublicRef::execution((int) $run->getKey()),
-        ];
-    }
-
-    /**
-     * @param  list<int>  $itemIds
-     */
-    private function assertGenerateAllowed(array $itemIds): void
+    private function orderTaskIds(SeoProject $project, array $ids): array
     {
-        if ($itemIds === []) {
-            return;
+        if ($ids === []) {
+            return [];
         }
 
-        $tasks = SeoProjectTask::query()
-            ->whereIn('id', $itemIds)
-            ->with(['article'])
-            ->get();
+        $ordered = $project->tasks()
+            ->planned()
+            ->whereIn('id', $ids)
+            ->orderBy('target_date')
+            ->orderBy('id')
+            ->pluck('id')
+            ->map(static fn (mixed $id): int => (int) $id)
+            ->all();
 
-        foreach ($tasks as $task) {
-            $this->actionGuard->assertCan(
-                ContentProjectItemAction::Generate,
-                $task,
-                $task->relationLoaded('article') ? $task->article : null,
-            );
-        }
+        return array_values($ordered);
     }
 }

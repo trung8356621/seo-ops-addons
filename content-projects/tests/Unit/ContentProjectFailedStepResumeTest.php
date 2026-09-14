@@ -156,13 +156,18 @@ final class ContentProjectFailedStepResumeTest extends TestCase
         self::assertSame('content_project.resume_failed_step', $cmd->name());
     }
 
-    public function test_generate_working_items_auto_routes_failed_to_resume(): void
+    public function test_generate_working_items_uses_lazy_jit_inside_same_bulk_run(): void
     {
         $handler = $this->source(\Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Handlers\GenerateProjectItemsHandler::class);
-        self::assertStringContainsString('partitionResumableFailed', $handler);
-        self::assertStringContainsString('ResumeProjectItemFromFailedStepCommand', $handler);
-        self::assertStringContainsString('ACTION_RESUME', $handler);
-        self::assertStringContainsString('resume_by_step', $handler);
+        self::assertStringContainsString('lazy_bulk', $handler);
+        self::assertStringNotContainsString('ResumeProjectItemFromFailedStepCommand', $handler);
+        self::assertStringNotContainsString('partitionResumableFailed', $handler);
+
+        $decision = $this->source(
+            \Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectBulkItemDecisionService::class
+        );
+        self::assertStringContainsString('ACTION_RESUME', $decision);
+        self::assertStringContainsString('OP_RESUME_FROM_FAILED_STEP', $decision);
     }
 
     /**

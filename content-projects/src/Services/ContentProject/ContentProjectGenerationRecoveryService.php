@@ -231,7 +231,8 @@ final class ContentProjectGenerationRecoveryService
         }
 
         $settings = is_array($run->settings ?? null) ? $run->settings : [];
-        $engine = is_array($settings['engine'] ?? null) ? $settings['engine'] : [];
+        $engineKey = \Omnichannel\Addons\ContentProjects\Services\RunEngine\ContentProjectRunEngine::SETTINGS_ENGINE_KEY;
+        $engine = is_array($settings[$engineKey] ?? null) ? $settings[$engineKey] : [];
         $active = is_array($engine['active_dispatch'] ?? null) ? $engine['active_dispatch'] : null;
         if ($active === null) {
             return;
@@ -245,7 +246,7 @@ final class ContentProjectGenerationRecoveryService
 
         $token = trim((string) ($active['token'] ?? ''));
         unset($engine['active_dispatch']);
-        $settings['engine'] = $engine;
+        $settings[$engineKey] = $engine;
 
         SeoProjectRun::query()->whereKey((int) $run->id)->update([
             'settings' => $settings,

@@ -13,6 +13,8 @@ use Omnichannel\Addons\AiPrompt\Models\SeoAiModel;
 use Omnichannel\Addons\AiPrompt\Support\AiCostPolicy;
 use Omnichannel\Addons\AiPrompt\Support\AiCostPolicyScope;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
+use Omnichannel\Addons\AiPrompt\Support\AiExecutionRoutingMode;
+use Omnichannel\Addons\AiPrompt\Support\AiModelArea;
 use Omnichannel\Addons\AiPrompt\Support\AiModelLabelPresenter;
 use Omnichannel\Addons\AiPrompt\Support\AiProductionRouteEligibility;
 use Omnichannel\Addons\AiPrompt\Support\AiUsageMode;
@@ -162,59 +164,198 @@ final class AiRoutingTargetService
     /**
      * Executable route for a profile.
      *
-     * Source of truth: Models capability-area order ({@see liveCompatibleCandidates}).
-     * Text profiles: manual order only — no Custom membership filter at runtime.
-     * Media profiles may still apply optional membership filter.
-     * FreeOnly keeps free entries already on that route (explicit policy only).
+     * COST POLICY decides which cost class may run.
+     * MANUAL SORT decides order within the allowed class/area.
+     *
+     * FreeOnly → Free Models area only (capability-filtered).
+     * PaidPreferred → paid text area only (never Free Pool).
+     * Default / FreeFirst budget → Free Models first (planner), paid from paid areas.
      *
      * @return list<RoutedAiCandidate>
      */
     public function eligibleCandidates(int $userId, AiExecutionProfile $profile, AiRoutingContext $context): array
     {
         $this->lastEligibilityDiagnostics = [];
-        $canonical = $profile->isMedia()
-            ? $this->applyMembershipFilter(
+
+        if (! $profile->isMedia()) {
+            (new AiFreeModelsAreaMigrator($this->priorities))->migrateUserIfNeeded($userId);
+        }
+
+        $mode = (new AiRoutingContextResolver())->resolveMode($context);
+        $isFreeOnly = $mode === AiExecutionRoutingMode::FreeOnly
+            || $context->isFreeOnly()
+            || AiCostPolicyScope::current()->isFreeOnly();
+        $isPaidPreferred = $mode === AiExecutionRoutingMode::PaidPreferred;
+
+        $this->lastEligibilityDiagnostics['free_only'] = $isFreeOnly;
+        $this->lastEligibilityDiagnostics['paid_preferred'] = $isPaidPreferred;
+        $this->lastEligibilityDiagnostics['routing_mode'] = $mode->value;
+
+        if ($profile->isMedia()) {
+            $canonical = $this->applyMembershipFilter(
                 $this->liveCompatibleCandidates($userId, $profile),
                 $userId,
                 $profile,
                 $context,
-            )
-            : $this->liveCompatibleCandidates($userId, $profile);
+            );
+            $beforeEligibility = $canonical;
+            $canonical = (new AiProductionRouteEligibility())->filter($canonical, $profile, $context);
+            $this->logProductionEligibilitySkips($userId, $profile, $context, $beforeEligibility, $canonical);
 
-        $beforeEligibility = $canonical;
-        $canonical = (new AiProductionRouteEligibility())->filter($canonical, $profile, $context);
-        $this->logProductionEligibilitySkips($userId, $profile, $context, $beforeEligibility, $canonical);
+            return (new LogicalModelRouteOrder())->apply($canonical);
+        }
 
-        $previous = $this->lastEligibilityDiagnostics;
-        $this->lastEligibilityDiagnostics = array_merge($previous, [
-            'candidates_before_production_eligibility' => count($beforeEligibility),
-            'candidates_after_production_eligibility' => count($canonical),
-            'production_eligibility_skip_count' => max(0, count($beforeEligibility) - count($canonical)),
-        ]);
-
-        $isFreeOnly = $context->isFreeOnly() || AiCostPolicyScope::current()->isFreeOnly();
-        $this->lastEligibilityDiagnostics['free_only'] = $isFreeOnly;
-        if (! $profile->isMedia() && $isFreeOnly) {
-            $resolved = (new FreeRoutingResolver())->resolve($canonical);
-            $this->lastEligibilityDiagnostics['candidates_after_free_only'] = count($resolved);
-            $expanded = $this->expandFreePool($userId, $profile, $resolved);
+        if ($isFreeOnly) {
+            $free = $this->freeModelsCandidates($userId, $profile, $context);
+            $this->lastEligibilityDiagnostics['candidates_after_free_only'] = count($free);
+            $expanded = $this->expandFreePool($userId, $profile, $free, AiModelArea::FreeModels);
 
             return (new LogicalModelRouteOrder())->apply($expanded);
         }
 
-        $expanded = $this->expandFreePool($userId, $profile, $canonical);
+        if ($isPaidPreferred) {
+            $paid = $this->paidAreaCandidates($userId, $profile, $context);
+            $this->lastEligibilityDiagnostics['candidates_after_paid_only'] = count($paid);
 
-        return (new LogicalModelRouteOrder())->apply($expanded);
+            return (new LogicalModelRouteOrder())->apply($paid);
+        }
+
+        // Default / economy: expose Free Models (manual order) as primary stream so FREE-FIRST
+        // planner can open secondary paid lane from paid text areas — never mix free into paid tabs.
+        $free = $this->freeModelsCandidates($userId, $profile, $context);
+        $expandedFree = $this->expandFreePool($userId, $profile, $free, AiModelArea::FreeModels);
+        $paid = $this->paidAreaCandidates($userId, $profile, $context);
+
+        // Primary list = free (for free-first) then paid siblings of primary area when no free.
+        // Planner FREE-FIRST filters free from candidates; secondary paid is loaded separately.
+        $merged = $expandedFree !== [] ? $expandedFree : $paid;
+        if ($expandedFree !== [] && $paid !== []) {
+            // Keep free first for initialRouteCost detection; paid also present for same-area secondary.
+            $seen = [];
+            $merged = [];
+            foreach (array_merge($expandedFree, $paid) as $candidate) {
+                $key = $candidate->physicalRouteKey();
+                if (isset($seen[$key])) {
+                    continue;
+                }
+                $seen[$key] = true;
+                $merged[] = $candidate;
+            }
+        }
+
+        $this->lastEligibilityDiagnostics['free_models_count'] = count($expandedFree);
+        $this->lastEligibilityDiagnostics['paid_area_count'] = count($paid);
+
+        return (new LogicalModelRouteOrder())->apply($merged);
+    }
+
+    /**
+     * Free Models area members compatible with the profile capability.
+     *
+     * @return list<RoutedAiCandidate>
+     */
+    public function freeModelsCandidates(int $userId, AiExecutionProfile $profile, AiRoutingContext $context): array
+    {
+        $out = $this->liveCompatibleCandidatesFromArea($userId, $profile, AiModelArea::FreeModels);
+        $before = $out;
+        $out = (new AiProductionRouteEligibility())->filter($out, $profile, $context);
+        $out = array_values(array_filter($out, static fn (RoutedAiCandidate $c): bool => $c->isFree));
+        $this->lastEligibilityDiagnostics['free_models_before_eligibility'] = count($before);
+        $this->lastEligibilityDiagnostics['free_models_after_eligibility'] = count($out);
+
+        return $out;
+    }
+
+    /**
+     * Paid text area for profile — is_free=false only.
+     *
+     * @return list<RoutedAiCandidate>
+     */
+    public function paidAreaCandidates(int $userId, AiExecutionProfile $profile, AiRoutingContext $context): array
+    {
+        $area = AiModelArea::fromProfile($profile);
+        $out = $this->liveCompatibleCandidatesFromArea($userId, $profile, $area);
+        $out = (new AiProductionRouteEligibility())->filter($out, $profile, $context);
+        $out = array_values(array_filter($out, static fn (RoutedAiCandidate $c): bool => ! $c->isFree));
+        $this->lastEligibilityDiagnostics['paid_area_before_filter'] = count($out);
+
+        return $out;
+    }
+
+    /**
+     * @return list<RoutedAiCandidate>
+     */
+    private function liveCompatibleCandidatesFromArea(
+        int $userId,
+        AiExecutionProfile $profile,
+        AiModelArea $area,
+    ): array {
+        $memoKey = $userId.'|'.$profile->value.'|'.$area->value;
+        if (isset($this->liveCandidatesMemo[$memoKey])) {
+            return $this->liveCandidatesMemo[$memoKey];
+        }
+        $out = [];
+        $rejected = [];
+        foreach ($this->priorities->areaEnabledModels($userId, $area) as $model) {
+            $connection = $model->apiConnection;
+            $modelKey = (string) $model->raw_model_name;
+            if (! $connection instanceof ApiConnection || (string) $connection->status !== 'active') {
+                $rejected[] = ['model' => $modelKey, 'rejected_reason' => 'connection_disabled'];
+                continue;
+            }
+            if (! \Omnichannel\Addons\AiPrompt\Support\AiConnectionCredential::isUsable($connection->api_key)) {
+                $rejected[] = ['model' => $modelKey, 'rejected_reason' => 'missing_credentials'];
+                continue;
+            }
+            if (! $this->capabilities->satisfiesAll($connection, $modelKey, $profile->requiredCapabilityKeys())) {
+                $rejected[] = ['model' => $modelKey, 'rejected_reason' => 'unsupported_capability'];
+                continue;
+            }
+            if (! GeminiModelVersionPolicy::isEligibleForAutoRouting($modelKey)) {
+                $rejected[] = ['model' => $modelKey, 'rejected_reason' => 'provider_unavailable'];
+                continue;
+            }
+            if ($this->families->aggregatorFamily($modelKey) === null) {
+                $rejected[] = ['model' => $modelKey, 'rejected_reason' => 'unsupported_task'];
+                continue;
+            }
+            $out[] = new RoutedAiCandidate(
+                profile: $profile->value,
+                connection: $connection,
+                provider: (string) $connection->provider,
+                model: $modelKey,
+                capabilities: $this->capabilities->capabilitiesFor($connection, $modelKey),
+                priority: $this->priorities->areaPriority($model, $area, $connection),
+                options: [],
+                seoAiModelId: (int) $model->id,
+                isFree: OpenRouterModelEconomics::modelIsFree($model)
+                    || OpenRouterModelEconomics::isFree([], $modelKey),
+            );
+        }
+        usort($out, static function (RoutedAiCandidate $a, RoutedAiCandidate $b): int {
+            $cmp = $a->priority <=> $b->priority;
+            if ($cmp !== 0) {
+                return $cmp;
+            }
+
+            return ((int) ($a->seoAiModelId ?? 0)) <=> ((int) ($b->seoAiModelId ?? 0));
+        });
+
+        return $this->liveCandidatesMemo[$memoKey] = array_values($out);
     }
 
     /**
      * @param  list<\Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate>  $candidates
      * @return list<\Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate>
      */
-    private function expandFreePool(int $userId, AiExecutionProfile $profile, array $candidates): array
-    {
-        $area = \Omnichannel\Addons\AiPrompt\Support\AiModelArea::fromProfile($profile);
-        if (! $area->isTextPrimary()) {
+    private function expandFreePool(
+        int $userId,
+        AiExecutionProfile $profile,
+        array $candidates,
+        ?AiModelArea $poolArea = null,
+    ): array {
+        $area = $poolArea ?? AiModelArea::fromProfile($profile);
+        if (! $area->isTextPrimary() && ! $area->isFreeModels()) {
             return $candidates;
         }
 
@@ -224,6 +365,11 @@ final class AiRoutingTargetService
         if ($diag !== []) {
             $this->lastEligibilityDiagnostics = array_merge($this->lastEligibilityDiagnostics, $diag);
         }
+
+        $beforeCircuit = count($expanded);
+        $expanded = (new OpenRouterFreePoolHealthService())->filterCandidatesForCircuit($expanded);
+        $this->lastEligibilityDiagnostics['free_pool_after_circuit'] = count($expanded);
+        $this->lastEligibilityDiagnostics['free_pool_circuit_skipped'] = max(0, $beforeCircuit - count($expanded));
 
         return $expanded;
     }

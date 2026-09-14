@@ -17,19 +17,22 @@ use Omnichannel\Addons\AiPrompt\Models\SeoAiModel;
 use Omnichannel\Addons\AiPrompt\Services\AiCenterModelPresenter;
 use Omnichannel\Addons\AiPrompt\Services\AiConnectionPresenter;
 use Omnichannel\Addons\AiPrompt\Services\AiExecutionTargetPresenter;
+use Omnichannel\Addons\AiPrompt\Services\AiFreeModelsAreaMigrator;
+use Omnichannel\Addons\AiPrompt\Services\AiHealthUiPresenter;
 use Omnichannel\Addons\AiPrompt\Services\AiModelFamilyCatalog;
 use Omnichannel\Addons\AiPrompt\Services\AiModelInventory;
 use Omnichannel\Addons\AiPrompt\Services\AiModelPrimaryTypeClassifier;
 use Omnichannel\Addons\AiPrompt\Services\AiModelPriorityService;
 use Omnichannel\Addons\AiPrompt\Services\AiModelRouterService;
 use Omnichannel\Addons\AiPrompt\Services\AiResilienceSettingsService;
-use Omnichannel\Addons\AiPrompt\Services\AiHealthUiPresenter;
 use Omnichannel\Addons\AiPrompt\Services\AiRuntimeHealthService;
 use Omnichannel\Addons\AiPrompt\Services\AiRoutingBootstrapService;
 use Omnichannel\Addons\AiPrompt\Services\AiRoutingOwnerResolver;
 use Omnichannel\Addons\AiPrompt\Services\AiRoutingTargetService;
 use Omnichannel\Addons\AiPrompt\Services\CanonicalAiRouteResolver;
+use Omnichannel\Addons\AiPrompt\Services\FreePoolResilienceSettingsService;
 use Omnichannel\Addons\AiPrompt\Services\OpenRouterFreeLanguageGateService;
+use Omnichannel\Addons\AiPrompt\Services\OpenRouterFreePoolHealthService;
 use Omnichannel\Addons\AiPrompt\Services\OpenRouterFreePoolService;
 use Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\AiProviderConnectionTester;
 use Omnichannel\Addons\AiPrompt\Services\SyncAllAiConnectionModelsService;
@@ -104,6 +107,9 @@ class SeoSettingsAiCenter extends Page
     public int $maxAiAttempts = 6;
 
     public int $maxFreeAttempts = 3;
+
+    /** @var array<string, int|float|bool> */
+    public array $freePoolResilience = [];
 
     public bool $routingUnsaved = false;
 
@@ -188,6 +194,7 @@ class SeoSettingsAiCenter extends Page
         $this->usageHydrated = $this->tab === 'usage';
         $userId = (int) auth()->id();
         app(AiModelPrimaryTypeClassifier::class)->classifyForUser($userId);
+        app(AiFreeModelsAreaMigrator::class)->migrateUserIfNeeded($userId);
         $bootstrap->bootstrapForUser($userId);
         $this->globalUsageMode = $this->resolveArticleDefaultUsageMode();
         $this->fillRouting($targets, $userId);
@@ -1277,6 +1284,7 @@ class SeoSettingsAiCenter extends Page
         $settings = app(AiResilienceSettingsService::class)->get($userId);
         $this->maxAiAttempts = (int) $settings[AiResilienceSettingsService::KEY_MAX_AI_ATTEMPTS];
         $this->maxFreeAttempts = (int) $settings[AiResilienceSettingsService::KEY_MAX_FREE_ATTEMPTS];
+        $this->freePoolResilience = app(FreePoolResilienceSettingsService::class)->get($userId);
     }
 
     public function saveResilienceSettings(AiResilienceSettingsService $settings): void
@@ -1288,6 +1296,10 @@ class SeoSettingsAiCenter extends Page
                 AiResilienceSettingsService::KEY_MAX_AI_ATTEMPTS => $this->maxAiAttempts,
                 AiResilienceSettingsService::KEY_MAX_FREE_ATTEMPTS => $this->maxFreeAttempts,
             ]);
+            $this->freePoolResilience = app(FreePoolResilienceSettingsService::class)->save(
+                $userId,
+                is_array($this->freePoolResilience) ? $this->freePoolResilience : [],
+            );
         } catch (\InvalidArgumentException $exception) {
             Notification::make()->title($exception->getMessage())->danger()->send();
 
@@ -1296,6 +1308,14 @@ class SeoSettingsAiCenter extends Page
         $this->maxAiAttempts = $saved[AiResilienceSettingsService::KEY_MAX_AI_ATTEMPTS];
         $this->maxFreeAttempts = $saved[AiResilienceSettingsService::KEY_MAX_FREE_ATTEMPTS];
         Notification::make()->title(__('seo-content-ai::filament.ai_center.resilience_saved'))->success()->send();
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function freePoolOperationalAlerts(): array
+    {
+        return app(OpenRouterFreePoolHealthService::class)->operationalAlerts((int) auth()->id());
     }
 
     /**

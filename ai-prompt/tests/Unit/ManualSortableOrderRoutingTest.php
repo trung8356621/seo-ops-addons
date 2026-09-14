@@ -159,7 +159,7 @@ final class ManualSortableOrderRoutingTest extends TestCase
         $this->app->instance(AiResilienceSettingsService::class, new AiResilienceSettingsService());
     }
 
-    /** TEST A — DeepSeek #1 healthy succeeds; Free Pool never called */
+    /** TEST A — PaidPreferred: DeepSeek succeeds; Free Pool never called */
     public function test_a_deepseek_first_succeeds_without_calling_free(): void
     {
         (new AiResilienceSettingsService())->save(201, ['max_ai_attempts' => 6, 'max_free_attempts' => 3]);
@@ -167,7 +167,11 @@ final class ManualSortableOrderRoutingTest extends TestCase
         $calls = [];
         [$output, $usage, $selected] = $this->router->executeWithProfile(
             AiExecutionProfile::TextLongform->value,
-            new AiRoutingContext(userId: 201, hookKey: 'article.content.generate'),
+            new AiRoutingContext(
+                userId: 201,
+                hookKey: 'article.content.generate',
+                itemGenerationMode: 'paid_preferred',
+            ),
             function ($candidate) use (&$calls): array {
                 $calls[] = $candidate->model;
 
@@ -183,7 +187,7 @@ final class ManualSortableOrderRoutingTest extends TestCase
         $this->assertSame('paid', $ordered[0]['cost_class'] ?? null);
     }
 
-    /** TEST B — DeepSeek #1 fails → Free Pool next */
+    /** TEST B — FREE-FIRST: free fails → secondary paid DeepSeek */
     public function test_b_deepseek_fail_then_free_pool(): void
     {
         (new AiResilienceSettingsService())->save(202, ['max_ai_attempts' => 6, 'max_free_attempts' => 3]);
@@ -194,16 +198,16 @@ final class ManualSortableOrderRoutingTest extends TestCase
             new AiRoutingContext(userId: 202, hookKey: 'article.content.generate'),
             function ($candidate) use (&$calls): array {
                 $calls[] = $candidate->model;
-                if ($candidate->model === 'deepseek-chat') {
+                if ($candidate->isFree) {
                     throw new PromptRunException('503 upstream', 503);
                 }
 
-                return ['free-ok', null];
+                return ['paid-ok', null];
             },
         );
-        $this->assertSame(['deepseek-chat', 'meta/llama:free'], $calls);
-        $this->assertSame('meta/llama:free', $selected->model);
-        $this->assertSame('free-ok', $output);
+        $this->assertSame(['meta/llama:free', 'deepseek-chat'], $calls);
+        $this->assertSame('deepseek-chat', $selected->model);
+        $this->assertSame('paid-ok', $output);
     }
 
     /** TEST C — DeepSeek #1 model_cooldown → first usable FREE ⇒ FREE-FIRST (DeepSeek primary paid excluded) */
@@ -282,7 +286,7 @@ final class ManualSortableOrderRoutingTest extends TestCase
         $this->assertSame('ok', $output);
     }
 
-    /** TEST F — paid before free; MAX_FREE does not float free ahead of paid */
+    /** TEST F — PaidPreferred: free models never enter candidate list */
     public function test_f_max_free_does_not_reorder_paid_before_free(): void
     {
         (new AiResilienceSettingsService())->save(206, ['max_ai_attempts' => 6, 'max_free_attempts' => 3]);
@@ -290,27 +294,13 @@ final class ManualSortableOrderRoutingTest extends TestCase
         $candidates = $this->targets->eligibleCandidates(
             206,
             AiExecutionProfile::TextLongform,
-            new AiRoutingContext(userId: 206),
+            new AiRoutingContext(userId: 206, itemGenerationMode: 'paid_preferred'),
         );
-        [$plan, $ordered] = (new AiCandidatePlanner())->plan(
-            AiExecutionProfile::TextLongform->value,
-            new AiRoutingContext(userId: 206, hookKey: 'article.content.generate'),
-            $candidates,
-            6,
-            3,
-            static fn (): ?string => null,
-        );
-        $this->assertFalse($ordered[0]->isFree);
-        $this->assertTrue($ordered[1]->isFree);
-        $this->assertSame('paid', $plan->executionOrder[0]->costClass);
-        $this->assertSame('free', $plan->executionOrder[1]->costClass);
-        $this->assertSame('deepseek-chat', $plan->executionOrder[0]->providerModel);
-        $this->assertSame('meta/llama:free', $plan->executionOrder[1]->providerModel);
-        // Diagnostic free_phase must not become the start of execution_order.
-        $this->assertNotSame(
-            $plan->freePhase[0]->providerModel ?? null,
-            $plan->executionOrder[0]->providerModel,
-        );
+        $this->assertNotEmpty($candidates);
+        foreach ($candidates as $candidate) {
+            $this->assertFalse($candidate->isFree);
+        }
+        $this->assertSame('deepseek-chat', $candidates[0]->model);
     }
 
     /** Health visibility — paid cooldown makes FREE first-usable ⇒ FREE-FIRST stream (no primary paid skip row) */
@@ -379,7 +369,12 @@ final class ManualSortableOrderRoutingTest extends TestCase
         app(AiModelPriorityService::class)->appendToArea(
             $userId,
             AiModelArea::TextLongform,
-            [(int) $deepseek->id, (int) $free->id],
+            [(int) $deepseek->id],
+        );
+        app(AiModelPriorityService::class)->appendToArea(
+            $userId,
+            AiModelArea::FreeModels,
+            [(int) $free->id],
         );
         app(AiModelPriorityService::class)->appendToArea(
             $userId,
@@ -400,8 +395,13 @@ final class ManualSortableOrderRoutingTest extends TestCase
         $this->grantText($dsConn, $deepseek);
         app(AiModelPriorityService::class)->appendToArea(
             $userId,
+            AiModelArea::FreeModels,
+            [(int) $free->id],
+        );
+        app(AiModelPriorityService::class)->appendToArea(
+            $userId,
             AiModelArea::TextLongform,
-            [(int) $free->id, (int) $deepseek->id],
+            [(int) $deepseek->id],
         );
         app(AiModelPriorityService::class)->appendToArea(
             $userId,

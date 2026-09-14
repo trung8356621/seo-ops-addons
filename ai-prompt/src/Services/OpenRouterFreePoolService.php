@@ -9,6 +9,7 @@ use Omnichannel\Addons\AiPrompt\Models\SeoAiModel;
 use Omnichannel\Addons\AiPrompt\Support\AiModelArea;
 use Omnichannel\Addons\AiPrompt\Support\AiModelCapability;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
+use Omnichannel\Addons\AiPrompt\Support\FreePoolHealthState;
 use Omnichannel\Addons\AiPrompt\Support\OpenRouterFreeLanguageState;
 
 /**
@@ -88,7 +89,7 @@ final class OpenRouterFreePoolService
      */
     public function runtimeMembers(int $userId, AiModelArea $area): array
     {
-        if (! $area->isTextPrimary()) {
+        if (! $area->isTextPrimary() && ! $area->isFreeModels()) {
             return [];
         }
         $gateOn = $this->isLanguageGateEnabled($userId);
@@ -220,7 +221,7 @@ final class OpenRouterFreePoolService
      */
     public function catalogCandidates(int $userId, AiModelArea $area): array
     {
-        if (! $area->isTextPrimary()) {
+        if (! $area->isTextPrimary() && ! $area->isFreeModels()) {
             return [];
         }
         $rows = [];
@@ -278,7 +279,7 @@ final class OpenRouterFreePoolService
      */
     public function presentPoolRow(int $userId, AiModelArea $area, ?SeoAiModel $routerAnchor = null): ?array
     {
-        if (! $area->isTextPrimary()) {
+        if (! $area->isTextPrimary() && ! $area->isFreeModels()) {
             return null;
         }
         $candidates = $this->catalogCandidates($userId, $area);
@@ -323,6 +324,11 @@ final class OpenRouterFreePoolService
         }
         $memberIds = array_values(array_unique($memberIds));
         $label = 'OpenRouter Free Pool';
+        $health = new OpenRouterFreePoolHealthService();
+        $snap = $health->snapshot($connection);
+        $poolState = FreePoolHealthState::tryFrom((string) ($snap['free_pool_state'] ?? ''))
+            ?? FreePoolHealthState::Healthy;
+
         if (! $gateOn) {
             $poolStatus = $available > 0 ? self::POOL_STATUS_ACTIVE : self::POOL_STATUS_UNAVAILABLE;
             $subtitle = $this->language->isEnglishPrimary() || $pending === 0
@@ -339,6 +345,19 @@ final class OpenRouterFreePoolService
         } else {
             $poolStatus = self::POOL_STATUS_UNAVAILABLE;
             $subtitle = 'Auto managed · 0 models';
+        }
+
+        if ($poolState->blocksNormalFreeRouting()) {
+            $poolStatus = match ($poolState) {
+                FreePoolHealthState::HardLocked => 'hard_locked',
+                FreePoolHealthState::DailyQuotaLocked => 'daily_quota_locked',
+                FreePoolHealthState::Resyncing => 'resyncing',
+                FreePoolHealthState::WaitingProbe => 'waiting_probe',
+                default => self::POOL_STATUS_UNAVAILABLE,
+            };
+            $subtitle = strtoupper($poolState->value).($snap['free_pool_lock_reason'] ? ' · '.(string) $snap['free_pool_lock_reason'] : '');
+        } elseif ($poolState === FreePoolHealthState::Degraded) {
+            $poolStatus = 'degraded';
         }
 
         return [
@@ -364,6 +383,14 @@ final class OpenRouterFreePoolService
             'pending_language_count' => $pending,
             'unsupported_language_count' => $unsupported,
             'language_gate_enabled' => $gateOn,
+            'free_pool_state' => $poolState->value,
+            'free_pool_lock_reason' => $snap['free_pool_lock_reason'] ?? null,
+            'free_pool_lock_until' => $snap['free_pool_lock_until'] ?? null,
+            'free_pool_next_probe_at' => $snap['next_probe_at'] ?? null,
+            'free_pool_failure_ratio' => $snap['failure_ratio'] ?? null,
+            'free_pool_failed_distinct' => $snap['failed_distinct_models'] ?? null,
+            'free_pool_eligible_count' => $snap['eligible_model_count'] ?? null,
+            'last_catalog_sync_at' => $snap['last_catalog_sync_at'] ?? null,
             'canonical_model_key' => 'openrouter:free_pool:'.$area->value,
             'family_key' => 'openrouter.free',
             'status' => $poolStatus,

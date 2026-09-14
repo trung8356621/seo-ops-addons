@@ -154,6 +154,7 @@ final class AiCenterTextTaxonomyFreeRoutingTest extends TestCase
     public function test_ui_areas_are_five_types(): void
     {
         $this->assertSame([
+            AiModelArea::FreeModels,
             AiModelArea::TextFast,
             AiModelArea::TextLongform,
             AiModelArea::TextReasoning,
@@ -211,13 +212,13 @@ final class AiCenterTextTaxonomyFreeRoutingTest extends TestCase
                 'architecture' => ['modality' => 'text->text'],
             ],
         ]);
-        $this->priorities->appendToArea(22, AiModelArea::TextReasoning, [(int) $model->id]);
+        $this->priorities->appendToArea(22, AiModelArea::FreeModels, [(int) $model->id]);
         $model->refresh();
-        $this->assertSame(AiModelArea::SOURCE_MANUAL, $model->capabilities[AiModelArea::PRIMARY_TYPE_SOURCE_KEY] ?? null);
+        $this->assertTrue($this->priorities->isExplicitlyAreaEnabled($model, AiModelArea::FreeModels));
         (new AiModelPrimaryTypeClassifier())->classifyConnection($connection);
         $model->refresh();
-        $this->assertTrue($this->priorities->isAreaEnabled($model, AiModelArea::TextReasoning, $connection));
-        $this->assertSame(AiModelArea::SOURCE_MANUAL, $model->capabilities[AiModelArea::PRIMARY_TYPE_SOURCE_KEY] ?? null);
+        $this->assertTrue($this->priorities->isAreaEnabled($model, AiModelArea::FreeModels, $connection));
+        $this->assertTrue($this->priorities->isExplicitlyAreaEnabled($model, AiModelArea::FreeModels));
     }
 
     public function test_free_embedding_is_not_enabled_in_text_tabs(): void
@@ -252,7 +253,8 @@ final class AiCenterTextTaxonomyFreeRoutingTest extends TestCase
                 'architecture' => ['modality' => 'text->text'],
             ],
         ]);
-        $this->priorities->appendToArea(27, AiModelArea::TextLongform, [(int) $free->id, (int) $paid->id]);
+        $this->priorities->appendToArea(27, AiModelArea::FreeModels, [(int) $free->id]);
+        $this->priorities->appendToArea(27, AiModelArea::TextLongform, [(int) $paid->id]);
         $resolved = $this->targets->eligibleCandidates(
             27,
             AiExecutionProfile::TextLongform,
@@ -284,7 +286,8 @@ final class AiCenterTextTaxonomyFreeRoutingTest extends TestCase
                 'architecture' => ['modality' => 'text->text'],
             ],
         ]);
-        $this->priorities->appendToArea(24, AiModelArea::TextLongform, [(int) $freeA->id, (int) $freeB->id, (int) $paid->id]);
+        $this->priorities->appendToArea(24, AiModelArea::FreeModels, [(int) $freeA->id, (int) $freeB->id]);
+        $this->priorities->appendToArea(24, AiModelArea::TextLongform, [(int) $paid->id]);
         $context = new AiRoutingContext(userId: 24, costPolicy: AiCostPolicy::FreeOnly);
         $resolved = $this->targets->eligibleCandidates(24, AiExecutionProfile::TextLongform, $context);
         $models = array_map(static fn ($c): string => $c->model, $resolved);
@@ -385,28 +388,37 @@ final class AiCenterTextTaxonomyFreeRoutingTest extends TestCase
                 'architecture' => ['modality' => 'text->text'],
             ],
         ]);
-        $this->priorities->appendToArea(29, AiModelArea::TextFast, [(int) $fast->id]);
-        $this->priorities->appendToArea(29, AiModelArea::TextLongform, [(int) $long->id]);
-        $this->priorities->appendToArea(29, AiModelArea::TextReasoning, [(int) $reason->id]);
+        $this->priorities->appendToArea(29, AiModelArea::FreeModels, [
+            (int) $fast->id,
+            (int) $long->id,
+            (int) $reason->id,
+        ]);
         $freeOnly = new AiRoutingContext(userId: 29, costPolicy: AiCostPolicy::FreeOnly);
-        $this->assertSame(
-            ['nvidia/nemotron-3-nano-30b-a3b:free'],
-            array_map(static fn ($c): string => $c->model, $this->targets->eligibleCandidates(29, AiExecutionProfile::TextFast, $freeOnly)),
+        $fastModels = array_map(
+            static fn ($c): string => $c->model,
+            $this->targets->eligibleCandidates(29, AiExecutionProfile::TextFast, $freeOnly),
         );
-        $this->assertSame(
-            ['google/gemma-3-27b-it:free'],
-            array_map(static fn ($c): string => $c->model, $this->targets->eligibleCandidates(29, AiExecutionProfile::TextLongform, $freeOnly)),
+        $this->assertContains('nvidia/nemotron-3-nano-30b-a3b:free', $fastModels);
+        $this->assertNotContains('anthropic/claude-sonnet-4.6', $fastModels);
+        $longModels = array_map(
+            static fn ($c): string => $c->model,
+            $this->targets->eligibleCandidates(29, AiExecutionProfile::TextLongform, $freeOnly),
         );
-        // Inventory still lists DeepSeek on reasoning area…
-        $this->assertSame(
-            ['deepseek/deepseek-r1:free'],
-            array_map(static fn ($c): string => $c->model, $this->targets->liveCompatibleCandidates(29, AiExecutionProfile::TextReasoning)),
+        $this->assertContains('google/gemma-3-27b-it:free', $longModels);
+        // Inventory still lists DeepSeek on Free Models…
+        $this->assertContains(
+            'deepseek/deepseek-r1:free',
+            array_map(
+                static fn (SeoAiModel $m): string => (string) $m->raw_model_name,
+                $this->priorities->areaEnabledModels(29, AiModelArea::FreeModels),
+            ),
         );
-        // …but production eligibility excludes DeepSeek from TextReasoning (Outline/Vocabulary).
-        $this->assertSame(
-            [],
-            array_map(static fn ($c): string => $c->model, $this->targets->eligibleCandidates(29, AiExecutionProfile::TextReasoning, $freeOnly)),
+        // …but production eligibility excludes DeepSeek R1 from TextReasoning (Outline/Vocabulary).
+        $reasoning = array_map(
+            static fn ($c): string => $c->model,
+            $this->targets->eligibleCandidates(29, AiExecutionProfile::TextReasoning, $freeOnly),
         );
+        $this->assertNotContains('deepseek/deepseek-r1:free', $reasoning);
     }
 
     public function test_sync_upserts_free_router_and_unhides_priced_free_chat(): void

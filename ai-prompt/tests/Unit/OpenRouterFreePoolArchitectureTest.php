@@ -96,28 +96,35 @@ final class OpenRouterFreePoolArchitectureTest extends TestCase
         $b = $this->model($or, 'qwen/qwen-x:free', 'Qwen Free', true);
         $c = $this->model($or, 'meta-llama/llama-x:free', 'Llama Free', true);
         $paid = $this->model($or, 'openai/gpt-5.4-nano', 'GPT-5.4 Nano', false);
-        foreach ([$router, $a, $b, $c, $paid] as $m) {
-            $this->priorities->appendToArea(90, AiModelArea::TextFast, [(int) $m->id]);
+        foreach ([$router, $a, $b, $c] as $m) {
+            $this->priorities->appendToArea(90, AiModelArea::FreeModels, [(int) $m->id]);
         }
+        $this->priorities->appendToArea(90, AiModelArea::TextFast, [(int) $paid->id]);
 
         // English primary → supported
         $this->setPrimaryLanguage('en');
 
-        $rows = (new AiCenterModelPresenter())->areaRows(90, AiModelArea::TextFast);
-        $pools = array_values(array_filter($rows, static fn (array $r): bool => ! empty($r['is_free_pool'])));
+        $freeRows = (new AiCenterModelPresenter())->areaRows(90, AiModelArea::FreeModels);
+        $pools = array_values(array_filter($freeRows, static fn (array $r): bool => ! empty($r['is_free_pool'])));
         $this->assertCount(1, $pools);
         $this->assertGreaterThanOrEqual(3, (int) ($pools[0]['member_count'] ?? 0));
-        foreach ($rows as $row) {
+        foreach ($freeRows as $row) {
             $name = (string) ($row['model_name'] ?? $row['label'] ?? '');
             $this->assertStringNotContainsString('Gemma Free', $name);
             $this->assertStringNotContainsString('Qwen Free', $name);
             $this->assertStringNotContainsString('Llama Free', $name);
         }
-        $paidRows = array_values(array_filter(
-            $rows,
+
+        $paidRows = (new AiCenterModelPresenter())->areaRows(90, AiModelArea::TextFast);
+        foreach ($paidRows as $row) {
+            $this->assertTrue(empty($row['is_free_pool']));
+            $this->assertTrue(empty($row['is_free']));
+        }
+        $nano = array_values(array_filter(
+            $paidRows,
             static fn (array $r): bool => str_contains((string) ($r['model_name'] ?? ''), 'GPT-5.4 Nano'),
         ));
-        $this->assertNotEmpty($paidRows);
+        $this->assertNotEmpty($nano);
     }
 
     public function test_c_no_image_video_free_pool(): void

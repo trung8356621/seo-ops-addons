@@ -558,10 +558,14 @@ final class ContentProjectItemStateContractTest extends TestCase
             ],
             ApproveProjectItemsHandler::class => ['actionGuard->assertCan', 'ContentProjectItemAction::Approve'],
             ContentProjectRerunEligibilityGuard::class => ['actionGuard->assertCan', 'ContentProjectItemAction::Rerun'],
-            GenerateProjectItemsHandler::class => ['actionGuard->assertCan', 'ContentProjectItemAction::Generate'],
+            // Bulk generate uses JIT eligibility at claim time — not launch-time actionGuard.
             StartReviewHandler::class => ['actionGuard->assertCan', 'ContentProjectItemAction::StartReview'],
             ArchiveProjectItemsHandler::class => ['actionGuard->assertCan', 'ContentProjectItemAction::Archive'],
         ];
+
+        $generateSrc = (string) file_get_contents((string) (new ReflectionClass(GenerateProjectItemsHandler::class))->getFileName());
+        self::assertStringContainsString('lazy_bulk', $generateSrc);
+        self::assertStringNotContainsString('actionGuard->assertCan', $generateSrc);
 
         foreach ($files as $class => $needles) {
             $src = (string) file_get_contents((string) (new ReflectionClass($class))->getFileName());

@@ -125,6 +125,7 @@ final class SeoProjectWorkflowRunService
 
         $settings = is_array($run->settings) ? $run->settings : [];
         $isRerun = (bool) ($settings['rerun'] ?? false);
+        $lazyBulk = (bool) ($settings['lazy_bulk'] ?? false);
         $explicitIds = [];
         if (isset($settings['task_ids']) && is_array($settings['task_ids'])) {
             $explicitIds = array_values(array_filter(array_map(
@@ -133,7 +134,31 @@ final class SeoProjectWorkflowRunService
             ), static fn (int $id): bool => $id > 0));
         }
 
-        if ($isRerun) {
+        if ($lazyBulk) {
+            // Membership snapshot only — do not authorize via classifier; JIT decides later.
+            if ($explicitIds === []) {
+                throw new \InvalidArgumentException(__('seo-content-ai::filament.projects.run_items_empty'));
+            }
+            if ($limit !== null && $limit > 0) {
+                $explicitIds = array_slice($explicitIds, 0, $limit);
+            }
+            $tasks = $project->tasks()
+                ->planned()
+                ->whereIn('id', $explicitIds)
+                ->orderBy('target_date')
+                ->orderBy('id')
+                ->get();
+            // Preserve launch order when ids were pre-ordered.
+            $byId = $tasks->keyBy(static fn (SeoProjectTask $t): int => (int) $t->getKey());
+            $ordered = [];
+            foreach ($explicitIds as $id) {
+                $task = $byId->get((int) $id);
+                if ($task instanceof SeoProjectTask) {
+                    $ordered[] = $task;
+                }
+            }
+            $tasks = collect($ordered);
+        } elseif ($isRerun) {
             if ($explicitIds === []) {
                 throw new \InvalidArgumentException(
                     'Rerun requires explicit item selection — entire-project rerun blocked.',
@@ -175,12 +200,7 @@ final class SeoProjectWorkflowRunService
                 throw new \InvalidArgumentException(__('seo-content-ai::filament.projects.run_items_empty'));
             }
 
-            if ($preview->failClosed && ! (bool) ($settings['technical_confirm_full_rerun'] ?? false)) {
-                throw new \InvalidArgumentException(
-                    __('seo-content-ai::filament.projects.generate_pending_fail_closed'),
-                );
-            }
-
+            // technical_confirm_full_rerun deprecated — whole-project visit allowed; JIT skips unsafe items.
             $runnableIds = $preview->runnableTaskIds();
 
             if ($runnableIds === []) {
@@ -208,7 +228,12 @@ final class SeoProjectWorkflowRunService
                 continue;
             }
 
-            $this->runItemService->prepareOperation($run, $project, $task);
+            if ($lazyBulk) {
+                // Run-item pending = not yet visited by bulk. Do NOT mutate task lifecycle.
+                $this->runItemService->seedBulkMembership($run, $project, $task);
+            } else {
+                $this->runItemService->prepareOperation($run, $project, $task);
+            }
         }
 
         $run = $this->runItemService->syncMirrorAndCounters($run, false);
@@ -755,6 +780,25 @@ final class SeoProjectWorkflowRunService
             $ranAt = now();
 
             if ($result['success']) {
+                $humanConflict = $this->rewriteHumanEditConflictMessage($run, $task);
+                if ($humanConflict !== null) {
+                    $this->runItemService->markSkipped(
+                        $runItem,
+                        $humanConflict,
+                        (int) ($task->article_id ?? 0) ?: null,
+                    );
+                    // Do not mark task failed/completed — preserve human lifecycle.
+                    return [
+                        'task_id' => (int) $task->id,
+                        'retry_task_id' => (int) $task->id,
+                        'status' => 'skipped',
+                        'message' => $humanConflict,
+                        'error_code' => 'rewrite_human_edit_conflict',
+                        'article_id' => (int) ($task->article_id ?? 0) ?: null,
+                        'steps' => $steps,
+                    ];
+                }
+
                 $articleId = (int) ($result['article_id'] ?? 0);
 
                 if ($articleId > 0) {
@@ -1590,6 +1634,51 @@ final class SeoProjectWorkflowRunService
         }
 
         return $context->withVariables($variables);
+    }
+
+    /**
+     * Rewrite write-safety: if human saved while AI ran, abort success path.
+     */
+    private function rewriteHumanEditConflictMessage(SeoProjectRun $run, SeoProjectTask $task): ?string
+    {
+        if (SeoProjectTask::normalizeType((string) ($task->type ?? '')) !== SeoProjectTask::TYPE_REWRITE) {
+            return null;
+        }
+
+        $settings = is_array($run->settings) ? $run->settings : [];
+        $engine = is_array($settings[\Omnichannel\Addons\ContentProjects\Services\RunEngine\ContentProjectRunEngine::SETTINGS_ENGINE_KEY] ?? null)
+            ? $settings[\Omnichannel\Addons\ContentProjects\Services\RunEngine\ContentProjectRunEngine::SETTINGS_ENGINE_KEY]
+            : [];
+        $active = is_array($engine['active_dispatch'] ?? null) ? $engine['active_dispatch'] : [];
+        $snapshot = trim((string) ($active['article_updated_at_snapshot'] ?? ''));
+        if ($snapshot === '') {
+            return null;
+        }
+
+        $articleId = (int) ($task->article_id ?? 0);
+        if ($articleId <= 0) {
+            return null;
+        }
+
+        $article = SeoArticle::query()->find($articleId);
+        if (! $article instanceof SeoArticle || $article->updated_at === null) {
+            return null;
+        }
+
+        $current = $article->updated_at->toIso8601String();
+        if ($current === $snapshot) {
+            return null;
+        }
+
+        RuntimeLogger::warning('content_project.rewrite_human_edit_conflict', [
+            'run_id' => (int) $run->id,
+            'task_id' => (int) $task->id,
+            'article_id' => $articleId,
+            'snapshot' => $snapshot,
+            'current' => $current,
+        ]);
+
+        return 'Skipped: rewrite aborted — article changed by human while AI was running.';
     }
 
     private function storeArticleRunMeta(int $articleId, SeoProjectRun $run, SeoProjectTask $task): void

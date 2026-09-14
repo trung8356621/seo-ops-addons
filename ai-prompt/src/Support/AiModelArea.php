@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\AiPrompt\Support;
 
 enum AiModelArea: string
 {
+    case FreeModels = 'free_models';
     case TextFast = 'fast_text';
     case TextLongform = 'long_form_text';
     case TextReasoning = 'reasoning_text';
@@ -28,6 +29,7 @@ enum AiModelArea: string
     public static function uiCases(): array
     {
         return [
+            self::FreeModels,
             self::TextFast,
             self::TextLongform,
             self::TextReasoning,
@@ -44,9 +46,29 @@ enum AiModelArea: string
         return [self::TextFast, self::TextLongform, self::TextReasoning];
     }
 
+    /**
+     * Paid-only text tabs (no free models).
+     *
+     * @return list<self>
+     */
+    public static function paidTextCases(): array
+    {
+        return self::textPrimaryCases();
+    }
+
+    public function isFreeModels(): bool
+    {
+        return $this === self::FreeModels;
+    }
+
     public function isTextPrimary(): bool
     {
         return in_array($this, self::textPrimaryCases(), true);
+    }
+
+    public function isPaidText(): bool
+    {
+        return in_array($this, self::paidTextCases(), true);
     }
 
     public function routingGroup(): string
@@ -54,6 +76,7 @@ enum AiModelArea: string
         return match ($this) {
             self::Image => 'image',
             self::Video => 'video',
+            self::FreeModels => 'free',
             default => 'text',
         };
     }
@@ -61,7 +84,7 @@ enum AiModelArea: string
     public function requiredCapabilityKeys(): array
     {
         return match ($this) {
-            self::TextFast, self::TextLongform, self::Text => [
+            self::FreeModels, self::TextFast, self::TextLongform, self::Text => [
                 AiModelCapability::TextGenerate->value,
                 AiModelCapability::TextReasoning->value,
             ],
@@ -93,6 +116,7 @@ enum AiModelArea: string
         }
 
         return match ($raw) {
+            'free', 'free_models', 'free-models', 'free_text' => self::FreeModels,
             'text.fast', 'fast', 'fast_text' => self::TextFast,
             'text.longform', 'longform', 'long_form', 'long_form_text' => self::TextLongform,
             'text.reasoning', 'reasoning', 'reasoning_text' => self::TextReasoning,

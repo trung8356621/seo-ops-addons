@@ -346,6 +346,45 @@
                                     <input type="number" min="0" max="20" wire:model="maxFreeAttempts" class="mt-1 block w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-800" />
                                 </label>
                             </div>
+
+                            <section class="seo-ai-section-head mt-6">
+                                <div>
+                                    <h3 class="seo-ai-section-title">{{ __('seo-content-ai::filament.ai_center.free_pool_resilience_title') }}</h3>
+                                    <p class="seo-ai-section-help">{{ __('seo-content-ai::filament.ai_center.free_pool_resilience_help') }}</p>
+                                </div>
+                            </section>
+                            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                                @foreach ([
+                                    'free_pool_failure_window_minutes',
+                                    'free_pool_hard_lock_ratio_percent',
+                                    'free_pool_min_distinct_failure_models',
+                                    'free_model_first_cooldown_minutes',
+                                    'free_model_repeat_cooldown_minutes',
+                                    'free_model_quarantine_failure_threshold',
+                                    'free_model_quarantine_hours',
+                                    'free_model_max_quarantine_hours',
+                                    'free_pool_catalog_freshness_hours',
+                                    'free_pool_forced_sync_min_interval_minutes',
+                                    'free_pool_first_probe_minutes',
+                                    'free_pool_probe_backoff_multiplier',
+                                    'free_pool_max_probe_hours',
+                                    'free_pool_success_probes_to_unlock',
+                                ] as $fpKey)
+                                    <label class="block">
+                                        <span class="text-sm font-medium">{{ __('seo-content-ai::filament.ai_center.fp_'.$fpKey) }}</span>
+                                        <input
+                                            type="number"
+                                            step="any"
+                                            wire:model="freePoolResilience.{{ $fpKey }}"
+                                            class="mt-1 block w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-800"
+                                        />
+                                    </label>
+                                @endforeach
+                                <label class="flex items-center gap-2 mt-6">
+                                    <input type="checkbox" wire:model="freePoolResilience.free_pool_hard_lock_when_all_attempted_fail" />
+                                    <span class="text-sm">{{ __('seo-content-ai::filament.ai_center.fp_free_pool_hard_lock_when_all_attempted_fail') }}</span>
+                                </label>
+                            </div>
                             <x-seo-content-ai::form-save-button target="saveResilienceSettings" :label="__('Save settings')" />
                         </form>
                     </div>
@@ -388,6 +427,32 @@
                         </section>
 
                         @php($healthSummary = $this->healthSummary())
+                        @php($freePoolAlerts = $this->freePoolOperationalAlerts())
+                        @if ($freePoolAlerts !== [])
+                            <section class="seo-ai-health-section mb-4">
+                                <h3 class="seo-ai-section-title">{{ __('seo-content-ai::filament.ai_center.free_pool_alerts_title') }}</h3>
+                                <ul class="space-y-2">
+                                    @foreach ($freePoolAlerts as $alert)
+                                        <li class="rounded-lg border border-amber-300/60 bg-amber-50/80 p-3 text-sm dark:border-amber-700/50 dark:bg-amber-950/30">
+                                            <div class="font-medium">{{ $alert['message'] ?? '' }}</div>
+                                            <div class="seo-ai-muted mt-1">
+                                                {{ strtoupper((string) ($alert['state'] ?? '')) }}
+                                                @if (! empty($alert['failure_ratio']))
+                                                    · {{ $alert['failed_distinct_models'] ?? 0 }}/{{ $alert['eligible_model_count'] ?? 0 }}
+                                                    ({{ $alert['failure_ratio'] }}%)
+                                                @endif
+                                                @if (! empty($alert['next_probe_at']))
+                                                    · probe {{ $alert['next_probe_at'] }}
+                                                @endif
+                                                @if (! empty($alert['last_catalog_sync_at']))
+                                                    · sync {{ $alert['last_catalog_sync_at'] }}
+                                                @endif
+                                            </div>
+                                        </li>
+                                    @endforeach
+                                </ul>
+                            </section>
+                        @endif
                         <div class="seo-ai-health-stats" aria-label="{{ __('seo-content-ai::filament.ai_center.health_summary') }}">
                             <div class="seo-ai-health-stat">
                                 <span class="seo-ai-health-stat__label">{{ __('seo-content-ai::filament.ai_center.health_stat_healthy') }}</span>
@@ -874,11 +939,11 @@
             return {
                 activeMainTab: ['routing', 'resilience', 'health', 'usage'].includes(initial.tab) ? initial.tab : 'models',
                 activeCapability: (function () {
-                    const modelAreas = ['fast_text', 'long_form_text', 'reasoning_text', 'image', 'video'];
+                    const modelAreas = ['free_models', 'fast_text', 'long_form_text', 'reasoning_text', 'image', 'video'];
                     const routingGroups = ['text', 'image', 'video'];
                     if (initial.tab === 'routing') {
                         if (routingGroups.includes(initial.area)) return initial.area;
-                        if (['fast_text', 'long_form_text', 'reasoning_text', 'text'].includes(initial.area)) return 'text';
+                        if (['fast_text', 'long_form_text', 'reasoning_text', 'text', 'free_models'].includes(initial.area)) return 'text';
                         return 'text';
                     }
                     if (modelAreas.includes(initial.area)) return initial.area;

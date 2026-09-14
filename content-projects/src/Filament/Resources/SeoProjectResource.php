@@ -1560,59 +1560,13 @@ class SeoProjectResource extends SeoPanelResource
             ->modalHeading(__('seo-content-ai::filament.projects.generate_pending_preview_heading'))
             ->modalDescription(fn () => static::generatePendingPreviewHtml($project))
             ->modalSubmitActionLabel(__('seo-content-ai::filament.projects.generate_working_items'))
-            ->form([
-                Forms\Components\Checkbox::make('technical_confirm_full_rerun')
-                    ->label(__('seo-content-ai::filament.projects.generate_pending_technical_confirm'))
-                    ->helperText(__('seo-content-ai::filament.projects.generate_pending_technical_confirm_help'))
-                    ->visible(function () use ($project): bool {
-                        $preview = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectItemGenerationClassifier::class)
-                            ->preview($project);
-
-                        return $preview->failClosed;
-                    })
-                    ->default(false),
-            ])
-            ->action(function (array $data) use ($project, $launchSettings): void {
+            ->action(function () use ($project, $launchSettings): void {
                 try {
                     if (! static::canGeneratePendingItems($project)) {
                         Notification::make()
                             ->title(__('seo-content-ai::filament.projects.run_failed'))
                             ->body((string) (static::generatePendingDisabledReason($project)
                                 ?? __('seo-content-ai::filament.projects.generate_pending_disabled_no_eligible')))
-                            ->danger()
-                            ->send();
-
-                        return;
-                    }
-
-                    $preview = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectItemGenerationClassifier::class)
-                        ->preview($project);
-
-                    if ($preview->failClosed && ! (bool) ($data['technical_confirm_full_rerun'] ?? false)) {
-                        Notification::make()
-                            ->title(__('seo-content-ai::filament.projects.run_failed'))
-                            ->body(__('seo-content-ai::filament.projects.generate_pending_fail_closed'))
-                            ->danger()
-                            ->send();
-
-                        return;
-                    }
-
-                    if (! $preview->canDispatch() && ! $preview->failClosed) {
-                        Notification::make()
-                            ->title(__('seo-content-ai::filament.projects.run_failed'))
-                            ->body(__('seo-content-ai::filament.projects.run_items_empty'))
-                            ->danger()
-                            ->send();
-
-                        return;
-                    }
-
-                    $taskIds = app(ContentProjectProjectGenerationGate::class)->eligibleTaskIds($project);
-                    if ($taskIds === []) {
-                        Notification::make()
-                            ->title(__('seo-content-ai::filament.projects.run_failed'))
-                            ->body(__('seo-content-ai::filament.projects.generate_pending_disabled_no_eligible'))
                             ->danger()
                             ->send();
 
@@ -1630,13 +1584,41 @@ class SeoProjectResource extends SeoPanelResource
                         return;
                     }
 
+                    // Visit list = planned tasks in order (JIT skips ineligible). Soft-exclude improve.
+                    $taskIds = $project->tasks()
+                        ->planned()
+                        ->orderBy('target_date')
+                        ->orderBy('id')
+                        ->pluck('id')
+                        ->map(static fn (mixed $id): int => (int) $id)
+                        ->all();
+                    $typesById = \Omnichannel\Addons\ContentProjects\Models\SeoProjectTask::query()
+                        ->whereIn('id', $taskIds)
+                        ->pluck('type', 'id')
+                        ->all();
+                    $taskIds = \Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectImproveManualOnlyGenerationGuard::filterItemIds(
+                        $taskIds,
+                        $typesById,
+                        false,
+                    )['eligible_ids'];
+
+                    if ($taskIds === []) {
+                        Notification::make()
+                            ->title(__('seo-content-ai::filament.projects.run_failed'))
+                            ->body(__('seo-content-ai::filament.projects.generate_pending_disabled_no_eligible'))
+                            ->danger()
+                            ->send();
+
+                        return;
+                    }
+
                     $extra = is_callable($launchSettings) ? (array) $launchSettings() : [];
 
                     $runSettings = [
                         'generate_post_images' => (bool) ($extra['generate_post_images'] ?? false),
                         'use_php_engine' => true,
                         'task_ids' => $taskIds,
-                        'technical_confirm_full_rerun' => (bool) ($data['technical_confirm_full_rerun'] ?? false),
+                        'lazy_bulk' => true,
                     ];
 
                     $costKey = \Omnichannel\Addons\AiPrompt\Support\AiCostPolicy::SETTING_KEY;
@@ -1909,7 +1891,7 @@ class SeoProjectResource extends SeoPanelResource
                 (int) $project->getKey(),
                 $itemRefs,
                 $mode,
-                (bool) (($settings['technical_confirm_full_rerun'] ?? false)),
+                false, // technicalConfirmFullRerun deprecated — ignored by handler
                 $runSettings,
             ),
             ActorContext::user(

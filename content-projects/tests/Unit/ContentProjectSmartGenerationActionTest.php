@@ -297,7 +297,8 @@ final class ContentProjectSmartGenerationActionTest extends TestCase
         self::assertStringNotContainsString('prepareRunQueue', $planner);
 
         $generate = (string) file_get_contents((new ReflectionClass(GenerateProjectItemsHandler::class))->getFileName());
-        self::assertStringContainsString('generationRecovery->reconcileProject', $generate);
+        self::assertStringNotContainsString('generationRecovery->reconcileProject', $generate);
+        self::assertStringContainsString('lazy_bulk', $generate);
 
         $rerun = (string) file_get_contents((new ReflectionClass(RerunProjectItemsHandler::class))->getFileName());
         self::assertStringContainsString('recoverTaskIfStale', $rerun);
@@ -333,14 +334,12 @@ final class ContentProjectSmartGenerationActionTest extends TestCase
         self::assertStringContainsString('item_action_generation_active', $page);
     }
 
-    public function test_bulk_generate_still_reconciles_before_classifier(): void
+    public function test_bulk_generate_does_not_reconcile_project_on_launch_hot_path(): void
     {
         $generate = (string) file_get_contents((new ReflectionClass(GenerateProjectItemsHandler::class))->getFileName());
-        $reconcilePos = strpos($generate, 'generationRecovery->reconcileProject');
-        $previewPos = strpos($generate, 'classifier->preview');
-        self::assertNotFalse($reconcilePos);
-        self::assertNotFalse($previewPos);
-        self::assertLessThan($previewPos, $reconcilePos);
+        self::assertStringNotContainsString('generationRecovery->reconcileProject', $generate);
+        self::assertStringNotContainsString('classifier->preview', $generate);
+        self::assertStringContainsString('lazy_bulk', $generate);
     }
 
     public function test_recovery_does_not_force_release_foreign_lock(): void

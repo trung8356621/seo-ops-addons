@@ -219,8 +219,28 @@ final class AiPrimaryFailureSelector
             $code = AiNormalizedFailureCode::RoutingNoEligibleRoute;
         } elseif (isset($skipReasons['policy_free_only']) || isset($skipReasons['free_only'])) {
             $code = AiNormalizedFailureCode::RoutingFreeOnlyExhausted;
+        } elseif (
+            isset($skipReasons['free_pool_hard_locked'])
+            || isset($skipReasons['free_pool_daily_quota_locked'])
+            || isset($skipReasons['free_pool_resyncing'])
+            || isset($skipReasons['free_pool_waiting_probe'])
+            || isset($skipReasons['free_pool_unavailable'])
+        ) {
+            $code = AiNormalizedFailureCode::RoutingFreeOnlyExhausted;
         } elseif (isset($skipReasons['free_attempt_budget_exhausted'])) {
             $code = AiNormalizedFailureCode::RoutingAttemptBudgetExhausted;
+        }
+
+        $extra = ['skip_counts' => $skipReasons];
+        if ($code === AiNormalizedFailureCode::RoutingFreeOnlyExhausted
+            && (
+                isset($skipReasons['free_pool_hard_locked'])
+                || isset($skipReasons['free_pool_daily_quota_locked'])
+                || isset($skipReasons['free_pool_resyncing'])
+                || isset($skipReasons['free_pool_waiting_probe'])
+                || isset($skipReasons['free_pool_unavailable'])
+            )) {
+            $extra['canonical_reason'] = OpenRouterFreePoolHealthService::REASON_NO_HEALTHY_FREE_POOL;
         }
 
         return new AiNormalizedFailure(
@@ -234,7 +254,7 @@ final class AiPrimaryFailureSelector
             routingTerminalReason: $routingTerminal ?? 'no_attemptable_routes',
             exceptionClass: $exception !== null ? $exception::class : null,
             correlationId: $correlationId,
-            extra: ['skip_counts' => $skipReasons],
+            extra: $extra,
         );
     }
 

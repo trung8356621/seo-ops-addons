@@ -282,15 +282,18 @@ final class ContentProjectGeneratePendingSafetyTest extends TestCase
         self::assertStringNotContainsString('ContentProjectRunEngine', $src);
     }
 
-    public function test_prepare_run_queue_uses_classifier_not_status_pending_only(): void
+    public function test_prepare_run_queue_supports_lazy_bulk_membership_and_legacy_classifier(): void
     {
         $src = (string) file_get_contents(
             ProjectRoot::addonsPath().'/content-projects/src/Services/SeoProjectWorkflowRunService.php',
         );
 
+        self::assertStringContainsString('lazy_bulk', $src);
+        self::assertStringContainsString('seedBulkMembership', $src);
         self::assertStringContainsString('ContentProjectItemGenerationClassifier', $src);
-        self::assertStringContainsString('technical_confirm_full_rerun', $src);
         self::assertStringContainsString('Rerun requires explicit item selection', $src);
+        // technical_confirm gate removed from hot path (may remain as comment/legacy string elsewhere).
+        self::assertStringNotContainsString('generate_pending_fail_closed', $src);
     }
 
     public function test_generate_pending_preview_lists_run_decisions_not_skips(): void

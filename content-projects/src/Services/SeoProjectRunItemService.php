@@ -124,6 +124,23 @@ final class SeoProjectRunItemService
 
     public function prepareOperation(SeoProjectRun $run, SeoProject $project, SeoProjectTask $task): SeoProjectRunItem
     {
+        return $this->upsertPendingRunItem($run, $project, $task, mutateTaskLifecycle: true);
+    }
+
+    /**
+     * Bulk membership only: pending run-item means "not yet visited", not task queued.
+     */
+    public function seedBulkMembership(SeoProjectRun $run, SeoProject $project, SeoProjectTask $task): SeoProjectRunItem
+    {
+        return $this->upsertPendingRunItem($run, $project, $task, mutateTaskLifecycle: false);
+    }
+
+    private function upsertPendingRunItem(
+        SeoProjectRun $run,
+        SeoProject $project,
+        SeoProjectTask $task,
+        bool $mutateTaskLifecycle,
+    ): SeoProjectRunItem {
         $action = $this->resolveAction($task);
         $version = $this->buildOperationVersion($task, $action);
         // Key unique toàn bảng — bắt buộc gắn run_id, nếu không rerun/run mới cùng task sẽ duplicate.
@@ -137,6 +154,7 @@ final class SeoProjectRunItemService
             $action,
             $idempotencyKey,
             $snapshot,
+            $mutateTaskLifecycle,
         ): SeoProjectRunItem {
             /** @var SeoProjectRunItem|null $existing */
             $existing = SeoProjectRunItem::query()
@@ -164,7 +182,9 @@ final class SeoProjectRunItemService
                     'finished_at' => null,
                 ]);
                 $existing->save();
-                $this->markTaskQueuedForGeneration($task);
+                if ($mutateTaskLifecycle) {
+                    $this->markTaskQueuedForGeneration($task);
+                }
 
                 return $existing->fresh() ?? $existing;
             }
@@ -183,7 +203,9 @@ final class SeoProjectRunItemService
                 'error_code' => null,
                 'error_message' => null,
             ]);
-            $this->markTaskQueuedForGeneration($task);
+            if ($mutateTaskLifecycle) {
+                $this->markTaskQueuedForGeneration($task);
+            }
 
             return $created;
         });

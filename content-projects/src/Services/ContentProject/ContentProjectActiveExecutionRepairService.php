@@ -164,7 +164,8 @@ final class ContentProjectActiveExecutionRepairService
             }
 
             $settings = is_array($run->settings ?? null) ? $run->settings : [];
-            $engine = is_array($settings['engine'] ?? null) ? $settings['engine'] : [];
+            $engineKey = \Omnichannel\Addons\ContentProjects\Services\RunEngine\ContentProjectRunEngine::SETTINGS_ENGINE_KEY;
+            $engine = is_array($settings[$engineKey] ?? null) ? $settings[$engineKey] : [];
             $activeDispatch = is_array($engine['active_dispatch'] ?? null) ? $engine['active_dispatch'] : null;
             $hasLock = $activeDispatch !== null;
 

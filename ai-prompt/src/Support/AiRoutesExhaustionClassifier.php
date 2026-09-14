@@ -31,6 +31,13 @@ final class AiRoutesExhaustionClassifier
         'connection_suppressed',
         'paid_lane_suppressed',
         'free_lane_suppressed',
+        'free_pool_hard_locked',
+        'free_pool_daily_quota_locked',
+        'free_pool_resyncing',
+        'free_pool_waiting_probe',
+        'free_pool_unavailable',
+        'free_model_quarantined',
+        'free_model_cooldown',
     ];
 
     /** @var list<string> */

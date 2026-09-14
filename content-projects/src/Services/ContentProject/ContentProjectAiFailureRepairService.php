@@ -558,10 +558,9 @@ final class ContentProjectAiFailureRepairService
 
         foreach ($runs as $run) {
             $settings = is_array($run->settings ?? null) ? $run->settings : [];
-            // Engine SoT is php_engine; legacy `engine` kept as fallback only.
             $engine = is_array($settings[ContentProjectRunEngine::SETTINGS_ENGINE_KEY] ?? null)
                 ? $settings[ContentProjectRunEngine::SETTINGS_ENGINE_KEY]
-                : (is_array($settings['engine'] ?? null) ? $settings['engine'] : []);
+                : [];
             $dispatch = is_array($engine['active_dispatch'] ?? null) ? $engine['active_dispatch'] : null;
             $runItemId = (int) ($dispatch['run_item_id'] ?? 0);
             if ($runItemId > 0) {

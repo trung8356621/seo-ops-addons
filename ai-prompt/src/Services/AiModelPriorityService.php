@@ -431,6 +431,9 @@ final class AiModelPriorityService
             if (! $model instanceof SeoAiModel) {
                 continue;
             }
+            if (! $this->modelAllowedInArea($model, $area)) {
+                continue;
+            }
             $this->writeAreaState($model, $area, true, $rank, AiModelArea::SOURCE_MANUAL);
             $rank++;
         }
@@ -506,6 +509,24 @@ final class AiModelPriorityService
         $this->connectionsMemo = [];
     }
 
+    private function modelAllowedInArea(SeoAiModel $model, AiModelArea $area): bool
+    {
+        $isFree = OpenRouterModelEconomics::modelIsFree($model)
+            || OpenRouterModelEconomics::isFree(
+                is_array($model->capabilities) ? $model->capabilities : [],
+                (string) $model->raw_model_name,
+            );
+
+        if ($area->isFreeModels()) {
+            return $isFree;
+        }
+        if ($area->isPaidText()) {
+            return ! $isFree;
+        }
+
+        return true;
+    }
+
     private function supportsArea(ApiConnection $connection, string $modelKey, AiModelArea $area): bool
     {
         $registry = new ModelCapabilityRegistry();
@@ -523,7 +544,8 @@ final class AiModelPriorityService
             AiModelArea::Text,
             AiModelArea::TextFast,
             AiModelArea::TextLongform,
-            AiModelArea::TextReasoning => in_array($family->modality, ['text', 'multimodal'], true),
+            AiModelArea::TextReasoning,
+            AiModelArea::FreeModels => in_array($family->modality, ['text', 'multimodal'], true),
             AiModelArea::Image => in_array($family->modality, ['image', 'multimodal'], true),
             AiModelArea::Video => in_array($family->modality, ['video', 'multimodal'], true),
         };

@@ -10,6 +10,7 @@ use Omnichannel\Addons\AiPrompt\Models\AiRuntimeHealthState;
 use Omnichannel\Addons\AiPrompt\Models\SeoAiModel;
 use Omnichannel\Addons\AiPrompt\Support\AiFailureClass;
 use Omnichannel\Addons\AiPrompt\Support\AiFailureScope;
+use Omnichannel\Addons\AiPrompt\Support\AiModelArea;
 use Omnichannel\Addons\AiPrompt\Support\AiRoutesExhaustionClassifier;
 use Omnichannel\Addons\AiPrompt\Support\AiRuntimeHealthStatus;
 use App\Models\ApiConnection;
@@ -44,6 +45,14 @@ final class AiRuntimeHealthService
         // Deprecated: ai_runtime_health_states.paid_locked is observability — not enforcement.
         if ($candidate->isFree === false && $this->connectionPaidLaneLocked($candidate->connection)) {
             return 'connection_paid_locked';
+        }
+
+        // Per-connection Free Pool circuit breaker (hard-lock / daily quota / resync / probe / model quarantine).
+        if ($candidate->isFree) {
+            $poolSkip = (new OpenRouterFreePoolHealthService())->skipReasonForCandidate($candidate);
+            if ($poolSkip !== null) {
+                return $poolSkip;
+            }
         }
 
         // Connection-level free lane suppression (e.g. OpenRouter free-tier daily quota exhausted)
@@ -91,6 +100,10 @@ final class AiRuntimeHealthService
 
     public function recordSuccess(int $userId, RoutedAiCandidate $candidate): void
     {
+        if ($candidate->isFree) {
+            (new OpenRouterFreePoolHealthService())->recordSuccess($candidate);
+        }
+
         if (! $this->tableReady()) {
             return;
         }
@@ -139,6 +152,10 @@ final class AiRuntimeHealthService
 
     public function recordFailure(int $userId, RoutedAiCandidate $candidate, AiFailureDecision $decision): void
     {
+        if ($candidate->isFree) {
+            $this->recordFreePoolHealthFailure($userId, $candidate, $decision);
+        }
+
         if (! $decision->affectsRuntimeHealth) {
             return;
         }
@@ -522,6 +539,39 @@ final class AiRuntimeHealthService
      * Re-reads by id so mid-run locks applied via a sibling candidate instance are visible
      * when PRIMARY and SECONDARY lanes hold distinct DTO connection objects.
      */
+    private function recordFreePoolHealthFailure(
+        int $userId,
+        RoutedAiCandidate $candidate,
+        AiFailureDecision $decision,
+    ): void {
+        $pool = new OpenRouterFreePoolHealthService();
+        $eligible = $this->estimateEligibleFreePoolSize($userId, $candidate);
+        $pool->recordQualifyingFailure($userId, $candidate, $decision, $eligible);
+        $pool->maybeForceCatalogResyncOnStrongStale($candidate->connection, $decision, $userId);
+    }
+
+    private function estimateEligibleFreePoolSize(int $userId, RoutedAiCandidate $candidate): int
+    {
+        try {
+            $members = (new OpenRouterFreePoolService())->runtimeMembers($userId, AiModelArea::FreeModels);
+            $connectionId = (int) $candidate->connection->id;
+            $count = 0;
+            foreach ($members as $model) {
+                if (! $model instanceof SeoAiModel) {
+                    continue;
+                }
+                if ((int) $model->api_connection_id !== $connectionId) {
+                    continue;
+                }
+                $count++;
+            }
+
+            return max(1, $count);
+        } catch (\Throwable) {
+            return 1;
+        }
+    }
+
     private function connectionPaidLaneLocked(ApiConnection $connection): bool
     {
         $id = (int) $connection->id;

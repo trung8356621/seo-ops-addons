@@ -1374,16 +1374,16 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
             return [];
         }
 
-        if ($secondaryArea === $primaryArea) {
-            return $primaryCandidates;
-        }
+        // SECONDARY_PAID always reads the paid text area for this profile — never Free Models.
+        $targets = app(AiRoutingTargetService::class);
+        $paid = $targets->paidAreaCandidates($userId, $parsed, $context);
+        $paid = array_values(array_filter(
+            $paid,
+            static fn (RoutedAiCandidate $c): bool => ! $c->isFree
+                && $health->skipReason($userId, $c) === null,
+        ));
 
-        $secondaryProfile = $this->fallbackAreaResolver()->profileForArea($secondaryArea);
-        if ($secondaryProfile === null || $secondaryProfile->value === $profile) {
-            return $primaryCandidates;
-        }
-
-        return $this->resolveAll($secondaryProfile->value, $context);
+        return $paid;
     }
 
     /**
@@ -2369,8 +2369,10 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                 (new AiModelPrimaryTypeClassifier())->classifyConnection($connection);
                 try {
                     $pool = new OpenRouterFreePoolService();
-                    $pool->refreshCatalogSnapshot($connection->fresh() ?? $connection);
+                    $fresh = $connection->fresh() ?? $connection;
+                    $pool->refreshCatalogSnapshot($fresh);
                     $pool->ensureRouterAnchors((int) ($connection->user_id ?: 0));
+                    (new OpenRouterFreePoolHealthService())->markCatalogSynced($fresh, true);
                 } catch (\Throwable) {
                 }
             }
@@ -2382,6 +2384,13 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                 'message' => $exception->getMessage(),
                 'exception' => $exception::class,
             ]);
+            try {
+                $failed = ApiConnection::query()->find($connectionId);
+                if ($failed !== null && (string) $failed->provider === ApiConnectionProviders::OPENROUTER) {
+                    (new OpenRouterFreePoolHealthService())->markCatalogSynced($failed, false);
+                }
+            } catch (\Throwable) {
+            }
 
             return false;
         }

@@ -168,16 +168,16 @@ final class ContentProjectProjectGenerationGateTest extends TestCase
         self::assertSame(ContentProjectProjectActionDecision::REASON_TEST_ACTIVE, $decision->reasonCode);
     }
 
-    public function test_h_handler_revalidates_classifier_and_conflicts_server_side(): void
+    public function test_h_handler_revalidates_conflicts_server_side_without_launch_preview_auth(): void
     {
         $handler = (string) file_get_contents(
             (string) (new ReflectionClass(GenerateProjectItemsHandler::class))->getFileName(),
         );
-        self::assertStringContainsString('classifier->preview', $handler);
-        self::assertStringContainsString('runnableTaskIds', $handler);
+        self::assertStringNotContainsString('classifier->preview', $handler);
         self::assertStringContainsString('hasActiveTestRun', $handler);
         self::assertStringContainsString('hasActiveBulkGeneration', $handler);
-        self::assertStringContainsString('Selected items are not eligible', $handler);
+        self::assertStringContainsString('lazy_bulk', $handler);
+        self::assertStringContainsString('resolveVisitTaskIds', $handler);
     }
 
     public function test_rewrite_with_source_article_is_eligible(): void

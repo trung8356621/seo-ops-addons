@@ -123,7 +123,8 @@ final class ContentProjectActiveExecutionResolver
 
         $lockKey = null;
         $settings = is_array($run->settings ?? null) ? $run->settings : [];
-        $engine = is_array($settings['engine'] ?? null) ? $settings['engine'] : [];
+        $engineKey = \Omnichannel\Addons\ContentProjects\Services\RunEngine\ContentProjectRunEngine::SETTINGS_ENGINE_KEY;
+        $engine = is_array($settings[$engineKey] ?? null) ? $settings[$engineKey] : [];
         $activeDispatch = is_array($engine['active_dispatch'] ?? null) ? $engine['active_dispatch'] : null;
         if (is_array($activeDispatch) && (int) ($activeDispatch['run_item_id'] ?? 0) === (int) $item->id) {
             $lockKey = isset($activeDispatch['token']) ? (string) $activeDispatch['token'] : 'active_dispatch';

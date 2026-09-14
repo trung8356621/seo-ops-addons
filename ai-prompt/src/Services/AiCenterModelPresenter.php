@@ -172,9 +172,27 @@ final class AiCenterModelPresenter
         $rows = $this->snapLogicalModelRows($rows);
         // Hide individual OpenRouter free members from primary list; inject virtual Free Pool.
         $rows = $this->stripIndividualOpenRouterFreeRows($rows);
-        if ($area->isTextPrimary()) {
+
+        // Cost isolation: Free Models tab = free only; paid text tabs = paid only.
+        if ($area->isFreeModels()) {
+            $rows = array_values(array_filter(
+                $rows,
+                static fn (array $row): bool => ! empty($row['is_free']) || ! empty($row['is_free_pool']),
+            ));
             $rows = $this->injectOpenRouterFreePoolRow($rows, $userId, $area);
+        } elseif ($area->isPaidText()) {
+            $rows = array_values(array_filter(
+                $rows,
+                static fn (array $row): bool => empty($row['is_free']) && empty($row['is_free_pool']),
+            ));
+        } elseif ($area->isTextPrimary()) {
+            // Legacy path — should not inject free pool into paid tabs.
+            $rows = array_values(array_filter(
+                $rows,
+                static fn (array $row): bool => empty($row['is_free_pool']),
+            ));
         }
+
         usort($rows, static fn (array $a, array $b): int => ((int) ($a['area_priority'] ?? 0)) <=> ((int) ($b['area_priority'] ?? 0)));
 
         return array_values($rows);
@@ -410,6 +428,14 @@ final class AiCenterModelPresenter
                 if (! $this->rowSupportsArea($connection, $row, $area)) {
                     continue;
                 }
+                $isFree = OpenRouterModelEconomics::modelIsFree($model)
+                    || OpenRouterModelEconomics::isFree([], (string) $model->raw_model_name);
+                if ($area->isFreeModels() && ! $isFree) {
+                    continue;
+                }
+                if ($area->isPaidText() && $isFree) {
+                    continue;
+                }
                 if ($this->priorities->isAreaEnabled($model, $area, $connection)) {
                     $out[$area->value]['enabled']++;
                 } else {
@@ -558,6 +584,14 @@ final class AiCenterModelPresenter
                 if (! str_contains($hay, $search)) {
                     continue;
                 }
+            }
+            $isFree = OpenRouterModelEconomics::modelIsFree($model)
+                || OpenRouterModelEconomics::isFree([], (string) $model->raw_model_name);
+            if ($area->isFreeModels() && ! $isFree) {
+                continue;
+            }
+            if ($area->isPaidText() && $isFree) {
+                continue;
             }
             $row['source'] = (string) ($row['provider'] ?? '');
             if ($connection !== null) {

@@ -120,8 +120,8 @@ final class ContentProjectGenerateParityTest extends TestCase
     public function test_generate_handler_returns_primary_execution_ref(): void
     {
         $handler = $this->source(GenerateProjectItemsHandler::class);
-        self::assertStringContainsString("'execution_ref' => \$runsStarted[0] ?? null", $handler);
-        self::assertStringContainsString("'execution_refs' => \$runsStarted", $handler);
+        self::assertStringContainsString("'execution_ref' => \$executionRef", $handler);
+        self::assertStringContainsString("'execution_refs' => [\$executionRef]", $handler);
     }
 
     public function test_public_ref_resolves_primary_execution_ref_from_metadata(): void

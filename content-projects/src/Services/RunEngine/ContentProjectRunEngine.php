@@ -8,9 +8,14 @@ use Omnichannel\Addons\ContentProjects\Enums\ContentProjectArticleSemanticStatus
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectRunSemanticStatus;
 use Omnichannel\Addons\ContentProjects\Enums\SeoProjectRunItemStatus;
 use Omnichannel\Addons\ContentProjects\Jobs\RunContentProjectArticleJob;
+use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRunItem;
+use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectArticleRuntimeStatusResolver;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectBulkItemDecision;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectBulkItemDecisionService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectFreshKeywordWorkspaceResetService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectRunItemService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectWorkflowRunService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectWorkflowStepRetryService;
@@ -309,11 +314,68 @@ final class ContentProjectRunEngine
 
     /**
      * Atomically reserve next pending article-level item and dispatch job.
-     * Phase 1: max 1 active article per run.
+     * Lazy bulk: JIT decide NOW (generate/resume/restart/skip) — never use launch-time partition.
+     * Max 1 active article per run (and thus per bulk).
      */
     public function dispatchNextArticle(SeoProjectRun $run): void
     {
-        $dispatch = DB::connection('omi_seo_ai')->transaction(function () use ($run): ?array {
+        $maxSkipPasses = 500;
+        for ($pass = 0; $pass < $maxSkipPasses; $pass++) {
+            $dispatch = $this->claimNextPendingArticle($run);
+            if ($dispatch === null) {
+                RuntimeLogger::info('content_project_run.next_dispatch_skipped', [
+                    'run_id' => (int) $run->id,
+                    'reason' => 'no_candidate_or_busy_or_stopped',
+                ]);
+                $this->finalizeIfDone($run->fresh() ?? $run);
+
+                return;
+            }
+
+            if (($dispatch['fail_closed'] ?? false) === true) {
+                $this->failClosedBulk($run->fresh() ?? $run, (string) ($dispatch['reason'] ?? 'orchestration_corrupt'));
+
+                return;
+            }
+
+            $run = $run->fresh() ?? $run;
+            $settings = is_array($run->settings) ? $run->settings : [];
+            $lazyBulk = (bool) ($settings['lazy_bulk'] ?? false);
+
+            if (! $lazyBulk) {
+                $this->enqueueArticleJob($run, $dispatch);
+
+                return;
+            }
+
+            $decision = $this->decideLazyBulkItem($run, (int) $dispatch['task_id']);
+            if ($decision->isSkip()) {
+                $this->skipClaimedBulkItem($run, $dispatch, $decision);
+                $run = $run->fresh() ?? $run;
+                continue;
+            }
+
+            $prepared = $this->applyLazyBulkDecision($run, $dispatch, $decision);
+            if ($prepared === null) {
+                $this->failClosedBulk($run->fresh() ?? $run, 'lazy_bulk_apply_failed');
+
+                return;
+            }
+
+            $this->enqueueArticleJob($run->fresh() ?? $run, $prepared);
+
+            return;
+        }
+
+        $this->failClosedBulk($run->fresh() ?? $run, 'lazy_bulk_skip_loop_exhausted');
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function claimNextPendingArticle(SeoProjectRun $run): ?array
+    {
+        return DB::connection('omi_seo_ai')->transaction(function () use ($run): ?array {
             /** @var SeoProjectRun|null $locked */
             $locked = SeoProjectRun::query()
                 ->whereKey((int) $run->id)
@@ -324,7 +386,16 @@ final class ContentProjectRunEngine
                 return null;
             }
 
-            $this->sweepStaleActiveDispatch($locked);
+            try {
+                $this->sweepStaleActiveDispatch($locked);
+            } catch (\Throwable $e) {
+                RuntimeLogger::error('content_project_run.sweep_stale_failed', [
+                    'run_id' => (int) $locked->id,
+                    'error' => $e->getMessage(),
+                ]);
+
+                return ['fail_closed' => true, 'reason' => 'active_dispatch_sweep_failed'];
+            }
             $locked->refresh();
 
             $status = $this->statusMapper->runFromDb((string) $locked->status);
@@ -353,15 +424,21 @@ final class ContentProjectRunEngine
                 return null;
             }
 
-            // Failed items stay failed — never auto-reset here.
-            // Reservation = settings.active_dispatch (+ item still pending/processing).
-            // Actual claim pending→processing happens inside ExecutionService → runTaskPipeline → claimForExecution.
             $dispatchToken = hash('sha256', implode('|', [
                 (int) $locked->id,
                 (int) $next->id,
                 (int) $next->attempt,
                 (string) microtime(true),
             ]));
+
+            $articleUpdatedAt = null;
+            $task = SeoProjectTask::query()->with('article')->find((int) $next->task_id);
+            if ($task instanceof SeoProjectTask && (int) ($task->article_id ?? 0) > 0) {
+                $article = $task->article;
+                if ($article !== null && $article->updated_at !== null) {
+                    $articleUpdatedAt = $article->updated_at->toIso8601String();
+                }
+            }
 
             $settings = is_array($locked->settings) ? $locked->settings : [];
             $engine = is_array($settings[self::SETTINGS_ENGINE_KEY] ?? null)
@@ -377,6 +454,7 @@ final class ContentProjectRunEngine
                 'last_heartbeat_at' => now()->toIso8601String(),
                 'claimed_at' => null,
                 'current_step' => 'queued',
+                'article_updated_at_snapshot' => $articleUpdatedAt,
             ];
             $settings[self::SETTINGS_ENGINE_KEY] = $engine;
             $locked->update(['settings' => $settings]);
@@ -389,17 +467,154 @@ final class ContentProjectRunEngine
                 'token' => $dispatchToken,
             ];
         });
+    }
 
-        if ($dispatch === null) {
-            RuntimeLogger::info('content_project_run.next_dispatch_skipped', [
-                'run_id' => (int) $run->id,
-                'reason' => 'no_candidate_or_busy_or_stopped',
-            ]);
-            $this->finalizeIfDone($run->fresh() ?? $run);
-
-            return;
+    private function decideLazyBulkItem(SeoProjectRun $run, int $taskId): ContentProjectBulkItemDecision
+    {
+        $run->loadMissing('project');
+        $project = $run->project;
+        $task = SeoProjectTask::query()->with('article')->find($taskId);
+        if (! $project instanceof SeoProject || ! $task instanceof SeoProjectTask) {
+            return new ContentProjectBulkItemDecision(
+                taskId: $taskId,
+                operation: ContentProjectBulkItemDecision::OP_SKIP,
+                reason: 'task_or_project_missing',
+            );
         }
 
+        $settings = is_array($run->settings) ? $run->settings : [];
+        $allowImprove = (bool) ($settings[\Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectImproveManualOnlyGenerationGuard::ALLOW_IMPROVE_GENERATION_SETTING] ?? false);
+
+        return app(ContentProjectBulkItemDecisionService::class)->decide($project, $task, [
+            'allow_improve_generation' => $allowImprove,
+            'recover_stale' => true,
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $dispatch
+     */
+    private function skipClaimedBulkItem(
+        SeoProjectRun $run,
+        array $dispatch,
+        ContentProjectBulkItemDecision $decision,
+    ): void {
+        $runItemId = (int) ($dispatch['run_item_id'] ?? 0);
+        $item = SeoProjectRunItem::query()->find($runItemId);
+        if ($item instanceof SeoProjectRunItem) {
+            $this->runItemService->markSkipped(
+                $item,
+                'Skipped: '.$decision->reason,
+            );
+        }
+
+        $this->clearActiveDispatch($run, (int) $dispatch['task_id'], $runItemId);
+        $run = $this->runItemService->syncMirrorAndCounters($run->fresh() ?? $run, false);
+        $this->events->runProgressUpdated($run);
+
+        $skipResult = new ArticleExecutionResult(
+            runId: (int) $run->id,
+            taskId: (int) $dispatch['task_id'],
+            runItemId: $runItemId > 0 ? $runItemId : null,
+            status: ContentProjectArticleSemanticStatus::Skipped,
+            message: 'Skipped: '.$decision->reason,
+            payload: ['skip_reason' => $decision->reason],
+        );
+        $this->events->articleCompleted($run, $skipResult);
+
+        RuntimeLogger::info('content_project_run.lazy_bulk_item_skipped', [
+            'run_id' => (int) $run->id,
+            'task_id' => (int) $dispatch['task_id'],
+            'run_item_id' => $runItemId,
+            'reason' => $decision->reason,
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $dispatch
+     * @return array<string, mixed>|null
+     */
+    private function applyLazyBulkDecision(
+        SeoProjectRun $run,
+        array $dispatch,
+        ContentProjectBulkItemDecision $decision,
+    ): ?array {
+        return DB::connection('omi_seo_ai')->transaction(function () use ($run, $dispatch, $decision): ?array {
+            /** @var SeoProjectRun|null $locked */
+            $locked = SeoProjectRun::query()
+                ->whereKey((int) $run->id)
+                ->lockForUpdate()
+                ->first();
+            if (! $locked instanceof SeoProjectRun) {
+                return null;
+            }
+
+            $settings = is_array($locked->settings) ? $locked->settings : [];
+            $engine = is_array($settings[self::SETTINGS_ENGINE_KEY] ?? null)
+                ? $settings[self::SETTINGS_ENGINE_KEY]
+                : [];
+            $active = is_array($engine['active_dispatch'] ?? null) ? $engine['active_dispatch'] : null;
+            if ($active === null
+                || (int) ($active['run_item_id'] ?? 0) !== (int) $dispatch['run_item_id']
+                || (string) ($active['token'] ?? '') !== (string) ($dispatch['token'] ?? '')
+            ) {
+                return null;
+            }
+
+            // Clear ephemeral per-item overlays then apply JIT settings.
+            foreach ([
+                'rerun',
+                'rerun_scope',
+                'rerun_from_step',
+                'rerun_include_downstream',
+                'resume_partial_split',
+                'resume_prior_run_item_id',
+                'resume_split_progress',
+                'generation_mode',
+                'generation_keyword_override',
+            ] as $key) {
+                unset($settings[$key]);
+            }
+
+            foreach ($decision->executionSettings as $key => $value) {
+                if ($value === null) {
+                    unset($settings[$key]);
+                } else {
+                    $settings[$key] = $value;
+                }
+            }
+
+            $active['operation'] = $decision->operation;
+            $active['operation_reason'] = $decision->reason;
+            $active['current_step'] = 'jit_'.$decision->operation;
+            $engine['active_dispatch'] = $active;
+            $engine['item_operation'] = $decision->toArray();
+            $settings[self::SETTINGS_ENGINE_KEY] = $engine;
+            $locked->update(['settings' => $settings]);
+
+            if (($decision->meta['needs_workspace_reset'] ?? false) === true) {
+                $task = SeoProjectTask::query()->find((int) $dispatch['task_id']);
+                if ($task instanceof SeoProjectTask) {
+                    app(ContentProjectFreshKeywordWorkspaceResetService::class)->resetForTask($task);
+                }
+            }
+
+            return [
+                'run_id' => (int) $locked->id,
+                'task_id' => (int) $dispatch['task_id'],
+                'run_item_id' => (int) $dispatch['run_item_id'],
+                'attempt' => (int) $dispatch['attempt'],
+                'token' => (string) $dispatch['token'],
+                'operation' => $decision->operation,
+            ];
+        });
+    }
+
+    /**
+     * @param  array<string, mixed>  $dispatch
+     */
+    private function enqueueArticleJob(SeoProjectRun $run, array $dispatch): void
+    {
         $run->refresh();
         $settings = is_array($run->settings) ? $run->settings : [];
         $sync = (bool) ($settings['rerun_sync'] ?? false);
@@ -430,6 +645,49 @@ final class ContentProjectRunEngine
             'feature_flag' => ContentProjectRunEngineFeature::enabledFor($run->fresh() ?? $run),
             'sync' => $sync,
         ]);
+    }
+
+    /**
+     * Orchestration corruption — fail closed: keep completed items, leave unvisited untouched.
+     */
+    public function failClosedBulk(SeoProjectRun $run, string $reason): void
+    {
+        RuntimeLogger::error('content_project_run.fail_closed_bulk', [
+            'run_id' => (int) $run->id,
+            'reason' => $reason,
+        ]);
+
+        DB::connection('omi_seo_ai')->transaction(function () use ($run, $reason): void {
+            /** @var SeoProjectRun|null $locked */
+            $locked = SeoProjectRun::query()
+                ->whereKey((int) $run->id)
+                ->lockForUpdate()
+                ->first();
+            if (! $locked instanceof SeoProjectRun) {
+                return;
+            }
+
+            $settings = is_array($locked->settings) ? $locked->settings : [];
+            $engine = is_array($settings[self::SETTINGS_ENGINE_KEY] ?? null)
+                ? $settings[self::SETTINGS_ENGINE_KEY]
+                : [];
+            unset($engine['active_dispatch']);
+            $engine['fail_closed'] = [
+                'reason' => $reason,
+                'at' => now()->toIso8601String(),
+            ];
+            $settings[self::SETTINGS_ENGINE_KEY] = $engine;
+
+            // Leave pending run-items pending (unvisited) — do not mutate task lifecycle.
+            $locked->update([
+                'status' => $this->statusMapper->runToDb(ContentProjectRunSemanticStatus::Failed),
+                'finished_at' => now(),
+                'settings' => $settings,
+            ]);
+        });
+
+        $fresh = $run->fresh() ?? $run;
+        $this->events->runFailed($fresh, $reason);
     }
 
     public function handleArticleFinished(SeoProjectRun $run, ArticleExecutionResult $result): void
@@ -1779,7 +2037,23 @@ final class ContentProjectRunEngine
         $matchesTask = $taskId === null || (int) ($active['task_id'] ?? 0) === $taskId;
         $matchesItem = $runItemId === null || (int) ($active['run_item_id'] ?? 0) === $runItemId;
         if ($matchesTask && $matchesItem) {
-            unset($engine['active_dispatch']);
+            unset($engine['active_dispatch'], $engine['item_operation']);
+            // Clear ephemeral per-item overlays so next JIT item starts clean.
+            if ((bool) ($settings['lazy_bulk'] ?? false)) {
+                foreach ([
+                    'rerun',
+                    'rerun_scope',
+                    'rerun_from_step',
+                    'rerun_include_downstream',
+                    'resume_partial_split',
+                    'resume_prior_run_item_id',
+                    'resume_split_progress',
+                    'generation_mode',
+                    'generation_keyword_override',
+                ] as $key) {
+                    unset($settings[$key]);
+                }
+            }
             $settings[self::SETTINGS_ENGINE_KEY] = $engine;
             $run->update(['settings' => $settings]);
             $run->refresh();

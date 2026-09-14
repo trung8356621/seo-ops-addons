@@ -52,11 +52,12 @@ final class ContentProjectRerunScopeIsolationTest extends TestCase
         self::assertTrue((bool) $snap['rerun']);
     }
 
-    public function test_generate_handler_still_may_resolve_pending_when_refs_empty(): void
+    public function test_generate_handler_snapshots_visit_ids_when_refs_empty(): void
     {
-        // Project-level generate is allowed; item rerun is not.
+        // Project-level generate visits planned tasks; JIT decides later.
         $src = $this->source(GenerateProjectItemsHandler::class);
-        self::assertStringContainsString('runnableTaskIds', $src);
+        self::assertStringContainsString('resolveVisitTaskIds', $src);
+        self::assertStringContainsString('->planned()', $src);
         self::assertStringNotContainsString('AiCostPolicy::FreeOnly', $src);
     }
 

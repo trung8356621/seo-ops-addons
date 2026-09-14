@@ -16,8 +16,13 @@ final class ContentProjectImproveLifecycleSafetyContractTest extends TestCase
         );
 
         self::assertStringContainsString('ContentProjectImproveManualOnlyGenerationGuard', $src);
-        self::assertStringContainsString('allowImproveGeneration: false', $src);
-        self::assertStringContainsString('Improve items are manual-only', $src);
+        self::assertStringContainsString('filterItemIds', $src);
+
+        $decision = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content-projects/src/Services/ContentProject/ContentProjectBulkItemDecisionService.php',
+        );
+        self::assertStringContainsString('improve_manual_only', $decision);
+        self::assertStringContainsString('TYPE_IMPROVE', $decision);
     }
 
     public function test_rerun_handler_blocks_improve_by_default(): void
