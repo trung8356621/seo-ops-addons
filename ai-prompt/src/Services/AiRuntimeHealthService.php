@@ -10,6 +10,7 @@ use Omnichannel\Addons\AiPrompt\Models\AiRuntimeHealthState;
 use Omnichannel\Addons\AiPrompt\Models\SeoAiModel;
 use Omnichannel\Addons\AiPrompt\Support\AiFailureClass;
 use Omnichannel\Addons\AiPrompt\Support\AiFailureScope;
+use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
 use Omnichannel\Addons\AiPrompt\Support\AiModelArea;
 use Omnichannel\Addons\AiPrompt\Support\AiRoutesExhaustionClassifier;
 use Omnichannel\Addons\AiPrompt\Support\AiRuntimeHealthStatus;
@@ -555,6 +556,7 @@ final class AiRuntimeHealthService
         try {
             $members = (new OpenRouterFreePoolService())->runtimeMembers($userId, AiModelArea::FreeModels);
             $connectionId = (int) $candidate->connection->id;
+            $profile = AiExecutionProfile::tryFrom($candidate->profile);
             $count = 0;
             foreach ($members as $model) {
                 if (! $model instanceof SeoAiModel) {
@@ -563,12 +565,28 @@ final class AiRuntimeHealthService
                 if ((int) $model->api_connection_id !== $connectionId) {
                     continue;
                 }
+                if ((string) ($model->status ?? '') === SeoAiModel::STATUS_INACTIVE) {
+                    continue;
+                }
+                if (Schema::hasColumn('seo_ai_models', 'is_hidden') && (bool) ($model->is_hidden ?? false)) {
+                    continue;
+                }
+                if ($profile !== null) {
+                    $caps = app(ModelCapabilityRegistry::class);
+                    if (! $caps->satisfiesAll(
+                        $candidate->connection,
+                        (string) $model->raw_model_name,
+                        $profile->requiredCapabilityKeys(),
+                    )) {
+                        continue;
+                    }
+                }
                 $count++;
             }
 
-            return max(1, $count);
+            return max(0, $count);
         } catch (\Throwable) {
-            return 1;
+            return 0;
         }
     }
 

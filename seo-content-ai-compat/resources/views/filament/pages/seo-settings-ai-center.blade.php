@@ -437,15 +437,24 @@
                                             <div class="font-medium">{{ $alert['message'] ?? '' }}</div>
                                             <div class="seo-ai-muted mt-1">
                                                 {{ strtoupper((string) ($alert['state'] ?? '')) }}
+                                                @if (! empty($alert['lock_reason']))
+                                                    · {{ $alert['lock_reason'] }}
+                                                @endif
                                                 @if (! empty($alert['failure_ratio']))
                                                     · {{ $alert['failed_distinct_models'] ?? 0 }}/{{ $alert['eligible_model_count'] ?? 0 }}
                                                     ({{ $alert['failure_ratio'] }}%)
+                                                @endif
+                                                @if (! empty($alert['lock_until']))
+                                                    · until {{ $alert['lock_until'] }}
                                                 @endif
                                                 @if (! empty($alert['next_probe_at']))
                                                     · probe {{ $alert['next_probe_at'] }}
                                                 @endif
                                                 @if (! empty($alert['last_catalog_sync_at']))
                                                     · sync {{ $alert['last_catalog_sync_at'] }}
+                                                @endif
+                                                @if (! empty($alert['last_forced_sync_at']))
+                                                    · forced {{ $alert['last_forced_sync_at'] }}
                                                 @endif
                                             </div>
                                         </li>

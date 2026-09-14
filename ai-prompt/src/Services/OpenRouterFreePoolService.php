@@ -512,14 +512,19 @@ final class OpenRouterFreePoolService
                 continue;
             }
             $basePriority = $candidate->priority;
+            $anchorConnectionId = (int) $candidate->connection->id;
             foreach ($members as $member) {
+                if ((int) $member->api_connection_id !== $anchorConnectionId) {
+                    continue;
+                }
+                $memberConnection = $member->apiConnection ?? $candidate->connection;
                 $exactId = (string) $member->raw_model_name;
                 $out[] = new \Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate(
                     profile: $candidate->profile,
-                    connection: $candidate->connection,
-                    provider: $candidate->provider,
+                    connection: $memberConnection,
+                    provider: (string) $memberConnection->provider,
                     model: $exactId,
-                    capabilities: $this->capabilities->capabilitiesFor($candidate->connection, $exactId),
+                    capabilities: $this->capabilities->capabilitiesFor($memberConnection, $exactId),
                     priority: $basePriority,
                     options: $candidate->options,
                     seoAiModelId: (int) $member->id,

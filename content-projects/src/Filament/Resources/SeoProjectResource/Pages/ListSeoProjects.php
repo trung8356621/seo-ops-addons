@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResour
 
 use Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectCompactSuccessService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectMonthlyWorkloadService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectStaffAvailabilityService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectListBucket;
@@ -13,8 +14,15 @@ use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMont
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Filament\Actions;
+use Filament\Forms;
+use Filament\Forms\Get;
+use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
+use Filament\Support\Enums\MaxWidth;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\HtmlString;
+use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class ListSeoProjects extends ListRecords
 {
@@ -150,6 +158,64 @@ class ListSeoProjects extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
+            Actions\Action::make('compact_success_items')
+                ->label(__('seo-content-ai::filament.projects.compact_success'))
+                ->icon('heroicon-o-arrows-pointing-in')
+                ->color('gray')
+                ->visible(fn (): bool => SeoAccessControl::canMutateContentProjects())
+                ->modalHeading(__('seo-content-ai::filament.projects.compact_success_heading'))
+                ->modalWidth(MaxWidth::FiveExtraLarge)
+                ->modalSubmitActionLabel(__('seo-content-ai::filament.projects.compact_success'))
+                ->form(fn (): array => $this->compactSuccessFormSchema())
+                ->action(function (array $data): void {
+                    abort_unless(SeoAccessControl::canMutateContentProjects(), 403);
+                    $siteId = (int) ($data['site_id'] ?? 0);
+                    $month = ContentProjectMonthContext::normalize($this->planningMonth ?: null);
+
+                    try {
+                        $result = app(ContentProjectCompactSuccessService::class)
+                            ->execute($siteId, $month, auth()->id() ? (int) auth()->id() : null);
+
+                        $moved = (int) ($result['moved'] ?? 0);
+                        $auditNames = [];
+                        foreach (($result['projects_after'] ?? []) as $row) {
+                            if (! is_array($row) || empty($row['audit_ready'])) {
+                                continue;
+                            }
+                            $auditNames[] = (string) ($row['name'] ?? '');
+                        }
+
+                        $body = (string) __('seo-content-ai::filament.projects.compact_success_done_body', [
+                            'moved' => $moved,
+                        ]);
+                        if ($auditNames !== []) {
+                            $body .= ' '.(string) __('seo-content-ai::filament.projects.compact_success_audit_ready_hint', [
+                                'projects' => implode(', ', $auditNames),
+                            ]);
+                        }
+
+                        Notification::make()
+                            ->title(__('seo-content-ai::filament.projects.compact_success_done'))
+                            ->body($body)
+                            ->success()
+                            ->send();
+
+                        $this->resetTable();
+                    } catch (ValidationException $exception) {
+                        Notification::make()
+                            ->title(__('seo-content-ai::filament.projects.compact_success_failed'))
+                            ->body($exception->validator->errors()->first() ?: $exception->getMessage())
+                            ->danger()
+                            ->send();
+                    } catch (Throwable $exception) {
+                        report($exception);
+                        Notification::make()
+                            ->title(__('seo-content-ai::filament.projects.compact_success_failed'))
+                            ->body($exception->getMessage())
+                            ->danger()
+                            ->send();
+                    }
+                }),
             Actions\Action::make('product_gallery_canary')
                 ->label('PG Canary fixture')
                 ->icon('heroicon-o-beaker')
@@ -165,6 +231,155 @@ class ListSeoProjects extends ListRecords
             Actions\CreateAction::make()
                 ->url(fn (): string => $this->createProjectUrl()),
         ];
+    }
+
+    /**
+     * @return list<\Filament\Forms\Components\Component>
+     */
+    private function compactSuccessFormSchema(): array
+    {
+        $month = ContentProjectMonthContext::normalize($this->planningMonth ?: null);
+        $options = app(ContentProjectCompactSuccessService::class)->domainOptionsForMonth($month);
+
+        return [
+            Forms\Components\Placeholder::make('compact_month')
+                ->label(__('seo-content-ai::filament.projects.planning_month'))
+                ->content(ContentProjectMonthContext::display($month)),
+            Forms\Components\Select::make('site_id')
+                ->label(__('seo-content-ai::filament.projects.compact_success_domain'))
+                ->options($options)
+                ->searchable()
+                ->required()
+                ->native(false)
+                ->live(),
+            Forms\Components\Placeholder::make('compact_notice')
+                ->content(new HtmlString(
+                    '<p class="text-sm text-gray-600 dark:text-gray-300">'
+                    .e((string) __('seo-content-ai::filament.projects.compact_success_no_new_project'))
+                    .'</p>'
+                )),
+            Forms\Components\Placeholder::make('compact_preview')
+                ->label(__('seo-content-ai::filament.projects.compact_success_preview'))
+                ->content(function (Get $get) use ($month): HtmlString {
+                    $siteId = (int) ($get('site_id') ?? 0);
+                    if ($siteId <= 0) {
+                        return new HtmlString(
+                            '<p class="text-sm text-gray-500">'
+                            .e((string) __('seo-content-ai::filament.projects.compact_success_pick_domain'))
+                            .'</p>'
+                        );
+                    }
+
+                    try {
+                        $plan = app(ContentProjectCompactSuccessService::class)->preview($siteId, $month);
+                    } catch (Throwable $exception) {
+                        return new HtmlString(
+                            '<p class="text-sm text-danger-600">'.e($exception->getMessage()).'</p>'
+                        );
+                    }
+
+                    return new HtmlString($this->renderCompactSuccessPreviewHtml($plan));
+                }),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $plan
+     */
+    private function renderCompactSuccessPreviewHtml(array $plan): string
+    {
+        $totals = is_array($plan['totals'] ?? null) ? $plan['totals'] : [];
+        $html = '<div class="space-y-3 text-sm">';
+        $html .= '<p><strong>'.e((string) ($plan['domain'] ?? '')).'</strong> · '
+            .e((string) ($plan['month_label'] ?? '')).'</p>';
+        $html .= '<ul class="list-disc pl-5 text-gray-700 dark:text-gray-200">'
+            .'<li>'.e((string) __('seo-content-ai::filament.projects.compact_success_stat_projects', [
+                'count' => (int) ($totals['projects'] ?? 0),
+            ])).'</li>'
+            .'<li>'.e((string) __('seo-content-ai::filament.projects.compact_success_stat_items', [
+                'count' => (int) ($totals['items'] ?? 0),
+            ])).'</li>'
+            .'<li>'.e((string) __('seo-content-ai::filament.projects.compact_success_stat_success', [
+                'count' => (int) ($totals['success'] ?? 0),
+            ])).'</li>'
+            .'<li>'.e((string) __('seo-content-ai::filament.projects.compact_success_stat_non_success', [
+                'count' => (int) ($totals['non_success'] ?? 0),
+            ])).'</li>'
+            .'<li>'.e((string) __('seo-content-ai::filament.projects.compact_success_stat_skipped', [
+                'count' => (int) ($totals['locked_skipped'] ?? 0),
+            ])).'</li>'
+            .'</ul>';
+
+        $html .= '<div class="overflow-x-auto"><table class="w-full text-left text-xs">'
+            .'<thead><tr class="border-b border-gray-200 dark:border-gray-700">'
+            .'<th class="py-1 pr-2">'.e((string) __('seo-content-ai::filament.projects.compact_success_col_project')).'</th>'
+            .'<th class="py-1 pr-2">'.e((string) __('seo-content-ai::filament.projects.compact_success_col_writer')).'</th>'
+            .'<th class="py-1 pr-2">'.e((string) __('seo-content-ai::filament.projects.compact_success_col_before')).'</th>'
+            .'<th class="py-1 pr-2">'.e((string) __('seo-content-ai::filament.projects.compact_success_col_after')).'</th>'
+            .'<th class="py-1">'.e((string) __('seo-content-ai::filament.projects.compact_success_col_audit')).'</th>'
+            .'</tr></thead><tbody>';
+
+        $beforeById = [];
+        foreach (($plan['projects_before'] ?? []) as $row) {
+            if (is_array($row)) {
+                $beforeById[(int) ($row['project_id'] ?? 0)] = $row;
+            }
+        }
+        $afterById = [];
+        foreach (($plan['projects_after'] ?? []) as $row) {
+            if (is_array($row)) {
+                $afterById[(int) ($row['project_id'] ?? 0)] = $row;
+            }
+        }
+        $movesIn = [];
+        $movesOut = [];
+        foreach (($plan['moves'] ?? []) as $move) {
+            if (! is_array($move)) {
+                continue;
+            }
+            $to = (int) ($move['to_project_id'] ?? 0);
+            $from = (int) ($move['from_project_id'] ?? 0);
+            $movesIn[$to] = ($movesIn[$to] ?? 0) + 1;
+            $movesOut[$from] = ($movesOut[$from] ?? 0) + 1;
+        }
+
+        foreach ($beforeById as $projectId => $before) {
+            $after = $afterById[$projectId] ?? $before;
+            $html .= '<tr class="border-b border-gray-100 dark:border-gray-800">'
+                .'<td class="py-1 pr-2">'.e((string) ($before['name'] ?? '')).'</td>'
+                .'<td class="py-1 pr-2">'.e((string) ($before['writer_name'] ?? '')).'</td>'
+                .'<td class="py-1 pr-2 tabular-nums">'
+                .e((string) ((int) ($before['success_count'] ?? 0))).'S / '
+                .e((string) ((int) ($before['non_success_count'] ?? 0))).'N'
+                .'</td>'
+                .'<td class="py-1 pr-2 tabular-nums">'
+                .e((string) ((int) ($after['success_count'] ?? 0))).'S / '
+                .e((string) ((int) ($after['non_success_count'] ?? 0))).'N'
+                .' · +'.e((string) ((int) ($movesIn[$projectId] ?? 0)))
+                .' / −'.e((string) ((int) ($movesOut[$projectId] ?? 0)))
+                .'</td>'
+                .'<td class="py-1">'
+                .(! empty($after['audit_ready'])
+                    ? e((string) __('seo-content-ai::filament.projects.compact_success_audit_yes'))
+                    : e((string) __('seo-content-ai::filament.projects.compact_success_audit_no')))
+                .'</td>'
+                .'</tr>';
+        }
+        $html .= '</tbody></table></div>';
+
+        if (! empty($plan['already_compacted'])) {
+            $html .= '<p class="text-warning-600 dark:text-warning-400">'
+                .e((string) __('seo-content-ai::filament.projects.compact_success_already_done'))
+                .'</p>';
+        } elseif (empty($plan['can_execute'])) {
+            $html .= '<p class="text-warning-600 dark:text-warning-400">'
+                .e((string) __('seo-content-ai::filament.projects.compact_success_cannot_execute'))
+                .'</p>';
+        }
+
+        $html .= '</div>';
+
+        return $html;
     }
 
     public function updatedPlanningMonth(mixed $value): void

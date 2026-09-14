@@ -359,15 +359,37 @@ final class AiRoutingTargetService
             return $candidates;
         }
 
+        $health = new OpenRouterFreePoolHealthService();
+        // Circuit gate BEFORE expansion — hard-locked pools must not enumerate members.
+        $expandable = [];
+        $blocked = 0;
+        foreach ($candidates as $candidate) {
+            if (! $candidate->isFree) {
+                $expandable[] = $candidate;
+
+                continue;
+            }
+            $provider = (string) $candidate->connection->provider;
+            if ($provider === \Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders::OPENROUTER
+                && ! $health->allowsMemberExpansion($candidate->connection)
+            ) {
+                $blocked++;
+
+                continue;
+            }
+            $expandable[] = $candidate;
+        }
+        $this->lastEligibilityDiagnostics['free_pool_anchors_blocked_before_expand'] = $blocked;
+
         $pool = new OpenRouterFreePoolService();
-        $expanded = $pool->expandFreeRouterCandidates($userId, $area, $candidates);
+        $expanded = $pool->expandFreeRouterCandidates($userId, $area, $expandable);
         $diag = $pool->lastExpansionDiagnostics();
         if ($diag !== []) {
             $this->lastEligibilityDiagnostics = array_merge($this->lastEligibilityDiagnostics, $diag);
         }
 
         $beforeCircuit = count($expanded);
-        $expanded = (new OpenRouterFreePoolHealthService())->filterCandidatesForCircuit($expanded);
+        $expanded = $health->filterCandidatesForCircuit($expanded);
         $this->lastEligibilityDiagnostics['free_pool_after_circuit'] = count($expanded);
         $this->lastEligibilityDiagnostics['free_pool_circuit_skipped'] = max(0, $beforeCircuit - count($expanded));
 

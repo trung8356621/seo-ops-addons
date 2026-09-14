@@ -4,12 +4,13 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\Services;
 
+use App\Models\WpOption;
 use Omnichannel\Addons\AiPrompt\Models\SeoAiModel;
 use Omnichannel\Addons\AiPrompt\Support\AiModelArea;
 
 /**
  * One-shot migrate: free models leave paid text tabs → Free Models area.
- * Preserves relative order; does not reshuffle paid priorities.
+ * Preserves relative order; does not reshuffle paid priorities after META_FLAG.
  */
 final class AiFreeModelsAreaMigrator
 {
@@ -25,10 +26,16 @@ final class AiFreeModelsAreaMigrator
             return false;
         }
 
+        if ($this->isMigrated($userId)) {
+            // Repair only: strip accidental free leftovers from paid tabs — no Free Models reorder.
+            $this->stripFreeFromPaidAreas($userId, reorderFreeModels: false);
+
+            return false;
+        }
+
         $moved = [];
         $rank = 1;
 
-        // Collect free models currently on paid text areas, in area order then priority.
         foreach (AiModelArea::paidTextCases() as $area) {
             foreach ($this->priorities->areaEnabledModels($userId, $area) as $model) {
                 if (! $this->isFreeModel($model)) {
@@ -44,31 +51,59 @@ final class AiFreeModelsAreaMigrator
         }
 
         if ($moved === []) {
-            // Still strip any free leftovers that somehow remain enabled on paid tabs.
-            $this->stripFreeFromPaidAreas($userId);
+            $this->stripFreeFromPaidAreas($userId, reorderFreeModels: false);
+            $this->stripPaidFromFreeArea($userId);
+            $this->markMigrated($userId);
 
             return false;
         }
 
-        // Enable on Free Models in collected order.
         $orderedIds = array_keys($moved);
-        $this->priorities->appendToArea($userId, AiModelArea::FreeModels, $orderedIds);
-        // Re-apply exact ranks.
-        $this->priorities->reorderArea($userId, AiModelArea::FreeModels, $orderedIds);
+        // Append into Free Models preserving existing Free Models ranks; then rank only newcomers
+        // relative to each other at the end — do not wipe prior Free Models order.
+        $existingFree = array_map(
+            static fn (SeoAiModel $m): int => (int) $m->id,
+            $this->priorities->areaEnabledModels($userId, AiModelArea::FreeModels),
+        );
+        $newOnly = array_values(array_filter(
+            $orderedIds,
+            static fn (int $id): bool => ! in_array($id, $existingFree, true),
+        ));
+        if ($newOnly !== []) {
+            $this->priorities->appendToArea($userId, AiModelArea::FreeModels, $newOnly);
+        }
 
-        // Remove free from paid text areas (keep paid order untouched).
         foreach (AiModelArea::paidTextCases() as $area) {
             $this->priorities->removeFromArea($userId, $area, $orderedIds);
         }
 
-        // Remove paid models that may have been wrongly placed on Free Models.
         $this->stripPaidFromFreeArea($userId);
+        $this->markMigrated($userId);
 
         return true;
     }
 
-    private function stripFreeFromPaidAreas(int $userId): void
+    public function isMigrated(int $userId): bool
     {
+        return (bool) WpOption::get($this->optionKey($userId), false);
+    }
+
+    private function markMigrated(int $userId): void
+    {
+        WpOption::set($this->optionKey($userId), true);
+    }
+
+    private function optionKey(int $userId): string
+    {
+        return self::META_FLAG.'.'.$userId;
+    }
+
+    /**
+     * @param  bool  $reorderFreeModels  Must stay false after META_FLAG (no Free Models reorder).
+     */
+    private function stripFreeFromPaidAreas(int $userId, bool $reorderFreeModels = false): void
+    {
+        unset($reorderFreeModels);
         foreach (AiModelArea::paidTextCases() as $area) {
             $freeIds = [];
             foreach ($this->priorities->areaEnabledModels($userId, $area) as $model) {
@@ -76,9 +111,20 @@ final class AiFreeModelsAreaMigrator
                     $freeIds[] = (int) $model->id;
                 }
             }
-            if ($freeIds !== []) {
-                $this->priorities->removeFromArea($userId, $area, $freeIds);
-                $this->priorities->appendToArea($userId, AiModelArea::FreeModels, $freeIds);
+            if ($freeIds === []) {
+                continue;
+            }
+            $this->priorities->removeFromArea($userId, $area, $freeIds);
+            $already = [];
+            foreach ($this->priorities->areaEnabledModels($userId, AiModelArea::FreeModels) as $model) {
+                $already[(int) $model->id] = true;
+            }
+            $toAppend = array_values(array_filter(
+                $freeIds,
+                static fn (int $id): bool => ! isset($already[$id]),
+            ));
+            if ($toAppend !== []) {
+                $this->priorities->appendToArea($userId, AiModelArea::FreeModels, $toAppend);
             }
         }
     }

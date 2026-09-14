@@ -304,13 +304,15 @@ final class FreePaidRoutingAndFreePoolHealthTest extends TestCase
         $conn = $this->connection(17, 'OR-H');
         $meta = [
             OpenRouterFreePoolHealthService::META_KEY => [
-                'free_pool_state' => FreePoolHealthState::WaitingProbe->value,
+                'free_pool_state' => FreePoolHealthState::HardLocked->value,
                 'free_pool_lock_until' => Carbon::now()->subMinute()->toIso8601String(),
+                'next_probe_at' => Carbon::now()->subMinute()->toIso8601String(),
             ],
         ];
         $conn->metadata = $meta;
         $conn->save();
 
+        $this->assertTrue($this->poolHealth->tryClaimProbe($conn->fresh()));
         $this->poolHealth->recordQualifyingFailure(
             17,
             $this->freeCandidate($conn->fresh(), 'probe:free', 1),

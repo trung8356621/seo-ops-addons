@@ -872,7 +872,8 @@ final class AiCenterModelPresenter
             AiModelArea::Text,
             AiModelArea::TextFast,
             AiModelArea::TextLongform,
-            AiModelArea::TextReasoning => in_array($family->modality, ['text', 'multimodal'], true),
+            AiModelArea::TextReasoning,
+            AiModelArea::FreeModels => in_array($family->modality, ['text', 'multimodal'], true),
             AiModelArea::Image => in_array($family->modality, ['image', 'multimodal'], true),
             AiModelArea::Video => in_array($family->modality, ['video', 'multimodal'], true),
         };
@@ -912,8 +913,8 @@ final class AiCenterModelPresenter
             AiModelArea::Text,
             AiModelArea::TextFast,
             AiModelArea::TextLongform,
-            AiModelArea::TextReasoning => ! $hintsImage && ! $hintsVideo,
-            default => ! $hintsImage && ! $hintsVideo,
+            AiModelArea::TextReasoning,
+            AiModelArea::FreeModels => ! $hintsImage && ! $hintsVideo,
         };
     }
 
