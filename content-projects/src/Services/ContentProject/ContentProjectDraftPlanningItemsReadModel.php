@@ -215,20 +215,33 @@ final class ContentProjectDraftPlanningItemsReadModel
 
         $postTypeRaw = SeoProjectTask::normalizePostType($task->post_type ?? null);
         $isProductPostType = $postTypeRaw === SeoProjectTask::POST_TYPE_PRODUCT;
+        $isCreate = SeoProjectTask::isNewArticleType($type);
+        $isRewriteFamily = in_array($type, [SeoProjectTask::TYPE_REWRITE, SeoProjectTask::TYPE_IMPROVE], true);
 
-        // Global planning brief: secondary_description (Create/AI).
-        // Product gallery / product-specific brief: task.description — only when post_type=product.
+        // Create planning brief (editable): secondary_description.
+        // Rewrite/Improve SEO Audit reason (read-only): task.description / rewrite_notes — not a writing brief.
+        // Product gallery brief: task.description only when post_type=product (Create).
         $secondaryDescription = trim((string) ($task->secondary_description ?? ''));
         $taskDescription = trim((string) ($task->description ?? ''));
-        $description = $secondaryDescription;
-        if ($description === '' && ! $isProductPostType) {
-            // Legacy Post/Rewrite fallback — never steal Product gallery into global line.
-            $description = $taskDescription;
+        $rewriteNotes = trim((string) ($task->rewrite_notes ?? ''));
+
+        $planningDescription = null;
+        $rewriteReason = null;
+        if ($isCreate) {
+            $planningDescription = $secondaryDescription;
+            if ($planningDescription === '' && ! $isProductPostType) {
+                // Legacy Create fallback — never steal Product gallery into planning brief.
+                $planningDescription = $taskDescription;
+            }
+            $planningDescription = $planningDescription !== '' ? $planningDescription : null;
+        } elseif ($isRewriteFamily) {
+            $rewriteReason = $taskDescription !== '' ? $taskDescription : $rewriteNotes;
+            $rewriteReason = $rewriteReason !== '' ? $rewriteReason : null;
         }
-        if ($description === '' && in_array($type, [SeoProjectTask::TYPE_REWRITE, SeoProjectTask::TYPE_IMPROVE], true)) {
-            $description = trim((string) ($task->rewrite_notes ?? ''));
-        }
+
         $productDescription = ($isProductPostType && $taskDescription !== '') ? $taskDescription : null;
+        // Display convenience: Create → planning brief; Rewrite/Improve → SEO reason (never both).
+        $description = $isCreate ? $planningDescription : $rewriteReason;
 
         $keyword = trim((string) ($task->keyword ?? $task->source_content ?? ''));
         $plannerRunId = ($origin instanceof SeoContentProjectItemOrigin && (int) ($origin->planner_run_id ?? 0) > 0)
@@ -271,7 +284,10 @@ final class ContentProjectDraftPlanningItemsReadModel
             'title' => $title,
             'site_id' => $resolvedSiteId > 0 ? $resolvedSiteId : null,
             'domain' => $this->resolveItemDomain($task),
-            'description' => $description !== '' ? $description : null,
+            'planning_description' => $planningDescription,
+            'rewrite_reason' => $rewriteReason,
+            'description' => $description,
+            'can_edit_description' => $isCreate,
             'product_description' => $productDescription,
             'keyword' => $keyword !== '' ? $keyword : null,
             'icon_kind' => $iconKind,

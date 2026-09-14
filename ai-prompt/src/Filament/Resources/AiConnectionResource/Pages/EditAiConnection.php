@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\AiPrompt\Filament\Resources\AiConnectionResource\Pa
 
 use Omnichannel\Addons\AiPrompt\Filament\Resources\AiConnectionResource;
 use Omnichannel\Addons\Seo\Filament\Resources\Pages\SeoEditRecord;
+use Omnichannel\Addons\AiPrompt\Services\AiModelCatalogFreshnessService;
 use Omnichannel\Addons\AiPrompt\Services\AiModelRouterService;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionFormSchema;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
@@ -84,7 +85,15 @@ class EditAiConnection extends SeoEditRecord
                 ->icon('heroicon-o-arrow-path')
                 ->visible(fn (): bool => ApiConnectionProviders::isAi((string) $this->record->provider))
                 ->action(function (): void {
-                    $ok = app(AiModelRouterService::class)->syncModelsForConnection((int) $this->record->id);
+                    $result = app(AiModelCatalogFreshnessService::class)->requestRefresh(
+                        $this->record,
+                        (int) auth()->id(),
+                        forced: true,
+                        blocking: true,
+                        respectForcedDebounce: false,
+                    );
+                    $ok = (bool) ($result['ok'] ?? false)
+                        || (($result['reason'] ?? '') === 'already_fresh');
                     $coverageAdded = 0;
                     if ($ok) {
                         try {
@@ -108,7 +117,7 @@ class EditAiConnection extends SeoEditRecord
 
                     Notification::make()
                         ->title('Sync failed')
-                        ->body('Check API key and provider (Gemini / Claude).')
+                        ->body('Check API key and provider. Last-known-good catalog was preserved.')
                         ->danger()
                         ->send();
                 }),
@@ -186,7 +195,13 @@ class EditAiConnection extends SeoEditRecord
                 ->unlockConnectionForApiConnection((int) $this->record->id);
         }
 
-        app(AiModelRouterService::class)->syncModelsForConnection((int) $this->record->id);
+        app(AiModelCatalogFreshnessService::class)->requestRefresh(
+            $this->record,
+            (int) auth()->id(),
+            forced: true,
+            blocking: true,
+            respectForcedDebounce: false,
+        );
         app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionInventoryService::class)->forgetCache();
         app(\Omnichannel\Addons\AiPrompt\Services\AiConnectionCoverageService::class)
             ->reconcileAllAreas((int) auth()->id());

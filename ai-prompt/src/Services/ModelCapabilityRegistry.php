@@ -183,6 +183,7 @@ final class ModelCapabilityRegistry
 
     /**
      * DeepSeek (and other text-only providers) never claim multimedia.
+     * Prefer {@see BuiltInModelCapabilityCatalog::deepseekCapabilitiesFor()} via forProviderModel.
      *
      * @return list<string>|null
      */
@@ -192,16 +193,7 @@ final class ModelCapabilityRegistry
             return null;
         }
 
-        if ($model === '' || str_contains($model, 'image') || str_contains($model, 'video')) {
-            return [];
-        }
-
-        $caps = [AiModelCapability::TextGenerate->value];
-        if (str_contains($model, 'reason')) {
-            $caps[] = AiModelCapability::TextReasoning->value;
-        }
-
-        return $caps;
+        return BuiltInModelCapabilityCatalog::deepseekCapabilitiesFor($model) ?? [];
     }
 
     /**

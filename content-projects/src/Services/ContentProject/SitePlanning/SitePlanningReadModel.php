@@ -5,16 +5,12 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning;
 
 use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectPlannerRun;
-use Omnichannel\Addons\ContentProjects\Models\SeoProject;
-use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectMonthlyWorkloadService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\McpPlanning\McpPlanningSignalService;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\VocabularySuggestStagingQuery;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
-use App\Models\Site;
 use Carbon\Carbon;
 use Carbon\CarbonImmutable;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -30,14 +26,16 @@ final class SitePlanningReadModel
 
     /**
      * @return array{
-     *     months: list<array{key: string, label: string, is_current: bool}>,
-     *     rows: list<array<string, mixed>>,
-     *     selected_site_id: int|null,
-     *     detail: array<string, mixed>|null
+     *     months: list<array{key: string, label: string, year: int, month: string, is_current: bool}>,
+     *     year_groups: list<array{year: int, span: int}>,
+     *     rows: list<array<string, mixed>>
      * }
      */
     public function overview(?int $selectedSiteId = null, CarbonImmutable|Carbon|string|null $now = null): array
     {
+        // $selectedSiteId retained for call-site compat; compact table has no detail pane.
+        unset($selectedSiteId);
+
         $anchor = CarbonImmutable::parse($now ?? now())->startOfMonth();
         $months = $this->monthWindow($anchor);
         $sites = SeoAccessControl::accessibleSitesQuery()
@@ -63,13 +61,14 @@ final class SitePlanningReadModel
             $siteId = (int) $site->getKey();
             $domain = trim((string) ($site->domain ?? ''));
             $target = $this->targets->forSite($site);
-            $ideaStats = $this->ideaStats($siteId);
             $monthCells = [];
             foreach ($months as $month) {
                 $planned = (int) ($plannedBySiteMonth[$siteId][$month['key']] ?? 0);
                 $monthCells[] = [
                     'key' => $month['key'],
                     'label' => $month['label'],
+                    'year' => $month['year'],
+                    'month' => $month['month'],
                     'is_current' => $month['is_current'],
                     'planned' => $planned,
                     'target' => $target,
@@ -81,37 +80,21 @@ final class SitePlanningReadModel
             $rows[] = [
                 'site_id' => $siteId,
                 'domain' => $domain !== '' ? $domain : '#'.$siteId,
-                'ideas_total' => $ideaStats['total'],
-                'ideas_new' => $ideaStats['new'],
-                'mcp_score' => null,
                 'mcp_planning_count' => (int) ($mcpBySite[$siteId] ?? 0),
                 'monthly_target' => $target,
                 'months' => $monthCells,
             ];
         }
 
-        $selected = $selectedSiteId !== null && $selectedSiteId > 0
-            ? $selectedSiteId
-            : (int) (($rows[0]['site_id'] ?? 0));
-
-        $detail = null;
-        foreach ($rows as $row) {
-            if ((int) $row['site_id'] === $selected) {
-                $detail = $this->detailForRow($row);
-                break;
-            }
-        }
-
         return [
             'months' => $months,
+            'year_groups' => $this->yearGroups($months),
             'rows' => $rows,
-            'selected_site_id' => $selected > 0 ? $selected : null,
-            'detail' => $detail,
         ];
     }
 
     /**
-     * @return list<array{key: string, label: string, is_current: bool}>
+     * @return list<array{key: string, label: string, year: int, month: string, is_current: bool}>
      */
     public function monthWindow(CarbonImmutable|Carbon|string|null $now = null): array
     {
@@ -122,11 +105,38 @@ final class SitePlanningReadModel
             $window[] = [
                 'key' => $month->format('Y-m-d'),
                 'label' => $month->format('m/Y'),
+                'year' => (int) $month->year,
+                'month' => $month->format('m'),
                 'is_current' => $offset === 0,
             ];
         }
 
         return $window;
+    }
+
+    /**
+     * Consecutive months sharing a calendar year → header colspan.
+     *
+     * @param  list<array{year: int}>  $months
+     * @return list<array{year: int, span: int}>
+     */
+    public function yearGroups(array $months): array
+    {
+        $groups = [];
+        foreach ($months as $month) {
+            $year = (int) ($month['year'] ?? 0);
+            if ($year <= 0) {
+                continue;
+            }
+            $last = $groups === [] ? null : array_key_last($groups);
+            if ($last !== null && (int) $groups[$last]['year'] === $year) {
+                $groups[$last]['span']++;
+                continue;
+            }
+            $groups[] = ['year' => $year, 'span' => 1];
+        }
+
+        return $groups;
     }
 
     /**
@@ -196,57 +206,5 @@ final class SitePlanningReadModel
         }
 
         return max(0, (int) ($run->requested_quantity ?? 0));
-    }
-
-    /**
-     * @param  array<string, mixed>  $row
-     * @return array<string, mixed>
-     */
-    private function detailForRow(array $row): array
-    {
-        $siteId = (int) ($row['site_id'] ?? 0);
-        $draftReviewed = 0;
-        $executionPending = 0;
-
-        if ($siteId > 0 && Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'planning_reviewed_at')) {
-            $draftQuery = DB::connection('omi_seo_ai')
-                ->table('seo_project_tasks as t')
-                ->join('seo_projects as p', 'p.id', '=', 't.project_id')
-                ->where('p.status', SeoProject::STATUS_DRAFT)
-                ->whereNull('p.archived_at')
-                ->whereNull('t.archived_at')
-                ->whereNotNull('t.planning_reviewed_at')
-                ->where('t.site_id', $siteId)
-                ->where('t.status', '!=', SeoProjectTask::STATUS_CANCELLED);
-            if (Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'deleted_at')) {
-                $draftQuery->whereNull('t.deleted_at');
-            }
-            $draftReviewed = (int) $draftQuery->count();
-
-            $pendingQuery = DB::connection('omi_seo_ai')
-                ->table('seo_project_tasks as t')
-                ->join('seo_projects as p', 'p.id', '=', 't.project_id')
-                ->where('p.status', '!=', SeoProject::STATUS_DRAFT)
-                ->whereNull('p.archived_at')
-                ->whereNull('t.archived_at')
-                ->where('t.site_id', $siteId)
-                ->where('t.status', SeoProjectTask::STATUS_PENDING);
-            if (Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'deleted_at')) {
-                $pendingQuery->whereNull('t.deleted_at');
-            }
-            $executionPending = (int) $pendingQuery->count();
-        }
-
-        return [
-            'site_id' => $siteId,
-            'domain' => $row['domain'],
-            'mcp_planning_count' => (int) ($row['mcp_planning_count'] ?? 0),
-            'ideas_total' => (int) ($row['ideas_total'] ?? 0),
-            'ideas_new' => (int) ($row['ideas_new'] ?? 0),
-            'monthly_target' => (int) ($row['monthly_target'] ?? 0),
-            'months' => $row['months'] ?? [],
-            'draft_reviewed' => $draftReviewed,
-            'execution_pending' => $executionPending,
-        ];
     }
 }

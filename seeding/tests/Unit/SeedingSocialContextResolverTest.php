@@ -101,4 +101,21 @@ final class SeedingSocialContextResolverTest extends TestCase
             'url' => 'https://completely-unknown-domain-999.xyz/unknown-post',
         ]);
     }
+
+    public function test_g_blank_source_type_with_content_and_url_prefers_text(): void
+    {
+        $canonical = $this->resolver->determineCanonicalSourceType([
+            'source_type' => 'threads',
+            'content' => 'Nội dung text ưu tiên',
+            'url' => 'https://example.com/post',
+        ]);
+        self::assertSame('text', $canonical);
+
+        $context = $this->resolver->resolve([
+            'source_type' => 'threads',
+            'content' => 'Nội dung text ưu tiên',
+            'url' => 'https://example.com/post',
+        ]);
+        self::assertSame('Nội dung text ưu tiên', $context);
+    }
 }

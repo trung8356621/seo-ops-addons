@@ -126,7 +126,10 @@ final class AiRuntimeRoutingRefactorTest extends TestCase
         $this->assertTrue($this->registry->supports($connection, 'deepseek-chat', AiModelCapability::TextGenerate->value));
         $this->assertFalse($this->registry->supports($connection, 'deepseek-chat', AiModelCapability::ImageGenerate->value));
         $this->assertFalse($this->registry->supports($connection, 'deepseek-chat', AiModelCapability::VideoGenerate->value));
+        $this->assertFalse($this->registry->supports($connection, 'deepseek-chat', AiModelCapability::TextReasoning->value));
         $this->assertTrue($this->registry->supports($connection, 'deepseek-reasoner', AiModelCapability::TextReasoning->value));
+        $this->assertTrue($this->registry->supports($connection, 'deepseek-flash', AiModelCapability::TextReasoning->value));
+        $this->assertTrue($this->registry->supports($connection, 'deepseek-v4-pro', AiModelCapability::TextGenerate->value));
     }
 
     public function test_unknown_model_cannot_claim_multimedia(): void

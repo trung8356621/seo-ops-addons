@@ -153,6 +153,8 @@ final class AiRuntimeHealthService
 
     public function recordFailure(int $userId, RoutedAiCandidate $candidate, AiFailureDecision $decision): void
     {
+        $this->maybeRefreshCatalogOnStrongStale($userId, $candidate, $decision);
+
         if ($candidate->isFree) {
             $this->recordFreePoolHealthFailure($userId, $candidate, $decision);
         }
@@ -548,7 +550,20 @@ final class AiRuntimeHealthService
         $pool = new OpenRouterFreePoolHealthService();
         $eligible = $this->estimateEligibleFreePoolSize($userId, $candidate);
         $pool->recordQualifyingFailure($userId, $candidate, $decision, $eligible);
-        $pool->maybeForceCatalogResyncOnStrongStale($candidate->connection, $decision, $userId);
+    }
+
+    private function maybeRefreshCatalogOnStrongStale(
+        int $userId,
+        RoutedAiCandidate $candidate,
+        AiFailureDecision $decision,
+    ): void {
+        try {
+            $catalog = function_exists('app') && app()->bound(AiModelCatalogFreshnessService::class)
+                ? app(AiModelCatalogFreshnessService::class)
+                : new AiModelCatalogFreshnessService();
+            $catalog->onStrongStaleModelError($candidate->connection, $decision, $userId);
+        } catch (\Throwable) {
+        }
     }
 
     private function estimateEligibleFreePoolSize(int $userId, RoutedAiCandidate $candidate): int

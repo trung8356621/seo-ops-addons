@@ -68,6 +68,7 @@ final class SeedingServiceProvider extends ServiceProvider
         $this->app->singleton(SeedingReportService::class);
         $this->app->singleton(WebsiteShareJobService::class);
         $this->app->singleton(SeedingCommentGenerateService::class);
+        $this->app->singleton(\Omnichannel\Addons\Seeding\Services\SeedingSocialContextResolver::class);
         $this->app->singleton(SeedingOutboundUrlPolicy::class);
         $this->app->singleton(SeedingLinkPreviewService::class);
         $this->app->singleton(SeedingTopicAuthorization::class);

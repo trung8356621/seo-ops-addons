@@ -28,6 +28,11 @@ final class ClaudeMessagesClient
 
     private const MAX_OUTPUT_TOKENS = 8192;
 
+    /**
+     * Dev/bootstrap label only — production routing must pass an explicit model.
+     *
+     * @deprecated Do not use as production routing fallback.
+     */
     private const DEFAULT_MODEL = 'claude-sonnet-4-20250514';
 
     /**
@@ -40,7 +45,12 @@ final class ClaudeMessagesClient
             throw new PromptRunException('Kết nối Claude chưa có API Key.');
         }
 
-        $modelName = trim($model) !== '' ? trim($model) : self::DEFAULT_MODEL;
+        $modelName = trim($model);
+        if ($modelName === '') {
+            throw new PromptRunException(
+                'Thiếu model Claude từ routing. Đồng bộ catalog từ provider rồi chọn model trong AI Center.',
+            );
+        }
         $omitCeiling = \Omnichannel\Addons\AiPrompt\Support\ArticleOutboundCeilingPolicy::shouldOmitApplicationCeiling($options);
 
         if (! $omitCeiling && function_exists('app') && app()->bound(\Omnichannel\Addons\AiPrompt\Services\PromptBudgetPreflightService::class)) {

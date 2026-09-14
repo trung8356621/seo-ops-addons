@@ -52,11 +52,15 @@ final class ContentProjectCompactSuccessService
     public function domainOptionsForMonth(string $monthYyyyMm): array
     {
         $monthDate = ContentProjectMonthContext::toDateString($monthYyyyMm);
-        $siteIds = SeoProjectTask::query()
-            ->from('seo_project_tasks as t')
+
+        // Query builder (not Eloquent): SoftDeletes would emit seo_project_tasks.deleted_at
+        // while the table is aliased as `t`, which MySQL rejects.
+        $siteIds = DB::connection((new SeoProjectTask)->getConnectionName())
+            ->table('seo_project_tasks as t')
             ->join('seo_projects as p', 'p.id', '=', 't.project_id')
             ->whereNull('t.archived_at')
             ->whereNull('p.archived_at')
+            ->whereNull('t.deleted_at')
             ->whereDate('p.month', $monthDate)
             ->where(function ($q): void {
                 $q->where('p.kind', SeoProject::KIND_MONTHLY)->orWhereNull('p.kind');
@@ -325,11 +329,13 @@ final class ContentProjectCompactSuccessService
             ->where('status', '!=', SeoProject::STATUS_DRAFT)
             ->whereNull('archived_at')
             ->whereIn('id', function ($sub) use ($siteId, $monthDate): void {
+                // Query builder subquery (no SoftDeletes scope) — qualify deleted_at via alias.
                 $sub->select('t.project_id')
                     ->from('seo_project_tasks as t')
                     ->join('seo_projects as p', 'p.id', '=', 't.project_id')
                     ->where('t.site_id', $siteId)
                     ->whereNull('t.archived_at')
+                    ->whereNull('t.deleted_at')
                     ->whereDate('p.month', $monthDate);
             })
             ->with(['user'])

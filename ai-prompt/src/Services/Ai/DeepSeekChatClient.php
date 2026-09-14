@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Http;
 use Omnichannel\Addons\AiPrompt\Services\AiOutboundBudgetGate;
 use Omnichannel\Addons\AiPrompt\Services\PromptBudgetPreflightService;
 use Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\ProviderConnectionResolver;
+use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
 
 /**
  * OpenAI-compatible DeepSeek Chat Completions client.
@@ -19,8 +20,6 @@ final class DeepSeekChatClient
     public const DEFAULT_BASE_URL = 'https://api.deepseek.com';
 
     private const HTTP_TIMEOUT_SECONDS = 180;
-
-    private const DEFAULT_MODEL = 'deepseek-chat';
 
     /**
      * @param  array<string, mixed>  $options
@@ -32,7 +31,13 @@ final class DeepSeekChatClient
             throw new PromptRunException('Kết nối DeepSeek chưa có API Key.');
         }
 
-        $modelName = trim($model) !== '' ? trim($model) : self::DEFAULT_MODEL;
+        $modelName = trim($model);
+        if ($modelName === '') {
+            throw new PromptRunException(
+                'Thiếu model DeepSeek từ routing. Đồng bộ catalog từ provider /models rồi chọn model trong AI Center.',
+            );
+        }
+
         $baseUrl = rtrim($this->baseUrl($connection), '/');
         $url = $baseUrl.'/chat/completions';
 
@@ -71,9 +76,7 @@ final class DeepSeekChatClient
             $options['budget_plan_id'] = $plan->planId;
         }
 
-        if (isset($options['thinking']) && $options['thinking'] === 'disabled' && $modelName === 'deepseek-reasoner') {
-            // Reasoner always thinks; documented no-op kept for routing options compatibility.
-        }
+        $this->applyThinkingMode($payload, $modelName, $options);
 
         $response = Http::timeout(self::HTTP_TIMEOUT_SECONDS)
             ->acceptJson()
@@ -132,7 +135,7 @@ final class DeepSeekChatClient
             }
             $models[] = [
                 'id' => $id,
-                'display_name' => (string) ($row['owned_by'] ?? $id),
+                'display_name' => $id,
             ];
         }
 
@@ -150,5 +153,42 @@ final class DeepSeekChatClient
         }
 
         return self::DEFAULT_BASE_URL;
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @param  array<string, mixed>  $options
+     */
+    private function applyThinkingMode(array &$payload, string $modelName, array $options): void
+    {
+        $lower = strtolower($modelName);
+        // Legacy reasoner always thinks; documented no-op for disable.
+        if ($lower === 'deepseek-reasoner') {
+            return;
+        }
+
+        $thinking = $options['thinking'] ?? null;
+        $explicitEnable = $thinking === 'enabled'
+            || $thinking === true
+            || (is_array($thinking) && ($thinking['type'] ?? '') === 'enabled');
+        $explicitDisable = $thinking === 'disabled'
+            || $thinking === false
+            || (is_array($thinking) && ($thinking['type'] ?? '') === 'disabled');
+
+        $profile = strtolower(trim((string) ($options['execution_profile'] ?? '')));
+        $hook = strtolower(trim((string) ($options['hook_key'] ?? '')));
+        $reasoningContext = $profile === AiExecutionProfile::TextReasoning->value
+            || str_contains($hook, 'outline')
+            || str_contains($hook, 'vocabulary');
+
+        if ($explicitDisable) {
+            $payload['thinking'] = ['type' => 'disabled'];
+
+            return;
+        }
+
+        if ($explicitEnable || $reasoningContext) {
+            $payload['thinking'] = ['type' => 'enabled'];
+        }
     }
 }

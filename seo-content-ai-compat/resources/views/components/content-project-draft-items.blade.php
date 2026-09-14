@@ -50,6 +50,9 @@
             'id' => (int) ($row['id'] ?? 0),
             'title' => (string) ($row['title'] ?? ''),
             'description' => (string) ($row['description'] ?? ''),
+            'planning_description' => (string) ($row['planning_description'] ?? ''),
+            'rewrite_reason' => (string) ($row['rewrite_reason'] ?? ''),
+            'can_edit_description' => ! empty($row['can_edit_description']) || ((string) ($row['type'] ?? '') === 'create'),
             'product_description' => (string) ($row['product_description'] ?? ''),
             'keyword' => (string) ($row['keyword'] ?? ''),
             'site_id' => $siteId > 0 ? $siteId : null,
@@ -666,10 +669,15 @@
                 },
 
                 startEdit(row, field) {
+                    if (field === 'description' && !row.can_edit_description) {
+                        return;
+                    }
                     this.editing = row.id + ':' + field;
                     this.draft = field === 'title'
                         ? row.title
-                        : (field === 'keyword' ? row.keyword : row.description);
+                        : (field === 'keyword'
+                            ? row.keyword
+                            : (row.planning_description || row.description));
                     this.blurGuardUntil = Date.now() + 350;
                     this.$nextTick(() => {
                         const key = String(row.id) + '-' + field;
@@ -711,10 +719,17 @@
                     if (this.editing !== row.id + ':' + field) {
                         return;
                     }
+                    if (field === 'description' && !row.can_edit_description) {
+                        this.cancelEdit();
+
+                        return;
+                    }
                     const value = (this.draft || '').trim();
                     const prev = field === 'title'
                         ? row.title
-                        : (field === 'keyword' ? row.keyword : row.description);
+                        : (field === 'keyword'
+                            ? row.keyword
+                            : (row.planning_description || row.description));
                     if (field === 'title') {
                         row.title = value;
                     }
@@ -722,6 +737,7 @@
                         row.keyword = value;
                     }
                     if (field === 'description') {
+                        row.planning_description = value;
                         row.description = value;
                     }
                     this.blurGuardUntil = 0;
@@ -738,6 +754,7 @@
                             row.keyword = prev;
                         }
                         if (field === 'description') {
+                            row.planning_description = prev;
                             row.description = prev;
                         }
                     });
@@ -749,24 +766,31 @@
                     }
                     const postType = (raw.post_type === 'product') ? 'product' : 'post';
                     const siteId = raw.site_id ? Number(raw.site_id) : null;
+                    const type = String(raw.type || 'create');
+                    const planningDescription = String(raw.planning_description || '');
+                    const rewriteReason = String(raw.rewrite_reason || '');
+                    const description = String(raw.description || planningDescription || rewriteReason || '');
 
                     return {
                         id: Number(raw.id || 0),
                         title: String(raw.title || ''),
-                        description: String(raw.description || ''),
+                        description: description,
+                        planning_description: planningDescription,
+                        rewrite_reason: rewriteReason,
+                        can_edit_description: !!raw.can_edit_description || type === 'create',
                         product_description: String(raw.product_description || ''),
                         keyword: String(raw.keyword || ''),
                         site_id: siteId && siteId > 0 ? siteId : null,
                         domain: String(raw.domain || this.domainBlank),
                         planning_reviewed: !!raw.planning_reviewed,
-                        type: String(raw.type || 'create'),
+                        type: type,
                         icon_kind: String(raw.icon_kind || 'create'),
                         seo_score_label: String(raw.seo_score_label || '—'),
                         plan_label: String(raw.plan_label || 'Create'),
                         post_type: postType,
                         post_type_label: String(raw.post_type_label || this.postTypeLabelFor(postType)),
                         can_edit_post_type: !!raw.can_edit_post_type,
-                        can_clone_idea: !!raw.can_clone_idea || String(raw.type || '') === 'create',
+                        can_clone_idea: !!raw.can_clone_idea || type === 'create',
                         added_label: String(raw.added_label || '—'),
                         added_at: String(raw.added_at || ''),
                         title_href: String(raw.title_href || ''),
@@ -1096,8 +1120,10 @@
                                                 {{ trim((string) ($ssrRow['title'] ?? '')) !== '' ? $ssrRow['title'] : '—' }}
                                                 <span class="cp-plan-seo-inline"> · SEO {{ $ssrRow['seo_score_label'] }}</span>
                                             </div>
-                                            @if (($ssrRow['description'] ?? '') !== '')
-                                                <p class="mt-0.5 text-xs text-gray-500">{{ \Illuminate\Support\Str::limit((string) $ssrRow['description'], 160) }}</p>
+                                            @if (($ssrRow['planning_description'] ?? $ssrRow['description'] ?? '') !== '')
+                                                <p class="mt-0.5 text-xs text-gray-500">{{ \Illuminate\Support\Str::limit((string) ($ssrRow['planning_description'] ?? $ssrRow['description']), 160) }}</p>
+                                            @elseif (($ssrRow['rewrite_reason'] ?? '') !== '')
+                                                <p class="mt-0.5 text-xs text-gray-500">{{ \Illuminate\Support\Str::limit((string) $ssrRow['rewrite_reason'], 160) }}</p>
                                             @endif
                                             @if (($ssrRow['post_type'] ?? '') === 'product' && trim((string) ($ssrRow['product_description'] ?? '')) !== '')
                                                 <p class="mt-0.5 text-xs leading-snug text-gray-500 dark:text-gray-400">
@@ -1170,7 +1196,7 @@
                                                 </div>
                                             </template>
 
-                                            <template x-if="editing === row.id + ':description'">
+                                            <template x-if="row.can_edit_description && editing === row.id + ':description'">
                                                 <textarea
                                                     class="cp-plan-inline-textarea mt-1"
                                                     rows="3"
@@ -1181,11 +1207,17 @@
                                                     @blur="onEditBlur(row, 'description')"
                                                 ></textarea>
                                             </template>
-                                            <template x-if="editing !== row.id + ':description'">
+                                            <template x-if="row.can_edit_description && editing !== row.id + ':description'">
                                                 <div
                                                     class="mt-0.5 cursor-text text-xs leading-snug text-gray-500 dark:text-gray-400"
                                                     @dblclick.prevent="startEdit(row, 'description')"
-                                                    x-text="row.description || descriptionHint"
+                                                    x-text="row.planning_description || row.description || descriptionHint"
+                                                ></div>
+                                            </template>
+                                            <template x-if="!row.can_edit_description && (row.rewrite_reason || row.description)">
+                                                <div
+                                                    class="mt-0.5 text-xs leading-snug text-gray-500 dark:text-gray-400"
+                                                    x-text="row.rewrite_reason || row.description"
                                                 ></div>
                                             </template>
 

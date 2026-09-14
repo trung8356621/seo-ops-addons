@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\AiPrompt\Filament\Resources\AiConnectionResource\Pa
 
 use Omnichannel\Addons\AiPrompt\Filament\Resources\AiConnectionResource;
 use Omnichannel\Addons\Seo\Filament\Resources\Pages\SeoCreateRecord;
+use Omnichannel\Addons\AiPrompt\Services\AiModelCatalogFreshnessService;
 use Omnichannel\Addons\AiPrompt\Services\AiModelRouterService;
 use Omnichannel\Addons\SearchIntelligence\Services\DataForSeoConnectionService;
 use Omnichannel\Addons\SearchIntelligence\Services\GoogleSearchConsoleConnectionService;
@@ -137,7 +138,13 @@ class CreateAiConnection extends SeoCreateRecord
             $this->record->refresh();
         }
 
-        app(AiModelRouterService::class)->syncModelsForConnection((int) $this->record->id);
+        app(AiModelCatalogFreshnessService::class)->requestRefresh(
+            $this->record,
+            (int) auth()->id(),
+            forced: true,
+            blocking: true,
+            respectForcedDebounce: false,
+        );
         if ($this->record instanceof \App\Models\ApiConnection && ApiConnectionProviders::isAi((string) $this->record->provider)) {
             app(\Omnichannel\Addons\AiPrompt\Services\AiModelPriorityService::class)
                 ->assignBottomProviderPriority((int) auth()->id(), $this->record);

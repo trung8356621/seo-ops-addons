@@ -84,7 +84,8 @@ final class DraftPlanningItemsUxFinalizeTest extends TestCase
         self::assertStringContainsString('applyPlanningKeyword', $page);
         self::assertStringContainsString('$task->title', $page);
         self::assertStringContainsString('$task->keyword', $page);
-        self::assertStringContainsString('$task->description', $page);
+        self::assertStringContainsString('$task->secondary_description', $page);
+        self::assertStringContainsString('isNewArticleType($task->type)', $page);
     }
 
     public function test_read_model_exposes_keywords_issues_edit_article_without_state_label(): void
@@ -101,6 +102,9 @@ final class DraftPlanningItemsUxFinalizeTest extends TestCase
         self::assertStringNotContainsString('state_label', $src);
         self::assertStringContainsString("->with([", $src);
         self::assertStringContainsString("'itemOrigin'", $src);
+        self::assertStringContainsString("'planning_description'", $src);
+        self::assertStringContainsString("'rewrite_reason'", $src);
+        self::assertStringContainsString("'can_edit_description'", $src);
     }
 
     public function test_draft_items_ui_contract_inline_edit_full_width_no_state_no_modal(): void

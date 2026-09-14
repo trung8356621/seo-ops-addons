@@ -131,10 +131,11 @@ final class CanonicalAiTextExecutionService
 
             return [$output, is_array($usage) ? $usage : null, $candidate];
         } catch (\Omnichannel\Addons\AiPrompt\Exceptions\AiRoutesExhaustedException $e) {
-            if ($e->routingAttempts !== []) {
+            $exhaustedAttempts = $e->context['routing_attempts'] ?? [];
+            if (is_array($exhaustedAttempts) && $exhaustedAttempts !== []) {
                 try {
                     app(PromptExecutionPersistence::class)->recordRoutingAttempts(
-                        attempts: $e->routingAttempts,
+                        attempts: $exhaustedAttempts,
                         context: [
                             'canonical_prompt_key' => $context->canonicalPromptKey ?? $hookKey,
                             'hook_key' => $hookKey,
@@ -200,6 +201,7 @@ final class CanonicalAiTextExecutionService
                 : $desired,
             'budget_plan_id' => $budgetPlan->planId,
             'hook_key' => $hookKey,
+            'execution_profile' => $routed->profile,
         ]);
         // Production path must never bypass verified budget gate.
         unset($callOptions['allow_unverified_outbound']);

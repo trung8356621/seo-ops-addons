@@ -137,7 +137,20 @@ final class SeedingSocialContextResolver
             }
         }
 
-        // Priority 4: Controlled validation error if metadata cannot be found
+        // Priority 4: Existing article metadata matched by wp_permalink (title + meta description only)
+        if ($title === '' || $description === '') {
+            $fromArticle = $this->lookupArticleByPermalink($url);
+            if ($fromArticle !== null) {
+                if ($title === '' && ! empty($fromArticle['title'])) {
+                    $title = trim((string) $fromArticle['title']);
+                }
+                if ($description === '' && ! empty($fromArticle['description'])) {
+                    $description = trim((string) $fromArticle['description']);
+                }
+            }
+        }
+
+        // Priority 5: Controlled validation error if metadata cannot be found
         if ($title === '' && $description === '') {
             throw new InvalidArgumentException(
                 'Không tìm thấy tiêu đề hoặc mô tả cho liên kết này. Vui lòng nhập nội dung gợi ý.'
@@ -220,5 +233,92 @@ final class SeedingSocialContextResolver
         }
 
         return null;
+    }
+
+    /**
+     * Soft read of existing article title + meta description by observed WordPress permalink.
+     * Does not crawl; does not load article body/HTML.
+     *
+     * @return array{title: string|null, description: string|null}|null
+     */
+    private function lookupArticleByPermalink(string $url): ?array
+    {
+        try {
+            if (! function_exists('app') || ! app()->bound('db')) {
+                return null;
+            }
+
+            $connection = 'omi_seo_ai';
+            if (! Schema::connection($connection)->hasTable('article_metas')
+                || ! Schema::connection($connection)->hasTable('articles')) {
+                return null;
+            }
+
+            $variants = $this->urlLookupVariants($url);
+            if ($variants === []) {
+                return null;
+            }
+
+            $meta = DB::connection($connection)
+                ->table('article_metas')
+                ->where('meta_key', 'wp_permalink')
+                ->whereIn('meta_value', $variants)
+                ->orderByDesc('id')
+                ->first(['article_id', 'meta_value']);
+
+            if ($meta === null || (int) ($meta->article_id ?? 0) <= 0) {
+                return null;
+            }
+
+            $articleId = (int) $meta->article_id;
+            $article = DB::connection($connection)
+                ->table('articles')
+                ->where('id', $articleId)
+                ->first(['id', 'title']);
+
+            if ($article === null) {
+                return null;
+            }
+
+            $description = null;
+            $descRow = DB::connection($connection)
+                ->table('article_metas')
+                ->where('article_id', $articleId)
+                ->whereIn('meta_key', ['seo_meta_description', 'meta_description'])
+                ->orderByRaw("CASE meta_key WHEN 'seo_meta_description' THEN 0 ELSE 1 END")
+                ->first(['meta_value']);
+
+            if ($descRow !== null && is_string($descRow->meta_value ?? null)) {
+                $description = trim((string) $descRow->meta_value);
+            }
+
+            return [
+                'title' => isset($article->title) ? trim((string) $article->title) : null,
+                'description' => $description !== '' ? $description : null,
+            ];
+        } catch (Throwable) {
+            return null;
+        }
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function urlLookupVariants(string $url): array
+    {
+        $url = trim($url);
+        if ($url === '') {
+            return [];
+        }
+
+        $variants = [$url];
+        $trimmed = rtrim($url, '/');
+        if ($trimmed !== $url) {
+            $variants[] = $trimmed;
+        } else {
+            $variants[] = $url.'/';
+        }
+
+        return array_values(array_unique($variants));
     }
 }

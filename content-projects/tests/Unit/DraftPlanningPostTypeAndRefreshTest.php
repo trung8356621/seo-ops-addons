@@ -162,8 +162,9 @@ final class DraftPlanningPostTypeAndRefreshTest extends TestCase
             (string) (new ReflectionClass(ContentProjectSeoAuditPlanner::class))->getFileName(),
         );
 
-        self::assertStringContainsString("in_array(\$field, ['title', 'keyword', 'description'], true)", $src);
+        self::assertStringContainsString("in_array(\$field, ['title', 'keyword', 'description', 'site_id'], true)", $src);
         self::assertStringContainsString('applyPlanningKeyword', $src);
         self::assertStringContainsString('applyPlanningDescription', $src);
+        self::assertStringContainsString("\$field === 'description' && ! SeoProjectTask::isNewArticleType(\$task->type)", $src);
     }
 }

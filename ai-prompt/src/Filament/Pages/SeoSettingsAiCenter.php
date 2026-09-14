@@ -19,6 +19,8 @@ use Omnichannel\Addons\AiPrompt\Services\AiConnectionPresenter;
 use Omnichannel\Addons\AiPrompt\Services\AiExecutionTargetPresenter;
 use Omnichannel\Addons\AiPrompt\Services\AiFreeModelsAreaMigrator;
 use Omnichannel\Addons\AiPrompt\Services\AiHealthUiPresenter;
+use Omnichannel\Addons\AiPrompt\Services\AiModelCatalogFreshnessService;
+use Omnichannel\Addons\AiPrompt\Services\AiModelCatalogSettingsService;
 use Omnichannel\Addons\AiPrompt\Services\AiModelFamilyCatalog;
 use Omnichannel\Addons\AiPrompt\Services\AiModelInventory;
 use Omnichannel\Addons\AiPrompt\Services\AiModelPrimaryTypeClassifier;
@@ -110,6 +112,9 @@ class SeoSettingsAiCenter extends Page
 
     /** @var array<string, int|float|bool> */
     public array $freePoolResilience = [];
+
+    /** @var array<string, int|bool> */
+    public array $modelCatalogSettings = [];
 
     public bool $routingUnsaved = false;
 
@@ -556,11 +561,19 @@ class SeoSettingsAiCenter extends Page
         $this->testStages[$connectionId] = $tester->test($connection);
     }
 
-    public function syncConnection(int $connectionId, AiModelRouterService $router): void
+    public function syncConnection(int $connectionId, AiModelCatalogFreshnessService $catalog): void
     {
         $this->assertManager();
         $connection = $this->ownedConnection($connectionId);
-        $ok = $router->syncModelsForConnection((int) $connection->id);
+        $result = $catalog->requestRefresh(
+            $connection,
+            (int) auth()->id(),
+            forced: true,
+            blocking: true,
+            respectForcedDebounce: false,
+        );
+        $ok = (bool) ($result['ok'] ?? false)
+            || (($result['reason'] ?? '') === 'already_fresh');
         $coverageAdded = 0;
         if ($ok) {
             try {
@@ -1285,6 +1298,7 @@ class SeoSettingsAiCenter extends Page
         $this->maxAiAttempts = (int) $settings[AiResilienceSettingsService::KEY_MAX_AI_ATTEMPTS];
         $this->maxFreeAttempts = (int) $settings[AiResilienceSettingsService::KEY_MAX_FREE_ATTEMPTS];
         $this->freePoolResilience = app(FreePoolResilienceSettingsService::class)->get($userId);
+        $this->modelCatalogSettings = app(AiModelCatalogSettingsService::class)->get($userId);
     }
 
     public function saveResilienceSettings(AiResilienceSettingsService $settings): void
@@ -1300,6 +1314,10 @@ class SeoSettingsAiCenter extends Page
                 $userId,
                 is_array($this->freePoolResilience) ? $this->freePoolResilience : [],
             );
+            $this->modelCatalogSettings = app(AiModelCatalogSettingsService::class)->save(
+                $userId,
+                is_array($this->modelCatalogSettings) ? $this->modelCatalogSettings : [],
+            );
         } catch (\InvalidArgumentException $exception) {
             Notification::make()->title($exception->getMessage())->danger()->send();
 
@@ -1308,6 +1326,37 @@ class SeoSettingsAiCenter extends Page
         $this->maxAiAttempts = $saved[AiResilienceSettingsService::KEY_MAX_AI_ATTEMPTS];
         $this->maxFreeAttempts = $saved[AiResilienceSettingsService::KEY_MAX_FREE_ATTEMPTS];
         Notification::make()->title(__('seo-content-ai::filament.ai_center.resilience_saved'))->success()->send();
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function modelCatalogStatusRows(): array
+    {
+        $userId = (int) auth()->id();
+        $catalog = app(AiModelCatalogFreshnessService::class);
+        $rows = [];
+        foreach (app(AiModelPriorityService::class)->aiConnections($userId) as $connection) {
+            if (! $connection instanceof ApiConnection) {
+                continue;
+            }
+            $diag = $catalog->diagnostics($connection, $userId);
+            $rows[] = [
+                'connection_id' => $diag['connection_id'],
+                'name' => (string) $connection->name,
+                'provider' => $diag['provider'],
+                'authority_mode' => $diag['authority_mode'],
+                'status' => $diag['status'],
+                'last_success_at' => $diag['last_success_at'],
+                'catalog_age_seconds' => $diag['catalog_age_seconds'],
+                'active_count' => $diag['active_count'],
+                'catalog_count' => $diag['catalog_count'],
+                'last_error' => $diag['last_error'],
+                'syncing' => $diag['syncing'],
+            ];
+        }
+
+        return $rows;
     }
 
     /**

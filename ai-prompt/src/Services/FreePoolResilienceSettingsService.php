@@ -30,8 +30,15 @@ final class FreePoolResilienceSettingsService
 
     public const KEY_MAX_QUARANTINE_HOURS = 'free_model_max_quarantine_hours';
 
+    /**
+     * @deprecated Catalog TTL lives in {@see AiModelCatalogSettingsService}.
+     * Kept for one-release read-compat / migration only.
+     */
     public const KEY_CATALOG_FRESHNESS_HOURS = 'free_pool_catalog_freshness_hours';
 
+    /**
+     * @deprecated Forced sync debounce lives in {@see AiModelCatalogSettingsService}.
+     */
     public const KEY_FORCED_SYNC_MIN_INTERVAL_MINUTES = 'free_pool_forced_sync_min_interval_minutes';
 
     public const KEY_FIRST_PROBE_MINUTES = 'free_pool_first_probe_minutes';
@@ -96,8 +103,6 @@ final class FreePoolResilienceSettingsService
             self::KEY_QUARANTINE_FAILURE_THRESHOLD => 3,
             self::KEY_QUARANTINE_HOURS => 6,
             self::KEY_MAX_QUARANTINE_HOURS => 24,
-            self::KEY_CATALOG_FRESHNESS_HOURS => 6,
-            self::KEY_FORCED_SYNC_MIN_INTERVAL_MINUTES => 30,
             self::KEY_FIRST_PROBE_MINUTES => 30,
             self::KEY_PROBE_BACKOFF_MULTIPLIER => 2.0,
             self::KEY_MAX_PROBE_HOURS => 12,
@@ -178,18 +183,6 @@ final class FreePoolResilienceSettingsService
                 (int) $d[self::KEY_MAX_QUARANTINE_HOURS],
                 1,
                 720,
-            ),
-            self::KEY_CATALOG_FRESHNESS_HOURS => $int(
-                $settings[self::KEY_CATALOG_FRESHNESS_HOURS] ?? $d[self::KEY_CATALOG_FRESHNESS_HOURS],
-                (int) $d[self::KEY_CATALOG_FRESHNESS_HOURS],
-                1,
-                168,
-            ),
-            self::KEY_FORCED_SYNC_MIN_INTERVAL_MINUTES => $int(
-                $settings[self::KEY_FORCED_SYNC_MIN_INTERVAL_MINUTES] ?? $d[self::KEY_FORCED_SYNC_MIN_INTERVAL_MINUTES],
-                (int) $d[self::KEY_FORCED_SYNC_MIN_INTERVAL_MINUTES],
-                1,
-                24 * 60,
             ),
             self::KEY_FIRST_PROBE_MINUTES => $int(
                 $settings[self::KEY_FIRST_PROBE_MINUTES] ?? $d[self::KEY_FIRST_PROBE_MINUTES],

@@ -24,6 +24,17 @@ final class AiModelFamilyCatalog
     public function all(): array
     {
         return [
+            new AiModelFamily('deepseek.flash', 'DeepSeek Flash', ApiConnectionProviders::DEEPSEEK, 'text', [
+                'deepseek-flash',
+                'deepseek/deepseek-flash',
+                'deepseek-v4-flash',
+                'deepseek/deepseek-v4-flash',
+            ], 1, 3, 2),
+            new AiModelFamily('deepseek.v4_pro', 'DeepSeek V4 Pro', ApiConnectionProviders::DEEPSEEK, 'text', [
+                'deepseek-v4-pro',
+                'deepseek/deepseek-v4-pro',
+            ], 2, 2, 3),
+            // Legacy aliases retained for historical execution display / inactive rows.
             new AiModelFamily('deepseek.chat', 'DeepSeek Chat', ApiConnectionProviders::DEEPSEEK, 'text', [
                 'deepseek-chat',
                 'deepseek/deepseek-chat',

@@ -38,7 +38,10 @@ export async function seedingApiFetch(url, options = {}) {
     }
 
     if (!response.ok) {
-        const err = new Error(data?.message || `HTTP ${response.status}`);
+        const fieldError = data?.errors
+            ? Object.values(data.errors).flat().find((m) => typeof m === 'string' && m.trim() !== '')
+            : null;
+        const err = new Error(fieldError || data?.message || `HTTP ${response.status}`);
         err.status = response.status;
         err.data = data;
         throw err;
@@ -144,7 +147,22 @@ export async function submitReport(payload) {
 
 /**
  * Stateless AI comment generation — no Seeding DB writes.
- * @param {{ full_text: string, social_url?: string, count?: number, platform?: string|null }} payload
+ * Boundary payload may include legacy full_text/social_url/count/platform.
+ * AI task itself receives only normalized plain-text context.
+ * @param {{
+ *   source_type?: string,
+ *   content?: string,
+ *   url?: string,
+ *   social?: string,
+ *   quantity?: number,
+ *   full_text?: string,
+ *   social_url?: string,
+ *   count?: number,
+ *   platform?: string|null,
+ *   title?: string|null,
+ *   description?: string|null,
+ *   domain?: string|null,
+ * }} payload
  * @returns {Promise<{ comments: string[] }>}
  */
 export async function generateSampleComments(payload) {

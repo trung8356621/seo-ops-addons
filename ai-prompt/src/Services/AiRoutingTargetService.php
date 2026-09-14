@@ -181,6 +181,8 @@ final class AiRoutingTargetService
             (new AiFreeModelsAreaMigrator($this->priorities))->migrateUserIfNeeded($userId);
         }
 
+        $this->triggerStaleCatalogRefresh($userId);
+
         $mode = (new AiRoutingContextResolver())->resolveMode($context);
         $isFreeOnly = $mode === AiExecutionRoutingMode::FreeOnly
             || $context->isFreeOnly()
@@ -890,6 +892,25 @@ final class AiRoutingTargetService
             return AiUsageMode::tryFromMixed($raw);
         } catch (\Throwable) {
             return null;
+        }
+    }
+
+    /**
+     * Read-path freshness: non-blocking single-flight refresh when stale; keep LKG candidates.
+     */
+    private function triggerStaleCatalogRefresh(int $userId): void
+    {
+        try {
+            $catalog = function_exists('app') && app()->bound(AiModelCatalogFreshnessService::class)
+                ? app(AiModelCatalogFreshnessService::class)
+                : new AiModelCatalogFreshnessService();
+            foreach ($this->priorities->aiConnections($userId) as $connection) {
+                if (! $connection instanceof \App\Models\ApiConnection) {
+                    continue;
+                }
+                $catalog->ensureFreshEnough($connection, $userId);
+            }
+        } catch (\Throwable) {
         }
     }
 }

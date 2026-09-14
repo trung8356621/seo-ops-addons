@@ -216,6 +216,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
         $parsed = AiExecutionProfile::tryFrom($profile);
         $candidates = $this->resolveAll($profile, $context);
         if ($candidates === []) {
+            $eligibility = $this->eligibilityDiagnostics();
             $diagnostics = [
                 'routing_context' => [
                     'profile' => $profile,
@@ -226,6 +227,8 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                 'free_only' => $context->isFreeOnly(),
                 'rejection_reason' => 'no_candidates_resolved_for_profile',
                 'routes_evaluated' => [],
+                'eligibility_funnel' => $eligibility,
+                'catalog' => $this->catalogFunnelDiagnostics($context->userId),
             ];
             if (function_exists('logger')) {
                 logger()->warning('ai.routing.no_candidates_resolved', $diagnostics);
@@ -1016,6 +1019,32 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
     }
 
     /**
+     * @return list<array<string, mixed>>
+     */
+    private function catalogFunnelDiagnostics(int $userId): array
+    {
+        try {
+            $catalog = function_exists('app') && app()->bound(AiModelCatalogFreshnessService::class)
+                ? app(AiModelCatalogFreshnessService::class)
+                : new AiModelCatalogFreshnessService();
+            $priorities = function_exists('app') && app()->bound(AiModelPriorityService::class)
+                ? app(AiModelPriorityService::class)
+                : new AiModelPriorityService();
+            $rows = [];
+            foreach ($priorities->aiConnections($userId) as $connection) {
+                if (! $connection instanceof ApiConnection) {
+                    continue;
+                }
+                $rows[] = $catalog->diagnostics($connection, $userId);
+            }
+
+            return $rows;
+        } catch (\Throwable) {
+            return [];
+        }
+    }
+
+    /**
      * @param  list<RoutedAiCandidate>  $candidates
      */
     private function hasAttemptableNonFreeCandidate(
@@ -1486,6 +1515,11 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
 
     /**
      * Đồng bộ model từ Google Generative Language API.
+     *
+     * Authority: hybrid — provider /models is authoritative for returned models;
+     * curated image models (Imagen / Nano Banana) may coexist because they are often
+     * absent from GET /models. On provider failure / suspicious empty: keep LKG
+     * (do not reactivate static text seeds).
      */
     public function syncGeminiModels(int $connectionId): bool
     {
@@ -1505,82 +1539,87 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                 ->get(app(\Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\ProviderConnectionResolver::class)
                     ->httpBaseUrl($connection).'/v1beta/models');
 
-            $seenRaw = [];
-
-            if ($response->successful()) {
-                $models = $response->json('models', []);
-                if (is_array($models)) {
-                    foreach ($models as $model) {
-                        if (! is_array($model)) {
-                            continue;
-                        }
-
-                        $rawName = str_replace('models/', '', (string) ($model['name'] ?? ''));
-                        if ($rawName === '') {
-                            continue;
-                        }
-
-                        $classified = $this->classifyGeminiModel(
-                            $rawName,
-                            (array) ($model['supportedGenerationMethods'] ?? []),
-                        );
-
-                        if ($classified === null) {
-                            continue;
-                        }
-
-                        $seenRaw[] = $rawName;
-
-                        SeoAiModel::query()->updateOrCreate(
-                            [
-                                'api_connection_id' => $connectionId,
-                                'raw_model_name' => $rawName,
-                            ],
-                            $this->mergeSyncPayload($connectionId, $rawName, [
-                                'category' => $classified['category'],
-                                'display_name' => (string) ($model['displayName'] ?? $rawName),
-                                'priority' => $classified['priority'],
-                                'status' => SeoAiModel::STATUS_ACTIVE,
-                                'capabilities' => $this->capabilitiesWithResolved($rawName, [
-                                    'supportedGenerationMethods' => $model['supportedGenerationMethods'] ?? [],
-                                ]),
-                                'last_error' => null,
-                            ]),
-                        );
-                    }
-                }
-            } else {
-                logger()->warning('syncGeminiModels API list failed', [
+            if (! $response->successful()) {
+                logger()->warning('syncGeminiModels API list failed; keeping last-known-good', [
                     'connection_id' => $connectionId,
                     'status' => $response->status(),
                     'body' => $response->body(),
                 ]);
+
+                return false;
             }
 
-            $seenRaw = array_values(array_unique(array_merge(
-                $seenRaw,
-                $this->seedGeminiCatalogModels($connectionId),
-            )));
+            $models = $response->json('models', []);
+            if (! is_array($models) || $models === []) {
+                logger()->warning('syncGeminiModels empty/malformed catalog; keeping last-known-good', [
+                    'connection_id' => $connectionId,
+                ]);
 
-            if ($seenRaw !== []) {
-                $this->deactivateMissingModels($connectionId, $seenRaw);
-
-                return true;
+                return false;
             }
 
-            return false;
+            $seenRaw = [];
+            foreach ($models as $model) {
+                if (! is_array($model)) {
+                    continue;
+                }
+
+                $rawName = str_replace('models/', '', (string) ($model['name'] ?? ''));
+                if ($rawName === '') {
+                    continue;
+                }
+
+                $classified = $this->classifyGeminiModel(
+                    $rawName,
+                    (array) ($model['supportedGenerationMethods'] ?? []),
+                );
+
+                if ($classified === null) {
+                    continue;
+                }
+
+                $seenRaw[] = $rawName;
+
+                SeoAiModel::query()->updateOrCreate(
+                    [
+                        'api_connection_id' => $connectionId,
+                        'raw_model_name' => $rawName,
+                    ],
+                    $this->mergeSyncPayload($connectionId, $rawName, [
+                        'category' => $classified['category'],
+                        'display_name' => (string) ($model['displayName'] ?? $rawName),
+                        'priority' => $classified['priority'],
+                        'status' => SeoAiModel::STATUS_ACTIVE,
+                        'capabilities' => $this->capabilitiesWithResolved($rawName, [
+                            'supportedGenerationMethods' => $model['supportedGenerationMethods'] ?? [],
+                            'source' => 'gemini',
+                            'catalog_source' => 'provider',
+                        ]),
+                        'last_error' => null,
+                    ]),
+                );
+            }
+
+            $seenRaw = array_values(array_unique($seenRaw));
+            if ($seenRaw === []) {
+                logger()->warning('syncGeminiModels classified zero models; keeping last-known-good', [
+                    'connection_id' => $connectionId,
+                ]);
+
+                return false;
+            }
+
+            // Hybrid curated layer: image models often missing from GET /models.
+            $curatedImage = $this->ensureGeminiCuratedImageModels($connectionId);
+            $activeSet = array_values(array_unique(array_merge($seenRaw, $curatedImage)));
+            $this->deactivateMissingModels($connectionId, $activeSet);
+
+            return true;
         } catch (Throwable $exception) {
-            logger()->error('syncGeminiModels failed', [
+            logger()->error('syncGeminiModels failed; keeping last-known-good', [
                 'connection_id' => $connectionId,
                 'message' => $exception->getMessage(),
             ]);
-
-            $seenRaw = $this->seedGeminiCatalogModels($connectionId);
-            if ($seenRaw !== []) {
-                $this->deactivateMissingModels($connectionId, $seenRaw);
-
-                return true;
-            }
 
             return false;
         }
@@ -1588,6 +1627,9 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
 
     /**
      * Đồng bộ model Claude từ Anthropic API.
+     *
+     * Authority: provider. Successful discovery deactivates missing local models.
+     * On failure / empty: keep last-known-good (do not fabricate curated ACTIVE catalog).
      */
     public function syncClaudeModels(int $connectionId): bool
     {
@@ -1610,12 +1652,21 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                 ->get('https://api.anthropic.com/v1/models');
 
             if (! $response->successful()) {
-                return $this->seedClaudeFallbackModels($connectionId);
+                logger()->warning('syncClaudeModels API list failed; keeping last-known-good', [
+                    'connection_id' => $connectionId,
+                    'status' => $response->status(),
+                ]);
+
+                return false;
             }
 
             $models = $response->json('data', []);
             if (! is_array($models) || $models === []) {
-                return $this->seedClaudeFallbackModels($connectionId);
+                logger()->warning('syncClaudeModels empty catalog; keeping last-known-good', [
+                    'connection_id' => $connectionId,
+                ]);
+
+                return false;
             }
 
             $seenRaw = [];
@@ -1647,22 +1698,30 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                         'display_name' => (string) ($model['display_name'] ?? $model['displayName'] ?? $rawName),
                         'priority' => $classified['priority'],
                         'status' => SeoAiModel::STATUS_ACTIVE,
-                        'capabilities' => $this->capabilitiesWithResolved($rawName, ['source' => 'anthropic']),
+                        'capabilities' => $this->capabilitiesWithResolved($rawName, [
+                            'source' => 'anthropic',
+                            'catalog_source' => 'provider',
+                        ]),
                         'last_error' => null,
                     ],
                 );
+            }
+
+            $seenRaw = array_values(array_unique($seenRaw));
+            if ($seenRaw === []) {
+                return false;
             }
 
             $this->deactivateMissingModels($connectionId, $seenRaw);
 
             return true;
         } catch (Throwable $exception) {
-            logger()->error('syncClaudeModels failed', [
+            logger()->error('syncClaudeModels failed; keeping last-known-good', [
                 'connection_id' => $connectionId,
                 'message' => $exception->getMessage(),
             ]);
 
-            return $this->seedClaudeFallbackModels($connectionId);
+            return false;
         }
     }
 
@@ -1999,8 +2058,8 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
             AiModelCategory::CLAUDE_OPUS => 'claude-opus-4-20250514',
             AiModelCategory::CLAUDE_SONNET => 'claude-sonnet-4-20250514',
             AiModelCategory::CLAUDE_HAIKU => 'claude-3-5-haiku-20241022',
-            AiModelCategory::DEEPSEEK_CHAT => 'deepseek-chat',
-            AiModelCategory::DEEPSEEK_REASONER => 'deepseek-reasoner',
+            // DeepSeek: never hardcode retired aliases — require active catalog / routing model.
+            AiModelCategory::DEEPSEEK_CHAT, AiModelCategory::DEEPSEEK_REASONER => '',
             default => '',
         };
     }
@@ -2048,11 +2107,12 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
     }
 
     /**
-     * Imagen / Nano Banana thường không có trong GET /models — luôn seed từ catalog nội bộ.
+     * Curated image models often absent from Gemini GET /models (hybrid authority layer).
+     * Does NOT seed static text model aliases — those must come from provider discovery.
      *
      * @return list<string>
      */
-    private function seedGeminiCatalogModels(int $connectionId): array
+    private function ensureGeminiCuratedImageModels(int $connectionId): array
     {
         $catalog = [
             ['imagen-4.0-fast-generate-001', 'Imagen 4 Fast Generate', AiModelCategory::IMAGEN_PRO, 230, ['predict']],
@@ -2062,12 +2122,6 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
             ['gemini-3-pro-image-preview', 'Nano Banana Pro (Gemini 3 Pro Image)', AiModelCategory::IMAGEN_PRO, 205, ['generateContent']],
             ['gemini-2.5-flash-image', 'Nano Banana (Gemini 2.5 Flash Image)', AiModelCategory::IMAGEN_PRO, 190, ['generateContent']],
             ['gemini-2.5-pro-image', 'Nano Banana Pro (Gemini 2.5 Pro Image)', AiModelCategory::IMAGEN_PRO, 188, ['generateContent']],
-            ['gemini-3.1-pro-preview', 'Gemini 3.1 Pro', AiModelCategory::GEMINI_PRO, 200, ['generateContent']],
-            ['gemini-3-flash-preview', 'Gemini 3 Flash', AiModelCategory::GEMINI_FLASH, 200, ['generateContent']],
-            ['gemini-3.5-flash-preview', 'Gemini 3.5 Flash', AiModelCategory::GEMINI_FLASH, 195, ['generateContent']],
-            ['gemini-2.5-flash', 'Gemini 2.5 Flash', AiModelCategory::GEMINI_FLASH, 180, ['generateContent']],
-            ['gemini-2.5-pro', 'Gemini 2.5 Pro', AiModelCategory::GEMINI_PRO, 180, ['generateContent']],
-            ['gemini-2.0-flash', 'Gemini 2.0 Flash', AiModelCategory::GEMINI_FLASH, 150, ['generateContent']],
         ];
 
         $seeded = [];
@@ -2086,6 +2140,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                     'capabilities' => $this->capabilitiesWithResolved($raw, [
                         'supportedGenerationMethods' => $methods,
                         'source' => 'catalog',
+                        'catalog_source' => 'curated',
                     ]),
                     'last_error' => null,
                 ]),
@@ -2095,6 +2150,17 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
         }
 
         return $seeded;
+    }
+
+    /**
+     * @deprecated Use {@see ensureGeminiCuratedImageModels()} — text models must not be
+     *             statically seeded after authoritative provider sync.
+     *
+     * @return list<string>
+     */
+    private function seedGeminiCatalogModels(int $connectionId): array
+    {
+        return $this->ensureGeminiCuratedImageModels($connectionId);
     }
 
     /**
@@ -2430,6 +2496,13 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
         );
     }
 
+    /**
+     * Sync DeepSeek catalog from provider GET /models.
+     *
+     * Successful provider response is authoritative: models absent from the response
+     * are marked inactive. Historical rows are retained but not reactivated.
+     * On provider failure / empty response: keep last-known-good catalog (no legacy seed).
+     */
     public function syncDeepSeekModels(int $connectionId): bool
     {
         $connection = ApiConnection::query()->find($connectionId);
@@ -2441,43 +2514,60 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
             return false;
         }
 
-        $seenRaw = $this->seedDeepSeekCatalogModels($connectionId);
         $client = $this->deepSeekClient ?? (function_exists('app') ? app(DeepSeekChatClient::class) : new DeepSeekChatClient());
 
         try {
-            foreach ($client->listModels($connection) as $row) {
-                $rawName = (string) ($row['id'] ?? '');
-                if ($rawName === '' || MalformedAiModelRepairService::isMalformedProviderModelId($rawName)) {
-                    continue;
-                }
-                $classified = $this->classifyDeepSeekModel($rawName);
-                if ($classified === null) {
-                    continue;
-                }
-                $seenRaw[] = $rawName;
-                SeoAiModel::query()->updateOrCreate(
-                    [
-                        'api_connection_id' => $connectionId,
-                        'raw_model_name' => $rawName,
-                    ],
-                    $this->mergeSyncPayload($connectionId, $rawName, [
-                        'category' => $classified['category'],
-                        'display_name' => (string) ($row['display_name'] ?? $rawName),
-                        'priority' => $classified['priority'],
-                        'status' => SeoAiModel::STATUS_ACTIVE,
-                        'capabilities' => [
-                            'source' => 'deepseek',
-                            'resolved' => $this->capabilityRegistry->capabilitiesFor($connection, $rawName),
-                        ],
-                        'last_error' => null,
-                    ]),
-                );
-            }
+            $providerModels = $client->listModels($connection);
         } catch (Throwable $exception) {
             logger()->error('syncDeepSeekModels failed', [
                 'connection_id' => $connectionId,
                 'message' => $exception->getMessage(),
             ]);
+
+            // Keep last-known-good catalog — do not fabricate legacy aliases.
+            return false;
+        }
+
+        if ($providerModels === []) {
+            logger()->warning('syncDeepSeekModels empty provider catalog; keeping last-known-good', [
+                'connection_id' => $connectionId,
+            ]);
+
+            return false;
+        }
+
+        $seenRaw = [];
+        foreach ($providerModels as $row) {
+            $rawName = (string) ($row['id'] ?? '');
+            if ($rawName === '' || MalformedAiModelRepairService::isMalformedProviderModelId($rawName)) {
+                continue;
+            }
+            $classified = $this->classifyDeepSeekModel($rawName);
+            if ($classified === null) {
+                continue;
+            }
+            $seenRaw[] = $rawName;
+            $displayName = trim((string) ($row['display_name'] ?? ''));
+            if ($displayName === '' || strcasecmp($displayName, 'deepseek') === 0) {
+                $displayName = $this->deepSeekDisplayName($rawName);
+            }
+            SeoAiModel::query()->updateOrCreate(
+                [
+                    'api_connection_id' => $connectionId,
+                    'raw_model_name' => $rawName,
+                ],
+                $this->mergeSyncPayload($connectionId, $rawName, [
+                    'category' => $classified['category'],
+                    'display_name' => $displayName,
+                    'priority' => $classified['priority'],
+                    'status' => SeoAiModel::STATUS_ACTIVE,
+                    'capabilities' => [
+                        'source' => 'deepseek',
+                        'resolved' => $this->capabilityRegistry->capabilitiesFor($connection, $rawName),
+                    ],
+                    'last_error' => null,
+                ]),
+            );
         }
 
         $seenRaw = array_values(array_unique($seenRaw));
@@ -2499,55 +2589,47 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
         if (! str_starts_with($lower, 'deepseek')) {
             return null;
         }
-        if (str_contains($lower, 'image') || str_contains($lower, 'video')) {
+        if (str_contains($lower, 'image') || str_contains($lower, 'video') || str_contains($lower, 'vision')) {
             return null;
         }
         if (str_contains($lower, 'reason')) {
             return ['category' => AiModelCategory::DEEPSEEK_REASONER, 'priority' => 200];
         }
+        if (str_contains($lower, 'pro')) {
+            return ['category' => AiModelCategory::DEEPSEEK_CHAT, 'priority' => 180];
+        }
+        if (str_contains($lower, 'flash')) {
+            return ['category' => AiModelCategory::DEEPSEEK_CHAT, 'priority' => 160];
+        }
 
         return ['category' => AiModelCategory::DEEPSEEK_CHAT, 'priority' => 150];
     }
 
-    /**
-     * @return list<string>
-     */
-    private function seedDeepSeekCatalogModels(int $connectionId): array
+    private function deepSeekDisplayName(string $rawName): string
     {
-        $catalog = [
-            ['deepseek-chat', 'DeepSeek Chat', AiModelCategory::DEEPSEEK_CHAT, 150],
-            ['deepseek-reasoner', 'DeepSeek Reasoner', AiModelCategory::DEEPSEEK_REASONER, 200],
-        ];
-        $seeded = [];
-        $connection = ApiConnection::query()->find($connectionId);
-        foreach ($catalog as [$raw, $label, $category, $priority]) {
-            SeoAiModel::query()->updateOrCreate(
-                [
-                    'api_connection_id' => $connectionId,
-                    'raw_model_name' => $raw,
-                ],
-                $this->mergeSyncPayload($connectionId, $raw, [
-                    'category' => $category,
-                    'display_name' => $label,
-                    'priority' => $priority,
-                    'status' => SeoAiModel::STATUS_ACTIVE,
-                    'capabilities' => [
-                        'source' => 'catalog',
-                        'resolved' => $connection instanceof ApiConnection
-                            ? $this->capabilityRegistry->capabilitiesFor($connection, $raw)
-                            : [],
-                    ],
-                    'last_error' => null,
-                ]),
-            );
-            $seeded[] = $raw;
-        }
+        $normalized = strtolower(trim($rawName));
 
-        return $seeded;
+        return match ($normalized) {
+            'deepseek-flash' => 'DeepSeek Flash',
+            'deepseek-v4-pro' => 'DeepSeek V4 Pro',
+            'deepseek-v4-flash' => 'DeepSeek V4 Flash',
+            'deepseek-chat' => 'DeepSeek Chat',
+            'deepseek-reasoner' => 'DeepSeek Reasoner',
+            default => $rawName,
+        };
     }
 
+    /**
+     * Curated bootstrap only — never call after a failed provider sync.
+     * Used for first-time never-synced Claude connections with zero inventory.
+     */
     private function seedClaudeFallbackModels(int $connectionId): bool
     {
+        $existing = (int) SeoAiModel::query()->where('api_connection_id', $connectionId)->count();
+        if ($existing > 0) {
+            return false;
+        }
+
         $fallbacks = [
             ['claude-sonnet-4-20250514', 'Claude Sonnet 4', AiModelCategory::CLAUDE_SONNET, 200],
             ['claude-opus-4-20250514', 'Claude Opus 4', AiModelCategory::CLAUDE_OPUS, 190],
@@ -2566,7 +2648,10 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                     'display_name' => $label,
                     'priority' => $priority,
                     'status' => SeoAiModel::STATUS_ACTIVE,
-                    'capabilities' => $this->capabilitiesWithResolved($raw, ['source' => 'catalog']),
+                    'capabilities' => $this->capabilitiesWithResolved($raw, [
+                        'source' => 'catalog',
+                        'catalog_source' => 'curated',
+                    ]),
                 ],
             );
         }

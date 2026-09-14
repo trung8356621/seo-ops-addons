@@ -215,6 +215,12 @@ final class ContentProjectCompactSuccessContractTest extends TestCase
         self::assertStringContainsString('content_project_compact_success:', $serviceSrc);
         self::assertStringContainsString('Cache::lock', $serviceSrc);
         self::assertStringContainsString('transaction', $serviceSrc);
+        self::assertStringContainsString("table('seo_project_tasks as t')", $serviceSrc);
+        self::assertStringContainsString("whereNull('t.deleted_at')", $serviceSrc);
+        self::assertDoesNotMatchRegularExpression(
+            '/SeoProjectTask::query\(\)\s*->from\(\'seo_project_tasks as t\'\)/',
+            $serviceSrc,
+        );
         self::assertStringNotContainsString('SeoProject::query()->create', $serviceSrc);
         self::assertStringNotContainsString('GenerateProjectItems', $serviceSrc);
         self::assertStringContainsString('archives_project', $serviceSrc);

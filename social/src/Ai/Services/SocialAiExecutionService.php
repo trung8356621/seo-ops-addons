@@ -13,6 +13,7 @@ use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\AiPrompt\Services\CanonicalAiTextExecutionService;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
 use Omnichannel\Addons\Social\Ai\Exceptions\SocialAiException;
+use Omnichannel\Addons\Social\Ai\Exceptions\SocialAiValidationException;
 use Omnichannel\Addons\Social\Ai\SocialAiTaskRegistry;
 use Omnichannel\Addons\Social\Ai\Tasks\SocialCommentGenerateTask;
 use Throwable;
@@ -42,7 +43,13 @@ final class SocialAiExecutionService
     public function generateComments(array $input): array
     {
         $task = $this->registry()->get(SocialCommentGenerateTask::TASK_KEY);
-        $normalized = $task->normalizeInput($input);
+
+        try {
+            $normalized = $task->normalizeInput($input);
+        } catch (SocialAiValidationException $e) {
+            throw new SocialAiException($e->getMessage(), 0, $e);
+        }
+
         $compiledPrompt = $task->buildCompiledPrompt($normalized);
 
         $quantity = (int) ($normalized['quantity'] ?? 3);

@@ -24,7 +24,20 @@ final class GeminiGenerateContentClient
      */
     public function generate(ApiConnection $connection, string $prompt, string $model, array $options = []): array
     {
-        $modelsToTry = GeminiModelCatalog::modelsToTry($model);
+        $requested = trim($model);
+        if ($requested === '') {
+            throw new PromptRunException(
+                'Thiếu model Gemini từ routing. Đồng bộ catalog từ provider rồi chọn model trong AI Center.',
+            );
+        }
+
+        // Alias resolve only for the requested model — do not cascade static "current" fallbacks.
+        $primary = GeminiModelCatalog::resolve($requested);
+        $modelsToTry = [$primary];
+        if ($primary !== $requested) {
+            $modelsToTry[] = $requested;
+        }
+        $modelsToTry = array_values(array_unique($modelsToTry));
 
         $lastError = null;
 

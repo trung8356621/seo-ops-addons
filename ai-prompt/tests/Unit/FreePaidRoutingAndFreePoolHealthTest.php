@@ -15,6 +15,7 @@ use Omnichannel\Addons\AiPrompt\Models\AiModelCapabilityRow;
 use Omnichannel\Addons\AiPrompt\Models\SeoAiModel;
 use Omnichannel\Addons\AiPrompt\Services\AiCenterModelPresenter;
 use Omnichannel\Addons\AiPrompt\Services\AiFreeModelsAreaMigrator;
+use Omnichannel\Addons\AiPrompt\Services\AiModelCatalogFreshnessService;
 use Omnichannel\Addons\AiPrompt\Services\AiModelPriorityService;
 use Omnichannel\Addons\AiPrompt\Services\AiRoutingTargetService;
 use Omnichannel\Addons\AiPrompt\Services\FreePoolResilienceSettingsService;
@@ -375,6 +376,13 @@ final class FreePaidRoutingAndFreePoolHealthTest extends TestCase
         $bag['last_catalog_sync_at'] = Carbon::now()->subHour()->toIso8601String();
         $bag['last_catalog_sync_status'] = 'ok';
         $meta[OpenRouterFreePoolHealthService::META_KEY] = $bag;
+        // Generic catalog is the freshness authority Free Pool consults.
+        $meta[AiModelCatalogFreshnessService::META_KEY] = [
+            'status' => AiModelCatalogFreshnessService::STATUS_FRESH,
+            'last_success_at' => Carbon::now()->subHour()->toIso8601String(),
+            'last_sync_at' => Carbon::now()->subHour()->toIso8601String(),
+            'catalog_count' => 1,
+        ];
         $connection->metadata = $meta;
         $connection->save();
     }

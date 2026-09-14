@@ -6,15 +6,21 @@ namespace Omnichannel\Addons\AiPrompt\Support;
 
 /**
  * Built-in model → capability map. Never infers image/video from provider alone.
+ *
+ * DeepSeek: exact legacy aliases remain for historical rows; current provider models
+ * (e.g. deepseek-flash) resolve via {@see deepseekCapabilitiesFor()} thinking-mode policy.
  */
 final class BuiltInModelCapabilityCatalog
 {
     /**
+     * Legacy exact IDs only — not a live seed catalog.
+     *
      * @return array<string, list<string>>
      */
     public static function deepseek(): array
     {
         return [
+            // Legacy aliases (historical / inactive after provider sync).
             'deepseek-chat' => [
                 AiModelCapability::TextGenerate->value,
                 AiModelCapability::StructuredOutput->value,
@@ -29,6 +35,41 @@ final class BuiltInModelCapabilityCatalog
     }
 
     /**
+     * Resolve DeepSeek Direct capabilities for a provider model id.
+     *
+     * @return list<string>|null
+     */
+    public static function deepseekCapabilitiesFor(string $model): ?array
+    {
+        $model = self::normalizeModel($model);
+        if ($model === '') {
+            return null;
+        }
+
+        $exact = self::deepseek()[$model] ?? null;
+        if ($exact !== null) {
+            return $exact;
+        }
+
+        $lower = strtolower($model);
+        if (! str_starts_with($lower, 'deepseek')) {
+            return null;
+        }
+        if (str_contains($lower, 'image') || str_contains($lower, 'video') || str_contains($lower, 'vision')) {
+            return [];
+        }
+
+        // Current DeepSeek V4 text models expose reasoning via thinking mode.
+        // Executor enables thinking when the routed profile/hook requires it.
+        return [
+            AiModelCapability::TextGenerate->value,
+            AiModelCapability::TextReasoning->value,
+            AiModelCapability::StructuredOutput->value,
+            AiModelCapability::ToolCall->value,
+        ];
+    }
+
+    /**
      * @return list<string>|null
      */
     public static function forProviderModel(string $provider, string $model): ?array
@@ -39,8 +80,11 @@ final class BuiltInModelCapabilityCatalog
             return null;
         }
 
+        if ($provider === ApiConnectionProviders::DEEPSEEK) {
+            return self::deepseekCapabilitiesFor($model);
+        }
+
         $map = match ($provider) {
-            ApiConnectionProviders::DEEPSEEK => self::deepseek(),
             ApiConnectionProviders::CLAUDE => self::claude(),
             ApiConnectionProviders::GEMINI => self::gemini(),
             default => [],

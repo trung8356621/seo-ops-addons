@@ -109,13 +109,15 @@ final class DraftPlanningDescriptionTest extends TestCase
         $items = LegacyAddonPath::read('resources/views/components/content-project-draft-items.blade.php');
         $page = LegacyAddonPath::read('resources/views/filament/pages/content-project-seo-audit-planner.blade.php');
 
-        self::assertStringContainsString("row.description", $items);
+        self::assertStringContainsString('row.can_edit_description', $items);
         self::assertStringContainsString("startEdit(row, 'description')", $items);
         self::assertStringContainsString('updatePlanningField', $items);
         self::assertStringContainsString('showProductDescription', $items);
         self::assertStringContainsString('product_description', $items);
         self::assertStringContainsString('productDescriptionLabel', $items);
         self::assertStringContainsString('planning_product_description_label', $items);
+        self::assertStringContainsString('rewrite_reason', $items);
+        self::assertStringContainsString('planning_description', $items);
         self::assertStringNotContainsString('openPlanningItemEdit', $items);
         self::assertStringNotContainsString('data-planning-edit-modal', $page);
         self::assertStringNotContainsString('planningEditDescription', $page);

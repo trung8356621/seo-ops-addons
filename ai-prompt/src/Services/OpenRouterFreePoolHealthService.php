@@ -216,9 +216,31 @@ final class OpenRouterFreePoolHealthService
         if ($this->isDailyQuotaActive($connection)) {
             return;
         }
-        $cfg = $this->settings->get($userId);
+
+        $catalog = function_exists('app') && app()->bound(AiModelCatalogFreshnessService::class)
+            ? app(AiModelCatalogFreshnessService::class)
+            : new AiModelCatalogFreshnessService();
+        $result = $catalog->onStrongStaleModelError($connection, $decision, $userId);
+        if ($result === null) {
+            return;
+        }
+
         $snap = $this->snapshot($this->freshConnection($connection) ?? $connection);
-        $this->maybeEnqueueCatalogResync($connection, $snap, $cfg, $userId, forced: true);
+        if (! ($result['skipped'] ?? true) || ($result['reason'] ?? '') === 'synced') {
+            $snap['last_forced_sync_at'] = Carbon::now()->toIso8601String();
+            $snap['catalog_resync_requested_at'] = Carbon::now()->toIso8601String();
+            if (($result['ok'] ?? false) === true) {
+                $snap['last_catalog_sync_at'] = Carbon::now()->toIso8601String();
+                $snap['last_catalog_sync_status'] = 'ok';
+                if (($snap['free_pool_state'] ?? '') === FreePoolHealthState::Resyncing->value
+                    || ($snap['free_pool_state'] ?? '') === FreePoolHealthState::HardLocked->value) {
+                    $snap['free_pool_state'] = FreePoolHealthState::WaitingProbe->value;
+                }
+            } elseif (($result['reason'] ?? '') === 'sync_in_progress') {
+                $snap['free_pool_state'] = FreePoolHealthState::Resyncing->value;
+            }
+            $this->persist($connection, $snap);
+        }
     }
 
     public function recordQualifyingFailure(
@@ -613,6 +635,7 @@ final class OpenRouterFreePoolHealthService
         int $userId,
         bool $forced,
     ): void {
+        unset($cfg);
         $cid = (int) $connection->id;
         if ($cid <= 0) {
             return;
@@ -621,107 +644,53 @@ final class OpenRouterFreePoolHealthService
             return;
         }
 
-        $ttlHours = (int) $cfg[FreePoolResilienceSettingsService::KEY_CATALOG_FRESHNESS_HOURS];
-        $minInterval = (int) $cfg[FreePoolResilienceSettingsService::KEY_FORCED_SYNC_MIN_INTERVAL_MINUTES];
-        $now = Carbon::now();
+        $catalog = function_exists('app') && app()->bound(AiModelCatalogFreshnessService::class)
+            ? app(AiModelCatalogFreshnessService::class)
+            : new AiModelCatalogFreshnessService();
 
+        // Prefer generic catalog freshness; Free Pool no longer owns competing TTL.
+        if (! $forced && $catalog->isCatalogFresh($connection, $userId)) {
+            return;
+        }
+
+        $result = $catalog->requestRefresh($connection, $userId, forced: $forced, blocking: false);
         $fresh = $this->freshConnection($connection) ?? $connection;
         $snap = $this->snapshot($fresh);
 
-        if ($forced) {
-            $lastForced = $snap['last_forced_sync_at'] ?? null;
-            if (is_string($lastForced) && $lastForced !== '') {
-                try {
-                    if (Carbon::parse($lastForced)->gt($now->copy()->subMinutes($minInterval))) {
-                        return;
-                    }
-                } catch (\Throwable) {
-                }
-            }
-        } else {
-            $lastSync = $snap['last_catalog_sync_at'] ?? null;
-            $stale = true;
-            if (is_string($lastSync) && $lastSync !== '') {
-                try {
-                    $stale = Carbon::parse($lastSync)->lt($now->copy()->subHours($ttlHours));
-                } catch (\Throwable) {
-                    $stale = true;
-                }
-            }
-            if (! $stale) {
-                return;
-            }
-        }
-
-        if (! empty($snap['resync_in_progress'])) {
+        if (($result['reason'] ?? '') === 'sync_in_progress') {
             $snap['free_pool_state'] = FreePoolHealthState::Resyncing->value;
+            $this->persist($fresh, $snap);
 
             return;
         }
 
-        $lock = null;
-        try {
-            $lock = Cache::lock($this->resyncLockKey($cid), self::RESYNC_LOCK_TTL_SECONDS);
-            if (! $lock->get()) {
-                $snap['free_pool_state'] = FreePoolHealthState::Resyncing->value;
-
-                return;
-            }
-        } catch (\Throwable) {
-            $lock = null;
+        if (($result['skipped'] ?? false) && ($result['reason'] ?? '') === 'already_fresh') {
+            return;
         }
 
-        try {
-            // Re-check after claim.
-            $fresh = $this->freshConnection($connection) ?? $connection;
-            $snap = $this->snapshot($fresh);
-            if (! empty($snap['resync_in_progress'])) {
-                $snap['free_pool_state'] = FreePoolHealthState::Resyncing->value;
+        if (($result['skipped'] ?? false) && ($result['reason'] ?? '') === 'forced_sync_debounced') {
+            return;
+        }
 
-                return;
-            }
-            if ($forced) {
-                $lastForced = $snap['last_forced_sync_at'] ?? null;
-                if (is_string($lastForced) && $lastForced !== '') {
-                    try {
-                        if (Carbon::parse($lastForced)->gt($now->copy()->subMinutes($minInterval))) {
-                            return;
-                        }
-                    } catch (\Throwable) {
-                    }
-                }
-            }
-
-            $snap['free_pool_state'] = FreePoolHealthState::Resyncing->value;
+        $now = Carbon::now();
+        $snap['catalog_resync_requested_at'] = $now->toIso8601String();
+        if ($forced) {
             $snap['last_forced_sync_at'] = $now->toIso8601String();
-            $snap['catalog_resync_requested_at'] = $now->toIso8601String();
-            $snap['resync_in_progress'] = true;
-            $this->persist($fresh, $snap);
-
-            try {
-                if (function_exists('app') && app()->bound(AiModelRouterService::class)) {
-                    app(AiModelRouterService::class)->syncModelsForConnection($cid);
-                    $snap['last_catalog_sync_at'] = Carbon::now()->toIso8601String();
-                    $snap['last_catalog_sync_status'] = 'ok';
-                    $snap['free_pool_state'] = FreePoolHealthState::WaitingProbe->value;
-                }
-            } catch (\Throwable $e) {
-                $snap['last_catalog_sync_status'] = 'failed';
-                RuntimeLogger::warning('ai.free_pool.catalog_resync_failed', [
-                    'connection_id' => $cid,
-                    'error' => $e->getMessage(),
-                ]);
-            }
-            $snap['resync_in_progress'] = false;
-            $this->persist($fresh, $snap);
-        } finally {
-            if ($lock !== null) {
-                try {
-                    $lock->release();
-                } catch (\Throwable) {
-                }
-            }
         }
+        if (($result['ok'] ?? false) === true) {
+            $snap['last_catalog_sync_at'] = $now->toIso8601String();
+            $snap['last_catalog_sync_status'] = 'ok';
+            $snap['resync_in_progress'] = false;
+            $snap['free_pool_state'] = FreePoolHealthState::WaitingProbe->value;
+        } else {
+            $snap['last_catalog_sync_status'] = 'failed';
+            $snap['resync_in_progress'] = false;
+            RuntimeLogger::warning('ai.free_pool.catalog_resync_failed', [
+                'connection_id' => $cid,
+                'reason' => $result['reason'] ?? 'unknown',
+            ]);
+        }
+        $this->persist($fresh, $snap);
     }
 
     private function countsTowardPoolRatio(AiFailureDecision $decision): bool

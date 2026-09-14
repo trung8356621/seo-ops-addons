@@ -464,7 +464,7 @@ final class OpenRouterTextRoutingCatalog
             'claude.sonnet' => AiModelCategory::CLAUDE_SONNET,
             'claude.haiku' => AiModelCategory::CLAUDE_HAIKU,
             'claude.opus' => AiModelCategory::CLAUDE_OPUS,
-            'deepseek.chat', 'deepseek.v32' => AiModelCategory::DEEPSEEK_CHAT,
+            'deepseek.chat', 'deepseek.v32', 'deepseek.flash', 'deepseek.v4_pro' => AiModelCategory::DEEPSEEK_CHAT,
             'deepseek.reasoner' => AiModelCategory::DEEPSEEK_REASONER,
             default => 'unknown',
         };

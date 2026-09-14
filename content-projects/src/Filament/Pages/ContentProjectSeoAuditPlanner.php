@@ -94,9 +94,6 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
      */
     public int $draftPlanningRefreshNonce = 0;
 
-    /** Site Planning selected domain (internal tab). */
-    public ?int $sitePlanningSiteId = null;
-
     public static function getNavigationLabel(): string
     {
         return __('seo-content-ai::filament.projects.content_planning_nav_label');
@@ -673,6 +670,11 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
 
         $trimmed = trim($value);
 
+        if ($field === 'description' && ! SeoProjectTask::isNewArticleType($task->type)) {
+            // Rewrite/Improve reason is informational — ignore client mutations.
+            return;
+        }
+
         match ($field) {
             'title' => $task->title = $trimmed !== '' ? $trimmed : null,
             'keyword' => $this->applyPlanningKeyword($task, $trimmed),
@@ -845,19 +847,13 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         return ContentProjectDraftAiHistory::urlForProject($project);
     }
 
-    public function selectSitePlanningSite(int $siteId): void
-    {
-        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
-        $this->sitePlanningSiteId = $siteId > 0 ? $siteId : null;
-    }
-
     /**
      * @return array<string, mixed>
      */
     public function sitePlanningPayload(): array
     {
         return app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\SitePlanningReadModel::class)
-            ->overview($this->sitePlanningSiteId);
+            ->overview();
     }
 
     private function applyPlanningKeyword(SeoProjectTask $task, string $keyword): void
@@ -875,16 +871,14 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
 
     private function applyPlanningDescription(SeoProjectTask $task, string $description): void
     {
-        $value = $description !== '' ? $description : null;
-        // Create planning brief lives on secondary_description (Project Edit → Description).
-        // Product gallery brief stays on description (Project Edit → Gallery description).
-        if (SeoProjectTask::isNewArticleType($task->type)) {
-            $task->secondary_description = $value;
-
+        // Create-only: planning brief → secondary_description.
+        // Rewrite/Improve SEO Audit reason is read-only metadata (description / rewrite_notes) —
+        // never treat it as an editable writing brief.
+        if (! SeoProjectTask::isNewArticleType($task->type)) {
             return;
         }
 
-        $task->description = $value;
+        $task->secondary_description = $description !== '' ? $description : null;
     }
 
     /**

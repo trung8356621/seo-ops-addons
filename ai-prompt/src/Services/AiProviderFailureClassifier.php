@@ -590,9 +590,20 @@ final class AiProviderFailureClassifier
     private function matchesModelNotFound(string $lower): bool
     {
         return str_contains($lower, 'model not found')
+            || str_contains($lower, 'unknown_model')
+            || str_contains($lower, 'unknown model')
+            || str_contains($lower, 'unsupported_model')
+            || str_contains($lower, 'unsupported model')
+            || str_contains($lower, 'model_removed')
+            || str_contains($lower, 'model removed')
+            || str_contains($lower, 'no_endpoint_for_model')
+            || str_contains($lower, 'no endpoint for model')
             || str_contains($lower, 'no longer exists')
             || str_contains($lower, 'endpoint model unavailable')
-            || str_contains($lower, 'model unavailable');
+            || str_contains($lower, 'model unavailable')
+            || str_contains($lower, 'model is deprecated')
+            || str_contains($lower, 'model has been deprecated')
+            || str_contains($lower, 'model no longer available');
     }
 
     private function matchesRateLimit(string $lower, ?string $providerCode): bool

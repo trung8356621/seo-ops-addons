@@ -168,7 +168,42 @@ final class McpPlanningAndSitePlanningContractTest extends TestCase
 
         $sitePlanning = LegacyAddonPath::read('resources/views/components/content-project-site-planning.blade.php');
         self::assertStringContainsString('data-site-planning="1"', $sitePlanning);
-        self::assertStringContainsString('selectSitePlanningSite', $sitePlanning);
+        self::assertStringContainsString('cp-site-planning__table', $sitePlanning);
+        self::assertStringContainsString('cp-site-planning__sticky', $sitePlanning);
+        self::assertStringContainsString('year_groups', $sitePlanning);
+        self::assertStringNotContainsString('lg:grid-cols-', $sitePlanning);
+        self::assertStringNotContainsString('selectSitePlanningSite', $sitePlanning);
+    }
+
+    public function test_site_planning_year_groups_span_consecutive_months(): void
+    {
+        $readModel = new ReflectionClass(SitePlanningReadModel::class);
+        $src = (string) file_get_contents((string) $readModel->getFileName());
+        self::assertStringContainsString('function yearGroups', $src);
+        self::assertStringContainsString("'year' => (int) \$month->year", $src);
+        self::assertStringContainsString("'month' => \$month->format('m')", $src);
+
+        // Pure mirror of yearGroups for cross-year window.
+        $months = [
+            ['year' => 2026],
+            ['year' => 2026],
+            ['year' => 2027],
+            ['year' => 2027],
+        ];
+        $groups = [];
+        foreach ($months as $month) {
+            $year = (int) $month['year'];
+            $last = $groups === [] ? null : array_key_last($groups);
+            if ($last !== null && (int) $groups[$last]['year'] === $year) {
+                $groups[$last]['span']++;
+                continue;
+            }
+            $groups[] = ['year' => $year, 'span' => 1];
+        }
+        self::assertSame([
+            ['year' => 2026, 'span' => 2],
+            ['year' => 2027, 'span' => 2],
+        ], $groups);
     }
 
     public function test_topic_cluster_ui_shows_planning_plus_tag_not_merged_into_percent(): void

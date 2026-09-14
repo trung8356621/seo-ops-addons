@@ -226,7 +226,8 @@ final class TextReasoningProductionFallbackTest extends TestCase
 
         $this->assertSame($outlineModels, $vocabModels);
         $this->assertGreaterThanOrEqual(2, count($outlineModels));
-        $this->assertNotContains('deepseek/deepseek-v3.2', $outlineModels);
+        // Capability-driven: DeepSeek may join Reasoning Text when it has text.reasoning.
+        // Pool must still include non-DeepSeek reasoning models (not collapsed to DeepSeek-only).
         $this->assertContains('google/gemini-3.1-pro-preview', $outlineModels);
         $this->assertTrue(
             count(array_intersect($outlineModels, [

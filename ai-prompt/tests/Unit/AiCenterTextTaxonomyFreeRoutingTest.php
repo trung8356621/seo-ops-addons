@@ -413,12 +413,12 @@ final class AiCenterTextTaxonomyFreeRoutingTest extends TestCase
                 $this->priorities->areaEnabledModels(29, AiModelArea::FreeModels),
             ),
         );
-        // …but production eligibility excludes DeepSeek R1 from TextReasoning (Outline/Vocabulary).
+        // Capability-driven: DeepSeek R1 free is eligible for TextReasoning when it has text.reasoning.
         $reasoning = array_map(
             static fn ($c): string => $c->model,
             $this->targets->eligibleCandidates(29, AiExecutionProfile::TextReasoning, $freeOnly),
         );
-        $this->assertNotContains('deepseek/deepseek-r1:free', $reasoning);
+        $this->assertContains('deepseek/deepseek-r1:free', $reasoning);
     }
 
     public function test_sync_upserts_free_router_and_unhides_priced_free_chat(): void

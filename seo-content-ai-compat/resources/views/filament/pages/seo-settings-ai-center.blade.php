@@ -349,6 +349,41 @@
 
                             <section class="seo-ai-section-head mt-6">
                                 <div>
+                                    <h3 class="seo-ai-section-title">{{ __('seo-content-ai::filament.ai_center.model_catalog_title') }}</h3>
+                                    <p class="seo-ai-section-help">{{ __('seo-content-ai::filament.ai_center.model_catalog_help') }}</p>
+                                </div>
+                            </section>
+                            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                                <label class="flex items-center gap-2 mt-2 sm:col-span-2 lg:col-span-3">
+                                    <input type="checkbox" wire:model="modelCatalogSettings.model_catalog_auto_refresh_enabled" />
+                                    <span class="text-sm">{{ __('seo-content-ai::filament.ai_center.mc_model_catalog_auto_refresh_enabled') }}</span>
+                                </label>
+                                @foreach ([
+                                    'model_catalog_freshness_hours',
+                                    'model_catalog_forced_sync_min_interval_minutes',
+                                    'model_catalog_sync_lock_minutes',
+                                ] as $mcKey)
+                                    <label class="block">
+                                        <span class="text-sm font-medium">{{ __('seo-content-ai::filament.ai_center.mc_'.$mcKey) }}</span>
+                                        <input
+                                            type="number"
+                                            wire:model="modelCatalogSettings.{{ $mcKey }}"
+                                            class="mt-1 block w-full rounded-lg border-gray-300 dark:border-gray-600 dark:bg-gray-800"
+                                        />
+                                    </label>
+                                @endforeach
+                                <label class="flex items-center gap-2 mt-6">
+                                    <input type="checkbox" wire:model="modelCatalogSettings.model_catalog_keep_last_known_good" />
+                                    <span class="text-sm">{{ __('seo-content-ai::filament.ai_center.mc_model_catalog_keep_last_known_good') }}</span>
+                                </label>
+                                <label class="flex items-center gap-2 mt-6">
+                                    <input type="checkbox" wire:model="modelCatalogSettings.model_catalog_sync_on_strong_stale_error" />
+                                    <span class="text-sm">{{ __('seo-content-ai::filament.ai_center.mc_model_catalog_sync_on_strong_stale_error') }}</span>
+                                </label>
+                            </div>
+
+                            <section class="seo-ai-section-head mt-6">
+                                <div>
                                     <h3 class="seo-ai-section-title">{{ __('seo-content-ai::filament.ai_center.free_pool_resilience_title') }}</h3>
                                     <p class="seo-ai-section-help">{{ __('seo-content-ai::filament.ai_center.free_pool_resilience_help') }}</p>
                                 </div>
@@ -363,8 +398,6 @@
                                     'free_model_quarantine_failure_threshold',
                                     'free_model_quarantine_hours',
                                     'free_model_max_quarantine_hours',
-                                    'free_pool_catalog_freshness_hours',
-                                    'free_pool_forced_sync_min_interval_minutes',
                                     'free_pool_first_probe_minutes',
                                     'free_pool_probe_backoff_multiplier',
                                     'free_pool_max_probe_hours',
@@ -460,6 +493,59 @@
                                         </li>
                                     @endforeach
                                 </ul>
+                            </section>
+                        @endif
+                        @php($catalogRows = $this->modelCatalogStatusRows())
+                        @if ($catalogRows !== [])
+                            <section class="seo-ai-health-section mb-4">
+                                <h3 class="seo-ai-section-title">{{ __('seo-content-ai::filament.ai_center.model_catalog_title') }}</h3>
+                                <div class="overflow-x-auto">
+                                    <table class="seo-ai-table w-full text-sm">
+                                        <thead>
+                                            <tr>
+                                                <th>{{ __('seo-content-ai::filament.ai_center.col_connection') }}</th>
+                                                <th>{{ __('seo-content-ai::filament.ai_center.col_provider') }}</th>
+                                                <th>{{ __('seo-content-ai::filament.ai_center.catalog_status') }}</th>
+                                                <th>{{ __('seo-content-ai::filament.ai_center.col_last_success') }}</th>
+                                                <th>{{ __('seo-content-ai::filament.ai_center.catalog_models') }}</th>
+                                                <th>{{ __('seo-content-ai::filament.ai_center.col_action') }}</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            @foreach ($catalogRows as $row)
+                                                <tr>
+                                                    <td>{{ $row['name'] }}</td>
+                                                    <td>{{ $row['provider'] }} <span class="seo-ai-muted">({{ $row['authority_mode'] }})</span></td>
+                                                    <td>
+                                                        {{ strtoupper((string) $row['status']) }}
+                                                        @if (! empty($row['syncing']))
+                                                            · syncing
+                                                        @endif
+                                                        @if ($row['catalog_age_seconds'] !== null)
+                                                            · {{ (int) floor(((int) $row['catalog_age_seconds']) / 3600) }}h
+                                                        @endif
+                                                    </td>
+                                                    <td>{{ $row['last_success_at'] ?? '—' }}</td>
+                                                    <td>{{ $row['active_count'] }}/{{ $row['catalog_count'] }}</td>
+                                                    <td>
+                                                        <button
+                                                            type="button"
+                                                            class="seo-ai-link"
+                                                            wire:click="syncConnection({{ (int) $row['connection_id'] }})"
+                                                            wire:loading.attr="disabled"
+                                                            wire:target="syncConnection({{ (int) $row['connection_id'] }})"
+                                                        >
+                                                            <span wire:loading.remove wire:target="syncConnection({{ (int) $row['connection_id'] }})">
+                                                                {{ __('seo-content-ai::filament.ai_center.sync_models') }}
+                                                            </span>
+                                                            <span wire:loading wire:target="syncConnection({{ (int) $row['connection_id'] }})">…</span>
+                                                        </button>
+                                                    </td>
+                                                </tr>
+                                            @endforeach
+                                        </tbody>
+                                    </table>
+                                </div>
                             </section>
                         @endif
                         <div class="seo-ai-health-stats" aria-label="{{ __('seo-content-ai::filament.ai_center.health_summary') }}">

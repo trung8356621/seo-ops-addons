@@ -75,6 +75,10 @@ PROMPT;
         $quantity = (int) ($rawInput['quantity'] ?? $rawInput['count'] ?? 3);
         $quantity = max(1, min(12, $quantity));
 
+        if ($context === '') {
+            throw new SocialAiValidationException('Thiếu ngữ cảnh văn bản để tạo bình luận.');
+        }
+
         return [
             'context' => $context,
             'social' => $social,

@@ -31,7 +31,7 @@ final class AiModelPriorityServiceTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        foreach (['ai_routing_targets', 'ai_routing_profiles', 'ai_model_capabilities', 'seo_ai_models', 'api_connections'] as $table) {
+        foreach (['ai_routing_targets', 'ai_routing_profiles', 'ai_model_capabilities', 'seo_ai_models', 'api_connections', 'wp_options'] as $table) {
             Schema::dropIfExists($table);
         }
         Schema::create('api_connections', function (Blueprint $table): void {
@@ -42,6 +42,7 @@ final class AiModelPriorityServiceTest extends TestCase
             $table->text('api_key')->nullable();
             $table->boolean('is_global')->default(false);
             $table->string('status')->default('active');
+            $table->string('connection_type')->default('ai');
             $table->json('metadata')->nullable();
             $table->timestamps();
         });
@@ -92,8 +93,16 @@ final class AiModelPriorityServiceTest extends TestCase
             $table->json('options')->nullable();
             $table->timestamps();
         });
+        Schema::create('wp_options', function (Blueprint $table): void {
+            $table->id();
+            $table->string('option_name')->unique();
+            $table->longText('option_value')->nullable();
+            $table->string('autoload')->default('no');
+            $table->timestamps();
+        });
+        \App\Models\WpOption::clearRequestCache();
         $this->priorities = new AiModelPriorityService();
-        $this->targets = new AiRoutingTargetService(new ModelCapabilityRegistry());
+        $this->targets = new AiRoutingTargetService(new ModelCapabilityRegistry(), priorities: $this->priorities);
     }
 
     public function test_provider_reorder_is_persisted(): void
@@ -133,19 +142,21 @@ final class AiModelPriorityServiceTest extends TestCase
         $gemini = $this->connection(3, ApiConnectionProviders::GEMINI, 'Gemini');
         $this->priorities->reorderProviders(3, [(int) $deepseek->id, (int) $gemini->id]);
         $this->model($deepseek, 'deepseek-chat', AiModelCategory::DEEPSEEK_CHAT, 10);
-        $this->model($deepseek, 'deepseek-reasoner', AiModelCategory::DEEPSEEK_REASONER, 20);
+        $reasoner = $this->model($deepseek, 'deepseek-reasoner', AiModelCategory::DEEPSEEK_REASONER, 20);
         $flash = $this->model($gemini, 'gemini-3-flash-preview', AiModelCategory::GEMINI_FLASH, 10);
         $this->grantText($gemini, $flash);
+        $this->grantText($deepseek, $reasoner);
+        $this->priorities->appendToArea(3, AiModelArea::TextReasoning, [(int) $reasoner->id, (int) $flash->id]);
         $resolved = $this->targets->eligibleCandidates(
             3,
             AiExecutionProfile::TextReasoning,
             new AiRoutingContext(userId: 3, hookKey: 'article.outline.structure.generate'),
         );
         $models = array_map(static fn ($candidate): string => $candidate->model, $resolved);
-        // Production: DeepSeek is never eligible for Outline/Vocabulary TextReasoning.
+        // Capability-driven: legacy chat lacks text.reasoning; reasoner + gemini remain.
         $this->assertNotContains('deepseek-chat', $models);
-        $this->assertNotContains('deepseek-reasoner', $models);
-        $this->assertSame(['gemini-3-flash-preview'], $models);
+        $this->assertContains('deepseek-reasoner', $models);
+        $this->assertContains('gemini-3-flash-preview', $models);
     }
 
     public function test_custom_selection_does_not_filter_text_runtime_area_order(): void
@@ -262,7 +273,7 @@ final class AiModelPriorityServiceTest extends TestCase
         );
         $reasoningModels = array_map(static fn ($c): string => $c->model, $resolved);
         $this->assertNotContains('deepseek-chat', $reasoningModels);
-        $this->assertNotContains('deepseek-reasoner', $reasoningModels);
+        $this->assertContains('deepseek-reasoner', $reasoningModels);
         $this->targets->saveSimplifiedSelection(
             8,
             AiExecutionProfile::TextFast,
@@ -336,7 +347,7 @@ final class AiModelPriorityServiceTest extends TestCase
             'user_id' => $userId,
             'provider' => $provider,
             'name' => $name,
-            'api_key' => 'k',
+            'api_key' => 'sk-test-key-long-enough',
             'status' => 'active',
             'is_global' => false,
             'metadata' => [],

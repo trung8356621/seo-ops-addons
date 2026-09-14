@@ -47,20 +47,21 @@ final class SplitOutlineInputContractAndDeepSeekEligibilityTest extends TestCase
         self::assertStringContainsString('LEGACY_OUTLINE_SIGNATURE', $src);
     }
 
-    public function test_deepseek_excluded_from_outline_reasoning_but_allowed_for_keyword_hook(): void
+    public function test_deepseek_is_capability_eligible_for_outline_reasoning_and_longform(): void
     {
         $policy = new AiProductionRouteEligibility;
-        $deepseek = $this->candidate('deepseek', 'deepseek-reasoner');
+        $deepseek = $this->candidate('deepseek', 'deepseek-flash');
         $claude = $this->candidate('claude', 'claude-sonnet-4-20250514');
 
         $outlineCtx = new AiRoutingContext(userId: 1, hookKey: 'article.outline.structure.generate');
         $filtered = $policy->filter([$deepseek, $claude], AiExecutionProfile::TextReasoning, $outlineCtx);
-        self::assertCount(1, $filtered);
-        self::assertSame('claude-sonnet-4-20250514', $filtered[0]->model);
+        self::assertCount(2, $filtered);
+        self::assertSame('deepseek-flash', $filtered[0]->model);
+        self::assertSame('claude-sonnet-4-20250514', $filtered[1]->model);
 
         $kdCtx = new AiRoutingContext(userId: 1, hookKey: 'keyword.discovery.structured');
         $kd = $policy->filter(
-            [$this->candidate('deepseek', 'deepseek-chat'), $claude],
+            [$this->candidate('deepseek', 'deepseek-flash'), $claude],
             AiExecutionProfile::TextLongform,
             $kdCtx,
         );
@@ -69,7 +70,7 @@ final class SplitOutlineInputContractAndDeepSeekEligibilityTest extends TestCase
         $articleCtx = new AiRoutingContext(userId: 1, hookKey: 'article.content.generate');
         $article = $policy->filter(
             [
-                $this->candidate('deepseek', 'deepseek-chat'),
+                $this->candidate('deepseek', 'deepseek-flash'),
                 $this->candidate('openrouter', 'deepseek/deepseek-chat'),
                 $claude,
             ],
@@ -77,7 +78,7 @@ final class SplitOutlineInputContractAndDeepSeekEligibilityTest extends TestCase
             $articleCtx,
         );
         self::assertCount(3, $article);
-        self::assertSame('deepseek-chat', $article[0]->model);
+        self::assertSame('deepseek-flash', $article[0]->model);
         self::assertSame('deepseek/deepseek-chat', $article[1]->model);
         self::assertSame('claude-sonnet-4-20250514', $article[2]->model);
     }

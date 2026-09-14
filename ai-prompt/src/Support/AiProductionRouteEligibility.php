@@ -8,11 +8,11 @@ use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext;
 use Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate;
 
 /**
- * Canonical production eligibility filters (provider/family) by execution profile + hook.
+ * Canonical production eligibility filters by execution profile + hook.
  *
- * DeepSeek is eligible for TextLongform (keyword discovery + article content) including every
- * physical route under a logical model (Direct + OpenRouter).
- * DeepSeek remains excluded from Outline/Vocabulary (TextReasoning).
+ * Provider brand is NOT an eligibility axis. DeepSeek (and every other provider)
+ * is admitted or rejected by area membership, required capabilities, cost policy,
+ * connection/credentials, runtime health, and active model state.
  */
 final class AiProductionRouteEligibility
 {
@@ -22,39 +22,18 @@ final class AiProductionRouteEligibility
      */
     public function filter(array $candidates, AiExecutionProfile $profile, ?AiRoutingContext $context = null): array
     {
-        $hookKey = trim((string) ($context?->hookKey ?? ''));
+        unset($profile, $context);
 
-        $out = [];
-        foreach ($candidates as $candidate) {
-            if ($this->isDeepSeekCandidate($candidate) && ! $this->deepSeekAllowed($profile, $hookKey)) {
-                continue;
-            }
-            $out[] = $candidate;
-        }
-
-        return array_values($out);
+        return array_values($candidates);
     }
 
+    /**
+     * @deprecated Capability / area layers own DeepSeek eligibility. Always true.
+     */
     public function deepSeekAllowed(AiExecutionProfile $profile, string $hookKey): bool
     {
-        // Outline / Vocabulary production must not use DeepSeek (any physical route).
-        if ($profile === AiExecutionProfile::TextReasoning) {
-            return false;
-        }
+        unset($profile, $hookKey);
 
         return true;
-    }
-
-    private function isDeepSeekCandidate(RoutedAiCandidate $candidate): bool
-    {
-        if (strcasecmp((string) $candidate->provider, ApiConnectionProviders::DEEPSEEK) === 0) {
-            return true;
-        }
-
-        $model = strtolower(trim((string) $candidate->model));
-
-        return str_starts_with($model, 'deepseek/')
-            || str_starts_with($model, 'deepseek-')
-            || $model === 'deepseek';
     }
 }

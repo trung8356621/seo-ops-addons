@@ -35,7 +35,6 @@ final class SyncAllAiConnectionModelsService
      */
     public function run(int $userId): array
     {
-        $router = app(AiModelRouterService::class);
         $inventory = app(AiConnectionInventoryService::class);
         $coverage = app(AiConnectionCoverageService::class);
 
@@ -65,13 +64,27 @@ final class SyncAllAiConnectionModelsService
             }
 
             try {
-                $synced = $router->syncModelsForConnection((int) $connection->id);
+                $freshness = app(AiModelCatalogFreshnessService::class);
+                $result = $freshness->requestRefresh(
+                    $connection,
+                    $userId,
+                    forced: true,
+                    blocking: true,
+                    respectForcedDebounce: false,
+                );
+                $synced = (bool) ($result['ok'] ?? false)
+                    || (($result['reason'] ?? '') === 'already_fresh');
                 if ($synced) {
                     $ok++;
                     $rows[] = $this->row($connection, true, false, 'synchronized');
                 } else {
                     $failed++;
-                    $rows[] = $this->row($connection, false, false, 'sync_failed');
+                    $rows[] = $this->row(
+                        $connection,
+                        false,
+                        (bool) ($result['skipped'] ?? false),
+                        (string) ($result['reason'] ?? 'sync_failed'),
+                    );
                 }
             } catch (\Throwable $e) {
                 $failed++;
