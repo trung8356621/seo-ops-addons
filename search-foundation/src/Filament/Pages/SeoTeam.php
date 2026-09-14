@@ -43,7 +43,7 @@ class SeoTeam extends SeoPanelPage implements HasTable
 
     /**
      * SEO sidebar keeps Members menu; Owners are sent to canonical Core Admin Members.
-     * Non-owners keep this SEO-panel team UI (same users.name / seo_role storage).
+     * Non-owners keep this SEO-panel team UI (Spatie seo.* roles).
      */
     public function mount(): void
     {
@@ -82,14 +82,24 @@ class SeoTeam extends SeoPanelPage implements HasTable
                     ->sortable()
                     ->copyable(),
 
-                Tables\Columns\SelectColumn::make('seo_role')
+                Tables\Columns\SelectColumn::make('seo_addon_role')
                     ->label(__('seo-content-ai::filament.team.seo_role'))
                     ->options($this->seoRoleOptions())
                     ->selectablePlaceholder(false)
-                    ->sortable()
                     ->disabled($readOnly)
-                    ->beforeStateUpdated(function (mixed $state, User $record): void {
+                    ->getStateUsing(function (User $record): string {
+                        try {
+                            return app(\App\Core\Permissions\SeoRoleAssignment::class)
+                                ->resolveShortRank($record)
+                                ?? SeoAccessControl::ROLE_CONTENT_MANAGER;
+                        } catch (\Throwable) {
+                            return SeoAccessControl::ROLE_CONTENT_MANAGER;
+                        }
+                    })
+                    ->updateStateUsing(function (User $record, mixed $state): void {
                         $this->assertCanManageMember($record);
+                        app(\App\Core\Permissions\SeoRoleAssignment::class)
+                            ->assign($record, is_string($state) ? $state : null);
                     }),
 
                 Tables\Columns\TextColumn::make('seo_monthly_capacity')
@@ -221,9 +231,10 @@ class SeoTeam extends SeoPanelPage implements HasTable
                         $record->update([
                             'parent_id' => null,
                             'role' => User::ROLE_OWNER,
-                            'seo_role' => User::SEO_ROLE_MANAGER,
                             'status' => User::STATUS_NORMAL,
                         ]);
+                        app(\App\Core\Permissions\SeoRoleAssignment::class)
+                            ->assign($record, SeoAccessControl::ROLE_MANAGER);
 
                         Notification::make()
                             ->title(__('seo-content-ai::filament.team.member_removed'))
@@ -406,15 +417,16 @@ class SeoTeam extends SeoPanelPage implements HasTable
             'memberSeoRole' => ['required', Rule::in(array_keys($this->seoRoleOptions()))],
         ])->validate();
 
-        User::query()->create([
+        $user = User::query()->create([
             'parent_id' => $ownerId,
             'role' => User::ROLE_STAFF,
-            'seo_role' => (string) $validated['memberSeoRole'],
             'status' => User::STATUS_NORMAL,
             'name' => trim((string) $validated['memberName']),
             'email' => strtolower(trim((string) $validated['memberEmail'])),
             'password' => Hash::make((string) $validated['memberPassword']),
         ]);
+        app(\App\Core\Permissions\SeoRoleAssignment::class)
+            ->assign($user, (string) $validated['memberSeoRole']);
 
         Notification::make()
             ->title(__('seo-content-ai::filament.team.member_added'))
@@ -445,10 +457,14 @@ class SeoTeam extends SeoPanelPage implements HasTable
         $existing->update([
             'parent_id' => $ownerId,
             'role' => User::ROLE_STAFF,
-            'seo_role' => SeoAccessControl::normalizeRole(
-                (string) ($existing->seo_role ?: SeoAccessControl::ROLE_CONTENT_MANAGER),
-            ),
         ]);
+
+        $assignment = app(\App\Core\Permissions\SeoRoleAssignment::class);
+        $current = $assignment->resolveShortRank($existing);
+        $assignment->assign(
+            $existing,
+            $current ?? SeoAccessControl::ROLE_CONTENT_MANAGER,
+        );
     }
 
     private function applyExistingUserToForm(User $existing, Set $set): void

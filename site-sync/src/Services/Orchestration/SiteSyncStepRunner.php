@@ -659,9 +659,10 @@ final class SiteSyncStepRunner
             try {
                 $tenantId = (int) ($site->user_id ?? 0);
                 if ($tenantId <= 0) {
-                    $tenantId = (int) (\App\Models\User::query()
-                        ->where('seo_role', \App\Models\User::SEO_ROLE_MANAGER)
-                        ->whereNull('parent_id')
+                    $fallback = \App\Models\User::query()
+                        ->whereNull('parent_id');
+                    $tenantId = (int) (app(\App\Core\Permissions\SeoRoleAssignment::class)
+                        ->constrainQueryToRoles($fallback, [\App\Models\User::SEO_ROLE_MANAGER])
                         ->value('id') ?? 0);
                 }
                 foreach ($missing as $capability) {
@@ -1622,10 +1623,12 @@ final class SiteSyncStepRunner
             return $ownerId;
         }
 
-        return (int) (\App\Models\User::query()
+        $fallback = \App\Models\User::query()
             ->where('status', \App\Models\User::STATUS_NORMAL)
-            ->where('seo_role', \App\Models\User::SEO_ROLE_MANAGER)
-            ->whereNull('parent_id')
+            ->whereNull('parent_id');
+
+        return (int) (app(\App\Core\Permissions\SeoRoleAssignment::class)
+            ->constrainQueryToRoles($fallback, [\App\Models\User::SEO_ROLE_MANAGER])
             ->value('id') ?? 0);
     }
 }

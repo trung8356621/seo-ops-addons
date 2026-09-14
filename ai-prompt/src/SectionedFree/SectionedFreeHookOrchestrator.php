@@ -513,6 +513,11 @@ final class SectionedFreeHookOrchestrator
         } catch (\Throwable $exception) {
             $failurePayload = $this->buildSectionFailurePayload($exception, $childPromptResultIds, $breadcrumbs);
             $breadcrumbs->push('failed', $failurePayload);
+            $persistedState = is_array($exception instanceof PromptRunException
+                ? ($exception->context['sectioned_free_state'] ?? null)
+                : null)
+                ? $exception->context['sectioned_free_state']
+                : ($failurePayload['sectioned_free_state'] ?? null);
 
             $parentResult->update([
                 'status' => 'failed',
@@ -522,6 +527,7 @@ final class SectionedFreeHookOrchestrator
                     'child_prompt_result_ids' => $childPromptResultIds,
                     'breadcrumbs' => $breadcrumbs->all(),
                     'sectioned_free_failure' => $failurePayload,
+                    'sectioned_free_state' => is_array($persistedState) ? $persistedState : null,
                 ],
                 'input_snapshot' => array_merge(
                     is_array($parentResult->input_snapshot) ? $parentResult->input_snapshot : [],
@@ -529,6 +535,9 @@ final class SectionedFreeHookOrchestrator
                         'child_prompt_result_ids' => $childPromptResultIds,
                         'breadcrumbs' => $breadcrumbs->all(),
                         'sectioned_free_failure' => $failurePayload,
+                        'sectioned_free_state' => is_array($persistedState) ? $persistedState : null,
+                        'steps_total' => (int) ($failurePayload['total_sections'] ?? 0),
+                        'steps_success' => (int) ($failurePayload['completed_sections'] ?? 0),
                         'legacy_validator_reached' => false,
                     ],
                 ),
@@ -644,6 +653,11 @@ final class SectionedFreeHookOrchestrator
             $message .= "\nchild_prompt_result_ids: ".implode(',', $childPromptResultIds);
         }
 
+        $stateFromContext = $exception instanceof PromptRunException
+            && is_array($exception->context['sectioned_free_state'] ?? null)
+            ? $exception->context['sectioned_free_state']
+            : null;
+
         return [
             'failure_code' => 'SECTIONED_FREE_SECTION_FAILED',
             'message' => $message,
@@ -654,6 +668,7 @@ final class SectionedFreeHookOrchestrator
             'last_error' => $lastError,
             'child_prompt_result_ids' => $childPromptResultIds,
             'last_breadcrumb' => $breadcrumbs->toArray()['last_event'] ?? null,
+            'sectioned_free_state' => $stateFromContext ?? ($sections !== [] ? ['sections' => $sections] : null),
         ];
     }
 

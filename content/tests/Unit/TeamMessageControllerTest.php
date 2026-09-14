@@ -26,7 +26,6 @@ final class TeamMessageControllerTest extends TestCase
             'password' => bcrypt('secret'),
             'role' => User::ROLE_OWNER,
             'status' => User::STATUS_NORMAL,
-            'seo_role' => User::SEO_ROLE_MANAGER,
         ]);
 
         $staff = User::query()->create([
@@ -36,7 +35,6 @@ final class TeamMessageControllerTest extends TestCase
             'role' => User::ROLE_STAFF,
             'parent_id' => $owner->id,
             'status' => User::STATUS_NORMAL,
-            'seo_role' => User::SEO_ROLE_PLANNER,
         ]);
 
         TeamMessage::query()->create([
@@ -73,7 +71,6 @@ final class TeamMessageControllerTest extends TestCase
             'password' => bcrypt('secret'),
             'role' => User::ROLE_OWNER,
             'status' => User::STATUS_NORMAL,
-            'seo_role' => User::SEO_ROLE_MANAGER,
         ]);
 
         $first = TeamMessage::query()->create([
@@ -113,7 +110,6 @@ final class TeamMessageControllerTest extends TestCase
             'password' => bcrypt('secret'),
             'role' => User::ROLE_OWNER,
             'status' => User::STATUS_NORMAL,
-            'seo_role' => User::SEO_ROLE_MANAGER,
         ]);
 
         $staff = User::query()->create([
@@ -123,7 +119,6 @@ final class TeamMessageControllerTest extends TestCase
             'role' => User::ROLE_STAFF,
             'parent_id' => $owner->id,
             'status' => User::STATUS_NORMAL,
-            'seo_role' => User::SEO_ROLE_PLANNER,
         ]);
 
         $first = TeamMessage::query()->create([
@@ -171,7 +166,6 @@ final class TeamMessageControllerTest extends TestCase
             'password' => bcrypt('secret'),
             'role' => User::ROLE_OWNER,
             'status' => User::STATUS_NORMAL,
-            'seo_role' => User::SEO_ROLE_MANAGER,
         ]);
 
         TeamMessage::query()->create([

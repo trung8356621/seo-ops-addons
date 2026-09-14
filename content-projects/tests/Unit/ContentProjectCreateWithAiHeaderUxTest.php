@@ -35,6 +35,53 @@ final class ContentProjectCreateWithAiHeaderUxTest extends TestCase
         self::assertStringNotContainsString('updatedArticleGenerationMode', $bar);
     }
 
+    public function test_split_button_trigger_is_filled_primary_button_not_icon_button(): void
+    {
+        $resource = (string) file_get_contents((string) (new ReflectionClass(SeoProjectResource::class))->getFileName());
+        $groupStart = strpos($resource, 'function makeCreateWithAiModeGroup');
+        self::assertNotFalse($groupStart);
+        $groupEnd = strpos($resource, "\n    public static function generatePendingPreviewHtml");
+        self::assertNotFalse($groupEnd);
+        $group = substr($resource, $groupStart, $groupEnd - $groupStart);
+
+        self::assertStringContainsString('->button()', $group);
+        self::assertStringContainsString('->hiddenLabel()', $group);
+        self::assertStringNotContainsString('->iconButton()', $group);
+        self::assertStringContainsString("'class' => 'cp-create-with-ai-mode'", $group);
+        self::assertStringContainsString("'data-cp-split-trigger' => '1'", $group);
+        self::assertStringContainsString("'wire:loading.attr' => false", $group);
+        self::assertStringContainsString('create_with_ai_mode_menu', $group);
+        self::assertDoesNotMatchRegularExpression(
+            '/makeCreateWithAiModeGroup[\s\S]{0,400}startGeneratePendingItems/',
+            $resource,
+        );
+
+        $actionStart = strpos($resource, 'function makeCreateWithAiAction');
+        self::assertNotFalse($actionStart);
+        $action = substr($resource, $actionStart, $groupStart - $actionStart);
+        self::assertStringContainsString("'class' => 'cp-create-with-ai-primary'", $action);
+        self::assertStringContainsString("'data-cp-split-primary' => '1'", $action);
+        self::assertStringContainsString("'create_with_ai'", $action);
+    }
+
+    public function test_split_button_css_gives_arrow_full_hit_area_and_primary_green(): void
+    {
+        $css = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/seo-content-ai-compat/resources/views/components/content-project-ops-styles.blade.php',
+        );
+
+        self::assertStringContainsString('button.cp-create-with-ai-mode', $css);
+        self::assertStringContainsString('min-width: 2.5rem', $css);
+        self::assertStringContainsString('flex-shrink: 0', $css);
+        self::assertStringContainsString('pointer-events: none', $css);
+        self::assertStringContainsString('pointer-events: auto', $css);
+        self::assertStringContainsString('cursor: pointer', $css);
+        self::assertStringContainsString('border-inline-start: 1px solid rgb(255 255 255 / 0.28)', $css);
+        self::assertStringContainsString('.cp-create-with-ai-primary.fi-btn', $css);
+        self::assertStringContainsString('margin-inline-start: -0.75rem', $css);
+        self::assertStringContainsString('.fi-btn-icon', $css);
+    }
+
     public function test_header_has_ai_generation_action_without_legacy_generate_working_items(): void
     {
         $view = (string) file_get_contents((string) (new ReflectionClass(ViewSeoProject::class))->getFileName());

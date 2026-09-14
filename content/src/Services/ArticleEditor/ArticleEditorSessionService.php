@@ -587,7 +587,7 @@ final class ArticleEditorSessionService
             return SeoAccessControl::canAccessManagerFeatures();
         }
 
-        $role = SeoAccessControl::normalizeRole((string) ($user->seo_role ?? SeoAccessControl::ROLE_CONTENT_MANAGER));
+        $role = SeoAccessControl::roleForUser($user);
 
         return $role === SeoAccessControl::ROLE_MANAGER;
     }

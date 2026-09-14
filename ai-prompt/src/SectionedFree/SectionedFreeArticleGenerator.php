@@ -126,16 +126,10 @@ final class SectionedFreeArticleGenerator
             : null;
 
         foreach ($units as $unit) {
-            if ($rerunId !== '' && $unit->sectionId !== $rerunId) {
-                if ($state->isCompleted($unit->sectionId)) {
-                    $previousSummary = $this->shortSummary(
-                        (string) ($state->toArray()['sections'][$unit->sectionId]['output'] ?? ''),
-                    );
-                }
-                continue;
-            }
-
-            if ($rerunId === '' && $state->isCompleted($unit->sectionId)) {
+            // Resume / rerun contract: always reuse completed sections.
+            // `_sectioned_free_rerun_section_id` only invalidates that section (above);
+            // it must NOT skip pending sections that still need to run.
+            if ($state->isCompleted($unit->sectionId)) {
                 $previousSummary = $this->shortSummary(
                     (string) ($state->toArray()['sections'][$unit->sectionId]['output'] ?? ''),
                 );

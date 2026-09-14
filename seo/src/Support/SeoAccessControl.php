@@ -37,17 +37,14 @@ final class SeoAccessControl
         self::ROLE_MANAGER => 3,
     ];
 
-    public static function actualRole(): string
+    /**
+     * SEO rank for a user — Spatie seo.* only (Owner defaults to manager without Spatie).
+     */
+    public static function roleForUser(User $user): string
     {
-        /** @var User|null $user */
-        $user = auth()->user();
-        if (! $user instanceof User) {
-            return self::ROLE_CONTENT_MANAGER;
-        }
-
         $rank = null;
         try {
-            $rank = app(\App\Core\Permissions\LegacySeoRoleBridge::class)->resolveLegacyRank($user);
+            $rank = app(\App\Core\Permissions\SeoRoleAssignment::class)->resolveShortRank($user);
         } catch (\Throwable) {
             $rank = null;
         }
@@ -61,7 +58,18 @@ final class SeoAccessControl
             return self::ROLE_MANAGER;
         }
 
-        return self::normalizeRole((string) ($user->seo_role ?? self::ROLE_CONTENT_MANAGER));
+        return self::ROLE_CONTENT_MANAGER;
+    }
+
+    public static function actualRole(): string
+    {
+        /** @var User|null $user */
+        $user = auth()->user();
+        if (! $user instanceof User) {
+            return self::ROLE_CONTENT_MANAGER;
+        }
+
+        return self::roleForUser($user);
     }
 
     public static function effectiveRole(): string
@@ -323,7 +331,7 @@ final class SeoAccessControl
 
     /**
      * Planner-equivalent Content Project workflow management.
-     * planner + manager via seo_role rank. content_manager = false.
+     * planner + manager via Spatie SEO rank. content_manager = false.
      * Does not grant Prompt / user / system settings rights.
      */
     public static function canManageContentProjectWorkflow(): bool

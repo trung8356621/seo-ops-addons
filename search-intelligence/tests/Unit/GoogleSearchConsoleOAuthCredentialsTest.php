@@ -189,7 +189,6 @@ final class GoogleSearchConsoleOAuthCredentialsTest extends TestCase
     {
         $user = new \App\Models\User([
             'role' => \App\Models\User::ROLE_OWNER,
-            'seo_role' => \App\Models\User::SEO_ROLE_MANAGER,
             'status' => \App\Models\User::STATUS_NORMAL,
         ]);
         $user->id = 501;

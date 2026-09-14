@@ -50,7 +50,6 @@ final class GlobalAiChatServiceTest extends TestCase
 
         $user = new User([
             'role' => User::ROLE_OWNER,
-            'seo_role' => User::SEO_ROLE_MANAGER,
         ]);
         $user->id = 77;
         $user->exists = true;

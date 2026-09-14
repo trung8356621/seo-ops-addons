@@ -38,7 +38,6 @@ final class DomainContextResolverTest extends TestCase
             'password' => bcrypt('secret'),
             'role' => User::ROLE_OWNER,
             'status' => User::STATUS_NORMAL,
-            'seo_role' => User::SEO_ROLE_MANAGER,
         ]);
 
         $other = User::query()->create([
@@ -47,7 +46,6 @@ final class DomainContextResolverTest extends TestCase
             'password' => bcrypt('secret'),
             'role' => User::ROLE_OWNER,
             'status' => User::STATUS_NORMAL,
-            'seo_role' => User::SEO_ROLE_MANAGER,
         ]);
 
         $this->siteA = Site::query()->create([
@@ -210,7 +208,6 @@ final class DomainContextResolverTest extends TestCase
             $table->unsignedBigInteger('parent_id')->nullable();
             $table->unsignedBigInteger('manager_id')->nullable();
             $table->string('role')->nullable();
-            $table->string('seo_role')->nullable();
             $table->string('status')->nullable();
             $table->string('name');
             $table->string('email')->unique();

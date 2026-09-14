@@ -131,6 +131,14 @@ final class ResumeProjectItemFromFailedStepHandler extends AbstractPublishingHan
             }
 
             $firstPlan = $plans[(int) $itemIds[0]];
+            $resumeSettings = is_array($command->settings) ? $command->settings : [];
+            $resumeSettings['resume_partial_split'] = true;
+            if (! empty($firstPlan['run_item_id'])) {
+                $resumeSettings['resume_prior_run_item_id'] = (int) $firstPlan['run_item_id'];
+            }
+            if (is_array($firstPlan['split_progress'] ?? null)) {
+                $resumeSettings['resume_split_progress'] = $firstPlan['split_progress'];
+            }
             $stepResult = $this->stepHandler->handle(new RerunProjectItemStepCommand(
                 $command->projectRef,
                 $itemIds,
@@ -139,7 +147,7 @@ final class ResumeProjectItemFromFailedStepHandler extends AbstractPublishingHan
                 null,
                 $command->mode,
                 false,
-                $command->settings,
+                $resumeSettings,
             ), $actor);
 
             $meta = is_array($stepResult->metadata) ? $stepResult->metadata : [];
@@ -151,6 +159,9 @@ final class ResumeProjectItemFromFailedStepHandler extends AbstractPublishingHan
             $meta['prior_attempt'] = $firstPlan['attempt'];
             $meta['operation_id'] = $meta['execution_ref'] ?? null;
             $meta['new_attempt'] = true;
+            if (isset($firstPlan['split_progress']) && is_array($firstPlan['split_progress'])) {
+                $meta['split_progress'] = $firstPlan['split_progress'];
+            }
 
             if (! $stepResult->success) {
                 return ContentProjectActionResult::fail(
@@ -163,10 +174,14 @@ final class ResumeProjectItemFromFailedStepHandler extends AbstractPublishingHan
             }
 
             $label = $firstPlan['from_step']->value === 'article' ? 'Viết bài' : 'Dàn ý';
+            $message = 'Đã tiếp tục từ bước '.$label.'; reuse upstream: '.implode(', ', $firstPlan['reused_steps'] ?: ['—']).'.';
+            if (is_array($firstPlan['split_progress'] ?? null) && ($firstPlan['split_progress']['resume_hint'] ?? '') !== '') {
+                $message .= ' '.$firstPlan['split_progress']['resume_hint'];
+            }
 
             return ContentProjectActionResult::ok(
                 $stepResult->code,
-                'Đã tiếp tục từ bước '.$label.'; reuse upstream: '.implode(', ', $firstPlan['reused_steps'] ?: ['—']).'.',
+                $message,
                 $projectId,
                 $itemIds,
                 metadata: $meta,

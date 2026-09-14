@@ -34,6 +34,24 @@ function formatRanAt(ranAt) {
   }
 }
 
+function statusBadgeClass(label, presentationState) {
+  const state = String(presentationState || '').toLowerCase();
+  const text = String(label || '').toUpperCase();
+  if (state === 'partial_failed' || text === 'INCOMPLETE') {
+    return 'text-amber-700 dark:text-amber-400';
+  }
+  if (state === 'failed_before_any_progress' || text === 'FAILED') {
+    return 'text-red-700 dark:text-red-400';
+  }
+  if (state === 'success' || text === 'SUCCESS') {
+    return 'text-emerald-700 dark:text-emerald-400';
+  }
+  if (state === 'running' || state === 'assembling' || text === 'RUNNING' || text === 'ASSEMBLING') {
+    return 'text-sky-700 dark:text-sky-400';
+  }
+  return 'text-slate-500';
+}
+
 function TechnicalDetails({ node, execution, workflow, run }) {
   const [open, setOpen] = useState(false);
   if (!node) return null;
@@ -180,7 +198,9 @@ function ExecutionInspector({ node, execution, labels, workflow, run, onPreview,
                 <div className="flex items-start justify-between gap-2">
                   <p className="font-medium">{call.prompt_name || call.hook_key || `#${call.result_id}`}</p>
                   {call.status_label && (
-                    <span className="shrink-0 text-[10px] uppercase tracking-wide text-slate-500">{call.status_label}</span>
+                    <span className={`shrink-0 text-[10px] uppercase tracking-wide ${statusBadgeClass(call.status_label, call.presentation_state)}`}>
+                      {call.status_label}
+                    </span>
                   )}
                 </div>
                 {call.history_role && <p className="text-[10px] uppercase tracking-wide text-slate-400">{call.history_role}{call.ai_call === false ? ' · not AI call' : ''}</p>}
@@ -191,10 +211,22 @@ function ExecutionInspector({ node, execution, labels, workflow, run, onPreview,
                 {call.execution_profile && <p>Profile: {call.execution_profile}</p>}
                 {call.pass_mode && <p>Pass mode: {call.pass_mode}</p>}
                 {call.steps_total != null && <p>Steps: {call.steps_success ?? 0}/{call.steps_total}</p>}
+                {call.split_progress?.summary && (
+                  <p className="mt-1 text-slate-700 dark:text-slate-300">{call.split_progress.summary}</p>
+                )}
+                {call.resume_hint && (
+                  <p className="mt-1 text-[11px] text-amber-800 dark:text-amber-300">{call.resume_hint}</p>
+                )}
+                {call.cta_label && (
+                  <p className="mt-1 text-[11px] font-medium text-indigo-700 dark:text-indigo-300">CTA: {call.cta_label}</p>
+                )}
                 {call.model && <p>Model: {call.model}{call.provider ? ` · ${call.provider}` : ''}</p>}
                 {call.route_position != null && <p>Route position #{call.route_position}</p>}
-                {call.message && (
+                {call.message && !call.split_progress?.summary && (
                   <p className="mt-1 text-red-700 dark:text-red-400">{call.message}</p>
+                )}
+                {call.technical_message && (
+                  <p className="mt-1 font-mono text-[10px] text-slate-400">{call.technical_message}</p>
                 )}
                 {call.result_id && onPreview && call.ai_call !== false && (
                   <button
@@ -210,7 +242,13 @@ function ExecutionInspector({ node, execution, labels, workflow, run, onPreview,
                     {call.children.map((child, idx) => (
                       <li key={child.result_id ?? `child-${idx}`} className="text-[11px]">
                         <span className="font-medium">{child.prompt_name || child.history_role || `#${child.result_id}`}</span>
+                        {child.status_label && (
+                          <span className={`ml-2 text-[10px] uppercase ${statusBadgeClass(child.status_label, child.presentation_state)}`}>
+                            {child.status_label}
+                          </span>
+                        )}
                         {child.history_role && <span className="ml-1 text-slate-400">({child.history_role})</span>}
+                        {child.message && <span className="ml-1 text-slate-500">{child.message}</span>}
                         {child.result_id && onPreview && child.ai_call !== false && (
                           <button
                             type="button"

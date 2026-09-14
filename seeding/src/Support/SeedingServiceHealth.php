@@ -79,7 +79,6 @@ final class SeedingServiceHealth
             'user' => $user instanceof User ? [
                 'id' => (int) $user->id,
                 'display_name' => (string) ($user->name ?? ''),
-                'seo_role' => (string) ($user->seo_role ?? ''),
                 'is_manager' => $access->isManager($user),
                 'role' => $access->isManager($user) ? 'manager' : 'seeder',
             ] : null,

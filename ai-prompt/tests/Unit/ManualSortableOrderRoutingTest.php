@@ -206,7 +206,7 @@ final class ManualSortableOrderRoutingTest extends TestCase
         $this->assertSame('free-ok', $output);
     }
 
-    /** TEST C — DeepSeek #1 model_cooldown SKIPPED (0 API) → Free Pool API #1 */
+    /** TEST C — DeepSeek #1 model_cooldown → first usable FREE ⇒ FREE-FIRST (DeepSeek primary paid excluded) */
     public function test_c_deepseek_health_skip_then_free_pool(): void
     {
         (new AiResilienceSettingsService())->save(203, ['max_ai_attempts' => 6, 'max_free_attempts' => 3]);
@@ -227,14 +227,15 @@ final class ManualSortableOrderRoutingTest extends TestCase
         $this->assertSame(['meta/llama:free'], $calls);
         $this->assertSame('meta/llama:free', $selected->model);
         $this->assertSame('free-ok', $output);
-        $this->assertSame('skipped', $routingAttempts[0]['result'] ?? null);
-        $this->assertSame('model_cooldown', $routingAttempts[0]['skip_reason'] ?? null);
-        $this->assertFalse((bool) ($routingAttempts[0]['attempted'] ?? true));
-        $this->assertSame(0, (int) ($routingAttempts[0]['actual_attempts'] ?? -1));
-        $this->assertSame('deepseek-chat', $routingAttempts[0]['model'] ?? null);
-        $this->assertSame('success', $routingAttempts[1]['result'] ?? null);
-        $this->assertSame('meta/llama:free', $routingAttempts[1]['model'] ?? null);
-        $this->assertSame(1, (int) ($routingAttempts[1]['actual_attempts'] ?? 0));
+        // Unhealthy PRIMARY paid is not first-usable → FREE-FIRST excludes it from the stream.
+        $this->assertSame('success', $routingAttempts[0]['result'] ?? null);
+        $this->assertSame('meta/llama:free', $routingAttempts[0]['model'] ?? null);
+        $this->assertSame('primary_free', $routingAttempts[0]['phase'] ?? null);
+        $this->assertSame(1, (int) ($routingAttempts[0]['actual_attempts'] ?? 0));
+        $this->assertSame(
+            \Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingPlan::PATH_FREE_PRIMARY_THEN_SECONDARY_PAID,
+            $routingAttempts[0]['routing_path'] ?? null,
+        );
     }
 
     /** TEST D — FREE_ONLY excludes DeepSeek; Free Pool is first API */
@@ -312,7 +313,7 @@ final class ManualSortableOrderRoutingTest extends TestCase
         );
     }
 
-    /** Health visibility — DS first SKIPPED, then Free API, attempt_count excludes skip */
+    /** Health visibility — paid cooldown makes FREE first-usable ⇒ FREE-FIRST stream (no primary paid skip row) */
     public function test_health_skip_visibility_in_exhausted_trace(): void
     {
         (new AiResilienceSettingsService())->save(207, ['max_ai_attempts' => 6, 'max_free_attempts' => 3]);
@@ -331,20 +332,19 @@ final class ManualSortableOrderRoutingTest extends TestCase
         } catch (AiRoutesExhaustedException $e) {
             $attempts = $e->context['routing_attempts'] ?? [];
             $this->assertNotEmpty($attempts);
-            $first = $attempts[0];
-            $this->assertSame('skipped', $first['result'] ?? null);
-            $this->assertSame('model_cooldown', $first['skip_reason'] ?? null);
-            $this->assertFalse((bool) ($first['attempted'] ?? true));
-            $this->assertSame(0, (int) ($first['actual_attempts'] ?? -1));
-            $this->assertSame('deepseek-chat', $first['model'] ?? null);
-
+            $this->assertSame(
+                \Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingPlan::PATH_FREE_PRIMARY_THEN_SECONDARY_PAID,
+                $e->context['routing_path'] ?? null,
+            );
             $apiCalls = array_values(array_filter(
                 $attempts,
                 static fn (array $row): bool => in_array($row['result'] ?? '', ['failed', 'success'], true),
             ));
             $this->assertNotEmpty($apiCalls);
             $this->assertSame('meta/llama:free', $apiCalls[0]['model'] ?? null);
-            $this->assertSame(1, (int) ($e->context['attempt_count'] ?? 0));
+            $this->assertSame('primary_free', $apiCalls[0]['phase'] ?? null);
+            // Secondary paid may be skipped via cooldown if mirrored; free failure still counted.
+            $this->assertGreaterThanOrEqual(1, (int) ($e->context['attempt_count'] ?? 0));
         }
     }
 
@@ -381,6 +381,11 @@ final class ManualSortableOrderRoutingTest extends TestCase
             AiModelArea::TextLongform,
             [(int) $deepseek->id, (int) $free->id],
         );
+        app(AiModelPriorityService::class)->appendToArea(
+            $userId,
+            AiModelArea::TextFast,
+            [(int) $deepseek->id],
+        );
 
         return [(int) $deepseek->id, (int) $free->id];
     }
@@ -397,6 +402,11 @@ final class ManualSortableOrderRoutingTest extends TestCase
             $userId,
             AiModelArea::TextLongform,
             [(int) $free->id, (int) $deepseek->id],
+        );
+        app(AiModelPriorityService::class)->appendToArea(
+            $userId,
+            AiModelArea::TextFast,
+            [(int) $deepseek->id],
         );
     }
 

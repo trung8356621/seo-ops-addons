@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AiPrompt\Tests\Unit;
 
 use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext;
+use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingPlan;
 use Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate;
 use Omnichannel\Addons\AiPrompt\Services\AiCandidatePlanner;
 use Omnichannel\Addons\AiPrompt\Services\AiRoutingContextResolver;
@@ -45,14 +46,20 @@ final class ArticleGenerationModeFreeOnlyContractTest extends TestCase
             8,
             8,
             static fn (): ?string => null,
+            modelArea: 'long_form_text',
+            secondaryCandidates: [$paid],
+            primaryArea: 'long_form_text',
+            secondaryArea: 'fast_text',
         );
 
         self::assertTrue($plan->mode->allowsPaidRoutes());
+        self::assertSame(AiRoutingPlan::PATH_FREE_PRIMARY_THEN_SECONDARY_PAID, $plan->routingPath);
         self::assertSame('nemotron-free', $plan->executionOrder[0]->candidate->model ?? null);
         self::assertNotEmpty(array_filter(
             $plan->executionOrder,
             static fn ($r): bool => ! $r->candidate->isFree,
         ));
+        self::assertSame('deepseek-chat', $plan->secondaryPaidPhase[0]->candidate->model ?? null);
 
         [, $snap] = $this->planShape($free, $ctx);
         self::assertSame(ArticleGenerationShape::Sectioned, $snap->generationShape);

@@ -56,7 +56,6 @@ final class AiConnectionResourceEditUrlTest extends TestCase
 
         $owner = new User([
             'role' => User::ROLE_OWNER,
-            'seo_role' => User::SEO_ROLE_MANAGER,
             'status' => User::STATUS_NORMAL,
         ]);
         $owner->id = 77;

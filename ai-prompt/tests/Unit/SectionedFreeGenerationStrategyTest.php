@@ -186,6 +186,54 @@ MD;
         );
     }
 
+    public function test_d2_resume_reruns_failed_and_continues_pending(): void
+    {
+        $generator = new SectionedFreeArticleGenerator();
+        $body = str_repeat('delta ', 130);
+        $state = new SectionedFreeRunState();
+        $units = (new SectionedFreePrepareSections())->prepare(self::SAMPLE_OUTLINE);
+        foreach ($units as $unit) {
+            $state->planSection($unit);
+            if (in_array($unit->sectionId, ['section_01', 'section_02'], true)) {
+                $state->markCompleted($unit->sectionId, '## '.$unit->label."\n".$body, 130, [
+                    'model' => 'free-a',
+                    'attempt_count' => 1,
+                    'first_attempt_success' => true,
+                ]);
+            } elseif ($unit->sectionId === 'section_03') {
+                $state->markFailed($unit->sectionId, 'prior fail');
+            }
+            // section_04 / section_05 remain pending
+        }
+
+        $calls = [];
+        $result = $generator->run(
+            ['outline' => self::SAMPLE_OUTLINE, 'title' => 'T', 'primary_keyword' => 'k'],
+            function (SectionedFreeSectionUnit $unit, string $prompt) use (&$calls, $body): array {
+                $calls[] = $unit->sectionId;
+
+                return [
+                    'output' => '## Resume '.$unit->label."\n".$body,
+                    'model' => 'free-b',
+                    'provider' => 'openrouter',
+                    'connection_id' => 2,
+                    'attempt_count' => 1,
+                    'fallback_count' => 0,
+                ];
+            },
+            $state,
+            'section_03',
+        );
+
+        $this->assertSame(['section_03', 'section_04', 'section_05', 'section_06'], $calls);
+        $this->assertNotContains('section_01', $calls);
+        $this->assertNotContains('section_02', $calls);
+        $this->assertTrue($result['state']->isCompleted('section_01'));
+        $this->assertTrue($result['state']->isCompleted('section_03'));
+        $this->assertTrue($result['state']->isCompleted('section_06'));
+        $this->assertStringContainsString('Resume', $result['assembled']);
+    }
+
     public function test_e_below_minimum_threshold_fails_validation(): void
     {
         $validator = new SectionedFreeSectionValidator();

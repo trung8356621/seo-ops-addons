@@ -213,11 +213,12 @@ final class RunnerHealthNotificationPublisher
 
     private function defaultTenantOwnerId(): int
     {
-        $owner = User::query()
+        $query = User::query()
             ->where('status', User::STATUS_NORMAL)
-            ->where('seo_role', User::SEO_ROLE_MANAGER)
             ->whereNull('parent_id')
-            ->orderBy('id')
+            ->orderBy('id');
+        $owner = app(\App\Core\Permissions\SeoRoleAssignment::class)
+            ->constrainQueryToRoles($query, [User::SEO_ROLE_MANAGER])
             ->first();
 
         return $owner instanceof User ? (int) $owner->id : 0;

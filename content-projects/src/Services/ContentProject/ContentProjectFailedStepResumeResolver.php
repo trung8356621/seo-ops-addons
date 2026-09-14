@@ -75,6 +75,10 @@ final class ContentProjectFailedStepResumeResolver
             ];
         }
 
+        $splitProgress = $fromStep === ContentProjectRerunFromStep::Article
+            ? $this->resolveSplitProgress($latest)
+            : null;
+
         return [
             'ok' => true,
             'from_step' => $fromStep,
@@ -87,7 +91,71 @@ final class ContentProjectFailedStepResumeResolver
             'attempt' => isset($latest->attempt) ? (int) $latest->attempt : null,
             'message' => 'Resume from failed step: '.$fromStep->value,
             'input_fingerprint_policy' => $this->reusePolicy::class,
+            'split_progress' => $splitProgress,
         ];
+    }
+
+    /**
+     * @return array<string, mixed>|null
+     */
+    private function resolveSplitProgress(SeoProjectRunItem $item): ?array
+    {
+        if (! class_exists(\Omnichannel\Addons\AiPrompt\Services\SplitExecutionProgressResolver::class)) {
+            return null;
+        }
+
+        $parent = $this->resolveFailedOrchestratorResult($item);
+        if (! $parent instanceof \Omnichannel\Addons\AiPrompt\Models\PromptResult) {
+            return null;
+        }
+
+        return (new \Omnichannel\Addons\AiPrompt\Services\SplitExecutionProgressResolver())
+            ->fromPromptResult($parent)
+            ->toArray();
+    }
+
+    public function resolveFailedOrchestratorResult(SeoProjectRunItem $item): ?\Omnichannel\Addons\AiPrompt\Models\PromptResult
+    {
+        if (! class_exists(\Omnichannel\Addons\AiPrompt\Models\PromptResult::class)) {
+            return null;
+        }
+
+        $snapshot = is_array($item->output_snapshot ?? null) ? $item->output_snapshot : [];
+        $steps = is_array($snapshot['steps'] ?? null) ? $snapshot['steps'] : [];
+        $candidateIds = [];
+        foreach ($steps as $step) {
+            if (! is_array($step)) {
+                continue;
+            }
+            $status = strtolower(trim((string) ($step['status'] ?? '')));
+            if (! in_array($status, ['failed', 'error'], true)) {
+                continue;
+            }
+            $id = (int) ($step['result_id'] ?? $step['prompt_result_id'] ?? 0);
+            if ($id > 0) {
+                $candidateIds[] = $id;
+            }
+            foreach (is_array($step['prompt_result_ids'] ?? null) ? $step['prompt_result_ids'] : [] as $pid) {
+                $pid = (int) $pid;
+                if ($pid > 0) {
+                    $candidateIds[] = $pid;
+                }
+            }
+        }
+
+        $candidateIds = array_values(array_unique($candidateIds));
+        foreach ($candidateIds as $id) {
+            $result = \Omnichannel\Addons\AiPrompt\Models\PromptResult::query()->find($id);
+            if (! $result instanceof \Omnichannel\Addons\AiPrompt\Models\PromptResult) {
+                continue;
+            }
+            $snap = is_array($result->input_snapshot) ? $result->input_snapshot : [];
+            if (! empty($snap['sectioned_free_orchestrator']) || ! empty($snap['sectioned_free_failure'])) {
+                return $result;
+            }
+        }
+
+        return null;
     }
 
     private function latestRunItem(int $taskId): ?SeoProjectRunItem

@@ -669,6 +669,32 @@ final class ArticleExecutionHistoryService
                 is_array($snapshot['child_prompt_result_ids'] ?? null) ? $snapshot['child_prompt_result_ids'] : [],
             )));
 
+            $splitProgress = null;
+            if ($isOrchestrator) {
+                $splitProgress = (new \Omnichannel\Addons\AiPrompt\Services\SplitExecutionProgressResolver())
+                    ->fromOrchestratorPayload(
+                        $snapshot,
+                        is_array($result->token_usage) ? $result->token_usage : null,
+                        [],
+                        (string) $result->status,
+                    )->toArray();
+                $statusLabel = (string) ($splitProgress['presentation_label'] ?? $statusLabel);
+                $progressSummary = trim((string) ($splitProgress['summary'] ?? ''));
+                if ($progressSummary !== '') {
+                    $technicalMessage = $message;
+                    $message = $progressSummary;
+                    if ($technicalMessage !== '' && $technicalMessage !== $progressSummary) {
+                        $snapshot['_technical_message'] = $technicalMessage;
+                    }
+                }
+                if ($stepsTotal <= 0) {
+                    $stepsTotal = (int) ($splitProgress['total_sections'] ?? 0);
+                }
+                if ($stepsSuccess <= 0) {
+                    $stepsSuccess = (int) ($splitProgress['completed_sections'] ?? 0);
+                }
+            }
+
             $calls[] = [
                 'result_id' => $resultId,
                 'prompt_result_id' => $resultId,
@@ -680,6 +706,13 @@ final class ArticleExecutionHistoryService
                 'provider' => trim((string) ($snapshot['provider'] ?? '')),
                 'status' => (string) $result->status,
                 'status_label' => $statusLabel,
+                'presentation_state' => is_array($splitProgress) ? ($splitProgress['presentation_state'] ?? null) : null,
+                'split_progress' => $splitProgress,
+                'technical_message' => isset($snapshot['_technical_message'])
+                    ? (string) $snapshot['_technical_message']
+                    : (($isOrchestrator && $message !== trim((string) ($result->error_message ?? '')))
+                        ? trim((string) ($result->error_message ?? ''))
+                        : null),
                 'message' => $message !== '' ? $message : null,
                 'outline_subtask' => $subtask !== '' ? $subtask : null,
                 'section_id' => $sectionId !== '' ? $sectionId : null,
@@ -734,14 +767,58 @@ final class ArticleExecutionHistoryService
 
                 return (int) ($a['result_id'] ?? 0) <=> (int) ($b['result_id'] ?? 0);
             });
+
+            $progress = (new \Omnichannel\Addons\AiPrompt\Services\SplitExecutionProgressResolver())
+                ->fromOrchestratorPayload(
+                    [
+                        'sectioned_free_orchestrator' => true,
+                        'sectioned_free_failure' => [
+                            'completed_sections' => $call['split_progress']['completed_sections'] ?? null,
+                            'total_sections' => $call['split_progress']['total_sections']
+                                ?? $call['steps_total']
+                                ?? null,
+                            'section_id' => $call['split_progress']['failed_section_id'] ?? null,
+                        ],
+                        'steps_total' => $call['steps_total'] ?? ($call['split_progress']['total_sections'] ?? null),
+                        'sectioned_free_state' => null,
+                        'breadcrumbs' => [],
+                    ],
+                    is_array($call['split_progress'] ?? null) ? [
+                        'sectioned_free_state' => null,
+                        'sectioned_free_failure' => $call['split_progress'] ?? null,
+                    ] : null,
+                    $children,
+                    (string) ($call['status'] ?? ''),
+                );
+            $progressArr = $progress->toArray();
+            $call['split_progress'] = $progressArr;
+            $call['presentation_state'] = $progressArr['presentation_state'];
+            $call['status_label'] = $progressArr['presentation_label'];
+            $call['message'] = $progressArr['summary'];
+            $call['steps_total'] = $progressArr['total_sections'] > 0 ? $progressArr['total_sections'] : ($call['steps_total'] ?? null);
+            $call['steps_success'] = $progressArr['completed_sections'];
+            $call['resume_hint'] = $progressArr['resume_hint'];
+            $call['cta_label'] = $progressArr['cta_label'];
+
+            $assembleStatus = (string) ($progressArr['assemble_status'] ?? 'not_run');
+            $assembleLabel = match ($assembleStatus) {
+                'success' => 'SUCCESS',
+                'running' => 'RUNNING',
+                'failed' => 'FAILED',
+                default => 'PENDING',
+            };
             $children[] = [
                 'result_id' => null,
                 'prompt_result_id' => null,
                 'artifact_ref' => null,
                 'prompt_name' => 'Assemble',
                 'hook_key' => $call['hook_key'] ?? null,
-                'status' => $call['status'] ?? 'completed',
-                'status_label' => 'SUCCESS',
+                'status' => $assembleStatus === 'success' ? 'completed' : ($assembleStatus === 'failed' ? 'failed' : 'pending'),
+                'status_label' => $assembleLabel,
+                'presentation_state' => $assembleStatus === 'not_run' ? 'pending' : $assembleStatus,
+                'message' => $assembleStatus === 'not_run' || $assembleStatus === 'pending'
+                    ? 'Assemble chưa chạy'
+                    : null,
                 'history_role' => 'assemble',
                 'ai_call' => false,
                 'mode' => 'deterministic_concat',

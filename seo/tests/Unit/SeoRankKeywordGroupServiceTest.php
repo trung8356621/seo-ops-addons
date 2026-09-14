@@ -127,7 +127,6 @@ final class SeoRankKeywordGroupServiceTest extends TestCase
             'email' => 'staff@test.local',
             'password' => 'secret',
             'role' => 'staff',
-            'seo_role' => 'planner',
         ]);
 
         $this->actingAs($staff);
@@ -144,7 +143,6 @@ final class SeoRankKeywordGroupServiceTest extends TestCase
             $table->string('email')->unique();
             $table->string('password')->nullable();
             $table->string('role')->default('owner');
-            $table->string('seo_role')->nullable();
             $table->timestamps();
         });
 

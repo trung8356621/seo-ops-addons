@@ -17,7 +17,7 @@ use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Staff (role=staff + seo_role=content_manager) assignable to Content Projects.
+ * Staff (role=staff + Spatie seo.content_manager) assignable to Content Projects.
  *
  * Assignment = seo_projects.user_id (không pivot). Cross-DB nên pluck id rồi whereNotIn.
  * One-project-per-user/month uniqueness is retired — dropdown lists all eligible staff.
@@ -38,11 +38,13 @@ final class ContentProjectStaffAvailabilityService
     {
         $query = User::query()
             ->where('role', User::ROLE_STAFF)
-            ->where('seo_role', User::SEO_ROLE_CONTENT_MANAGER)
             ->where('status', User::STATUS_NORMAL)
             ->where(function (Builder $builder): void {
                 $builder->where('is_system', false)->orWhereNull('is_system');
             });
+
+        $query = app(\App\Core\Permissions\SeoRoleAssignment::class)
+            ->constrainQueryToRoles($query, [User::SEO_ROLE_CONTENT_MANAGER]);
 
         $ownerId = SeoAccessControl::accountOwnerId() ?? (int) auth()->id();
         $query->where('parent_id', $ownerId);

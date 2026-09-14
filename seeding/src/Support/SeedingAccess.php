@@ -16,7 +16,7 @@ use Throwable;
  * Addon-neutral Seeding access — Core User + SiteAccess + Service activation + Spatie roles.
  *
  * Seeding Manager = Core owner/admin bypass OR Spatie seeding.manager only.
- * SEO addon roles and legacy users.seo_role NEVER grant Seeding Manager.
+ * SEO addon roles NEVER grant Seeding Manager.
  */
 final class SeedingAccess
 {

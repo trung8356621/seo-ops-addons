@@ -78,6 +78,8 @@ final class SeedingServiceProvider extends ServiceProvider
         $this->app->singleton(SeedingServiceHealth::class);
         $this->app->singleton(SeedingSettingsSectionContributor::class);
         $this->app->singleton(SeedingVite::class);
+        $this->app->singleton(\Omnichannel\Addons\Seeding\Support\SeedingRoleAssignment::class);
+        $this->app->singleton(\Omnichannel\Addons\Seeding\Members\SeedingMembersSectionContributor::class);
 
         $this->registerCapabilities();
     }
@@ -105,6 +107,7 @@ final class SeedingServiceProvider extends ServiceProvider
             }
         }
 
+        $this->registerMembersContributor();
         $this->registerAddonPermissions();
         $this->registerWorkspaceDestination();
 
@@ -116,6 +119,19 @@ final class SeedingServiceProvider extends ServiceProvider
         $this->registerLegacyUiRedirects();
         $this->registerSeoPanelTopLevelNav();
         $this->registerIndexStatusListener();
+    }
+
+    private function registerMembersContributor(): void
+    {
+        if (! $this->app->bound(\App\Core\Members\MembersSectionRegistry::class)) {
+            return;
+        }
+
+        $members = $this->app->make(\App\Core\Members\MembersSectionRegistry::class);
+        $contributor = $this->app->make(\Omnichannel\Addons\Seeding\Members\SeedingMembersSectionContributor::class);
+        if (! $members->has($contributor->addonSlug())) {
+            $members->register($contributor);
+        }
     }
 
     private function registerIndexStatusListener(): void

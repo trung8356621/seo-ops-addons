@@ -344,7 +344,7 @@ final class ArticleReviewService
     }
 
     /**
-     * Session auth + role simulation khi actor = user hiện tại; automation dùng seo_role của actor.
+     * Session auth + role simulation khi actor = user hiện tại; automation dùng Spatie SEO rank của actor.
      */
     private function actorMay(User $user, ArticleReviewActionType $action): bool
     {
@@ -360,7 +360,7 @@ final class ArticleReviewService
             };
         }
 
-        $role = SeoAccessControl::normalizeRole((string) ($user->seo_role ?? SeoAccessControl::ROLE_CONTENT_MANAGER));
+        $role = SeoAccessControl::roleForUser($user);
 
         return match ($action) {
             ArticleReviewActionType::SubmitReview => $role === SeoAccessControl::ROLE_CONTENT_MANAGER,

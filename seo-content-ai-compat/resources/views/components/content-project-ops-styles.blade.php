@@ -5,6 +5,76 @@
 --}}
 @once
     <style>
+        /* Split button: [Tạo bài bằng AI · mode] [▼] — both primary green, one control. */
+        .fi-ac .cp-create-with-ai-primary.fi-btn {
+            position: relative;
+            z-index: 0;
+            flex-shrink: 0;
+            border-start-end-radius: 0 !important;
+            border-end-end-radius: 0 !important;
+        }
+        .fi-ac .cp-create-with-ai-primary.fi-btn:disabled {
+            opacity: 0.7;
+        }
+        .fi-ac .fi-dropdown:has(.cp-create-with-ai-mode) {
+            display: flex;
+            flex-shrink: 0;
+            align-self: stretch;
+            position: relative;
+            z-index: 1;
+        }
+        .fi-ac .cp-create-with-ai-primary + .fi-dropdown:has(.cp-create-with-ai-mode) {
+            margin-inline-start: -0.75rem;
+        }
+        .fi-ac .fi-dropdown:has(.cp-create-with-ai-mode) > .fi-dropdown-trigger {
+            display: flex;
+            align-items: stretch;
+            justify-content: center;
+            height: 100%;
+            cursor: pointer;
+            pointer-events: auto;
+            position: relative;
+            z-index: 1;
+            flex-shrink: 0;
+        }
+        .fi-ac button.cp-create-with-ai-mode {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 2.5rem;
+            width: 2.5rem;
+            height: 100%;
+            margin: 0 !important;
+            padding-inline: 0;
+            flex-shrink: 0;
+            cursor: pointer;
+            pointer-events: auto;
+            position: relative;
+            z-index: 1;
+            box-shadow: none;
+            border-start-start-radius: 0 !important;
+            border-end-start-radius: 0 !important;
+            border-inline-start: 1px solid rgb(255 255 255 / 0.28);
+        }
+        .fi-ac button.cp-create-with-ai-mode:hover {
+            filter: brightness(1.05);
+        }
+        .fi-ac button.cp-create-with-ai-mode:focus-visible {
+            z-index: 2;
+        }
+        .fi-ac button.cp-create-with-ai-mode:disabled {
+            opacity: 0.7;
+            cursor: not-allowed;
+            pointer-events: none;
+        }
+        .fi-ac .fi-dropdown:has(button.cp-create-with-ai-mode:disabled) > .fi-dropdown-trigger {
+            pointer-events: none;
+        }
+        .fi-ac button.cp-create-with-ai-mode svg,
+        .fi-ac button.cp-create-with-ai-mode .fi-btn-icon,
+        .fi-ac button.cp-create-with-ai-mode .fi-icon-btn-icon {
+            pointer-events: none;
+        }
         .cp-ops-kpi-grid {
             display: grid;
             gap: 0.5rem;

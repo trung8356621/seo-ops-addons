@@ -310,6 +310,27 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
         $enrichedContext = $contextResolver->enrich($context, $maxAiAttempts, $maxFreeAttempts);
         $routingMode = $enrichedContext->routingMode ?? $contextResolver->resolveMode($enrichedContext);
 
+        $fallbackAreas = $this->fallbackAreaResolver();
+        $primaryAreaEnum = $parsed !== null
+            ? $fallbackAreas->primaryAreaFor($parsed)
+            : null;
+        $primaryAreaKey = $primaryAreaEnum?->value
+            ?? (string) ($enrichedContext->modelArea ?? $parsed?->value ?? $profile);
+        $secondaryAreaEnum = $primaryAreaEnum !== null
+            ? $fallbackAreas->secondaryAreaFor($primaryAreaEnum)
+            : null;
+        $secondaryCandidates = $this->resolveSecondaryPaidLaneCandidates(
+            profile: $profile,
+            parsed: $parsed,
+            context: $enrichedContext,
+            primaryCandidates: $candidates,
+            routingMode: $routingMode,
+            userId: $userId,
+            health: $health,
+            primaryArea: $primaryAreaEnum,
+            secondaryArea: $secondaryAreaEnum,
+        );
+
         [$routingPlan, $candidates] = $this->candidatePlanner()->plan(
             profile: $profile,
             context: $enrichedContext,
@@ -317,8 +338,19 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
             maxAiAttempts: $maxAiAttempts,
             maxFreeAttempts: $maxFreeAttempts,
             healthSkipReason: static fn (RoutedAiCandidate $candidate): ?string => $health->skipReason($userId, $candidate),
-            modelArea: (string) ($enrichedContext->modelArea ?? $parsed?->value ?? $profile),
+            modelArea: $primaryAreaKey,
+            secondaryCandidates: $secondaryCandidates,
+            primaryArea: $primaryAreaKey,
+            secondaryArea: $secondaryAreaEnum?->value,
         );
+
+        /** @var array<string, string> physical route → routing phase */
+        $phaseByPhysicalRoute = [];
+        foreach ($routingPlan->executionOrder as $plannedRoute) {
+            $phaseByPhysicalRoute[$plannedRoute->physicalRoute] = $plannedRoute->phase;
+        }
+        $laneTransitionReason = null;
+        $secondaryLaneEntered = false;
 
         if ($candidates === []) {
             $diagnostics = [
@@ -412,6 +444,29 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
             $candidateIndex = $index + 1;
             $connectionId = (int) $candidate->connection->id;
             $healthBefore = $health->skipReason($userId, $candidate);
+            $routePhase = $phaseByPhysicalRoute[$candidate->physicalRouteKey()] ?? ($candidate->isFree ? 'primary_free' : 'primary');
+            if ($routePhase === 'secondary_paid' && ! $secondaryLaneEntered) {
+                $secondaryLaneEntered = true;
+                $laneTransitionReason = $this->resolveSecondaryLaneTransitionReason($routingAttempts);
+            }
+            $laneMeta = static function () use (
+                $routingPlan,
+                $routePhase,
+                &$laneTransitionReason,
+                $secondaryLaneEntered,
+                $candidate,
+            ): array {
+                return array_filter([
+                    'primary_area' => $routingPlan->primaryArea,
+                    'secondary_area' => $routingPlan->secondaryArea,
+                    'routing_path' => $routingPlan->routingPath,
+                    'initial_route_cost' => $routingPlan->initialRouteCost,
+                    'phase' => $routePhase,
+                    'is_free' => $candidate->isFree,
+                    'candidate_manual_position' => $candidate->priority,
+                    'lane_transition_reason' => $secondaryLaneEntered ? $laneTransitionReason : null,
+                ], static fn (mixed $v): bool => $v !== null && $v !== '');
+            };
             $budgetMeta = static function () use (
                 &$actualAttempts,
                 &$freeAttempts,
@@ -444,6 +499,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                     'connection_suppressed',
                     null,
                     array_merge(
+                        $laneMeta(),
                         array_filter($budgetMeta(), static fn (mixed $v): bool => $v !== null && $v !== ''),
                         $this->siblingRouteMeta($candidates, $index, $suppressedConnections, $suppressedPaidLanes, $attemptedPhysicalRoutes, $suppressedFreeLanes),
                     ),
@@ -460,6 +516,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                     'paid_lane_suppressed',
                     null,
                     array_merge(
+                        $laneMeta(),
                         array_filter($budgetMeta(), static fn (mixed $v): bool => $v !== null && $v !== ''),
                         $this->siblingRouteMeta($candidates, $index, $suppressedConnections, $suppressedPaidLanes, $attemptedPhysicalRoutes, $suppressedFreeLanes),
                     ),
@@ -476,6 +533,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                     'free_lane_suppressed',
                     null,
                     array_merge(
+                        $laneMeta(),
                         array_filter($budgetMeta(), static fn (mixed $v): bool => $v !== null && $v !== ''),
                         $this->siblingRouteMeta($candidates, $index, $suppressedConnections, $suppressedPaidLanes, $attemptedPhysicalRoutes, $suppressedFreeLanes),
                     ),
@@ -492,6 +550,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                     $healthBefore,
                     null,
                     array_merge(
+                        $laneMeta(),
                         array_filter($budgetMeta(), static fn (mixed $v): bool => $v !== null && $v !== ''),
                         $this->siblingRouteMeta($candidates, $index, $suppressedConnections, $suppressedPaidLanes, $attemptedPhysicalRoutes, $suppressedFreeLanes),
                         $this->connectionPaidLockAttemptMeta($candidate, $healthBefore),
@@ -538,6 +597,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                     'free_attempt_budget_exhausted',
                     null,
                     array_merge(
+                        $laneMeta(),
                         array_filter($budgetMeta(), static fn (mixed $v): bool => $v !== null && $v !== ''),
                         $this->siblingRouteMeta($candidates, $index, $suppressedConnections, $suppressedPaidLanes, $attemptedPhysicalRoutes, $suppressedFreeLanes),
                     ),
@@ -572,6 +632,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                     null,
                     null,
                     array_merge(
+                        $laneMeta(),
                         $this->attemptBudgetMeta(
                             $actualAttempts,
                             $freeAttempts,
@@ -631,6 +692,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                         'capability_mismatch',
                         null,
                         array_merge(
+                            $laneMeta(),
                             $this->attemptBudgetMeta(
                                 $actualAttempts,
                                 $freeAttempts,
@@ -687,6 +749,7 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                     $decision->category->value,
                     $decision->httpStatus,
                     array_merge(
+                        $laneMeta(),
                         $this->qualityAttemptMeta($exception),
                         $decision->toAttemptDiagnostics(),
                         $this->attemptBudgetMeta(
@@ -787,6 +850,11 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
             'routing_mode' => $routingMode->value,
             'routing_decision_source' => $enrichedContext->routingDecisionSource,
             'routing_plan' => $routingPlan->toDebugArray(),
+            'primary_area' => $routingPlan->primaryArea,
+            'secondary_area' => $routingPlan->secondaryArea,
+            'routing_path' => $routingPlan->routingPath,
+            'initial_route_cost' => $routingPlan->initialRouteCost,
+            'lane_transition_reason' => $laneTransitionReason,
             'correlation_id' => $enrichedContext->correlationId,
             'eligible_models' => $eligibleModels,
             'eligible_count' => count($candidates),
@@ -1255,11 +1323,106 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
             : new AiRoutingContextResolver();
     }
 
+    private function fallbackAreaResolver(): AiFallbackAreaResolver
+    {
+        return function_exists('app') && app()->bound(AiFallbackAreaResolver::class)
+            ? app(AiFallbackAreaResolver::class)
+            : new AiFallbackAreaResolver();
+    }
+
     private function candidatePlanner(): AiCandidatePlanner
     {
         return function_exists('app') && app()->bound(AiCandidatePlanner::class)
             ? app(AiCandidatePlanner::class)
             : new AiCandidatePlanner();
+    }
+
+    /**
+     * Resolve SECONDARY area candidates for FREE-FIRST paid fallback.
+     * Empty when PAID-FIRST, FreeOnly, media (no secondary), or secondary unavailable.
+     *
+     * @param  list<RoutedAiCandidate>  $primaryCandidates
+     * @return list<RoutedAiCandidate>
+     */
+    private function resolveSecondaryPaidLaneCandidates(
+        string $profile,
+        ?AiExecutionProfile $parsed,
+        AiRoutingContext $context,
+        array $primaryCandidates,
+        AiExecutionRoutingMode $routingMode,
+        int $userId,
+        AiRuntimeHealthService $health,
+        ?\Omnichannel\Addons\AiPrompt\Support\AiModelArea $primaryArea,
+        ?\Omnichannel\Addons\AiPrompt\Support\AiModelArea $secondaryArea,
+    ): array {
+        if ($parsed === null || $primaryArea === null || $secondaryArea === null) {
+            return [];
+        }
+        if (! $routingMode->allowsPaidRoutes() || $context->isFreeOnly()) {
+            return [];
+        }
+
+        $firstUsable = null;
+        foreach ($primaryCandidates as $candidate) {
+            if ($health->skipReason($userId, $candidate) !== null) {
+                continue;
+            }
+            $firstUsable = $candidate;
+            break;
+        }
+        if ($firstUsable === null || ! $firstUsable->isFree) {
+            return [];
+        }
+
+        if ($secondaryArea === $primaryArea) {
+            return $primaryCandidates;
+        }
+
+        $secondaryProfile = $this->fallbackAreaResolver()->profileForArea($secondaryArea);
+        if ($secondaryProfile === null || $secondaryProfile->value === $profile) {
+            return $primaryCandidates;
+        }
+
+        return $this->resolveAll($secondaryProfile->value, $context);
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $routingAttempts
+     */
+    private function resolveSecondaryLaneTransitionReason(array $routingAttempts): string
+    {
+        foreach (array_reverse($routingAttempts) as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $failureClass = (string) ($row['failure_class'] ?? '');
+            $skipReason = (string) ($row['skip_reason'] ?? '');
+            if ($failureClass === AiFailureClass::DailyFreeQuotaExhausted->value
+                || $skipReason === 'free_lane_suppressed'
+                || ($row['free_lane_suppressed'] ?? false) === true) {
+                return 'daily_free_quota_exhausted';
+            }
+            if ($skipReason === 'free_attempt_budget_exhausted') {
+                return 'free_attempt_budget_exhausted';
+            }
+        }
+
+        $hadFreeAttempt = false;
+        foreach ($routingAttempts as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            if (($row['is_free'] ?? false) === true && in_array(($row['result'] ?? ''), ['failed', 'success'], true)) {
+                $hadFreeAttempt = true;
+                break;
+            }
+        }
+
+        if (! $hadFreeAttempt) {
+            return 'free_routes_unavailable';
+        }
+
+        return 'primary_free_exhausted';
     }
 
     /** @deprecated Use AiProviderFailureClassifier via executeWithProfile resilience loop. */

@@ -55,7 +55,6 @@ final class ContentProjectMonthlyWorkloadDomainInventoryTest extends TestCase
             'password' => bcrypt('secret'),
             'role' => User::ROLE_OWNER,
             'status' => User::STATUS_NORMAL,
-            'seo_role' => User::SEO_ROLE_MANAGER,
         ]);
 
         $sites = [];

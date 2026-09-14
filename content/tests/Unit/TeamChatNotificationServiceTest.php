@@ -27,7 +27,6 @@ final class TeamChatNotificationServiceTest extends TestCase
             'password' => bcrypt('secret'),
             'role' => User::ROLE_OWNER,
             'status' => User::STATUS_NORMAL,
-            'seo_role' => User::SEO_ROLE_MANAGER,
         ]);
 
         $staff = User::query()->create([
@@ -37,7 +36,6 @@ final class TeamChatNotificationServiceTest extends TestCase
             'role' => User::ROLE_STAFF,
             'parent_id' => $owner->id,
             'status' => User::STATUS_NORMAL,
-            'seo_role' => User::SEO_ROLE_PLANNER,
         ]);
 
         $sender = User::query()->create([
@@ -47,7 +45,6 @@ final class TeamChatNotificationServiceTest extends TestCase
             'role' => User::ROLE_STAFF,
             'parent_id' => $owner->id,
             'status' => User::STATUS_NORMAL,
-            'seo_role' => User::SEO_ROLE_CONTENT_MANAGER,
         ]);
 
         $message = TeamMessage::query()->create([

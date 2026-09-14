@@ -330,7 +330,6 @@ final class GoogleSearchConsoleOAuthTest extends TestCase
     {
         $user = new User([
             'role' => User::ROLE_OWNER,
-            'seo_role' => $seoRole,
             'status' => User::STATUS_NORMAL,
         ]);
         $user->id = 501;

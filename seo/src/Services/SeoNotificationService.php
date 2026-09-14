@@ -27,7 +27,10 @@ final class SeoNotificationService
         }
 
         $owner = User::query()->find((int) $project->user_id);
-        if (! $owner instanceof User || $owner->seo_role !== User::SEO_ROLE_CONTENT_MANAGER) {
+        if (! $owner instanceof User
+            || ! app(\App\Core\Permissions\SeoRoleAssignment::class)
+                ->userHasRole($owner, User::SEO_ROLE_CONTENT_MANAGER)
+        ) {
             return;
         }
 
@@ -51,7 +54,10 @@ final class SeoNotificationService
         }
 
         $owner = User::query()->find((int) $project->user_id);
-        if (! $owner instanceof User || $owner->seo_role !== User::SEO_ROLE_CONTENT_MANAGER) {
+        if (! $owner instanceof User
+            || ! app(\App\Core\Permissions\SeoRoleAssignment::class)
+                ->userHasRole($owner, User::SEO_ROLE_CONTENT_MANAGER)
+        ) {
             return;
         }
 
@@ -110,13 +116,16 @@ final class SeoNotificationService
             ? (int) $projectOwner->parent_id
             : (int) $projectOwner->id;
 
-        return User::query()
-            ->where('status', User::STATUS_NORMAL)
-            ->where('seo_role', User::SEO_ROLE_PLANNER)
-            ->where(function ($query) use ($accountOwnerId): void {
-                $query->whereKey($accountOwnerId)
-                    ->orWhere('parent_id', $accountOwnerId);
-            })
+        return app(\App\Core\Permissions\SeoRoleAssignment::class)
+            ->constrainQueryToRoles(
+                User::query()
+                    ->where('status', User::STATUS_NORMAL)
+                    ->where(function ($query) use ($accountOwnerId): void {
+                        $query->whereKey($accountOwnerId)
+                            ->orWhere('parent_id', $accountOwnerId);
+                    }),
+                [User::SEO_ROLE_PLANNER],
+            )
             ->get();
     }
 }

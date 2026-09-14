@@ -379,6 +379,12 @@ final class LogicalModelMultiRouteFallbackTest extends TestCase
 
         // max=3: free + OR + DS each need a slot; reservation must not collapse paid siblings to 1.
         (new AiResilienceSettingsService())->save(206, ['max_ai_attempts' => 3, 'max_free_attempts' => 1]);
+        // FREE-FIRST paid fallback uses Fast Text secondary lane (not PRIMARY paid siblings).
+        $this->writeAreaPriority($orModel, AiModelArea::TextFast, 1);
+        $this->writeAreaPriority($dsModel, AiModelArea::TextFast, 2);
+        $this->priorities->appendToArea(206, AiModelArea::TextFast, [(int) $orModel->id, (int) $dsModel->id]);
+        $this->priorities->forgetMemo();
+        $this->targets->forgetMemo();
 
         $calls = [];
         [$output, , , , , $attempts] = $this->router->executeWithProfile(

@@ -358,6 +358,13 @@ final class ArticlePromptRunHistoryService
                                         $normalized['child_count'] = count($nestedNormalized);
                                     }
 
+                                    if (($normalized['history_role'] ?? '') === 'orchestrator') {
+                                        $normalized = $this->applyOrchestratorSplitPresentation(
+                                            $normalized,
+                                            $result instanceof PromptResult ? $result : null,
+                                        );
+                                    }
+
                                     $normalizedChildren[] = $normalized;
                                 }
 
@@ -833,11 +840,32 @@ final class ArticlePromptRunHistoryService
         $uiStatus = match (true) {
             $persistStatus === 'ignored_stale' => 'Bỏ qua vì bài đã thay đổi',
             $rawStatus === 'blocked' || $persistStatus === 'blocked' => 'Bị chặn do bước trước lỗi',
+            $historyRole === 'assemble' && in_array($rawStatus, ['pending', 'not_run', ''], true) => 'Chưa chạy',
             in_array($rawStatus, ['pending', 'processing', 'running'], true) => 'Đang chạy',
             in_array($rawStatus, ['failed', 'error'], true) => 'Lỗi',
             in_array($rawStatus, ['success', 'completed'], true) => 'Thành công',
             default => trim((string) ($step['status'] ?? $result?->status ?? '')),
         };
+
+        $presentationState = null;
+        $splitProgress = null;
+        $resumeHint = null;
+        $ctaLabel = null;
+        $technicalMessage = null;
+        if (($isSectionedFreeParent || $historyRole === 'orchestrator') && $result instanceof PromptResult) {
+            $progress = (new SplitExecutionProgressResolver())->fromPromptResult($result);
+            $splitProgress = $progress->toArray();
+            $presentationState = $splitProgress['presentation_state'];
+            $uiStatus = (string) ($splitProgress['presentation_label'] ?? $uiStatus);
+            $technicalMessage = trim((string) ($step['message'] ?? $result->error_message ?? ''));
+            $summary = trim((string) ($splitProgress['summary'] ?? ''));
+            if ($summary !== '') {
+                // Prefer progress summary; keep technical failure text separately.
+                $step['message'] = $summary;
+            }
+            $resumeHint = (string) ($splitProgress['resume_hint'] ?? '');
+            $ctaLabel = $splitProgress['cta_label'] ?? null;
+        }
 
         $versionLabel = $result?->promptVersion instanceof PromptVersion
             ? (string) $result->promptVersion->version_label
@@ -871,6 +899,14 @@ final class ArticlePromptRunHistoryService
             'api_attempt_count' => $apiAttemptCount,
             'status' => $rawStatus,
             'status_label' => $uiStatus,
+            'presentation_state' => $presentationState,
+            'split_progress' => $splitProgress,
+            'resume_hint' => ($resumeHint !== null && $resumeHint !== '') ? $resumeHint : null,
+            'cta_label' => is_string($ctaLabel) && $ctaLabel !== '' ? $ctaLabel : null,
+            'technical_message' => ($technicalMessage !== null && $technicalMessage !== ''
+                && $technicalMessage !== trim((string) ($step['message'] ?? '')))
+                ? $technicalMessage
+                : null,
             'execution_type' => $executionType,
             'execution_type_label' => $executionTypeLabel,
             'message' => trim((string) ($step['message'] ?? $result?->error_message ?? '')),
@@ -961,6 +997,7 @@ final class ArticlePromptRunHistoryService
             'parent_prompt_result_id' => isset($step['parent_prompt_result_id'])
                 ? (int) $step['parent_prompt_result_id']
                 : (isset($snapshot['parent_prompt_result_id']) ? (int) $snapshot['parent_prompt_result_id'] : null),
+            'section_id' => $this->trimmedOrNull($snapshot['section_id'] ?? $step['section_id'] ?? null),
             'section_order' => isset($snapshot['section_order']) ? (int) $snapshot['section_order'] : null,
             'section_count' => isset($snapshot['section_count']) ? (int) $snapshot['section_count'] : (
                 isset($step['child_count']) ? (int) $step['child_count'] : null
@@ -1096,6 +1133,90 @@ final class ArticlePromptRunHistoryService
         $name = strtolower(trim((string) ($item['prompt_name'] ?? '')));
 
         return in_array($name, self::HIDDEN_STEP_TYPES, true);
+    }
+
+    /**
+     * Rebuild orchestrator presentation from shared SplitExecutionProgress SSOT
+     * (same read-model Resume planner uses).
+     *
+     * @param  array<string, mixed>  $item
+     * @return array<string, mixed>
+     */
+    private function applyOrchestratorSplitPresentation(array $item, ?PromptResult $parent): array
+    {
+        $children = is_array($item['children'] ?? null) ? $item['children'] : [];
+        $childRows = [];
+        foreach ($children as $child) {
+            if (! is_array($child)) {
+                continue;
+            }
+            if (($child['history_role'] ?? '') === 'assemble') {
+                continue;
+            }
+            $childRows[] = [
+                'status' => (string) ($child['status'] ?? ''),
+                'section_id' => (string) ($child['section_id'] ?? ''),
+                'section_order' => (int) ($child['section_order'] ?? 0),
+                'prompt_name' => (string) ($child['prompt_name'] ?? ''),
+            ];
+        }
+
+        $snapshot = $parent instanceof PromptResult && is_array($parent->input_snapshot)
+            ? $parent->input_snapshot
+            : [];
+        $usage = $parent instanceof PromptResult && is_array($parent->token_usage)
+            ? $parent->token_usage
+            : [];
+
+        $progress = (new SplitExecutionProgressResolver())->fromOrchestratorPayload(
+            $snapshot,
+            $usage,
+            $childRows,
+            (string) ($item['status'] ?? ($parent?->status ?? '')),
+        );
+        $arr = $progress->toArray();
+
+        $technical = trim((string) ($item['technical_message'] ?? $item['message'] ?? ''));
+        $item['split_progress'] = $arr;
+        $item['presentation_state'] = $arr['presentation_state'];
+        $item['status_label'] = (string) ($arr['presentation_label'] ?? $item['status_label']);
+        $item['message'] = (string) ($arr['summary'] ?? $item['message']);
+        $item['resume_hint'] = ($arr['resume_hint'] ?? '') !== '' ? $arr['resume_hint'] : null;
+        $item['cta_label'] = $arr['cta_label'] ?? null;
+        if ($technical !== '' && $technical !== (string) $item['message']) {
+            $item['technical_message'] = $technical;
+        }
+
+        $assembleStatus = (string) ($arr['assemble_status'] ?? 'not_run');
+        foreach ($children as $index => $child) {
+            if (! is_array($child) || ($child['history_role'] ?? '') !== 'assemble') {
+                continue;
+            }
+            $children[$index]['status'] = match ($assembleStatus) {
+                'success' => 'completed',
+                'failed' => 'failed',
+                'running' => 'running',
+                default => 'pending',
+            };
+            $children[$index]['status_label'] = match ($assembleStatus) {
+                'success' => 'Thành công',
+                'failed' => 'Lỗi',
+                'running' => 'Đang chạy',
+                default => 'Chưa chạy',
+            };
+            $children[$index]['presentation_state'] = $assembleStatus === 'not_run' ? 'pending' : $assembleStatus;
+            $children[$index]['message'] = in_array($assembleStatus, ['not_run', 'pending'], true)
+                ? 'Assemble chưa chạy'
+                : ($child['message'] ?? null);
+        }
+        $item['children'] = $children;
+        $sectionOnly = array_values(array_filter(
+            $children,
+            static fn (array $c): bool => ($c['history_role'] ?? '') !== 'assemble',
+        ));
+        $item['child_count'] = count($sectionOnly);
+
+        return $item;
     }
 
     /**
@@ -1365,6 +1486,8 @@ final class ArticlePromptRunHistoryService
         }
 
         $assembleSeq = $seq;
+        $parentStatus = strtolower(trim((string) ($step['status'] ?? '')));
+        $parentFailed = in_array($parentStatus, ['failed', 'error'], true);
         $sectionChildren[] = [
             'type' => 'assemble',
             'history_role' => 'assemble',
@@ -1372,8 +1495,9 @@ final class ArticlePromptRunHistoryService
             'mode' => 'deterministic_concat',
             'title' => $baseTitle.' — Assemble',
             'prompt_name' => $baseTitle.' — Assemble',
-            'status' => (string) ($step['status'] ?? 'completed'),
-            'message' => null,
+            // Parent FAILED must not paint Assemble as SUCCESS/FAILED — it simply did not run.
+            'status' => $parentFailed ? 'pending' : (string) ($step['status'] ?? 'completed'),
+            'message' => $parentFailed ? 'Assemble chưa chạy' : null,
             'result_id' => null,
             'prompt_id' => $step['prompt_id'] ?? null,
             'hook_key' => (string) ($step['hook_key'] ?? 'article.content.generate'),

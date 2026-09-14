@@ -255,9 +255,12 @@ final class AllDomainsDashboardService
     {
         $ownerId = SeoAccessControl::accountOwnerId() ?? (int) auth()->id();
 
-        return User::query()
-            ->where('parent_id', $ownerId)
-            ->where('role', User::ROLE_STAFF)
-            ->where('seo_role', SeoAccessControl::ROLE_CONTENT_MANAGER);
+        return app(\App\Core\Permissions\SeoRoleAssignment::class)
+            ->constrainQueryToRoles(
+                User::query()
+                    ->where('parent_id', $ownerId)
+                    ->where('role', User::ROLE_STAFF),
+                [SeoAccessControl::ROLE_CONTENT_MANAGER],
+            );
     }
 }

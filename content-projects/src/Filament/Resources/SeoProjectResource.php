@@ -1698,7 +1698,10 @@ class SeoProjectResource extends SeoPanelResource
             },
             'heroicon-o-sparkles',
             'primary',
-        );
+        )->extraAttributes([
+            'class' => 'cp-create-with-ai-primary',
+            'data-cp-split-primary' => '1',
+        ]);
     }
 
     /**
@@ -1739,14 +1742,20 @@ class SeoProjectResource extends SeoPanelResource
         ])
             ->label((string) __('seo-content-ai::filament.projects.create_with_ai_mode_menu'))
             ->icon('heroicon-m-chevron-down')
-            ->iconButton()
+            ->hiddenLabel()
+            ->button()
             ->color('primary')
             ->tooltip(fn (): string => (string) __('seo-content-ai::filament.projects.create_with_ai_mode_menu'))
             ->dropdownPlacement('bottom-end')
             ->visible($visible)
             ->extraAttributes([
                 'class' => 'cp-create-with-ai-mode',
+                'data-cp-split-trigger' => '1',
                 'aria-label' => (string) __('seo-content-ai::filament.projects.create_with_ai_mode_menu'),
+                // Filament button sets wire:loading.attr=disabled with no wire:target.
+                // That disables this trigger during unrelated Livewire polls (lazyRefreshOps);
+                // a native disabled <button> neither fires nor bubbles click.
+                'wire:loading.attr' => false,
             ]);
     }
 
@@ -2001,11 +2010,12 @@ class SeoProjectResource extends SeoPanelResource
     public static function legacyUserSelectOptions(): array
     {
         $query = User::query()
-            ->where('seo_role', User::SEO_ROLE_CONTENT_MANAGER)
             ->where('status', User::STATUS_NORMAL)
             ->where(function (Builder $users): void {
                 $users->where('is_system', false)->orWhereNull('is_system');
             });
+        $query = app(\App\Core\Permissions\SeoRoleAssignment::class)
+            ->constrainQueryToRoles($query, [User::SEO_ROLE_CONTENT_MANAGER]);
 
         $ownerId = SeoAccessControl::accountOwnerId() ?? (int) auth()->id();
         $query->where(function (Builder $users) use ($ownerId): void {

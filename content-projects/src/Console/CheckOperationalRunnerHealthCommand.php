@@ -28,14 +28,17 @@ final class CheckOperationalRunnerHealthCommand extends Command
         if ($tenantOpt !== null && $tenantOpt !== '') {
             $tenants = [(int) $tenantOpt];
         } else {
-            $tenants = User::query()
-                ->where('status', User::STATUS_NORMAL)
-                ->where('seo_role', User::SEO_ROLE_MANAGER)
-                ->where(function ($query): void {
-                    $query->whereNull('parent_id')->orWhere('parent_id', 0);
-                })
-                ->orderBy('id')
-                ->limit(50)
+            $tenants = app(\App\Core\Permissions\SeoRoleAssignment::class)
+                ->constrainQueryToRoles(
+                    User::query()
+                        ->where('status', User::STATUS_NORMAL)
+                        ->where(function ($query): void {
+                            $query->whereNull('parent_id')->orWhere('parent_id', 0);
+                        })
+                        ->orderBy('id')
+                        ->limit(50),
+                    [User::SEO_ROLE_MANAGER],
+                )
                 ->pluck('id')
                 ->map(static fn ($id): int => (int) $id)
                 ->all();

@@ -165,13 +165,15 @@ final class OperationalNotificationRecipientResolver
             return collect();
         }
 
-        return User::query()
+        $query = User::query()
             ->where('status', User::STATUS_NORMAL)
-            ->whereIn('seo_role', $seoRoles)
             ->where(function ($query) use ($tenantOwnerId): void {
                 $query->whereKey($tenantOwnerId)
                     ->orWhere('parent_id', $tenantOwnerId);
-            })
+            });
+
+        return app(\App\Core\Permissions\SeoRoleAssignment::class)
+            ->constrainQueryToRoles($query, $seoRoles)
             ->get()
             ->filter(fn (User $user): bool => $this->isEligible($user, $tenantOwnerId))
             ->values();

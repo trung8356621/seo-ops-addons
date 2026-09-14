@@ -243,15 +243,16 @@ final class PublishingRecoveryNotifier
             $owner = User::query()->find($ownerId);
             if ($owner instanceof User) {
                 $accountOwnerId = $owner->isStaff() ? (int) $owner->parent_id : (int) $owner->id;
-                User::query()
+                $recipients = User::query()
                     ->where('status', User::STATUS_NORMAL)
-                    ->whereIn('seo_role', [
+                    ->where(function ($q) use ($accountOwnerId): void {
+                        $q->whereKey($accountOwnerId)->orWhere('parent_id', $accountOwnerId);
+                    });
+                app(\App\Core\Permissions\SeoRoleAssignment::class)
+                    ->constrainQueryToRoles($recipients, [
                         User::SEO_ROLE_PLANNER,
                         User::SEO_ROLE_CONTENT_MANAGER,
                     ])
-                    ->where(function ($q) use ($accountOwnerId): void {
-                        $q->whereKey($accountOwnerId)->orWhere('parent_id', $accountOwnerId);
-                    })
                     ->get()
                     ->each(function (User $user) use ($users): void {
                         if ($this->canReceivePublishAlerts($user)) {
@@ -272,10 +273,10 @@ final class PublishingRecoveryNotifier
             return true;
         }
 
-        return in_array((string) ($user->seo_role ?? ''), [
+        return app(\App\Core\Permissions\SeoRoleAssignment::class)->userHasAnyRole($user, [
             User::SEO_ROLE_PLANNER,
             User::SEO_ROLE_CONTENT_MANAGER,
-        ], true);
+        ]);
     }
 
     private function dedupKey(int $projectId, string $batchId): string

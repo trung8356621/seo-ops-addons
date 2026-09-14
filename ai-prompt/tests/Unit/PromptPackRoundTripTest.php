@@ -284,7 +284,6 @@ MD;
     {
         $user = new User([
             'role' => User::ROLE_OWNER,
-            'seo_role' => User::SEO_ROLE_MANAGER,
             'status' => User::STATUS_NORMAL,
         ]);
         $user->id = $id;
@@ -297,7 +296,6 @@ MD;
         $user = new User([
             'role' => User::ROLE_STAFF,
             'parent_id' => 1,
-            'seo_role' => User::SEO_ROLE_CONTENT_MANAGER,
             'status' => User::STATUS_NORMAL,
         ]);
         $user->id = $id;

@@ -735,6 +735,7 @@ final class SeoProjectWorkflowRunService
                 'attempt' => (string) (int) ($runItem->attempt ?? 1),
                 'project_id' => (string) (int) ($task->project_id ?? $run->project_id ?? 0),
             ]));
+            $context = $this->bindPartialSplitResumeState($context, $runSettings, $fromStep);
             if ((int) ($task->article_id ?? 0) > 0) {
                 $this->storeArticleRunMeta((int) $task->article_id, $run, $task);
             }
@@ -1533,6 +1534,62 @@ final class SeoProjectWorkflowRunService
             ->where('article_id', $articleId)
             ->whereKeyNot($keepTaskId)
             ->update(['article_id' => null]);
+    }
+
+    /**
+     * Resume partial SPLIT: inject prior sectioned_free_state so completed sections are reused.
+     * Explicit «Chạy lại từ Viết bài» must NOT set resume_partial_split.
+     *
+     * @param  array<string, mixed>  $runSettings
+     */
+    private function bindPartialSplitResumeState(
+        \Omnichannel\Addons\ContentProjects\Support\TaskTestContext $context,
+        array $runSettings,
+        ?\Omnichannel\Addons\ContentProjects\Enums\ContentProjectRerunFromStep $fromStep,
+    ): \Omnichannel\Addons\ContentProjects\Support\TaskTestContext {
+        if (empty($runSettings['resume_partial_split'])) {
+            return $context;
+        }
+        if ($fromStep !== \Omnichannel\Addons\ContentProjects\Enums\ContentProjectRerunFromStep::Article) {
+            return $context;
+        }
+        if (! class_exists(\Omnichannel\Addons\AiPrompt\Services\SplitExecutionProgressResolver::class)
+            || ! class_exists(\Omnichannel\Addons\AiPrompt\Models\PromptResult::class)) {
+            return $context;
+        }
+
+        $priorRunItemId = (int) ($runSettings['resume_prior_run_item_id'] ?? 0);
+        $parent = null;
+        if ($priorRunItemId > 0) {
+            $priorItem = SeoProjectRunItem::query()->find($priorRunItemId);
+            if ($priorItem instanceof SeoProjectRunItem) {
+                $parent = (new \Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectFailedStepResumeResolver(
+                    app(\Omnichannel\Addons\ContentProjects\Services\Workflow\ArtifactReusePolicy::class),
+                ))->resolveFailedOrchestratorResult($priorItem);
+            }
+        }
+
+        if (! $parent instanceof \Omnichannel\Addons\AiPrompt\Models\PromptResult) {
+            return $context;
+        }
+
+        $bag = (new \Omnichannel\Addons\AiPrompt\Services\SplitExecutionProgressResolver())
+            ->resumeBagFromFailedParent($parent);
+        if ($bag === null) {
+            return $context;
+        }
+
+        $variables = $context->variables;
+        $variables['_sectioned_free_state'] = $bag['state'];
+        if (! empty($bag['rerun_section_id'])) {
+            $variables['_sectioned_free_rerun_section_id'] = $bag['rerun_section_id'];
+        }
+        $variables['resume_partial_split'] = true;
+        if (isset($bag['progress'])) {
+            $variables['resume_split_progress'] = $bag['progress']->toArray();
+        }
+
+        return $context->withVariables($variables);
     }
 
     private function storeArticleRunMeta(int $articleId, SeoProjectRun $run, SeoProjectTask $task): void

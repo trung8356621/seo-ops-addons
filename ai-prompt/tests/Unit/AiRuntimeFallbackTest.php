@@ -9,6 +9,7 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\AiPrompt\DataTransfer\AiFailureDecision;
 use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext;
+use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingPlan;
 use Omnichannel\Addons\AiPrompt\Exceptions\AiRoutesExhaustedException;
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\AiPrompt\Models\AiModelCapabilityRow;
@@ -799,6 +800,7 @@ final class AiRuntimeFallbackTest extends TestCase
         $this->grantText($conn, $free);
         $this->grantText($conn, $deepseek);
         app(AiModelPriorityService::class)->appendToArea(91, AiModelArea::TextLongform, [(int) $free->id, (int) $deepseek->id]);
+        app(AiModelPriorityService::class)->appendToArea(91, AiModelArea::TextFast, [(int) $deepseek->id]);
 
         $calls = [];
         [$output, , $selected, , , $routingAttempts] = $this->router->executeWithProfile(
@@ -1049,7 +1051,7 @@ final class AiRuntimeFallbackTest extends TestCase
         }
     }
 
-    /** TEST I — reclaim reserved paid slot when paid becomes unattemptable mid-run */
+    /** TEST I — reclaim reserved paid slot when secondary paid becomes unattemptable mid-run */
     public function test_i_reclaims_reserved_paid_slot_when_paid_health_skipped(): void
     {
         (new AiResilienceSettingsService())->save(98, ['max_ai_attempts' => 4, 'max_free_attempts' => 3]);
@@ -1061,7 +1063,7 @@ final class AiRuntimeFallbackTest extends TestCase
         ]);
         $paid = collect($this->targets->eligibleCandidates(
             98,
-            AiExecutionProfile::TextLongform,
+            AiExecutionProfile::TextFast,
             new AiRoutingContext(userId: 98),
         ))->first(static fn ($c) => ! $c->isFree);
         $this->assertNotNull($paid);
@@ -1074,7 +1076,7 @@ final class AiRuntimeFallbackTest extends TestCase
                 function ($candidate) use (&$calls, $paid): array {
                     $calls[] = $candidate->model;
                     if ($candidate->model === 'free/a:free') {
-                        // After first free fail, lock paid so remaining free reclaim the reserved slot.
+                        // After first free fail, lock secondary paid so remaining free reclaim the reserved slot.
                         $this->health->recordFailure(98, $paid, new AiFailureDecision(
                             category: AiFailureClass::InsufficientBudgetForRequest,
                             scope: AiFailureScope::ConnectionPaid,
@@ -1110,6 +1112,7 @@ final class AiRuntimeFallbackTest extends TestCase
             $this->assertNotContains('paid/gpt', $calls);
             $this->assertGreaterThanOrEqual(3, count(array_filter($calls, static fn (string $m): bool => str_starts_with($m, 'free/'))));
             $this->assertSame(0, $e->context['reserved_paid_slots'] ?? null);
+            $this->assertSame(AiRoutingPlan::PATH_FREE_PRIMARY_THEN_SECONDARY_PAID, $e->context['routing_path'] ?? null);
         }
     }
 
@@ -1123,6 +1126,7 @@ final class AiRuntimeFallbackTest extends TestCase
         $this->grantText($conn, $free);
         $this->grantText($conn, $deepseek);
         app(AiModelPriorityService::class)->appendToArea(99, AiModelArea::TextLongform, [(int) $free->id, (int) $deepseek->id]);
+        app(AiModelPriorityService::class)->appendToArea(99, AiModelArea::TextFast, [(int) $deepseek->id]);
 
         // Persist legacy poison: connection cooldown attributed to RateLimited.
         \Omnichannel\Addons\AiPrompt\Models\AiRuntimeHealthState::query()->create([
@@ -1279,13 +1283,21 @@ final class AiRuntimeFallbackTest extends TestCase
     private function seedOrderedLongform(int $userId, array $rows): void
     {
         $ids = [];
+        $paidIds = [];
         foreach ($rows as [$name, $raw, $provider, $free]) {
             $connection = $this->connection($userId, $provider, $name);
             $model = $this->model($connection, $raw, $free);
             $this->grantText($connection, $model);
             $ids[] = (int) $model->id;
+            if (! $free) {
+                $paidIds[] = (int) $model->id;
+            }
         }
         app(AiModelPriorityService::class)->appendToArea($userId, AiModelArea::TextLongform, $ids);
+        // FREE-FIRST paid fallback uses Fast Text secondary lane.
+        if ($paidIds !== []) {
+            app(AiModelPriorityService::class)->appendToArea($userId, AiModelArea::TextFast, $paidIds);
+        }
     }
 
     private function seedTwoModelRoute(int $userId, string $paid, string $free, bool $paidIsFree, bool $freeIsFree): void
@@ -1296,6 +1308,12 @@ final class AiRuntimeFallbackTest extends TestCase
         $this->grantText($conn, $paidModel);
         $this->grantText($conn, $freeModel);
         app(AiModelPriorityService::class)->appendToArea($userId, AiModelArea::TextLongform, [(int) $paidModel->id, (int) $freeModel->id]);
+        if (! $paidIsFree) {
+            app(AiModelPriorityService::class)->appendToArea($userId, AiModelArea::TextFast, [(int) $paidModel->id]);
+        }
+        if (! $freeIsFree) {
+            app(AiModelPriorityService::class)->appendToArea($userId, AiModelArea::TextFast, [(int) $freeModel->id]);
+        }
     }
 
     private function connection(int $userId, string $provider, string $name): ApiConnection

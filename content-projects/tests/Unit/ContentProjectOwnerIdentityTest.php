@@ -109,7 +109,6 @@ final class ContentProjectOwnerIdentityTest extends TestCase
             'email' => 'yen-rename-'.uniqid('', true).'@example.com',
             'password' => bcrypt('secret'),
             'role' => User::ROLE_STAFF,
-            'seo_role' => User::SEO_ROLE_CONTENT_MANAGER,
             'status' => User::STATUS_NORMAL,
             'parent_id' => 1,
         ]);

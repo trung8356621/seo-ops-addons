@@ -82,7 +82,6 @@ final class ArticleEditorStandaloneFeaturedSyncWpTest extends TestCase
     {
         $user = User::factory()->create([
             'role' => User::ROLE_OWNER,
-            'seo_role' => User::SEO_ROLE_MANAGER,
         ]);
         $site = Site::query()->create([
             'user_id' => $user->id,
@@ -291,7 +290,6 @@ final class ArticleEditorStandaloneFeaturedSyncWpTest extends TestCase
         [$user, , $article] = $this->makeStandaloneArticle();
         $other = User::factory()->create([
             'role' => User::ROLE_OWNER,
-            'seo_role' => User::SEO_ROLE_MANAGER,
         ]);
         $service = app(ArticleEditorSessionService::class);
         $active = $service->acquire($article, $user, (string) Str::uuid());
@@ -342,7 +340,6 @@ final class ArticleEditorStandaloneFeaturedSyncWpTest extends TestCase
     {
         $user = User::factory()->create([
             'role' => User::ROLE_OWNER,
-            'seo_role' => User::SEO_ROLE_MANAGER,
         ]);
         $site = Site::query()->create([
             'user_id' => $user->id,

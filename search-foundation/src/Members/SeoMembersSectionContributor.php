@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\SearchFoundation\Members;
 
 use App\Core\Members\MembersSectionContributor;
+use App\Core\Permissions\SeoRoleAssignment;
 use App\Models\User;
 use Filament\Forms;
 use Filament\Forms\Get;
@@ -19,9 +20,12 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterCapacitySett
  *   int N = explicit per-user override
  *
  * UI may display the effective default while override remains null.
+ * SEO role is form-only Spatie assignment — never users.seo_role.
  */
 final class SeoMembersSectionContributor implements MembersSectionContributor
 {
+    public const FORM_KEY = 'seo_role';
+
     public function addonSlug(): string
     {
         return 'seo-members';
@@ -40,6 +44,18 @@ final class SeoMembersSectionContributor implements MembersSectionContributor
     public function sort(): int
     {
         return 10;
+    }
+
+    /**
+     * @return list<string>
+     */
+    public function formOnlyStateKeys(): array
+    {
+        return [
+            self::FORM_KEY,
+            'seo_capacity_use_default',
+            'seo_monthly_capacity_override',
+        ];
     }
 
     public function isAvailable(): bool
@@ -97,7 +113,15 @@ final class SeoMembersSectionContributor implements MembersSectionContributor
         $override = $settings->overrideForUserId((int) $user->getKey());
         $default = $settings->defaultMonthlyCapacity();
 
+        $seoRole = null;
+        try {
+            $seoRole = app(SeoRoleAssignment::class)->resolveShortRank($user);
+        } catch (\Throwable) {
+            $seoRole = null;
+        }
+
         return [
+            self::FORM_KEY => $seoRole,
             'seo_capacity_use_default' => $override === null,
             // Effective display value — may equal default while override is null.
             'seo_monthly_capacity_override' => $override ?? $default,
@@ -106,17 +130,10 @@ final class SeoMembersSectionContributor implements MembersSectionContributor
 
     public function afterUserSaved(User $user, array $formState): void
     {
-        if (array_key_exists('seo_role', $formState)) {
-            $raw = $formState['seo_role'];
-            $legacy = is_string($raw) ? trim($raw) : '';
-            try {
-                app(\App\Core\Permissions\LegacySeoRoleBridge::class)
-                    ->assign($user, $legacy !== '' ? $legacy : null);
-            } catch (\Throwable) {
-                if ((string) ($user->seo_role ?? '') !== $legacy) {
-                    $user->forceFill(['seo_role' => $legacy !== '' ? $legacy : null])->saveQuietly();
-                }
-            }
+        if (array_key_exists(self::FORM_KEY, $formState)) {
+            $raw = $formState[self::FORM_KEY];
+            $short = is_string($raw) ? trim($raw) : '';
+            app(SeoRoleAssignment::class)->assign($user, $short !== '' ? $short : null);
         }
 
         if (! array_key_exists('seo_capacity_use_default', $formState)
@@ -149,7 +166,7 @@ final class SeoMembersSectionContributor implements MembersSectionContributor
         $fields = [];
 
         if ($includeSeoRole) {
-            $fields[] = Forms\Components\Select::make('seo_role')
+            $fields[] = Forms\Components\Select::make(self::FORM_KEY)
                 ->label('SEO role')
                 ->options([
                     'manager' => 'Manager (seo.manager)',
@@ -158,7 +175,8 @@ final class SeoMembersSectionContributor implements MembersSectionContributor
                 ])
                 ->helperText('Addon role (Spatie). Không phải Manager tổ chức Core.')
                 ->native(false)
-                ->nullable();
+                ->nullable()
+                ->dehydrated(true);
         }
 
         $defaultCapacity = ContentProjectWriterCapacitySettingsService::DEFAULT_CAPACITY;

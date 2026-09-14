@@ -519,11 +519,14 @@ final class AiRuntimeHealthService
 
     /**
      * Authoritative paid-lane lock on api_connections (manual_free_only and/or budget_limited).
+     * Re-reads by id so mid-run locks applied via a sibling candidate instance are visible
+     * when PRIMARY and SECONDARY lanes hold distinct DTO connection objects.
      */
     private function connectionPaidLaneLocked(ApiConnection $connection): bool
     {
-        if (array_key_exists('paid_locked', $connection->getAttributes())) {
-            return (bool) $connection->getAttribute('paid_locked');
+        $id = (int) $connection->id;
+        if ($id <= 0) {
+            return (bool) ($connection->getAttribute('paid_locked') ?? false);
         }
 
         try {
@@ -531,8 +534,17 @@ final class AiRuntimeHealthService
                 ->hasColumn('api_connections', 'paid_locked')) {
                 return false;
             }
+            $fresh = ApiConnection::query()->find($id);
+            if ($fresh instanceof ApiConnection) {
+                $locked = (bool) ($fresh->getAttribute('paid_locked') ?? false);
+                $connection->setAttribute('paid_locked', $locked);
+                if (array_key_exists('paid_lock_reasons', $fresh->getAttributes())) {
+                    $connection->setAttribute('paid_lock_reasons', $fresh->getAttribute('paid_lock_reasons'));
+                }
+
+                return $locked;
+            }
         } catch (\Throwable) {
-            return false;
         }
 
         return (bool) ($connection->getAttribute('paid_locked') ?? false);
