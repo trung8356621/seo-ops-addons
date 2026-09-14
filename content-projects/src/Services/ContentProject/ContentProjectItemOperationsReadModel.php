@@ -24,6 +24,8 @@ use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectLife
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectOpsStateClassifier;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectPublishedEvidence;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectRecentlyCompletedDefinition;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectRunItemEvidenceIndex;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemOpsEvidencePresenter;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectScheduledDefinition;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectStatusBadgePresenter;
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectRunEngineFeature;
@@ -117,7 +119,27 @@ final class ContentProjectItemOperationsReadModel
             ->get();
 
         $taskIds = $tasks->map(static fn (SeoProjectTask $t): int => (int) $t->id)->all();
-        $latestByTask = $this->latestRunItemsByTaskIds($taskIds);
+        $latestRun = SeoProjectRun::query()
+            ->where('project_id', $projectId)
+            ->orderByDesc('id')
+            ->first();
+        $activeDispatch = null;
+        if ($latestRun instanceof SeoProjectRun) {
+            $settings = is_array($latestRun->settings) ? $latestRun->settings : [];
+            $engine = is_array($settings[ContentProjectRunEngine::SETTINGS_ENGINE_KEY] ?? null)
+                ? $settings[ContentProjectRunEngine::SETTINGS_ENGINE_KEY]
+                : [];
+            $activeDispatch = is_array($engine['active_dispatch'] ?? null) ? $engine['active_dispatch'] : null;
+        }
+
+        $evidence = $this->runItemEvidenceByTaskIds(
+            $taskIds,
+            $activeDispatch,
+            $latestRun instanceof SeoProjectRun ? (int) $latestRun->id : null,
+        );
+        $latestExecutionByTask = $evidence['latest_execution_by_task'];
+        $currentMembershipByTask = $evidence['current_membership_by_task'];
+
         $viewedByTask = $this->generationReadStates->viewedCompletedAtByItemIds(
             $viewerUserId,
             $projectId,
@@ -132,12 +154,7 @@ final class ContentProjectItemOperationsReadModel
             }
         }
 
-        $latestRun = SeoProjectRun::query()
-            ->where('project_id', $projectId)
-            ->orderByDesc('id')
-            ->first();
-
-        $runtimeContext = $this->runtimeRunContext($latestRun, $latestByTask);
+        $runtimeContext = $this->runtimeRunContext($latestRun, $currentMembershipByTask);
         if ((int) ($runtimeContext['processing_count'] ?? 0) > 1
             && is_array($runtimeContext['active_dispatch'] ?? null)
         ) {
@@ -162,7 +179,8 @@ final class ContentProjectItemOperationsReadModel
                 $project,
                 $task,
                 $index,
-                $latestByTask[$tid] ?? null,
+                $latestExecutionByTask[$tid] ?? null,
+                $currentMembershipByTask[$tid] ?? null,
                 $viewed?->toIso8601String(),
                 isset($generatePendingRunnable[$tid]),
                 isset($keywordDirtyByTask[$tid]),
@@ -226,10 +244,10 @@ final class ContentProjectItemOperationsReadModel
     /**
      * Run-scoped runtime evidence shared by every row of the page.
      *
-     * @param  array<int, array<string, mixed>>  $latestByTask
+     * @param  array<int, array<string, mixed>>  $currentMembershipByTask
      * @return array<string, mixed>
      */
-    private function runtimeRunContext(?SeoProjectRun $latestRun, array $latestByTask): array
+    private function runtimeRunContext(?SeoProjectRun $latestRun, array $currentMembershipByTask): array
     {
         if (! $latestRun instanceof SeoProjectRun) {
             return [
@@ -253,11 +271,11 @@ final class ContentProjectItemOperationsReadModel
             : null;
 
         $processingCount = 0;
-        foreach ($latestByTask as $exec) {
-            if (! is_array($exec) || (int) ($exec['run_id'] ?? 0) !== $runId) {
+        foreach ($currentMembershipByTask as $item) {
+            if (! is_array($item) || (int) ($item['run_id'] ?? 0) !== $runId) {
                 continue;
             }
-            if (strtolower(trim((string) ($exec['status'] ?? ''))) === 'processing') {
+            if (strtolower(trim((string) ($item['status'] ?? ''))) === 'processing') {
                 $processingCount++;
             }
         }
@@ -443,7 +461,8 @@ final class ContentProjectItemOperationsReadModel
     }
 
     /**
-     * @param  array<string, mixed>|null  $exec
+     * @param  array<string, mixed>|null  $latestExecution  Real execution attempt (not membership-only)
+     * @param  array<string, mixed>|null  $currentMembership  Current bulk run_item for this task (may be unvisited)
      * @param  array<string, mixed>  $runtimeContext
      * @return array<string, mixed>
      */
@@ -451,7 +470,8 @@ final class ContentProjectItemOperationsReadModel
         SeoProject $project,
         SeoProjectTask $task,
         int $index,
-        ?array $exec,
+        ?array $latestExecution,
+        ?array $currentMembership = null,
         ?string $viewedGenerationCompletedAt = null,
         bool $isGeneratePendingRunnable = false,
         bool $isGenerationKeywordDirty = false,
@@ -461,6 +481,31 @@ final class ContentProjectItemOperationsReadModel
         $article = $task->article;
         $staleEval = $this->staleness->evaluateTask($task);
         $isStaleGeneration = (bool) ($staleEval['stale'] ?? false);
+        $type = SeoProjectTask::normalizeType($task->type);
+        $articleId = (int) ($task->article_id ?? 0);
+
+        // Historical / lifecycle fields — never use unvisited lazy-bulk membership.
+        $exec = $latestExecution;
+        $presented = ContentProjectItemOpsEvidencePresenter::present(
+            (string) ($task->status ?? ''),
+            $latestExecution,
+            $currentMembership,
+            $runtimeContext + [
+                'legacy_fresh_execution' => (bool) ($staleEval['has_fresh_active_execution'] ?? false),
+            ],
+            $isStaleGeneration,
+            $this->runtimeStatus,
+            $type,
+            $articleId,
+            $type === SeoProjectTask::TYPE_IMPROVE,
+        );
+        /** @var ContentProjectArticleRuntimeStatus $runtime */
+        $runtime = $presented['runtime'];
+        $runtimeItem = $presented['runtime_item'];
+        $runtimeArray = $presented['runtime_status'];
+        $isGenuineRunning = $runtime->isActive;
+        $genStatus = (string) $presented['generation_status'];
+
         $execStatusRaw = strtolower(trim((string) ($exec['status'] ?? '')));
         $runError = trim((string) ($exec['error_message'] ?? ''));
         if ($runError === '' && in_array($execStatusRaw, ['failed', 'error', 'cancelled', 'stopped', 'timeout'], true)) {
@@ -479,9 +524,7 @@ final class ContentProjectItemOperationsReadModel
             ],
         );
         $phase = $state->lifecycleState;
-        $type = SeoProjectTask::normalizeType($task->type);
 
-        $articleId = (int) ($task->article_id ?? 0);
         $keywordOriginal = ContentProjectGenerationKeyword::originalKeyword($task);
         $keywordEffective = ContentProjectGenerationKeyword::effective($task);
         $hasKeywordOverride = ContentProjectGenerationKeyword::hasOverride($task);
@@ -516,10 +559,14 @@ final class ContentProjectItemOperationsReadModel
             $thumbnailUrl = $thumbnailUrl !== '' ? $thumbnailUrl : null;
         }
 
-        $execStatusEarly = strtolower((string) ($exec['status'] ?? ''));
-        $isCurrentDispatchedItem = $this->isCurrentDispatchedRunItem($runtimeContext, $exec);
+        $dispatch = is_array($runtimeContext['active_dispatch'] ?? null)
+            ? $runtimeContext['active_dispatch']
+            : null;
+        $isCurrentDispatchedItem = $runtimeItem !== null
+            && ContentProjectRunItemEvidenceIndex::matchesActiveDispatch($runtimeItem, $dispatch);
+        $runtimeStatusEarly = strtolower((string) ($runtimeItem['status'] ?? ''));
         $latestAttemptQueued = $isCurrentDispatchedItem
-            && in_array($execStatusEarly, ['pending', 'processing'], true);
+            && in_array($runtimeStatusEarly, ['pending', 'processing'], true);
 
         $message = $state->currentError ?? '';
         if ($latestAttemptQueued) {
@@ -530,20 +577,6 @@ final class ContentProjectItemOperationsReadModel
             $message = (string) $task->last_publish_error;
         }
 
-        // Latest run-item attempt is SoT for Generation — independent from article lifecycle.
-        // Membership-only pending must NOT rewrite failed/completed task lifecycle.
-        $genStatus = (string) ($task->status ?? 'pending');
-        if (in_array($execStatusEarly, ['failed', 'error', 'cancelled', 'stopped', 'timeout'], true)) {
-            $genStatus = SeoProjectTask::STATUS_FAILED;
-        } elseif ($latestAttemptQueued && $genStatus === SeoProjectTask::STATUS_FAILED) {
-            // Prefer current dispatch attempt over sticky task.failed until worker claims.
-            $genStatus = SeoProjectTask::STATUS_PENDING;
-        } elseif (in_array($execStatusEarly, ['success', 'completed'], true)
-            && in_array($genStatus, [SeoProjectTask::STATUS_COMPLETED, SeoProjectTask::STATUS_REVIEWING, 'completed', 'reviewing'], true)
-        ) {
-            // keep completed only when latest attempt also succeeded
-            $genStatus = SeoProjectTask::STATUS_COMPLETED;
-        }
         $queueStatus = (string) ($task->publish_queue_status ?? 'none');
         if ($queueStatus === '') {
             $queueStatus = 'none';
@@ -556,19 +589,6 @@ final class ContentProjectItemOperationsReadModel
             && $this->syncFlags->hasUnpublishedChanges($article);
 
         $lastActivityCarbon = $this->resolveLastActivity($task, $article, $exec);
-
-        // Runtime SoT — dispatch-backed evidence, never sticky task.status alone.
-        $runtime = $this->runtimeStatus->resolve($runtimeContext + [
-            'run_item' => $exec,
-            'task_status' => (string) ($task->status ?? ''),
-            'legacy_fresh_execution' => (bool) ($staleEval['has_fresh_active_execution'] ?? false),
-            'is_generation_stale' => $isStaleGeneration,
-        ]);
-        $runtimeArray = $runtime->toArray();
-        $isGenuineRunning = $runtime->isActive;
-        if ($isGenuineRunning) {
-            $genStatus = SeoProjectTask::STATUS_WRITING;
-        }
         $hasResumableCheckpoint = false;
         $generationRecoveryAction = ContentProjectGenerationRecoveryDecision::ACTION_NONE;
         $generationRecoveryReason = '';
@@ -667,23 +687,8 @@ final class ContentProjectItemOperationsReadModel
                 : null,
         ];
         $classified = ContentProjectOpsStateClassifier::classify($rowBase);
-        $genBadge = match ($classified['generation_key']) {
-            'running' => ContentProjectStatusBadgePresenter::runtime(
-                ContentProjectArticleRuntimeStatus::STATE_ACTIVELY_PROCESSING,
-            ),
-            'queued' => ContentProjectStatusBadgePresenter::runtime(
-                ContentProjectArticleRuntimeStatus::STATE_QUEUED,
-            ),
-            'waiting_ai' => ContentProjectStatusBadgePresenter::runtime(
-                ContentProjectArticleRuntimeStatus::STATE_WAITING_AI_RETRY,
-            ),
-            'stale' => ContentProjectStatusBadgePresenter::runtime(
-                ContentProjectArticleRuntimeStatus::STATE_STALE_PROCESSING,
-            ),
-            'failed' => ContentProjectStatusBadgePresenter::generation('failed', 'failed'),
-            'generated' => ContentProjectStatusBadgePresenter::generation('completed', 'success'),
-            default => ContentProjectStatusBadgePresenter::generation('pending', null),
-        };
+        // Generation badge SoT comes from partitioned evidence presenter (not membership-as-exec).
+        $genBadge = $presented['generation_badge'];
         $workflowBadge = ContentProjectStatusBadgePresenter::workflow($classified['workflow_key']);
         $reportingBadge = ContentProjectStatusBadgePresenter::reporting($classified['reporting_key']);
 
@@ -738,7 +743,7 @@ final class ContentProjectItemOperationsReadModel
             'article_slug' => $article instanceof SeoArticle ? (string) ($article->slug ?? '') : '',
             'generation_status' => $displayGenStatus,
             'execution_status' => $exec['status'] ?? null,
-            'current_step' => $this->resolveCurrentStep($exec, $runtimeContext, $runtime),
+            'current_step' => $this->resolveCurrentStep($runtimeItem, $runtimeContext, $runtime),
             'runtime_status' => $runtimeArray,
             'runtime_state' => $runtime->state,
             'runtime_label' => $runtime->label,
@@ -1082,39 +1087,25 @@ final class ContentProjectItemOperationsReadModel
     }
 
     /**
-     * True only when this run-item owns the live active_dispatch reservation.
+     * Load run-items and split latest REAL execution vs current bulk membership.
      *
-     * @param  array<string, mixed>  $runtimeContext
-     * @param  array<string, mixed>|null  $exec
-     */
-    private function isCurrentDispatchedRunItem(array $runtimeContext, ?array $exec): bool
-    {
-        if ($exec === null) {
-            return false;
-        }
-        $dispatch = is_array($runtimeContext['active_dispatch'] ?? null)
-            ? $runtimeContext['active_dispatch']
-            : null;
-        if ($dispatch === null) {
-            return false;
-        }
-        $execId = (int) ($exec['id'] ?? 0);
-        $taskId = (int) ($exec['task_id'] ?? 0);
-        if ($execId > 0 && (int) ($dispatch['run_item_id'] ?? 0) === $execId) {
-            return true;
-        }
-
-        return $taskId > 0 && (int) ($dispatch['task_id'] ?? 0) === $taskId;
-    }
-
-    /**
      * @param  list<int>  $taskIds
-     * @return array<int, array<string, mixed>>
+     * @param  array<string, mixed>|null  $activeDispatch
+     * @return array{
+     *     latest_execution_by_task: array<int, array<string, mixed>>,
+     *     current_membership_by_task: array<int, array<string, mixed>>,
+     * }
      */
-    private function latestRunItemsByTaskIds(array $taskIds): array
-    {
+    private function runItemEvidenceByTaskIds(
+        array $taskIds,
+        ?array $activeDispatch,
+        ?int $currentRunId,
+    ): array {
         if ($taskIds === [] || ! Schema::connection('omi_seo_ai')->hasTable('seo_project_run_items')) {
-            return [];
+            return [
+                'latest_execution_by_task' => [],
+                'current_membership_by_task' => [],
+            ];
         }
 
         $items = SeoProjectRunItem::query()
@@ -1125,30 +1116,50 @@ final class ContentProjectItemOperationsReadModel
                 'error_message', 'started_at', 'finished_at',
             ]);
 
-        $map = [];
+        $runIds = [];
+        foreach ($items as $item) {
+            $runId = (int) $item->run_id;
+            if ($runId > 0) {
+                $runIds[$runId] = true;
+            }
+        }
+
+        $lazyBulkByRunId = [];
+        if ($runIds !== [] && Schema::connection('omi_seo_ai')->hasTable('seo_project_runs')) {
+            $runs = SeoProjectRun::query()
+                ->whereIn('id', array_keys($runIds))
+                ->get(['id', 'settings']);
+            foreach ($runs as $run) {
+                $settings = is_array($run->settings) ? $run->settings : [];
+                $lazyBulkByRunId[(int) $run->id] = (bool) ($settings['lazy_bulk'] ?? false);
+            }
+        }
+
+        $rows = [];
         foreach ($items as $item) {
             $tid = (int) $item->task_id;
-            if ($tid <= 0 || isset($map[$tid])) {
+            if ($tid <= 0) {
                 continue;
             }
-            $map[$tid] = [
+            $runId = (int) $item->run_id;
+            $rows[] = [
                 'id' => (int) $item->id,
                 'task_id' => $tid,
-                'run_id' => (int) $item->run_id,
+                'run_id' => $runId,
                 'status' => (string) ($item->status ?? ''),
                 'action' => $item->action !== null ? (string) $item->action : null,
                 'attempt' => (int) ($item->attempt ?? 0),
                 'error_message' => $item->error_message !== null ? (string) $item->error_message : null,
-                // Runtime message (e.g. deferred AI retry note) — not an error.
                 'message' => $item->message !== null ? (string) $item->message : null,
                 'started_at' => $item->started_at?->format('d/m/Y H:i'),
                 'started_at_iso' => $item->started_at?->toIso8601String(),
                 'finished_at' => $item->finished_at?->format('d/m/Y H:i'),
                 'finished_at_iso' => $item->finished_at?->toIso8601String(),
+                'lazy_bulk' => (bool) ($lazyBulkByRunId[$runId] ?? false),
             ];
         }
 
-        return $map;
+        return ContentProjectRunItemEvidenceIndex::partition($rows, $activeDispatch, $currentRunId);
     }
 
     private function resolveArticlePublicUrl(?SeoArticle $article): ?string

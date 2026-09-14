@@ -23,6 +23,7 @@ use Omnichannel\Addons\Seeding\Console\SeedingDbCheckCommand;
 use Omnichannel\Addons\Seeding\Filament\Pages\SeedingTopicsPage;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingBootstrapController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingCommentGenerateController;
+use Omnichannel\Addons\Seeding\Http\Controllers\SeedingCommentPromptController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingFeedController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingHealthController;
 use Omnichannel\Addons\Seeding\Http\Controllers\SeedingLinkPreviewController;
@@ -35,7 +36,9 @@ use Omnichannel\Addons\Seeding\LinkIntelligence\LinkExtractor;
 use Omnichannel\Addons\Seeding\LinkIntelligence\LinkResourceService;
 use Omnichannel\Addons\Seeding\LinkIntelligence\UrlNormalizer;
 use Omnichannel\Addons\Seeding\Listeners\ArticleIndexStatusChangedListener;
+use Omnichannel\Addons\Seeding\Services\SeedingCommentGenerateHistoryService;
 use Omnichannel\Addons\Seeding\Services\SeedingCommentGenerateService;
+use Omnichannel\Addons\Seeding\Services\SeedingCommentPromptService;
 use Omnichannel\Addons\Seeding\Services\SeedingDatabaseConnectionService;
 use Omnichannel\Addons\Seeding\Services\SeedingLinkPreviewService;
 use Omnichannel\Addons\Seeding\Services\SeedingReportService;
@@ -67,6 +70,8 @@ final class SeedingServiceProvider extends ServiceProvider
         $this->app->singleton(SeedingSharedTopicService::class);
         $this->app->singleton(SeedingReportService::class);
         $this->app->singleton(WebsiteShareJobService::class);
+        $this->app->singleton(SeedingCommentPromptService::class);
+        $this->app->singleton(SeedingCommentGenerateHistoryService::class);
         $this->app->singleton(SeedingCommentGenerateService::class);
         $this->app->singleton(\Omnichannel\Addons\Seeding\Services\SeedingSocialContextResolver::class);
         $this->app->singleton(SeedingOutboundUrlPolicy::class);
@@ -261,6 +266,16 @@ final class SeedingServiceProvider extends ServiceProvider
                     ->name('seeding.comments.generate');
                 Route::post('/link-preview', SeedingLinkPreviewController::class)
                     ->name('seeding.link-preview');
+
+                Route::get('/manager/comment-prompt', [SeedingCommentPromptController::class, 'show'])
+                    ->name('seeding.manager.comment-prompt.show');
+                Route::put('/manager/comment-prompt', [SeedingCommentPromptController::class, 'update'])
+                    ->name('seeding.manager.comment-prompt.update');
+                Route::get('/manager/comment-prompt/history', [SeedingCommentPromptController::class, 'history'])
+                    ->name('seeding.manager.comment-prompt.history');
+                Route::get('/manager/comment-prompt/history/{slot}', [SeedingCommentPromptController::class, 'historyShow'])
+                    ->whereNumber('slot')
+                    ->name('seeding.manager.comment-prompt.history.show');
 
                 Route::get('/manager/topics', [SeedingManagerTopicsController::class, 'index'])
                     ->name('seeding.manager.topics');

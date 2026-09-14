@@ -13,9 +13,9 @@ use Omnichannel\Addons\Seeding\Support\SeedingAccess;
 use Throwable;
 
 /**
- * Stateless AI sample-comment generation.
- * Boundary only: normalize source → plain text → Social AI.
- * No Seeding topic/comment persistence.
+ * AI sample-comment generation boundary.
+ * Normalizes source → MCP context → Manager prompt → Social AI.
+ * Writes lightweight Gen Comment debug history (max 20); no topic/comment rows.
  */
 final class SeedingCommentGenerateController
 {
@@ -38,6 +38,7 @@ final class SeedingCommentGenerateController
                 'social_url' => ['nullable', 'string', 'max:2000'],
                 'platform' => ['nullable', 'string', 'max:64'],
                 'count' => ['nullable', 'integer', 'min:1', 'max:12'],
+                'topic_id' => ['nullable', 'integer', 'min:1'],
                 'title' => ['nullable', 'string', 'max:1000'],
                 'description' => ['nullable', 'string', 'max:5000'],
                 'preview_title' => ['nullable', 'string', 'max:1000'],
@@ -84,6 +85,7 @@ final class SeedingCommentGenerateController
             ], $content, $url),
             'social' => $rawSocial !== '' ? $rawSocial : 'threads',
             'quantity' => (int) ($validated['quantity'] ?? $validated['count'] ?? 3),
+            'topic_id' => $validated['topic_id'] ?? null,
             'title' => $validated['title'] ?? null,
             'description' => $validated['description'] ?? null,
             'preview_title' => $validated['preview_title'] ?? null,

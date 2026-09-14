@@ -211,7 +211,7 @@ final class ContentProjectArticleRuntimeStatusResolverTest extends TestCase
         self::assertSame(ContentProjectArticleRuntimeStatus::STATE_NO_ACTIVE_EXECUTION, $sticky->state);
         self::assertFalse($sticky->isActive);
         self::assertSame(
-            'pending',
+            'not_started',
             ContentProjectOpsStateClassifier::classify($this->row($sticky))['generation_key'],
         );
     }

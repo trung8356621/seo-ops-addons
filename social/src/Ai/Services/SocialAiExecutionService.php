@@ -21,7 +21,7 @@ use Throwable;
 final class SocialAiExecutionService
 {
     /**
-     * @param  (callable(string, string, ?AiExecutionProfile, ?AiRoutingContext, array<string, mixed>): array{0: string, 1: array<string, mixed>|null, 2: ?RoutedAiCandidate})|null  $rawExecutor
+     * @param  (callable(string, string, ?AiExecutionProfile, ?AiRoutingContext, array<string, mixed>): array{0: string, 1: array<string, mixed>|null, 2: mixed})|null  $rawExecutor
      */
     public function __construct(
         private readonly ?CanonicalAiTextExecutionService $aiText = null,
@@ -41,6 +41,21 @@ final class SocialAiExecutionService
      * @return list<string>
      */
     public function generateComments(array $input): array
+    {
+        return $this->generateCommentsDetailed($input)['comments'];
+    }
+
+    /**
+     * @param  array<string, mixed>  $input
+     * @return array{
+     *     comments: list<string>,
+     *     raw_output: string,
+     *     compiled_prompt: string,
+     *     provider: ?string,
+     *     model: ?string
+     * }
+     */
+    public function generateCommentsDetailed(array $input): array
     {
         $task = $this->registry()->get(SocialCommentGenerateTask::TASK_KEY);
 
@@ -67,6 +82,7 @@ final class SocialAiExecutionService
         );
 
         $selectedCandidate = null;
+        $rawOutput = '';
 
         try {
             if (is_callable($this->rawExecutor)) {
@@ -99,6 +115,7 @@ final class SocialAiExecutionService
                     ],
                 );
             }
+            unset($usage);
         } catch (AiRoutingException $e) {
             $this->log('warning', 'Social AI comment generate: no eligible route', [
                 'task_key' => $task->taskKey(),
@@ -143,17 +160,30 @@ final class SocialAiExecutionService
 
         $comments = $task->validateAndParseOutput((string) $rawOutput, $quantity);
 
+        $provider = null;
+        $model = null;
+        if (is_object($selectedCandidate)) {
+            $provider = isset($selectedCandidate->provider) ? (string) $selectedCandidate->provider : null;
+            $model = isset($selectedCandidate->model) ? (string) $selectedCandidate->model : null;
+        }
+
         $this->log('info', 'Social AI comment generate: successfully generated', [
             'task_key' => $task->taskKey(),
             'routing_profile' => $profile->value,
-            'selected_route_model' => $selectedCandidate?->model,
-            'selected_provider' => $selectedCandidate?->provider,
+            'selected_route_model' => $model,
+            'selected_provider' => $provider,
             'has_context' => ! empty($normalized['context']),
             'social' => $normalized['social'] ?? 'threads',
             'quantity' => count($comments),
         ]);
 
-        return $comments;
+        return [
+            'comments' => $comments,
+            'raw_output' => (string) $rawOutput,
+            'compiled_prompt' => $compiledPrompt,
+            'provider' => $provider !== '' ? $provider : null,
+            'model' => $model !== '' ? $model : null,
+        ];
     }
 
     /**

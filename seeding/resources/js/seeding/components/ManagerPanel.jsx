@@ -1,9 +1,13 @@
 import React, { useEffect, useState } from 'react';
+import { Loader2, X } from 'lucide-react';
 import {
     fetchManagerTopics,
     pauseManagerTopic,
     resumeManagerTopic,
     cancelManagerTopic,
+    fetchCommentPrompt,
+    saveCommentPrompt,
+    fetchCommentPromptHistoryDetail,
 } from '../api';
 import { notifyError, notifySuccess } from '../services/toast';
 
@@ -22,8 +26,14 @@ const SUB_TABS = [
     { id: 'summary', label: 'Tổng kết' },
 ];
 
+function statusLabel(status) {
+    if (status === 'success') return 'Thành công';
+    if (status === 'failed') return 'Thất bại';
+    return status || '—';
+}
+
 /**
- * Manager-only table + stats.
+ * Manager-only table + stats + Gen Comment prompt/history.
  */
 export default function ManagerPanel({ websiteStats = null }) {
     const [subTab, setSubTab] = useState('topics');
@@ -33,6 +43,14 @@ export default function ManagerPanel({ websiteStats = null }) {
     const [topics, setTopics] = useState([]);
     const [stats, setStats] = useState(null);
     const [loading, setLoading] = useState(false);
+
+    const [promptBody, setPromptBody] = useState('');
+    const [promptLoading, setPromptLoading] = useState(false);
+    const [promptSaving, setPromptSaving] = useState(false);
+    const [history, setHistory] = useState([]);
+    const [detailOpen, setDetailOpen] = useState(false);
+    const [detailLoading, setDetailLoading] = useState(false);
+    const [detail, setDetail] = useState(null);
 
     const load = async () => {
         setLoading(true);
@@ -47,9 +65,28 @@ export default function ManagerPanel({ websiteStats = null }) {
         }
     };
 
+    const loadPrompt = async () => {
+        setPromptLoading(true);
+        try {
+            const data = await fetchCommentPrompt();
+            setPromptBody(String(data?.prompt_body ?? ''));
+            setHistory(Array.isArray(data?.history) ? data.history : []);
+        } catch (e) {
+            notifyError(e?.message || 'Không tải được Prompt Gen Comment');
+        } finally {
+            setPromptLoading(false);
+        }
+    };
+
     useEffect(() => {
         load();
     }, [status, social]);
+
+    useEffect(() => {
+        if (subTab === 'summary') {
+            loadPrompt();
+        }
+    }, [subTab]);
 
     const onAction = async (topic, action) => {
         try {
@@ -63,6 +100,34 @@ export default function ManagerPanel({ websiteStats = null }) {
             await load();
         } catch (e) {
             notifyError(e?.message || 'Thao tác thất bại');
+        }
+    };
+
+    const onSavePrompt = async () => {
+        setPromptSaving(true);
+        try {
+            const data = await saveCommentPrompt(promptBody);
+            setPromptBody(String(data?.prompt_body ?? promptBody));
+            notifySuccess(data?.message || 'Đã lưu Prompt Gen Comment');
+        } catch (e) {
+            notifyError(e?.message || 'Lưu prompt thất bại');
+        } finally {
+            setPromptSaving(false);
+        }
+    };
+
+    const onViewHistory = async (row) => {
+        setDetailOpen(true);
+        setDetail(null);
+        setDetailLoading(true);
+        try {
+            const data = await fetchCommentPromptHistoryDetail(row.slot);
+            setDetail(data?.log || null);
+        } catch (e) {
+            notifyError(e?.message || 'Không tải được chi tiết log');
+            setDetailOpen(false);
+        } finally {
+            setDetailLoading(false);
         }
     };
 
@@ -82,16 +147,99 @@ export default function ManagerPanel({ websiteStats = null }) {
             </div>
 
             {subTab === 'summary' ? (
-                <div className="seeding-ws__stats-grid">
-                    <div className="seeding-ws__stat-tile"><strong>{stats?.topics_running ?? '—'}</strong><span>Đang chạy</span></div>
-                    <div className="seeding-ws__stat-tile"><strong>{stats?.topics_done ?? '—'}</strong><span>Hoàn thành</span></div>
-                    <div className="seeding-ws__stat-tile"><strong>{stats?.topics_pending ?? '—'}</strong><span>Pending</span></div>
-                    <div className="seeding-ws__stat-tile"><strong>{stats?.topics_paused ?? '—'}</strong><span>Tạm dừng</span></div>
-                    <div className="seeding-ws__stat-tile"><strong>{stats?.comments_required ?? '—'}</strong><span>Comments required</span></div>
-                    <div className="seeding-ws__stat-tile"><strong>{stats?.comments_completed ?? '—'}</strong><span>Comments completed</span></div>
-                    <div className="seeding-ws__stat-tile"><strong>{websiteStats?.pending ?? '—'}</strong><span>Website pending</span></div>
-                    <div className="seeding-ws__stat-tile"><strong>{websiteStats?.ready ?? '—'}</strong><span>Website ready</span></div>
-                    <div className="seeding-ws__stat-tile"><strong>{websiteStats?.completed ?? '—'}</strong><span>Website completed</span></div>
+                <div className="seeding-ws__summary-stack">
+                    <div className="seeding-ws__stats-grid">
+                        <div className="seeding-ws__stat-tile"><strong>{stats?.topics_running ?? '—'}</strong><span>Đang chạy</span></div>
+                        <div className="seeding-ws__stat-tile"><strong>{stats?.topics_done ?? '—'}</strong><span>Hoàn thành</span></div>
+                        <div className="seeding-ws__stat-tile"><strong>{stats?.topics_pending ?? '—'}</strong><span>Pending</span></div>
+                        <div className="seeding-ws__stat-tile"><strong>{stats?.topics_paused ?? '—'}</strong><span>Tạm dừng</span></div>
+                        <div className="seeding-ws__stat-tile"><strong>{stats?.comments_required ?? '—'}</strong><span>Comments required</span></div>
+                        <div className="seeding-ws__stat-tile"><strong>{stats?.comments_completed ?? '—'}</strong><span>Comments completed</span></div>
+                        <div className="seeding-ws__stat-tile"><strong>{websiteStats?.pending ?? '—'}</strong><span>Website pending</span></div>
+                        <div className="seeding-ws__stat-tile"><strong>{websiteStats?.ready ?? '—'}</strong><span>Website ready</span></div>
+                        <div className="seeding-ws__stat-tile"><strong>{websiteStats?.completed ?? '—'}</strong><span>Website completed</span></div>
+                    </div>
+
+                    <section className="seeding-ws__prompt-section" data-section="gen-comment-prompt">
+                        <h3 className="seeding-ws__section-title">Prompt Gen Comment</h3>
+                        {promptLoading ? (
+                            <div className="seeding-ws__prompt-skeleton" aria-busy="true">
+                                <div className="seeding-ws__skeleton-block" />
+                                <div className="seeding-ws__skeleton-block seeding-ws__skeleton-block--sm" />
+                            </div>
+                        ) : (
+                            <>
+                                <textarea
+                                    className="seeding-ws__textarea seeding-ws__textarea--prompt"
+                                    value={promptBody}
+                                    onChange={(e) => setPromptBody(e.target.value)}
+                                    rows={12}
+                                    spellCheck={false}
+                                />
+                                <p className="seeding-ws__prompt-help">
+                                    Biến hỗ trợ: <code>{'{{mcp_context}}'}</code>
+                                </p>
+                                <button
+                                    type="button"
+                                    className="seeding-ws__btn seeding-ws__btn--primary"
+                                    onClick={onSavePrompt}
+                                    disabled={promptSaving}
+                                >
+                                    {promptSaving ? (
+                                        <>
+                                            <Loader2 size={14} className="seeding-ws__spin" /> Đang lưu…
+                                        </>
+                                    ) : 'Lưu'}
+                                </button>
+                            </>
+                        )}
+                    </section>
+
+                    <section className="seeding-ws__prompt-section" data-section="gen-comment-history">
+                        <h3 className="seeding-ws__section-title">Lịch sử Gen Comment</h3>
+                        <div className="seeding-ws__manager-table-wrap">
+                            <table className="seeding-ws__manager-table seeding-ws__history-table">
+                                <thead>
+                                    <tr>
+                                        <th>Time</th>
+                                        <th>Topic</th>
+                                        <th>Social</th>
+                                        <th>Qty</th>
+                                        <th>Model</th>
+                                        <th>Status</th>
+                                        <th />
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {history.length === 0 ? (
+                                        <tr>
+                                            <td colSpan={7}>{promptLoading ? 'Đang tải…' : 'Chưa có lần Gen nào.'}</td>
+                                        </tr>
+                                    ) : history.map((row) => (
+                                        <tr key={`${row.slot}-${row.sequence}`}>
+                                            <td>{row.generated_at_label || '—'}</td>
+                                            <td>{row.topic_id ?? '—'}</td>
+                                            <td>{row.social || '—'}</td>
+                                            <td>{row.quantity ?? '—'}</td>
+                                            <td className="seeding-ws__mono-cell">
+                                                {[row.provider, row.model].filter(Boolean).join('/') || '—'}
+                                            </td>
+                                            <td>{statusLabel(row.status)}</td>
+                                            <td>
+                                                <button
+                                                    type="button"
+                                                    className="seeding-ws__btn seeding-ws__btn--ghost"
+                                                    onClick={() => onViewHistory(row)}
+                                                >
+                                                    Xem
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    </section>
                 </div>
             ) : null}
 
@@ -189,6 +337,63 @@ export default function ManagerPanel({ websiteStats = null }) {
             {subTab === 'reports' || subTab === 'members' ? (
                 <div className="seeding-ws__empty-feed">
                     <p>Bảng {subTab === 'reports' ? 'báo cáo' : 'thành viên'} sẽ mở rộng từ seeding_reports (đang dùng dữ liệu Tổng kết).</p>
+                </div>
+            ) : null}
+
+            {detailOpen ? (
+                <div className="seeding-ws__modal-backdrop" role="presentation" onClick={() => setDetailOpen(false)}>
+                    <div
+                        className="seeding-ws__modal seeding-ws__modal--wide"
+                        role="dialog"
+                        aria-modal="true"
+                        aria-label="Chi tiết Gen Comment"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="seeding-ws__modal-head">
+                            <h3>Chi tiết Gen Comment</h3>
+                            <button type="button" className="seeding-ws__btn seeding-ws__btn--ghost" onClick={() => setDetailOpen(false)}>
+                                <X size={16} />
+                            </button>
+                        </div>
+                        {detailLoading ? (
+                            <div className="seeding-ws__prompt-skeleton" aria-busy="true">
+                                <div className="seeding-ws__skeleton-block" />
+                                <div className="seeding-ws__skeleton-block" />
+                            </div>
+                        ) : detail ? (
+                            <div className="seeding-ws__history-detail">
+                                <dl className="seeding-ws__history-meta">
+                                    <div><dt>Thời gian</dt><dd>{detail.generated_at_label || '—'}</dd></div>
+                                    <div><dt>Provider</dt><dd>{detail.provider || '—'}</dd></div>
+                                    <div><dt>Model</dt><dd>{detail.model || '—'}</dd></div>
+                                    <div><dt>Quantity</dt><dd>{detail.quantity ?? '—'}</dd></div>
+                                    <div><dt>Status</dt><dd>{statusLabel(detail.status)}</dd></div>
+                                    <div><dt>Social</dt><dd>{detail.social || '—'}</dd></div>
+                                    <div><dt>Topic</dt><dd>{detail.topic_id ?? '—'}</dd></div>
+                                </dl>
+                                {detail.error_message ? (
+                                    <div className="seeding-ws__history-error">
+                                        <strong>Error</strong>
+                                        <pre className="seeding-ws__pre">{detail.error_message}</pre>
+                                    </div>
+                                ) : null}
+                                <div>
+                                    <h4>1. MCP Context</h4>
+                                    <pre className="seeding-ws__pre">{detail.mcp_context || ''}</pre>
+                                </div>
+                                <div>
+                                    <h4>2. Final AI Request / Final Prompt</h4>
+                                    <pre className="seeding-ws__pre">{detail.final_prompt || ''}</pre>
+                                </div>
+                                <div>
+                                    <h4>3. AI Output</h4>
+                                    <pre className="seeding-ws__pre">{detail.ai_output || '—'}</pre>
+                                </div>
+                            </div>
+                        ) : (
+                            <p>Không có dữ liệu.</p>
+                        )}
+                    </div>
                 </div>
             ) : null}
         </div>

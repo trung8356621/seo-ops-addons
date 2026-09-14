@@ -146,15 +146,16 @@ export async function submitReport(payload) {
 }
 
 /**
- * Stateless AI comment generation — no Seeding DB writes.
+ * Stateless AI comment generation — Manager prompt + debug history on server.
  * Boundary payload may include legacy full_text/social_url/count/platform.
- * AI task itself receives only normalized plain-text context.
+ * AI task itself receives only normalized plain-text context + rendered Manager prompt.
  * @param {{
  *   source_type?: string,
  *   content?: string,
  *   url?: string,
  *   social?: string,
  *   quantity?: number,
+ *   topic_id?: number|string,
  *   full_text?: string,
  *   social_url?: string,
  *   count?: number,
@@ -171,6 +172,27 @@ export async function generateSampleComments(payload) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
     });
+}
+
+/** Manager: Gen Comment prompt + history */
+export async function fetchCommentPrompt() {
+    return seedingApiFetch('/api/seeding/manager/comment-prompt', { method: 'GET' });
+}
+
+export async function saveCommentPrompt(promptBody) {
+    return seedingApiFetch('/api/seeding/manager/comment-prompt', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt_body: promptBody }),
+    });
+}
+
+export async function fetchCommentPromptHistory() {
+    return seedingApiFetch('/api/seeding/manager/comment-prompt/history', { method: 'GET' });
+}
+
+export async function fetchCommentPromptHistoryDetail(slot) {
+    return seedingApiFetch(`/api/seeding/manager/comment-prompt/history/${slot}`, { method: 'GET' });
 }
 
 /**

@@ -60,7 +60,8 @@ final class ContentProjectStatusBadgePresenter
             ContentProjectArticleRuntimeStatus::STATE_INCONSISTENT_PROCESSING => self::badge('stale', self::t('badge_possibly_stuck', 'Possibly stuck'), 'heroicon-o-exclamation-triangle', 'bg-warning-50 text-warning-900 ring-warning-500/40 dark:bg-warning-400/10 dark:text-warning-200 dark:ring-warning-400/40'),
             ContentProjectArticleRuntimeStatus::STATE_FAILED => self::generation('failed', 'failed'),
             ContentProjectArticleRuntimeStatus::STATE_COMPLETED => self::generation('completed', 'success'),
-            default => self::generation('pending', null),
+            ContentProjectArticleRuntimeStatus::STATE_NO_ACTIVE_EXECUTION => self::badge('not_started', self::t('run_item_pending', 'Chưa chạy'), 'heroicon-o-document', 'bg-gray-200/80 text-gray-800 ring-gray-500/30 dark:bg-gray-500/20 dark:text-gray-200 dark:ring-gray-400/30'),
+            default => self::badge('not_started', self::t('run_item_pending', 'Chưa chạy'), 'heroicon-o-document', 'bg-gray-200/80 text-gray-800 ring-gray-500/30 dark:bg-gray-500/20 dark:text-gray-200 dark:ring-gray-400/30'),
         };
     }
 

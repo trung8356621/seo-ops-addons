@@ -27,6 +27,16 @@ search-foundation · seo · search-intelligence · ai-prompt · content · conte
 | Social Profile / manual share | `social/` |
 | Seeding Topic V2 / Link Intelligence | `seeding/` |
 
+## Seeding AI vs SEO AI (permanent)
+
+Seeding Gen Comment AI is **intentionally and permanently independent** from the SEO AI Prompt/Task/History pipeline.
+
+- Seeding owns its prompt setting, MCP context, generation flow, debug logs, and retention.
+- Do **not** extract/reuse/refactor SEO Prompt/Task/History for Seeding, or design for a future merge.
+- Prefer small Seeding-local duplication over coupling to the stable SEO AI pipeline.
+- Shared only when already generic: queue/HTTP/provider clients/DB/cache + existing Canonical routing via Social comment task shell.
+- Canonical write-up: `docs/modules/SEEDING.md` §8.
+
 ## EDITOR WIDGET LOCKS
 
 **SEO remains unlocked for active development.** All other registered Article Editor widgets are locked (manifest-driven; guard does not hard-code IDs).

@@ -201,13 +201,12 @@ final class ContentProjectLazyBulkStatusProjectionTest extends TestCase
 
     public function test_membership_pending_exec_does_not_override_failed_generation_status_contract(): void
     {
-        // Read-model gate: only current dispatched item may rewrite failed → pending.
         $readModel = $this->source(
             \Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectItemOperationsReadModel::class,
         );
-        self::assertStringContainsString('isCurrentDispatchedRunItem', $readModel);
+        self::assertStringContainsString('ContentProjectItemOpsEvidencePresenter::present', $readModel);
         self::assertStringContainsString('resolveDisplayLastActivity', $readModel);
-        self::assertStringContainsString('latestAttemptQueued && $genStatus === SeoProjectTask::STATUS_FAILED', $readModel);
+        self::assertStringContainsString('latest_execution_by_task', $readModel);
     }
 
     /**

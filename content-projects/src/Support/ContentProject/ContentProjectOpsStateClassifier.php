@@ -232,6 +232,7 @@ final class ContentProjectOpsStateClassifier
             ContentProjectArticleRuntimeStatus::STATE_INCONSISTENT_PROCESSING => 'stale',
             ContentProjectArticleRuntimeStatus::STATE_FAILED => 'failed',
             ContentProjectArticleRuntimeStatus::STATE_COMPLETED => 'generated',
+            ContentProjectArticleRuntimeStatus::STATE_NO_ACTIVE_EXECUTION => 'not_started',
             default => null,
         };
         if ($runtimeKey !== null) {
@@ -261,7 +262,12 @@ final class ContentProjectOpsStateClassifier
             return 'generated';
         }
 
-        return 'pending';
+        // No real execution evidence — not queued work.
+        if ($exec === '' && ! in_array($gs, ['writing', 'failed', 'completed', 'reviewing'], true)) {
+            return 'not_started';
+        }
+
+        return 'not_started';
     }
 
     /**

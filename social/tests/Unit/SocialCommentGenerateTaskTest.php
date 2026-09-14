@@ -46,10 +46,37 @@ final class SocialCommentGenerateTaskTest extends TestCase
         $prompt = $this->task->buildCompiledPrompt($normalized);
         self::assertStringContainsString("Tiêu đề: Balo laptop 15.6 inch NATOLI", $prompt);
         self::assertStringContainsString("Mô tả: Cặp đi học nam chống sốc, chống nước", $prompt);
-        self::assertStringContainsString('Nền tảng mạng xã hội: threads', $prompt);
-        self::assertStringContainsString('Số lượng comment yêu cầu: 3', $prompt);
-        self::assertStringContainsString('dưới 300 từ', $prompt);
+        self::assertStringContainsString('Social platform id: threads', $prompt);
+        self::assertStringContainsString('Requested quantity: 3', $prompt);
+        self::assertStringContainsString('under 300 words', $prompt);
         self::assertStringContainsString('"comments": [', $prompt);
+        self::assertStringContainsString('OUTPUT CONTRACT:', $prompt);
+        self::assertStringNotContainsString('Gen Z', $prompt);
+        self::assertStringNotContainsString('slang', strtolower($prompt));
+    }
+
+    public function test_business_prompt_is_not_style_augmented(): void
+    {
+        $business = "Tone: formal only.\n{{mcp_context already replaced}}\nSubject: balo laptop.";
+        $normalized = $this->task->normalizeInput([
+            'context' => 'MCP raw context about backpack',
+            'business_prompt' => $business,
+            'social' => 'facebook',
+            'quantity' => 2,
+        ]);
+
+        $prompt = $this->task->buildCompiledPrompt($normalized);
+        self::assertStringContainsString($business, $prompt);
+        self::assertStringContainsString('BUSINESS PROMPT:', $prompt);
+        self::assertStringContainsString('OUTPUT CONTRACT:', $prompt);
+        // Must not secretly append social/style instructions after Manager prompt body.
+        self::assertStringNotContainsString('Gen Z', $prompt);
+        self::assertStringNotContainsString('Adapt naturally to the supplied social platform', $prompt);
+        self::assertStringNotContainsString('Write in Vietnamese', $prompt);
+        self::assertSame(
+            substr_count($prompt, 'BUSINESS PROMPT:'),
+            1,
+        );
     }
 
     public function test_2_task_has_no_url_crawler_or_seo_dependency(): void
