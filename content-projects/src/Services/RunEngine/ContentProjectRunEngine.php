@@ -1114,8 +1114,10 @@ final class ContentProjectRunEngine
         $signature = ContentProjectBatchFailureSignature::fromResult($result);
         $tripped = false;
         $count = 0;
+        $failureCount = 0;
+        $trigger = null;
 
-        DB::connection('omi_seo_ai')->transaction(function () use ($run, $signature, &$tripped, &$count): void {
+        DB::connection('omi_seo_ai')->transaction(function () use ($run, $signature, &$tripped, &$count, &$failureCount, &$trigger): void {
             /** @var SeoProjectRun|null $locked */
             $locked = SeoProjectRun::query()
                 ->whereKey((int) $run->id)
@@ -1132,14 +1134,18 @@ final class ContentProjectRunEngine
             $recorded = ContentProjectBatchCircuitBreakerState::recordFailure($engine, $signature);
             $engine = $recorded['engine'];
             $count = $recorded['count'];
+            $failureCount = $recorded['failure_count'];
+            $trigger = $recorded['trigger'];
             $tripped = $recorded['tripped'];
 
             if ($tripped) {
-                $message = $this->circuitBreakerUserMessage($signature);
+                $message = $this->circuitBreakerUserMessage($signature, $trigger, $failureCount);
                 $engine['circuit_breaker'] = [
                     'stopped' => true,
                     'signature' => $signature,
                     'count' => $count,
+                    'failure_count' => $failureCount,
+                    'trigger' => $trigger,
                     'stopped_at' => now()->toIso8601String(),
                     'reason' => $message,
                 ];
@@ -1176,11 +1182,13 @@ final class ContentProjectRunEngine
             return false;
         }
 
-        $message = $this->circuitBreakerUserMessage($signature);
+        $message = $this->circuitBreakerUserMessage($signature, $trigger, $failureCount);
         RuntimeLogger::warning('content_project_run.circuit_breaker_tripped', [
             'run_id' => (int) $run->id,
             'signature' => $signature,
             'count' => $count,
+            'failure_count' => $failureCount,
+            'trigger' => $trigger,
             'message' => $message,
         ]);
         $this->events->runFailed($run, $message);
@@ -1251,8 +1259,14 @@ final class ContentProjectRunEngine
         }
     }
 
-    private function circuitBreakerUserMessage(string $signature): string
+    private function circuitBreakerUserMessage(string $signature, ?string $trigger = null, int $failureCount = 0): string
     {
+        if ($trigger === ContentProjectBatchCircuitBreakerState::TRIGGER_AGGREGATE_FAILED_ITEMS) {
+            return 'Da dung Generate: batch da co '
+                .max($failureCount, ContentProjectBatchCircuitBreakerState::THRESHOLD)
+                .' item loi. Kiem tra cau hinh AI/script roi chay lai.';
+        }
+
         if ($signature === ContentProjectBatchFailureSignature::SYSTEMIC_ROUTING
             || str_starts_with($signature, 'ai_routing|')
         ) {

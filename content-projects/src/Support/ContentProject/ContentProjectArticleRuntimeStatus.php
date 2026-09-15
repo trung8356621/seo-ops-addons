@@ -26,6 +26,8 @@ final class ContentProjectArticleRuntimeStatus
 
     public const STATE_COMPLETED = 'completed';
 
+    public const STATE_STOPPED_AFTER_REQUEST = 'stopped_after_request';
+
     public const STATE_PENDING = 'pending';
 
     public const STATE_NO_ACTIVE_EXECUTION = 'no_active_execution';

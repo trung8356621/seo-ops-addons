@@ -116,7 +116,7 @@ final class PromptBudgetPreflightServiceTest extends TestCase
         $map = (new PromptSplitStrategyRegistry())->classificationMap();
         $this->assertSame(PromptSplitClass::SemanticSplit->value, $map['keyword.discovery.structured']);
         $this->assertSame(PromptSplitClass::DirectFit->value, $map['article.title_suggestion']);
-        $this->assertSame(PromptSplitClass::SemanticSplit->value, $map['article.content.generate']);
+        $this->assertSame(PromptSplitClass::DirectFit->value, $map['article.content.generate']);
         $this->assertSame(PromptSplitClass::BusinessSplit->value, $map['article.outline.structure.generate']);
     }
 

@@ -82,12 +82,19 @@
                             <div class="cp-ops-step" title="{{ $row['runtime_warning'] ?? $row['runtime_detail'] }}">{{ $row['runtime_detail'] }}</div>
                         @endif
                         <div class="cp-ops-mobile-card__meta">
-                            <span x-show="(typeof isRowProcessing === 'function' && isRowProcessing({{ $tid }})) || {{ ! empty($row['is_activity_processing']) || ! empty($row['is_genuinely_running']) ? 'true' : 'false' }}" x-cloak class="inline-flex items-center gap-1.5">
+                            <span x-show="typeof isRowProcessing === 'function' && isRowProcessing({{ $tid }})" x-cloak class="inline-flex items-center gap-1.5">
                                 <svg class="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
-                                {{ ! empty($row['runtime_time_label']) ? $row['runtime_time_label'] : __('seo-content-ai::filament.projects.publishing_queue_pending_processing') }}
+                                {{ __('seo-content-ai::filament.projects.publishing_queue_pending_processing') }}
                             </span>
-                            <span x-show="(typeof isRowProcessing !== 'function' || ! isRowProcessing({{ $tid }})) && {{ empty($row['is_activity_processing']) && empty($row['is_genuinely_running']) ? 'true' : 'false' }}">
-                                {{ $row['last_activity'] ?? '' }}
+                            <span x-show="typeof isRowProcessing !== 'function' || ! isRowProcessing({{ $tid }})">
+                                @if (! empty($row['is_activity_processing']) || ! empty($row['is_genuinely_running']))
+                                    <span class="inline-flex items-center gap-1.5">
+                                        <svg class="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+                                        {{ $row['runtime_time_label'] ?: __('seo-content-ai::filament.projects.publishing_queue_pending_processing') }}
+                                    </span>
+                                @else
+                                    {{ $row['last_activity'] ?? '' }}
+                                @endif
                             </span>
                             @if (! $isPublishingQueue)
                                 <x-seo-content-ai::content-project-keyword-cell :row="$row" />
@@ -259,15 +266,20 @@
                             @endif
                             <td class="cp-ops-muted" title="{{ $row['last_activity_full'] ?? '' }}">
                                 <span
-                                    x-show="(typeof isRowProcessing === 'function' && isRowProcessing({{ $tid }})) || {{ $serverActivityProcessing && ! $rowPending ? 'true' : 'false' }}"
+                                    x-show="typeof isRowProcessing === 'function' && isRowProcessing({{ $tid }})"
                                     x-cloak
                                     class="inline-flex items-center gap-1.5"
                                 >
                                     <svg class="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
-                                    {{ $runtimeTimeLabel !== '' ? $runtimeTimeLabel : __('seo-content-ai::filament.projects.publishing_queue_pending_processing') }}
+                                    {{ __('seo-content-ai::filament.projects.publishing_queue_pending_processing') }}
                                 </span>
-                                <span x-show="(typeof isRowProcessing !== 'function' || ! isRowProcessing({{ $tid }})) && {{ $serverActivityProcessing && ! $rowPending ? 'false' : 'true' }}">
-                                @if ($rowPending && $rowPendingPhase === 'updating')
+                                <span x-show="typeof isRowProcessing !== 'function' || ! isRowProcessing({{ $tid }})">
+                                @if ($serverActivityProcessing && ! $rowPending)
+                                    <span class="inline-flex items-center gap-1.5">
+                                        <svg class="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
+                                        {{ $runtimeTimeLabel !== '' ? $runtimeTimeLabel : __('seo-content-ai::filament.projects.publishing_queue_pending_processing') }}
+                                    </span>
+                                @elseif ($rowPending && $rowPendingPhase === 'updating')
                                     <span class="inline-flex items-center gap-1.5">
                                         <svg class="h-3 w-3 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"/></svg>
                                         {{ __('seo-content-ai::filament.projects.publishing_queue_pending_processing') }}

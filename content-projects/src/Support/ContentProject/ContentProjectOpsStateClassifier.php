@@ -231,6 +231,7 @@ final class ContentProjectOpsStateClassifier
             ContentProjectArticleRuntimeStatus::STATE_WAITING_AI_RETRY => 'waiting_ai',
             ContentProjectArticleRuntimeStatus::STATE_STALE_PROCESSING,
             ContentProjectArticleRuntimeStatus::STATE_INCONSISTENT_PROCESSING => 'stale',
+            ContentProjectArticleRuntimeStatus::STATE_STOPPED_AFTER_REQUEST => 'stopped_after_request',
             ContentProjectArticleRuntimeStatus::STATE_FAILED => 'failed',
             ContentProjectArticleRuntimeStatus::STATE_COMPLETED => 'generated',
             ContentProjectArticleRuntimeStatus::STATE_NO_ACTIVE_EXECUTION => 'not_started',

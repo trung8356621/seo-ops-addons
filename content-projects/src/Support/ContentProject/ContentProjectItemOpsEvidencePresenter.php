@@ -123,6 +123,9 @@ final class ContentProjectItemOpsEvidencePresenter
             'stale' => ContentProjectStatusBadgePresenter::runtime(
                 ContentProjectArticleRuntimeStatus::STATE_STALE_PROCESSING,
             ),
+            'stopped_after_request' => ContentProjectStatusBadgePresenter::runtime(
+                ContentProjectArticleRuntimeStatus::STATE_STOPPED_AFTER_REQUEST,
+            ),
             'failed' => ContentProjectStatusBadgePresenter::generation('failed', 'failed'),
             'generated' => ContentProjectStatusBadgePresenter::generation('completed', 'success'),
             'not_started' => ContentProjectStatusBadgePresenter::runtime(

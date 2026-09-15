@@ -628,8 +628,34 @@ final class SeoProjectWorkflowRunService
         }
 
         if ($claim['outcome'] === 'already_processed' || $claim['outcome'] === 'skipped') {
-            if ($task instanceof SeoProjectTask && ($claim['article_id'] ?? 0) > 0) {
-                $this->markTaskCompleted($task, (int) $claim['article_id']);
+            $claimArticleId = (int) ($claim['article_id'] ?? 0);
+            if ($task instanceof SeoProjectTask
+                && $claimArticleId > 0
+                && SeoProjectTask::normalizeType((string) $task->type) === SeoProjectTask::TYPE_CREATE
+                && ! $this->articleHasGeneratedBody($claimArticleId)
+            ) {
+                $this->markTaskFailed($task, $claimArticleId);
+                if ($runItem instanceof SeoProjectRunItem) {
+                    $this->runItemService->markFailed(
+                        $runItem,
+                        ContentProjectErrorCode::ExternalWorkflowFailed,
+                        'Existing draft article has no generated content; retry generation.',
+                        articleId: $claimArticleId,
+                    );
+                    $this->safeTaskEvent($task, SeoProjectTaskEventType::TaskFailed, (string) $task->status, SeoProjectTask::STATUS_FAILED, $run, $runItem);
+
+                    return $this->finalizeFailedJson($run, $task, $runItem, [
+                        'message' => 'Existing draft article has no generated content; retry generation.',
+                        'error_detail' => 'Existing draft article has no generated content; retry generation.',
+                        'error_class' => null,
+                        'error_trace' => null,
+                        'failed_step' => null,
+                    ]);
+                }
+            }
+
+            if ($task instanceof SeoProjectTask && $claimArticleId > 0) {
+                $this->markTaskCompleted($task, $claimArticleId);
             }
             $this->runItemService->syncMirrorAndCounters($run, false);
             if ($task instanceof SeoProjectTask && $runItem instanceof SeoProjectRunItem) {
@@ -1546,6 +1572,22 @@ final class SeoProjectWorkflowRunService
             (int) ($task->site_id ?? $task->project?->site_id ?? 0),
             'content_project_run',
         );
+    }
+
+    private function articleHasGeneratedBody(int $articleId): bool
+    {
+        if ($articleId <= 0) {
+            return false;
+        }
+
+        $article = SeoArticle::query()->find($articleId);
+        if (! $article instanceof SeoArticle) {
+            return false;
+        }
+
+        $body = (string) ($article->getAttribute('body') ?? $article->getAttribute('content') ?? '');
+
+        return trim($body) !== '';
     }
 
     private function persistTaskState(SeoProjectTask $task, string $status, ?int $articleId): void

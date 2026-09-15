@@ -39,6 +39,8 @@ final class ContentProjectArticleRuntimeStatusResolver
      *     run_item?: array<string, mixed>|null,
      *     active_dispatch?: array<string, mixed>|null,
      *     ai_transient_retry?: array<string, mixed>|null,
+     *     stop_requested_at?: string|null,
+     *     final_status?: string|null,
      *     processing_count?: int,
      *     task_status?: string|null,
      *     has_dispatch_tracking?: bool,
@@ -59,6 +61,20 @@ final class ContentProjectArticleRuntimeStatusResolver
         $stepLabel = self::stepLabel($item['action'] ?? null);
 
         // Terminal attempt always beats a sticky task.status = writing/processing.
+        if (
+            in_array($execStatus, array_merge(self::SUCCESS_EXEC_STATUSES, self::TERMINAL_EXEC_STATUSES), true)
+            && $this->finishedAfterStopRequest($context, $item)
+        ) {
+            return $this->terminal(
+                ContentProjectArticleRuntimeStatus::STATE_STOPPED_AFTER_REQUEST,
+                'Dừng sau lệnh',
+                'warning',
+                $attempt,
+                $maxAttempts,
+                'Item này kết thúc sau khi đã bấm dừng khẩn cấp',
+            );
+        }
+
         if (in_array($execStatus, self::SUCCESS_EXEC_STATUSES, true)) {
             return $this->terminal(
                 ContentProjectArticleRuntimeStatus::STATE_COMPLETED,
@@ -437,6 +453,7 @@ final class ContentProjectArticleRuntimeStatusResolver
         string $tone,
         ?int $attempt,
         int $maxAttempts,
+        ?string $warning = null,
     ): ContentProjectArticleRuntimeStatus {
         return new ContentProjectArticleRuntimeStatus(
             state: $state,
@@ -446,7 +463,31 @@ final class ContentProjectArticleRuntimeStatusResolver
             showSpinner: false,
             attempt: $attempt,
             maxAttempts: $maxAttempts,
+            warning: $warning,
         );
+    }
+
+    /**
+     * @param  array<string, mixed>  $context
+     * @param  array<string, mixed>|null  $item
+     */
+    private function finishedAfterStopRequest(array $context, ?array $item): bool
+    {
+        if ($item === null) {
+            return false;
+        }
+
+        $stopAt = self::parse($context['stop_requested_at'] ?? null);
+        if ($stopAt === null) {
+            return false;
+        }
+
+        $finishedAt = self::parse($item['finished_at_iso'] ?? $item['finished_at'] ?? $item['updated_at_iso'] ?? null);
+        if ($finishedAt === null) {
+            return false;
+        }
+
+        return $finishedAt->greaterThanOrEqualTo($stopAt);
     }
 
     /**

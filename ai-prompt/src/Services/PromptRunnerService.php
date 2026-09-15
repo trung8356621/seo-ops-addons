@@ -2047,18 +2047,29 @@ class PromptRunnerService
             }
         }
 
+        $desiredOutputTokens = $strategy->estimateOutputReserve([
+            'batch_target' => (int) ($routeVariables['count'] ?? $routeVariables['quantity'] ?? 0),
+            'quantity' => (int) ($routeVariables['quantity'] ?? 0),
+            'section_count' => max(1, (int) ($routeVariables['section_count'] ?? 1)),
+            'block_count' => max(1, (int) ($routeVariables['block_count'] ?? 1)),
+        ], $capability);
+        if ($routed->provider === ApiConnectionProviders::DEEPSEEK
+            && strtolower(trim($routed->model)) === 'deepseek-v4-pro'
+            && in_array($hookKey, [
+                'article.outline.generate',
+                ArticleOutlineVocabularySplitExecutor::OUTLINE_STRUCTURE_HOOK,
+                ArticleOutlineVocabularySplitExecutor::VOCABULARY_HOOK,
+            ], true)) {
+            $desiredOutputTokens = max($desiredOutputTokens, 8192);
+        }
+
         $planOptions = [
             'quantity' => (int) ($routeVariables['quantity'] ?? $routeVariables['count'] ?? 0),
             'count' => (int) ($routeVariables['count'] ?? $routeVariables['quantity'] ?? 0),
             'batch_target' => (int) ($routeVariables['count'] ?? $routeVariables['quantity'] ?? 0),
             'continuation_already_inlined' => true,
             'schema_already_inlined' => true,
-            'desired_output_tokens' => $strategy->estimateOutputReserve([
-                'batch_target' => (int) ($routeVariables['count'] ?? $routeVariables['quantity'] ?? 0),
-                'quantity' => (int) ($routeVariables['quantity'] ?? 0),
-                'section_count' => max(1, (int) ($routeVariables['section_count'] ?? 1)),
-                'block_count' => max(1, (int) ($routeVariables['block_count'] ?? 1)),
-            ], $capability),
+            'desired_output_tokens' => $desiredOutputTokens,
         ];
         $planOptions['minimum_required_output_tokens'] = max(
             64,

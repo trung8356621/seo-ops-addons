@@ -10,9 +10,12 @@ use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\AiPrompt\DataTransfer\AiRoutingContext;
+use Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate;
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
 use Omnichannel\Addons\AiPrompt\Models\AiModelCapabilityRow;
 use Omnichannel\Addons\AiPrompt\Models\SeoAiModel;
+use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\OutputTruncated;
+use Omnichannel\Addons\AiPrompt\PromptBudget\PromptSplitStrategyRegistry;
 use Omnichannel\Addons\AiPrompt\Services\Ai\DeepSeekChatClient;
 use Omnichannel\Addons\AiPrompt\Services\AiModelPriorityService;
 use Omnichannel\Addons\AiPrompt\Services\AiModelRouterService;
@@ -22,6 +25,8 @@ use Omnichannel\Addons\AiPrompt\Services\AiRoutingBootstrapService;
 use Omnichannel\Addons\AiPrompt\Services\AiRoutingTargetService;
 use Omnichannel\Addons\AiPrompt\Services\AiRuntimeHealthService;
 use Omnichannel\Addons\AiPrompt\Services\ModelCapabilityRegistry;
+use Omnichannel\Addons\AiPrompt\Services\ModelContextCapabilityResolver;
+use Omnichannel\Addons\AiPrompt\Services\PromptBudgetPreflightService;
 use Omnichannel\Addons\AiPrompt\Support\AiCapabilitySource;
 use Omnichannel\Addons\AiPrompt\Support\AiCostPolicy;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
@@ -413,6 +418,116 @@ final class DeepSeekCatalogAndTextReasoningEligibilityTest extends TestCase
         $this->expectException(PromptRunException::class);
         $this->expectExceptionMessage('Thiếu model DeepSeek từ routing');
         $client->generate($ds, 'hello', '', []);
+    }
+
+    public function test_client_sends_the_provider_catalog_model_id(): void
+    {
+        $ds = $this->deepseek(59);
+        Http::fake([
+            'api.deepseek.com/*' => Http::response([
+                'choices' => [
+                    [
+                        'message' => ['content' => 'ok'],
+                        'finish_reason' => 'stop',
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        [$text] = (new DeepSeekChatClient())->generate($ds, 'hello', 'deepseek-v4-pro', []);
+
+        self::assertSame('ok', $text);
+        Http::assertSent(static function ($request): bool {
+            return ($request->data()['model'] ?? null) === 'deepseek-v4-pro';
+        });
+    }
+
+    public function test_client_reports_reasoning_only_length_response_as_truncated(): void
+    {
+        $ds = $this->deepseek(60);
+        Http::fake([
+            'api.deepseek.com/*' => Http::response([
+                'choices' => [[
+                    'message' => ['content' => '', 'reasoning_content' => 'thinking'],
+                    'finish_reason' => 'length',
+                ]],
+                'usage' => ['completion_tokens_details' => ['reasoning_tokens' => 2048]],
+            ], 200),
+        ]);
+
+        try {
+            (new DeepSeekChatClient())->generate($ds, 'hello', 'deepseek-v4-pro', []);
+            self::fail('Expected OutputTruncated');
+        } catch (OutputTruncated $exception) {
+            self::assertSame('length', $exception->providerFinishReason);
+            self::assertStringContainsString('reasoning_tokens=2048', $exception->getMessage());
+        }
+    }
+
+    public function test_general_outline_reserve_keeps_other_routes_eligible(): void
+    {
+        $ds = $this->deepseek(61);
+        $model = $this->seedLocal($ds, 'deepseek-v4-pro', AiModelCategory::DEEPSEEK_REASONER);
+        $capability = (new ModelContextCapabilityResolver())->resolveFor(
+            $ds,
+            'deepseek-v4-pro',
+            (int) $model->id,
+        );
+        $reserve = (new PromptSplitStrategyRegistry())
+            ->forHook('article.outline.structure.generate')
+            ->estimateOutputReserve([], $capability);
+        $vocabularyReserve = (new PromptSplitStrategyRegistry())
+            ->forHook('article.vocabulary.generate')
+            ->estimateOutputReserve([], $capability);
+
+        self::assertGreaterThanOrEqual(8192, $capability->maxOutputTokens);
+        self::assertSame(2048, $reserve);
+        self::assertSame(2048, $vocabularyReserve);
+        self::assertLessThanOrEqual($capability->maxOutputTokens, $reserve);
+
+        $openrouter = $this->openrouter(63);
+        $candidate = new RoutedAiCandidate(
+            AiExecutionProfile::TextReasoning->value,
+            $openrouter,
+            ApiConnectionProviders::OPENROUTER,
+            'openai/gpt-5.4',
+            [AiModelCapability::TextGenerate->value, AiModelCapability::TextReasoning->value],
+            1,
+        );
+        $plan = (new PromptBudgetPreflightService())->plan(
+            $candidate,
+            'Write a short outline.',
+            'article.outline.structure.generate',
+        );
+        self::assertTrue($plan->requestFits);
+        self::assertSame(2048, $plan->requestedMaxOutputTokens);
+    }
+
+    public function test_split_article_hooks_disable_thinking_unless_explicitly_enabled(): void
+    {
+        $ds = $this->deepseek(62);
+        Http::fake([
+            'api.deepseek.com/*' => Http::response([
+                'choices' => [['message' => ['content' => 'ok'], 'finish_reason' => 'stop']],
+            ], 200),
+        ]);
+
+        $client = new DeepSeekChatClient();
+        $client->generate($ds, 'outline', 'deepseek-v4-pro', [
+            'hook_key' => 'article.outline.structure.generate',
+        ]);
+        $client->generate($ds, 'vocabulary', 'deepseek-v4-pro', [
+            'hook_key' => 'article.vocabulary.generate',
+        ]);
+        $client->generate($ds, 'outline', 'deepseek-v4-pro', [
+            'hook_key' => 'article.outline.structure.generate',
+            'thinking' => 'enabled',
+        ]);
+
+        $requests = Http::recorded()->map(static fn (array $pair): array => $pair[0]->data())->all();
+        self::assertSame(['type' => 'disabled'], $requests[0]['thinking'] ?? null);
+        self::assertSame(['type' => 'disabled'], $requests[1]['thinking'] ?? null);
+        self::assertSame(['type' => 'enabled'], $requests[2]['thinking'] ?? null);
     }
 
     private function deepseek(int $userId, string $name = 'DeepSeek'): ApiConnection

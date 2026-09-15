@@ -8,7 +8,9 @@ namespace Omnichannel\Addons\ContentProjects\Tests\Unit;
 
 use Tests\Support\ProjectRoot;
 use Tests\Support\LegacyAddonPath;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectArticleRuntimeStatusResolver;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectApprovedDefinition;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectArticleRuntimeStatus;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectFailedOpsDefinition;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectInReviewReportingDefinition;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectOpsStateClassifier;
@@ -188,6 +190,36 @@ final class ContentProjectOpsSsotContractTest extends TestCase
         $nr = ContentProjectStatusBadgePresenter::reporting('needs_review');
         self::assertNotNull($nr);
         self::assertSame('needs_review', $nr['key']);
+    }
+
+    public function test_runtime_status_marks_terminal_item_finished_after_stop_request(): void
+    {
+        $status = (new ContentProjectArticleRuntimeStatusResolver())->resolve([
+            'run_status' => 'cancelled',
+            'stop_requested_at' => '2026-09-15T04:27:55+00:00',
+            'run_item' => [
+                'status' => 'failed',
+                'finished_at_iso' => '2026-09-15T04:28:04+00:00',
+                'attempt' => 2,
+            ],
+            'task_status' => 'failed',
+        ]);
+
+        self::assertSame(ContentProjectArticleRuntimeStatus::STATE_STOPPED_AFTER_REQUEST, $status->state);
+        self::assertSame('Dừng sau lệnh', $status->label);
+
+        $badge = ContentProjectStatusBadgePresenter::runtime($status->state);
+        self::assertSame('stopped_after_request', $badge['key']);
+
+        $classified = ContentProjectOpsStateClassifier::classify([
+            'generation_status' => 'failed',
+            'execution_status' => 'failed',
+            'runtime_status' => $status->toArray(),
+            'lifecycle' => 'failed',
+            'queue_status' => 'none',
+        ]);
+        self::assertSame('stopped_after_request', $classified['generation_key']);
+        self::assertSame(ContentProjectOpsStateClassifier::BUCKET_FAILED, $classified['summary_bucket']);
     }
 
     public function test_mutually_exclusive_summary_buckets(): void

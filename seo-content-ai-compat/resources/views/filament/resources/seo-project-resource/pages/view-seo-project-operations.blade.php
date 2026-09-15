@@ -55,6 +55,7 @@
             processingRows: {},
             claimBusy: {},
             lazyBusy: false,
+            forceRefreshQueued: false,
             summaryRequestId: 0,
             graceMs: {{ \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectOpsOptimisticCounterMerge::GRACE_MS }},
             transitionMap: @js($transitionMap),
@@ -511,9 +512,14 @@
                 }, 3000);
             },
             async runRuntimePoll(attempt = 0) {
+                let refreshed = false;
                 try {
-                    await this.doLazyRefresh(false);
+                    refreshed = await this.doLazyRefresh(false);
                 } catch (e) {}
+                if (! refreshed && attempt < 200) {
+                    this.runtimePollTimer = setTimeout(() => this.runRuntimePoll(attempt + 1), 4000);
+                    return;
+                }
                 // Keep polling while backend is live OR client still shows optimistic running badge.
                 // Stop only when both are clear — then drop any leftover overlay before exit.
                 const live = this.shouldPollRuntime();
@@ -531,10 +537,10 @@
                 // Backend owns execution — event only kicks dirty + one force refresh + runtime poll.
                 this.markDirty();
                 this.stopRuntimePoll();
+                this.startRuntimePoll();
                 try {
                     await this.doLazyRefresh(true);
                 } catch (e) {}
-                this.startRuntimePoll();
             },
             clearGenerationProcessingRows(taskIds) {
                 (Array.isArray(taskIds) ? taskIds : []).forEach((id) => {
@@ -573,7 +579,10 @@
                 await this.doLazyRefresh(force);
             },
             async doLazyRefresh(force = false) {
-                if (this.lazyBusy) return;
+                if (this.lazyBusy) {
+                    if (force) this.forceRefreshQueued = true;
+                    return false;
+                }
                 this.lazyBusy = true;
                 const requestId = ++this.summaryRequestId;
                 try {
@@ -590,8 +599,8 @@
                         summary = result?.summary || null;
                         changed = !!result?.changed;
                     }
-                    if (! summary) return;
-                    if (requestId !== this.summaryRequestId) return;
+                    if (! summary) return false;
+                    if (requestId !== this.summaryRequestId) return false;
                     this.acceptCanonicalSummary(summary, requestId);
                     // After a real table remorph, drop Alpine processing overlays so server
                     // generation_badge (Đã tạo / Lỗi) is visible in the same tab.
@@ -604,8 +613,13 @@
                         this.resetRowOptimistic();
                     }
                     this.clearDirty();
+                    return true;
                 } finally {
                     this.lazyBusy = false;
+                    if (this.forceRefreshQueued) {
+                        this.forceRefreshQueued = false;
+                        queueMicrotask(() => this.doLazyRefresh(true).catch(() => {}));
+                    }
                 }
             },
             rowSelector(tid) {

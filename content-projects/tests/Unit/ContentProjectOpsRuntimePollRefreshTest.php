@@ -107,6 +107,25 @@ final class ContentProjectOpsRuntimePollRefreshTest extends TestCase
         self::assertStringContainsString('this.startRuntimePoll()', $beginChunk);
     }
 
+    public function test_activity_cells_do_not_freeze_server_runtime_in_alpine_x_show(): void
+    {
+        $blade = LegacyAddonPath::read('resources/views/components/content-project-items-list.blade.php');
+
+        self::assertDoesNotMatchRegularExpression('/x-show="[^"]*\{\{[^}]*is_activity_processing/', $blade);
+        self::assertDoesNotMatchRegularExpression('/x-show="[^"]*\{\{[^}]*serverActivityProcessing/', $blade);
+        self::assertStringContainsString('@if ($serverActivityProcessing && ! $rowPending)', $blade);
+        self::assertStringContainsString("x-show=\"typeof isRowProcessing !== 'function' || ! isRowProcessing({{ \$tid }})\"", $blade);
+    }
+
+    public function test_generation_force_refresh_survives_an_in_flight_poll(): void
+    {
+        $blade = $this->opsBlade();
+
+        self::assertStringContainsString('if (force) this.forceRefreshQueued = true', $blade);
+        self::assertStringContainsString('queueMicrotask(() => this.doLazyRefresh(true)', $blade);
+        self::assertStringContainsString('if (! refreshed && attempt < 200)', $blade);
+    }
+
     public function test_runtime_poll_interval_is_three_to_four_seconds(): void
     {
         $blade = $this->opsBlade();
@@ -127,6 +146,24 @@ final class ContentProjectOpsRuntimePollRefreshTest extends TestCase
         self::assertStringNotContainsString('runGenerationTablePoll', $blade);
         self::assertStringNotContainsString('startGenerationTablePoll', $blade);
         self::assertStringNotContainsString('generationPollIds', $blade);
+    }
+
+    public function test_generate_action_forces_server_side_ops_refresh_before_browser_poll(): void
+    {
+        $src = $this->viewSrc();
+        $pos = strpos($src, 'function dispatchGenerate');
+        self::assertNotFalse($pos);
+        $chunk = substr($src, $pos, 2600);
+
+        $startPos = strpos($chunk, 'SeoProjectResource::startGeneratePendingItems');
+        $refreshPos = strpos($chunk, '$this->manualRefreshOps();');
+        $eventPos = strpos($chunk, "dispatch('cp-ops-generation-started'");
+
+        self::assertNotFalse($startPos);
+        self::assertNotFalse($refreshPos);
+        self::assertNotFalse($eventPos);
+        self::assertGreaterThan($startPos, $refreshPos);
+        self::assertLessThan($eventPos, $refreshPos);
     }
 
     public function test_sequential_batch_summary_fingerprint_changes_without_waiting_for_run_end(): void

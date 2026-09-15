@@ -8,6 +8,7 @@ use Omnichannel\Addons\AiPrompt\DataTransfer\ModelContextCapability;
 use Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate;
 use Omnichannel\Addons\AiPrompt\Models\SeoAiModel;
 use Omnichannel\Addons\AiPrompt\Support\AiModelCapability;
+use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
 use App\Models\ApiConnection;
 
 /**
@@ -80,6 +81,11 @@ final class ModelContextCapabilityResolver
             if ($configuredOut > 0) {
                 $maxOut = $configuredOut;
             }
+        }
+
+        if (strtolower((string) $connection->provider) === ApiConnectionProviders::DEEPSEEK
+            && strtolower(trim($model)) === 'deepseek-v4-pro') {
+            $maxOut = max($maxOut, 8192);
         }
 
         if ($source === 'default') {

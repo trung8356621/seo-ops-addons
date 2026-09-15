@@ -421,6 +421,7 @@ final class AiModelPriorityService
             return;
         }
         $models = $this->ownedModels($userId, $ids);
+        $freeTextIds = [];
         $max = 0;
         foreach ($this->areaEnabledModels($userId, $area) as $existing) {
             $max = max($max, $this->areaPriority($existing, $area, $existing->apiConnection));
@@ -432,12 +433,19 @@ final class AiModelPriorityService
                 continue;
             }
             if (! $this->modelAllowedInArea($model, $area)) {
+                if ($area->isPaidText() && $this->modelAllowedInArea($model, AiModelArea::FreeModels)) {
+                    $freeTextIds[] = (int) $model->id;
+                }
+
                 continue;
             }
             $this->writeAreaState($model, $area, true, $rank, AiModelArea::SOURCE_MANUAL);
             $rank++;
         }
         $this->forgetMemo();
+        if ($freeTextIds !== [] && ! $area->isFreeModels()) {
+            $this->appendToArea($userId, AiModelArea::FreeModels, $freeTextIds);
+        }
     }
 
     /**

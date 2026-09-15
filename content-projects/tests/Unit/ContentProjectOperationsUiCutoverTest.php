@@ -38,6 +38,9 @@ final class ContentProjectOperationsUiCutoverTest extends TestCase
         self::assertStringContainsString('getPublishingQueueUrl', $src);
         self::assertStringContainsString('makeCreateWithAiAction', $src);
         self::assertStringContainsString('makeCreateWithAiModeGroup', $src);
+        self::assertStringContainsString("Action::make('emergency_stop_generation')", $src);
+        self::assertStringContainsString('StopProjectExecutionCommand', $src);
+        self::assertStringContainsString('hasRunningExecution', $src);
         self::assertStringNotContainsString('makeGeneratePendingItemsAction', $src);
     }
 

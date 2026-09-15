@@ -98,6 +98,45 @@ final class ContentProjectRunLifecycleContractTest extends TestCase
         );
     }
 
+    public function test_circuit_breaker_stops_after_three_failed_items_even_when_signatures_differ(): void
+    {
+        $engine = [];
+        $signatures = [
+            'outline|output_truncated|deepseek',
+            'article|routes_exhausted|openrouter',
+            'outline|empty_response|gemini',
+        ];
+
+        foreach ($signatures as $index => $sig) {
+            $recorded = ContentProjectBatchCircuitBreakerState::recordFailure($engine, $sig);
+            $engine = $recorded['engine'];
+
+            if ($index < 2) {
+                self::assertFalse($recorded['tripped']);
+                continue;
+            }
+
+            self::assertTrue($recorded['tripped']);
+            self::assertSame(
+                ContentProjectBatchCircuitBreakerState::TRIGGER_AGGREGATE_FAILED_ITEMS,
+                $recorded['trigger'],
+            );
+            self::assertSame(3, $recorded['failure_count']);
+        }
+
+        self::assertTrue(ContentProjectBatchCircuitBreakerState::isStopped($engine));
+        self::assertSame(
+            ContentProjectBatchCircuitBreakerState::TRIGGER_AGGREGATE_FAILED_ITEMS,
+            $engine['circuit_breaker']['trigger'] ?? null,
+        );
+
+        $engineSrc = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content-projects/src/Services/RunEngine/ContentProjectRunEngine.php'
+        );
+        self::assertStringContainsString('TRIGGER_AGGREGATE_FAILED_ITEMS', $engineSrc);
+        self::assertStringContainsString('batch da co', $engineSrc);
+    }
+
     public function test_case3_worker_death_threshold_and_no_auto_dispatch(): void
     {
         self::assertGreaterThanOrEqual(960, ContentProjectRunEngineFeature::workerDeathThresholdSeconds());

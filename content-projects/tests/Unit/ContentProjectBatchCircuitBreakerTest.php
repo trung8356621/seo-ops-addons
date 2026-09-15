@@ -184,7 +184,7 @@ final class ContentProjectBatchCircuitBreakerTest extends TestCase
         self::assertSame($signature, (string) ($engine['circuit_breaker']['signature'] ?? ''));
     }
 
-    public function test_different_signatures_reset_consecutive_counter(): void
+    public function test_different_signatures_still_trip_aggregate_three_failed_items(): void
     {
         $engine = [];
         $seq = [
@@ -204,10 +204,14 @@ final class ContentProjectBatchCircuitBreakerTest extends TestCase
             }
         }
 
-        self::assertNull($trippedAt);
-        self::assertFalse(ContentProjectBatchCircuitBreakerState::isStopped($engine));
+        self::assertSame(3, $trippedAt);
+        self::assertTrue(ContentProjectBatchCircuitBreakerState::isStopped($engine));
         self::assertSame(1, (int) ($engine['consecutive_failure']['count'] ?? 0));
-        self::assertSame('outline|empty_response', (string) ($engine['consecutive_failure']['signature'] ?? ''));
+        self::assertSame('writer|timeout', (string) ($engine['consecutive_failure']['signature'] ?? ''));
+        self::assertSame(
+            ContentProjectBatchCircuitBreakerState::TRIGGER_AGGREGATE_FAILED_ITEMS,
+            (string) ($engine['circuit_breaker']['trigger'] ?? ''),
+        );
     }
 
     public function test_resume_clears_breaker_and_allows_pending_item(): void

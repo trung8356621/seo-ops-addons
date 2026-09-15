@@ -26,6 +26,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Comma
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RerunProjectItemsCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\RerunProjectItemStepCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\ResumeProjectItemFromFailedStepCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\StopProjectExecutionCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\AcknowledgeProjectItemGenerationErrorCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\BlockProjectItemGenerationCommand;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\DebugOverrideProjectItemLifecycleCommand;
@@ -655,6 +656,50 @@ final class ViewSeoProject extends Page
                     'class' => 'pointer-events-none animate-pulse',
                 ])
                 ->visible(fn (): bool => $this->runningCount > 0),
+            Actions\Action::make('emergency_stop_generation')
+                ->label('Dừng khẩn cấp')
+                ->icon('heroicon-o-stop-circle')
+                ->color('danger')
+                ->requiresConfirmation()
+                ->modalHeading('Dừng khẩn cấp Generate')
+                ->modalDescription('Dừng execution đang chạy, hủy step active và giữ các item chưa chạy ở trạng thái pending.')
+                ->modalSubmitActionLabel('Dừng ngay')
+                ->visible(fn (): bool => SeoAccessControl::canManageContentProjectWorkflow()
+                    && ! $project->isDraftPlanning()
+                    && ! $project->isProjectArchived()
+                    && ! $project->isArchive()
+                    && $this->hasRunningExecution())
+                ->action(function () use ($project): void {
+                    try {
+                        abort_unless(SeoAccessControl::canManageContentProjectWorkflow(), 403);
+
+                        $result = app(ContentProjectCommandBus::class)->dispatch(
+                            new StopProjectExecutionCommand(
+                                (int) $project->getKey(),
+                                null,
+                                'Emergency stop requested from Content Project header.',
+                            ),
+                            ActorContext::user(
+                                auth()->id() !== null ? (int) auth()->id() : null,
+                                (int) ($project->site_id ?? 0) ?: null,
+                            ),
+                        );
+
+                        app(ContentProjectActionResultNotifier::class)->send($result);
+                        $this->manualRefreshOps();
+                    } catch (Throwable $exception) {
+                        RuntimeLogger::report($exception, [
+                            'endpoint' => 'content_project.emergency_stop',
+                            'project_id' => (int) $project->getKey(),
+                        ]);
+
+                        Notification::make()
+                            ->title('Không dừng được execution')
+                            ->body($exception->getMessage())
+                            ->danger()
+                            ->send();
+                    }
+                }),
             SeoProjectResource::makeCreateWithAiAction(
                 $project,
                 fn (): array => $this->createWithAiLaunchSettings(),
@@ -905,6 +950,19 @@ final class ViewSeoProject extends Page
                         || SeoProjectResource::allowsDevTestGenerateUi()
                     )),
         ];
+    }
+
+    private function hasRunningExecution(): bool
+    {
+        $project = $this->project;
+        if (! $project instanceof SeoProject) {
+            return false;
+        }
+
+        return SeoProjectRun::query()
+            ->where('project_id', (int) $project->getKey())
+            ->where('status', SeoProjectRun::STATUS_RUNNING)
+            ->exists();
     }
 
     public function applySummaryFilter(string $card): void
@@ -2454,7 +2512,7 @@ final class ViewSeoProject extends Page
                     'generate_post_images' => $this->generatePostImages,
                 ]),
             );
-            $this->invalidateOpsCache();
+            $this->manualRefreshOps();
             $this->dispatch('cp-ops-generation-started');
             Notification::make()
                 ->title(__('seo-content-ai::filament.projects.run_started'))

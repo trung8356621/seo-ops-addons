@@ -260,6 +260,8 @@ final class ContentProjectItemOperationsReadModel
                 'run_status' => null,
                 'active_dispatch' => null,
                 'ai_transient_retry' => null,
+                'stop_requested_at' => null,
+                'final_status' => null,
                 'processing_count' => 0,
                 'has_dispatch_tracking' => false,
                 'run_is_recoverable' => false,
@@ -299,6 +301,12 @@ final class ContentProjectItemOperationsReadModel
             'run_status' => (string) $latestRun->status,
             'active_dispatch' => $activeDispatch,
             'ai_transient_retry' => $aiRetry,
+            'stop_requested_at' => is_string($engine['stop_requested_at'] ?? null)
+                ? (string) $engine['stop_requested_at']
+                : null,
+            'final_status' => is_string($engine['final_status'] ?? null)
+                ? (string) $engine['final_status']
+                : null,
             'processing_count' => $processingCount,
             'has_dispatch_tracking' => ContentProjectRunEngineFeature::hasPhpEngineSignals($engine),
             'run_is_recoverable' => ContentProjectRunRecoverableState::isRecoverableRun($latestRun),
@@ -357,6 +365,8 @@ final class ContentProjectItemOperationsReadModel
         $parts = [
             'run_id:'.(string) ($runtimeContext['run_id'] ?? ''),
             'run_status:'.(string) ($runtimeContext['run_status'] ?? ''),
+            'stop_requested_at:'.(string) ($runtimeContext['stop_requested_at'] ?? ''),
+            'final_status:'.(string) ($runtimeContext['final_status'] ?? ''),
             'dispatch:'.implode('|', [
                 (string) ($dispatch['run_item_id'] ?? ''),
                 (string) ($dispatch['task_id'] ?? ''),

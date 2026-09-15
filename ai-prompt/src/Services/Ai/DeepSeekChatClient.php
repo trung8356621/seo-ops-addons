@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\AiPrompt\Services\Ai;
 
 use Omnichannel\Addons\AiPrompt\Exceptions\PromptRunException;
+use Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\OutputTruncated;
 use App\Models\ApiConnection;
 use Illuminate\Support\Facades\Http;
 use Omnichannel\Addons\AiPrompt\Services\AiOutboundBudgetGate;
@@ -92,13 +93,21 @@ final class DeepSeekChatClient
 
         $json = $response->json();
         $text = (string) data_get($json, 'choices.0.message.content', '');
+        $finishReason = trim((string) data_get($json, 'choices.0.finish_reason', ''));
         if (trim($text) === '') {
+            if ($finishReason === 'length') {
+                $reasoningTokens = (int) data_get($json, 'usage.completion_tokens_details.reasoning_tokens', 0);
+                throw new OutputTruncated(
+                    'OUTPUT_TRUNCATED: DeepSeek used the output limit before returning content'
+                    .($reasoningTokens > 0 ? ' (reasoning_tokens='.$reasoningTokens.')' : '').'.',
+                    providerFinishReason: $finishReason,
+                );
+            }
             throw new PromptRunException('DeepSeek không trả về nội dung.');
         }
 
         $usage = data_get($json, 'usage');
         $usageBag = is_array($usage) ? $usage : [];
-        $finishReason = trim((string) data_get($json, 'choices.0.finish_reason', ''));
         if ($finishReason !== '') {
             $usageBag['finish_reason'] = $finishReason;
         }
@@ -183,11 +192,16 @@ final class DeepSeekChatClient
 
         $profile = strtolower(trim((string) ($options['execution_profile'] ?? '')));
         $hook = strtolower(trim((string) ($options['hook_key'] ?? '')));
+        $articleSplitStep = in_array($hook, [
+            'article.outline.generate',
+            'article.outline.structure.generate',
+            'article.vocabulary.generate',
+        ], true);
         $reasoningContext = $profile === AiExecutionProfile::TextReasoning->value
             || str_contains($hook, 'outline')
             || str_contains($hook, 'vocabulary');
 
-        if ($explicitDisable) {
+        if ($explicitDisable || ($articleSplitStep && ! $explicitEnable)) {
             $payload['thinking'] = ['type' => 'disabled'];
 
             return;

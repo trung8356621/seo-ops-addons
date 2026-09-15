@@ -383,6 +383,7 @@ final class SeoProjectRunItemService
                 && $action === SeoProjectRunAction::ArticleCreate
                 && $relation['article_id'] !== null
                 && $relation['article_id'] > 0
+                && $this->articleHasReusableGeneratedContent((int) $relation['article_id'])
             ) {
                 $this->markSkipped(
                     $runItem,
@@ -406,14 +407,22 @@ final class SeoProjectRunItemService
             // Idempotent skip chỉ cho lần claim thường. «Chạy lại» ($forceRetry) phải claim lại
             // kể cả khi run item đã success — nếu không UI xanh ~1s mà AI không chạy.
             if ($status === SeoProjectRunItemStatus::Success->value && ! $forceRetry) {
-                return [
-                    'outcome' => 'already_processed',
-                    'run_item' => $runItem,
-                    'task' => $task,
-                    'error_code' => ContentProjectErrorCode::OperationAlreadyProcessed->value,
-                    'message' => 'Operation đã success.',
-                    'article_id' => $runItem->article_id !== null ? (int) $runItem->article_id : null,
-                ];
+                $successArticleId = (int) ($runItem->article_id ?? 0) ?: (int) ($relation['article_id'] ?? 0);
+                if ($action === SeoProjectRunAction::ArticleCreate
+                    && $successArticleId > 0
+                    && ! $this->articleHasReusableGeneratedContent($successArticleId)
+                ) {
+                    $status = SeoProjectRunItemStatus::Failed->value;
+                } else {
+                    return [
+                        'outcome' => 'already_processed',
+                        'run_item' => $runItem,
+                        'task' => $task,
+                        'error_code' => ContentProjectErrorCode::OperationAlreadyProcessed->value,
+                        'message' => 'Operation đã success.',
+                        'article_id' => $runItem->article_id !== null ? (int) $runItem->article_id : null,
+                    ];
+                }
             }
 
             if ($status === SeoProjectRunItemStatus::Processing->value && ! $this->isStale($runItem)) {
@@ -985,6 +994,22 @@ final class SeoProjectRunItemService
             'error_code' => null,
             'message' => null,
         ];
+    }
+
+    private function articleHasReusableGeneratedContent(int $articleId): bool
+    {
+        if ($articleId <= 0) {
+            return false;
+        }
+
+        $article = SeoArticle::query()->find($articleId);
+        if (! $article instanceof SeoArticle) {
+            return false;
+        }
+
+        $body = (string) ($article->getAttribute('body') ?? $article->getAttribute('content') ?? '');
+
+        return trim($body) !== '';
     }
 
     /**

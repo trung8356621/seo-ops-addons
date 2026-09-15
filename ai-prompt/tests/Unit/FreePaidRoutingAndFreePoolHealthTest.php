@@ -120,6 +120,14 @@ final class FreePaidRoutingAndFreePoolHealthTest extends TestCase
         $this->priorities->appendToArea(1, AiModelArea::TextFast, [(int) $free->id]);
         $still = array_map(static fn (SeoAiModel $m): int => (int) $m->id, $this->priorities->areaEnabledModels(1, AiModelArea::TextFast));
         $this->assertNotContains((int) $free->id, $still);
+
+        $lateFree = $this->model($or, 'google/gemma-late:free', true);
+        $this->grant($or, $lateFree);
+        $this->priorities->appendToArea(1, AiModelArea::TextFast, [(int) $lateFree->id]);
+        $paidAfterAppend = array_map(static fn (SeoAiModel $m): int => (int) $m->id, $this->priorities->areaEnabledModels(1, AiModelArea::TextFast));
+        $freeAfterAppend = array_map(static fn (SeoAiModel $m): int => (int) $m->id, $this->priorities->areaEnabledModels(1, AiModelArea::FreeModels));
+        $this->assertNotContains((int) $lateFree->id, $paidAfterAppend);
+        $this->assertContains((int) $lateFree->id, $freeAfterAppend);
     }
 
     public function test_paid_mode_never_includes_free_pool(): void

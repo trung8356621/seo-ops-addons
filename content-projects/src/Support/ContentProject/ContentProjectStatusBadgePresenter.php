@@ -59,6 +59,7 @@ final class ContentProjectStatusBadgePresenter
             ContentProjectArticleRuntimeStatus::STATE_WAITING_AI_RETRY => self::badge('waiting_ai', self::t('badge_waiting_ai', 'Waiting for AI'), 'heroicon-o-clock', 'bg-warning-100 text-warning-900 ring-warning-600/30 dark:bg-warning-400/15 dark:text-warning-200 dark:ring-warning-400/40'),
             ContentProjectArticleRuntimeStatus::STATE_STALE_PROCESSING,
             ContentProjectArticleRuntimeStatus::STATE_INCONSISTENT_PROCESSING => self::badge('stale', self::t('badge_possibly_stuck', 'Possibly stuck'), 'heroicon-o-exclamation-triangle', 'bg-warning-50 text-warning-900 ring-warning-500/40 dark:bg-warning-400/10 dark:text-warning-200 dark:ring-warning-400/40'),
+            ContentProjectArticleRuntimeStatus::STATE_STOPPED_AFTER_REQUEST => self::badge('stopped_after_request', self::t('badge_stopped_after_request', 'Stopped after request'), 'heroicon-o-stop-circle', 'bg-warning-100 text-warning-900 ring-warning-600/40 dark:bg-warning-400/15 dark:text-warning-200 dark:ring-warning-400/50'),
             ContentProjectArticleRuntimeStatus::STATE_FAILED => self::generation('failed', 'failed'),
             ContentProjectArticleRuntimeStatus::STATE_COMPLETED => self::generation('completed', 'success'),
             ContentProjectArticleRuntimeStatus::STATE_NO_ACTIVE_EXECUTION => self::badge('not_started', self::t('run_item_pending', 'Chưa chạy'), 'heroicon-o-document', 'bg-gray-200/80 text-gray-800 ring-gray-500/30 dark:bg-gray-500/20 dark:text-gray-200 dark:ring-gray-400/30'),
