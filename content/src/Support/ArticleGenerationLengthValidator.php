@@ -66,8 +66,10 @@ final class ArticleGenerationLengthValidator
 
         $result = $this->evaluate($text, $targetArticleLength);
         if ($result['length_validation_result'] !== 'accepted') {
+            // Without a provider length-stop signal this remains OUTPUT_TRUNCATED
+            // (infrastructure failover), but message must not claim a known finish_reason.
             throw new OutputTruncated(sprintf(
-                'Output shorter than minimum acceptable length (actual: %d words, minimum: %d words, target: %d words).',
+                'OUTPUT_TRUNCATED: content shorter than minimum acceptable length (actual: %d words, minimum: %d words, target: %d words).',
                 $result['actual_word_count'],
                 $result['minimum_acceptable_words'],
                 $result['target_article_length'],
@@ -169,16 +171,7 @@ final class ArticleGenerationLengthValidator
             return true;
         }
 
-        $reason = strtolower(trim((string) $finishReason));
-        if ($reason === '') {
-            return false;
-        }
-
-        return in_array($reason, [
-            'length',
-            'max_tokens',
-            'max_token',
-            'max_output_tokens',
-        ], true);
+        return (new \Omnichannel\Addons\AiPrompt\Support\AiProviderTerminalReasonNormalizer)
+            ->isLengthStopReason($finishReason);
     }
 }

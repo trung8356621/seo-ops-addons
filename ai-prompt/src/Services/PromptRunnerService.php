@@ -2249,13 +2249,19 @@ class PromptRunnerService
             }
         }
 
-        return match ($connection->provider) {
+        [$text, $usage] = match ($connection->provider) {
             ApiConnectionProviders::GEMINI => $this->callGemini($connection, $compiled, $model, $options),
             ApiConnectionProviders::CLAUDE => $this->callClaude($prompt, $variables, $model, $isTaskMode, $compiled, $options),
             ApiConnectionProviders::DEEPSEEK => $this->deepSeekClient->generate($connection, $compiled, $model, $options),
             default => app(\Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\OpenAiCompatibleProtocolAdapter::class)
                 ->generate($connection, $compiled, $model, $options),
         };
+
+        $usage = is_array($usage)
+            ? (new \Omnichannel\Addons\AiPrompt\Support\AiProviderTerminalReasonNormalizer)->stampUsage($usage)
+            : $usage;
+
+        return [$text, $usage];
     }
 
     /**

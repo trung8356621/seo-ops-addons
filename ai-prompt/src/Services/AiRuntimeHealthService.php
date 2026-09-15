@@ -31,9 +31,22 @@ final class AiRuntimeHealthService
     /** @var array<int, \Illuminate\Support\Carbon> */
     private static array $runtimeSuppressedFreeLanes = [];
 
+    /**
+     * Request-/cooldown-scoped paid suppress keyed by "{connectionId}:{profile}".
+     * Blocks text.longform paid on a connection without disabling text.reasoning.
+     *
+     * @var array<string, \Illuminate\Support\Carbon>
+     */
+    private static array $runtimeProfilePaidBudgetBlocks = [];
+
     public static function clearSuppressedFreeLanes(): void
     {
         self::$runtimeSuppressedFreeLanes = [];
+    }
+
+    public static function clearProfilePaidBudgetBlocks(): void
+    {
+        self::$runtimeProfilePaidBudgetBlocks = [];
     }
 
     public function __construct(
@@ -47,6 +60,9 @@ final class AiRuntimeHealthService
         if ($candidate->isFree === false && $this->connectionPaidLaneLocked($candidate->connection)) {
             return 'connection_paid_locked';
         }
+
+        // Profile-scoped paid budget suppression is owned by AiRouteCapacityPolicy
+        // (ProfileBudgetSuppressionRule) — not connection-global health skip.
 
         // Per-connection Free Pool circuit breaker (hard-lock / daily quota / resync / probe / model quarantine).
         if ($candidate->isFree) {
@@ -190,7 +206,8 @@ final class AiRuntimeHealthService
         }
 
         $applyConnectionPaidLock = false;
-        $this->mutateSubject($userId, AiRuntimeHealthState::SUBJECT_CONNECTION, $connectionId, $connectionId, function (AiRuntimeHealthState $row) use ($decision, $now, $errorCode, $userId, &$applyConnectionPaidLock): void {
+        $applyProfilePaidBudgetBlock = false;
+        $this->mutateSubject($userId, AiRuntimeHealthState::SUBJECT_CONNECTION, $connectionId, $connectionId, function (AiRuntimeHealthState $row) use ($decision, $now, $errorCode, $userId, &$applyConnectionPaidLock, &$applyProfilePaidBudgetBlock): void {
             $previous = AiRuntimeHealthStatus::tryFrom($row->health_status) ?? AiRuntimeHealthStatus::NoData;
             $this->incrementFailureCounters($row, $errorCode, $decision, $now);
             $this->bumpScopedConsecutiveCounters($row, $decision);
@@ -202,12 +219,17 @@ final class AiRuntimeHealthService
                 $row->manual_unlock_required = true;
             } elseif ($decision->lockConnectionPaid
                 || (($this->scopedConsecutive($row, 'consecutive_paid_lane') >= self::DEGRADED_THRESHOLD)
-                    && ($decision->scope === AiFailureScope::ConnectionPaid || $decision->lockConnectionPaid))) {
+                    && $decision->lockConnectionPaid)) {
                 // Observability only — authoritative paid lock is api_connections via ConnectionPaidLockService.
+                // Only when lockConnectionPaid (BillingExhausted). Request-scoped budget must not land here.
                 $row->health_status = AiRuntimeHealthStatus::BudgetLimited->value;
                 $row->paid_locked = true; // deprecated mirror; not used for route enforcement
                 $row->manual_unlock_required = true;
                 $applyConnectionPaidLock = true;
+            } elseif ($decision->category === AiFailureClass::InsufficientBudgetForRequest) {
+                // Profile-scoped only — do not mark connection paid_locked.
+                $row->health_status = $this->degradedOrExisting($row)->value;
+                $applyProfilePaidBudgetBlock = true;
             } elseif ($decision->applyCooldown && $this->cooldownAppliesToConnection($decision)) {
                 // Model-scoped transient/429 must not cooldown the whole connection —
                 // sibling models on the same connection must still be tried in-route.
@@ -224,6 +246,21 @@ final class AiRuntimeHealthService
                 \Omnichannel\Addons\AiPrompt\Support\PaidLockReason::BudgetLimited,
             );
             $candidate->connection->refresh();
+        }
+
+        if ($applyProfilePaidBudgetBlock) {
+            $this->suppressConnectionPaidForProfile($candidate);
+        }
+
+        if ($decision->category === AiFailureClass::BillingExhausted
+            || $decision->category === AiFailureClass::InsufficientBudgetForRequest
+        ) {
+            try {
+                app(\Omnichannel\Addons\AiPrompt\Services\RouteCapacity\AiRouteCapacityPolicy::class)
+                    ->invalidateBalance((int) $candidate->connection->id);
+            } catch (\Throwable) {
+                \Omnichannel\Addons\AiPrompt\Services\RouteCapacity\AiProviderBalanceSnapshotCache::clear();
+            }
         }
 
         if ($candidate->seoAiModelId !== null) {
@@ -631,6 +668,53 @@ final class AiRuntimeHealthService
         }
 
         return (bool) ($connection->getAttribute('paid_locked') ?? false);
+    }
+
+    /**
+     * Suppress paid lane for one execution profile on a connection (not global provider disable).
+     */
+    public function suppressConnectionPaidForProfile(RoutedAiCandidate $candidate): void
+    {
+        if ($candidate->isFree) {
+            return;
+        }
+
+        $profile = trim((string) $candidate->profile);
+        if ($profile === '') {
+            return;
+        }
+
+        $key = ((int) $candidate->connection->id).':'.$profile;
+        self::$runtimeProfilePaidBudgetBlocks[$key] = now()->addMinutes(self::COOLDOWN_MINUTES);
+    }
+
+    /**
+     * Profile-scoped paid budget suppress lookup for {@see ProfileBudgetSuppressionRule}.
+     */
+    public function paidProfileBudgetSkipReason(RoutedAiCandidate $candidate): ?string
+    {
+        if ($candidate->isFree) {
+            return null;
+        }
+
+        $profile = trim((string) $candidate->profile);
+        if ($profile === '') {
+            return null;
+        }
+
+        $key = ((int) $candidate->connection->id).':'.$profile;
+        $until = self::$runtimeProfilePaidBudgetBlocks[$key] ?? null;
+        if ($until === null) {
+            return null;
+        }
+
+        if ($until->isPast()) {
+            unset(self::$runtimeProfilePaidBudgetBlocks[$key]);
+
+            return null;
+        }
+
+        return 'connection_paid_profile_budget_limited';
     }
 
     private function clearConnectionBudgetLockReason(int $connectionId): void

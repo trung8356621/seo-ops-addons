@@ -28,6 +28,7 @@ final class PromptProviderResponse
         public readonly ?string $providerRequestId = null,
         public readonly int $attempts = 1,
         public readonly array $meta = [],
+        public readonly ?string $terminalReason = null,
     ) {}
 
     /**
@@ -45,7 +46,10 @@ final class PromptProviderResponse
      *   model: ?string,
      *   finish_reason: ?string,
      *   provider_request_id: ?string,
-     *   attempts: int
+     *   attempts: int,
+     *   provider_terminal_reason: ?string,
+     *   incomplete_details: ?array<string, mixed>,
+     *   response_status: ?string
      * }
      */
     public function toPipelineArray(): array
@@ -65,6 +69,16 @@ final class PromptProviderResponse
             'finish_reason' => $this->finishReason,
             'provider_request_id' => $this->providerRequestId,
             'attempts' => $this->attempts,
+            'provider_terminal_reason' => $this->terminalReason
+                ?? (isset($this->meta['provider_terminal_reason'])
+                    ? (string) $this->meta['provider_terminal_reason']
+                    : null),
+            'incomplete_details' => is_array($this->meta['incomplete_details'] ?? null)
+                ? $this->meta['incomplete_details']
+                : null,
+            'response_status' => isset($this->meta['provider_response_status'])
+                ? (string) $this->meta['provider_response_status']
+                : null,
         ];
     }
 }

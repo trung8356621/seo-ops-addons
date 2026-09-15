@@ -117,10 +117,14 @@ final class AiProviderFailureClassifier
                 ? $exception->failureCode->value
                 : 'output_validation';
 
+            $safeMessage = $exception instanceof \Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\OutputTruncated
+                ? 'OUTPUT_TRUNCATED — trying next eligible paid physical route.'
+                : 'Output failed prompt validation contract — trying next route.';
+
             return $this->allow(
                 category: AiFailureClass::ProviderInvalidOutput,
                 scope: AiFailureScope::Model,
-                safeMessage: 'Output failed prompt validation contract — trying next route.',
+                safeMessage: $safeMessage,
                 errorCode: $code,
                 failureStage: 'validation',
                 requestSent: true,
@@ -179,6 +183,9 @@ final class AiProviderFailureClassifier
         if ($httpStatus === 402 || $this->matchesBilling($lower, $providerCode)) {
             $billingExhausted = $this->matchesBillingExhausted($lower, $providerCode);
 
+            // Account empty → global paid lock. Request-scoped budget (e.g. longform
+            // needs more credits / fewer max_tokens) must NOT disable the provider for
+            // other workloads/profiles (text.reasoning may still be usable).
             return $this->allow(
                 category: $billingExhausted
                     ? AiFailureClass::BillingExhausted
@@ -190,12 +197,14 @@ final class AiProviderFailureClassifier
                 errorCode: '402',
                 httpStatus: 402,
                 healthStatus: AiRuntimeHealthStatus::BudgetLimited,
-                manualUnlockRequired: true,
-                lockConnectionPaid: true,
+                manualUnlockRequired: $billingExhausted,
+                lockConnectionPaid: $billingExhausted,
                 failureStage: 'provider_http',
                 providerErrorCode: $providerCode,
                 requestSent: true,
                 responseReceived: true,
+                // Request-scoped budget: observability + profile suppress only (no paid lock).
+                affectsRuntimeHealth: true,
             );
         }
 

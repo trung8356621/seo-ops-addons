@@ -118,8 +118,15 @@ final class ContentProjectOpsRuntimePollRefreshTest extends TestCase
             '/runRuntimePoll\(attempt\s*\+\s*1\),\s*4000\)/',
             $blade,
         );
+        self::assertStringContainsString('onGenerationStarted()', $blade);
+        self::assertStringContainsString('runtime_revision', (string) file_get_contents(
+            (string) (new ReflectionClass(ContentProjectItemOperationsReadModel::class))->getFileName(),
+        ));
         self::assertStringNotContainsString('300000', $blade);
         self::assertStringNotContainsString('5 * 60', $blade);
+        self::assertStringNotContainsString('runGenerationTablePoll', $blade);
+        self::assertStringNotContainsString('startGenerationTablePoll', $blade);
+        self::assertStringNotContainsString('generationPollIds', $blade);
     }
 
     public function test_sequential_batch_summary_fingerprint_changes_without_waiting_for_run_end(): void
@@ -169,6 +176,34 @@ final class ContentProjectOpsRuntimePollRefreshTest extends TestCase
             'should_poll_runtime' => 0,
         ]);
         self::assertNotSame($after, $terminal);
+    }
+
+    public function test_runtime_revision_changes_when_step_progresses_without_counter_change(): void
+    {
+        $fp = static function (array $stats): string {
+            $normalized = ContentProjectItemOperationsReadModel::normalizeSummaryStats($stats);
+
+            return hash('xxh128', (string) json_encode($normalized, JSON_THROW_ON_ERROR));
+        };
+
+        $base = [
+            'pending' => 1,
+            'needs_review' => 0,
+            'running' => 1,
+            'runtime_active' => 1,
+            'runtime_waiting' => 0,
+            'runtime_stuck' => 0,
+            'should_poll_runtime' => 1,
+        ];
+
+        $outline = $fp($base + ['runtime_revision' => 't1:run:ri:processing:outline:1:actively_processing']);
+        $content = $fp($base + ['runtime_revision' => 't1:run:ri:processing:article.content.generate:1:actively_processing']);
+
+        self::assertNotSame(
+            $outline,
+            $content,
+            'Outline → content step must remorph even when summary counters are unchanged',
+        );
     }
 
     public function test_x_data_attribute_has_no_raw_double_quotes(): void

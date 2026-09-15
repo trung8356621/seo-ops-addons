@@ -190,6 +190,7 @@ final class ContentProjectItemOperationsReadModel
 
         $stats = ContentProjectOpsStateClassifier::countSummary($rows);
         $stats += self::runtimeSummary($rows, $latestRun);
+        $stats['runtime_revision'] = self::runtimeRevisionFingerprint($rows, $runtimeContext);
 
         // Badge SoT (B): project total INCLUDES items handed to Publishing Queue.
         // Working set (Normal) stays scoped to $rows (publishing_queued_at IS NULL).
@@ -326,6 +327,50 @@ final class ContentProjectItemOperationsReadModel
     }
 
     /**
+     * Compact persisted-runtime fingerprint so lazy remorph fires on step progression
+     * even when aggregate counters (running/pending) stay unchanged.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @param  array<string, mixed>  $runtimeContext
+     */
+    private static function runtimeRevisionFingerprint(array $rows, array $runtimeContext): string
+    {
+        $dispatch = is_array($runtimeContext['active_dispatch'] ?? null)
+            ? $runtimeContext['active_dispatch']
+            : null;
+        $parts = [
+            'run_id:'.(string) ($runtimeContext['run_id'] ?? ''),
+            'run_status:'.(string) ($runtimeContext['run_status'] ?? ''),
+            'dispatch:'.implode('|', [
+                (string) ($dispatch['run_item_id'] ?? ''),
+                (string) ($dispatch['task_id'] ?? ''),
+                (string) ($dispatch['current_step'] ?? ''),
+                (string) ($dispatch['last_heartbeat_at'] ?? $dispatch['dispatched_at'] ?? $dispatch['updated_at'] ?? ''),
+            ]),
+        ];
+
+        foreach ($rows as $row) {
+            if (! is_array($row)) {
+                continue;
+            }
+            $runtimeStatus = is_array($row['runtime_status'] ?? null) ? $row['runtime_status'] : [];
+            $parts[] = implode(':', [
+                (string) ((int) ($row['task_id'] ?? 0)),
+                (string) ((int) ($row['runtime_run_id'] ?? $runtimeContext['run_id'] ?? 0)),
+                (string) ((int) ($row['runtime_run_item_id'] ?? 0)),
+                (string) ($row['execution_status'] ?? ''),
+                (string) ($row['current_step'] ?? $runtimeStatus['step_label'] ?? ''),
+                (string) ((int) ($row['runtime_attempt'] ?? $runtimeStatus['attempt'] ?? 0)),
+                (string) ($row['runtime_state'] ?? $runtimeStatus['state'] ?? ''),
+            ]);
+        }
+
+        sort($parts);
+
+        return hash('xxh128', implode("\n", $parts));
+    }
+
+    /**
      * Compact header indicator — only when exactly one row is provably running.
      *
      * @param  list<array<string, mixed>>  $rows
@@ -400,6 +445,7 @@ final class ContentProjectItemOperationsReadModel
      *     runtime_waiting: int,
      *     runtime_stuck: int,
      *     should_poll_runtime: int,
+     *     runtime_revision: string,
      * }
      */
     public static function normalizeSummaryStats(array $stats): array
@@ -428,6 +474,8 @@ final class ContentProjectItemOperationsReadModel
             'runtime_waiting' => (int) ($stats['runtime_waiting'] ?? 0),
             'runtime_stuck' => (int) ($stats['runtime_stuck'] ?? 0),
             'should_poll_runtime' => (int) ($stats['should_poll_runtime'] ?? 0),
+            // Persisted runtime progression fingerprint — remorph even when counters are flat.
+            'runtime_revision' => (string) ($stats['runtime_revision'] ?? ''),
         ];
     }
 
@@ -744,6 +792,13 @@ final class ContentProjectItemOperationsReadModel
             'generation_status' => $displayGenStatus,
             'execution_status' => $exec['status'] ?? null,
             'current_step' => $this->resolveCurrentStep($runtimeItem, $runtimeContext, $runtime),
+            'runtime_run_id' => isset($runtimeItem['run_id'])
+                ? (int) $runtimeItem['run_id']
+                : (isset($runtimeContext['run_id']) ? (int) $runtimeContext['run_id'] : null),
+            'runtime_run_item_id' => isset($runtimeItem['id']) ? (int) $runtimeItem['id'] : null,
+            'runtime_attempt' => isset($runtimeItem['attempt'])
+                ? (int) $runtimeItem['attempt']
+                : ($runtime->attempt !== null ? (int) $runtime->attempt : null),
             'runtime_status' => $runtimeArray,
             'runtime_state' => $runtime->state,
             'runtime_label' => $runtime->label,

@@ -90,14 +90,20 @@ final class DeepSeekChatClient
             );
         }
 
-        $text = (string) data_get($response->json(), 'choices.0.message.content', '');
+        $json = $response->json();
+        $text = (string) data_get($json, 'choices.0.message.content', '');
         if (trim($text) === '') {
             throw new PromptRunException('DeepSeek không trả về nội dung.');
         }
 
-        $usage = $response->json('usage');
+        $usage = data_get($json, 'usage');
+        $usageBag = is_array($usage) ? $usage : [];
+        $finishReason = trim((string) data_get($json, 'choices.0.finish_reason', ''));
+        if ($finishReason !== '') {
+            $usageBag['finish_reason'] = $finishReason;
+        }
 
-        return [$text, is_array($usage) ? $usage : null];
+        return [$text, $usageBag !== [] ? $usageBag : null];
     }
 
     /**

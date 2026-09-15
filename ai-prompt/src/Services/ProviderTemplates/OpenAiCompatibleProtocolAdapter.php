@@ -152,6 +152,10 @@ final class OpenAiCompatibleProtocolAdapter
         }
 
         $text = $this->extractTextResponse($json);
+        $finishReason = trim((string) data_get($json, 'choices.0.finish_reason', ''));
+        if ($finishReason === '') {
+            $finishReason = trim((string) data_get($json, 'finish_reason', ''));
+        }
         if (trim($text) === '') {
             $content = data_get($json, 'choices.0.message.content');
             $contentType = match (true) {
@@ -160,7 +164,6 @@ final class OpenAiCompatibleProtocolAdapter
                 $content === null => 'null',
                 default => gettype($content),
             };
-            $finishReason = trim((string) data_get($json, 'choices.0.finish_reason', ''));
             $shape = data_get($json, 'choices.0.message') !== null
                 ? 'choices.message'
                 : (data_get($json, 'choices.0.text') !== null ? 'choices.text' : 'unknown');
@@ -174,6 +177,17 @@ final class OpenAiCompatibleProtocolAdapter
         }
         $usage = data_get($json, 'usage');
         $usageBag = is_array($usage) ? $usage : [];
+        if ($finishReason !== '') {
+            $usageBag['finish_reason'] = $finishReason;
+        }
+        $responseStatus = trim((string) ($json['status'] ?? ''));
+        if ($responseStatus !== '') {
+            $usageBag['response_status'] = $responseStatus;
+        }
+        $incompleteDetails = $json['incomplete_details'] ?? null;
+        if (is_array($incompleteDetails)) {
+            $usageBag['incomplete_details'] = $incompleteDetails;
+        }
         $resolved = trim((string) ($json['model'] ?? ''));
         if ($resolved !== '') {
             $usageBag['requested_model'] = $model;

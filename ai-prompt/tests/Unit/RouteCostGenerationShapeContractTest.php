@@ -202,10 +202,40 @@ final class RouteCostGenerationShapeContractTest extends TestCase
             (string) (new ReflectionClass(\Omnichannel\Addons\AiPrompt\Services\AiModelRouterService::class))->getFileName(),
         );
         $sliceStart = (int) strpos($src, 'function resolveFirstAttemptable');
-        $slice = substr($src, $sliceStart, 1800);
+        $slice = substr($src, $sliceStart, 2200);
         self::assertStringContainsString('skipReason', $slice);
+        self::assertStringContainsString('routeCapacityPolicy()', $slice);
+        self::assertStringContainsString('->evaluate(', $slice);
         self::assertStringContainsString('noCandidate', $slice);
         self::assertStringNotContainsString('still return AI Center #1', $slice);
+    }
+
+    public function test_capacity_rejected_paid_must_not_decide_generation_shape(): void
+    {
+        // Architectural contract: GenerationShapeResolver trusts FirstAttemptableAiRouteResolver.
+        // Capacity rejection belongs in that shared authority — never duplicated here.
+        $shapeSrc = (string) file_get_contents(
+            (string) (new ReflectionClass(GenerationShapeResolver::class))->getFileName(),
+        );
+        self::assertStringNotContainsString('AiRouteCapacityPolicy', $shapeSrc);
+        self::assertStringNotContainsString('KnownWalletFloorRule', $shapeSrc);
+        self::assertStringNotContainsString('balanceUsd', $shapeSrc);
+
+        $routerSrc = (string) file_get_contents(
+            (string) (new ReflectionClass(\Omnichannel\Addons\AiPrompt\Services\AiModelRouterService::class))->getFileName(),
+        );
+        $sliceStart = (int) strpos($routerSrc, 'function resolveFirstAttemptable');
+        $slice = substr($routerSrc, $sliceStart, 2200);
+        self::assertStringContainsString('routeCapacityPolicy()', $slice);
+        self::assertStringContainsString('! $capacity->eligible', $slice);
+
+        // Behavioral: when first attemptable is already the capacity-surviving free route,
+        // Content shape must be SPLIT — not PAID from a rejected higher-priority candidate.
+        $free = $this->candidate('nemotron-free', true, 2);
+        [, $snap, $vars] = $this->planReturning($free);
+        self::assertSame(ArticleGenerationShape::Sectioned, $snap->generationShape);
+        self::assertSame('free', $vars['shape_decision_cost_class']);
+        self::assertSame('nemotron-free', $vars['primary_model']);
     }
 
     public function test_planner_source_is_route_cost_not_writing_split(): void

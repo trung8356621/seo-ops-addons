@@ -296,6 +296,26 @@ final class ContentProjectGeneratePendingSafetyTest extends TestCase
         self::assertStringNotContainsString('generate_pending_fail_closed', $src);
     }
 
+    public function test_generate_pending_has_no_dry_run_modal(): void
+    {
+        $resource = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content-projects/src/Filament/Resources/SeoProjectResource.php',
+        );
+
+        $start = strpos($resource, 'function makeGeneratePendingItemsAction');
+        self::assertNotFalse($start);
+        $end = strpos($resource, 'function makeCreateWithAiAction', $start);
+        self::assertNotFalse($end);
+        $chunk = substr($resource, $start, $end - $start);
+
+        self::assertStringNotContainsString('modalHeading', $chunk);
+        self::assertStringNotContainsString('modalDescription', $chunk);
+        self::assertStringNotContainsString('generate_pending_preview_heading', $chunk);
+        self::assertStringNotContainsString('generatePendingPreviewHtml', $chunk);
+        self::assertStringContainsString('cp-ops-generation-started', $chunk);
+        self::assertStringContainsString('generate_pending_started_body', $chunk);
+    }
+
     public function test_generate_pending_preview_lists_run_decisions_not_skips(): void
     {
         $resource = (string) file_get_contents(
@@ -306,7 +326,7 @@ final class ContentProjectGeneratePendingSafetyTest extends TestCase
         self::assertStringContainsString('runDecisions()', $resource);
         self::assertStringContainsString('generate_pending_preview_resume_note', $resource);
         self::assertStringContainsString('item_action_resume_failed_step', $resource);
-        // Regression: modal must not sample skipDecisions as the Will-run list.
+        // Regression: preview helper must not sample skipDecisions as the Will-run list.
         self::assertStringNotContainsString('skipSample = array_slice($preview->skipDecisions()', $resource);
         self::assertStringContainsString('runSample = array_slice($runDecisions', $resource);
     }

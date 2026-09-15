@@ -3639,7 +3639,7 @@ return [
         'mode_fast_description' => 'Use normal AI Center sortable order; free or paid models may be used.',
         'mode_free' => '🆓 Free',
         'mode_free_description' => 'Use free models only. May be slower and need more attempts.',
-        'generate_pending_started_body' => 'Generation started via CommandBus. Stay on this project — items update as work completes. SeoProjectRun is an internal execution record only.',
+        'generate_pending_started_body' => 'Started generating :count article(s).',
         'generate_pending_preview_heading' => 'Generate working items — dry-run preview',
         'generate_pending_preview_total' => 'Total items in project: :count',
         'generate_pending_preview_run' => 'Will run: :count',

@@ -182,7 +182,7 @@ final class ArticleLengthWordsValidationTest extends TestCase
 
         $text = trim(str_repeat('word ', 1500));
         $this->expectException(OutputTruncated::class);
-        $this->expectExceptionMessage('Provider output was truncated.');
+        $this->expectExceptionMessage('OUTPUT_TRUNCATED: provider terminal reason=output_truncated');
         $pipeline->process($def, [
             'text' => $text,
             'finish_reason' => 'length',

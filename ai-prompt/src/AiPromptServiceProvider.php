@@ -38,6 +38,8 @@ final class AiPromptServiceProvider extends ServiceProvider
         $this->app->bind(PromptHookBindingRunner::class, PromptHookExplicitBindingExecutor::class);
         $this->app->scoped(AiModelPriorityService::class);
         $this->app->scoped(AiRoutingTargetService::class);
+        $this->app->singleton(\Omnichannel\Addons\AiPrompt\Services\RouteCapacity\AiProviderBalanceSnapshotCache::class);
+        $this->app->singleton(\Omnichannel\Addons\AiPrompt\Services\RouteCapacity\AiRouteCapacityPolicy::class);
         $this->app->scoped(\Omnichannel\Addons\AiPrompt\Services\CanonicalAiRouteResolver::class);
         $this->app->scoped(AiCenterModelPresenter::class);
         $this->app->scoped(AiModelInventory::class);

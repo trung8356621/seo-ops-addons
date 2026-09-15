@@ -76,6 +76,7 @@ final readonly class AiFailureDecision
             'rate_limit_reset' => $this->rateLimitReset,
             'free_daily_reset_at' => $this->freeDailyResetAt,
             'free_lane_suppressed' => $this->suppressConnectionFree ? true : null,
+            'lock_connection_paid' => $this->lockConnectionPaid ? true : null,
         ], static fn (mixed $value): bool => $value !== null && $value !== '');
     }
 }

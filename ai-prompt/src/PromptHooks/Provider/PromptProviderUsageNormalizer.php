@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\AiPrompt\PromptHooks\Provider;
 
+use Omnichannel\Addons\AiPrompt\Support\AiProviderTerminalReason;
+use Omnichannel\Addons\AiPrompt\Support\AiProviderTerminalReasonNormalizer;
+
 /**
  * Normalize provider usage/token fields — never invent tokens when provider silent.
  */
@@ -11,6 +14,7 @@ final class PromptProviderUsageNormalizer
 {
     public function __construct(
         private readonly PromptCostEstimator $costEstimator = new ConfigPromptCostEstimator,
+        private readonly AiProviderTerminalReasonNormalizer $terminalNormalizer = new AiProviderTerminalReasonNormalizer,
     ) {}
 
     /**
@@ -46,11 +50,35 @@ final class PromptProviderUsageNormalizer
             $usageSource = 'estimated';
         }
 
-        $finishReason = isset($usage['finish_reason']) ? (string) $usage['finish_reason'] : null;
+        $finishReason = $this->terminalNormalizer->extractFinishReason($usage);
         $truncated = \Omnichannel\Addons\Content\Support\ArticleGenerationLengthValidator::isProviderLengthTruncation(
             $finishReason,
             $truncated,
         );
+
+        $terminalReason = $this->terminalNormalizer->normalizeFromUsage(
+            $usage,
+            truncatedFlag: $truncated,
+        );
+        if ($terminalReason === null && $finishReason !== null && $this->terminalNormalizer->isCompletedStopReason($finishReason)) {
+            $terminalReason = AiProviderTerminalReason::Completed;
+        }
+        if ($truncated) {
+            $terminalReason = AiProviderTerminalReason::OutputTruncated;
+        }
+
+        if ($terminalReason !== null) {
+            $meta['provider_terminal_reason'] = $terminalReason->value;
+        }
+        if ($finishReason !== null) {
+            $meta['provider_finish_reason'] = $finishReason;
+        }
+        if (isset($usage['response_status'])) {
+            $meta['provider_response_status'] = (string) $usage['response_status'];
+        }
+        if (isset($usage['incomplete_details']) && is_array($usage['incomplete_details'])) {
+            $meta['incomplete_details'] = $usage['incomplete_details'];
+        }
 
         return new PromptProviderResponse(
             text: $text,
@@ -70,6 +98,7 @@ final class PromptProviderUsageNormalizer
                 : (isset($usage['provider_request_id']) ? (string) $usage['provider_request_id'] : null),
             attempts: max(1, $attempts),
             meta: $meta,
+            terminalReason: $terminalReason?->value,
         );
     }
 

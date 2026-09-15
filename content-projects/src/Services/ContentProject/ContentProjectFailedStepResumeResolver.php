@@ -9,6 +9,7 @@ use Omnichannel\Addons\ContentProjects\Enums\SeoProjectRunAction;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRunItem;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\Workflow\ArtifactReusePolicy;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectRunItemEvidenceIndex;
 use Illuminate\Support\Facades\Schema;
 
 /**
@@ -164,10 +165,37 @@ final class ContentProjectFailedStepResumeResolver
             return null;
         }
 
-        return SeoProjectRunItem::query()
+        // Newest-first, but NEVER treat unvisited lazy-bulk membership (pending, no
+        // started/finished timestamps) as the resume evidence SoT — that row is created
+        // at prepareRunQueue and would otherwise shadow the prior failed Content attempt.
+        $candidates = SeoProjectRunItem::query()
             ->where('task_id', $taskId)
             ->orderByDesc('id')
-            ->first();
+            ->limit(100)
+            ->get();
+
+        foreach ($candidates as $item) {
+            if (! $item instanceof SeoProjectRunItem) {
+                continue;
+            }
+
+            $row = [
+                'id' => (int) $item->getKey(),
+                'task_id' => $taskId,
+                'run_id' => (int) ($item->run_id ?? 0),
+                'status' => (string) ($item->status ?? ''),
+                'started_at' => $item->started_at?->toIso8601String(),
+                'finished_at' => $item->finished_at?->toIso8601String(),
+            ];
+
+            if (! ContentProjectRunItemEvidenceIndex::countsAsLatestExecution($row, false, null)) {
+                continue;
+            }
+
+            return $item;
+        }
+
+        return null;
     }
 
     private function resolveFailedStepKey(SeoProjectRunItem $item): ?string

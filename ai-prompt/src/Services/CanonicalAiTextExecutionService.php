@@ -14,6 +14,7 @@ use Omnichannel\Addons\AiPrompt\Services\Ai\DeepSeekChatClient;
 use Omnichannel\Addons\AiPrompt\Services\Ai\GeminiGenerateContentClient;
 use Omnichannel\Addons\AiPrompt\Services\ProviderTemplates\OpenAiCompatibleProtocolAdapter;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
+use Omnichannel\Addons\AiPrompt\Support\AiProviderTerminalReasonNormalizer;
 use Omnichannel\Addons\AiPrompt\Support\ApiConnectionProviders;
 use RuntimeException;
 
@@ -209,6 +210,7 @@ final class CanonicalAiTextExecutionService
         [$text, $usage] = $this->callProvider($routed->connection, $compiledPrompt, $routed->model, $callOptions);
 
         $usage = is_array($usage) ? $usage : [];
+        $usage = (new AiProviderTerminalReasonNormalizer)->stampUsage($usage);
         $usage['budget'] = $budgetPlan->toDiagnostics();
         $usage['budget_plan_id'] = $budgetPlan->planId;
         $usage['hook_key'] = $hookKey;

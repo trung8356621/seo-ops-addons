@@ -111,12 +111,27 @@ final class ClaudeMessagesClient
                 throw new PromptRunException('Claude không trả về nội dung.');
             }
 
-            $usage = null;
+            $usage = [];
             if (isset($response->usage) && method_exists($response->usage, 'toArray')) {
-                $usage = $response->usage->toArray();
+                $usageArray = $response->usage->toArray();
+                if (is_array($usageArray)) {
+                    $usage = $usageArray;
+                }
             }
 
-            return [$text, $usage];
+            $stopReason = '';
+            if (isset($response->stopReason) && is_string($response->stopReason)) {
+                $stopReason = trim($response->stopReason);
+            } elseif (isset($response->stop_reason) && is_string($response->stop_reason)) {
+                $stopReason = trim($response->stop_reason);
+            }
+            if ($stopReason !== '') {
+                // Canonical finish_reason for cross-provider truncation / terminal normalizer.
+                $usage['finish_reason'] = $stopReason;
+                $usage['stop_reason'] = $stopReason;
+            }
+
+            return [$text, $usage !== [] ? $usage : null];
         } catch (PromptRunException $exception) {
             throw $exception;
         } catch (ErrorException $exception) {

@@ -2429,7 +2429,7 @@ final class ViewSeoProject extends Page
             Notification::make()
                 ->title(__('seo-content-ai::filament.projects.run_failed'))
                 ->body(__('seo-content-ai::filament.projects.run_items_empty'))
-                ->danger()
+                ->warning()
                 ->send();
 
             return;
@@ -2455,16 +2455,18 @@ final class ViewSeoProject extends Page
                 ]),
             );
             $this->invalidateOpsCache();
-            $this->dispatch('cp-ops-generation-started', taskIds: $eligible);
+            $this->dispatch('cp-ops-generation-started');
             Notification::make()
                 ->title(__('seo-content-ai::filament.projects.run_started'))
                 ->body($manualImproveSkipped > 0
                     ? sprintf(
-                        'Đã chạy tạo bài cho %d mục. Bỏ qua %d mục Improve vì đây là nội dung chỉnh sửa thủ công.',
+                        'Đã bắt đầu tạo %d bài. Bỏ qua %d mục Improve vì đây là nội dung chỉnh sửa thủ công.',
                         (int) $preview['valid'],
                         $manualImproveSkipped,
                     )
-                    : __('seo-content-ai::filament.projects.generate_pending_started_body'))
+                    : __('seo-content-ai::filament.projects.generate_pending_started_body', [
+                        'count' => (int) $preview['valid'],
+                    ]))
                 ->success()
                 ->send();
         } catch (Throwable $e) {

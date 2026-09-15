@@ -14,6 +14,7 @@ use Omnichannel\Addons\AiPrompt\DataTransfer\RoutedAiCandidate;
 use Omnichannel\Addons\AiPrompt\Models\SeoAiModel;
 use Omnichannel\Addons\AiPrompt\Models\SeoPrompt;
 use Omnichannel\Addons\AiPrompt\Services\Ai\DeepSeekChatClient;
+use Omnichannel\Addons\AiPrompt\Services\RouteCapacity\AiRouteCapacityPolicy;
 use Omnichannel\Addons\AiPrompt\Support\AiAttemptBudgetPolicy;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionProfile;
 use Omnichannel\Addons\AiPrompt\Support\AiExecutionRoutingMode;
@@ -97,17 +98,26 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
         }
 
         $health = $this->runtimeHealth();
+        $parsed = AiExecutionProfile::tryFrom($profile);
         foreach ($candidates as $candidate) {
             $skipReason = $health->skipReason($userId, $candidate);
             if ($skipReason !== null) {
                 continue;
             }
 
+            // Share the same pre-execution capacity authority as the attempt loop so
+            // generation shape follows the first ACTUALLY usable physical route.
+            if ($parsed instanceof AiExecutionProfile) {
+                $capacity = $this->routeCapacityPolicy()->evaluate($candidate, $parsed, $context);
+                if (! $capacity->eligible) {
+                    continue;
+                }
+            }
+
             return $candidate;
         }
 
-        // No usable route after health skips — normal routing failure (no fake shape authority).
-        $parsed = AiExecutionProfile::tryFrom($profile);
+        // No usable route after health + capacity skips — normal routing failure (no fake shape authority).
         $capability = $parsed?->requiredCapabilityKeys()[0] ?? 'text.generate';
         if ($policyFreeOnly) {
             throw AiRoutingException::noValidFreeConnection($profile);
@@ -442,6 +452,8 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
         $suppressedFreeLanes = [];
         /** @var array<string, true> physical routes already attempted this execution */
         $attemptedPhysicalRoutes = [];
+        /** After OUTPUT_TRUNCATED, skip remaining free candidates and prefer paid physical routes. */
+        $preferPaidAfterOutputTruncation = false;
 
         foreach ($candidates as $index => $candidate) {
             $candidateIndex = $index + 1;
@@ -542,6 +554,51 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                     ),
                 );
                 continue;
+            }
+
+            if ($preferPaidAfterOutputTruncation && $candidate->isFree) {
+                $candidatesSkipped++;
+                $routingAttempts[] = $this->attemptLog(
+                    $candidate,
+                    $candidateIndex,
+                    'skipped',
+                    'output_truncated_prefer_paid',
+                    null,
+                    array_merge(
+                        $laneMeta(),
+                        array_filter($budgetMeta(), static fn (mixed $v): bool => $v !== null && $v !== ''),
+                        $this->siblingRouteMeta($candidates, $index, $suppressedConnections, $suppressedPaidLanes, $attemptedPhysicalRoutes, $suppressedFreeLanes),
+                        [
+                            'provider_terminal_reason' => \Omnichannel\Addons\AiPrompt\Support\AiProviderTerminalReason::OutputTruncated->value,
+                        ],
+                    ),
+                );
+                continue;
+            }
+
+            if ($parsed instanceof AiExecutionProfile) {
+                $capacity = $this->routeCapacityPolicy()->evaluate(
+                    $candidate,
+                    $parsed,
+                    $enrichedContext,
+                );
+                if (! $capacity->eligible) {
+                    $candidatesSkipped++;
+                    $routingAttempts[] = $this->attemptLog(
+                        $candidate,
+                        $candidateIndex,
+                        'skipped',
+                        (string) ($capacity->reason ?? 'capacity_ineligible'),
+                        null,
+                        array_merge(
+                            $laneMeta(),
+                            array_filter($budgetMeta(), static fn (mixed $v): bool => $v !== null && $v !== ''),
+                            $this->siblingRouteMeta($candidates, $index, $suppressedConnections, $suppressedPaidLanes, $attemptedPhysicalRoutes, $suppressedFreeLanes),
+                            $capacity->toAttemptDiagnostics(),
+                        ),
+                    );
+                    continue;
+                }
             }
 
             if ($healthBefore !== null) {
@@ -728,10 +785,16 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
                     $healthMutation = 'connection_locked';
                 } elseif ($this->isPaidLaneSuppressDecision($decision)) {
                     $suppressedPaidLanes[$connectionId] = true;
-                    $healthMutation = 'connection_paid_locked';
+                    $healthMutation = $decision->lockConnectionPaid
+                        ? 'connection_paid_locked'
+                        : 'connection_paid_request_budget_suppressed';
                 } elseif ($this->isFreeLaneSuppressDecision($decision)) {
                     $suppressedFreeLanes[$connectionId] = true;
                     $healthMutation = 'free_lane_suppressed';
+                }
+
+                if ($exception instanceof \Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\OutputTruncated) {
+                    $preferPaidAfterOutputTruncation = true;
                 }
 
                 $fallbackCount++;
@@ -961,12 +1024,19 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
     }
 
     /**
-     * Paid billing-lane suppress — free routes on the same connection stay eligible.
+     * Paid billing-lane suppress for the remainder of this execution.
+     * Persistent global paid lock uses lockConnectionPaid (BillingExhausted only).
+     * InsufficientBudgetForRequest suppresses paid siblings this request without
+     * locking the connection for other profiles/workloads.
      */
     private function isPaidLaneSuppressDecision(AiFailureDecision $decision): bool
     {
-        return $decision->lockConnectionPaid
-            || $decision->scope === AiFailureScope::ConnectionPaid;
+        if ($decision->lockConnectionPaid) {
+            return true;
+        }
+
+        return $decision->category === AiFailureClass::BillingExhausted
+            || $decision->category === AiFailureClass::InsufficientBudgetForRequest;
     }
 
     /**
@@ -1267,17 +1337,52 @@ final class AiModelRouterService implements \Omnichannel\Addons\AiPrompt\Contrac
      */
     private function qualityAttemptMeta(\Throwable $exception): array
     {
+        $meta = [];
+
+        if ($exception instanceof \Omnichannel\Addons\AiPrompt\PromptHooks\Exceptions\OutputTruncated) {
+            $meta['provider_terminal_reason'] = ($exception->terminalReason
+                ?? \Omnichannel\Addons\AiPrompt\Support\AiProviderTerminalReason::OutputTruncated)->value;
+            if ($exception->providerFinishReason !== null && $exception->providerFinishReason !== '') {
+                $meta['provider_finish_reason'] = $exception->providerFinishReason;
+            }
+            $meta['failure_code'] = $exception->failureCode->value;
+        }
+
         if (! $exception instanceof PromptRunException) {
-            return [];
+            return $meta;
         }
 
         $rules = $exception->context['quality_rules'] ?? null;
         $sample = $exception->context['quality_sample'] ?? null;
+        $usage = $exception->context['token_usage'] ?? $exception->context['usage'] ?? null;
+        if (is_array($usage)) {
+            $terminal = $usage['provider_terminal_reason'] ?? $usage['finish_reason'] ?? null;
+            if (is_string($terminal) && $terminal !== '' && ! isset($meta['provider_terminal_reason'])) {
+                $normalized = (new \Omnichannel\Addons\AiPrompt\Support\AiProviderTerminalReasonNormalizer)
+                    ->normalizeFromUsage($usage);
+                if ($normalized !== null) {
+                    $meta['provider_terminal_reason'] = $normalized->value;
+                }
+                $meta['provider_finish_reason'] = (string) ($usage['finish_reason'] ?? $terminal);
+            }
+        }
 
-        return array_filter([
+        return array_filter(array_merge($meta, [
             'quality_rules' => is_array($rules) ? array_values(array_map('strval', $rules)) : null,
             'quality_sample' => is_string($sample) && $sample !== '' ? mb_substr($sample, 0, 120) : null,
-        ], static fn (mixed $value): bool => $value !== null && $value !== []);
+        ]), static fn (mixed $value): bool => $value !== null && $value !== []);
+    }
+
+    private function routeCapacityPolicy(): AiRouteCapacityPolicy
+    {
+        if (function_exists('app')) {
+            try {
+                return app(AiRouteCapacityPolicy::class);
+            } catch (\Throwable) {
+            }
+        }
+
+        return new AiRouteCapacityPolicy;
     }
 
     private function extractFailureUsage(\Throwable $exception): ?array

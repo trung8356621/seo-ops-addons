@@ -103,8 +103,10 @@ final class ContentProjectPublishedQueueReturnAndOptimisticUiTest extends TestCa
         self::assertStringContainsString('isRowProcessing(tid)', $ops);
         self::assertStringContainsString('cp-ops-row-processing', $ops);
         self::assertStringContainsString('cp-ops-generation-started', $ops);
-        self::assertStringContainsString('startGenerationTablePoll', $ops);
+        self::assertStringContainsString('onGenerationStarted()', $ops);
         self::assertStringContainsString('doLazyRefresh(true)', $ops);
+        self::assertStringNotContainsString('startGenerationTablePoll', $ops);
+        self::assertStringNotContainsString('runGenerationTablePoll', $ops);
         self::assertStringNotContainsString("'retry', 'approve'", $ops);
 
         $list = (string) file_get_contents(

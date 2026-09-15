@@ -1557,17 +1557,15 @@ class SeoProjectResource extends SeoPanelResource
             // Never use silent disabled clicks in overflow menus — gate inside action + tooltip.
             ->disabled(fn (): bool => ! static::canGeneratePendingItems($project))
             ->tooltip(fn (): ?string => static::generatePendingDisabledReason($project))
-            ->modalHeading(__('seo-content-ai::filament.projects.generate_pending_preview_heading'))
-            ->modalDescription(fn () => static::generatePendingPreviewHtml($project))
-            ->modalSubmitActionLabel(__('seo-content-ai::filament.projects.generate_working_items'))
-            ->action(function () use ($project, $launchSettings): void {
+            // Direct dispatch — no dry-run / confirmation modal. Planner stays server-side only.
+            ->action(function (?\Livewire\Component $livewire = null) use ($project, $launchSettings): void {
                 try {
                     if (! static::canGeneratePendingItems($project)) {
                         Notification::make()
                             ->title(__('seo-content-ai::filament.projects.run_failed'))
                             ->body((string) (static::generatePendingDisabledReason($project)
                                 ?? __('seo-content-ai::filament.projects.generate_pending_disabled_no_eligible')))
-                            ->danger()
+                            ->warning()
                             ->send();
 
                         return;
@@ -1578,7 +1576,7 @@ class SeoProjectResource extends SeoPanelResource
                         Notification::make()
                             ->title(__('seo-content-ai::filament.projects.run_failed'))
                             ->body(static::projectActionDisabledMessage($bulkConflict))
-                            ->danger()
+                            ->warning()
                             ->send();
 
                         return;
@@ -1606,7 +1604,7 @@ class SeoProjectResource extends SeoPanelResource
                         Notification::make()
                             ->title(__('seo-content-ai::filament.projects.run_failed'))
                             ->body(__('seo-content-ai::filament.projects.generate_pending_disabled_no_eligible'))
-                            ->danger()
+                            ->warning()
                             ->send();
 
                         return;
@@ -1636,16 +1634,23 @@ class SeoProjectResource extends SeoPanelResource
 
                     SeoConnectionContext::applyUrlDefaults();
 
+                    $count = count($taskIds);
+                    if ($livewire instanceof \Livewire\Component) {
+                        $livewire->dispatch('cp-ops-generation-started');
+                    }
+
                     Notification::make()
                         ->title(__('seo-content-ai::filament.projects.run_started'))
-                        ->body(__('seo-content-ai::filament.projects.generate_pending_started_body'))
+                        ->body(__('seo-content-ai::filament.projects.generate_pending_started_body', [
+                            'count' => $count,
+                        ]))
                         ->success()
                         ->send();
                 } catch (\InvalidArgumentException $exception) {
                     Notification::make()
                         ->title(__('seo-content-ai::filament.projects.run_failed'))
                         ->body($exception->getMessage())
-                        ->danger()
+                        ->warning()
                         ->send();
                 } catch (\Throwable $exception) {
                     Notification::make()
@@ -1845,9 +1850,12 @@ class SeoProjectResource extends SeoPanelResource
                         ],
                     );
 
+                    $startedCount = count(array_slice($gate->eligibleTaskIds, 0, SeoProjectWorkflowRunService::TEST_RUN_LIMIT));
                     Notification::make()
                         ->title(__('seo-content-ai::filament.projects.run_started'))
-                        ->body(__('seo-content-ai::filament.projects.generate_pending_started_body'))
+                        ->body(__('seo-content-ai::filament.projects.generate_pending_started_body', [
+                            'count' => $startedCount,
+                        ]))
                         ->success()
                         ->send();
                 } catch (\Throwable $exception) {
@@ -1921,11 +1929,16 @@ class SeoProjectResource extends SeoPanelResource
     public static function dispatchProjectWorkflowRun(SeoProject $project, string $mode): mixed
     {
         try {
-            static::startGeneratePendingItems($project, $mode, ['use_php_engine' => true]);
+            $run = static::startGeneratePendingItems($project, $mode, ['use_php_engine' => true]);
+            $settings = is_array($run->settings) ? $run->settings : [];
+            $taskIds = is_array($settings['task_ids'] ?? null) ? $settings['task_ids'] : [];
+            $count = count($taskIds);
 
             Notification::make()
                 ->title(__('seo-content-ai::filament.projects.run_started'))
-                ->body(__('seo-content-ai::filament.projects.generate_pending_started_body'))
+                ->body(__('seo-content-ai::filament.projects.generate_pending_started_body', [
+                    'count' => $count,
+                ]))
                 ->success()
                 ->send();
 

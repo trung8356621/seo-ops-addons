@@ -136,14 +136,18 @@ final class GeminiGenerateContentClient
             );
         }
 
-        $text = collect($response->json('candidates.0.content.parts', []))
+        $json = $response->json();
+        $text = collect(data_get($json, 'candidates.0.content.parts', []))
             ->pluck('text')
             ->filter()
             ->implode("\n");
 
+        $finishReason = trim((string) data_get($json, 'candidates.0.finishReason', ''));
+
         if ($text === '') {
-            $blockReason = $response->json('candidates.0.finishReason')
-                ?? $response->json('promptFeedback.blockReason');
+            $blockReason = $finishReason !== ''
+                ? $finishReason
+                : data_get($json, 'promptFeedback.blockReason');
 
             throw new PromptRunException(
                 'Gemini không trả về nội dung'
@@ -151,9 +155,15 @@ final class GeminiGenerateContentClient
             );
         }
 
-        $usage = $response->json('usageMetadata');
+        $usage = data_get($json, 'usageMetadata');
+        $usageBag = is_array($usage) ? $usage : [];
+        if ($finishReason !== '') {
+            // Canonical key for PromptProviderUsageNormalizer + length truncation detection.
+            $usageBag['finish_reason'] = $finishReason;
+            $usageBag['finishReason'] = $finishReason;
+        }
 
-        return [$text, is_array($usage) ? $usage : null];
+        return [$text, $usageBag !== [] ? $usageBag : null];
     }
 
     private function httpBaseUrl(ApiConnection $connection): string

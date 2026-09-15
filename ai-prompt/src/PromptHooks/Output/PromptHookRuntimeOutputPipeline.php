@@ -59,11 +59,25 @@ final class PromptHookRuntimeOutputPipeline
         $finishReason = isset($providerResponse['finish_reason'])
             ? (string) $providerResponse['finish_reason']
             : null;
-        if (ArticleGenerationLengthValidator::isProviderLengthTruncation(
-            $finishReason,
-            (bool) ($providerResponse['truncated'] ?? false),
-        )) {
-            throw new OutputTruncated('Provider output was truncated.');
+        $terminalNormalizer = new \Omnichannel\Addons\AiPrompt\Support\AiProviderTerminalReasonNormalizer;
+        $terminalFromProvider = $terminalNormalizer->normalizeFromUsage(
+            $providerResponse,
+            truncatedFlag: (bool) ($providerResponse['truncated'] ?? false),
+        );
+        if ($terminalFromProvider === \Omnichannel\Addons\AiPrompt\Support\AiProviderTerminalReason::OutputTruncated
+            || ArticleGenerationLengthValidator::isProviderLengthTruncation(
+                $finishReason,
+                (bool) ($providerResponse['truncated'] ?? false),
+            )
+        ) {
+            $finishLabel = $finishReason !== null && $finishReason !== ''
+                ? $finishReason
+                : 'provider_truncated_flag';
+            throw new OutputTruncated(
+                'OUTPUT_TRUNCATED: provider terminal reason=output_truncated (finish_reason='.$finishLabel.').',
+                \Omnichannel\Addons\AiPrompt\Support\AiProviderTerminalReason::OutputTruncated,
+                $finishReason,
+            );
         }
 
         $raw = (string) ($providerResponse['text'] ?? '');
@@ -228,8 +242,8 @@ final class PromptHookRuntimeOutputPipeline
             }
             throw new OutputTruncated(
                 $unit === 'words'
-                    ? "Output shorter than minimum_length ({$measured} words < {$min} words)."
-                    : "Output shorter than minimum_length ({$measured} chars < {$min}).",
+                    ? "OUTPUT_TRUNCATED: content shorter than minimum_length ({$measured} words < {$min} words)."
+                    : "OUTPUT_TRUNCATED: content shorter than minimum_length ({$measured} chars < {$min}).",
             );
         }
 

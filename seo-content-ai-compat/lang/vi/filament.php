@@ -3618,7 +3618,7 @@ return [
         'mode_fast_description' => 'Dùng routing bình thường theo thứ tự AI Center, có thể dùng model miễn phí hoặc trả phí.',
         'mode_free' => '🆓 Miễn phí',
         'mode_free_description' => 'Chỉ dùng model miễn phí. Có thể chậm hơn và cần nhiều lần thử hơn.',
-        'generate_pending_started_body' => 'Đã bắt đầu generate qua CommandBus. Ở lại trang project — hạng mục cập nhật khi xong. SeoProjectRun chỉ là execution record nội bộ.',
+        'generate_pending_started_body' => 'Đã bắt đầu tạo :count bài.',
         'generate_pending_preview_heading' => 'Generate working items — xem trước (dry-run)',
         'generate_pending_preview_total' => 'Tổng item trong project: :count',
         'generate_pending_preview_run' => 'Sẽ chạy: :count',

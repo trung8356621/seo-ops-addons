@@ -33,7 +33,7 @@ final class AiProviderFailureClassifierTest extends TestCase
         $this->assertSame(AiFailureScope::ConnectionPaid, $decision->scope);
         $this->assertTrue($decision->recoverable);
         $this->assertSame(AiFailureRuntimeAction::Continue, $decision->runtimeAction);
-        $this->assertTrue($decision->lockConnectionPaid);
+        $this->assertFalse($decision->lockConnectionPaid);
         $this->assertTrue($decision->fallbackAllowed());
     }
 
