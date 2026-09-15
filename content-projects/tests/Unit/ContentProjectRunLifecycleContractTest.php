@@ -111,11 +111,17 @@ final class ContentProjectRunLifecycleContractTest extends TestCase
         );
         self::assertStringContainsString('declareWorkerLostIfConfirmed', $engine);
         self::assertStringContainsString('recoverLostWorkers', $engine);
+        self::assertStringContainsString('recoverDeadDispatchIfConfirmed', $engine);
+        self::assertStringContainsString('finalizeStoppingAfterDeadWorker', $engine);
         self::assertStringContainsString('failed_worker_lost', $engine);
         self::assertStringContainsString('ERROR_CODE_WORKER_LOST', $engine);
         // Confirmed death must NOT call dispatchNextArticle inside declareWorkerLost.
         $method = $this->methodBody($engine, 'declareWorkerLostIfConfirmed');
         self::assertStringNotContainsString('dispatchNextArticle', $method);
+        $stopping = $this->methodBody($engine, 'finalizeStoppingAfterDeadWorker');
+        self::assertStringNotContainsString('dispatchNextArticle', $stopping);
+        self::assertStringNotContainsString('stampWorkerLost', $stopping);
+        self::assertStringContainsString('stopping_dead_worker_finalize', $stopping);
 
         $watchdog = (string) file_get_contents(
             ProjectRoot::addonsPath()
@@ -124,6 +130,100 @@ final class ContentProjectRunLifecycleContractTest extends TestCase
         self::assertStringContainsString('recoverLostWorkers', $watchdog);
         self::assertStringNotContainsString('ArticleRunner', $watchdog);
         self::assertStringNotContainsString('dispatchNextArticle', $watchdog);
+    }
+
+    public function test_watchdog_is_registered_and_scheduled_every_minute(): void
+    {
+        $provider = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/seo-content-ai-compat/SeoContentAiServiceProvider.php'
+        );
+        self::assertStringContainsString('ContentProjectWorkerLostWatchdogCommand::class', $provider);
+        self::assertStringContainsString('seo-content-ai:content-project-worker-lost-watchdog', $provider);
+
+        $schedulePos = strpos($provider, 'seo-content-ai:content-project-worker-lost-watchdog');
+        self::assertNotFalse($schedulePos);
+        $chunk = substr($provider, $schedulePos, 800);
+        self::assertStringContainsString('->everyMinute()', $chunk);
+        self::assertStringContainsString('ContentProjectWorkerLostWatchdogCommand::class', $chunk);
+        self::assertStringContainsString('withoutOverlapping', $chunk);
+    }
+
+    public function test_resume_clears_stale_stop_and_final_metadata(): void
+    {
+        $cleared = ContentProjectRunRecoverableState::clear([
+            'recoverable' => ['reason' => 'worker_lost', 'message' => 'old'],
+            'worker_lost' => ['stopped' => true],
+            'circuit_breaker' => ['stopped' => true],
+            'stop_requested_at' => '2026-01-01T00:00:00+00:00',
+            'stop_requested_by' => 9,
+            'stop_reason' => 'Stopped by user.',
+            'finalized_at' => '2026-01-01T00:01:00+00:00',
+            'final_status' => 'failed_worker_lost',
+            'started_at' => '2026-01-01T00:00:00+00:00',
+            'orchestration' => 'php',
+            'use_php_engine' => true,
+            'max_parallel_articles' => 1,
+        ]);
+
+        self::assertArrayNotHasKey('recoverable', $cleared);
+        self::assertArrayNotHasKey('worker_lost', $cleared);
+        self::assertArrayNotHasKey('circuit_breaker', $cleared);
+        self::assertArrayNotHasKey('stop_requested_at', $cleared);
+        self::assertArrayNotHasKey('stop_requested_by', $cleared);
+        self::assertArrayNotHasKey('stop_reason', $cleared);
+        self::assertArrayNotHasKey('finalized_at', $cleared);
+        self::assertArrayNotHasKey('final_status', $cleared);
+        self::assertSame('php', $cleared['orchestration']);
+        self::assertTrue($cleared['use_php_engine']);
+        self::assertSame('2026-01-01T00:00:00+00:00', $cleared['started_at']);
+        self::assertSame(1, $cleared['max_parallel_articles']);
+
+        $fromStopping = ContentProjectRunRecoverableState::clearStopAndFinalMarkers([
+            'stop_requested_at' => 'x',
+            'stop_requested_by' => 1,
+            'stop_reason' => 'Stopped by user.',
+            'finalized_at' => 'y',
+            'final_status' => 'cancelled',
+            'started_at' => 'keep',
+            'orchestration' => 'php',
+        ]);
+        self::assertArrayNotHasKey('stop_reason', $fromStopping);
+        self::assertArrayNotHasKey('finalized_at', $fromStopping);
+        self::assertSame('keep', $fromStopping['started_at']);
+
+        $engine = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content-projects/src/Services/RunEngine/ContentProjectRunEngine.php'
+        );
+        self::assertStringContainsString('clearStopAndFinalMarkers', $engine);
+        $clearStopping = $this->methodBody($engine, 'clearStoppingToRunning');
+        self::assertStringContainsString('clearStopAndFinalMarkers', $clearStopping);
+        $workerResume = $this->methodBody($engine, 'tryResumeAfterWorkerLost');
+        self::assertStringContainsString('ContentProjectRunRecoverableState::clear', $workerResume);
+    }
+
+    public function test_stopping_plus_worker_death_becomes_cancelled_not_worker_lost(): void
+    {
+        $engine = (string) file_get_contents(
+            ProjectRoot::addonsPath().'/content-projects/src/Services/RunEngine/ContentProjectRunEngine.php'
+        );
+        $router = $this->methodBody($engine, 'recoverDeadDispatchIfConfirmed');
+        self::assertStringContainsString('finalizeStoppingAfterDeadWorker', $router);
+        self::assertStringContainsString('declareWorkerLostIfConfirmed', $router);
+
+        $declare = $this->methodBody($engine, 'declareWorkerLostIfConfirmed');
+        self::assertStringContainsString('ContentProjectRunSemanticStatus::Running', $declare);
+        self::assertStringNotContainsString('ContentProjectRunSemanticStatus::Stopping', $declare);
+
+        $stopping = $this->methodBody($engine, 'finalizeStoppingAfterDeadWorker');
+        self::assertStringContainsString('ContentProjectRunSemanticStatus::Stopping', $stopping);
+        self::assertStringContainsString('ContentProjectRunSemanticStatus::Cancelled', $stopping);
+        self::assertStringContainsString('cancelledArticleErrorMessage', $stopping);
+        self::assertStringContainsString('intentional_unvisited_pending', $stopping);
+        self::assertStringContainsString("final_status'] = 'cancelled'", $stopping);
+        self::assertStringNotContainsString('stampWorkerLost', $stopping);
+        self::assertStringNotContainsString('REASON_WORKER_LOST', $stopping);
+        self::assertStringNotContainsString('dispatchNextArticle', $stopping);
+        self::assertStringContainsString('runCancelled', $stopping);
     }
 
     public function test_case4_resume_worker_lost_attempt_accounting(): void
@@ -257,12 +357,20 @@ final class ContentProjectRunLifecycleContractTest extends TestCase
         self::assertTrue($handler->hasMethod('handle'));
     }
 
-    public function test_worker_lost_message_is_user_visible(): void
+    public function test_worker_lost_message_shows_next_resume_attempt(): void
     {
-        $msg = ContentProjectRunRecoverableState::workerLostItemMessage(3341, 2, 3);
-        self::assertStringContainsString('#3341', $msg);
-        self::assertStringContainsString('attempt 2/3', $msg);
-        self::assertStringContainsString('Resume', $msg);
+        $msg1 = ContentProjectRunRecoverableState::workerLostItemMessage(3341, 1, 3);
+        self::assertStringContainsString('#3341', $msg1);
+        self::assertStringContainsString('attempt 2/3', $msg1);
+        self::assertStringContainsString('Resume', $msg1);
+
+        $msg2 = ContentProjectRunRecoverableState::workerLostItemMessage(3341, 2, 3);
+        self::assertStringContainsString('attempt 3/3', $msg2);
+
+        $exhausted = ContentProjectRunRecoverableState::workerLostItemMessage(10, 3, 3);
+        self::assertStringContainsString('3/3', $exhausted);
+        self::assertStringContainsString('không thể Resume thêm', $exhausted);
+        self::assertStringNotContainsString('attempt 4/', $exhausted);
     }
 
     public function test_job_timeout_matches_hard_floor(): void

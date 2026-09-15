@@ -9,8 +9,11 @@ use Omnichannel\Addons\SearchFoundation\Services\SeoDatabaseConnectionService;
 use Illuminate\Console\Command;
 
 /**
- * Backend-owned watchdog for abrupt worker loss.
- * Never calls AI providers — only inspects leases and transitions WORKER_LOST.
+ * Backend-owned watchdog for abrupt worker loss / stopping+dead-worker finalize.
+ * Never calls AI providers — only inspects leases and performs safe lifecycle transitions.
+ *
+ * Scheduled by SeoContentAiServiceProvider as:
+ *   seo-content-ai:content-project-worker-lost-watchdog → everyMinute()
  */
 final class ContentProjectWorkerLostWatchdogCommand extends Command
 {
@@ -18,7 +21,7 @@ final class ContentProjectWorkerLostWatchdogCommand extends Command
         {--limit=50 : Max non-terminal runs to inspect}
         {--site= : Optional site_id to bootstrap SEO DB}';
 
-    protected $description = 'Declare confirmed WORKER_LOST on PHP-engine runs whose hard lease expired';
+    protected $description = 'Recover confirmed dead workers: RUNNING→WORKER_LOST, STOPPING→cancelled';
 
     public function handle(
         SeoDatabaseConnectionService $databaseConnection,
@@ -34,9 +37,15 @@ final class ContentProjectWorkerLostWatchdogCommand extends Command
         $result = $engine->recoverLostWorkers((int) ($this->option('limit') ?? 50));
         $this->line(json_encode($result, JSON_PRETTY_PRINT | JSON_UNESCAPED_UNICODE) ?: '{}');
 
-        if (($result['recovered'] ?? 0) > 0) {
-            $this->info('Declared WORKER_LOST on '.count($result['run_ids']).' run(s). No next-article auto-dispatch.');
-        } else {
+        $lost = (int) ($result['recovered'] ?? 0);
+        $cancelled = (int) ($result['cancelled'] ?? 0);
+        if ($lost > 0) {
+            $this->info('Declared WORKER_LOST on '.$lost.' run(s). No next-article auto-dispatch.');
+        }
+        if ($cancelled > 0) {
+            $this->info('Finalized STOPPING+dead-worker as cancelled on '.$cancelled.' run(s).');
+        }
+        if ($lost === 0 && $cancelled === 0) {
             $this->info('No confirmed worker-death leases.');
         }
 

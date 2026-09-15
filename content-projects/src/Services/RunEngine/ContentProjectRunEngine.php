@@ -196,7 +196,7 @@ final class ContentProjectRunEngine
             $engine = is_array($settings[self::SETTINGS_ENGINE_KEY] ?? null)
                 ? $settings[self::SETTINGS_ENGINE_KEY]
                 : [];
-            unset($engine['finalized_at'], $engine['final_status']);
+            $engine = ContentProjectRunRecoverableState::clearStopAndFinalMarkers($engine);
             $settings[self::SETTINGS_ENGINE_KEY] = $engine;
             $locked->update([
                 'status' => $this->statusMapper->runToDb(ContentProjectRunSemanticStatus::Running),
@@ -1815,9 +1815,15 @@ final class ContentProjectRunEngine
 
     /**
      * Backend watchdog entry — never calls AI providers.
-     * Scans non-terminal PHP-engine runs and declares confirmed WORKER_LOST.
+     * Scans non-terminal PHP-engine runs with expired hard leases.
      *
-     * @return array{scanned: int, recovered: int, run_ids: list<int>}
+     * @return array{
+     *     scanned: int,
+     *     recovered: int,
+     *     cancelled: int,
+     *     run_ids: list<int>,
+     *     cancelled_run_ids: list<int>
+     * }
      */
     public function recoverLostWorkers(int $limit = 50): array
     {
@@ -1832,7 +1838,8 @@ final class ContentProjectRunEngine
             ->limit($limit)
             ->get();
 
-        $recovered = [];
+        $workerLost = [];
+        $cancelled = [];
         foreach ($runs as $run) {
             if (! $run instanceof SeoProjectRun) {
                 continue;
@@ -1840,20 +1847,49 @@ final class ContentProjectRunEngine
             if (! ContentProjectRunEngineFeature::enabledFor($run)) {
                 continue;
             }
-            if ($this->declareWorkerLostIfConfirmed($run)) {
-                $recovered[] = (int) $run->id;
+
+            $outcome = $this->recoverDeadDispatchIfConfirmed($run);
+            if ($outcome === 'worker_lost') {
+                $workerLost[] = (int) $run->id;
+            } elseif ($outcome === 'cancelled') {
+                $cancelled[] = (int) $run->id;
             }
         }
 
         return [
             'scanned' => $runs->count(),
-            'recovered' => count($recovered),
-            'run_ids' => $recovered,
+            'recovered' => count($workerLost),
+            'cancelled' => count($cancelled),
+            'run_ids' => $workerLost,
+            'cancelled_run_ids' => $cancelled,
         ];
     }
 
     /**
-     * Atomic WORKER_LOST transition when hard lease proves the worker is dead.
+     * Confirmed hard-lease death:
+     * - running → WORKER_LOST (recoverable)
+     * - stopping → cancelled (user stop wins; never WORKER_LOST)
+     * Does NOT dispatch the next article.
+     *
+     * @return 'none'|'worker_lost'|'cancelled'
+     */
+    public function recoverDeadDispatchIfConfirmed(SeoProjectRun $run): string
+    {
+        $run->refresh();
+        $status = $this->statusMapper->runFromDb((string) $run->status);
+        if ($status === ContentProjectRunSemanticStatus::Stopping) {
+            return $this->finalizeStoppingAfterDeadWorker($run) ? 'cancelled' : 'none';
+        }
+        if ($status === ContentProjectRunSemanticStatus::Running) {
+            return $this->declareWorkerLostIfConfirmed($run) ? 'worker_lost' : 'none';
+        }
+
+        return 'none';
+    }
+
+    /**
+     * Atomic WORKER_LOST transition when hard lease proves the worker is dead while RUNNING.
+     * Does NOT apply to STOPPING (user stop ≠ infrastructure loss).
      * Does NOT dispatch the next article.
      */
     public function declareWorkerLostIfConfirmed(SeoProjectRun $run): bool
@@ -1869,53 +1905,26 @@ final class ContentProjectRunEngine
             }
 
             $status = $this->statusMapper->runFromDb((string) $locked->status);
-            if ($status->isTerminal()) {
+            // STOPPING must never become WORKER_LOST — use finalizeStoppingAfterDeadWorker.
+            if ($status !== ContentProjectRunSemanticStatus::Running) {
                 return false;
             }
 
-            $settings = is_array($locked->settings) ? $locked->settings : [];
-            $engine = is_array($settings[self::SETTINGS_ENGINE_KEY] ?? null)
-                ? $settings[self::SETTINGS_ENGINE_KEY]
-                : [];
-            $active = is_array($engine['active_dispatch'] ?? null) ? $engine['active_dispatch'] : null;
-            if ($active === null) {
+            $verified = $this->verifyDeadDispatchOwnership($locked);
+            if ($verified === null) {
                 return false;
             }
 
-            $ages = $this->dispatchAges($active);
-            if (! ($ages['worker_death_expired'] ?? false)) {
-                return false;
-            }
-
-            $runItemId = (int) ($active['run_item_id'] ?? 0);
-            $token = (string) ($active['token'] ?? '');
-            if ($runItemId <= 0 || $token === '') {
-                return false;
-            }
-
-            /** @var SeoProjectRunItem|null $item */
-            $item = SeoProjectRunItem::query()
-                ->whereKey($runItemId)
-                ->lockForUpdate()
-                ->first();
-            if (! $item instanceof SeoProjectRunItem
-                || (int) $item->run_id !== (int) $locked->id
-                || (string) $item->status !== SeoProjectRunItemStatus::Processing->value
-            ) {
-                return false;
-            }
-
-            // Re-verify reservation unchanged (no newer dispatch).
-            $engineAgain = is_array($settings[self::SETTINGS_ENGINE_KEY] ?? null)
-                ? $settings[self::SETTINGS_ENGINE_KEY]
-                : [];
-            $activeAgain = is_array($engineAgain['active_dispatch'] ?? null) ? $engineAgain['active_dispatch'] : null;
-            if ($activeAgain === null
-                || (string) ($activeAgain['token'] ?? '') !== $token
-                || (int) ($activeAgain['run_item_id'] ?? 0) !== $runItemId
-            ) {
-                return false;
-            }
+            /** @var SeoProjectRunItem $item */
+            $item = $verified['item'];
+            /** @var array<string, mixed> $activeAgain */
+            $activeAgain = $verified['active'];
+            /** @var array<string, mixed> $engineAgain */
+            $engineAgain = $verified['engine'];
+            /** @var array<string, mixed> $settings */
+            $settings = $verified['settings'];
+            $ages = $verified['ages'];
+            $runItemId = (int) $item->id;
 
             $attempt = max(1, (int) ($activeAgain['attempt'] ?? $item->attempt ?? 1));
             $maxAttempts = ContentProjectTransientAiRetryPolicy::MAX_TRANSIENT_ARTICLE_ATTEMPTS;
@@ -1969,6 +1978,165 @@ final class ContentProjectRunEngine
         $this->logRunMetrics($fresh, 'failed_worker_lost');
 
         return true;
+    }
+
+    /**
+     * STOPPING + hard lease expired: finalize as cancelled (user stop wins).
+     * Never stamps recoverable WORKER_LOST. Never dispatches next article.
+     */
+    public function finalizeStoppingAfterDeadWorker(SeoProjectRun $run): bool
+    {
+        $applied = DB::connection('omi_seo_ai')->transaction(function () use ($run): bool {
+            /** @var SeoProjectRun|null $locked */
+            $locked = SeoProjectRun::query()
+                ->whereKey((int) $run->id)
+                ->lockForUpdate()
+                ->first();
+            if (! $locked instanceof SeoProjectRun) {
+                return false;
+            }
+
+            $status = $this->statusMapper->runFromDb((string) $locked->status);
+            if ($status !== ContentProjectRunSemanticStatus::Stopping) {
+                return false;
+            }
+
+            $verified = $this->verifyDeadDispatchOwnership($locked);
+            if ($verified === null) {
+                return false;
+            }
+
+            /** @var SeoProjectRunItem $item */
+            $item = $verified['item'];
+            /** @var array<string, mixed> $engineAgain */
+            $engineAgain = $verified['engine'];
+            /** @var array<string, mixed> $settings */
+            $settings = $verified['settings'];
+            $ages = $verified['ages'];
+
+            $cancelMessage = $this->statusMapper->cancelledArticleErrorMessage();
+            $item->update([
+                'status' => SeoProjectRunItemStatus::Failed->value,
+                'message' => $cancelMessage,
+                'error_message' => $cancelMessage,
+                'finished_at' => now(),
+            ]);
+
+            // Revoke ownership; do NOT stamp worker_lost / recoverable.
+            unset(
+                $engineAgain['active_dispatch'],
+                $engineAgain[ContentProjectRunRecoverableState::WORKER_LOST_KEY],
+                $engineAgain[ContentProjectRunRecoverableState::SETTINGS_KEY],
+            );
+            $engineAgain['finalized_at'] = now()->toIso8601String();
+            $engineAgain['final_status'] = 'cancelled';
+            $engineAgain['intentional_unvisited_pending'] = true;
+            if (empty($engineAgain['stop_reason'])) {
+                $engineAgain['stop_reason'] = $cancelMessage;
+            }
+            $settings[self::SETTINGS_ENGINE_KEY] = $engineAgain;
+
+            $previous = (string) $locked->status;
+            $locked->update([
+                'status' => $this->statusMapper->runToDb(ContentProjectRunSemanticStatus::Cancelled),
+                'finished_at' => now(),
+                'settings' => $settings,
+            ]);
+
+            RuntimeLogger::info('content_project_run.transition', [
+                'run_id' => (int) $locked->id,
+                'run_item_id' => (int) $item->id,
+                'task_id' => (int) $item->task_id,
+                'lease_age_seconds' => $ages['worker_death_age_seconds'],
+                'before' => $previous,
+                'after' => 'cancelled',
+                'decision' => 'stopping_dead_worker_finalize',
+                'reason' => 'user_stop_wins_over_worker_loss',
+            ]);
+
+            return true;
+        });
+
+        if (! $applied) {
+            return false;
+        }
+
+        $fresh = $run->fresh() ?? $run;
+        $this->runItemService->syncMirrorAndCounters($fresh, false);
+        $this->normalizeTerminalHelperRows($fresh);
+        $reason = $this->stopReason($fresh);
+        $this->events->runCancelled($fresh, $reason);
+        $this->logRunMetrics($fresh, 'cancelled');
+
+        return true;
+    }
+
+    /**
+     * Shared ownership + hard-lease gate for dead-worker recovery.
+     *
+     * @return array{
+     *     item: SeoProjectRunItem,
+     *     active: array<string, mixed>,
+     *     engine: array<string, mixed>,
+     *     settings: array<string, mixed>,
+     *     ages: array<string, mixed>
+     * }|null
+     */
+    private function verifyDeadDispatchOwnership(SeoProjectRun $locked): ?array
+    {
+        $settings = is_array($locked->settings) ? $locked->settings : [];
+        $engine = is_array($settings[self::SETTINGS_ENGINE_KEY] ?? null)
+            ? $settings[self::SETTINGS_ENGINE_KEY]
+            : [];
+        $active = is_array($engine['active_dispatch'] ?? null) ? $engine['active_dispatch'] : null;
+        if ($active === null) {
+            return null;
+        }
+
+        $ages = $this->dispatchAges($active);
+        if (! ($ages['worker_death_expired'] ?? false)) {
+            return null;
+        }
+
+        $runItemId = (int) ($active['run_item_id'] ?? 0);
+        $token = (string) ($active['token'] ?? '');
+        if ($runItemId <= 0 || $token === '') {
+            return null;
+        }
+
+        /** @var SeoProjectRunItem|null $item */
+        $item = SeoProjectRunItem::query()
+            ->whereKey($runItemId)
+            ->lockForUpdate()
+            ->first();
+        if (! $item instanceof SeoProjectRunItem
+            || (int) $item->run_id !== (int) $locked->id
+            || (string) $item->status !== SeoProjectRunItemStatus::Processing->value
+        ) {
+            return null;
+        }
+
+        // Re-read reservation after item lock (no newer dispatch).
+        $locked->refresh();
+        $settings = is_array($locked->settings) ? $locked->settings : [];
+        $engineAgain = is_array($settings[self::SETTINGS_ENGINE_KEY] ?? null)
+            ? $settings[self::SETTINGS_ENGINE_KEY]
+            : [];
+        $activeAgain = is_array($engineAgain['active_dispatch'] ?? null) ? $engineAgain['active_dispatch'] : null;
+        if ($activeAgain === null
+            || (string) ($activeAgain['token'] ?? '') !== $token
+            || (int) ($activeAgain['run_item_id'] ?? 0) !== $runItemId
+        ) {
+            return null;
+        }
+
+        return [
+            'item' => $item,
+            'active' => $activeAgain,
+            'engine' => $engineAgain,
+            'settings' => $settings,
+            'ages' => $ages,
+        ];
     }
 
     /**

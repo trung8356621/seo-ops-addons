@@ -77,7 +77,14 @@ final class ContentProjectBatchCircuitBreakerState
      */
     public static function clearForResume(array $engine): array
     {
-        unset($engine['circuit_breaker'], $engine['finalized_at'], $engine['final_status']);
+        unset(
+            $engine['circuit_breaker'],
+            $engine['finalized_at'],
+            $engine['final_status'],
+            $engine['stop_requested_at'],
+            $engine['stop_requested_by'],
+            $engine['stop_reason'],
+        );
         $engine['consecutive_failure'] = [
             'signature' => null,
             'count' => 0,

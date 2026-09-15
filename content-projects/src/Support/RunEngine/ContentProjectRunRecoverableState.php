@@ -135,9 +135,32 @@ final class ContentProjectRunRecoverableState
             $engine['circuit_breaker'],
             $engine['finalized_at'],
             $engine['final_status'],
+            $engine['stop_requested_at'],
+            $engine['stop_requested_by'],
+            $engine['stop_reason'],
+            $engine['intentional_unvisited_pending'],
         );
 
         return ContentProjectBatchCircuitBreakerState::clearForResume($engine);
+    }
+
+    /**
+     * Clear cooperative-stop / finalize stamps when reopening a run (stopping → running).
+     *
+     * @param  array<string, mixed>  $engine
+     * @return array<string, mixed>
+     */
+    public static function clearStopAndFinalMarkers(array $engine): array
+    {
+        unset(
+            $engine['stop_requested_at'],
+            $engine['stop_requested_by'],
+            $engine['stop_reason'],
+            $engine['finalized_at'],
+            $engine['final_status'],
+        );
+
+        return $engine;
     }
 
     /**
@@ -176,12 +199,23 @@ final class ContentProjectRunRecoverableState
         return $stop !== '' ? $stop : null;
     }
 
-    public static function workerLostItemMessage(int $taskId, int $attempt, int $maxAttempts): string
+    /**
+     * @param  int  $currentAttempt  Attempt that died (1-based). Message shows the next Resume attempt.
+     */
+    public static function workerLostItemMessage(int $taskId, int $currentAttempt, int $maxAttempts): string
     {
         $taskLabel = $taskId > 0 ? '#'.$taskId : 'đang chạy';
+        $currentAttempt = max(1, $currentAttempt);
+        $maxAttempts = max(1, $maxAttempts);
+        $nextAttempt = $currentAttempt + 1;
+
+        if ($nextAttempt > $maxAttempts) {
+            return 'Worker bị mất trong khi đang chạy bài '.$taskLabel.'.'
+                .' Đã hết attempt ('.$maxAttempts.'/'.$maxAttempts.') — không thể Resume thêm.';
+        }
 
         return 'Worker bị mất trong khi đang chạy bài '.$taskLabel.'.'
-            .' Có thể Resume để chạy lại attempt '.$attempt.'/'.$maxAttempts.'.';
+            .' Có thể Resume để chạy lại attempt '.$nextAttempt.'/'.$maxAttempts.'.';
     }
 
     public static function isWorkerLostErrorCode(?string $errorCode): bool

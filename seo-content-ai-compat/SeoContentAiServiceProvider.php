@@ -855,9 +855,9 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
             if (! $workerLostWatchdogRegistered) {
                 $schedule
                     ->command(\Omnichannel\Addons\ContentProjects\Console\ContentProjectWorkerLostWatchdogCommand::class)
-                    ->everyFiveMinutes()
+                    ->everyMinute()
                     ->name($workerLostWatchdogName)
-                    ->withoutOverlapping(4);
+                    ->withoutOverlapping(1);
             }
 
             $siteSyncReconcileName = 'seo-content-ai:site-sync-reconcile-quick';
