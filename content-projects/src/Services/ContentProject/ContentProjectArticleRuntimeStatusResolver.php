@@ -8,6 +8,7 @@ use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectArticleRuntimeStatus;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectRunItemEvidenceIndex;
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectRunEngineFeature;
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectTransientAiRetryPolicy;
 
@@ -304,6 +305,28 @@ final class ContentProjectArticleRuntimeStatusResolver
                 maxAttempts: $maxAttempts,
                 heartbeatAgeSeconds: $heartbeatAge,
                 timeLabel: 'Đang chờ worker',
+            );
+        }
+
+        // Live/recoverable current-run membership waiting in batch (not historical Failed).
+        if (! empty($context['current_run_batch_waiting'])
+            || (
+                ContentProjectRunItemEvidenceIndex::currentRunTakesPresentationPrecedence($context)
+                && $item !== null
+                && ContentProjectRunItemEvidenceIndex::isCurrentBatchMembership($item, $context)
+            )
+        ) {
+            return new ContentProjectArticleRuntimeStatus(
+                state: ContentProjectArticleRuntimeStatus::STATE_BATCH_WAITING,
+                label: 'Chờ trong batch',
+                tone: 'gray',
+                isActive: false,
+                showSpinner: false,
+                detail: self::detail($stepLabel, $attempt, $maxAttempts, null),
+                stepLabel: $stepLabel,
+                attempt: $attempt,
+                maxAttempts: $maxAttempts,
+                timeLabel: 'Chờ trong batch hiện tại',
             );
         }
 

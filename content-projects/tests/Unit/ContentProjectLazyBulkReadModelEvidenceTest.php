@@ -31,7 +31,7 @@ final class ContentProjectLazyBulkReadModelEvidenceTest extends TestCase
         $this->now = Carbon::parse('2026-09-14T10:00:00+00:00');
     }
 
-    public function test_scenario_1_failed_historical_survives_newer_membership(): void
+    public function test_scenario_1_live_run_membership_beats_historical_failed(): void
     {
         $partition = ContentProjectRunItemEvidenceIndex::partition([
             $this->item(200, 1, 11, 'pending', lazyBulk: true),
@@ -46,13 +46,40 @@ final class ContentProjectLazyBulkReadModelEvidenceTest extends TestCase
             11,
         );
 
-        self::assertSame('failed', $row['generation_key']);
-        self::assertSame('failed', $row['execution_status']);
-        self::assertSame('failed', $row['generation_badge']['key']);
-        self::assertStringNotContainsStringIgnoringCase('chờ', (string) ($row['generation_badge']['label'] ?? ''));
+        self::assertSame('failed', $partition['latest_execution_by_task'][1]['status']);
+        self::assertSame('batch_waiting', $row['generation_key']);
+        self::assertSame('pending', $row['execution_status']);
+        self::assertSame(ContentProjectArticleRuntimeStatus::STATE_BATCH_WAITING, $row['runtime_state']);
     }
 
-    public function test_scenario_2_completed_historical_survives_newer_membership(): void
+    public function test_scenario_1b_terminal_run_keeps_historical_failed(): void
+    {
+        $partition = ContentProjectRunItemEvidenceIndex::partition([
+            $this->item(200, 1, 11, 'pending', lazyBulk: true),
+            $this->item(100, 1, 10, 'failed', lazyBulk: false, finished: true),
+        ], null, 11);
+
+        $row = ContentProjectItemOpsEvidencePresenter::present(
+            SeoProjectTask::STATUS_FAILED,
+            $partition['latest_execution_by_task'][1] ?? null,
+            $partition['current_membership_by_task'][1] ?? null,
+            [
+                'run_id' => 11,
+                'run_status' => SeoProjectRun::STATUS_COMPLETED,
+                'active_dispatch' => null,
+                'ai_transient_retry' => null,
+                'processing_count' => 0,
+                'has_dispatch_tracking' => true,
+                'now' => $this->now,
+                'heartbeat_stale_seconds' => 1200,
+            ],
+        );
+
+        self::assertSame('failed', $row['generation_key']);
+        self::assertSame('failed', $row['execution_status']);
+    }
+
+    public function test_scenario_2_live_run_membership_beats_historical_completed(): void
     {
         $partition = ContentProjectRunItemEvidenceIndex::partition([
             $this->item(201, 2, 11, 'pending', lazyBulk: true),
@@ -67,11 +94,11 @@ final class ContentProjectLazyBulkReadModelEvidenceTest extends TestCase
             11,
         );
 
-        self::assertSame('generated', $row['generation_key']);
-        self::assertSame('success', $row['generation_badge']['key']);
+        self::assertSame('batch_waiting', $row['generation_key']);
+        self::assertSame(ContentProjectArticleRuntimeStatus::STATE_BATCH_WAITING, $row['runtime_state']);
     }
 
-    public function test_scenario_3_never_generated_membership_is_chua_chay_not_cho(): void
+    public function test_scenario_3_live_membership_is_batch_waiting_not_chua_chay(): void
     {
         $partition = ContentProjectRunItemEvidenceIndex::partition([
             $this->item(202, 3, 11, 'pending', lazyBulk: true),
@@ -86,11 +113,9 @@ final class ContentProjectLazyBulkReadModelEvidenceTest extends TestCase
         );
 
         self::assertNull($partition['latest_execution_by_task'][3] ?? null);
-        self::assertSame('not_started', $row['generation_key']);
-        self::assertSame(ContentProjectArticleRuntimeStatus::STATE_NO_ACTIVE_EXECUTION, $row['runtime_state']);
-        self::assertSame('Chưa chạy', $row['runtime_label']);
-        self::assertSame('not_started', $row['generation_badge']['key']);
-        self::assertSame('Chưa chạy', $row['generation_badge']['label']);
+        self::assertSame('batch_waiting', $row['generation_key']);
+        self::assertSame(ContentProjectArticleRuntimeStatus::STATE_BATCH_WAITING, $row['runtime_state']);
+        self::assertSame('Chờ trong batch', $row['runtime_label']);
     }
 
     public function test_scenario_4_active_dispatch_on_membership_shows_waiting_worker(): void
@@ -120,7 +145,7 @@ final class ContentProjectLazyBulkReadModelEvidenceTest extends TestCase
         self::assertSame('queued', $row['generation_key']);
         self::assertSame(ContentProjectArticleRuntimeStatus::STATE_QUEUED, $row['runtime_state']);
         self::assertSame('Đang chờ worker', $row['runtime_label']);
-        self::assertSame('failed', $row['execution_status']);
+        self::assertSame('pending', $row['execution_status']);
     }
 
     public function test_scenario_5_only_dispatched_item_gets_queued_runtime(): void
@@ -160,9 +185,9 @@ final class ContentProjectLazyBulkReadModelEvidenceTest extends TestCase
         }
 
         self::assertSame('queued', $rows[1]['generation_key']);
-        self::assertSame('generated', $rows[2]['generation_key']);
-        self::assertSame('failed', $rows[3]['generation_key']);
-        self::assertSame('not_started', $rows[4]['generation_key']);
+        self::assertSame('batch_waiting', $rows[2]['generation_key']);
+        self::assertSame('batch_waiting', $rows[3]['generation_key']);
+        self::assertSame('batch_waiting', $rows[4]['generation_key']);
     }
 
     public function test_scenario_6_after_item1_success_only_item2_is_runtime_active(): void
@@ -258,9 +283,11 @@ final class ContentProjectLazyBulkReadModelEvidenceTest extends TestCase
                 900,
             );
 
-            self::assertSame('failed', $rowA['generation_key']);
-            self::assertSame('failed', $rowA['execution_status']);
-            self::assertTrue(ContentProjectFailedOpsDefinition::matches([
+            // Current live run membership takes precedence over historical Failed.
+            self::assertSame('batch_waiting', $rowA['generation_key']);
+            self::assertSame('pending', $rowA['execution_status']);
+            self::assertSame(ContentProjectArticleRuntimeStatus::STATE_BATCH_WAITING, $rowA['runtime_state']);
+            self::assertFalse(ContentProjectFailedOpsDefinition::matches([
                 'generation_status' => $rowA['generation_status'],
                 'execution_status' => $rowA['execution_status'],
                 'runtime_status' => $rowA['runtime_status'],
@@ -271,9 +298,9 @@ final class ContentProjectLazyBulkReadModelEvidenceTest extends TestCase
             self::assertSame(ContentProjectArticleRuntimeStatus::STATE_QUEUED, $rowB['runtime_state']);
             self::assertSame('Đang chờ worker', $rowB['runtime_label']);
 
-            self::assertSame('not_started', $rowC['generation_key']);
-            self::assertSame('Chưa chạy', $rowC['runtime_label']);
-            self::assertNotSame('queued', $rowC['generation_key']);
+            self::assertSame('batch_waiting', $rowC['generation_key']);
+            self::assertSame('Chờ trong batch', $rowC['runtime_label']);
+            self::assertNotSame('failed', $rowC['generation_key']);
         }
     }
 

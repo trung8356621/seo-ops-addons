@@ -38,23 +38,21 @@ final class ContentProjectLazyBulkStatusProjectionTest extends TestCase
         $this->now = Carbon::parse('2026-09-14T08:00:00+00:00');
     }
 
-    public function test_before_claim_failed_and_never_generated_lifecycle_preserved(): void
+    public function test_before_claim_live_membership_is_batch_waiting_not_historical_failed(): void
     {
         $failedA = $this->resolveMembership('failed', taskId: 1, runItemId: 101);
         $failedB = $this->resolveMembership('failed', taskId: 2, runItemId: 102);
         $failedC = $this->resolveMembership('failed', taskId: 3, runItemId: 103);
         $never = $this->resolveMembership('pending', taskId: 4, runItemId: 104);
 
-        foreach ([$failedA, $failedB, $failedC] as $status) {
-            self::assertSame(ContentProjectArticleRuntimeStatus::STATE_FAILED, $status->state);
-            self::assertSame('failed', ContentProjectOpsStateClassifier::classify($this->row($status, 'failed'))['generation_key']);
-            self::assertTrue(ContentProjectFailedOpsDefinition::matches($this->row($status, 'failed')));
-            self::assertFalse(ContentProjectPendingOpsDefinition::matches($this->row($status, 'failed')));
+        foreach ([$failedA, $failedB, $failedC, $never] as $status) {
+            self::assertSame(ContentProjectArticleRuntimeStatus::STATE_BATCH_WAITING, $status->state);
+            self::assertSame('batch_waiting', ContentProjectOpsStateClassifier::classify($this->row($status, 'pending'))['generation_key']);
+            self::assertFalse(ContentProjectFailedOpsDefinition::matches($this->row($status, 'pending')));
+            self::assertFalse(ContentProjectPendingOpsDefinition::matches($this->row($status, 'pending')));
         }
 
-        self::assertSame(ContentProjectArticleRuntimeStatus::STATE_NO_ACTIVE_EXECUTION, $never->state);
-        self::assertSame('Chưa chạy', $never->label);
-        self::assertFalse(ContentProjectPendingOpsDefinition::matches($this->row($never, 'pending')));
+        self::assertSame('Chờ trong batch', $never->label);
     }
 
     public function test_after_a_claim_only_current_item_shows_waiting_worker(): void
@@ -87,9 +85,9 @@ final class ContentProjectLazyBulkStatusProjectionTest extends TestCase
         self::assertSame('Đang chờ worker', $a->label);
         self::assertSame('queued', ContentProjectOpsStateClassifier::classify($this->row($a, 'pending'))['generation_key']);
 
-        self::assertSame(ContentProjectArticleRuntimeStatus::STATE_FAILED, $b->state);
-        self::assertSame(ContentProjectArticleRuntimeStatus::STATE_FAILED, $c->state);
-        self::assertSame(ContentProjectArticleRuntimeStatus::STATE_NO_ACTIVE_EXECUTION, $d->state);
+        self::assertSame(ContentProjectArticleRuntimeStatus::STATE_BATCH_WAITING, $b->state);
+        self::assertSame(ContentProjectArticleRuntimeStatus::STATE_BATCH_WAITING, $c->state);
+        self::assertSame(ContentProjectArticleRuntimeStatus::STATE_BATCH_WAITING, $d->state);
     }
 
     public function test_after_a_terminal_and_b_claim_only_b_is_current(): void
@@ -128,7 +126,7 @@ final class ContentProjectLazyBulkStatusProjectionTest extends TestCase
 
         self::assertSame(ContentProjectArticleRuntimeStatus::STATE_COMPLETED, $a->state);
         self::assertSame(ContentProjectArticleRuntimeStatus::STATE_QUEUED, $b->state);
-        self::assertSame(ContentProjectArticleRuntimeStatus::STATE_FAILED, $c->state);
+        self::assertSame(ContentProjectArticleRuntimeStatus::STATE_BATCH_WAITING, $c->state);
     }
 
     public function test_seed_bulk_membership_does_not_mutate_task_lifecycle(): void

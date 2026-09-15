@@ -700,6 +700,7 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
                 \Omnichannel\Addons\ContentProjects\Console\ContentProjectRunStatusCommand::class,
                 QueueRuntimeCheckCommand::class,
                 \Omnichannel\Addons\ContentProjects\Console\ContentProjectRunRecoverCommand::class,
+                \Omnichannel\Addons\ContentProjects\Console\ContentProjectWorkerLostWatchdogCommand::class,
                 \Omnichannel\Addons\ContentProjects\Console\RepairContentProjectActiveExecutionsCommand::class,
                 \Omnichannel\Addons\ContentProjects\Console\RepairContentProjectAiFailuresCommand::class,
                 \Omnichannel\Addons\ContentProjects\Console\RecoverContentProjectStaleGenerationCommand::class,
@@ -846,6 +847,17 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
                     ->everyMinute()
                     ->name($publishScheduledName)
                     ->withoutOverlapping();
+            }
+
+            $workerLostWatchdogName = 'seo-content-ai:content-project-worker-lost-watchdog';
+            $workerLostWatchdogRegistered = collect($schedule->events())
+                ->contains(static fn ($event): bool => $event->description === $workerLostWatchdogName);
+            if (! $workerLostWatchdogRegistered) {
+                $schedule
+                    ->command(\Omnichannel\Addons\ContentProjects\Console\ContentProjectWorkerLostWatchdogCommand::class)
+                    ->everyFiveMinutes()
+                    ->name($workerLostWatchdogName)
+                    ->withoutOverlapping(4);
             }
 
             $siteSyncReconcileName = 'seo-content-ai:site-sync-reconcile-quick';

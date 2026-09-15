@@ -16,6 +16,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Suppo
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectTenantGuard;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectDraftExecutionGuard;
 use Omnichannel\Addons\ContentProjects\Services\RunEngine\ContentProjectRunEngine;
+use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectRunRecoverableState;
 use App\Support\RuntimeLogger;
 use InvalidArgumentException;
 
@@ -50,15 +51,15 @@ final class ResumeProjectExecutionHandler extends AbstractPublishingHandler
             if (! $run instanceof SeoProjectRun) {
                 return ContentProjectActionResult::fail(
                     ContentProjectActionCodes::VALIDATION_FAILED,
-                    'No stopping execution found.',
+                    'No resumable execution found.',
                     $projectId,
                 );
             }
 
-            if ((string) $run->status !== SeoProjectRun::STATUS_STOPPING) {
+            if (! $this->isResumable($run)) {
                 return ContentProjectActionResult::fail(
                     ContentProjectActionCodes::LIFECYCLE_INVALID,
-                    'Execution is not stopping.',
+                    'Execution is not resumable (stopping or recoverable failed only).',
                     $projectId,
                     metadata: [
                         'execution_ref' => ContentProjectPublicRef::execution((int) $run->getKey()),
@@ -67,7 +68,7 @@ final class ResumeProjectExecutionHandler extends AbstractPublishingHandler
                 );
             }
 
-            // Engine owns stopping→running + next pending dispatch (no live worker required).
+            // Engine owns stopping→running / recoverable→running + next pending dispatch.
             try {
                 $this->runEngine->resume($run);
             } catch (\Throwable $e) {
@@ -106,19 +107,46 @@ final class ResumeProjectExecutionHandler extends AbstractPublishingHandler
     {
         if ($executionRef !== null) {
             $runId = $this->resolveExecutionId($executionRef);
-
-            return SeoProjectRun::query()
+            $run = SeoProjectRun::query()
                 ->where('project_id', $projectId)
                 ->whereKey($runId)
-                ->where('status', SeoProjectRun::STATUS_STOPPING)
                 ->first();
+
+            return $run instanceof SeoProjectRun && $this->isResumable($run) ? $run : null;
         }
 
-        return SeoProjectRun::query()
+        $stopping = SeoProjectRun::query()
             ->where('project_id', $projectId)
             ->where('status', SeoProjectRun::STATUS_STOPPING)
             ->orderByDesc('id')
             ->first();
+        if ($stopping instanceof SeoProjectRun) {
+            return $stopping;
+        }
+
+        $failedCandidates = SeoProjectRun::query()
+            ->where('project_id', $projectId)
+            ->where('status', SeoProjectRun::STATUS_FAILED)
+            ->orderByDesc('id')
+            ->limit(10)
+            ->get();
+
+        foreach ($failedCandidates as $candidate) {
+            if ($candidate instanceof SeoProjectRun && $this->isResumable($candidate)) {
+                return $candidate;
+            }
+        }
+
+        return null;
+    }
+
+    private function isResumable(SeoProjectRun $run): bool
+    {
+        if ((string) $run->status === SeoProjectRun::STATUS_STOPPING) {
+            return true;
+        }
+
+        return ContentProjectRunRecoverableState::isRecoverableRun($run);
     }
 
     private function resolveExecutionId(string|int $executionRef): int

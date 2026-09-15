@@ -30,6 +30,8 @@ final class ContentProjectResumeExecutionOwnershipTest extends TestCase
         self::assertStringContainsString('ContentProjectRunEngine', $src);
         self::assertStringContainsString('private readonly ContentProjectRunEngine $runEngine', $src);
         self::assertStringContainsString('$this->runEngine->resume($run)', $src);
+        self::assertStringContainsString('isResumable', $src);
+        self::assertStringContainsString('ContentProjectRunRecoverableState::isRecoverableRun', $src);
         self::assertStringNotContainsString("STATUS_RUNNING,\n            ])->saveQuietly()", $src);
         self::assertStringNotContainsString("forceFill([\n                'status' => SeoProjectRun::STATUS_RUNNING", $src);
     }
@@ -42,6 +44,8 @@ final class ContentProjectResumeExecutionOwnershipTest extends TestCase
 
         self::assertStringContainsString('function resume(SeoProjectRun $run)', $src);
         self::assertStringContainsString('clearStoppingToRunning', $src);
+        self::assertStringContainsString('tryResumeAfterWorkerLost', $src);
+        self::assertStringContainsString('tryResumeAfterCircuitBreaker', $src);
         self::assertStringContainsString('STATUS_STOPPING', $src);
         self::assertStringContainsString('resume_from_stopping', $src);
         self::assertStringContainsString('dispatchNextArticle($run)', $src);
@@ -51,6 +55,8 @@ final class ContentProjectResumeExecutionOwnershipTest extends TestCase
     {
         $engine = new ReflectionClass(ContentProjectRunEngine::class);
         self::assertTrue($engine->hasMethod('resume'));
+        self::assertTrue($engine->hasMethod('isRecoverable'));
+        self::assertTrue($engine->hasMethod('declareWorkerLostIfConfirmed'));
 
         $handler = new ReflectionClass(ResumeProjectExecutionHandler::class);
         $ctor = $handler->getConstructor();

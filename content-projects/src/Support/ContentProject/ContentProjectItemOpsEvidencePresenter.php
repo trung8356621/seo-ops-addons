@@ -50,6 +50,10 @@ final class ContentProjectItemOpsEvidencePresenter
             $runtimeContext,
         );
 
+        $currentRunPrecedence = ContentProjectRunItemEvidenceIndex::currentRunTakesPresentationPrecedence($runtimeContext)
+            && $currentMembership !== null
+            && ContentProjectRunItemEvidenceIndex::isCurrentBatchMembership($currentMembership, $runtimeContext);
+
         $execStatusEarly = strtolower((string) ($exec['status'] ?? ''));
         $dispatch = is_array($runtimeContext['active_dispatch'] ?? null)
             ? $runtimeContext['active_dispatch']
@@ -61,7 +65,10 @@ final class ContentProjectItemOpsEvidencePresenter
             && in_array($runtimeStatusEarly, ['pending', 'processing'], true);
 
         $genStatus = (string) ($taskStatus !== '' ? $taskStatus : SeoProjectTask::STATUS_PENDING);
-        if (in_array($execStatusEarly, ['failed', 'error', 'cancelled', 'stopped', 'timeout'], true)) {
+        if ($currentRunPrecedence && in_array($runtimeStatusEarly, ['pending', 'processing'], true)) {
+            // Current live/recoverable membership owns CURRENT UI — hide historical Failed.
+            $genStatus = SeoProjectTask::STATUS_PENDING;
+        } elseif (in_array($execStatusEarly, ['failed', 'error', 'cancelled', 'stopped', 'timeout'], true)) {
             $genStatus = SeoProjectTask::STATUS_FAILED;
         } elseif ($latestAttemptQueued && $genStatus === SeoProjectTask::STATUS_FAILED) {
             $genStatus = SeoProjectTask::STATUS_PENDING;
@@ -73,8 +80,11 @@ final class ContentProjectItemOpsEvidencePresenter
 
         $runtime = $runtimeStatus->resolve($runtimeContext + [
             'run_item' => $runtimeItem,
-            'task_status' => $taskStatus,
+            'task_status' => $currentRunPrecedence ? SeoProjectTask::STATUS_PENDING : $taskStatus,
             'is_generation_stale' => $isStaleGeneration,
+            'current_run_batch_waiting' => $currentRunPrecedence
+                && $runtimeStatusEarly === 'pending'
+                && ! $isCurrentDispatchedItem,
         ]);
         if ($runtime->isActive) {
             $genStatus = SeoProjectTask::STATUS_WRITING;
@@ -83,7 +93,10 @@ final class ContentProjectItemOpsEvidencePresenter
         $displayGenStatus = $isStaleGeneration ? SeoProjectTask::STATUS_FAILED : $genStatus;
         $rowBase = [
             'generation_status' => $displayGenStatus,
-            'execution_status' => $exec['status'] ?? null,
+            // Prefer current-run membership status for CURRENT execution_status when live.
+            'execution_status' => $currentRunPrecedence
+                ? ($runtimeItem['status'] ?? null)
+                : ($exec['status'] ?? null),
             'runtime_status' => $runtime->toArray(),
             'is_genuinely_running' => $runtime->isActive,
             'is_generation_stale' => $isStaleGeneration,
@@ -100,6 +113,9 @@ final class ContentProjectItemOpsEvidencePresenter
             ),
             'queued' => ContentProjectStatusBadgePresenter::runtime(
                 ContentProjectArticleRuntimeStatus::STATE_QUEUED,
+            ),
+            'batch_waiting' => ContentProjectStatusBadgePresenter::runtime(
+                ContentProjectArticleRuntimeStatus::STATE_BATCH_WAITING,
             ),
             'waiting_ai' => ContentProjectStatusBadgePresenter::runtime(
                 ContentProjectArticleRuntimeStatus::STATE_WAITING_AI_RETRY,
@@ -119,7 +135,7 @@ final class ContentProjectItemOpsEvidencePresenter
 
         return [
             'generation_status' => $displayGenStatus,
-            'execution_status' => $exec['status'] ?? null,
+            'execution_status' => $rowBase['execution_status'],
             'runtime' => $runtime,
             'runtime_status' => $runtime->toArray(),
             'runtime_state' => $runtime->state,

@@ -127,7 +127,8 @@ final class RunContentProjectArticleJob implements ShouldBeUnique, ShouldQueue
                 status: ContentProjectArticleSemanticStatus::Failed,
                 message: 'Run item không tồn tại.',
                 mayDispatchNextOverride: true,
-            ));
+                payload: ['dispatch_token' => $this->dispatchToken],
+            ), $this->dispatchToken);
 
             return;
         }
@@ -154,9 +155,11 @@ final class RunContentProjectArticleJob implements ShouldBeUnique, ShouldQueue
                         'status' => 'success',
                         'article_id' => $item->article_id,
                         'message' => (string) ($item->message ?? 'Already completed.'),
+                        'dispatch_token' => $this->dispatchToken,
                     ],
                     $statusMapper,
                 ),
+                $this->dispatchToken,
             );
 
             return;
@@ -176,7 +179,8 @@ final class RunContentProjectArticleJob implements ShouldBeUnique, ShouldQueue
                 articleId: $item->article_id !== null ? (int) $item->article_id : null,
                 message: (string) ($item->message ?? 'Already failed.'),
                 mayDispatchNextOverride: true,
-            ));
+                payload: ['dispatch_token' => $this->dispatchToken],
+            ), $this->dispatchToken);
 
             return;
         }
@@ -203,7 +207,8 @@ final class RunContentProjectArticleJob implements ShouldBeUnique, ShouldQueue
                 status: ContentProjectArticleSemanticStatus::Cancelled,
                 message: $statusMapper->cancelledArticleErrorMessage(),
                 mayDispatchNextOverride: false,
-            ));
+                payload: ['dispatch_token' => $this->dispatchToken],
+            ), $this->dispatchToken);
 
             return;
         }
@@ -258,7 +263,8 @@ final class RunContentProjectArticleJob implements ShouldBeUnique, ShouldQueue
                 status: ContentProjectArticleSemanticStatus::Cancelled,
                 message: $statusMapper->cancelledArticleErrorMessage(),
                 mayDispatchNextOverride: false,
-            ));
+                payload: ['dispatch_token' => $this->dispatchToken],
+            ), $this->dispatchToken);
 
             return;
         }
@@ -285,9 +291,11 @@ final class RunContentProjectArticleJob implements ShouldBeUnique, ShouldQueue
                         'article_id' => $item->article_id,
                         'message' => (string) ($item->message ?? 'Already terminal.'),
                         'error_detail' => (string) ($item->error_message ?? ''),
+                        'dispatch_token' => $this->dispatchToken,
                     ],
                     $statusMapper,
                 ),
+                $this->dispatchToken,
             );
 
             return;
@@ -318,7 +326,19 @@ final class RunContentProjectArticleJob implements ShouldBeUnique, ShouldQueue
             }
         }
 
-        $engine->handleArticleFinished($run->fresh() ?? $run, $result);
+        // Ownership gate after provider return — revoked WORKER_LOST must not advance.
+        $runAfter = $run->fresh() ?? $run;
+        if (! $this->dispatchTokenMatches($runAfter)) {
+            RuntimeLogger::info('content_project_run.stale_job_ignored', [
+                'run_id' => $this->runId,
+                'run_item_id' => $this->runItemId,
+                'reason' => 'dispatch_token_mismatch_post_run',
+            ]);
+
+            return;
+        }
+
+        $engine->handleArticleFinished($runAfter, $result, $this->dispatchToken);
     }
 
     public function failed(?\Throwable $exception): void
@@ -336,6 +356,16 @@ final class RunContentProjectArticleJob implements ShouldBeUnique, ShouldQueue
             $engine = app(ContentProjectRunEngine::class);
             $run = SeoProjectRun::query()->find($this->runId);
             if (! $run instanceof SeoProjectRun) {
+                return;
+            }
+
+            if (! $this->dispatchTokenMatches($run)) {
+                RuntimeLogger::info('content_project_run.stale_job_ignored', [
+                    'run_id' => $this->runId,
+                    'run_item_id' => $this->runItemId,
+                    'reason' => 'dispatch_token_mismatch_job_failed',
+                ]);
+
                 return;
             }
 
@@ -362,7 +392,8 @@ final class RunContentProjectArticleJob implements ShouldBeUnique, ShouldQueue
                 status: ContentProjectArticleSemanticStatus::Failed,
                 message: $exception?->getMessage() ?? 'Article job failed.',
                 mayDispatchNextOverride: true,
-            ));
+                payload: ['dispatch_token' => $this->dispatchToken],
+            ), $this->dispatchToken);
         } catch (\Throwable $inner) {
             RuntimeLogger::error('content_project_run.article_failed', [
                 'run_id' => $this->runId,

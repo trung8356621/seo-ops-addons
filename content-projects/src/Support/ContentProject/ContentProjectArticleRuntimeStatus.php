@@ -30,6 +30,9 @@ final class ContentProjectArticleRuntimeStatus
 
     public const STATE_NO_ACTIVE_EXECUTION = 'no_active_execution';
 
+    /** Unvisited membership in a live/recoverable current bulk run. */
+    public const STATE_BATCH_WAITING = 'batch_waiting';
+
     public const STEP_OUTLINE = 'Outline';
 
     public const STEP_VOCABULARY = 'Vocabulary';
@@ -62,6 +65,7 @@ final class ContentProjectArticleRuntimeStatus
             self::STATE_ACTIVELY_PROCESSING,
             self::STATE_QUEUED,
             self::STATE_WAITING_AI_RETRY,
+            self::STATE_BATCH_WAITING,
         ], true);
     }
 

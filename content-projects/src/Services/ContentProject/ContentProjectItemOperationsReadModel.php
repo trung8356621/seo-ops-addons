@@ -29,6 +29,7 @@ use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItem
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectScheduledDefinition;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectStatusBadgePresenter;
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectRunEngineFeature;
+use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectRunRecoverableState;
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectTransientAiRetryPolicy;
 use Omnichannel\Addons\Publishing\Support\PublishingQueue\PublishingQueueHandoffEligibility;
 use Omnichannel\Addons\Seo\Support\DomainContextResolver;
@@ -235,6 +236,9 @@ final class ContentProjectItemOperationsReadModel
             'last_execution_at' => $latestRun?->finished_at?->format('d/m/Y H:i')
                 ?? $latestRun?->started_at?->format('d/m/Y H:i'),
             'last_execution_status' => $latestRun !== null ? (string) $latestRun->status : null,
+            'run_terminal_reason' => $runtimeContext['run_terminal_reason'] ?? null,
+            'run_recoverable_reason' => $runtimeContext['run_recoverable_reason'] ?? null,
+            'run_is_recoverable' => (bool) ($runtimeContext['run_is_recoverable'] ?? false),
             'active_runtime' => self::activeRuntimeRow($rows),
             'should_poll_runtime' => (bool) ($stats['should_poll_runtime'] ?? false),
             'rows' => $slice,
@@ -258,6 +262,9 @@ final class ContentProjectItemOperationsReadModel
                 'ai_transient_retry' => null,
                 'processing_count' => 0,
                 'has_dispatch_tracking' => false,
+                'run_is_recoverable' => false,
+                'run_recoverable_reason' => null,
+                'run_terminal_reason' => null,
             ];
         }
 
@@ -270,6 +277,12 @@ final class ContentProjectItemOperationsReadModel
         $aiRetry = is_array($engine[ContentProjectTransientAiRetryPolicy::SETTINGS_KEY] ?? null)
             ? $engine[ContentProjectTransientAiRetryPolicy::SETTINGS_KEY]
             : null;
+        $recoverableReason = ContentProjectRunRecoverableState::reasonFromEngine($engine);
+        $terminalReason = ContentProjectRunRecoverableState::userVisibleMessage($engine);
+        if ($terminalReason === null) {
+            $stop = trim((string) ($engine['stop_reason'] ?? ''));
+            $terminalReason = $stop !== '' ? $stop : null;
+        }
 
         $processingCount = 0;
         foreach ($currentMembershipByTask as $item) {
@@ -288,6 +301,9 @@ final class ContentProjectItemOperationsReadModel
             'ai_transient_retry' => $aiRetry,
             'processing_count' => $processingCount,
             'has_dispatch_tracking' => ContentProjectRunEngineFeature::hasPhpEngineSignals($engine),
+            'run_is_recoverable' => ContentProjectRunRecoverableState::isRecoverableRun($latestRun),
+            'run_recoverable_reason' => $recoverableReason,
+            'run_terminal_reason' => $terminalReason,
         ];
     }
 

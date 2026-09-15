@@ -132,7 +132,8 @@ final class ContentProjectRunEnginePhase1Test extends TestCase
 
         self::assertStringContainsString('taskExecution->execute', $runner);
         self::assertStringContainsString('markCompleted: false', $runner);
-        self::assertStringNotContainsString('retryTask(', $runner);
+        self::assertStringContainsString('forceRetry: false', $runner);
+        self::assertStringContainsString('Does NOT call retryTask', $runner);
         self::assertStringNotContainsString('dispatchNextArticle', $runner);
 
         self::assertStringContainsString('phpEngine', $js);
@@ -172,7 +173,8 @@ final class ContentProjectRunEnginePhase1Test extends TestCase
             : substr($engine, $finalizePos, 8000);
         self::assertStringContainsString('hasBlockingActiveDispatch', $chunk);
         self::assertStringContainsString('activeProcessingCount', $chunk);
-        self::assertStringContainsString('abandonPendingArticles', $chunk);
+        self::assertStringContainsString('intentional_unvisited_pending', $chunk);
+        self::assertStringNotContainsString('abandonPendingArticles($locked)', $chunk);
         self::assertStringContainsString('sweepStaleActiveDispatch', $chunk);
     }
 

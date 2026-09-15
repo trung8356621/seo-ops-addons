@@ -227,6 +227,7 @@ final class ContentProjectOpsStateClassifier
         $runtimeKey = match ($runtimeState) {
             ContentProjectArticleRuntimeStatus::STATE_ACTIVELY_PROCESSING => 'running',
             ContentProjectArticleRuntimeStatus::STATE_QUEUED => 'queued',
+            ContentProjectArticleRuntimeStatus::STATE_BATCH_WAITING => 'batch_waiting',
             ContentProjectArticleRuntimeStatus::STATE_WAITING_AI_RETRY => 'waiting_ai',
             ContentProjectArticleRuntimeStatus::STATE_STALE_PROCESSING,
             ContentProjectArticleRuntimeStatus::STATE_INCONSISTENT_PROCESSING => 'stale',

@@ -45,11 +45,12 @@ final class ContentProjectFailedOpsDefinition
         $exec = strtolower(trim((string) ($row['execution_status'] ?? '')));
         $runtimeState = strtolower(trim((string) ($row['runtime_status']['state'] ?? '')));
 
-        // Live claimed/queued runtime suppresses Failed overlay — membership pending does not.
+        // Live claimed/queued/batch-waiting runtime suppresses Failed overlay — membership pending does not.
         if (in_array($runtimeState, [
             ContentProjectArticleRuntimeStatus::STATE_ACTIVELY_PROCESSING,
             ContentProjectArticleRuntimeStatus::STATE_QUEUED,
             ContentProjectArticleRuntimeStatus::STATE_WAITING_AI_RETRY,
+            ContentProjectArticleRuntimeStatus::STATE_BATCH_WAITING,
         ], true)) {
             return false;
         }

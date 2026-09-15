@@ -188,6 +188,26 @@ final class ContentProjectRunEngineFeature
         return max(1, (int) self::configGet('seo-content-ai.content_project.heartbeat_stale_minutes', 20));
     }
 
+    /**
+     * Hard lease for declaring a worker lost (seconds).
+     * Must exceed RunContentProjectArticleJob::$timeout (900) — heartbeat stale alone is not enough.
+     */
+    public static function workerDeathThresholdSeconds(): int
+    {
+        $configured = (int) self::configGet('seo-content-ai.content_project.worker_death_seconds', 0);
+        if ($configured > 0) {
+            return max(960, $configured);
+        }
+
+        // Default: active_dispatch TTL, never below job timeout + 60s buffer.
+        return max(self::activeDispatchTtlMinutes() * 60, 960);
+    }
+
+    public static function articleJobTimeoutSeconds(): int
+    {
+        return max(1, (int) self::configGet('seo-content-ai.content_project.article_job_timeout_seconds', 900));
+    }
+
     public static function maxParallelArticles(): int
     {
         $configured = (int) self::configGet('seo-content-ai.content_project.max_parallel_articles', 1);

@@ -24,6 +24,7 @@ use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectBatchCirc
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectBatchFailureSignature;
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectRunEngineFeature;
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectRunHealthReport;
+use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectRunRecoverableState;
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectRunStatusMapper;
 use Omnichannel\Addons\ContentProjects\Support\RunEngine\ContentProjectTransientAiRetryPolicy;
 use Omnichannel\Addons\ContentProjects\Support\SeoProjectRunItemClassifier;
@@ -150,6 +151,10 @@ final class ContentProjectRunEngine
             $run->refresh();
         }
 
+        if ($this->tryResumeAfterWorkerLost($run)) {
+            return;
+        }
+
         if ($this->tryResumeAfterCircuitBreaker($run)) {
             return;
         }
@@ -161,6 +166,11 @@ final class ContentProjectRunEngine
         }
 
         $this->dispatchNextArticle($run);
+    }
+
+    public function isRecoverable(SeoProjectRun $run): bool
+    {
+        return ContentProjectRunRecoverableState::isRecoverableRun($run);
     }
 
     /**
@@ -182,9 +192,16 @@ final class ContentProjectRunEngine
             }
 
             $previousStatus = (string) $locked->status;
+            $settings = is_array($locked->settings) ? $locked->settings : [];
+            $engine = is_array($settings[self::SETTINGS_ENGINE_KEY] ?? null)
+                ? $settings[self::SETTINGS_ENGINE_KEY]
+                : [];
+            unset($engine['finalized_at'], $engine['final_status']);
+            $settings[self::SETTINGS_ENGINE_KEY] = $engine;
             $locked->update([
                 'status' => $this->statusMapper->runToDb(ContentProjectRunSemanticStatus::Running),
                 'finished_at' => null,
+                'settings' => $settings,
             ]);
 
             RuntimeLogger::info('content_project_run.transition', [
@@ -198,13 +215,133 @@ final class ContentProjectRunEngine
     }
 
     /**
+     * Resume after hard worker death — re-queue the interrupted item (attempt N → N+1).
+     * Does not auto-advance to the next article before that item finishes.
+     */
+    private function tryResumeAfterWorkerLost(SeoProjectRun $run): bool
+    {
+        $engine = $this->engineBag($run);
+        if (ContentProjectRunRecoverableState::reasonFromEngine($engine)
+            !== ContentProjectRunRecoverableState::REASON_WORKER_LOST
+        ) {
+            return false;
+        }
+
+        $lost = is_array($engine[ContentProjectRunRecoverableState::WORKER_LOST_KEY] ?? null)
+            ? $engine[ContentProjectRunRecoverableState::WORKER_LOST_KEY]
+            : [];
+        $runItemId = (int) ($lost['run_item_id'] ?? ($engine[ContentProjectRunRecoverableState::SETTINGS_KEY]['run_item_id'] ?? 0));
+        if ($runItemId <= 0) {
+            return false;
+        }
+
+        $item = SeoProjectRunItem::query()->find($runItemId);
+        if (! $item instanceof SeoProjectRunItem || (int) $item->run_id !== (int) $run->id) {
+            return false;
+        }
+
+        $status = $this->statusMapper->runFromDb((string) $run->status);
+        if ($status !== ContentProjectRunSemanticStatus::Failed
+            && $status !== ContentProjectRunSemanticStatus::Running
+        ) {
+            return false;
+        }
+
+        $currentAttempt = max(1, (int) ($item->attempt ?? 1));
+        $nextAttempt = $currentAttempt + 1;
+        if ($nextAttempt > ContentProjectTransientAiRetryPolicy::MAX_TRANSIENT_ARTICLE_ATTEMPTS) {
+            RuntimeLogger::warning('content_project_run.worker_lost_resume_exhausted', [
+                'run_id' => (int) $run->id,
+                'run_item_id' => $runItemId,
+                'attempt' => $currentAttempt,
+            ]);
+
+            return false;
+        }
+
+        $dispatch = DB::connection('omi_seo_ai')->transaction(function () use ($run, $item, $nextAttempt): ?array {
+            /** @var SeoProjectRun|null $locked */
+            $locked = SeoProjectRun::query()
+                ->whereKey((int) $run->id)
+                ->lockForUpdate()
+                ->first();
+            if (! $locked instanceof SeoProjectRun) {
+                return null;
+            }
+
+            $settings = is_array($locked->settings) ? $locked->settings : [];
+            $engine = is_array($settings[self::SETTINGS_ENGINE_KEY] ?? null)
+                ? $settings[self::SETTINGS_ENGINE_KEY]
+                : [];
+            if (ContentProjectRunRecoverableState::reasonFromEngine($engine)
+                !== ContentProjectRunRecoverableState::REASON_WORKER_LOST
+            ) {
+                return null;
+            }
+
+            /** @var SeoProjectRunItem|null $lockedItem */
+            $lockedItem = SeoProjectRunItem::query()
+                ->whereKey((int) $item->id)
+                ->lockForUpdate()
+                ->first();
+            if (! $lockedItem instanceof SeoProjectRunItem) {
+                return null;
+            }
+
+            $lockedItem->update([
+                'status' => SeoProjectRunItemStatus::Pending->value,
+                'attempt' => $nextAttempt,
+                'started_at' => null,
+                'finished_at' => null,
+                'message' => 'Resumed after worker loss — attempt '.$nextAttempt.'.',
+                'error_message' => null,
+            ]);
+
+            $engine = ContentProjectRunRecoverableState::clear($engine);
+            unset($engine['active_dispatch']);
+            $settings[self::SETTINGS_ENGINE_KEY] = $engine;
+            $locked->update([
+                'status' => $this->statusMapper->runToDb(ContentProjectRunSemanticStatus::Running),
+                'finished_at' => null,
+                'settings' => $settings,
+            ]);
+
+            return [
+                'run_id' => (int) $locked->id,
+                'task_id' => (int) $lockedItem->task_id,
+                'run_item_id' => (int) $lockedItem->id,
+                'attempt' => $nextAttempt,
+            ];
+        });
+
+        if ($dispatch === null) {
+            return false;
+        }
+
+        $run->refresh();
+        RuntimeLogger::info('content_project_run.worker_lost_resumed', [
+            'run_id' => (int) $run->id,
+            'run_item_id' => $dispatch['run_item_id'],
+            'attempt' => $dispatch['attempt'],
+        ]);
+
+        // Same interrupted item is now the lowest pending id with attempt bumped — claim it first.
+        $this->dispatchNextArticle($run);
+
+        return true;
+    }
+
+    /**
      * Resume a run halted by consecutive identical failures — pending items stay pending.
      */
     private function tryResumeAfterCircuitBreaker(SeoProjectRun $run): bool
     {
         $engine = $this->engineBag($run);
+        $reason = ContentProjectRunRecoverableState::reasonFromEngine($engine);
         $breaker = is_array($engine['circuit_breaker'] ?? null) ? $engine['circuit_breaker'] : null;
-        if ($breaker === null || empty($breaker['stopped'])) {
+        if ($reason !== ContentProjectRunRecoverableState::REASON_CIRCUIT_BREAKER
+            && ($breaker === null || empty($breaker['stopped']))
+        ) {
             return false;
         }
 
@@ -236,8 +373,7 @@ final class ContentProjectRunEngine
             $engine = is_array($settings[self::SETTINGS_ENGINE_KEY] ?? null)
                 ? $settings[self::SETTINGS_ENGINE_KEY]
                 : [];
-            unset($engine['circuit_breaker'], $engine['finalized_at'], $engine['final_status']);
-            $engine = ContentProjectBatchCircuitBreakerState::clearForResume($engine);
+            $engine = ContentProjectRunRecoverableState::clear($engine);
             $settings[self::SETTINGS_ENGINE_KEY] = $engine;
             $locked->update([
                 'status' => $this->statusMapper->runToDb(ContentProjectRunSemanticStatus::Running),
@@ -715,6 +851,9 @@ final class ContentProjectRunEngine
                 'reason' => $reason,
                 'at' => now()->toIso8601String(),
             ];
+            $engine['final_status'] = 'failed_fail_closed';
+            $engine['intentional_unvisited_pending'] = true;
+            $engine['stop_reason'] = 'Fail-closed orchestration: '.$reason;
             $settings[self::SETTINGS_ENGINE_KEY] = $engine;
 
             // Leave pending run-items pending (unvisited) — do not mutate task lifecycle.
@@ -729,11 +868,33 @@ final class ContentProjectRunEngine
         $this->events->runFailed($fresh, $reason);
     }
 
-    public function handleArticleFinished(SeoProjectRun $run, ArticleExecutionResult $result): void
-    {
+    public function handleArticleFinished(
+        SeoProjectRun $run,
+        ArticleExecutionResult $result,
+        ?string $dispatchToken = null,
+    ): void {
         $started = microtime(true);
         $run->refresh();
-        $this->clearActiveDispatch($run, $result->taskId, $result->runItemId);
+
+        $token = $dispatchToken;
+        if ($token === null || $token === '') {
+            $payloadToken = $result->payload['dispatch_token'] ?? null;
+            $token = is_string($payloadToken) && $payloadToken !== '' ? $payloadToken : null;
+        }
+
+        if (! $this->ownsCurrentDispatch($run, $result->taskId, $result->runItemId, $token)) {
+            RuntimeLogger::info('content_project_run.stale_result_ignored', [
+                'run_id' => (int) $run->id,
+                'task_id' => $result->taskId,
+                'run_item_id' => $result->runItemId,
+                'reason' => 'dispatch_ownership_revoked',
+                'has_token' => $token !== null,
+            ]);
+
+            return;
+        }
+
+        $this->clearActiveDispatch($run, $result->taskId, $result->runItemId, $token);
 
         match ($result->status) {
             ContentProjectArticleSemanticStatus::Completed,
@@ -974,14 +1135,21 @@ final class ContentProjectRunEngine
             $tripped = $recorded['tripped'];
 
             if ($tripped) {
+                $message = $this->circuitBreakerUserMessage($signature);
                 $engine['circuit_breaker'] = [
                     'stopped' => true,
                     'signature' => $signature,
                     'count' => $count,
                     'stopped_at' => now()->toIso8601String(),
-                    'reason' => $this->circuitBreakerUserMessage($signature),
+                    'reason' => $message,
                 ];
-                $engine['stop_reason'] = $engine['circuit_breaker']['reason'];
+                $engine = ContentProjectRunRecoverableState::stampCircuitBreaker(
+                    $engine,
+                    $message,
+                    $signature,
+                    $count,
+                );
+                $engine['stop_reason'] = $message;
                 $engine['finalized_at'] = now()->toIso8601String();
                 $engine['final_status'] = 'failed_circuit_breaker';
                 // Remaining items stay Pending so the run can be resumed. Clearing the
@@ -1157,7 +1325,7 @@ final class ContentProjectRunEngine
                     return 'wait_active';
                 }
 
-                $this->abandonPendingArticles($locked);
+                // Unvisited pending membership stays pending — stop/cancel is not a failure.
                 $this->clearActiveDispatch($locked, null, null);
 
                 $locked = $this->runItemService->syncMirrorAndCounters($locked, false);
@@ -1165,6 +1333,7 @@ final class ContentProjectRunEngine
                 $engine = $this->engineBag($locked);
                 $engine['finalized_at'] = now()->toIso8601String();
                 $engine['final_status'] = 'cancelled';
+                $engine['intentional_unvisited_pending'] = true;
                 $settings = is_array($locked->settings) ? $locked->settings : [];
                 $settings[self::SETTINGS_ENGINE_KEY] = $engine;
 
@@ -1374,6 +1543,11 @@ final class ContentProjectRunEngine
                 $details['release_blocked_reason'] = 'TTL hết nhưng còn processing — giữ active_dispatch chống duplicate.';
             }
 
+            if (($ages['worker_death_expired'] ?? false) && $processingItems->isNotEmpty()) {
+                $warnings[] = 'worker_death_lease_expired';
+                $details['worker_death_note'] = 'Hard lease expired — watchdog có thể declare WORKER_LOST (không auto-dispatch next).';
+            }
+
             $activeItemId = (int) ($active['run_item_id'] ?? 0);
             $activeItem = $activeItemId > 0 ? SeoProjectRunItem::query()->find($activeItemId) : null;
             if ($activeItem instanceof SeoProjectRunItem
@@ -1446,12 +1620,23 @@ final class ContentProjectRunEngine
         ])->all();
 
         if ($status->isTerminal() && $pendingArticleItems->isNotEmpty()) {
-            $errors[] = 'run_terminal_with_pending_article_items';
+            if ($this->hasIntentionalUnvisitedPending($engine, $status)) {
+                $details['intentional_unvisited_pending'] = true;
+                $details['pending_note'] = 'Pending article membership is intentional (stop/cancel/circuit_breaker/worker_lost) — not orchestration corruption.';
+            } else {
+                $errors[] = 'run_terminal_with_pending_article_items';
+            }
         }
 
         if ($status->isTerminal() && $pendingHelperItems->isNotEmpty()) {
             $warnings[] = 'run_terminal_with_pending_helper_items';
             $details['helper_note'] = 'Helper/step còn pending|processing — không suy UI running; dùng recover --action=normalize-terminal-helpers.';
+        }
+
+        $recoverableReason = ContentProjectRunRecoverableState::reasonFromEngine($engine);
+        if ($recoverableReason !== null) {
+            $details['recoverable_reason'] = $recoverableReason;
+            $details['recoverable_message'] = ContentProjectRunRecoverableState::userVisibleMessage($engine);
         }
 
         return new ContentProjectRunHealthReport(
@@ -1461,6 +1646,32 @@ final class ContentProjectRunEngine
             errors: array_values(array_unique($errors)),
             details: $details,
         );
+    }
+
+    /**
+     * @param  array<string, mixed>  $engine
+     */
+    private function hasIntentionalUnvisitedPending(array $engine, ContentProjectRunSemanticStatus $status): bool
+    {
+        if (! empty($engine['intentional_unvisited_pending'])) {
+            return true;
+        }
+
+        if (ContentProjectRunRecoverableState::isRecoverableEngine($engine)) {
+            return true;
+        }
+
+        $finalStatus = (string) ($engine['final_status'] ?? '');
+        if (in_array($finalStatus, [
+            'cancelled',
+            'failed_circuit_breaker',
+            'failed_worker_lost',
+            'failed_fail_closed',
+        ], true)) {
+            return true;
+        }
+
+        return $status === ContentProjectRunSemanticStatus::Cancelled;
     }
 
     /**
@@ -1501,9 +1712,11 @@ final class ContentProjectRunEngine
 
         if ($status->isTerminal()) {
             $blockers[] = 'run_terminal';
-            if ($pendingArticleIds !== []) {
+            if ($pendingArticleIds !== [] && ! $this->hasIntentionalUnvisitedPending($engine, $status)) {
                 $recommended = 'inspect_pending_article_items';
                 $blockers[] = 'pending_article_items';
+            } elseif ($pendingArticleIds !== [] && $this->hasIntentionalUnvisitedPending($engine, $status)) {
+                $recommended = 'noop_intentional_unvisited_pending';
             } elseif ($pendingHelperIds !== [] && $active === null && $processing === 0) {
                 $recommended = 'normalize_terminal_helper_rows';
                 $eligibleNormalizeHelpers = true;
@@ -1518,25 +1731,31 @@ final class ContentProjectRunEngine
             }
             $blockers[] = 'no_active_dispatch';
         } else {
-            if ($processing > 0) {
-                $blockers[] = 'processing_rows_present';
-            }
-            if ($ages !== null && ! $ages['dispatch_ttl_expired']) {
-                $blockers[] = 'ttl_not_expired';
-            }
-            if ($ages !== null && $ages['heartbeat_alive']) {
-                $blockers[] = 'heartbeat_still_alive';
-            }
+            $workerDeath = $ages !== null && ($ages['worker_death_expired'] ?? false);
+            if ($processing > 0 && $workerDeath) {
+                $eligible = true;
+                $recommended = 'declare_worker_lost';
+            } else {
+                if ($processing > 0) {
+                    $blockers[] = 'processing_rows_present';
+                }
+                if ($ages !== null && ! $ages['dispatch_ttl_expired']) {
+                    $blockers[] = 'ttl_not_expired';
+                }
+                if ($ages !== null && $ages['heartbeat_alive']) {
+                    $blockers[] = 'heartbeat_still_alive';
+                }
 
-            $eligible = $processing === 0
-                && $ages !== null
-                && $ages['dispatch_ttl_expired']
-                && ! $ages['heartbeat_alive']
-                && ! $status->isTerminal();
+                $eligible = $processing === 0
+                    && $ages !== null
+                    && $ages['dispatch_ttl_expired']
+                    && ! $ages['heartbeat_alive']
+                    && ! $status->isTerminal();
 
-            $recommended = $eligible
-                ? 'release_stale_active_dispatch'
-                : 'wait_or_inspect_worker';
+                $recommended = $eligible
+                    ? 'release_stale_active_dispatch'
+                    : 'wait_or_inspect_worker';
+            }
         }
 
         return [
@@ -1546,15 +1765,19 @@ final class ContentProjectRunEngine
             'active_dispatch' => $active,
             'dispatch_age_seconds' => $ages['dispatch_age_seconds'] ?? null,
             'heartbeat_age_seconds' => $ages['heartbeat_age_seconds'] ?? null,
+            'worker_death_expired' => $ages['worker_death_expired'] ?? false,
             'processing_count' => $processing,
             'pending_article_items' => $pendingArticleIds,
             'pending_helper_items' => $pendingHelperIds,
             'token' => is_array($active) ? ($active['token'] ?? null) : null,
-            'eligible_for_stale_release' => $eligible,
+            'eligible_for_stale_release' => $eligible && $recommended === 'release_stale_active_dispatch',
+            'eligible_for_worker_lost' => $recommended === 'declare_worker_lost',
             'eligible_for_normalize_terminal_helpers' => $eligibleNormalizeHelpers,
             'recommended_action' => $recommended,
             'blockers' => $blockers,
             'health' => $health->toArray(),
+            'recoverable_reason' => ContentProjectRunRecoverableState::reasonFromEngine($engine),
+            'recoverable_message' => ContentProjectRunRecoverableState::userVisibleMessage($engine),
             'apply_requires' => [
                 'stale_release' => [
                     'ttl_expired',
@@ -1562,6 +1785,12 @@ final class ContentProjectRunEngine
                     'processing_count_0',
                     'run_not_terminal',
                     'token_match_inspected',
+                ],
+                'worker_lost' => [
+                    'hard_lease_expired',
+                    'item_still_processing',
+                    'same_dispatch_token',
+                    'run_non_terminal',
                 ],
                 'normalize_terminal_helpers' => [
                     'run_terminal',
@@ -1578,9 +1807,168 @@ final class ContentProjectRunEngine
                 'Không clear queue toàn hệ thống.',
                 'Không đổi article pending → success.',
                 'Normalize helper dùng status skipped (terminal-neutral).',
-                'Heartbeat stale + processing = warning only (Phase 1.5 limitation).',
+                'Heartbeat stale + processing = warning only until hard worker-death lease expires.',
+                'WORKER_LOST does not auto-dispatch the next article.',
             ],
         ];
+    }
+
+    /**
+     * Backend watchdog entry — never calls AI providers.
+     * Scans non-terminal PHP-engine runs and declares confirmed WORKER_LOST.
+     *
+     * @return array{scanned: int, recovered: int, run_ids: list<int>}
+     */
+    public function recoverLostWorkers(int $limit = 50): array
+    {
+        $limit = max(1, min(200, $limit));
+        $runs = SeoProjectRun::query()
+            ->whereIn('status', [
+                SeoProjectRun::STATUS_RUNNING,
+                SeoProjectRun::STATUS_STOPPING,
+            ])
+            ->whereNull('finished_at')
+            ->orderBy('id')
+            ->limit($limit)
+            ->get();
+
+        $recovered = [];
+        foreach ($runs as $run) {
+            if (! $run instanceof SeoProjectRun) {
+                continue;
+            }
+            if (! ContentProjectRunEngineFeature::enabledFor($run)) {
+                continue;
+            }
+            if ($this->declareWorkerLostIfConfirmed($run)) {
+                $recovered[] = (int) $run->id;
+            }
+        }
+
+        return [
+            'scanned' => $runs->count(),
+            'recovered' => count($recovered),
+            'run_ids' => $recovered,
+        ];
+    }
+
+    /**
+     * Atomic WORKER_LOST transition when hard lease proves the worker is dead.
+     * Does NOT dispatch the next article.
+     */
+    public function declareWorkerLostIfConfirmed(SeoProjectRun $run): bool
+    {
+        $applied = DB::connection('omi_seo_ai')->transaction(function () use ($run): bool {
+            /** @var SeoProjectRun|null $locked */
+            $locked = SeoProjectRun::query()
+                ->whereKey((int) $run->id)
+                ->lockForUpdate()
+                ->first();
+            if (! $locked instanceof SeoProjectRun) {
+                return false;
+            }
+
+            $status = $this->statusMapper->runFromDb((string) $locked->status);
+            if ($status->isTerminal()) {
+                return false;
+            }
+
+            $settings = is_array($locked->settings) ? $locked->settings : [];
+            $engine = is_array($settings[self::SETTINGS_ENGINE_KEY] ?? null)
+                ? $settings[self::SETTINGS_ENGINE_KEY]
+                : [];
+            $active = is_array($engine['active_dispatch'] ?? null) ? $engine['active_dispatch'] : null;
+            if ($active === null) {
+                return false;
+            }
+
+            $ages = $this->dispatchAges($active);
+            if (! ($ages['worker_death_expired'] ?? false)) {
+                return false;
+            }
+
+            $runItemId = (int) ($active['run_item_id'] ?? 0);
+            $token = (string) ($active['token'] ?? '');
+            if ($runItemId <= 0 || $token === '') {
+                return false;
+            }
+
+            /** @var SeoProjectRunItem|null $item */
+            $item = SeoProjectRunItem::query()
+                ->whereKey($runItemId)
+                ->lockForUpdate()
+                ->first();
+            if (! $item instanceof SeoProjectRunItem
+                || (int) $item->run_id !== (int) $locked->id
+                || (string) $item->status !== SeoProjectRunItemStatus::Processing->value
+            ) {
+                return false;
+            }
+
+            // Re-verify reservation unchanged (no newer dispatch).
+            $engineAgain = is_array($settings[self::SETTINGS_ENGINE_KEY] ?? null)
+                ? $settings[self::SETTINGS_ENGINE_KEY]
+                : [];
+            $activeAgain = is_array($engineAgain['active_dispatch'] ?? null) ? $engineAgain['active_dispatch'] : null;
+            if ($activeAgain === null
+                || (string) ($activeAgain['token'] ?? '') !== $token
+                || (int) ($activeAgain['run_item_id'] ?? 0) !== $runItemId
+            ) {
+                return false;
+            }
+
+            $attempt = max(1, (int) ($activeAgain['attempt'] ?? $item->attempt ?? 1));
+            $maxAttempts = ContentProjectTransientAiRetryPolicy::MAX_TRANSIENT_ARTICLE_ATTEMPTS;
+            $message = ContentProjectRunRecoverableState::workerLostItemMessage(
+                (int) $item->task_id,
+                $attempt,
+                $maxAttempts,
+            );
+
+            $item->update([
+                'status' => SeoProjectRunItemStatus::Failed->value,
+                'attempt' => $attempt,
+                'message' => $message,
+                'error_message' => ContentProjectRunRecoverableState::ERROR_CODE_WORKER_LOST.': '.$message,
+                'finished_at' => now(),
+            ]);
+
+            $engine = ContentProjectRunRecoverableState::stampWorkerLost($engineAgain, $activeAgain, $message);
+            unset($engine['active_dispatch']);
+            $settings[self::SETTINGS_ENGINE_KEY] = $engine;
+
+            $previous = (string) $locked->status;
+            $locked->update([
+                'status' => $this->statusMapper->runToDb(ContentProjectRunSemanticStatus::Failed),
+                'finished_at' => now(),
+                'settings' => $settings,
+            ]);
+
+            RuntimeLogger::warning('content_project_run.worker_lost', [
+                'run_id' => (int) $locked->id,
+                'run_item_id' => $runItemId,
+                'task_id' => (int) $item->task_id,
+                'attempt' => $attempt,
+                'lease_age_seconds' => $ages['worker_death_age_seconds'],
+                'before' => $previous,
+                'after' => 'failed',
+                'decision' => 'worker_lost',
+            ]);
+
+            return true;
+        });
+
+        if (! $applied) {
+            return false;
+        }
+
+        $fresh = $run->fresh() ?? $run;
+        $this->runItemService->syncMirrorAndCounters($fresh, false);
+        $message = $this->stopReason($fresh) ?? 'WORKER_LOST';
+        $this->events->runFailed($fresh, $message);
+        $this->logRunMetrics($fresh, 'failed_worker_lost');
+
+        return true;
     }
 
     /**
@@ -1886,6 +2274,10 @@ final class ContentProjectRunEngine
             'queue' => ContentProjectRunEngineFeature::queueName(),
             'stop_requested' => $this->cancellationGuard->isStopRequested($run),
             'stop_reason' => $this->stopReason($run),
+            'recoverable_reason' => ContentProjectRunRecoverableState::reasonFromEngine($engine),
+            'recoverable_message' => ContentProjectRunRecoverableState::userVisibleMessage($engine),
+            'is_recoverable' => ContentProjectRunRecoverableState::isRecoverableEngine($engine)
+                && (string) $run->status === SeoProjectRun::STATUS_FAILED,
             'counts' => $counts,
             'outstanding_pending' => $counts['pending'],
             'current_processing' => $processing instanceof SeoProjectRunItem ? [
@@ -2062,8 +2454,12 @@ final class ContentProjectRunEngine
         }
     }
 
-    private function clearActiveDispatch(SeoProjectRun $run, ?int $taskId, ?int $runItemId): void
-    {
+    private function clearActiveDispatch(
+        SeoProjectRun $run,
+        ?int $taskId,
+        ?int $runItemId,
+        ?string $dispatchToken = null,
+    ): void {
         $settings = is_array($run->settings) ? $run->settings : [];
         $engine = is_array($settings[self::SETTINGS_ENGINE_KEY] ?? null)
             ? $settings[self::SETTINGS_ENGINE_KEY]
@@ -2075,7 +2471,9 @@ final class ContentProjectRunEngine
 
         $matchesTask = $taskId === null || (int) ($active['task_id'] ?? 0) === $taskId;
         $matchesItem = $runItemId === null || (int) ($active['run_item_id'] ?? 0) === $runItemId;
-        if ($matchesTask && $matchesItem) {
+        $matchesToken = $dispatchToken === null || $dispatchToken === ''
+            || (string) ($active['token'] ?? '') === $dispatchToken;
+        if ($matchesTask && $matchesItem && $matchesToken) {
             unset($engine['active_dispatch'], $engine['item_operation']);
             // Clear ephemeral per-item overlays so next JIT item starts clean.
             if ((bool) ($settings['lazy_bulk'] ?? false)) {
@@ -2099,6 +2497,37 @@ final class ContentProjectRunEngine
         }
     }
 
+    /**
+     * Ownership gate: stale workers must not clear a newer reservation or advance the run.
+     */
+    private function ownsCurrentDispatch(
+        SeoProjectRun $run,
+        ?int $taskId,
+        ?int $runItemId,
+        ?string $dispatchToken,
+    ): bool {
+        $engine = $this->engineBag($run);
+        $active = is_array($engine['active_dispatch'] ?? null) ? $engine['active_dispatch'] : null;
+
+        // No reservation left — allow terminal bookkeeping only when caller still targets the item
+        // that already finished (idempotent re-entry). Do not advance if token was explicitly revoked.
+        if ($active === null) {
+            return $dispatchToken === null || $dispatchToken === '';
+        }
+
+        if ($dispatchToken === null || $dispatchToken === '') {
+            // Legacy callers without token — still require task/item identity match.
+            $matchesTask = $taskId === null || (int) ($active['task_id'] ?? 0) === $taskId;
+            $matchesItem = $runItemId === null || (int) ($active['run_item_id'] ?? 0) === $runItemId;
+
+            return $matchesTask && $matchesItem;
+        }
+
+        return (string) ($active['token'] ?? '') === $dispatchToken
+            && ($runItemId === null || (int) ($active['run_item_id'] ?? 0) === $runItemId)
+            && ($taskId === null || (int) ($active['task_id'] ?? 0) === $taskId);
+    }
+
     private function clearFinalizeStamp(SeoProjectRun $run): void
     {
         $run->refresh();
@@ -2112,25 +2541,24 @@ final class ContentProjectRunEngine
         $run->refresh();
     }
 
+    /**
+     * @deprecated Kept for source compatibility — stop/cancel must NOT convert unvisited pending to failed.
+     */
     private function abandonPendingArticles(SeoProjectRun $run): void
     {
-        $message = $this->statusMapper->cancelledArticleErrorMessage();
-
-        SeoProjectRunItem::query()
-            ->where('run_id', (int) $run->id)
-            ->articleExecution()
-            ->where('status', SeoProjectRunItemStatus::Pending->value)
-            ->update([
-                'status' => SeoProjectRunItemStatus::Failed->value,
-                'message' => $message,
-                'error_message' => $message,
-                'finished_at' => now(),
-            ]);
+        RuntimeLogger::info('content_project_run.abandon_pending_skipped', [
+            'run_id' => (int) $run->id,
+            'reason' => 'unvisited_membership_retained',
+        ]);
     }
 
     private function stopReason(SeoProjectRun $run): ?string
     {
         $engine = $this->engineBag($run);
+        $visible = ContentProjectRunRecoverableState::userVisibleMessage($engine);
+        if ($visible !== null) {
+            return $visible;
+        }
         $reason = $engine['stop_reason'] ?? null;
 
         return is_string($reason) ? $reason : null;
@@ -2154,7 +2582,9 @@ final class ContentProjectRunEngine
      *     heartbeat_age_seconds: ?int,
      *     heartbeat_alive: bool,
      *     heartbeat_stale_warn: bool,
-     *     dispatch_ttl_expired: bool
+     *     dispatch_ttl_expired: bool,
+     *     worker_death_expired: bool,
+     *     worker_death_age_seconds: ?int
      * }
      */
     private function dispatchAges(array $active): array
@@ -2163,10 +2593,15 @@ final class ContentProjectRunEngine
         $heartbeatAge = $this->ageSeconds($active['last_heartbeat_at'] ?? $active['dispatched_at'] ?? null);
         $ttlSeconds = ContentProjectRunEngineFeature::activeDispatchTtlMinutes() * 60;
         $heartbeatStaleSeconds = ContentProjectRunEngineFeature::heartbeatStaleMinutes() * 60;
+        $workerDeathSeconds = ContentProjectRunEngineFeature::workerDeathThresholdSeconds();
+
+        // Lease age prefers last heartbeat (proves liveness); falls back to dispatch time.
+        $leaseAge = $heartbeatAge ?? $dispatchAge;
 
         $heartbeatAlive = $heartbeatAge !== null && $heartbeatAge < $heartbeatStaleSeconds;
         $heartbeatStaleWarn = $heartbeatAge !== null && $heartbeatAge >= $heartbeatStaleSeconds;
         $dispatchTtlExpired = $dispatchAge !== null && $dispatchAge >= $ttlSeconds;
+        $workerDeathExpired = $leaseAge !== null && $leaseAge >= $workerDeathSeconds;
 
         return [
             'dispatch_age_seconds' => $dispatchAge,
@@ -2174,6 +2609,8 @@ final class ContentProjectRunEngine
             'heartbeat_alive' => $heartbeatAlive,
             'heartbeat_stale_warn' => $heartbeatStaleWarn,
             'dispatch_ttl_expired' => $dispatchTtlExpired,
+            'worker_death_expired' => $workerDeathExpired,
+            'worker_death_age_seconds' => $leaseAge,
         ];
     }
 

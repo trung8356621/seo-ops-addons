@@ -131,8 +131,11 @@ final class ContentProjectRunItemEvidenceIndex
     /**
      * Run-item fed to the runtime resolver for this task.
      *
-     * Live current claim/queue uses membership; otherwise historical execution.
-     * Unvisited membership alone must not become runtime evidence.
+     * Canonical precedence for CURRENT presentation:
+     * current live/recoverable run membership
+     *   → active dispatch / retry state
+     *   → current-run terminal execution
+     *   → historical execution only when no relevant current-run state exists
      *
      * @param  array<string, mixed>|null  $latestExecution
      * @param  array<string, mixed>|null  $currentMembership
@@ -152,7 +155,48 @@ final class ContentProjectRunItemEvidenceIndex
             return self::stripLazyBulkFlag($currentMembership);
         }
 
+        // Live/recoverable bulk: current pending membership beats historical failed/success.
+        if ($currentMembership !== null
+            && self::currentRunTakesPresentationPrecedence($runtimeContext)
+            && self::isCurrentBatchMembership($currentMembership, $runtimeContext)
+        ) {
+            return self::stripLazyBulkFlag($currentMembership);
+        }
+
         return $latestExecution !== null ? self::stripLazyBulkFlag($latestExecution) : null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $runtimeContext
+     */
+    public static function currentRunTakesPresentationPrecedence(array $runtimeContext): bool
+    {
+        $status = strtolower(trim((string) ($runtimeContext['run_status'] ?? '')));
+        if (in_array($status, ['running', 'stopping'], true)) {
+            return true;
+        }
+
+        if ($status === 'failed' && ! empty($runtimeContext['run_is_recoverable'])) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * @param  array<string, mixed>  $item
+     * @param  array<string, mixed>  $runtimeContext
+     */
+    public static function isCurrentBatchMembership(array $item, array $runtimeContext): bool
+    {
+        $runId = (int) ($runtimeContext['run_id'] ?? 0);
+        if ($runId > 0 && (int) ($item['run_id'] ?? 0) !== $runId) {
+            return false;
+        }
+
+        $status = strtolower(trim((string) ($item['status'] ?? '')));
+
+        return in_array($status, ['pending', 'processing'], true);
     }
 
     /**
