@@ -71,6 +71,15 @@ final class ContentProjectOpsRuntimePollRefreshTest extends TestCase
         );
     }
 
+    public function test_livewire_morph_syncs_counters_without_relying_on_generation_event(): void
+    {
+        $blade = $this->opsBlade();
+        self::assertStringContainsString('data-ops-summary=', $blade);
+        self::assertStringContainsString("attributeFilter: ['data-ops-summary']", $blade);
+        self::assertStringContainsString('this.acceptCanonicalSummary(summary', $blade);
+        self::assertStringContainsString('this.summaryObserver?.disconnect()', $blade);
+    }
+
     public function test_terminal_poll_applies_refresh_before_stopping(): void
     {
         $blade = $this->opsBlade();

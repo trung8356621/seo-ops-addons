@@ -38,8 +38,14 @@
 @endphp
 
 <x-filament-panels::page>
+    <style>
+        .fi-header { flex-wrap: wrap; }
+        .fi-header > div:first-child { flex: 1 1 18rem; min-width: 0; }
+        .fi-header > div:last-child { max-width: 100%; flex-wrap: wrap; }
+    </style>
     <div
         class="space-y-4"
+        data-ops-summary="{{ json_encode($summarySnapshot, JSON_HEX_APOS | JSON_HEX_AMP | JSON_HEX_QUOT | JSON_HEX_TAG) }}"
         x-data="{
             detailsOpen: @entangle('executionDetailsOpen'),
             needsRefresh: false,
@@ -783,6 +789,14 @@
                 } catch (e) {}
             },
             init() {
+                this.summaryObserver = new MutationObserver(() => {
+                    let summary = null;
+                    try { summary = JSON.parse(this.$el.dataset.opsSummary || 'null'); } catch (e) {}
+                    if (! summary) return;
+                    this.acceptCanonicalSummary(summary, ++this.summaryRequestId);
+                    if (this.shouldPollRuntime()) this.startRuntimePoll();
+                });
+                this.summaryObserver.observe(this.$el, { attributes: true, attributeFilter: ['data-ops-summary'] });
                 try {
                     if (sessionStorage.getItem(this.dirtyKey()) === '1') {
                         this.needsRefresh = true;
@@ -807,6 +821,10 @@
                 if (this.shouldPollRuntime()) {
                     this.startRuntimePoll();
                 }
+            },
+            destroy() {
+                this.summaryObserver?.disconnect();
+                this.stopRuntimePoll();
             },
         }"
         x-on:cp-ops-client-reset-optimistic.window="resetOptimistic()"

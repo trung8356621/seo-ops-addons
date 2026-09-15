@@ -313,6 +313,10 @@ final class ContentProjectGeneratePendingSafetyTest extends TestCase
         self::assertStringNotContainsString('generate_pending_preview_heading', $chunk);
         self::assertStringNotContainsString('generatePendingPreviewHtml', $chunk);
         self::assertStringContainsString('cp-ops-generation-started', $chunk);
+        self::assertMatchesRegularExpression(
+            '/ViewSeoProject\)\s*\{\s*\$livewire->manualRefreshOps\(\);\s*\}\s*\$livewire->dispatch\(\x27cp-ops-generation-started\x27\)/s',
+            $chunk,
+        );
         self::assertStringContainsString('generate_pending_started_body', $chunk);
     }
 
