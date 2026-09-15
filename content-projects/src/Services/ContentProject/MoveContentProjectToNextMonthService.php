@@ -189,7 +189,7 @@ final class MoveContentProjectToNextMonthService
                 $reused = false;
                 if ($projectId > 0) {
                     $execution = SeoProject::query()->whereKey($projectId)->lockForUpdate()->first();
-                    if (! $execution instanceof SeoProject || ! $this->packing->isReusable($execution)) {
+                    if (! $execution instanceof SeoProject || ! $this->packing->canAcceptMoreItems($execution)) {
                         throw new RuntimeException('Reusable destination disappeared: '.$projectId);
                     }
                     $reused = true;

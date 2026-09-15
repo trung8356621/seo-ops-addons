@@ -22,8 +22,14 @@ final class ContentProjectExecutionPackingContractTest extends TestCase
         self::assertStringContainsString('function planPack', $src);
         self::assertStringContainsString('function planRepack', $src);
         self::assertStringContainsString('function listReusableProjects', $src);
+        self::assertStringContainsString('function listReusableWorkProjects', $src);
+        self::assertStringContainsString('function listAppendableProjects', $src);
+        self::assertStringContainsString('function canAcceptMoreItems', $src);
+        self::assertStringContainsString('projectHasGeneratorDoneItems', $src);
         self::assertStringContainsString('function isReusable', $src);
         self::assertStringContainsString('hasStartedExecution', $src);
+        self::assertStringContainsString('activeItemCount($project) === 0', $src);
+        self::assertStringContainsString('listAppendableProjects($userId, $month)', $src);
         self::assertStringContainsString('MAX_EXECUTION_PROJECT_ITEMS', $src);
         self::assertStringContainsString('deleteEmptyMutableProject', $src);
         self::assertStringNotContainsString('created manually', strtolower($src));

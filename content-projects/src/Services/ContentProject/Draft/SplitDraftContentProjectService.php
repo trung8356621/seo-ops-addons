@@ -246,7 +246,7 @@ final class SplitDraftContentProjectService
 
                     if ($reused) {
                         $execution = SeoProject::query()->whereKey($projectId)->lockForUpdate()->first();
-                        if (! $execution instanceof SeoProject || ! $this->packing->isReusable($execution)) {
+                        if (! $execution instanceof SeoProject || ! $this->packing->canAcceptMoreItems($execution)) {
                             throw new RuntimeException('Reusable execution project disappeared: '.$projectId);
                         }
                         if ((int) ($execution->source_draft_project_id ?? 0) <= 0) {

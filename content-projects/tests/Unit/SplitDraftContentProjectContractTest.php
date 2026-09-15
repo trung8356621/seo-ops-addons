@@ -221,6 +221,11 @@ final class SplitDraftContentProjectContractTest extends TestCase
         self::assertStringContainsString('draft_split_target_month', $draftPlanner);
         self::assertStringContainsString('getDraftSplitTargetMonthOptions', $draftPlanner);
         self::assertStringContainsString('cp-ops-dialog--split', $draftPlanner);
+        self::assertStringContainsString('@click.stop', $draftPlanner);
+        self::assertStringContainsString('data-split-panel="1"', $draftPlanner);
+        self::assertStringNotContainsString('wire:click.stop', $draftPlanner);
+        self::assertStringContainsString('data-split-error="1"', $draftPlanner);
+        self::assertStringContainsString('draftSplitError', $draftPlanner);
         self::assertStringContainsString('new_allocation', $draftPlanner);
         self::assertStringNotContainsString('draftSplitWriterIds', $draftPlanner);
         self::assertStringNotContainsString('data-split-preview', $draftPlanner);
@@ -253,6 +258,8 @@ final class SplitDraftContentProjectContractTest extends TestCase
         self::assertStringContainsString('draft_empty_title', $ops);
         self::assertStringContainsString('project_no_assignee_badge', $ops);
         self::assertStringContainsString('openDraftSplitModal', $trait);
+        self::assertStringContainsString('failDraftSplit', $trait);
+        self::assertStringContainsString('public ?string $draftSplitError', $trait);
         self::assertStringContainsString('activateAllDraftItems', $trait);
         self::assertStringContainsString('draftSplitIncludedUserIds', $trait);
         self::assertStringContainsString('defaultEligibleIncludedUserIds', $trait);

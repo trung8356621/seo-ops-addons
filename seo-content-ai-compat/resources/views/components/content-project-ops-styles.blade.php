@@ -787,6 +787,11 @@
             background: rgb(3 7 18 / 0.55);
             backdrop-filter: blur(2px);
         }
+        /* Filament toasts default under modal overlay — keep errors visible while dialog open. */
+        .fi-no,
+        .fi-notifications {
+            z-index: 320 !important;
+        }
         .cp-ops-dialog {
             width: 100%;
             max-width: 36rem;

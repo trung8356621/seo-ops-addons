@@ -59,6 +59,7 @@ final class AddIdeaCandidatesHandler extends AbstractPublishingHandler
                 $command->keywordIds,
                 $command->articleIds,
                 $actor->actorId,
+                $command->siteId ?? $actor->siteId,
             );
 
             return ContentProjectActionResult::ok(

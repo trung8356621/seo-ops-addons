@@ -14,6 +14,17 @@ use PHPUnit\Framework\TestCase;
 
 final class ContentProjectTransientAiRetryPolicyTest extends TestCase
 {
+    public function test_delayed_retry_is_not_dispatched_after_response(): void
+    {
+        $source = (string) file_get_contents(dirname(__DIR__, 2).'/src/Services/RunEngine/ContentProjectRunEngine.php');
+        $start = strpos($source, 'function scheduleTransientAiRetryIfNeeded');
+        self::assertNotFalse($start);
+        $chunk = substr($source, $start, 7000);
+
+        self::assertStringContainsString('->delay(now()->addSeconds', $chunk);
+        self::assertStringNotContainsString('->afterResponse()', $chunk);
+    }
+
     public function test_from_exception_retryable_routes_exhausted(): void
     {
         $exception = new AiRoutesExhaustedException(

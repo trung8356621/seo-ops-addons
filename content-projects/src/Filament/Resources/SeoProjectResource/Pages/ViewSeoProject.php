@@ -2512,8 +2512,6 @@ final class ViewSeoProject extends Page
                     'generate_post_images' => $this->generatePostImages,
                 ]),
             );
-            $this->manualRefreshOps();
-            $this->dispatch('cp-ops-generation-started');
             Notification::make()
                 ->title(__('seo-content-ai::filament.projects.run_started'))
                 ->body($manualImproveSkipped > 0
@@ -2527,6 +2525,7 @@ final class ViewSeoProject extends Page
                     ]))
                 ->success()
                 ->send();
+            $this->redirect(SeoProjectResource::getUrl('view', ['record' => $project]), navigate: false);
         } catch (Throwable $e) {
             RuntimeLogger::report($e, ['endpoint' => 'content_project.operations.generate_engine']);
             $this->dispatch('cp-ops-generation-failed', taskIds: $eligible);

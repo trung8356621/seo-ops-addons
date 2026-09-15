@@ -4,36 +4,33 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\ContentProjects\Services\ContentProject;
 
+use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Enums\SeoProjectTaskEventType;
 use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectItemOrigin;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectArticleOwnerSyncService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectTaskEventRecorder;
-use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectAuditSuccessClassifier;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemStateResolver;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use App\Models\Site;
 use App\Models\User;
-use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
-use RuntimeException;
 use Throwable;
 
 /**
- * Preview + execute “Sắp xếp bài thành công” trong cùng domain + month.
- * Không tạo project mới, không chạy AI, không publish, không archive tự động.
+ * Preview + execute “Gom bài đã xong” — auto-partition generator_done vs not_done.
+ * Không chọn project đích thủ công. Không tạo project mới. Không chạy AI.
  */
 final class ContentProjectCompactSuccessService
 {
     public function __construct(
         private readonly ContentProjectCompactSuccessPlanner $planner = new ContentProjectCompactSuccessPlanner,
         private readonly ContentProjectCompactSuccessSafetyGuard $safety = new ContentProjectCompactSuccessSafetyGuard,
-        private readonly ContentProjectAuditSuccessClassifier $classifier = new ContentProjectAuditSuccessClassifier,
         private readonly ContentProjectItemStateResolver $stateResolver = new ContentProjectItemStateResolver,
         private readonly ?SeoProjectArticleOwnerSyncService $articleOwnerSync = null,
         private readonly ?SeoProjectTaskEventRecorder $eventRecorder = null,
@@ -42,8 +39,9 @@ final class ContentProjectCompactSuccessService
     public function lockKey(int $siteId, string $monthYyyyMm): string
     {
         $month = ContentProjectMonthContext::normalize($monthYyyyMm);
+        $scope = $siteId > 0 ? (string) $siteId : 'all';
 
-        return 'content_project_compact_success:'.$siteId.':'.$month;
+        return 'content_project_compact_success:'.$scope.':'.$month;
     }
 
     /**
@@ -53,8 +51,6 @@ final class ContentProjectCompactSuccessService
     {
         $monthDate = ContentProjectMonthContext::toDateString($monthYyyyMm);
 
-        // Query builder (not Eloquent): SoftDeletes would emit seo_project_tasks.deleted_at
-        // while the table is aliased as `t`, which MySQL rejects.
         $siteIds = DB::connection((new SeoProjectTask)->getConnectionName())
             ->table('seo_project_tasks as t')
             ->join('seo_projects as p', 'p.id', '=', 't.project_id')
@@ -94,7 +90,7 @@ final class ContentProjectCompactSuccessService
      */
     public function preview(int $siteId, string $monthYyyyMm): array
     {
-        if ($siteId <= 0) {
+        if ($siteId < 0) {
             throw ValidationException::withMessages([
                 'site_id' => __('seo-content-ai::filament.projects.compact_success_domain_required'),
             ]);
@@ -115,7 +111,7 @@ final class ContentProjectCompactSuccessService
      */
     public function execute(int $siteId, string $monthYyyyMm, ?int $actorUserId = null): array
     {
-        if ($siteId <= 0) {
+        if ($siteId < 0) {
             throw ValidationException::withMessages([
                 'site_id' => __('seo-content-ai::filament.projects.compact_success_domain_required'),
             ]);
@@ -143,25 +139,42 @@ final class ContentProjectCompactSuccessService
         $operationId = (string) Str::uuid();
         $connection = (new SeoProjectTask)->getConnectionName();
 
-        return DB::connection($connection)->transaction(function () use ($siteId, $monthYyyyMm, $actorUserId, $operationId): array {
+        return DB::connection($connection)->transaction(function () use (
+            $siteId,
+            $monthYyyyMm,
+            $actorUserId,
+            $operationId,
+        ): array {
             $scope = $this->buildScopeSnapshot($siteId, $monthYyyyMm, lockProjects: true);
+
+            if (! empty($scope['blocked'])) {
+                throw ValidationException::withMessages([
+                    'compact' => __('seo-content-ai::filament.projects.compact_success_unsafe', [
+                        'reason' => (string) ($scope['block_reason'] ?? 'active_running'),
+                    ]),
+                ]);
+            }
+
             $plan = $this->planner->plan($scope);
             $plan['operation_id'] = $operationId;
             $plan['domain'] = $scope['domain'];
             $plan['month_label'] = ContentProjectMonthContext::display($monthYyyyMm);
 
-            if (! empty($plan['already_compacted']) && (int) ($plan['totals']['moves'] ?? 0) === 0) {
+            if (! empty($plan['already_partitioned']) && (int) ($plan['totals']['moves'] ?? 0) === 0) {
                 $plan['executed'] = false;
                 $plan['moved'] = 0;
+                $plan['moved_generator_done'] = 0;
+                $plan['moved_not_done'] = 0;
+                $plan['skipped_count'] = (int) ($plan['totals']['skipped'] ?? 0);
                 $plan['creates_project'] = false;
                 $plan['archives_project'] = false;
 
                 return $plan;
             }
 
-            if (! ($plan['can_execute'] ?? false)) {
+            if (! ($plan['can_execute'] ?? false) && (int) ($plan['totals']['moves'] ?? 0) === 0) {
                 throw ValidationException::withMessages([
-                    'compact' => __('seo-content-ai::filament.projects.compact_success_preview_stale'),
+                    'compact' => __('seo-content-ai::filament.projects.compact_success_cannot_execute'),
                 ]);
             }
 
@@ -169,11 +182,13 @@ final class ContentProjectCompactSuccessService
             if ($moves === []) {
                 $plan['executed'] = false;
                 $plan['moved'] = 0;
+                $plan['moved_generator_done'] = 0;
+                $plan['moved_not_done'] = 0;
+                $plan['skipped_count'] = (int) ($plan['totals']['skipped'] ?? 0);
 
                 return $plan;
             }
 
-            // JIT re-check safety for every moved task + involved projects.
             $projectIds = [];
             foreach ($moves as $move) {
                 $projectIds[(int) $move['from_project_id']] = true;
@@ -185,6 +200,11 @@ final class ContentProjectCompactSuccessService
                 if (! $project instanceof SeoProject) {
                     throw ValidationException::withMessages([
                         'compact' => __('seo-content-ai::filament.projects.compact_success_preview_stale'),
+                    ]);
+                }
+                if ($project->monthCarbon()->format('Y-m') !== ContentProjectMonthContext::normalize($monthYyyyMm)) {
+                    throw ValidationException::withMessages([
+                        'compact' => __('seo-content-ai::filament.projects.compact_success_cross_month'),
                     ]);
                 }
                 $gate = $this->safety->assessProject($project);
@@ -205,65 +225,89 @@ final class ContentProjectCompactSuccessService
                 ->get()
                 ->keyBy(static fn (SeoProjectTask $t): int => (int) $t->id);
 
-            if ($tasks->count() !== count(array_unique($taskIds))) {
-                throw ValidationException::withMessages([
-                    'compact' => __('seo-content-ai::filament.projects.compact_success_preview_stale'),
-                ]);
-            }
-
-            $monthStart = Carbon::parse(ContentProjectMonthContext::toDateString($monthYyyyMm))->startOfMonth();
+            $moved = [];
+            $movedGeneratorDone = 0;
+            $movedNotDone = 0;
+            $jitSkipped = [];
             $touched = [];
 
             foreach ($moves as $move) {
                 $taskId = (int) $move['task_id'];
                 $fromId = (int) $move['from_project_id'];
                 $toId = (int) $move['to_project_id'];
+                $reason = (string) ($move['reason'] ?? '');
                 $task = $tasks->get($taskId);
+
                 if (! $task instanceof SeoProjectTask) {
-                    throw new RuntimeException('Missing task during compact: '.$taskId);
+                    $jitSkipped[] = ['task_id' => $taskId, 'reason' => 'missing_task'];
+
+                    continue;
                 }
 
                 if ((int) ($task->project_id ?? 0) !== $fromId) {
-                    throw ValidationException::withMessages([
-                        'compact' => __('seo-content-ai::filament.projects.compact_success_preview_stale'),
-                    ]);
+                    $jitSkipped[] = ['task_id' => $taskId, 'reason' => 'project_changed'];
+
+                    continue;
                 }
 
-                if ((int) ($task->site_id ?? 0) !== $siteId) {
-                    throw ValidationException::withMessages([
-                        'compact' => __('seo-content-ai::filament.projects.compact_success_cross_domain'),
-                    ]);
+                if ($siteId > 0 && (int) ($task->site_id ?? 0) !== $siteId) {
+                    $jitSkipped[] = [
+                        'task_id' => $taskId,
+                        'reason' => ContentProjectCompactSuccessPlanner::SKIP_WRONG_DOMAIN_MONTH,
+                    ];
+
+                    continue;
                 }
 
-                $itemGate = $this->safety->assessItem($task, $task->project);
-                if (! $itemGate['movable']) {
-                    throw ValidationException::withMessages([
-                        'compact' => __('seo-content-ai::filament.projects.compact_success_unsafe', [
-                            'reason' => (string) $itemGate['reason'],
-                        ]),
-                    ]);
+                $article = $task->article instanceof SeoArticle ? $task->article : null;
+                $state = $this->stateResolver->resolve($task, $article);
+                $classification = $this->safety->classifyItem(
+                    $task,
+                    $state,
+                    $article,
+                    $task->project instanceof SeoProject ? $task->project : null,
+                    $siteId,
+                );
+
+                if (! $classification['movable']) {
+                    $jitSkipped[] = [
+                        'task_id' => $taskId,
+                        'reason' => (string) ($classification['skip_reason'] ?? ContentProjectCompactSuccessPlanner::SKIP_LOCKED),
+                    ];
+
+                    continue;
+                }
+
+                // Direction sanity: pack only generator_done; clean only not_done.
+                if ($reason === ContentProjectCompactSuccessPlanner::REASON_PACK_GENERATOR_DONE
+                    && ! $classification['generator_done']
+                ) {
+                    $jitSkipped[] = [
+                        'task_id' => $taskId,
+                        'reason' => ContentProjectCompactSuccessPlanner::SKIP_MISSING_CONTENT,
+                    ];
+
+                    continue;
+                }
+                if ($reason === ContentProjectCompactSuccessPlanner::REASON_CLEAN_NOT_DONE
+                    && $classification['generator_done']
+                ) {
+                    $jitSkipped[] = [
+                        'task_id' => $taskId,
+                        'reason' => 'reclassified_generator_done',
+                    ];
+
+                    continue;
                 }
 
                 $target = SeoProject::query()->whereKey($toId)->first();
                 if (! $target instanceof SeoProject) {
-                    throw ValidationException::withMessages([
-                        'compact' => __('seo-content-ai::filament.projects.compact_success_preview_stale'),
-                    ]);
+                    $jitSkipped[] = ['task_id' => $taskId, 'reason' => 'destination_missing'];
+
+                    continue;
                 }
 
-                // Month isolation.
-                if ($target->monthCarbon()->format('Y-m') !== ContentProjectMonthContext::normalize($monthYyyyMm)) {
-                    throw ValidationException::withMessages([
-                        'compact' => __('seo-content-ai::filament.projects.compact_success_cross_month'),
-                    ]);
-                }
-
-                $dayIndex = $target->registeredTaskCount();
-                $task->forceFill([
-                    'project_id' => $toId,
-                    'site_id' => $siteId,
-                    'target_date' => $monthStart->copy()->addDays(min($dayIndex, 27))->format('Y-m-d'),
-                ])->save();
+                $task->forceFill(['project_id' => $toId])->save();
 
                 if ($this->hasOriginTable()) {
                     SeoContentProjectItemOrigin::query()
@@ -271,37 +315,41 @@ final class ContentProjectCompactSuccessService
                         ->update(['project_id' => $toId]);
                 }
 
-                $this->recordMoveEvent($task, $fromId, $toId, $operationId, $actorUserId, (string) ($move['reason'] ?? ''));
+                $this->recordMoveEvent($task, $fromId, $toId, $operationId, $actorUserId, $reason);
 
+                $moved[] = $move;
+                if ($reason === ContentProjectCompactSuccessPlanner::REASON_PACK_GENERATOR_DONE) {
+                    $movedGeneratorDone++;
+                } elseif ($reason === ContentProjectCompactSuccessPlanner::REASON_CLEAN_NOT_DONE) {
+                    $movedNotDone++;
+                }
                 $touched[$fromId] = true;
                 $touched[$toId] = true;
             }
 
-            $sync = $this->articleOwnerSync ?? app(SeoProjectArticleOwnerSyncService::class);
             foreach (array_keys($touched) as $projectId) {
                 $project = SeoProject::query()->whereKey($projectId)->first();
                 if (! $project instanceof SeoProject) {
                     continue;
                 }
                 $project->syncTotalTasksCounter();
-                $sync->syncProjectArticles($project->fresh() ?? $project);
+                if ($siteId > 0) {
+                    $sync = $this->articleOwnerSync ?? app(SeoProjectArticleOwnerSyncService::class);
+                    $sync->syncProjectArticles($project->fresh() ?? $project);
+                }
             }
 
-            // Re-summarize after moves for UI.
             $fresh = $this->preview($siteId, $monthYyyyMm);
             $fresh['operation_id'] = $operationId;
             $fresh['executed'] = true;
-            $fresh['moved'] = count($moves);
-            $fresh['moves_applied'] = $moves;
+            $fresh['moved'] = count($moved);
+            $fresh['moved_generator_done'] = $movedGeneratorDone;
+            $fresh['moved_not_done'] = $movedNotDone;
+            $fresh['moves_applied'] = $moved;
+            $fresh['jit_skipped'] = $jitSkipped;
+            $fresh['skipped_count'] = (int) ($fresh['totals']['skipped'] ?? 0) + count($jitSkipped);
             $fresh['creates_project'] = false;
             $fresh['archives_project'] = false;
-            $fresh['audit_ready_project_ids'] = array_values(array_map(
-                static fn (array $row): int => (int) $row['project_id'],
-                array_filter(
-                    is_array($fresh['projects_after'] ?? null) ? $fresh['projects_after'] : [],
-                    static fn (array $row): bool => ! empty($row['audit_ready']),
-                ),
-            ));
 
             return $fresh;
         });
@@ -312,14 +360,21 @@ final class ContentProjectCompactSuccessService
      *     site_id: int,
      *     domain: string,
      *     month: string,
+     *     blocked: bool,
+     *     block_reason: string|null,
      *     projects: list<array<string, mixed>>
      * }
      */
-    private function buildScopeSnapshot(int $siteId, string $monthYyyyMm, bool $lockProjects = false): array
-    {
+    private function buildScopeSnapshot(
+        int $siteId,
+        string $monthYyyyMm,
+        bool $lockProjects = false,
+    ): array {
         $month = ContentProjectMonthContext::normalize($monthYyyyMm);
         $monthDate = ContentProjectMonthContext::toDateString($month);
-        $domain = (string) (Site::query()->whereKey($siteId)->value('domain') ?? ('#'.$siteId));
+        $domain = $siteId > 0
+            ? (string) (Site::query()->whereKey($siteId)->value('domain') ?? ('#'.$siteId))
+            : (string) __('seo-content-ai::filament.projects.compact_success_all_domains');
 
         $projectQuery = SeoProject::query()
             ->whereDate('month', $monthDate)
@@ -328,8 +383,11 @@ final class ContentProjectCompactSuccessService
             })
             ->where('status', '!=', SeoProject::STATUS_DRAFT)
             ->whereNull('archived_at')
-            ->whereIn('id', function ($sub) use ($siteId, $monthDate): void {
-                // Query builder subquery (no SoftDeletes scope) — qualify deleted_at via alias.
+            ->with(['user'])
+            ->orderBy('id');
+
+        if ($siteId > 0) {
+            $projectQuery->whereIn('id', function ($sub) use ($siteId, $monthDate): void {
                 $sub->select('t.project_id')
                     ->from('seo_project_tasks as t')
                     ->join('seo_projects as p', 'p.id', '=', 't.project_id')
@@ -337,9 +395,8 @@ final class ContentProjectCompactSuccessService
                     ->whereNull('t.archived_at')
                     ->whereNull('t.deleted_at')
                     ->whereDate('p.month', $monthDate);
-            })
-            ->with(['user'])
-            ->orderBy('id');
+            });
+        }
 
         if ($lockProjects) {
             $projectQuery->lockForUpdate();
@@ -347,6 +404,8 @@ final class ContentProjectCompactSuccessService
 
         $projects = $projectQuery->get();
         $snapshots = [];
+        $blocked = false;
+        $blockReason = null;
 
         foreach ($projects as $project) {
             if (! $project instanceof SeoProject || $project->isArchive() || $project->isProjectArchived()) {
@@ -354,6 +413,15 @@ final class ContentProjectCompactSuccessService
             }
 
             $projectGate = $this->safety->assessProject($project);
+            if (! $projectGate['ok'] && in_array((string) $projectGate['reason'], [
+                ContentProjectCompactSuccessPlanner::SKIP_ACTIVE_RUNNING,
+                'bulk_generation_active',
+                'project_ai_running',
+            ], true)) {
+                $blocked = true;
+                $blockReason = (string) $projectGate['reason'];
+            }
+
             $writerId = (int) ($project->user_id ?? 0);
             $writerName = $this->writerName($project, $writerId);
 
@@ -369,29 +437,23 @@ final class ContentProjectCompactSuccessService
                 if (! $task instanceof SeoProjectTask) {
                     continue;
                 }
-                $taskSiteId = (int) ($task->site_id ?? 0);
-                // Keep foreign-domain items for capacity / audit-ready math; classifier only for scope site.
-                $state = $this->stateResolver->resolve($task, $task->article);
-                $success = $taskSiteId === $siteId && $this->classifier->isAuditSuccess($state);
+                $article = $task->article instanceof SeoArticle ? $task->article : null;
+                $state = $this->stateResolver->resolve($task, $article);
+                $classification = $this->safety->classifyItem(
+                    $task,
+                    $state,
+                    $article,
+                    $project,
+                    $siteId,
+                );
 
-                $movable = true;
-                $skipReason = null;
-                if (! $projectGate['ok']) {
-                    $movable = false;
-                    $skipReason = (string) $projectGate['reason'];
-                } else {
-                    $itemGate = $this->safety->assessItem($task, $project);
-                    $movable = $itemGate['movable'];
-                    $skipReason = $itemGate['reason'];
-                }
-
-                // Writer mismatch: never move across writers in phase 1 (handled by planner grouping).
                 $items[] = [
                     'task_id' => (int) $task->getKey(),
-                    'site_id' => $taskSiteId,
-                    'success' => $success,
-                    'movable' => $movable,
-                    'skip_reason' => $skipReason,
+                    'site_id' => (int) ($task->site_id ?? 0),
+                    'kind' => (string) $classification['kind'],
+                    'generator_done' => (bool) $classification['generator_done'],
+                    'movable' => (bool) $classification['movable'],
+                    'skip_reason' => $classification['skip_reason'],
                 ];
             }
 
@@ -409,6 +471,8 @@ final class ContentProjectCompactSuccessService
             'site_id' => $siteId,
             'domain' => $domain,
             'month' => $month,
+            'blocked' => $blocked,
+            'block_reason' => $blockReason,
             'projects' => $snapshots,
         ];
     }
@@ -465,7 +529,7 @@ final class ContentProjectCompactSuccessService
                 $actorUserId,
             );
         } catch (Throwable) {
-            // Audit log best-effort — move already committed in same transaction; don't hide failure mid-loop.
+            // Audit log best-effort.
         }
     }
 }

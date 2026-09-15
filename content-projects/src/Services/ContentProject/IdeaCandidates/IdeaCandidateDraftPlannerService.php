@@ -49,6 +49,7 @@ final class IdeaCandidateDraftPlannerService
         array $keywordIds,
         array $articleIds = [],
         ?int $actorId = null,
+        ?int $siteId = null,
     ): array {
         $action = strtolower(trim($action));
         if (! in_array($action, [self::ACTION_CREATE, self::ACTION_REWRITE, self::ACTION_IMPROVE], true)) {
@@ -71,8 +72,11 @@ final class IdeaCandidateDraftPlannerService
             ];
         }
 
-        $siteId = (int) ($project->site_id ?? 0);
-        $resolved = $this->candidates->resolveVocabularyCandidates($siteId, $keywordIds);
+        // Shared Draft is domain-neutral — prefer explicit Working Site over project.site_id.
+        $workingSiteId = ($siteId !== null && $siteId > 0)
+            ? $siteId
+            : (int) ($project->site_id ?? 0);
+        $resolved = $this->candidates->resolveVocabularyCandidates($workingSiteId, $keywordIds);
         if ($resolved === []) {
             return [
                 'added' => 0,
@@ -84,7 +88,7 @@ final class IdeaCandidateDraftPlannerService
         }
 
         if ($action === self::ACTION_CREATE) {
-            return $this->addCreateItems($project, $resolved);
+            return $this->addCreateItems($project, $resolved, $workingSiteId);
         }
 
         return $this->addRewriteOrImprove($project, $action, $resolved, $articleIds, $actorId);
@@ -94,7 +98,7 @@ final class IdeaCandidateDraftPlannerService
      * @param  list<IdeaCandidate>  $candidates
      * @return array{added: int, duplicate_skipped: int, ineligible: int, task_ids: list<int>, action: string}
      */
-    private function addCreateItems(SeoProject $project, array $candidates): array
+    private function addCreateItems(SeoProject $project, array $candidates, int $workingSiteId = 0): array
     {
         $plannedNorms = $this->candidates->plannedCreateKeywordNorms($project);
         $added = 0;
@@ -106,6 +110,7 @@ final class IdeaCandidateDraftPlannerService
         DB::connection('omi_seo_ai')->transaction(function () use (
             $project,
             $candidates,
+            $workingSiteId,
             &$added,
             &$dup,
             &$ineligible,
@@ -143,10 +148,14 @@ final class IdeaCandidateDraftPlannerService
                     continue;
                 }
 
+                $itemSiteId = $workingSiteId > 0
+                    ? $workingSiteId
+                    : (int) ($target->site_id ?? $project->site_id ?? 0);
+
                 $occupied = $session->occupiedCount($target);
                 $task = SeoProjectTask::query()->create([
                     'project_id' => (int) $target->getKey(),
-                    'site_id' => (int) ($target->site_id ?? $project->site_id ?? 0),
+                    'site_id' => $itemSiteId > 0 ? $itemSiteId : null,
                     'type' => SeoProjectTask::TYPE_CREATE,
                     'post_type' => SeoProjectTask::POST_TYPE_ARTICLE,
                     'source_content' => $phrase,

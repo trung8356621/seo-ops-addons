@@ -114,6 +114,17 @@ final class IdeaCandidatePlannerContractTest extends TestCase
         self::assertStringContainsString('mountInteractsWithIdeaCandidates', $page);
         self::assertStringContainsString('addIdeaCandidatesAsCreate', $concern);
         self::assertStringContainsString('AddIdeaCandidatesCommand', $concern);
+        self::assertStringContainsString('resolveIdeaWorkingSiteId', $concern);
+        self::assertStringContainsString('workingSiteId', $concern);
+        self::assertStringContainsString('siteId', (string) file_get_contents(
+            (string) (new ReflectionClass(AddIdeaCandidatesCommand::class))->getFileName(),
+        ));
+        self::assertStringContainsString('$workingSiteId', (string) file_get_contents(
+            (string) (new ReflectionClass(IdeaCandidateDraftPlannerService::class))->getFileName(),
+        ));
+        self::assertStringContainsString('wire:model.live="selectedIdeaKeywordIds"', $picker);
+        self::assertStringNotContainsString('wire:click.prevent="toggleIdeaCandidate', $picker);
+        self::assertStringNotContainsString('@checked($checked)', $picker);
         self::assertStringNotContainsString('openIdeaRewritePicker', $picker);
         self::assertStringNotContainsString('openIdeaImprovePicker', $picker);
         self::assertStringNotContainsString('data-idea-action="rewrite"', $picker);

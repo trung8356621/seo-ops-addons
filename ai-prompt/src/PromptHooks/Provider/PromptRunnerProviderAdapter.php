@@ -76,11 +76,14 @@ final class PromptRunnerProviderAdapter implements PromptProviderAdapter
             );
         } catch (PromptRunException $exception) {
             $message = $exception->getMessage();
+            if (str_contains($message, 'AI_ROUTES_EXHAUSTED')) {
+                throw new ProviderFailed($message, $exception);
+            }
             if ($this->looksLikeTimeout($message)) {
                 throw new ProviderTimeout($message, $exception);
             }
             if ($this->looksLikeRefusal($message)) {
-                throw new ProviderRefused($message);
+                throw new ProviderRefused($message, $exception);
             }
             throw new ProviderFailed($message, $exception);
         } catch (ConnectionException|RequestException $exception) {

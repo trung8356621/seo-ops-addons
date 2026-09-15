@@ -12,7 +12,6 @@
     $rows = is_array($payload['rows'] ?? null) ? $payload['rows'] : [];
     $paginator = $payload['paginator'] ?? null;
     $selectedCount = (int) ($payload['selected_count'] ?? 0);
-    $selectedIds = array_fill_keys(array_map('intval', $this->selectedIdeaKeywordIds ?? []), true);
     $actionsEnabled = $canWrite && $selectedCount > 0;
 @endphp
 
@@ -99,14 +98,13 @@
             @foreach ($rows as $row)
                 @php
                     $kid = (int) ($row['keyword_id'] ?? 0);
-                    $checked = isset($selectedIds[$kid]);
                 @endphp
                 <li class="cp-idea-row group flex items-start gap-2 py-2" wire:key="idea-kw-{{ $kid }}">
                     <input
                         type="checkbox"
+                        value="{{ $kid }}"
+                        wire:model.live="selectedIdeaKeywordIds"
                         class="mt-1 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
-                        @checked($checked)
-                        wire:click="toggleIdeaCandidate({{ $kid }})"
                         @disabled(! $canWrite)
                         aria-label="{{ $row['phrase'] ?? '' }}"
                     />

@@ -831,7 +831,7 @@
                     };
                 @endphp
                 <div class="fixed inset-0 z-40 flex justify-end bg-black/40" wire:click="closeDrawers">
-                    <div class="h-full w-full max-w-xl overflow-y-auto bg-white p-4 dark:bg-gray-900" wire:click.stop>
+                    <div class="h-full w-full max-w-xl overflow-y-auto bg-white p-4 dark:bg-gray-900" @click.stop>
                         <div class="mb-3 flex items-center justify-between">
                             <h2 class="font-semibold">{{ $previewTitle }}</h2>
                             <button type="button" wire:click="closeDrawers">✕</button>

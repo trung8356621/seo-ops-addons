@@ -41,6 +41,8 @@ final class DraftPlanningReviewContractTest extends TestCase
         self::assertStringContainsString('function setPlanningReviewed', $page);
         self::assertStringContainsString('function markReviewedSelected', $page);
         self::assertStringContainsString('function archiveSelected', $page);
+        self::assertStringContainsString('unset($this->draftPlanningPayload)', $page);
+        self::assertGreaterThanOrEqual(3, substr_count($page, 'draftPlanningRefreshNonce++'));
         self::assertStringContainsString('planning_reviewed_at', $page);
         self::assertStringContainsString('planning_reviewed_by', $page);
         self::assertStringNotContainsString('content_manager_reviewed_at', $page);

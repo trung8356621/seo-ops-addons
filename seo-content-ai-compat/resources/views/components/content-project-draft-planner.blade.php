@@ -383,7 +383,7 @@
             >
                 <div
                     class="cp-ops-dialog cp-ops-dialog--split"
-                    wire:click.stop
+                    @click.stop
                     data-split-panel="1"
                 >
                     <div class="cp-ops-dialog__header border-b border-gray-100 dark:border-white/10">
@@ -393,6 +393,16 @@
                         <p class="mt-1 text-sm text-gray-500 dark:text-gray-400" data-split-eligible="1">
                             {{ __('seo-content-ai::filament.projects.draft_split_eligible', ['count' => $draftItemCount]) }}
                         </p>
+                        @if (filled($this->draftSplitError ?? null))
+                            <div
+                                class="mt-3 rounded-md border border-rose-300 bg-rose-50 px-3 py-2 text-sm text-rose-950 dark:border-rose-500/40 dark:bg-rose-500/10 dark:text-rose-100"
+                                data-split-error="1"
+                                role="alert"
+                            >
+                                <p class="font-semibold">{{ __('seo-content-ai::filament.projects.draft_split_failed') }}</p>
+                                <p class="mt-1">{{ $this->draftSplitError }}</p>
+                            </div>
+                        @endif
                     </div>
 
                     <div class="cp-ops-dialog__scroll">

@@ -75,6 +75,30 @@ trait InteractsWithIdeaCandidates
             : null;
     }
 
+    /**
+     * Working Site for Idea Candidates — same scope as the picker list (Global Domain / filterSiteId).
+     * Shared Draft must not fall back to project.site_id (null).
+     */
+    protected function resolveIdeaWorkingSiteId(?SeoProject $project = null): int
+    {
+        $project ??= $this->resolveIdeaCandidateProject();
+        $fromFilter = (int) ($this->filterSiteId ?? 0);
+        if ($fromFilter > 0) {
+            return $fromFilter;
+        }
+
+        $fromGlobal = (int) (SeoAccessControl::globalSiteId() ?? 0);
+        if ($fromGlobal > 0) {
+            return $fromGlobal;
+        }
+
+        if ($project instanceof SeoProject) {
+            return (int) ($project->site_id ?? 0);
+        }
+
+        return 0;
+    }
+
     public function applyIdeaCandidateSearch(): void
     {
         $this->ideaCandidateSearch = trim($this->ideaCandidateSearchInput);
@@ -135,7 +159,7 @@ trait InteractsWithIdeaCandidates
         }
 
         $project = $this->resolveIdeaCandidateProject();
-        $siteId = (int) ($this->filterSiteId ?? 0);
+        $siteId = $this->resolveIdeaWorkingSiteId($project);
         if ($siteId <= 0 && $project instanceof SeoProject) {
             $siteId = (int) ($project->site_id ?? 0);
         }
@@ -271,6 +295,17 @@ trait InteractsWithIdeaCandidates
             return;
         }
 
+        $workingSiteId = $this->resolveIdeaWorkingSiteId($project);
+        if ($workingSiteId <= 0) {
+            Notification::make()
+                ->title(__('seo-content-ai::filament.projects.idea_candidate_add_failed'))
+                ->body(__('seo-content-ai::filament.projects.idea_candidate_site_required'))
+                ->warning()
+                ->send();
+
+            return;
+        }
+
         if (in_array($action, [
             IdeaCandidateDraftPlannerService::ACTION_REWRITE,
             IdeaCandidateDraftPlannerService::ACTION_IMPROVE,
@@ -290,10 +325,11 @@ trait InteractsWithIdeaCandidates
                     $keywordIds,
                     $action,
                     $articleIds,
+                    $workingSiteId,
                 ),
                 ActorContext::user(
                     auth()->id() !== null ? (int) auth()->id() : null,
-                    (int) ($project->site_id ?? 0) ?: null,
+                    $workingSiteId,
                 ),
             );
         } catch (Throwable $e) {
@@ -315,18 +351,26 @@ trait InteractsWithIdeaCandidates
 
         if ($result->success || $result->code === ContentProjectActionCodes::IDEA_CANDIDATES_ADDED) {
             $added = (int) ($result->metadata['added'] ?? 0);
-            Notification::make()
-                ->title(__('seo-content-ai::filament.projects.idea_candidate_add_done', ['count' => $added]))
-                ->body($result->message)
-                ->success()
-                ->send();
+            if ($added > 0) {
+                Notification::make()
+                    ->title(__('seo-content-ai::filament.projects.idea_candidate_add_done', ['count' => $added]))
+                    ->body($result->message)
+                    ->success()
+                    ->send();
 
-            $this->selectedIdeaKeywordIds = [];
-            $this->closeIdeaArticlePicker();
-            $this->resetPage('ideaCandidatesPage');
-            $this->dispatch('cp-ops-refresh');
-            if (method_exists($this, 'mountInteractsWithNewContentSuggestions')) {
-                $this->mountInteractsWithNewContentSuggestions();
+                $this->selectedIdeaKeywordIds = [];
+                $this->closeIdeaArticlePicker();
+                $this->resetPage('ideaCandidatesPage');
+                $this->dispatch('cp-ops-refresh');
+                if (method_exists($this, 'mountInteractsWithNewContentSuggestions')) {
+                    $this->mountInteractsWithNewContentSuggestions();
+                }
+            } else {
+                Notification::make()
+                    ->title(__('seo-content-ai::filament.projects.idea_candidate_add_failed'))
+                    ->body($result->message)
+                    ->warning()
+                    ->send();
             }
         } else {
             Notification::make()
@@ -355,10 +399,7 @@ trait InteractsWithIdeaCandidates
     public function getIdeaCandidatesPayloadProperty(): array
     {
         $project = $this->resolveIdeaCandidateProject();
-        $siteId = (int) ($this->filterSiteId ?? 0);
-        if ($siteId <= 0 && $project instanceof SeoProject) {
-            $siteId = (int) ($project->site_id ?? 0);
-        }
+        $siteId = $this->resolveIdeaWorkingSiteId($project);
 
         $canWrite = SeoAccessControl::canManageContentProjectWorkflow()
             && $project instanceof SeoProject

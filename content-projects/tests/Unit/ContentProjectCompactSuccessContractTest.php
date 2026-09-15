@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\ContentProjects\Tests\Unit;
 
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectItemArchiveState;
-use Omnichannel\Addons\ContentProjects\Enums\ContentProjectItemDashboardBucket;
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectItemErrorSource;
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectItemExecutionState;
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectItemGenerationState;
@@ -13,199 +12,374 @@ use Omnichannel\Addons\ContentProjects\Enums\ContentProjectItemPublishState;
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectItemReviewState;
 use Omnichannel\Addons\ContentProjects\Enums\ContentProjectLifecyclePhase;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectCompactSuccessPlanner;
-use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectAuditSuccessClassifier;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExecutionLimits;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectGeneratorDoneClassifier;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemState;
 use PHPUnit\Framework\TestCase;
 use ReflectionClass;
 
 final class ContentProjectCompactSuccessContractTest extends TestCase
 {
-    private ContentProjectAuditSuccessClassifier $classifier;
+    private ContentProjectGeneratorDoneClassifier $classifier;
 
     private ContentProjectCompactSuccessPlanner $planner;
 
     protected function setUp(): void
     {
         parent::setUp();
-        $this->classifier = new ContentProjectAuditSuccessClassifier;
+        $this->classifier = new ContentProjectGeneratorDoneClassifier;
         $this->planner = new ContentProjectCompactSuccessPlanner;
     }
 
-    public function test_classifier_counts_success_only(): void
+    public function test_generator_done_requires_content_and_completed_generation(): void
     {
-        self::assertTrue($this->classifier->isAuditSuccess($this->state(
+        self::assertTrue($this->classifier->isGeneratorDone($this->state(
             lifecycle: ContentProjectLifecyclePhase::Review,
             generation: ContentProjectItemGenerationState::Completed,
             review: ContentProjectItemReviewState::Draft,
-        )));
-        self::assertTrue($this->classifier->isAuditSuccess($this->state(
-            lifecycle: ContentProjectLifecyclePhase::Approved,
-            generation: ContentProjectItemGenerationState::Completed,
-            review: ContentProjectItemReviewState::Approved,
-        )));
-        self::assertTrue($this->classifier->isAuditSuccess($this->state(
-            lifecycle: ContentProjectLifecyclePhase::WaitingPublish,
-            generation: ContentProjectItemGenerationState::Completed,
-            review: ContentProjectItemReviewState::Approved,
-            publish: ContentProjectItemPublishState::Scheduled,
-        )));
-        self::assertTrue($this->classifier->isAuditSuccess($this->state(
-            lifecycle: ContentProjectLifecyclePhase::Published,
-            generation: ContentProjectItemGenerationState::Completed,
-            review: ContentProjectItemReviewState::Approved,
-            publish: ContentProjectItemPublishState::Published,
-            hasPublished: true,
-        )));
+        ), true));
 
-        self::assertFalse($this->classifier->isAuditSuccess($this->state(
+        self::assertFalse($this->classifier->isGeneratorDone($this->state(
+            lifecycle: ContentProjectLifecyclePhase::Review,
+            generation: ContentProjectItemGenerationState::Completed,
+            review: ContentProjectItemReviewState::Draft,
+        ), false));
+
+        self::assertFalse($this->classifier->isGeneratorDone($this->state(
             lifecycle: ContentProjectLifecyclePhase::Draft,
             generation: ContentProjectItemGenerationState::Pending,
-        )));
-        self::assertFalse($this->classifier->isAuditSuccess($this->state(
-            lifecycle: ContentProjectLifecyclePhase::Generating,
-            generation: ContentProjectItemGenerationState::Writing,
-        )));
-        self::assertFalse($this->classifier->isAuditSuccess($this->state(
+        ), false));
+
+        self::assertFalse($this->classifier->isGeneratorDone($this->state(
+            lifecycle: ContentProjectLifecyclePhase::Draft,
+            generation: ContentProjectItemGenerationState::Pending,
+        ), true));
+
+        self::assertFalse($this->classifier->isGeneratorDone($this->state(
             lifecycle: ContentProjectLifecyclePhase::Failed,
             generation: ContentProjectItemGenerationState::Failed,
-        )));
-        self::assertFalse($this->classifier->isAuditSuccessFromBucket(ContentProjectItemDashboardBucket::WaitingAi));
-        self::assertFalse($this->classifier->isAuditSuccessFromBucket(ContentProjectItemDashboardBucket::AiRunning));
-        self::assertFalse($this->classifier->isAuditSuccessFromBucket(ContentProjectItemDashboardBucket::Failed));
-        self::assertTrue($this->classifier->isAuditSuccessFromBucket(ContentProjectItemDashboardBucket::WaitingReview));
+        ), true));
     }
 
-    public function test_published_with_rerun_still_audit_success(): void
+    public function test_case1_auto_partition_capacity_30(): void
     {
-        self::assertTrue($this->classifier->isAuditSuccess($this->state(
-            lifecycle: ContentProjectLifecyclePhase::Published,
-            generation: ContentProjectItemGenerationState::Writing,
-            review: ContentProjectItemReviewState::Approved,
-            publish: ContentProjectItemPublishState::Published,
-            hasPublished: true,
-        )));
-    }
+        // 37 generator_done + 21 not_done across 5 projects, capacity 30 → 2 done buckets.
+        $taskId = 1;
+        $make = function (int $done, int $notDone, int $projectId) use (&$taskId): array {
+            $items = [];
+            for ($i = 0; $i < $done; $i++) {
+                $items[] = $this->item($taskId++, true, true);
+            }
+            for ($i = 0; $i < $notDone; $i++) {
+                $items[] = $this->item($taskId++, false, true, ContentProjectCompactSuccessPlanner::SKIP_PENDING);
+            }
 
-    public function test_compact_creates_no_project_and_packs_highest_first(): void
-    {
-        $scope = $this->exampleScope();
+            return $this->project($projectId, 'P'.$projectId, $items);
+        };
+
+        $scope = [
+            'site_id' => 10,
+            'month' => '2026-08',
+            'projects' => [
+                $make(12, 5, 1),
+                $make(10, 4, 2),
+                $make(8, 5, 3),
+                $make(5, 4, 4),
+                $make(2, 3, 5),
+            ],
+        ];
+
         $plan = $this->planner->plan($scope);
 
-        self::assertFalse($plan['creates_project']);
-        self::assertFalse($plan['archives_project']);
-        self::assertSame(count($scope['projects']), (int) $plan['totals']['projects']);
-        self::assertSame(36, (int) $plan['totals']['success']);
         self::assertSame(30, ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS);
         self::assertSame(30, (int) $plan['capacity']);
+        self::assertSame(37, (int) $plan['totals']['generator_done']);
+        self::assertSame(21, (int) $plan['totals']['not_done']);
+        self::assertCount(2, $plan['done_bucket_project_ids']);
+        self::assertTrue($plan['can_execute']);
+        self::assertFalse($plan['creates_project']);
+        self::assertGreaterThan(0, (int) $plan['totals']['moves']);
 
-        $afterById = [];
-        foreach ($plan['projects_after'] as $row) {
-            $afterById[(int) $row['project_id']] = $row;
+        $after = $this->indexByProject($plan['projects_after']);
+        $doneIds = $plan['done_bucket_project_ids'];
+        $doneTotal = 0;
+        foreach ($doneIds as $id) {
+            self::assertSame(0, (int) $after[$id]['not_done_count'], 'done bucket must be cleaned of not_done');
+            $doneTotal += (int) $after[$id]['generator_done_count'];
+            self::assertLessThanOrEqual(30, (int) $after[$id]['total']);
         }
-
-        self::assertSame(30, (int) $afterById[1]['success_count']);
-        self::assertSame(0, (int) $afterById[1]['non_success_count']);
-        self::assertTrue($afterById[1]['audit_ready']);
-
-        self::assertSame(6, (int) $afterById[2]['success_count']);
-        self::assertSame(0, (int) $afterById[2]['non_success_count']);
-
-        $nonTargetNonSuccess = (int) $afterById[3]['non_success_count'] + (int) $afterById[4]['non_success_count'];
-        self::assertSame(16, $nonTargetNonSuccess);
-
-        // Project count unchanged.
-        self::assertCount(4, $plan['projects_after']);
-        self::assertCount(4, $plan['projects_before']);
+        self::assertSame(37, $doneTotal);
     }
 
-    public function test_failed_and_pending_not_counted_as_success(): void
+    public function test_month_scope_compacts_generator_done_across_domains(): void
     {
-        $plan = $this->planner->plan($this->exampleScope());
-        self::assertSame(36, (int) $plan['totals']['success']);
-        self::assertSame(16, (int) $plan['totals']['non_success']);
-    }
-
-    public function test_running_items_skipped_not_moved(): void
-    {
-        $scope = $this->exampleScope();
-        // Mark one success in B as not movable (active_dispatch).
-        $scope['projects'][1]['items'][0]['movable'] = false;
-        $scope['projects'][1]['items'][0]['skip_reason'] = 'active_dispatch';
-        $lockedId = (int) $scope['projects'][1]['items'][0]['task_id'];
+        $scope = [
+            'site_id' => 0,
+            'month' => '2026-08',
+            'projects' => [
+                $this->project(1, 'A', [
+                    $this->itemForSite(1, 10, true, true),
+                    $this->itemForSite(2, 20, false, true, ContentProjectCompactSuccessPlanner::SKIP_PENDING),
+                ]),
+                $this->project(2, 'B', [
+                    $this->itemForSite(3, 20, true, true),
+                    $this->itemForSite(4, 30, false, true, ContentProjectCompactSuccessPlanner::SKIP_PENDING),
+                ]),
+                $this->project(3, 'C', [
+                    $this->itemForSite(5, 30, true, true),
+                ]),
+            ],
+        ];
 
         $plan = $this->planner->plan($scope);
-        foreach ($plan['moves'] as $move) {
-            self::assertNotSame($lockedId, (int) $move['task_id']);
-        }
-        self::assertNotEmpty($plan['skipped']);
-        self::assertSame($lockedId, (int) $plan['skipped'][0]['task_id']);
+
+        self::assertTrue($plan['can_execute']);
+        self::assertSame(3, (int) $plan['totals']['generator_done']);
+        self::assertSame(2, (int) $plan['totals']['not_done']);
+        self::assertSame(
+            0,
+            (int) $plan['skipped_summary'][ContentProjectCompactSuccessPlanner::SKIP_WRONG_DOMAIN_MONTH],
+        );
+
+        $after = $this->indexByProject($plan['projects_after']);
+        $doneIds = $plan['done_bucket_project_ids'];
+        self::assertCount(1, $doneIds);
+        self::assertSame(3, (int) $after[$doneIds[0]]['generator_done_count']);
+        self::assertSame(0, (int) $after[$doneIds[0]]['not_done_count']);
     }
 
-    public function test_active_editor_skip_reason_preserved(): void
+    public function test_month_scope_compacts_done_projects_across_writers(): void
     {
-        $scope = $this->exampleScope();
-        $scope['projects'][0]['items'][0]['movable'] = false;
-        $scope['projects'][0]['items'][0]['skip_reason'] = 'active_editor_session';
+        $scope = [
+            'site_id' => 0,
+            'month' => '2026-08',
+            'projects' => [
+                $this->projectForWriter(1, 'Yen', 101, $this->many(1, 13, true)),
+                $this->projectForWriter(2, 'Trang', 102, $this->many(101, 11, true)),
+                $this->projectForWriter(3, 'Uyen', 103, $this->many(201, 12, true)),
+                $this->projectForWriter(4, 'Nu', 104, $this->many(301, 11, true)),
+                $this->projectForWriter(5, 'Quyen', 105, $this->many(401, 11, false)),
+                $this->projectForWriter(6, 'Empty', 106, []),
+            ],
+        ];
+
         $plan = $this->planner->plan($scope);
-        self::assertSame('active_editor_session', $plan['skipped'][0]['reason']);
+        $after = $this->indexByProject($plan['projects_after']);
+        $doneIds = $plan['done_bucket_project_ids'];
+
+        self::assertFalse($plan['preserve_writer']);
+        self::assertTrue($plan['can_execute']);
+        self::assertSame(47, (int) $plan['totals']['generator_done']);
+        self::assertCount(2, $doneIds);
+        self::assertSame(0, (int) $plan['skipped_summary'][ContentProjectCompactSuccessPlanner::SKIP_WRONG_DOMAIN_MONTH]);
+        self::assertGreaterThanOrEqual(2, (int) $plan['totals']['moves_generator_done']);
+
+        $doneTotal = 0;
+        foreach ($doneIds as $id) {
+            self::assertSame(0, (int) $after[$id]['not_done_count']);
+            self::assertLessThanOrEqual(30, (int) $after[$id]['total']);
+            $doneTotal += (int) $after[$id]['generator_done_count'];
+        }
+        self::assertSame(47, $doneTotal);
     }
 
-    public function test_cross_domain_items_never_mixed_into_success_counts(): void
+    public function test_case2_planner_import_without_content_is_not_done(): void
     {
-        $scope = $this->exampleScope();
-        $scope['projects'][0]['items'][] = [
-            'task_id' => 9001,
-            'site_id' => 99,
-            'success' => true,
-            'movable' => true,
-            'skip_reason' => null,
+        self::assertFalse($this->classifier->isGeneratorDone($this->state(
+            lifecycle: ContentProjectLifecyclePhase::Draft,
+            generation: ContentProjectItemGenerationState::Pending,
+        ), false));
+
+        $scope = [
+            'site_id' => 10,
+            'month' => '2026-08',
+            'projects' => [
+                $this->project(1, 'A', [
+                    $this->item(1, false, true, ContentProjectCompactSuccessPlanner::SKIP_PENDING),
+                    $this->item(2, true, true),
+                ]),
+                $this->project(2, 'B', [
+                    $this->item(3, false, true, ContentProjectCompactSuccessPlanner::SKIP_PENDING),
+                ]),
+            ],
         ];
         $plan = $this->planner->plan($scope);
-        // Foreign success must not inflate scoped success total.
-        self::assertSame(36, (int) $plan['totals']['success']);
         foreach ($plan['moves'] as $move) {
-            self::assertNotSame(9001, (int) $move['task_id']);
+            if ($move['reason'] === ContentProjectCompactSuccessPlanner::REASON_PACK_GENERATOR_DONE) {
+                self::assertNotSame(1, (int) $move['task_id']);
+                self::assertNotSame(3, (int) $move['task_id']);
+            }
         }
+        self::assertContains(1, $plan['done_bucket_project_ids']);
     }
 
-    public function test_writer_preservation_default_no_cross_writer_moves(): void
+    public function test_case3_false_success_missing_content_not_generator_done(): void
     {
-        $scope = $this->exampleScope();
-        // Writer 2 owns project D only.
-        $scope['projects'][3]['writer_id'] = 2;
-        $scope['projects'][3]['writer_name'] = 'Writer B';
-
+        $scope = [
+            'site_id' => 10,
+            'month' => '2026-08',
+            'projects' => [
+                $this->project(1, 'A', [
+                    $this->item(1, false, false, ContentProjectCompactSuccessPlanner::SKIP_MISSING_CONTENT),
+                    $this->item(2, true, true),
+                ]),
+                $this->project(2, 'B', [
+                    $this->item(3, false, true, ContentProjectCompactSuccessPlanner::SKIP_PENDING),
+                ]),
+            ],
+        ];
         $plan = $this->planner->plan($scope);
         foreach ($plan['moves'] as $move) {
-            $from = (int) $move['from_project_id'];
-            $to = (int) $move['to_project_id'];
-            $fromWriter = $from === 4 ? 2 : 1;
-            $toWriter = $to === 4 ? 2 : 1;
-            self::assertSame($fromWriter, $toWriter);
+            self::assertNotSame(1, (int) $move['task_id']);
         }
-        self::assertTrue($plan['preserve_writer']);
-    }
-
-    public function test_idempotent_when_already_compacted(): void
-    {
-        $first = $this->planner->plan($this->exampleScope());
-        $after = $this->rebuildScopeFromPlan($this->exampleScope(), $first);
-        $second = $this->planner->plan($after);
-
-        self::assertTrue($second['already_compacted'] || (int) $second['totals']['moves'] === 0);
-        self::assertSame(0, (int) $second['totals']['moves']);
-    }
-
-    public function test_capacity_rule_uses_execution_limit(): void
-    {
         self::assertSame(
-            ContentProjectExecutionLimits::MAX_EXECUTION_PROJECT_ITEMS,
-            $this->planner->capacity(),
+            1,
+            (int) $plan['skipped_summary'][ContentProjectCompactSuccessPlanner::SKIP_MISSING_CONTENT],
         );
     }
 
-    public function test_service_and_ui_wired_without_new_project_or_ai(): void
+    public function test_case4_active_item_not_moved(): void
+    {
+        $scope = [
+            'site_id' => 10,
+            'month' => '2026-08',
+            'projects' => [
+                $this->project(1, 'A', [
+                    [
+                        'task_id' => 1,
+                        'site_id' => 10,
+                        'kind' => ContentProjectCompactSuccessPlanner::KIND_UNSAFE_LOCKED,
+                        'generator_done' => true,
+                        'movable' => false,
+                        'skip_reason' => ContentProjectCompactSuccessPlanner::SKIP_ACTIVE_RUNNING,
+                    ],
+                    $this->item(2, true, true),
+                    $this->item(3, false, true, ContentProjectCompactSuccessPlanner::SKIP_PENDING),
+                ]),
+                $this->project(2, 'B', [
+                    $this->item(4, false, true, ContentProjectCompactSuccessPlanner::SKIP_PENDING),
+                ]),
+            ],
+        ];
+        $plan = $this->planner->plan($scope);
+        foreach ($plan['moves'] as $move) {
+            self::assertNotSame(1, (int) $move['task_id']);
+        }
+        self::assertSame(
+            1,
+            (int) $plan['skipped_summary'][ContentProjectCompactSuccessPlanner::SKIP_ACTIVE_RUNNING],
+        );
+    }
+
+    public function test_case5_scheduled_published_unsafe_skipped(): void
+    {
+        $scope = [
+            'site_id' => 10,
+            'month' => '2026-08',
+            'projects' => [
+                $this->project(1, 'A', [
+                    [
+                        'task_id' => 1,
+                        'site_id' => 10,
+                        'kind' => ContentProjectCompactSuccessPlanner::KIND_UNSAFE_LOCKED,
+                        'generator_done' => true,
+                        'movable' => false,
+                        'skip_reason' => ContentProjectCompactSuccessPlanner::SKIP_SCHEDULED_PUBLISHED,
+                    ],
+                    $this->item(2, true, true),
+                ]),
+                $this->project(2, 'B', [
+                    $this->item(3, false, true, ContentProjectCompactSuccessPlanner::SKIP_PENDING),
+                ]),
+            ],
+        ];
+        $plan = $this->planner->plan($scope);
+        foreach ($plan['moves'] as $move) {
+            self::assertNotSame(1, (int) $move['task_id']);
+        }
+        self::assertSame(
+            1,
+            (int) $plan['skipped_summary'][ContentProjectCompactSuccessPlanner::SKIP_SCHEDULED_PUBLISHED],
+        );
+    }
+
+    public function test_case6_import_guard_prefers_work_projects(): void
+    {
+        $packingSrc = (string) file_get_contents(
+            (string) (new ReflectionClass(
+                \Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectExecutionPackingService::class,
+            ))->getFileName(),
+        );
+        self::assertStringContainsString('listReusableWorkProjects', $packingSrc);
+        self::assertStringContainsString('projectHasGeneratorDoneItems', $packingSrc);
+        self::assertStringContainsString('listAppendableProjects', $packingSrc);
+        self::assertStringContainsString('canAcceptMoreItems', $packingSrc);
+    }
+
+    public function test_bidirectional_moves_pack_and_clean(): void
+    {
+        $scope = [
+            'site_id' => 10,
+            'month' => '2026-08',
+            'projects' => [
+                $this->project(1, 'A', [
+                    ...$this->many(1, 8, true),
+                    ...$this->many(101, 4, false),
+                ]),
+                $this->project(2, 'B', [
+                    ...$this->many(201, 3, true),
+                    ...$this->many(301, 6, false),
+                ]),
+            ],
+        ];
+        $plan = $this->planner->plan($scope);
+        $reasons = array_column($plan['moves'], 'reason');
+        self::assertContains(ContentProjectCompactSuccessPlanner::REASON_PACK_GENERATOR_DONE, $reasons);
+        self::assertContains(ContentProjectCompactSuccessPlanner::REASON_CLEAN_NOT_DONE, $reasons);
+    }
+
+    public function test_no_manual_destination_required(): void
+    {
+        $scope = [
+            'site_id' => 10,
+            'month' => '2026-08',
+            'projects' => [
+                $this->project(1, 'A', [
+                    ...$this->many(1, 4, true),
+                    ...$this->many(101, 3, false),
+                ]),
+                $this->project(2, 'B', [
+                    ...$this->many(201, 2, true),
+                    ...$this->many(301, 2, false),
+                ]),
+            ],
+        ];
+        $plan = $this->planner->plan($scope);
+        self::assertArrayNotHasKey('destination_project_id', $plan);
+        self::assertNotEmpty($plan['done_bucket_project_ids']);
+        self::assertTrue($plan['can_execute']);
+        self::assertGreaterThan(0, (int) $plan['totals']['moves']);
+    }
+
+    public function test_blocked_active_run_prevents_moves(): void
+    {
+        $scope = [
+            'site_id' => 10,
+            'month' => '2026-08',
+            'blocked' => true,
+            'block_reason' => ContentProjectCompactSuccessPlanner::SKIP_ACTIVE_RUNNING,
+            'projects' => [
+                $this->project(1, 'A', $this->many(1, 5, true)),
+                $this->project(2, 'B', $this->many(101, 3, false)),
+            ],
+        ];
+        $plan = $this->planner->plan($scope);
+        self::assertFalse($plan['can_execute']);
+        self::assertSame(0, (int) $plan['totals']['moves']);
+        self::assertTrue($plan['blocked']);
+    }
+
+    public function test_service_and_ui_wired_for_auto_partition(): void
     {
         $serviceSrc = (string) file_get_contents(
             (string) (new ReflectionClass(
@@ -215,28 +389,35 @@ final class ContentProjectCompactSuccessContractTest extends TestCase
         self::assertStringContainsString('content_project_compact_success:', $serviceSrc);
         self::assertStringContainsString('Cache::lock', $serviceSrc);
         self::assertStringContainsString('transaction', $serviceSrc);
-        self::assertStringContainsString("table('seo_project_tasks as t')", $serviceSrc);
-        self::assertStringContainsString("whereNull('t.deleted_at')", $serviceSrc);
-        self::assertDoesNotMatchRegularExpression(
-            '/SeoProjectTask::query\(\)\s*->from\(\'seo_project_tasks as t\'\)/',
-            $serviceSrc,
-        );
+        self::assertStringNotContainsString('destination_project_id', $serviceSrc);
+        self::assertStringNotContainsString('includeScheduledPublished', $serviceSrc);
         self::assertStringNotContainsString('SeoProject::query()->create', $serviceSrc);
         self::assertStringNotContainsString('GenerateProjectItems', $serviceSrc);
-        self::assertStringContainsString('archives_project', $serviceSrc);
-        self::assertStringContainsString('creates_project', $serviceSrc);
-        self::assertMatchesRegularExpression("/\\['archives_project'\\]\\s*=\\s*false/", $serviceSrc);
+        self::assertStringNotContainsString("'target_date'", $serviceSrc);
 
         $listSrc = (string) file_get_contents(
             dirname(__DIR__, 2).'/src/Filament/Resources/SeoProjectResource/Pages/ListSeoProjects.php',
         );
         self::assertStringContainsString('compact_success_items', $listSrc);
-        self::assertStringContainsString('ContentProjectCompactSuccessService', $listSrc);
+        self::assertStringNotContainsString("Select::make('site_id')", $listSrc);
+        self::assertStringContainsString('->preview(0, $month)', $listSrc);
+        self::assertStringNotContainsString('destination_project_id', $listSrc);
+        self::assertStringNotContainsString('include_scheduled_published', $listSrc);
+        self::assertStringContainsString('moved_generator_done', $listSrc);
 
-        $classifierSrc = (string) file_get_contents(
-            (string) (new ReflectionClass(ContentProjectAuditSuccessClassifier::class))->getFileName(),
+        $plannerSrc = (string) file_get_contents(
+            (string) (new ReflectionClass(ContentProjectCompactSuccessPlanner::class))->getFileName(),
         );
-        self::assertStringContainsString('isAuditSuccess', $classifierSrc);
+        self::assertStringContainsString('pack_generator_done', $plannerSrc);
+        self::assertStringContainsString('clean_not_done_from_done_bucket', $plannerSrc);
+        self::assertStringContainsString('selectDoneBuckets', $plannerSrc);
+
+        $vi = (string) file_get_contents(
+            dirname(__DIR__, 3).'/seo-content-ai-compat/lang/vi/filament.php',
+        );
+        self::assertStringContainsString("'compact_success' => 'Gom bài đã xong'", $vi);
+        self::assertStringContainsString('Chỉ tính bài đã generator xong và có content', $vi);
+        self::assertStringNotContainsString('destination_project_id', $listSrc);
     }
 
     public function test_lock_key_isolates_domain_and_month(): void
@@ -246,106 +427,98 @@ final class ContentProjectCompactSuccessContractTest extends TestCase
             'content_project_compact_success:5:2026-08',
             $service->lockKey(5, '2026-08'),
         );
-        self::assertNotSame(
-            $service->lockKey(5, '2026-08'),
-            $service->lockKey(5, '2026-09'),
-        );
-        self::assertNotSame(
-            $service->lockKey(5, '2026-08'),
-            $service->lockKey(6, '2026-08'),
+        self::assertSame(
+            'content_project_compact_success:all:2026-08',
+            $service->lockKey(0, '2026-08'),
         );
     }
 
     /**
-     * Spec example: A13s+5ns, B11s+1ns, C8s+7ns, D4s+3ns.
-     *
-     * @return array{site_id: int, month: string, projects: list<array<string, mixed>>}
+     * @param  list<array<string, mixed>>  $items
+     * @return array<string, mixed>
      */
-    private function exampleScope(): array
+    private function project(int $id, string $name, array $items): array
     {
-        $taskId = 1;
-        $make = static function (int $success, int $nonSuccess, int $projectId) use (&$taskId): array {
-            $items = [];
-            for ($i = 0; $i < $success; $i++) {
-                $items[] = [
-                    'task_id' => $taskId++,
-                    'site_id' => 10,
-                    'success' => true,
-                    'movable' => true,
-                    'skip_reason' => null,
-                ];
-            }
-            for ($i = 0; $i < $nonSuccess; $i++) {
-                $items[] = [
-                    'task_id' => $taskId++,
-                    'site_id' => 10,
-                    'success' => false,
-                    'movable' => true,
-                    'skip_reason' => null,
-                ];
-            }
+        return $this->projectForWriter($id, $name, 1, $items);
+    }
 
-            return [
-                'project_id' => $projectId,
-                'name' => 'Project '.chr(64 + $projectId),
-                'writer_id' => 1,
-                'writer_name' => 'Writer A',
-                'archived' => false,
-                'items' => $items,
-            ];
-        };
-
+    /**
+     * @param  list<array<string, mixed>>  $items
+     * @return array<string, mixed>
+     */
+    private function projectForWriter(int $id, string $name, int $writerId, array $items): array
+    {
         return [
-            'site_id' => 10,
-            'month' => '2026-08',
-            'projects' => [
-                $make(13, 5, 1),
-                $make(11, 1, 2),
-                $make(8, 7, 3),
-                $make(4, 3, 4),
-            ],
+            'project_id' => $id,
+            'name' => 'Project '.$name,
+            'writer_id' => $writerId,
+            'writer_name' => 'Writer '.$writerId,
+            'archived' => false,
+            'items' => $items,
         ];
     }
 
     /**
-     * @param  array{site_id: int, month: string, projects: list<array<string, mixed>>}  $scope
-     * @param  array<string, mixed>  $plan
-     * @return array{site_id: int, month: string, projects: list<array<string, mixed>>}
+     * @return array{task_id: int, site_id: int, kind: string, generator_done: bool, movable: bool, skip_reason: string|null}
      */
-    private function rebuildScopeFromPlan(array $scope, array $plan): array
+    private function item(int $id, bool $generatorDone, bool $movable, ?string $skipReason = null): array
     {
-        $byProject = [];
-        foreach ($scope['projects'] as $project) {
-            $byProject[(int) $project['project_id']] = $project;
-            $byProject[(int) $project['project_id']]['items'] = [];
+        return $this->itemForSite($id, 10, $generatorDone, $movable, $skipReason);
+    }
+
+    /**
+     * @return array{task_id: int, site_id: int, kind: string, generator_done: bool, movable: bool, skip_reason: string|null}
+     */
+    private function itemForSite(
+        int $id,
+        int $siteId,
+        bool $generatorDone,
+        bool $movable,
+        ?string $skipReason = null,
+    ): array
+    {
+        return [
+            'task_id' => $id,
+            'site_id' => $siteId,
+            'kind' => $generatorDone
+                ? ContentProjectCompactSuccessPlanner::KIND_GENERATOR_DONE
+                : ContentProjectCompactSuccessPlanner::KIND_NOT_DONE,
+            'generator_done' => $generatorDone,
+            'movable' => $movable,
+            'skip_reason' => $skipReason,
+        ];
+    }
+
+    /**
+     * @return list<array{task_id: int, site_id: int, kind: string, generator_done: bool, movable: bool, skip_reason: string|null}>
+     */
+    private function many(int $startId, int $count, bool $generatorDone): array
+    {
+        $items = [];
+        for ($i = 0; $i < $count; $i++) {
+            $items[] = $this->item(
+                $startId + $i,
+                $generatorDone,
+                true,
+                $generatorDone ? null : ContentProjectCompactSuccessPlanner::SKIP_PENDING,
+            );
         }
 
-        $itemMap = [];
-        foreach ($scope['projects'] as $project) {
-            foreach ($project['items'] as $item) {
-                $itemMap[(int) $item['task_id']] = [
-                    'item' => $item,
-                    'project_id' => (int) $project['project_id'],
-                ];
-            }
+        return $items;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $rows
+     * @return array<int, array<string, mixed>>
+     */
+    private function indexByProject(array $rows): array
+    {
+        $out = [];
+        foreach ($rows as $row) {
+            $out[(int) $row['project_id']] = $row;
         }
 
-        foreach ($plan['moves'] as $move) {
-            $taskId = (int) $move['task_id'];
-            if (! isset($itemMap[$taskId])) {
-                continue;
-            }
-            $itemMap[$taskId]['project_id'] = (int) $move['to_project_id'];
-        }
-
-        foreach ($itemMap as $row) {
-            $pid = (int) $row['project_id'];
-            $byProject[$pid]['items'][] = $row['item'];
-        }
-
-        $scope['projects'] = array_values($byProject);
-
-        return $scope;
+        return $out;
     }
 
     private function state(

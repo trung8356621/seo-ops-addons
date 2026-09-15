@@ -21,12 +21,22 @@ use RuntimeException;
  * Pack writer-allocated items into max-30 Execution Projects.
  * Reuses mutable existing projects for the same writer + execution month
  * before creating new containers. Domain/site is NOT a grouping key.
+ *
+ * Empty shell rule: active item count === 0 ⇒ always reusable (prefer fill
+ * over creating -2/-3), even when past SeoProjectRun history remains.
+ *
+ * Append rule: started manual/pending projects with free slots under max-30
+ * still accept fill-up via canAcceptMoreItems / listAppendableProjects.
+ *
+ * Import guard: prefer WORK bucket projects (zero generator_done items).
+ * Do not skip free slots on partial DONE buckets when packing under max-30.
  */
 final class ContentProjectExecutionPackingService
 {
     public function __construct(
         private readonly SeoProjectTaskMoveService $moveService,
         private readonly SeoProjectArticleOwnerSyncService $articleOwnerSync,
+        private readonly ?ContentProjectCompactSuccessSafetyGuard $compactSafety = null,
     ) {}
 
     public function maxItemsPerProject(): int
@@ -79,8 +89,18 @@ final class ContentProjectExecutionPackingService
         }
 
         $status = (string) ($project->status ?? '');
+        // Actively running must not receive new imports mid-flight.
+        if ($status === SeoProject::STATUS_RUNNING) {
+            return false;
+        }
+
+        // Prerequisite: zero active items ⇒ always reuse this shell (never force -2/-3).
+        // Past SeoProjectRun / stuck lifecycle after items were moved away must not block.
+        if ($this->activeItemCount($project) === 0) {
+            return true;
+        }
+
         if (in_array($status, [
-            SeoProject::STATUS_RUNNING,
             SeoProject::STATUS_COMPLETED,
             SeoProject::STATUS_PAUSED,
         ], true)) {
@@ -89,6 +109,29 @@ final class ContentProjectExecutionPackingService
 
         // pending / manual / approved — only when never started
         return ! $this->moveService->hasStartedExecution($project);
+    }
+
+    /**
+     * Destination may receive more split/move items under max-30.
+     * Broader than isReusable: started manual/pending projects with free slots
+     * still accept fill-up (avoid creating -2 while base has room).
+     */
+    public function canAcceptMoreItems(SeoProject $project): bool
+    {
+        if ($project->isDraftPlanning() || $project->isArchive() || $project->isProjectArchived()) {
+            return false;
+        }
+
+        $status = (string) ($project->status ?? '');
+        if (in_array($status, [
+            SeoProject::STATUS_RUNNING,
+            SeoProject::STATUS_COMPLETED,
+            SeoProject::STATUS_PAUSED,
+        ], true)) {
+            return false;
+        }
+
+        return $this->freeSlots($project) > 0;
     }
 
     /**
@@ -118,6 +161,10 @@ final class ContentProjectExecutionPackingService
     /**
      * Plan packing of NEW task ids into existing free slots then new chunks.
      *
+     * Prefer WORK buckets (zero generator_done), then fill remaining free slots on
+     * any appendable writer+month project (incl. started manual with room under max-30),
+     * then create new containers. Avoids -2 while base still has free slots.
+     *
      * @param  list<int>  $taskIds
      * @return list<array{
      *     project_id: int|null,
@@ -140,7 +187,7 @@ final class ContentProjectExecutionPackingService
 
         $remaining = $taskIds;
         $bins = [];
-        $projects = $this->listReusableProjects($userId, $month);
+        $projects = $this->listAppendableProjects($userId, $month);
 
         foreach ($projects as $project) {
             if ($remaining === []) {
@@ -177,6 +224,61 @@ final class ContentProjectExecutionPackingService
         }
 
         return $bins;
+    }
+
+    /**
+     * Projects that can receive more items under max-30 for writer+month.
+     * Order: WORK (no generator_done) first, then base name, then id.
+     *
+     * @return Collection<int, SeoProject>
+     */
+    public function listAppendableProjects(int $userId, Carbon|string $month): Collection
+    {
+        if ($userId <= 0) {
+            return collect();
+        }
+
+        $monthDate = Carbon::parse($month)->startOfMonth()->format('Y-m-d');
+        $baseName = SeoProject::defaultNameFromMonth($monthDate);
+        $safety = $this->compactSafety ?? new ContentProjectCompactSuccessSafetyGuard;
+
+        $projects = SeoProject::query()
+            ->activeProjects()
+            ->where('user_id', $userId)
+            ->whereDate('month', $monthDate)
+            ->where('status', '!=', SeoProject::STATUS_DRAFT)
+            ->where(function ($builder): void {
+                $builder
+                    ->where('kind', SeoProject::KIND_MONTHLY)
+                    ->orWhereNull('kind');
+            })
+            ->orderBy('id')
+            ->get()
+            ->filter(fn (SeoProject $project): bool => $this->canAcceptMoreItems($project))
+            ->values();
+
+        return $projects->sortBy(function (SeoProject $project) use ($baseName, $safety): array {
+            $name = trim((string) ($project->name ?? ''));
+            $isWork = $safety->projectHasGeneratorDoneItems($project) ? 1 : 0;
+            $isBase = $name === $baseName ? 0 : 1;
+
+            return [$isWork, $isBase, (int) $project->getKey()];
+        })->values();
+    }
+
+    /**
+     * Reusable projects safe for fresh SEO Audit / Planner imports (WORK buckets).
+     * Excludes projects that already hold generator_done articles.
+     *
+     * @return Collection<int, SeoProject>
+     */
+    public function listReusableWorkProjects(int $userId, Carbon|string $month): Collection
+    {
+        $safety = $this->compactSafety ?? new ContentProjectCompactSuccessSafetyGuard;
+
+        return $this->listReusableProjects($userId, $month)
+            ->filter(static fn (SeoProject $project): bool => ! $safety->projectHasGeneratorDoneItems($project))
+            ->values();
     }
 
     /**

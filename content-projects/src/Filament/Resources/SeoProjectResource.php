@@ -1637,9 +1637,10 @@ class SeoProjectResource extends SeoPanelResource
                     $count = count($taskIds);
                     if ($livewire instanceof \Livewire\Component) {
                         if ($livewire instanceof \Omnichannel\Addons\ContentProjects\Filament\Resources\SeoProjectResource\Pages\ViewSeoProject) {
-                            $livewire->manualRefreshOps();
+                            $livewire->redirect(static::getUrl('view', ['record' => $project]), navigate: false);
+                        } else {
+                            $livewire->dispatch('cp-ops-generation-started');
                         }
-                        $livewire->dispatch('cp-ops-generation-started');
                     }
 
                     Notification::make()

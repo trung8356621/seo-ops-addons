@@ -15,7 +15,6 @@ use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMont
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Filament\Actions;
 use Filament\Forms;
-use Filament\Forms\Get;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ListRecords;
 use Filament\Support\Enums\MaxWidth;
@@ -164,39 +163,33 @@ class ListSeoProjects extends ListRecords
                 ->color('gray')
                 ->visible(fn (): bool => SeoAccessControl::canMutateContentProjects())
                 ->modalHeading(__('seo-content-ai::filament.projects.compact_success_heading'))
+                ->modalDescription(__('seo-content-ai::filament.projects.compact_success_subtitle'))
                 ->modalWidth(MaxWidth::FiveExtraLarge)
-                ->modalSubmitActionLabel(__('seo-content-ai::filament.projects.compact_success'))
+                ->modalSubmitActionLabel(__('seo-content-ai::filament.projects.compact_success_confirm'))
                 ->form(fn (): array => $this->compactSuccessFormSchema())
                 ->action(function (array $data): void {
                     abort_unless(SeoAccessControl::canMutateContentProjects(), 403);
-                    $siteId = (int) ($data['site_id'] ?? 0);
                     $month = ContentProjectMonthContext::normalize($this->planningMonth ?: null);
 
                     try {
                         $result = app(ContentProjectCompactSuccessService::class)
-                            ->execute($siteId, $month, auth()->id() ? (int) auth()->id() : null);
+                            ->execute(
+                                0,
+                                $month,
+                                auth()->id() ? (int) auth()->id() : null,
+                            );
 
-                        $moved = (int) ($result['moved'] ?? 0);
-                        $auditNames = [];
-                        foreach (($result['projects_after'] ?? []) as $row) {
-                            if (! is_array($row) || empty($row['audit_ready'])) {
-                                continue;
-                            }
-                            $auditNames[] = (string) ($row['name'] ?? '');
-                        }
-
-                        $body = (string) __('seo-content-ai::filament.projects.compact_success_done_body', [
-                            'moved' => $moved,
-                        ]);
-                        if ($auditNames !== []) {
-                            $body .= ' '.(string) __('seo-content-ai::filament.projects.compact_success_audit_ready_hint', [
-                                'projects' => implode(', ', $auditNames),
-                            ]);
-                        }
+                        $movedDone = (int) ($result['moved_generator_done'] ?? 0);
+                        $movedWork = (int) ($result['moved_not_done'] ?? 0);
+                        $skipped = (int) ($result['skipped_count'] ?? $result['totals']['skipped'] ?? 0);
 
                         Notification::make()
                             ->title(__('seo-content-ai::filament.projects.compact_success_done'))
-                            ->body($body)
+                            ->body((string) __('seo-content-ai::filament.projects.compact_success_done_body', [
+                                'moved' => $movedDone,
+                                'work' => $movedWork,
+                                'skipped' => $skipped,
+                            ]))
                             ->success()
                             ->send();
 
@@ -239,19 +232,11 @@ class ListSeoProjects extends ListRecords
     private function compactSuccessFormSchema(): array
     {
         $month = ContentProjectMonthContext::normalize($this->planningMonth ?: null);
-        $options = app(ContentProjectCompactSuccessService::class)->domainOptionsForMonth($month);
 
         return [
             Forms\Components\Placeholder::make('compact_month')
                 ->label(__('seo-content-ai::filament.projects.planning_month'))
                 ->content(ContentProjectMonthContext::display($month)),
-            Forms\Components\Select::make('site_id')
-                ->label(__('seo-content-ai::filament.projects.compact_success_domain'))
-                ->options($options)
-                ->searchable()
-                ->required()
-                ->native(false)
-                ->live(),
             Forms\Components\Placeholder::make('compact_notice')
                 ->content(new HtmlString(
                     '<p class="text-sm text-gray-600 dark:text-gray-300">'
@@ -260,18 +245,9 @@ class ListSeoProjects extends ListRecords
                 )),
             Forms\Components\Placeholder::make('compact_preview')
                 ->label(__('seo-content-ai::filament.projects.compact_success_preview'))
-                ->content(function (Get $get) use ($month): HtmlString {
-                    $siteId = (int) ($get('site_id') ?? 0);
-                    if ($siteId <= 0) {
-                        return new HtmlString(
-                            '<p class="text-sm text-gray-500">'
-                            .e((string) __('seo-content-ai::filament.projects.compact_success_pick_domain'))
-                            .'</p>'
-                        );
-                    }
-
+                ->content(function () use ($month): HtmlString {
                     try {
-                        $plan = app(ContentProjectCompactSuccessService::class)->preview($siteId, $month);
+                        $plan = app(ContentProjectCompactSuccessService::class)->preview(0, $month);
                     } catch (Throwable $exception) {
                         return new HtmlString(
                             '<p class="text-sm text-danger-600">'.e($exception->getMessage()).'</p>'
@@ -289,26 +265,73 @@ class ListSeoProjects extends ListRecords
     private function renderCompactSuccessPreviewHtml(array $plan): string
     {
         $totals = is_array($plan['totals'] ?? null) ? $plan['totals'] : [];
+        $skippedSummary = is_array($plan['skipped_summary'] ?? null) ? $plan['skipped_summary'] : [];
         $html = '<div class="space-y-3 text-sm">';
         $html .= '<p><strong>'.e((string) ($plan['domain'] ?? '')).'</strong> · '
             .e((string) ($plan['month_label'] ?? '')).'</p>';
+
+        $doneNames = array_map(
+            static fn (array $row): string => (string) ($row['name'] ?? ''),
+            array_filter(is_array($plan['done_buckets'] ?? null) ? $plan['done_buckets'] : [], 'is_array'),
+        );
+        $workNames = array_map(
+            static fn (array $row): string => (string) ($row['name'] ?? ''),
+            array_filter(is_array($plan['work_buckets'] ?? null) ? $plan['work_buckets'] : [], 'is_array'),
+        );
+
         $html .= '<ul class="list-disc pl-5 text-gray-700 dark:text-gray-200">'
             .'<li>'.e((string) __('seo-content-ai::filament.projects.compact_success_stat_projects', [
                 'count' => (int) ($totals['projects'] ?? 0),
             ])).'</li>'
-            .'<li>'.e((string) __('seo-content-ai::filament.projects.compact_success_stat_items', [
-                'count' => (int) ($totals['items'] ?? 0),
+            .'<li>'.e((string) __('seo-content-ai::filament.projects.compact_success_stat_generator_done', [
+                'count' => (int) ($totals['generator_done'] ?? $totals['done'] ?? 0),
             ])).'</li>'
-            .'<li>'.e((string) __('seo-content-ai::filament.projects.compact_success_stat_success', [
-                'count' => (int) ($totals['success'] ?? 0),
+            .'<li>'.e((string) __('seo-content-ai::filament.projects.compact_success_stat_not_done', [
+                'count' => (int) ($totals['not_done'] ?? $totals['unfinished'] ?? 0),
             ])).'</li>'
-            .'<li>'.e((string) __('seo-content-ai::filament.projects.compact_success_stat_non_success', [
-                'count' => (int) ($totals['non_success'] ?? 0),
+            .'<li>'.e((string) __('seo-content-ai::filament.projects.compact_success_stat_unsafe', [
+                'count' => (int) ($totals['unsafe'] ?? $totals['skipped'] ?? 0),
             ])).'</li>'
-            .'<li>'.e((string) __('seo-content-ai::filament.projects.compact_success_stat_skipped', [
-                'count' => (int) ($totals['locked_skipped'] ?? 0),
+            .'<li>'.e((string) __('seo-content-ai::filament.projects.compact_success_stat_moves_done', [
+                'count' => (int) ($totals['moves_generator_done'] ?? 0),
+            ])).'</li>'
+            .'<li>'.e((string) __('seo-content-ai::filament.projects.compact_success_stat_moves_work', [
+                'count' => (int) ($totals['moves_not_done'] ?? 0),
             ])).'</li>'
             .'</ul>';
+
+        if ($doneNames !== []) {
+            $html .= '<p class="text-xs">'.e((string) __('seo-content-ai::filament.projects.compact_success_done_buckets', [
+                'names' => implode(', ', $doneNames),
+            ])).'</p>';
+        }
+        if ($workNames !== []) {
+            $html .= '<p class="text-xs">'.e((string) __('seo-content-ai::filament.projects.compact_success_work_buckets', [
+                'names' => implode(', ', $workNames),
+            ])).'</p>';
+        }
+
+        if ($skippedSummary !== []) {
+            $html .= '<ul class="list-disc pl-5 text-xs text-gray-600 dark:text-gray-300">';
+            foreach ([
+                'active_running' => 'compact_success_skip_active',
+                'failed' => 'compact_success_skip_failed',
+                'pending' => 'compact_success_skip_pending',
+                'missing_generated_content' => 'compact_success_skip_missing_content',
+                'scheduled_published_unsafe' => 'compact_success_skip_scheduled',
+                'capacity_limit' => 'compact_success_skip_capacity',
+                'wrong_domain_month' => 'compact_success_skip_wrong_scope',
+            ] as $key => $langKey) {
+                $count = (int) ($skippedSummary[$key] ?? 0);
+                if ($count <= 0) {
+                    continue;
+                }
+                $html .= '<li>'.e((string) __('seo-content-ai::filament.projects.'.$langKey, [
+                    'count' => $count,
+                ])).'</li>';
+            }
+            $html .= '</ul>';
+        }
 
         $html .= '<div class="overflow-x-auto"><table class="w-full text-left text-xs">'
             .'<thead><tr class="border-b border-gray-200 dark:border-gray-700">'
@@ -316,7 +339,7 @@ class ListSeoProjects extends ListRecords
             .'<th class="py-1 pr-2">'.e((string) __('seo-content-ai::filament.projects.compact_success_col_writer')).'</th>'
             .'<th class="py-1 pr-2">'.e((string) __('seo-content-ai::filament.projects.compact_success_col_before')).'</th>'
             .'<th class="py-1 pr-2">'.e((string) __('seo-content-ai::filament.projects.compact_success_col_after')).'</th>'
-            .'<th class="py-1">'.e((string) __('seo-content-ai::filament.projects.compact_success_col_audit')).'</th>'
+            .'<th class="py-1">'.e((string) __('seo-content-ai::filament.projects.compact_success_col_moves')).'</th>'
             .'</tr></thead><tbody>';
 
         $beforeById = [];
@@ -331,43 +354,46 @@ class ListSeoProjects extends ListRecords
                 $afterById[(int) ($row['project_id'] ?? 0)] = $row;
             }
         }
-        $movesIn = [];
-        $movesOut = [];
-        foreach (($plan['moves'] ?? []) as $move) {
-            if (! is_array($move)) {
-                continue;
-            }
-            $to = (int) ($move['to_project_id'] ?? 0);
-            $from = (int) ($move['from_project_id'] ?? 0);
-            $movesIn[$to] = ($movesIn[$to] ?? 0) + 1;
-            $movesOut[$from] = ($movesOut[$from] ?? 0) + 1;
-        }
 
         foreach ($beforeById as $projectId => $before) {
             $after = $afterById[$projectId] ?? $before;
+            $gdBefore = (int) ($before['generator_done_count'] ?? $before['done_count'] ?? 0);
+            $ndBefore = (int) ($before['not_done_count'] ?? $before['unfinished_count'] ?? 0);
+            $unsafeBefore = (int) ($before['unsafe_count'] ?? 0);
+            $gdAfter = (int) ($after['generator_done_count'] ?? $after['done_count'] ?? 0);
+            $ndAfter = (int) ($after['not_done_count'] ?? $after['unfinished_count'] ?? 0);
+            $unsafeAfter = (int) ($after['unsafe_count'] ?? 0);
+            $in = (int) ($after['moves_in'] ?? 0);
+            $out = (int) ($after['moves_out'] ?? 0);
             $html .= '<tr class="border-b border-gray-100 dark:border-gray-800">'
                 .'<td class="py-1 pr-2">'.e((string) ($before['name'] ?? '')).'</td>'
                 .'<td class="py-1 pr-2">'.e((string) ($before['writer_name'] ?? '')).'</td>'
                 .'<td class="py-1 pr-2 tabular-nums">'
-                .e((string) ((int) ($before['success_count'] ?? 0))).'S / '
-                .e((string) ((int) ($before['non_success_count'] ?? 0))).'N'
+                .e((string) $gdBefore).' gen / '
+                .e((string) $ndBefore).' work / '
+                .e((string) $unsafeBefore).' unsafe / '
+                .e((string) ($gdBefore + $ndBefore)).' total'
                 .'</td>'
                 .'<td class="py-1 pr-2 tabular-nums">'
-                .e((string) ((int) ($after['success_count'] ?? 0))).'S / '
-                .e((string) ((int) ($after['non_success_count'] ?? 0))).'N'
-                .' · +'.e((string) ((int) ($movesIn[$projectId] ?? 0)))
-                .' / −'.e((string) ((int) ($movesOut[$projectId] ?? 0)))
+                .e((string) $gdAfter).' gen / '
+                .e((string) $ndAfter).' work / '
+                .e((string) $unsafeAfter).' unsafe / '
+                .e((string) ($gdAfter + $ndAfter)).' total'
                 .'</td>'
-                .'<td class="py-1">'
-                .(! empty($after['audit_ready'])
-                    ? e((string) __('seo-content-ai::filament.projects.compact_success_audit_yes'))
-                    : e((string) __('seo-content-ai::filament.projects.compact_success_audit_no')))
+                .'<td class="py-1 tabular-nums">'
+                .'+'.e((string) $in).' / −'.e((string) $out)
                 .'</td>'
                 .'</tr>';
         }
         $html .= '</tbody></table></div>';
 
-        if (! empty($plan['already_compacted'])) {
+        if (! empty($plan['blocked'])) {
+            $html .= '<p class="text-warning-600 dark:text-warning-400">'
+                .e((string) __('seo-content-ai::filament.projects.compact_success_blocked_active', [
+                    'reason' => (string) ($plan['block_reason'] ?? 'active_running'),
+                ]))
+                .'</p>';
+        } elseif (! empty($plan['already_partitioned']) || ! empty($plan['already_compacted'])) {
             $html .= '<p class="text-warning-600 dark:text-warning-400">'
                 .e((string) __('seo-content-ai::filament.projects.compact_success_already_done'))
                 .'</p>';

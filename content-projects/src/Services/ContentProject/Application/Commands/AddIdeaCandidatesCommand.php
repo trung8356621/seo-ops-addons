@@ -12,12 +12,14 @@ final class AddIdeaCandidatesCommand implements ContentProjectCommand
     /**
      * @param  list<int>  $keywordIds
      * @param  list<int>  $articleIds
+     * @param  int|null  $siteId  Working Site (Global Domain). Required for Shared Draft (project.site_id null).
      */
     public function __construct(
         public readonly string|int $projectRef,
         public readonly array $keywordIds,
         public readonly string $action = IdeaCandidateDraftPlannerService::ACTION_CREATE,
         public readonly array $articleIds = [],
+        public readonly ?int $siteId = null,
     ) {}
 
     public function name(): string

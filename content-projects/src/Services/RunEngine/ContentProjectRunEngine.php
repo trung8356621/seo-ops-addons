@@ -1066,7 +1066,7 @@ final class ContentProjectRunEngine
             return false;
         }
 
-        $pending = RunContentProjectArticleJob::dispatch(
+        RunContentProjectArticleJob::dispatch(
             runId: $dispatch['run_id'],
             taskId: $dispatch['task_id'],
             runItemId: $dispatch['run_item_id'],
@@ -1074,10 +1074,6 @@ final class ContentProjectRunEngine
             dispatchToken: $dispatch['token'],
         )->onQueue(ContentProjectRunEngineFeature::queueName())
             ->delay(now()->addSeconds((int) $dispatch['delay']));
-
-        if (! app()->runningInConsole()) {
-            $pending->afterResponse();
-        }
 
         RuntimeLogger::info('content_project.ai_retry_scheduled', [
             'run_id' => $dispatch['run_id'],

@@ -27,6 +27,9 @@ trait InteractsWithDraftSplit
 {
     public bool $draftSplitModalOpen = false;
 
+    /** Last split failure message shown inside the modal (Filament toasts sit under z-200 overlay). */
+    public ?string $draftSplitError = null;
+
     /** first_n|all */
     public string $draftSplitMode = SplitDraftContentProjectCommand::MODE_FIRST_N;
 
@@ -50,6 +53,7 @@ trait InteractsWithDraftSplit
         $this->draftSplitTargetMonth = ContentProjectMonthContext::current();
         $this->draftSplitIncludedUserIds = [];
         $this->draftSplitModalOpen = false;
+        $this->draftSplitError = null;
     }
 
     public function openDraftSplitModal(?string $preferredMode = null): void
@@ -84,12 +88,30 @@ trait InteractsWithDraftSplit
         $this->draftSplitQuantity = max(1, $reviewed);
         $this->draftSplitTargetMonth = ContentProjectMonthContext::current();
         $this->draftSplitIncludedUserIds = $this->defaultEligibleIncludedUserIds();
+        $this->draftSplitError = null;
         $this->draftSplitModalOpen = true;
     }
 
     public function closeDraftSplitModal(): void
     {
         $this->draftSplitModalOpen = false;
+        $this->draftSplitError = null;
+    }
+
+    /**
+     * Keep modal open and surface the error inside it — Filament toasts sit under z-200 overlay.
+     */
+    protected function failDraftSplit(string $body, ?string $title = null): void
+    {
+        $this->draftSplitError = $body !== ''
+            ? $body
+            : (string) __('seo-content-ai::filament.projects.draft_split_failed');
+
+        Notification::make()
+            ->title($title ?? __('seo-content-ai::filament.projects.draft_split_failed'))
+            ->body($this->draftSplitError)
+            ->danger()
+            ->send();
     }
 
     public function updatedDraftSplitQuantity(): void
@@ -179,22 +201,19 @@ trait InteractsWithDraftSplit
         $targetMonth = ContentProjectMonthContext::normalize($this->draftSplitTargetMonth ?: null);
 
         if ($writerIds === []) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.projects.draft_split_failed'))
-                ->body(__('seo-content-ai::filament.projects.draft_split_no_writers'))
-                ->danger()
-                ->send();
+            $this->failDraftSplit(
+                (string) __('seo-content-ai::filament.projects.draft_split_no_writers'),
+            );
 
             return;
         }
 
         $eligible = $this->resolvePublishEligibleTaskIds($project);
         if ($eligible === []) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.projects.draft_split_empty_title'))
-                ->body(__('seo-content-ai::filament.projects.draft_split_empty_reviewed_body'))
-                ->danger()
-                ->send();
+            $this->failDraftSplit(
+                (string) __('seo-content-ai::filament.projects.draft_split_empty_reviewed_body'),
+                (string) __('seo-content-ai::filament.projects.draft_split_empty_title'),
+            );
 
             return;
         }
@@ -240,16 +259,13 @@ trait InteractsWithDraftSplit
         );
 
         if (! $result->success) {
-            Notification::make()
-                ->title(__('seo-content-ai::filament.projects.draft_split_failed'))
-                ->body($result->message)
-                ->danger()
-                ->send();
+            $this->failDraftSplit((string) $result->message);
 
             return;
         }
 
         $this->draftSplitModalOpen = false;
+        $this->draftSplitError = null;
         $this->draftSplitIncludedUserIds = [];
 
         $moved = (int) ($result->metadata['moved_count'] ?? $result->metadata['assigned_items'] ?? 0);

@@ -565,8 +565,12 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
         ];
     }
 
-    public function archiveSelected(): bool
+    public function archiveSelected(mixed $taskIds = null): bool
     {
+        if (is_array($taskIds)) {
+            $this->selectedTaskIds = $this->normalizeSelectedIds($taskIds);
+        }
+
         return $this->dispatchDraftArchive($this->selectedTaskIds);
     }
 
@@ -814,6 +818,8 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
                 $this->normalizeSelectedIds($this->selectedTaskIds),
                 static fn (int $id): bool => ! isset($archived[$id]),
             ));
+            unset($this->draftPlanningPayload);
+            $this->draftPlanningRefreshNonce++;
         }
 
         Notification::make()
@@ -1148,6 +1154,10 @@ final class ContentProjectSeoAuditPlanner extends SeoPanelPage
                 $this->normalizeSelectedIds($this->selectedTaskIds),
                 static fn (int $id): bool => ! isset($archived[$id]),
             ));
+
+            // Remount Alpine Draft table with fresh rows/counts (tbody is wire:ignore).
+            unset($this->draftPlanningPayload);
+            $this->draftPlanningRefreshNonce++;
 
             return true;
         } catch (Throwable $e) {

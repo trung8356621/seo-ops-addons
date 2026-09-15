@@ -124,6 +124,14 @@ final class DraftPlanningItemsUxFinalizeTest extends TestCase
         self::assertStringContainsString('skipRow', $items);
         self::assertStringContainsString('bulkMarkReviewed', $items);
         self::assertStringContainsString('bulkArchive', $items);
+        self::assertStringContainsString('lw()', $items);
+        self::assertStringContainsString('Livewire.find', $items);
+        self::assertStringContainsString('archiveSelected(ids)', $items);
+        self::assertStringContainsString('syncCountsFromRows', $items);
+        self::assertStringContainsString("\\u00B7", $items);
+        self::assertStringContainsString("\\u2713", $items);
+        self::assertStringNotContainsString('Â·', $items);
+        self::assertStringNotContainsString('âœ“', $items);
         self::assertStringContainsString('data-draft-bulk-toolbar', $items);
         self::assertStringContainsString('item_action_edit_article', $items);
         self::assertStringContainsString('target="_blank"', $items);

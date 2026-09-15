@@ -328,6 +328,146 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
         Carbon::setTestNow();
     }
 
+    public function test_empty_project_with_past_run_is_reused_not_suffix(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-08-10'));
+
+        $base = SeoProject::defaultNameFromMonth('2026-08-01');
+        $writerId = 88122;
+
+        $empty = SeoProject::query()->create([
+            'name' => $base,
+            'user_id' => $writerId,
+            'site_id' => null,
+            'month' => '2026-08-01',
+            'status' => SeoProject::STATUS_MANUAL,
+            'kind' => SeoProject::KIND_MONTHLY,
+            'total_tasks' => 0,
+        ]);
+
+        // Stuck history: run exists but project has 0 active items — must still reuse.
+        SeoProjectRun::query()->create([
+            'project_id' => (int) $empty->id,
+            'user_id' => $writerId,
+            'mode' => SeoProjectRun::MODE_FULL,
+            'status' => SeoProjectRun::STATUS_COMPLETED,
+            'total' => 0,
+            'succeeded' => 0,
+            'failed' => 0,
+        ]);
+
+        $packing = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectExecutionPackingService::class);
+        self::assertTrue($packing->isReusable($empty->fresh() ?? $empty));
+        self::assertSame(0, $packing->activeItemCount($empty));
+
+        $draft = $this->createDraft(93122, 94122);
+        for ($i = 0; $i < 5; $i++) {
+            $this->createTask($draft, 'empty-reuse-'.$i, reviewed: true);
+        }
+
+        $result = app(SplitDraftContentProjectService::class)->split(
+            $draft,
+            SplitDraftContentProjectCommand::MODE_ALL,
+            null,
+            [],
+            null,
+            [$writerId],
+        );
+
+        self::assertSame(1, (int) ($result['reused_count'] ?? 0));
+        self::assertSame(0, (int) ($result['created_count'] ?? 0));
+        self::assertSame([(int) $empty->id], $result['execution_project_ids'] ?? []);
+        self::assertSame($base, (string) ($result['projects'][0]['project_name'] ?? ''));
+        self::assertSame(5, $empty->fresh()?->registeredTaskCount());
+        self::assertNull(
+            SeoProject::query()
+                ->where('user_id', $writerId)
+                ->where('name', $base.'-2')
+                ->first(),
+        );
+
+        Carbon::setTestNow();
+    }
+
+    public function test_fill_free_slots_on_started_manual_before_creating_suffix(): void
+    {
+        Carbon::setTestNow(Carbon::parse('2026-08-10'));
+
+        $base = SeoProject::defaultNameFromMonth('2026-08-01');
+        $writerId = 88123;
+        $siteId = 94123;
+
+        $execution = SeoProject::query()->create([
+            'name' => $base,
+            'user_id' => $writerId,
+            'site_id' => null,
+            'month' => '2026-08-01',
+            'status' => SeoProject::STATUS_MANUAL,
+            'kind' => SeoProject::KIND_MONTHLY,
+            'total_tasks' => 0,
+        ]);
+
+        for ($i = 0; $i < 28; $i++) {
+            SeoProjectTask::query()->create([
+                'project_id' => (int) $execution->id,
+                'site_id' => $siteId,
+                'type' => SeoProjectTask::TYPE_CREATE,
+                'source_content' => 'started-'.$i.'-'.uniqid(),
+                'keyword' => 'kw-'.$i,
+                'title' => 'title-'.$i,
+                'post_type' => SeoProjectTask::POST_TYPE_ARTICLE,
+                'target_date' => '2026-08-01',
+                'status' => SeoProjectTask::STATUS_COMPLETED,
+                'rewrite_mode' => SeoProjectTask::REWRITE_MODE_KEYWORD,
+                'planning_reviewed_at' => now(),
+            ]);
+        }
+
+        SeoProjectRun::query()->create([
+            'project_id' => (int) $execution->id,
+            'user_id' => $writerId,
+            'mode' => SeoProjectRun::MODE_FULL,
+            'status' => SeoProjectRun::STATUS_COMPLETED,
+            'total' => 28,
+            'succeeded' => 28,
+            'failed' => 0,
+        ]);
+
+        $packing = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectExecutionPackingService::class);
+        $fresh = $execution->fresh() ?? $execution;
+        self::assertFalse($packing->isReusable($fresh));
+        self::assertTrue($packing->canAcceptMoreItems($fresh));
+        self::assertSame(2, $packing->freeSlots($fresh));
+
+        $draft = $this->createDraft(93123, $siteId);
+        for ($i = 0; $i < 2; $i++) {
+            $this->createTask($draft, 'append-'.$i, reviewed: true);
+        }
+
+        $result = app(SplitDraftContentProjectService::class)->split(
+            $draft,
+            SplitDraftContentProjectCommand::MODE_ALL,
+            null,
+            [],
+            null,
+            [$writerId],
+        );
+
+        self::assertSame(1, (int) ($result['reused_count'] ?? 0));
+        self::assertSame(0, (int) ($result['created_count'] ?? 0));
+        self::assertSame([(int) $execution->id], $result['execution_project_ids'] ?? []);
+        self::assertSame($base, (string) ($result['projects'][0]['project_name'] ?? ''));
+        self::assertSame(30, $execution->fresh()?->registeredTaskCount());
+        self::assertNull(
+            SeoProject::query()
+                ->where('user_id', $writerId)
+                ->where('name', $base.'-2')
+                ->first(),
+        );
+
+        Carbon::setTestNow();
+    }
+
     public function test_zero_reviewed_cannot_split(): void
     {
         $draft = $this->createDraft(93113, 94113);

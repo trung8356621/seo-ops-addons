@@ -157,22 +157,19 @@ final class ContentProjectOpsRuntimePollRefreshTest extends TestCase
         self::assertStringNotContainsString('generationPollIds', $blade);
     }
 
-    public function test_generate_action_forces_server_side_ops_refresh_before_browser_poll(): void
+    public function test_generate_action_full_page_reloads_after_run_is_accepted(): void
     {
         $src = $this->viewSrc();
         $pos = strpos($src, 'function dispatchGenerate');
         self::assertNotFalse($pos);
-        $chunk = substr($src, $pos, 2600);
+        $chunk = substr($src, $pos, 4500);
 
         $startPos = strpos($chunk, 'SeoProjectResource::startGeneratePendingItems');
-        $refreshPos = strpos($chunk, '$this->manualRefreshOps();');
-        $eventPos = strpos($chunk, "dispatch('cp-ops-generation-started'");
+        $redirectPos = strpos($chunk, "redirect(SeoProjectResource::getUrl('view'");
 
         self::assertNotFalse($startPos);
-        self::assertNotFalse($refreshPos);
-        self::assertNotFalse($eventPos);
-        self::assertGreaterThan($startPos, $refreshPos);
-        self::assertLessThan($eventPos, $refreshPos);
+        self::assertNotFalse($redirectPos);
+        self::assertGreaterThan($startPos, $redirectPos);
     }
 
     public function test_sequential_batch_summary_fingerprint_changes_without_waiting_for_run_end(): void

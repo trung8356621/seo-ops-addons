@@ -1,4 +1,4 @@
-@props([
+﻿@props([
     'items' => [],
     'hasDraft' => false,
     'counts' => ['all' => 0, 'unreviewed' => 0, 'reviewed' => 0],
@@ -142,7 +142,9 @@
                 domainFilter: cfg.domainFilter || 'all',
                 counts: cfg.counts || { all: 0, unreviewed: 0, reviewed: 0 },
                 rows,
-                selected: Array.isArray(cfg.selected) ? cfg.selected.slice() : [],
+                selected: (Array.isArray(cfg.selected) ? cfg.selected : [])
+                    .map((id) => Number(id))
+                    .filter((id) => id > 0),
                 siteOptions: Array.isArray(cfg.siteOptions) ? cfg.siteOptions : [],
                 descriptionHint: cfg.descriptionHint || '',
                 productDescriptionLabel: cfg.productDescriptionLabel || 'Product description:',
@@ -206,6 +208,35 @@
                     }
 
                     return Array.from(root.querySelectorAll(selector));
+                },
+
+                /**
+                 * Resolve Livewire $wire even after morph/remount when Alpine magic throws
+                 * "Could not find Livewire component in DOM tree".
+                 */
+                lw() {
+                    try {
+                        if (this.$wire) {
+                            return this.$wire;
+                        }
+                    } catch (e) {
+                        // Fall through to wire:id lookup.
+                    }
+
+                    const from = this.rootEl() || this.$el || null;
+                    const root = from && typeof from.closest === 'function'
+                        ? from.closest('[wire\\:id]')
+                        : null;
+                    const id = root ? root.getAttribute('wire:id') : null;
+                    if (! id || typeof window.Livewire === 'undefined' || typeof window.Livewire.find !== 'function') {
+                        throw new Error('Could not find Livewire component in DOM tree');
+                    }
+                    const component = window.Livewire.find(id);
+                    if (! component || ! component.$wire) {
+                        throw new Error('Could not find Livewire component in DOM tree');
+                    }
+
+                    return component.$wire;
                 },
 
                 init() {
@@ -301,7 +332,7 @@
                     }
                     this.domainFilter = value;
                     // Server remounts domain-scoped rows + counts (do not client-filter a global payload).
-                    this.$wire.setDraftDomainFilter(value);
+                    this.lw().setDraftDomainFilter(value);
                 },
 
                 postTypeLabelFor(value) {
@@ -338,7 +369,7 @@
                     row.post_type_label = this.postTypeLabelFor(next);
                     row.saving_post_type = true;
                     try {
-                        await this.$wire.updateDraftPlanningItem(row.id, 'post_type', next);
+                        await this.lw().updateDraftPlanningItem(row.id, 'post_type', next);
                         if (wasReviewed) {
                             row.planning_reviewed = false;
                             this.counts.reviewed = Math.max(0, this.counts.reviewed - 1);
@@ -442,7 +473,7 @@
                     row.domain = this.domainLabelFor(row.site_id);
                     row.saving_domain = true;
                     try {
-                        await this.$wire.updatePlanningField(row.id, 'site_id', row.site_id ? String(row.site_id) : '0');
+                        await this.lw().updatePlanningField(row.id, 'site_id', row.site_id ? String(row.site_id) : '0');
                         if (! this.rowMatchesDomainProjection(row)) {
                             this.removeLocal(row.id);
                         } else {
@@ -465,14 +496,14 @@
                 setTab(next) {
                     this.tab = next;
                     this.selected = [];
-                    this.$wire.setDraftReviewFilter(next);
+                    this.lw().setDraftReviewFilter(next);
                     this.applyVisibility();
                 },
 
                 setType(next) {
                     this.type = next;
                     this.selected = [];
-                    this.$wire.setDraftTypeFilter(next);
+                    this.lw().setDraftTypeFilter(next);
                     this.applyVisibility();
                 },
 
@@ -522,7 +553,7 @@
                 },
 
                 syncSelectedToWire() {
-                    this.$wire.set('selectedTaskIds', this.selected.slice());
+                    this.lw().set('selectedTaskIds', this.selected.slice());
                 },
 
                 selectedCountLabel() {
@@ -563,7 +594,7 @@
                     this.applyVisibility();
                     this.bulkBusy = true;
                     try {
-                        const result = await this.$wire.markReviewedSelected();
+                        const result = await this.lw().markReviewedSelected();
                         const okIds = Array.isArray(result && result.reviewed_ids)
                             ? result.reviewed_ids.map((id) => Number(id))
                             : [];
@@ -620,10 +651,10 @@
                             snapshots.push(snap);
                         }
                     });
-                    this.syncSelectedToWire();
                     this.bulkBusy = true;
                     try {
-                        const ok = await this.$wire.archiveSelected();
+                        // Pass ids in one call — avoid $wire.set remorph racing Alpine mid-delete.
+                        const ok = await this.lw().archiveSelected(ids);
                         if (! ok) {
                             snapshots.reverse().forEach((snap) => this.restoreLocal(snap));
                             this.selected = ids.slice();
@@ -633,6 +664,7 @@
                         snapshots.reverse().forEach((snap) => this.restoreLocal(snap));
                         this.selected = ids.slice();
                         this.syncSelectedToWire();
+                        console.error(e);
                     } finally {
                         this.bulkBusy = false;
                     }
@@ -654,7 +686,7 @@
                         this.counts.reviewed += 1;
                     }
                     this.applyVisibility();
-                    this.$wire.setPlanningReviewed(row.id, row.planning_reviewed).catch(() => {
+                    this.lw().setPlanningReviewed(row.id, row.planning_reviewed).catch(() => {
                         row.planning_reviewed = was;
                         if (was) {
                             this.counts.reviewed += 1;
@@ -746,7 +778,7 @@
                     if (value === prev) {
                         return;
                     }
-                    this.$wire.updatePlanningField(row.id, field, value).catch(() => {
+                    this.lw().updatePlanningField(row.id, field, value).catch(() => {
                         if (field === 'title') {
                             row.title = prev;
                         }
@@ -815,7 +847,7 @@
                     }
                     row.cloning = true;
                     try {
-                        const result = await this.$wire.cloneDraftIdea(row.id);
+                        const result = await this.lw().cloneDraftIdea(row.id);
                         if (result && result.counts) {
                             this.counts = {
                                 all: Number(result.counts.all || this.counts.all),
@@ -835,20 +867,34 @@
                     }
                 },
 
+                syncCountsFromRows() {
+                    let reviewed = 0;
+                    let unreviewed = 0;
+                    this.rows.forEach((r) => {
+                        if (r.planning_reviewed) {
+                            reviewed += 1;
+                        } else {
+                            unreviewed += 1;
+                        }
+                    });
+                    this.counts = {
+                        all: this.rows.length,
+                        reviewed,
+                        unreviewed,
+                    };
+                },
+
                 removeLocal(rowId) {
-                    const idx = this.rows.findIndex((r) => r.id === rowId);
+                    const want = Number(rowId);
+                    const idx = this.rows.findIndex((r) => Number(r.id) === want);
                     if (idx < 0) {
                         return null;
                     }
                     const row = this.rows[idx];
-                    this.counts.all = Math.max(0, this.counts.all - 1);
-                    if (row.planning_reviewed) {
-                        this.counts.reviewed = Math.max(0, this.counts.reviewed - 1);
-                    } else {
-                        this.counts.unreviewed = Math.max(0, this.counts.unreviewed - 1);
-                    }
-                    this.selected = this.selected.filter((id) => id !== rowId);
+                    this.selected = this.selected.filter((id) => Number(id) !== want);
                     this.rows.splice(idx, 1);
+                    this.syncCountsFromRows();
+                    this.applyVisibility();
 
                     return { row, index: idx };
                 },
@@ -859,17 +905,12 @@
                     }
                     const row = snapshot.row;
                     const id = Number(row.id || 0);
-                    if (id > 0 && this.rows.some((r) => r.id === id)) {
+                    if (id > 0 && this.rows.some((r) => Number(r.id) === id)) {
                         return;
                     }
                     const at = Math.min(Math.max(0, Number(snapshot.index || 0)), this.rows.length);
                     this.rows.splice(at, 0, row);
-                    this.counts.all += 1;
-                    if (row.planning_reviewed) {
-                        this.counts.reviewed += 1;
-                    } else {
-                        this.counts.unreviewed += 1;
-                    }
+                    this.syncCountsFromRows();
                     this.applyVisibility();
                 },
 
@@ -879,7 +920,7 @@
                     }
                     const snapshot = this.removeLocal(row.id);
                     try {
-                        const ok = await this.$wire.skipSeoAuditOne(row.id);
+                        const ok = await this.lw().skipSeoAuditOne(row.id);
                         if (! ok) {
                             this.restoreLocal(snapshot);
                         }
@@ -895,7 +936,7 @@
                     // Optimistic: drop from list immediately, then persist.
                     const snapshot = this.removeLocal(row.id);
                     try {
-                        const ok = await this.$wire.archiveOne(row.id);
+                        const ok = await this.lw().archiveOne(row.id);
                         if (! ok) {
                             this.restoreLocal(snapshot);
                         }
@@ -917,7 +958,7 @@
     <div class="cp-plan-draft-header cp-plan-draft__head" @if ($hideSectionTitle) style="display:none" aria-hidden="true" @endif>
         <div class="cp-plan-draft-header__title">
             <h3 class="cp-plan-draft__title">
-                {{ __('seo-content-ai::filament.projects.planner_draft_items') }}<span class="cp-plan-draft__title-count" x-text="' · ' + counts.all"> · {{ $allCount }}</span>
+                {{ __('seo-content-ai::filament.projects.planner_draft_items') }}<span class="cp-plan-draft__title-count" x-text="'\u00B7 ' + counts.all">&#183; {{ $allCount }}</span>
             </h3>
         </div>
         @if ($hasDraft)
@@ -1118,7 +1159,7 @@
                                         <div class="min-w-0 flex-1">
                                             <div class="font-medium text-gray-900 dark:text-gray-100">
                                                 {{ trim((string) ($ssrRow['title'] ?? '')) !== '' ? $ssrRow['title'] : '—' }}
-                                                <span class="cp-plan-seo-inline"> · SEO {{ $ssrRow['seo_score_label'] }}</span>
+                                                <span class="cp-plan-seo-inline">&#183; SEO {{ $ssrRow['seo_score_label'] }}</span>
                                             </div>
                                             @if (($ssrRow['planning_description'] ?? $ssrRow['description'] ?? '') !== '')
                                                 <p class="mt-0.5 text-xs text-gray-500">{{ \Illuminate\Support\Str::limit((string) ($ssrRow['planning_description'] ?? $ssrRow['description']), 160) }}</p>
@@ -1127,7 +1168,7 @@
                                             @endif
                                             @if (($ssrRow['post_type'] ?? '') === 'product' && trim((string) ($ssrRow['product_description'] ?? '')) !== '')
                                                 <p class="mt-0.5 text-xs leading-snug text-gray-500 dark:text-gray-400">
-                                                    <span class="font-medium text-gray-600 dark:text-gray-300">{{ $boot['productDescriptionLabel'] ?? 'Mô tả sản phẩm:' }}</span>
+                                                    <span class="font-medium text-gray-600 dark:text-gray-300">{{ $boot['productDescriptionLabel'] ?? 'Product description:' }}</span>
                                                     {{ \Illuminate\Support\Str::limit((string) $ssrRow['product_description'], 200) }}
                                                 </p>
                                             @endif
@@ -1192,7 +1233,7 @@
                                                     <template x-if="!row.title_href || !row.title">
                                                         <span class="font-medium text-gray-900 dark:text-gray-100" @dblclick.prevent="startEdit(row, 'title')" x-text="row.title && String(row.title).trim() !== '' ? row.title : domainBlank"></span>
                                                     </template>
-                                                    <span class="cp-plan-seo-inline" x-show="row.type !== 'create' || (row.seo_score_label && row.seo_score_label !== '—')" x-text="' · ' + seoPrefix + ' ' + row.seo_score_label"></span>
+                                                    <span class="cp-plan-seo-inline" x-show="row.type !== 'create' || (row.seo_score_label && row.seo_score_label !== '—')" x-text="'\u00B7 ' + seoPrefix + ' ' + row.seo_score_label"></span>
                                                 </div>
                                             </template>
 
@@ -1320,7 +1361,7 @@
                                         :title="row.planning_reviewed ? markUnreviewed : markReviewed"
                                         :aria-label="row.planning_reviewed ? labelReviewed : labelUnreviewed"
                                     >
-                                        <span x-text="row.planning_reviewed ? '✓' : '○'"></span>
+                                        <span x-text="row.planning_reviewed ? '\u2713' : '\u25CB'"></span>
                                     </button>
                                 </td>
                                 <td class="px-3 py-3 align-top text-xs text-gray-500 dark:text-gray-400 cp-plan-draft-table__col-added" :title="row.added_at || null" x-text="row.added_label"></td>
@@ -1405,3 +1446,4 @@
         @endif
     </x-seo-content-ai::list-table-loading-shell>
 </section>
+
