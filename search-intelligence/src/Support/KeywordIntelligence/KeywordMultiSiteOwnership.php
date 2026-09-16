@@ -39,9 +39,9 @@ final class KeywordMultiSiteOwnership
         }
 
         if (Schema::connection('omi_seo_ai')->hasTable('seo_link_maps')
-            && Schema::connection('omi_seo_ai')->hasTable('seo_articles')) {
+            && Schema::connection('omi_seo_ai')->hasTable('articles')) {
             $hasOtherLinks = DB::connection('omi_seo_ai')->table('seo_link_maps as lm')
-                ->join('seo_articles as a', 'a.id', '=', 'lm.source_article_id')
+                ->join('articles as a', 'a.id', '=', 'lm.source_article_id')
                 ->where('lm.keyword_id', $keywordId)
                 ->where('a.site_id', '!=', $excludeSiteId)
                 ->exists();

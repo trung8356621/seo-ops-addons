@@ -326,6 +326,53 @@ final class DissolveTopicClusterServiceTest extends TestCase
         $this->assertFalse(Schema::connection('omi_seo_ai')->hasTable('seo_topic_ui_clusters'));
     }
 
+    public function test_success_requires_persisted_membership_clear_on_reload(): void
+    {
+        $first = $this->seedClusteredKeyword(self::SITE_A, 'persist alpha', 'persist_cluster', 'informational');
+        $second = $this->seedClusteredKeyword(self::SITE_A, 'persist beta', 'persist_cluster', 'commercial');
+
+        $result = $this->service()->dissolve(self::SITE_A, 'persist_cluster');
+
+        self::assertTrue($result->success);
+        self::assertSame(2, $result->affectedKeywordCount);
+
+        // Reload from DB — do not trust in-memory service state.
+        self::assertSame(0, (int) SeoKeywordClassification::query()
+            ->where('cluster_key', 'persist_cluster')
+            ->whereIn('keyword_id', [(int) $first->id, (int) $second->id])
+            ->count());
+        self::assertNull($this->classificationClusterKey((int) $first->id));
+        self::assertNull($this->classificationClusterKey((int) $second->id));
+        self::assertNotNull(Keyword::query()->find($first->id));
+        self::assertNotNull(Keyword::query()->find($second->id));
+    }
+
+    public function test_zero_row_update_does_not_report_success(): void
+    {
+        // Member exists in classification but is outside site-linked dissolve scope (no link map).
+        $keyword = Keyword::query()->create([
+            'phrase' => 'orphan scoped',
+            'type' => Keyword::TYPE_NORMAL,
+        ]);
+        SeoKeywordClassification::query()->create([
+            'keyword_id' => (int) $keyword->id,
+            'normalized_text' => 'orphan scoped',
+            'folded_text' => 'orphan scoped',
+            'phrase_kind' => 'keyword_phrase',
+            'seo_intent' => 'informational',
+            'cluster_key' => 'ghost_cluster',
+            'is_seo_keyword' => true,
+            'keyword_score' => 0.5,
+            'classified_at' => now(),
+        ]);
+
+        $result = $this->service()->dissolve(self::SITE_A, 'ghost_cluster');
+
+        // No site-scoped members → alreadyEmpty after artifact purge path, not a fake membership clear.
+        self::assertTrue($result->wasAlreadyEmpty);
+        self::assertSame('ghost_cluster', $this->classificationClusterKey((int) $keyword->id));
+    }
+
     private function service(): DissolveTopicClusterService
     {
         return app(DissolveTopicClusterService::class);

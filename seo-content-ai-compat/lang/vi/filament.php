@@ -709,6 +709,7 @@ return [
         'topic_dissolve_success_title' => 'Đã bỏ chủ đề ":label"',
         'topic_dissolve_success_body' => '{0} Không có từ khóa nào thay đổi.|{1} :count từ khóa đã trở về chưa gán.|[2,*] :count từ khóa đã trở về chưa gán.',
         'topic_dissolve_failed' => 'Không thể bỏ chủ đề. Vui lòng thử lại.',
+        'topic_dissolve_blocked_shared' => 'Không thể bỏ chủ đề khi một hoặc nhiều từ khóa vẫn thuộc site khác.',
         'topic_dissolve_working' => 'Đang xử lý…',
         'topic_fix_keywords_action' => 'Fix keyword',
         'topic_fix_keywords_working' => 'Đang sửa…',

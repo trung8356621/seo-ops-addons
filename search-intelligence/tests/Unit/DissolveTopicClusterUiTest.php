@@ -114,4 +114,26 @@ final class DissolveTopicClusterUiTest extends TestCase
         self::assertStringContainsString('canDissolveCluster', $trait);
         self::assertStringContainsString('if (! $this->canDissolveCluster())', $trait);
     }
+
+    public function test_mcp_group_modal_does_not_emit_raw_js_directive_in_alpine_disabled(): void
+    {
+        $blade = (string) file_get_contents(LegacyAddonPath::resolve(
+            'resources/views/filament/resources/keywords/pages/partials/mcp-group-modal.blade.php',
+        ));
+
+        self::assertStringNotContainsString('x-bind:disabled="!showReady() || @js(', $blade);
+        self::assertStringNotContainsString('@js(! $canConfirmReady)', $blade);
+        self::assertStringContainsString('x-bind:disabled="!showReady() || {{ $canConfirmReady ? \'false\' : \'true\' }}"', $blade);
+        self::assertStringContainsString(':disabled="! $canConfirmReady"', $blade);
+    }
+
+    public function test_dissolve_livewire_returns_reason_and_only_oks_on_service_success(): void
+    {
+        $trait = (string) file_get_contents(dirname(__DIR__, 2).'/src/Filament/Resources/KeywordResource/Pages/Concerns/DissolvesTopicClusters.php');
+
+        self::assertStringContainsString('REASON_SHARED_OWNERSHIP', $trait);
+        self::assertStringContainsString("'reason' => $result->failureReason", $trait);
+        self::assertStringContainsString('topic_dissolve_blocked_shared', $trait);
+        self::assertStringContainsString('if (! $result->success)', $trait);
+    }
 }

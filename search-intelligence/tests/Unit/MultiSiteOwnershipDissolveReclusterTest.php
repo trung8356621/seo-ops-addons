@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordClassification;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\DissolveTopicClusterService;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Dto\DissolveTopicClusterResult;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\ReclusterTopicClustersService;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordMultiSiteOwnership;
 use ReflectionClass;
@@ -65,11 +66,29 @@ final class MultiSiteOwnershipDissolveReclusterTest extends TestCase
     {
         $keyword = $this->seedSharedKeyword('shared dissolve kw', 'shared_dissolve_cluster');
 
+        DB::connection('omi_seo_ai')->table('seo_topic_cluster_meta')->insert([
+            'site_id' => self::SITE_A,
+            'cluster_key' => 'shared_dissolve_cluster',
+            'canonical_phrase' => 'shared dissolve',
+            'normalized_canonical' => 'shared dissolve',
+            'confidence' => 'high',
+            'needs_review' => 0,
+            'canonical_source' => 'auto',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
         $result = app(DissolveTopicClusterService::class)->dissolve(self::SITE_A, 'shared_dissolve_cluster');
 
-        self::assertTrue($result->success);
+        self::assertFalse($result->success);
+        self::assertSame(DissolveTopicClusterResult::REASON_SHARED_OWNERSHIP, $result->failureReason);
         self::assertSame('shared_dissolve_cluster', $this->classificationClusterKey((int) $keyword->id));
         self::assertTrue(KeywordMultiSiteOwnership::isSharedWithOtherSites((int) $keyword->id, self::SITE_A));
+        // No half-mutation: derived meta must remain when dissolve is blocked.
+        self::assertSame(1, (int) DB::connection('omi_seo_ai')->table('seo_topic_cluster_meta')
+            ->where('site_id', self::SITE_A)
+            ->where('cluster_key', 'shared_dissolve_cluster')
+            ->count());
     }
 
     public function test_dissolve_last_owning_site_clears_global_classification(): void

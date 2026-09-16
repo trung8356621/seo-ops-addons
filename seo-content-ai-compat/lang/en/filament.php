@@ -709,6 +709,7 @@ return [
         'topic_dissolve_success_title' => 'Dissolved topic ":label"',
         'topic_dissolve_success_body' => '{0} No keywords were changed.|{1} :count keyword returned to unassigned.|[2,*] :count keywords returned to unassigned.',
         'topic_dissolve_failed' => 'Could not dissolve the topic. Please try again.',
+        'topic_dissolve_blocked_shared' => 'Cannot dissolve this topic while one or more keywords are still owned by another site.',
         'topic_dissolve_working' => 'Working…',
         'topic_fix_keywords_action' => 'Fix keyword',
         'topic_fix_keywords_working' => 'Fixing…',

@@ -8,6 +8,7 @@ use Filament\Notifications\Notification;
 use Livewire\Attributes\Renderless;
 use Omnichannel\Addons\SearchIntelligence\Filament\Resources\KeywordResource;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\DissolveTopicClusterService;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Dto\DissolveTopicClusterResult;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterQuery;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\TopicClusterReclusterState;
 use Omnichannel\Addons\Seo\Support\DomainContextResolver;
@@ -58,17 +59,26 @@ trait DissolvesTopicClusters
         $result = app(DissolveTopicClusterService::class)->dissolve($siteId, $clusterKey, $clusterLabel);
 
         if (! $result->success) {
+            $failTitle = $result->failureReason === DissolveTopicClusterResult::REASON_SHARED_OWNERSHIP
+                ? __('seo-content-ai::filament.keyword.topic_dissolve_blocked_shared')
+                : __('seo-content-ai::filament.keyword.topic_dissolve_failed');
+
             Notification::make()
-                ->title(__('seo-content-ai::filament.keyword.topic_dissolve_failed'))
+                ->title($failTitle)
                 ->danger()
                 ->send();
 
-            return ['ok' => false, 'cluster_key' => $clusterKey];
+            return [
+                'ok' => false,
+                'cluster_key' => $clusterKey,
+                'reason' => $result->failureReason,
+            ];
         }
 
         $count = max(0, $result->affectedKeywordCount);
         $label = $clusterLabel !== '' ? $clusterLabel : $clusterKey;
 
+        // alreadyEmpty: artifacts purged / nothing to clear — success without claiming keyword moves.
         Notification::make()
             ->title(__('seo-content-ai::filament.keyword.topic_dissolve_success_title', [
                 'label' => $label,
@@ -90,6 +100,7 @@ trait DissolvesTopicClusters
             'cluster_key' => $clusterKey,
             'label' => $label,
             'affected_count' => $count,
+            'was_already_empty' => $result->wasAlreadyEmpty,
         ];
     }
 

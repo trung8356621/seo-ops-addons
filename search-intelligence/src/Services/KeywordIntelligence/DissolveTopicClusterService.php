@@ -38,40 +38,50 @@ final class DissolveTopicClusterService
             return DissolveTopicClusterResult::alreadyEmpty($clusterKey);
         }
 
+        // Refuse before mutating when any site member is still owned elsewhere — clearing
+        // would either no-op (false success) or half-clear while the topic stays visible.
+        $clearableIds = [];
+        foreach ($keywordIds as $keywordId) {
+            $keywordId = (int) $keywordId;
+            if ($keywordId <= 0) {
+                continue;
+            }
+            if (KeywordMultiSiteOwnership::isSharedWithOtherSites($keywordId, $siteId)) {
+                return DissolveTopicClusterResult::blockedSharedOwnership($clusterKey);
+            }
+            $clearableIds[] = $keywordId;
+        }
+
+        if ($clearableIds === []) {
+            return DissolveTopicClusterResult::failed($clusterKey);
+        }
+
         try {
-            $affected = (int) DB::connection('omi_seo_ai')->transaction(function () use ($keywordIds, $clusterKey, $siteId): int {
-                // Site-local dissolve: never clear global classification while another site still owns the keyword.
-                $clearableIds = [];
-                foreach ($keywordIds as $keywordId) {
-                    $keywordId = (int) $keywordId;
-                    if ($keywordId <= 0) {
-                        continue;
-                    }
-                    if (KeywordMultiSiteOwnership::isSharedWithOtherSites($keywordId, $siteId)) {
-                        continue;
-                    }
-                    $clearableIds[] = $keywordId;
+            $affected = (int) DB::connection('omi_seo_ai')->transaction(function () use ($clearableIds, $clusterKey, $siteId): int {
+                $updated = SeoKeywordClassification::query()
+                    ->whereIn('keyword_id', $clearableIds)
+                    ->where('cluster_key', $clusterKey)
+                    ->update(['cluster_key' => null]);
+
+                if ($updated <= 0) {
+                    return 0;
                 }
 
-                $updated = 0;
-                if ($clearableIds !== []) {
-                    $updated = SeoKeywordClassification::query()
-                        ->whereIn('keyword_id', $clearableIds)
-                        ->where('cluster_key', $clusterKey)
-                        ->update(['cluster_key' => null]);
-
-                    if ($updated > 0) {
-                        $this->markManualExclude($clearableIds);
-                    }
-                }
-
-                // Always purge site-scoped derived artifacts for this site+cluster.
+                $this->markManualExclude($clearableIds);
                 $this->derivedCleanup->purgeClusterArtifacts($siteId, $clusterKey);
 
-                // Site-local success signal: cleared globals + site inventory members touched.
-                return max($updated, count($keywordIds));
+                return $updated;
             });
         } catch (Throwable) {
+            return DissolveTopicClusterResult::failed($clusterKey);
+        }
+
+        if ($affected <= 0) {
+            return DissolveTopicClusterResult::failed($clusterKey);
+        }
+
+        // Prove persistence against the same site-scoped membership read used for dissolve.
+        if ($this->siteScopedClusterMemberIds($siteId, $clusterKey) !== []) {
             return DissolveTopicClusterResult::failed($clusterKey);
         }
 
@@ -80,9 +90,7 @@ final class DissolveTopicClusterService
             $label = $this->clusters->displayLabel($clusterKey, '', $siteId);
         }
 
-        if ($affected > 0) {
-            $this->sideEffects->afterDissolve($siteId, $clusterKey, $label, $affected);
-        }
+        $this->sideEffects->afterDissolve($siteId, $clusterKey, $label, $affected);
 
         return DissolveTopicClusterResult::success($clusterKey, $affected);
     }

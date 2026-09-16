@@ -268,7 +268,7 @@
                             wire:click="confirmMcpGroup"
                             wire:loading.attr="disabled"
                             wire:target="confirmMcpGroup"
-                            x-bind:disabled="!showReady() || @js(! $canConfirmReady)"
+                            x-bind:disabled="!showReady() || {{ $canConfirmReady ? 'false' : 'true' }}"
                             :disabled="! $canConfirmReady"
                         >
                             <span wire:loading.remove wire:target="confirmMcpGroup">
