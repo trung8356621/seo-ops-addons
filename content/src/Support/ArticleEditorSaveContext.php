@@ -34,7 +34,9 @@ final readonly class ArticleEditorSaveContext
      */
     public static function fromBundle(SeoArticle $article, array $bundle): self
     {
-        $meta = is_array($bundle['article_meta'] ?? null) ? $bundle['article_meta'] : [];
+        $meta = is_array($bundle['article_meta'] ?? null)
+            ? $bundle['article_meta']
+            : (is_array($bundle['meta'] ?? null) ? $bundle['meta'] : []);
         $publishBox = is_array($bundle['publish_box'] ?? null) ? $bundle['publish_box'] : [];
 
         $title = trim((string) ($meta['title'] ?? $article->title ?? ''));

@@ -57,16 +57,24 @@ final class ArticleEditorAutosaveNoopPerformanceTest extends TestCase
         self::assertStringNotContainsString('renderHtml', $hash);
     }
 
-    public function test_controller_skips_bundle_apply_on_noop(): void
+    public function test_controller_applies_bundle_after_document_noop(): void
     {
         $doc = $this->methodSource(new ReflectionMethod(ArticleEditorSessionController::class, 'document'));
         self::assertStringContainsString("\$payload['noop']", $doc);
-        $noopPos = strpos($doc, "\$payload['noop']");
+        self::assertStringContainsString('bundleApply->apply', $doc);
+        self::assertStringContainsString('document_noop', $doc);
+        self::assertStringContainsString('metadata_noop', $doc);
+        self::assertStringContainsString('metadataChanged', $doc);
+        // Must not early-return before bundle apply solely on document noop.
+        self::assertDoesNotMatchRegularExpression(
+            '/if \(\(\$payload\[\'noop\'\].*=== true\) \{\s*return response\(\)->json\(\[/s',
+            $doc,
+        );
         $applyPos = strpos($doc, 'bundleApply->apply');
-        self::assertNotFalse($noopPos);
+        $noopBranchPos = strpos($doc, 'metadata_noop');
         self::assertNotFalse($applyPos);
-        self::assertTrue($noopPos < $applyPos);
-        self::assertStringContainsString('return response()->json([', $doc);
+        self::assertNotFalse($noopBranchPos);
+        self::assertTrue($applyPos < $noopBranchPos, 'bundle apply must run before noop response branch');
     }
 
     public function test_action_request_keeps_editor_document_fields(): void

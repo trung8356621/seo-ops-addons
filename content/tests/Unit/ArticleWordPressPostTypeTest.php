@@ -10,7 +10,7 @@ use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Support\ArticleWordPressPostType;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Illuminate\Database\Eloquent\Collection;
-use PHPUnit\Framework\TestCase;
+use Tests\TestCase;
 
 final class ArticleWordPressPostTypeTest extends TestCase
 {

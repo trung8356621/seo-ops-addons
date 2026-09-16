@@ -94,15 +94,17 @@ final class ArticleEditorFalseVersionConflictRegressionTest extends TestCase
         self::assertTrue($assertPos < $persistPos);
     }
 
-    public function test_controller_stops_on_noop_before_bundle_apply(): void
+    public function test_controller_applies_bundle_even_when_document_noop(): void
     {
         $doc = $this->methodSource(new ReflectionMethod(ArticleEditorSessionController::class, 'document'));
         self::assertStringContainsString("\$payload['noop']", $doc);
-        $noopPos = strpos($doc, "\$payload['noop']");
+        self::assertStringContainsString('bundleApply->apply', $doc);
+        self::assertStringContainsString('document_noop', $doc);
         $applyPos = strpos($doc, 'bundleApply->apply');
-        self::assertNotFalse($noopPos);
+        $docNoopPos = strpos($doc, 'document_noop');
         self::assertNotFalse($applyPos);
-        self::assertTrue($noopPos < $applyPos);
+        self::assertNotFalse($docNoopPos);
+        self::assertTrue($applyPos < $docNoopPos);
     }
 
     public function test_observer_skips_double_bump_when_version_already_advanced(): void

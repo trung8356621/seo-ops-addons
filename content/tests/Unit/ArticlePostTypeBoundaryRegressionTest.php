@@ -10,7 +10,7 @@ use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\Content\Support\ArticleEditorSaveContext;
 use Omnichannel\Addons\Content\Support\ArticleWordPressPostType;
 use Illuminate\Database\Eloquent\Collection;
-use PHPUnit\Framework\TestCase;
+use Tests\TestCase;
 use Tests\Support\ProjectRoot;
 
 /**

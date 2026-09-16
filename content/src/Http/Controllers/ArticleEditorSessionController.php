@@ -122,33 +122,33 @@ final class ArticleEditorSessionController extends Controller
             return $this->errorResponse($exception);
         }
 
-        // Same-content ACK: skip bundle side-effects + heavy save patch rebuild.
-        if (($payload['noop'] ?? false) === true) {
+        // Document/body may be a noop, but independent editor-bundle metadata must still persist.
+        // Document noop ≠ whole-save noop.
+        $savedArticle = $article->fresh() ?? $article;
+        $savedArticle->loadMissing('articleMetas');
+        $context = ArticleEditorSaveContext::fromBundle($savedArticle, $bundle);
+        $metadataChanged = $this->bundleApply->apply($savedArticle, $bundle, $context);
+        $seoAnalysis = is_array($bundle['seo_analysis'] ?? null) ? $bundle['seo_analysis'] : null;
+        $fresh = $savedArticle->fresh(['articleMetas']) ?? $savedArticle;
+        $patch = $this->savePatch->build($fresh, $context, $seoAnalysis);
+
+        if (($payload['noop'] ?? false) === true && ! $metadataChanged) {
+            // True whole-save noop: body identical AND independent metadata unchanged.
             return response()->json([
                 ...$payload,
-                'patch' => [
-                    'article' => [
-                        'document_version' => $payload['document_version'] ?? null,
-                        'updated_at' => $payload['saved_at'] ?? null,
-                        'content_hash' => $payload['content_hash'] ?? null,
-                        'editor_document_hash' => $payload['editor_document_hash'] ?? null,
-                    ],
-                ],
+                'document_noop' => true,
+                'metadata_noop' => true,
+                'patch' => $patch,
             ]);
         }
 
-        $savedArticle = $article->fresh() ?? $article;
-        $context = ArticleEditorSaveContext::fromBundle($savedArticle, $bundle);
-        $this->bundleApply->apply($savedArticle, $bundle, $context);
-        $seoAnalysis = is_array($bundle['seo_analysis'] ?? null) ? $bundle['seo_analysis'] : null;
-
         return response()->json([
             ...$payload,
-            'patch' => $this->savePatch->build(
-                $savedArticle->fresh() ?? $savedArticle,
-                $context,
-                $seoAnalysis,
-            ),
+            // Keep document noop flag for clients, but clear whole-save noop when metadata wrote.
+            'noop' => false,
+            'document_noop' => (bool) ($payload['noop'] ?? false),
+            'metadata_noop' => ! $metadataChanged,
+            'patch' => $patch,
         ]);
     }
 

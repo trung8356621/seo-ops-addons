@@ -11,7 +11,10 @@ use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordClassification;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\DissolveTopicClusterService;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterQuery;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterSiteScope;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\ReclusterTopicClustersService;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\TopicClusterDerivedCleanup;
+use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\TopicClusterDissolveSideEffects;
 use ReflectionClass;
 use Tests\TestCase;
 
@@ -373,9 +376,170 @@ final class DissolveTopicClusterServiceTest extends TestCase
         self::assertSame('ghost_cluster', $this->classificationClusterKey((int) $keyword->id));
     }
 
+    public function test_dissolve_clears_all_members_beyond_former_5000_cap(): void
+    {
+        $memberCount = 5001;
+        $keywordIds = $this->seedBulkClusterMembers(self::SITE_A, 'huge_cluster', $memberCount);
+
+        $result = $this->service()->dissolve(self::SITE_A, 'huge_cluster');
+
+        self::assertTrue($result->success);
+        self::assertSame($memberCount, $result->affectedKeywordCount);
+        self::assertSame(0, (int) SeoKeywordClassification::query()
+            ->where('cluster_key', 'huge_cluster')
+            ->whereIn('keyword_id', $keywordIds)
+            ->count());
+        self::assertSame($memberCount, (int) SeoKeywordClassification::query()
+            ->whereIn('keyword_id', $keywordIds)
+            ->whereNull('cluster_key')
+            ->count());
+        self::assertSame($memberCount, (int) DB::connection('omi_seo_ai')->table('keyword_meta')
+            ->whereIn('keyword_id', $keywordIds)
+            ->where('meta_key', ReclusterTopicClustersService::META_MANUAL_EXCLUDE)
+            ->where('meta_value', '1')
+            ->count());
+        self::assertFalse(
+            SeoKeywordClassification::query()
+                ->where('cluster_key', 'huge_cluster')
+                ->whereIn(
+                    'keyword_id',
+                    KeywordClusterSiteScope::keywordIdSubquery(
+                        self::SITE_A,
+                        null,
+                        excludeSuggest: true,
+                        requireLinkedSource: true,
+                    ),
+                )
+                ->exists(),
+        );
+    }
+
+    public function test_in_transaction_membership_invariant_failure_rolls_back_fully(): void
+    {
+        $first = $this->seedClusteredKeyword(self::SITE_A, 'atomic alpha', 'atomic_cluster', 'informational');
+        $second = $this->seedClusteredKeyword(self::SITE_A, 'atomic beta', 'atomic_cluster', 'commercial');
+
+        DB::connection('omi_seo_ai')->table('seo_topic_cluster_meta')->insert([
+            'site_id' => self::SITE_A,
+            'cluster_key' => 'atomic_cluster',
+            'canonical_phrase' => 'atomic',
+            'normalized_canonical' => 'atomic',
+            'confidence' => 'high',
+            'needs_review' => 0,
+            'canonical_source' => 'auto',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        $service = new DissolveTopicClusterService(
+            app(KeywordClusterQuery::class),
+            app(TopicClusterDissolveSideEffects::class),
+            app(TopicClusterDerivedCleanup::class),
+            static fn (int $siteId, string $clusterKey): bool => true,
+        );
+
+        $result = $service->dissolve(self::SITE_A, 'atomic_cluster');
+
+        self::assertFalse($result->success);
+        self::assertSame('atomic_cluster', $this->classificationClusterKey((int) $first->id));
+        self::assertSame('atomic_cluster', $this->classificationClusterKey((int) $second->id));
+        self::assertSame(0, (int) DB::connection('omi_seo_ai')->table('keyword_meta')
+            ->whereIn('keyword_id', [(int) $first->id, (int) $second->id])
+            ->where('meta_key', ReclusterTopicClustersService::META_MANUAL_EXCLUDE)
+            ->count());
+        self::assertSame(1, (int) DB::connection('omi_seo_ai')->table('seo_topic_cluster_meta')
+            ->where('site_id', self::SITE_A)
+            ->where('cluster_key', 'atomic_cluster')
+            ->count());
+    }
+
+    public function test_member_id_loader_has_no_hard_row_limit(): void
+    {
+        $source = (string) file_get_contents(
+            (string) (new ReflectionClass(DissolveTopicClusterService::class))->getFileName(),
+        );
+
+        self::assertStringNotContainsString('->limit(5000)', $source);
+        self::assertStringContainsString('dissolve_membership_remaining', $source);
+        self::assertStringContainsString('clusterStillHasSiteMembers', $source);
+    }
+
     private function service(): DissolveTopicClusterService
     {
         return app(DissolveTopicClusterService::class);
+    }
+
+    /**
+     * @return list<int>
+     */
+    private function seedBulkClusterMembers(int $siteId, string $clusterKey, int $count): array
+    {
+        $articleId = $this->createArticle($siteId, 'Bulk scope article '.$clusterKey);
+        $now = now()->toDateTimeString();
+        $keywordIds = [];
+        $connection = DB::connection('omi_seo_ai');
+
+        for ($offset = 0; $offset < $count; $offset += 500) {
+            $batch = min(500, $count - $offset);
+            $maxIdBefore = (int) ($connection->table('keywords')->max('id') ?? 0);
+
+            $keywordRows = [];
+            for ($i = 0; $i < $batch; $i++) {
+                $n = $offset + $i + 1;
+                $keywordRows[] = [
+                    'phrase' => 'bulk member '.$clusterKey.' '.$n,
+                    'type' => Keyword::TYPE_NORMAL,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+            $connection->table('keywords')->insert($keywordRows);
+
+            $batchIds = $connection->table('keywords')
+                ->where('id', '>', $maxIdBefore)
+                ->orderBy('id')
+                ->limit($batch)
+                ->pluck('id')
+                ->map(static fn ($id): int => (int) $id)
+                ->all();
+
+            self::assertCount($batch, $batchIds);
+
+            $linkRows = [];
+            $classRows = [];
+            foreach ($batchIds as $keywordId) {
+                $keywordIds[] = $keywordId;
+                $linkRows[] = [
+                    'keyword_id' => $keywordId,
+                    'source_article_id' => $articleId,
+                    'target_article_id' => $articleId,
+                    'anchor_text' => 'anchor',
+                    'link_type' => 'internal',
+                    'status' => 'active',
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+                $classRows[] = [
+                    'keyword_id' => $keywordId,
+                    'normalized_text' => 'bulk '.$keywordId,
+                    'folded_text' => 'bulk '.$keywordId,
+                    'phrase_kind' => 'keyword_phrase',
+                    'seo_intent' => 'informational',
+                    'cluster_key' => $clusterKey,
+                    'is_seo_keyword' => 1,
+                    'keyword_score' => 0.75,
+                    'classified_at' => $now,
+                    'created_at' => $now,
+                    'updated_at' => $now,
+                ];
+            }
+            $connection->table('seo_link_maps')->insert($linkRows);
+            $connection->table('seo_keyword_classifications')->insert($classRows);
+        }
+
+        self::assertCount($count, $keywordIds);
+
+        return $keywordIds;
     }
 
     /**
