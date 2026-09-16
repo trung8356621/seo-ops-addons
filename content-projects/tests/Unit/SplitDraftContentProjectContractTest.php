@@ -154,10 +154,11 @@ final class SplitDraftContentProjectContractTest extends TestCase
         self::assertStringContainsString('defaultExecutionName', $model);
         self::assertStringContainsString('defaultNameFromMonth', $model);
 
+        // Day-based month caps retired; writer monthly capacity is the SSOT gate.
         $sync = (string) file_get_contents(
             (string) (new ReflectionClass(SeoProjectTaskSyncService::class))->getFileName(),
         );
-        self::assertStringContainsString('intentionally no-op', $sync);
+        self::assertStringContainsString('WriterMonthlyCapacityGate', $sync);
         self::assertStringContainsString('return PHP_INT_MAX;', $sync);
         self::assertStringNotContainsString('daysInMonth', $sync);
 
@@ -165,6 +166,8 @@ final class SplitDraftContentProjectContractTest extends TestCase
             dirname(__DIR__, 2).'/src/Services/SeoProjectTaskMoveService.php',
         );
         self::assertStringContainsString('assertTargetAcceptsMoves', $move);
+        self::assertStringContainsString('WriterMonthlyCapacityGate', $move);
+        self::assertStringContainsString('assertMoveRespectsWriterCapacity', $move);
         self::assertStringContainsString('move_target_option_items', $move);
         self::assertStringContainsString('restoreToSourceDraftAndDelete', $move);
         self::assertStringContainsString('hasStartedExecution', $move);

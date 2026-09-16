@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordClassification;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Dto\DissolveTopicClusterResult;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordMultiSiteOwnership;
 use Throwable;
 
 final class DissolveTopicClusterService
@@ -29,7 +30,7 @@ final class DissolveTopicClusterService
             return DissolveTopicClusterResult::alreadyEmpty($clusterKey);
         }
 
-        $keywordIds = $this->clusters->memberKeywordIds($siteId, $clusterKey);
+        $keywordIds = $this->siteScopedClusterMemberIds($siteId, $clusterKey);
         if ($keywordIds === []) {
             // Orphan derived rows (meta/DNA/aliases) with no members — still purge.
             $this->derivedCleanup->purgeClusterArtifacts($siteId, $clusterKey);
@@ -39,18 +40,36 @@ final class DissolveTopicClusterService
 
         try {
             $affected = (int) DB::connection('omi_seo_ai')->transaction(function () use ($keywordIds, $clusterKey, $siteId): int {
-                $updated = SeoKeywordClassification::query()
-                    ->whereIn('keyword_id', $keywordIds)
-                    ->where('cluster_key', $clusterKey)
-                    ->update(['cluster_key' => null]);
-
-                if ($updated > 0) {
-                    $this->markManualExclude($keywordIds);
+                // Site-local dissolve: never clear global classification while another site still owns the keyword.
+                $clearableIds = [];
+                foreach ($keywordIds as $keywordId) {
+                    $keywordId = (int) $keywordId;
+                    if ($keywordId <= 0) {
+                        continue;
+                    }
+                    if (KeywordMultiSiteOwnership::isSharedWithOtherSites($keywordId, $siteId)) {
+                        continue;
+                    }
+                    $clearableIds[] = $keywordId;
                 }
 
+                $updated = 0;
+                if ($clearableIds !== []) {
+                    $updated = SeoKeywordClassification::query()
+                        ->whereIn('keyword_id', $clearableIds)
+                        ->where('cluster_key', $clusterKey)
+                        ->update(['cluster_key' => null]);
+
+                    if ($updated > 0) {
+                        $this->markManualExclude($clearableIds);
+                    }
+                }
+
+                // Always purge site-scoped derived artifacts for this site+cluster.
                 $this->derivedCleanup->purgeClusterArtifacts($siteId, $clusterKey);
 
-                return $updated;
+                // Site-local success signal: cleared globals + site inventory members touched.
+                return max($updated, count($keywordIds));
             });
         } catch (Throwable) {
             return DissolveTopicClusterResult::failed($clusterKey);
@@ -66,6 +85,31 @@ final class DissolveTopicClusterService
         }
 
         return DissolveTopicClusterResult::success($clusterKey, $affected);
+    }
+
+    /**
+     * Site-owned members of a cluster for dissolve (cluster scope, not UI dictionary word-count filter).
+     *
+     * @return list<int>
+     */
+    private function siteScopedClusterMemberIds(int $siteId, string $clusterKey): array
+    {
+        if (! $this->clusters->classificationsReady()) {
+            return [];
+        }
+
+        $siteKeywordIds = KeywordClusterSiteScope::keywordIds($siteId, null, excludeSuggest: true, requireLinkedSource: true);
+        if ($siteKeywordIds === []) {
+            return [];
+        }
+
+        return SeoKeywordClassification::query()
+            ->where('cluster_key', $clusterKey)
+            ->whereIn('keyword_id', $siteKeywordIds)
+            ->limit(5000)
+            ->pluck('keyword_id')
+            ->map(static fn ($id): int => (int) $id)
+            ->all();
     }
 
     /**

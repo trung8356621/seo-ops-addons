@@ -10,6 +10,8 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectItemAllocator;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectArticleOwnerSyncService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectTaskUniqueWriter;
+use Omnichannel\Addons\ContentProjects\Services\WriterMonthlyCapacityGate;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectActionCodes;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
@@ -27,6 +29,7 @@ final class SeoIssueProjectTaskAssignmentService
         private readonly SeoProjectArticleOwnerSyncService $articleOwnerSync,
         private readonly SeoProjectTaskUniqueWriter $uniqueWriter,
         private readonly ContentProjectItemAllocator $allocator,
+        private readonly WriterMonthlyCapacityGate $capacityGate,
     ) {}
 
     /**
@@ -92,6 +95,7 @@ final class SeoIssueProjectTaskAssignmentService
         $domainMismatch = 0;
         $alreadyInProject = 0;
         $allocations = [];
+        $capacityCode = null;
         $projectSiteId = (int) ($project->site_id ?? 0);
         $targetProjectId = (int) $project->id;
         $normalizedTaskType = $this->normalizeAssignTaskType($taskType);
@@ -118,7 +122,17 @@ final class SeoIssueProjectTaskAssignmentService
             &$domainMismatch,
             &$alreadyInProject,
             &$allocations,
+            &$capacityCode,
         ): void {
+            // Monthly capacity SSOT before packing; bulk reject (no partial) when over budget.
+            $capacity = $this->capacityGate->assertProjectCanAccept($project, $records->count());
+            if (($capacity['ok'] ?? false) !== true) {
+                $overflow = $records->count();
+                $capacityCode = (string) ($capacity['code'] ?? ContentProjectActionCodes::WRITER_CAPACITY_EXCEEDED);
+
+                return;
+            }
+
             $session = $this->allocator->begin($project, $dryRun);
 
             $existingKeys = SeoProjectTask::query()
@@ -270,6 +284,7 @@ final class SeoIssueProjectTaskAssignmentService
             'domain_mismatch' => $domainMismatch,
             'already_in_project' => $alreadyInProject,
             'allocations' => $allocations,
+            ...($capacityCode !== null ? ['code' => $capacityCode, 'reason' => $capacityCode] : []),
         ];
     }
 

@@ -130,9 +130,18 @@ final class ContentProjectWriterAllocatorTest extends TestCase
         self::assertStringContainsString('Include archived projects', $src);
         self::assertStringContainsString('COUNT(t.id)', $src);
         self::assertStringContainsString('remainingByUserId', $src);
-        self::assertStringNotContainsString("->whereNull('p.archived_at')", $src);
+        // Active branch excludes live archived projects; archived slots counted via archive_items.
+        self::assertStringContainsString('seo_project_archive_items', $src);
         self::assertStringNotContainsString("'full'", $src);
         self::assertStringNotContainsString('auth()->id()', $src);
+
+        $gate = (string) file_get_contents(
+            (string) (new ReflectionClass(
+                \Omnichannel\Addons\ContentProjects\Services\WriterMonthlyCapacityGate::class,
+            ))->getFileName(),
+        );
+        self::assertStringContainsString('WRITER_CAPACITY_EXCEEDED', $gate);
+        self::assertStringContainsString('SYSTEM_USER_REJECTED', $gate);
     }
 
     public function test_lang_uses_month_total_not_hard_cap_fraction(): void

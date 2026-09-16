@@ -19,7 +19,14 @@ use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMont
 
 /**
  * Add Idea Candidates → Draft items. No AI.
- * Vocabulary Suggest CREATE consumes candidate permanently via tombstone (not Draft text).
+ *
+ * Vocabulary Suggest CREATE: permanent tombstone via IdeaCandidateConsumptionService
+ * (site_id + source_type + source_ref). Candidate leaves Available Ideas.
+ *
+ * Vocabulary Suggest REWRITE / IMPROVE: article-scoped planning units via
+ * SeoAuditSuggestionPlannerService. Does NOT claim vocabulary tombstone —
+ * the suggest phrase remains a CREATE-eligible idea; REWRITE/IMPROVE attach
+ * existing articles and may be repeated. Site Planning dedupes by project_task_id.
  */
 final class IdeaCandidateDraftPlannerService
 {

@@ -12,6 +12,7 @@ use Omnichannel\Addons\SearchIntelligence\Models\SeoTopicClusterMeta;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Canonical\CanonicalClusterPhraseResolver;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Canonical\CanonicalClusterResolverService;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordClassificationVisibility;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordMultiSiteOwnership;
 
 /**
  * Enforces: every SEO-eligible keyword with ≥1 Focus Article must have a Topic (cluster_key).
@@ -117,7 +118,7 @@ final class ReconcileFocusArticleTopicsService
             // 5–6. Singleton Topic (Focus Article invariant).
             $canonical = $core !== '' ? $core : $phrase;
             $clusterKey = $this->keyGenerator->generate($siteId, $canonical, [$keywordId]);
-            $this->assignKeywordToCluster($keywordId, $clusterKey);
+            $this->assignKeywordToCluster($siteId, $keywordId, $clusterKey);
             $this->forceAutoCanonicalMeta($siteId, $clusterKey, $canonical, [$phrase]);
             $this->dnaService->rebuildForKeyword($siteId, $keywordId, $clusterKey, $phrase, $canonical);
             $metrics['singletons_created']++;
@@ -557,13 +558,18 @@ final class ReconcileFocusArticleTopicsService
 
     private function attach(int $siteId, int $keywordId, string $phrase, string $clusterKey, string $canonical): void
     {
-        $this->assignKeywordToCluster($keywordId, $clusterKey);
+        $this->assignKeywordToCluster($siteId, $keywordId, $clusterKey);
         $this->resolver->recordAlias($siteId, $clusterKey, $phrase);
         $this->dnaService->rebuildForKeyword($siteId, $keywordId, $clusterKey, $phrase, $canonical);
     }
 
-    private function assignKeywordToCluster(int $keywordId, string $clusterKey): void
+    private function assignKeywordToCluster(int $siteId, int $keywordId, string $clusterKey): void
     {
+        // Site-scoped reconcile must not reassign global classification owned by another site.
+        if (KeywordMultiSiteOwnership::isSharedWithOtherSites($keywordId, $siteId)) {
+            return;
+        }
+
         SeoKeywordClassification::query()
             ->where('keyword_id', $keywordId)
             ->update(['cluster_key' => $clusterKey]);

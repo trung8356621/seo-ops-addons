@@ -23,6 +23,10 @@ final class ContentServiceProvider extends ServiceProvider
             \Omnichannel\Addons\Publishing\Contracts\PublishingTaxonomyCatalog::class,
             \Omnichannel\Addons\WordPress\Services\WordPressPublishingTaxonomyCatalog::class,
         );
+        $this->app->singleton(
+            \Omnichannel\Addons\Content\Contracts\AiGeneratedLinkDestinationGate::class,
+            \Omnichannel\Addons\Content\Services\WordPressAiGeneratedLinkDestinationGate::class,
+        );
         $this->registerCapabilities();
     }
 

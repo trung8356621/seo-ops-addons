@@ -182,6 +182,8 @@
     "default_instructions": [
       "Generate full article markdown from outline, existing article, or brief (source_type).",
       "Respect outline structure when source is outline; do not invent conflicting facts.",
+      "When an internal-link anchor is useful but you do not have a verified WordPress permalink, emit Markdown [anchor text](#) — never invent domain+slug or guess URLs.",
+      "When you do have a verified authoritative permalink, emit [anchor text](REAL_URL). Prefer Markdown links over raw HTML <a>.",
       "Settings binding used by Editor full rewrite (source=existing_article) and direct generate."
     ],
     "output_format": [

@@ -10,6 +10,7 @@ final class ArticleMarkdownToHtmlService
 {
     public function __construct(
         private readonly SimpleMarkdownHtmlConverter $converter,
+        private readonly ?AiGeneratedArticleLinkNormalizer $aiLinkNormalizer = null,
     ) {}
 
     public function convert(string $markdown): string
@@ -23,6 +24,8 @@ final class ArticleMarkdownToHtmlService
         if ($markdown === '') {
             return '';
         }
+
+        $markdown = $this->preserveAiHtmlAnchors($markdown);
 
         return $this->converter->toHtml($markdown);
     }
@@ -50,6 +53,13 @@ final class ArticleMarkdownToHtmlService
 
     public function toFeaturedSnippetEditorHtml(string $markdown): string
     {
+        $markdown = trim($markdown);
+        if ($markdown === '') {
+            return '';
+        }
+
+        $markdown = $this->preserveAiHtmlAnchors($markdown);
+
         return $this->converter->toFeaturedSnippetEditorHtml($markdown);
     }
 
@@ -63,6 +73,8 @@ final class ArticleMarkdownToHtmlService
             return ['html' => '', 'meta_description' => null];
         }
 
+        $markdown = $this->preserveAiHtmlAnchors($markdown);
+
         return $this->converter->toHtmlWithMetadata($markdown);
     }
 
@@ -72,5 +84,15 @@ final class ArticleMarkdownToHtmlService
     public function stripMetaDescriptionFromHtml(string $html): array
     {
         return $this->converter->stripMetaDescriptionFromHtml($html);
+    }
+
+    private function preserveAiHtmlAnchors(string $markdown): string
+    {
+        if ($this->aiLinkNormalizer === null) {
+            return $markdown;
+        }
+
+        // Preserve raw HTML <a> before CommonMark html_input=strip unwraps them.
+        return $this->aiLinkNormalizer->preserveRawHtmlAnchorsInMarkdown($markdown);
     }
 }

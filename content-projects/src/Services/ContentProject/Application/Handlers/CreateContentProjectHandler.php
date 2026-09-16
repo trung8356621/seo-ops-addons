@@ -17,7 +17,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Suppo
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectPreviewToken;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectTenantGuard;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftResolver;
-use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterMonthlyCapacityService;
+use Omnichannel\Addons\ContentProjects\Services\WriterMonthlyCapacityGate;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectTaskSyncService;
 use App\Services\Users\SeoOpsSystemUser;
 use Illuminate\Support\Facades\DB;
@@ -128,17 +128,17 @@ final class CreateContentProjectHandler extends AbstractPublishingHandler
 
                 $incoming = max(count($command->tasksData), $totalTasks);
                 if ($incoming > 0) {
-                    $capacity = app(ContentProjectWriterMonthlyCapacityService::class);
-                    $remaining = (int) ($capacity->remainingByUserId([$userId], $month)[$userId] ?? 0);
-                    if ($incoming > $remaining) {
+                    $gate = app(WriterMonthlyCapacityGate::class);
+                    $capacity = $gate->assertCanAccept($userId, $month, $incoming);
+                    if (($capacity['ok'] ?? false) !== true) {
                         return ContentProjectActionResult::fail(
-                            ContentProjectActionCodes::WRITER_CAPACITY_EXCEEDED,
+                            (string) ($capacity['code'] ?? ContentProjectActionCodes::WRITER_CAPACITY_EXCEEDED),
                             'Writer monthly capacity exceeded.',
                             metadata: [
-                                'reason' => ContentProjectActionCodes::WRITER_CAPACITY_EXCEEDED,
+                                'reason' => (string) ($capacity['code'] ?? ContentProjectActionCodes::WRITER_CAPACITY_EXCEEDED),
                                 'user_id' => $userId,
                                 'incoming' => $incoming,
-                                'remaining' => $remaining,
+                                'remaining' => (int) ($capacity['remaining'] ?? 0),
                                 'month' => $month,
                             ],
                         );

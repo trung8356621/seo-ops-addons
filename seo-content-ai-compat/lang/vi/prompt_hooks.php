@@ -154,6 +154,8 @@ PROMPT,
             'default_instructions' => [
                 'Viết markdown bài đầy đủ từ outline, bài hiện có, hoặc brief (source_type).',
                 'Khi source=outline phải tuân cấu trúc dàn ý; không bịa dữ kiện mâu thuẫn.',
+                'Khi cần gợi ý anchor internal link nhưng chưa có permalink WordPress đã xác minh, dùng Markdown [anchor text](#) — không bịa domain+slug hay URL đoán.',
+                'Khi đã có permalink authoritative thật, dùng [anchor text](REAL_URL). Ưu tiên Markdown link hơn raw HTML <a>.',
                 'Binding Settings dùng cho Editor viết lại toàn bộ (source=existing_article) và generate trực tiếp.',
             ],
             'output_format' => [

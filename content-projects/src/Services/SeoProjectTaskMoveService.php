@@ -10,6 +10,7 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProjectRun;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectRunItem;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectContinuationService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectActionCodes;
 use Carbon\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
@@ -20,11 +21,17 @@ final class SeoProjectTaskMoveService
 {
     public function __construct(
         private readonly ?ContentProjectContinuationService $continuation = null,
+        private readonly ?WriterMonthlyCapacityGate $capacityGate = null,
     ) {}
 
     private function continuation(): ContentProjectContinuationService
     {
         return $this->continuation ?? new ContentProjectContinuationService();
+    }
+
+    private function capacityGate(): WriterMonthlyCapacityGate
+    {
+        return $this->capacityGate ?? app(WriterMonthlyCapacityGate::class);
     }
 
     /**
@@ -333,6 +340,7 @@ final class SeoProjectTaskMoveService
             );
 
             $this->assertTargetAcceptsMoves($lockedTarget);
+            $this->assertMoveRespectsWriterCapacity($lockedSource, $lockedTarget, $tasks->count());
             $this->appendTasksToProject($lockedTarget, $tasks);
             $lockedSource->syncTotalTasksCounter();
 
@@ -402,11 +410,15 @@ final class SeoProjectTaskMoveService
     }
 
     /**
-     * @deprecated Capacity unlimited — only blocks archive vaults.
+     * @deprecated Prefer assertMoveRespectsWriterCapacity — archive block kept.
      */
     public function assertTargetHasCapacity(SeoProject $target, int $incomingCount): void
     {
         $this->assertTargetAcceptsMoves($target);
+        if ($incomingCount <= 0 || $target->isDraftPlanning()) {
+            return;
+        }
+        $this->capacityGate()->throwUnlessProjectCanAccept($target, $incomingCount);
     }
 
     public function assertTargetAcceptsMoves(SeoProject $target): void
@@ -414,6 +426,35 @@ final class SeoProjectTaskMoveService
         if ($target->isArchive()) {
             throw ValidationException::withMessages([
                 'target_project_id' => __('seo-content-ai::filament.projects.move_target_archive'),
+            ]);
+        }
+    }
+
+    /**
+     * Moving within the same writer+month is capacity-neutral.
+     * Draft → execution or cross-month/user moves consume target monthly capacity.
+     */
+    private function assertMoveRespectsWriterCapacity(SeoProject $source, SeoProject $target, int $incomingCount): void
+    {
+        if ($incomingCount <= 0 || $target->isDraftPlanning() || $target->isArchive()) {
+            return;
+        }
+
+        $sameWriter = (int) ($source->user_id ?? 0) === (int) ($target->user_id ?? 0);
+        $sameMonth = $source->monthCarbon()->format('Y-m') === $target->monthCarbon()->format('Y-m');
+        $sourceConsumes = ! $source->isDraftPlanning() && ! $source->isArchive();
+
+        if ($sameWriter && $sameMonth && $sourceConsumes) {
+            return;
+        }
+
+        try {
+            $this->capacityGate()->throwUnlessProjectCanAccept($target, $incomingCount);
+        } catch (\InvalidArgumentException $e) {
+            throw ValidationException::withMessages([
+                'target_project_id' => $e->getMessage() !== ''
+                    ? $e->getMessage()
+                    : ContentProjectActionCodes::WRITER_CAPACITY_EXCEEDED,
             ]);
         }
     }

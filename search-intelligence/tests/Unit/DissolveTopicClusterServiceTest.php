@@ -297,9 +297,10 @@ final class DissolveTopicClusterServiceTest extends TestCase
 
     public function test_cluster_list_and_summary_reflect_removal(): void
     {
-        $this->seedClusteredKeyword(self::SITE_A, 'one', 'summary_cluster', 'informational');
-        $this->seedClusteredKeyword(self::SITE_A, 'two', 'summary_cluster', 'commercial');
-        $this->seedClusteredKeyword(self::SITE_A, 'solo', 'other_cluster', 'transactional');
+        // Phrases must be ≥2 words to appear in KeywordUiInventoryQuery (summary SSOT).
+        $this->seedClusteredKeyword(self::SITE_A, 'one keyword', 'summary_cluster', 'informational');
+        $this->seedClusteredKeyword(self::SITE_A, 'two keyword', 'summary_cluster', 'commercial');
+        $this->seedClusteredKeyword(self::SITE_A, 'solo keyword', 'other_cluster', 'transactional');
 
         $query = app(KeywordClusterQuery::class);
         $before = $query->summary(self::SITE_A);

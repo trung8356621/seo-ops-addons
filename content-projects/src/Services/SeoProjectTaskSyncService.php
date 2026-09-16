@@ -17,6 +17,7 @@ use Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemMod
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemTitleProtection;
 use Omnichannel\Addons\ContentProjects\Support\SeoProjectTaskSyncDataNormalizer;
 use Omnichannel\Addons\ContentProjects\Support\SeoProjectTaskSyncResult;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectActionCodes;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -80,6 +81,7 @@ final class SeoProjectTaskSyncService
         private readonly ProjectTaskSourceKeyGenerator $sourceKeys,
         private readonly SeoProjectTaskEventRecorder $eventRecorder,
         private readonly SeoProjectTaskUniqueWriter $uniqueWriter,
+        private readonly WriterMonthlyCapacityGate $capacityGate,
     ) {}
 
     /**
@@ -97,13 +99,24 @@ final class SeoProjectTaskSyncService
     }
 
     /**
-     * @deprecated Month is reporting period only — no hard day-based task cap.
+     * Writer monthly capacity gate for execution projects (Draft skipped).
      *
      * @param  list<array{type?: string, site_id?: int|string|null, source_content?: string, loai_san_pham?: string|null, gallery_description?: string|null, description?: string|null, post_type?: string|null}>  $tasksData
      */
-    public function assertWithinMonthlyLimit(Carbon|string $month, array $tasksData): void
+    public function assertWithinMonthlyLimit(Carbon|string $month, array $tasksData, ?SeoProject $project = null): void
     {
-        // Unlimited: intentionally no-op. Archive / generating locks remain elsewhere.
+        if ($project instanceof SeoProject) {
+            if ($project->isDraftPlanning() || $project->isArchive()) {
+                return;
+            }
+            $incoming = $this->countEffectiveTasks($tasksData);
+            $this->capacityGate->throwUnlessProjectCanAccept($project, $incoming);
+
+            return;
+        }
+
+        // Legacy callers without project: month alone cannot resolve writer — no-op for Draft/compat.
+        unset($month, $tasksData);
     }
 
     /**
@@ -149,12 +162,7 @@ final class SeoProjectTaskSyncService
         );
 
         $carbonMonth = $project->monthCarbon();
-        if (! $project->isArchive() && ! $project->isDraftPlanning()) {
-            $this->assertWithinMonthlyLimit(
-                $carbonMonth,
-                array_map(static fn (SeoProjectTaskSyncData $row): array => $row->toSanitizedArray(), $rows),
-            );
-        }
+        // Writer monthly capacity is enforced inside the transaction (net-new creates only).
 
         $this->assertNoDuplicateInput($rows);
 
@@ -192,6 +200,11 @@ final class SeoProjectTaskSyncService
                         'tasks_data' => ContentProjectErrorCode::SyncTaskNotFound->value,
                     ]);
                 }
+
+                $createBudget = ($locked->isArchive() || $locked->isDraftPlanning())
+                    ? PHP_INT_MAX
+                    : $this->capacityGate->lockAndRemainingForProject($locked);
+                $createdThisSync = 0;
 
                 /** @var array<int, true> $keptIds */
                 $keptIds = [];
@@ -233,10 +246,17 @@ final class SeoProjectTaskSyncService
                         continue;
                     }
 
+                    if ($createdThisSync + 1 > $createBudget) {
+                        throw ValidationException::withMessages([
+                            'tasks_data' => ContentProjectActionCodes::WRITER_CAPACITY_EXCEEDED,
+                        ]);
+                    }
+
                     $createdTask = $this->createTask($locked, $row, $targetDate);
                     $created[] = (int) $createdTask->id;
                     $keptIds[(int) $createdTask->id] = true;
                     $newTaskCount++;
+                    $createdThisSync++;
                 }
 
                 $removal = $this->handleRemovals($locked, $keptIds);

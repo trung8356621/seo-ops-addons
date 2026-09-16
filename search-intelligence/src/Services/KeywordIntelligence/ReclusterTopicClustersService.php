@@ -17,6 +17,7 @@ use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Canonical
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Canonical\TopicClusterMergeService;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\Dto\ReclusterTopicClustersResult;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordClassificationVisibility;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordMultiSiteOwnership;
 
 /**
  * Full-domain Topic Cluster rebuild.
@@ -317,7 +318,7 @@ final class ReclusterTopicClustersService
         $inventory = $this->buildInventoryIndex($this->resolver->siteClusterInventory($siteId));
         $match = $this->findBestCoreMatch($phrase, $inventory);
         if ($match !== null) {
-            $this->assignKeywordToCluster($keywordId, $match['cluster_key']);
+            $this->assignKeywordToCluster($keywordId, $match['cluster_key'], $siteId);
             $this->touchClusterMeta($siteId, $match['cluster_key'], [$phrase], $match['canonical_phrase']);
             $this->dnaService->rebuildForKeyword($siteId, $keywordId, $match['cluster_key'], $phrase, $match['canonical_phrase']);
 
@@ -326,7 +327,7 @@ final class ReclusterTopicClustersService
 
         $resolved = $this->resolver->resolveMatch($siteId, $this->phraseResolver->preferredClusterCore($phrase) ?: $phrase);
         if ($resolved !== null && $resolved->confidence === 'high') {
-            $this->assignKeywordToCluster($keywordId, $resolved->clusterKey);
+            $this->assignKeywordToCluster($keywordId, $resolved->clusterKey, $siteId);
             $this->touchClusterMeta($siteId, $resolved->clusterKey, [$phrase], $resolved->canonicalPhrase);
             $this->dnaService->rebuildForKeyword($siteId, $keywordId, $resolved->clusterKey, $phrase, $resolved->canonicalPhrase);
 
@@ -339,7 +340,7 @@ final class ReclusterTopicClustersService
         }
 
         $clusterKey = $this->keyGenerator->generate($siteId, $core, [$keywordId]);
-        $this->assignKeywordToCluster($keywordId, $clusterKey);
+        $this->assignKeywordToCluster($keywordId, $clusterKey, $siteId);
         $this->forceCanonicalMeta($siteId, $clusterKey, $core, [$phrase]);
         $this->dnaService->rebuildForKeyword($siteId, $keywordId, $clusterKey, $phrase, $core);
 
@@ -432,7 +433,7 @@ final class ReclusterTopicClustersService
                 }
 
                 $previous = $row['cluster_key'];
-                $this->assignKeywordToCluster($row['keyword_id'], $best['cluster_key']);
+                $this->assignKeywordToCluster($row['keyword_id'], $best['cluster_key'], $siteId);
                 $this->resolver->recordAlias($siteId, $best['cluster_key'], $row['phrase']);
                 $metrics['attached_by_core_match']++;
                 if ($previous !== '') {
@@ -457,16 +458,20 @@ final class ReclusterTopicClustersService
                 $current = $byKey[$row['cluster_key']] ?? null;
                 $canonical = is_array($current) ? (string) $current['canonical_phrase'] : '';
                 if ($canonical === '' || ! $this->membershipValidForCanonical($row['phrase'], $canonical)) {
-                    SeoKeywordClassification::query()
-                        ->where('keyword_id', $row['keyword_id'])
-                        ->update(['cluster_key' => null]);
+                    if (! KeywordMultiSiteOwnership::isSharedWithOtherSites((int) $row['keyword_id'], $siteId)) {
+                        SeoKeywordClassification::query()
+                            ->where('keyword_id', $row['keyword_id'])
+                            ->update(['cluster_key' => null]);
+                    }
                     $metrics['reassigned']++;
                     $metrics['reassigned_from_bad_match']++;
                     $touchedClusters[$row['cluster_key']] = true;
                     $out[] = [
                         'keyword_id' => $row['keyword_id'],
                         'phrase' => $row['phrase'],
-                        'cluster_key' => '',
+                        'cluster_key' => KeywordMultiSiteOwnership::isSharedWithOtherSites((int) $row['keyword_id'], $siteId)
+                            ? $row['cluster_key']
+                            : '',
                     ];
 
                     continue;
@@ -531,7 +536,7 @@ final class ReclusterTopicClustersService
             $best = $this->findBestCoreMatch($row['phrase'], $inventory);
             $clusterKey = $best['cluster_key'] ?? $match->clusterKey;
 
-            $this->assignKeywordToCluster($row['keyword_id'], $clusterKey);
+            $this->assignKeywordToCluster($row['keyword_id'], $clusterKey, $siteId);
             $this->resolver->recordAlias($siteId, $clusterKey, $row['phrase']);
             $metrics['attached_by_similarity']++;
             $touchedClusters[$clusterKey] = true;
@@ -576,7 +581,7 @@ final class ReclusterTopicClustersService
             // Re-check containment against inventory grown in this pass.
             $best = $this->findBestCoreMatch($row['phrase'], $inventory);
             if ($best !== null) {
-                $this->assignKeywordToCluster($row['keyword_id'], $best['cluster_key']);
+                $this->assignKeywordToCluster($row['keyword_id'], $best['cluster_key'], $siteId);
                 $this->resolver->recordAlias($siteId, $best['cluster_key'], $row['phrase']);
                 $metrics['attached_by_core_match']++;
                 $touchedClusters[$best['cluster_key']] = true;
@@ -596,7 +601,7 @@ final class ReclusterTopicClustersService
                 if ($item['normalized'] === $this->phraseResolver->normalizedKey($core)
                     && $this->phraseResolver->intentCompatible($row['phrase'], $item['canonical_phrase'])
                 ) {
-                    $this->assignKeywordToCluster($row['keyword_id'], $item['cluster_key']);
+                    $this->assignKeywordToCluster($row['keyword_id'], $item['cluster_key'], $siteId);
                     $this->resolver->recordAlias($siteId, $item['cluster_key'], $row['phrase']);
                     $metrics['attached_by_core_match']++;
                     $touchedClusters[$item['cluster_key']] = true;
@@ -606,7 +611,7 @@ final class ReclusterTopicClustersService
             }
 
             $clusterKey = $this->keyGenerator->generate($siteId, $core, [$row['keyword_id']]);
-            $this->assignKeywordToCluster($row['keyword_id'], $clusterKey);
+            $this->assignKeywordToCluster($row['keyword_id'], $clusterKey, $siteId);
             $this->forceCanonicalMeta($siteId, $clusterKey, $core, [$row['phrase']]);
             $metrics['self_clusters_created']++;
             $touchedClusters[$clusterKey] = true;
@@ -720,8 +725,13 @@ final class ReclusterTopicClustersService
         return $cores[0];
     }
 
-    private function assignKeywordToCluster(int $keywordId, string $clusterKey): void
+    private function assignKeywordToCluster(int $keywordId, string $clusterKey, int $siteId = 0): void
     {
+        // Site-scoped recluster must not reassign global classification still owned by another site.
+        if ($siteId > 0 && KeywordMultiSiteOwnership::isSharedWithOtherSites($keywordId, $siteId)) {
+            return;
+        }
+
         SeoKeywordClassification::query()
             ->where('keyword_id', $keywordId)
             ->update(['cluster_key' => $clusterKey]);
@@ -856,15 +866,30 @@ final class ReclusterTopicClustersService
 
         $wiped = 0;
         DB::connection('omi_seo_ai')->transaction(function () use ($siteId, $ids, $protectedKeys, &$wiped): void {
-            $wiped = SeoKeywordClassification::query()
-                ->whereIn('keyword_id', $ids)
-                ->whereNotNull('cluster_key')
-                ->where('cluster_key', '!=', '')
-                ->count();
+            $clearableIds = [];
+            foreach ($ids as $keywordId) {
+                $keywordId = (int) $keywordId;
+                if ($keywordId <= 0) {
+                    continue;
+                }
+                // Site-scoped recluster must not wipe global classification owned by other sites.
+                if (KeywordMultiSiteOwnership::isSharedWithOtherSites($keywordId, $siteId)) {
+                    continue;
+                }
+                $clearableIds[] = $keywordId;
+            }
 
-            SeoKeywordClassification::query()
-                ->whereIn('keyword_id', $ids)
-                ->update(['cluster_key' => null]);
+            if ($clearableIds !== []) {
+                $wiped = SeoKeywordClassification::query()
+                    ->whereIn('keyword_id', $clearableIds)
+                    ->whereNotNull('cluster_key')
+                    ->where('cluster_key', '!=', '')
+                    ->count();
+
+                SeoKeywordClassification::query()
+                    ->whereIn('keyword_id', $clearableIds)
+                    ->update(['cluster_key' => null]);
+            }
 
             if (Schema::connection('omi_seo_ai')->hasTable('seo_keyword_dna')) {
                 SeoKeywordDna::query()

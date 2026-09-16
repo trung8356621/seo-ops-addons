@@ -15,6 +15,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Suppo
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectTenantGuard;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectItemAllocator;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\LocalArticleAssociationGuard;
+use Omnichannel\Addons\ContentProjects\Services\WriterMonthlyCapacityGate;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemIdentity;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
@@ -26,6 +27,7 @@ final class AddContentProjectItemsHandler extends AbstractPublishingHandler
         ContentProjectBusinessLock $businessLock,
         ContentProjectPreviewToken $previewToken,
         private readonly ContentProjectItemAllocator $allocator,
+        private readonly WriterMonthlyCapacityGate $capacityGate,
     ) {
         parent::__construct($tenantGuard, $businessLock, $previewToken);
     }
@@ -82,7 +84,16 @@ final class AddContentProjectItemsHandler extends AbstractPublishingHandler
 
             $createdIds = [];
             $allocations = [];
-            DB::connection('omi_seo_ai')->transaction(function () use ($project, $command, &$createdIds, &$allocations): void {
+            $capacityFailure = null;
+            DB::connection('omi_seo_ai')->transaction(function () use ($project, $command, &$createdIds, &$allocations, &$capacityFailure): void {
+                $incoming = count(array_filter($command->items, static fn (mixed $row): bool => is_array($row)));
+                $capacity = $this->capacityGate->assertProjectCanAccept($project, $incoming);
+                if (($capacity['ok'] ?? false) !== true) {
+                    $capacityFailure = $capacity;
+
+                    return;
+                }
+
                 $session = $this->allocator->begin($project);
                 $ids = [];
                 foreach ($command->items as $row) {
@@ -142,6 +153,20 @@ final class AddContentProjectItemsHandler extends AbstractPublishingHandler
                 $createdIds = $ids;
                 $allocations = $session->allocations();
             });
+
+            if (is_array($capacityFailure)) {
+                return ContentProjectActionResult::fail(
+                    (string) ($capacityFailure['code'] ?? ContentProjectActionCodes::WRITER_CAPACITY_EXCEEDED),
+                    'Writer monthly capacity exceeded.',
+                    $projectId,
+                    metadata: [
+                        'reason' => (string) ($capacityFailure['code'] ?? ContentProjectActionCodes::WRITER_CAPACITY_EXCEEDED),
+                        'remaining' => (int) ($capacityFailure['remaining'] ?? 0),
+                        'incoming' => (int) ($capacityFailure['incoming'] ?? 0),
+                        'user_id' => (int) ($capacityFailure['user_id'] ?? 0),
+                    ],
+                );
+            }
 
             return ContentProjectActionResult::ok(
                 ContentProjectActionCodes::ITEMS_ADDED,
