@@ -113,7 +113,7 @@ final class AddContentProjectItemsHandler extends AbstractPublishingHandler
                         : null;
 
                     $occupied = $session->occupiedCount($target);
-                    $task = SeoProjectTask::query()->create([
+                    $taskAttrs = [
                         'project_id' => (int) $target->getKey(),
                         'site_id' => $projectSiteId,
                         'type' => $type,
@@ -123,7 +123,17 @@ final class AddContentProjectItemsHandler extends AbstractPublishingHandler
                         'status' => SeoProjectTask::STATUS_PENDING,
                         'article_id' => $localArticleId,
                         'target_date' => $row['target_date'] ?? $target->monthCarbon()->copy()->addDays($occupied)->format('Y-m-d'),
-                    ]);
+                    ];
+                    if (isset($row['source_content'])) {
+                        $taskAttrs['source_content'] = (string) $row['source_content'];
+                    } elseif ($keyword !== '') {
+                        $taskAttrs['source_content'] = $keyword;
+                    }
+                    $taskAttrs = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectTaskPlanningMonthStamp::applyToAttrs(
+                        $taskAttrs,
+                        $target,
+                    );
+                    $task = SeoProjectTask::query()->create($taskAttrs);
                     $session->recordAdded($target);
                     $ids[] = (int) $task->getKey();
                 }

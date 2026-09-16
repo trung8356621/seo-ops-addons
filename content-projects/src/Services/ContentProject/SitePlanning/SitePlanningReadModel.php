@@ -187,7 +187,18 @@ final class SitePlanningReadModel
             return ['total' => 0, 'new' => 0];
         }
 
-        $total = (int) VocabularySuggestStagingQuery::forSite($siteId)->count();
+        $query = VocabularySuggestStagingQuery::forSite($siteId);
+        // Available Ideas SSOT: exclude tombstoned vocabulary candidates.
+        if (Schema::connection('omi_seo_ai')->hasTable('seo_content_project_consumed_ideas')) {
+            $query->whereNotIn('id', function ($sub) use ($siteId): void {
+                $sub->select('source_keyword_id')
+                    ->from('seo_content_project_consumed_ideas')
+                    ->where('site_id', $siteId)
+                    ->where('source_type', 'vocabulary_suggest')
+                    ->whereNotNull('source_keyword_id');
+            });
+        }
+        $total = (int) $query->count();
         $new = $this->latestGenerationAcceptedCount($siteId);
 
         return [

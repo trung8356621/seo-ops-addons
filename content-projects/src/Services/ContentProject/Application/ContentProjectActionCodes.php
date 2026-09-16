@@ -136,6 +136,12 @@ final class ContentProjectActionCodes
 
     public const QUOTA_DENIED = 'quota.denied';
 
+    /** Writer monthly capacity exceeded for execution create/assign. */
+    public const WRITER_CAPACITY_EXCEEDED = 'writer.capacity_exceeded';
+
+    /** System user cannot own execution Content Projects. */
+    public const SYSTEM_USER_REJECTED = 'writer.system_user_rejected';
+
     public const VALIDATION_FAILED = 'validation.failed';
 
     public const FAILED = 'failed';

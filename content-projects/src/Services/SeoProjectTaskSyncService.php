@@ -12,6 +12,7 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Support\ProjectTaskSourceKeyGenerator;
 use Omnichannel\Addons\ContentProjects\Support\SeoProjectTaskCanonicalCandidateResolver;
 use Omnichannel\Addons\ContentProjects\Support\SeoProjectTaskSyncData;
+use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectTaskPlanningMonthStamp;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemModelOverrideMode;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\Generation\ItemTitleProtection;
 use Omnichannel\Addons\ContentProjects\Support\SeoProjectTaskSyncDataNormalizer;
@@ -605,7 +606,7 @@ final class SeoProjectTaskSyncService
             : [];
         $policy = $this->filterExistingPolicyColumns($policy);
 
-        $task = $this->uniqueWriter->createStrict([
+        $task = $this->uniqueWriter->createStrict(ContentProjectTaskPlanningMonthStamp::applyToAttrs([
             'project_id' => (int) $project->id,
             'site_id' => $row->siteId,
             'article_id' => $articleId,
@@ -629,7 +630,7 @@ final class SeoProjectTaskSyncService
             'connected_at' => $articleId !== null ? now() : null,
             'completed_at' => null,
             ...$policy,
-        ]);
+        ], $project));
 
         $this->eventRecorder->record(
             $task,

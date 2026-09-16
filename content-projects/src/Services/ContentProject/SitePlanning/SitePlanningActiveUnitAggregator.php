@@ -330,6 +330,10 @@ final class SitePlanningActiveUnitAggregator
             return collect();
         }
 
+        $month = ContentProjectMonthContext::normalize(
+            substr($monthDate, 0, 7),
+        );
+
         $query = DB::connection('omi_seo_ai')->table('seo_project_tasks as t')
             ->join('seo_projects as p', 'p.id', '=', 't.project_id')
             ->whereNull('t.archived_at')
@@ -337,7 +341,6 @@ final class SitePlanningActiveUnitAggregator
             ->where('t.status', '!=', SeoProjectTask::STATUS_CANCELLED)
             ->where('p.status', '!=', SeoProject::STATUS_DRAFT)
             ->whereNull('p.archived_at')
-            ->whereDate('p.month', $monthDate)
             ->select([
                 't.id',
                 't.site_id',
@@ -347,6 +350,10 @@ final class SitePlanningActiveUnitAggregator
                 't.status',
                 't.scheduled_publish_at',
                 't.publish_published_at',
+                't.planning_month',
+                't.created_at',
+                't.target_date',
+                'p.month as project_month',
             ]);
 
         if ($siteId !== null && $siteId > 0) {
@@ -355,7 +362,30 @@ final class SitePlanningActiveUnitAggregator
             $query->whereNotNull('t.site_id')->where('t.site_id', '>', 0);
         }
 
-        return $query->get();
+        // Prefer task.planning_month (immutable planning SSOT). Fall back to project.month via resolver.
+        if (Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'planning_month')) {
+            $query->where(function ($q) use ($monthDate): void {
+                $q->whereDate('t.planning_month', $monthDate)
+                    ->orWhereNull('t.planning_month')
+                    ->orWhereDate('p.month', $monthDate);
+            });
+        } else {
+            $query->whereDate('p.month', $monthDate);
+        }
+
+        $rows = $query->get();
+
+        return $rows->filter(function (object $row) use ($month): bool {
+            $resolved = PlanningMonthBackfill::resolve([
+                'planning_month' => $row->planning_month ?? null,
+                'created_at' => $row->created_at ?? null,
+                'target_date' => $row->target_date ?? null,
+                'project_month' => $row->project_month ?? null,
+                'project_is_draft' => false,
+            ]);
+
+            return $resolved === $month;
+        })->values();
     }
 
     /**

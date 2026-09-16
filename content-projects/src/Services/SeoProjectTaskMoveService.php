@@ -431,6 +431,10 @@ final class SeoProjectTaskMoveService
                 'project_id' => (int) $target->getKey(),
                 'target_date' => $monthStart->copy()->addDays($startIndex + $index)->format('Y-m-d'),
             ]);
+
+            SeoContentProjectItemOrigin::query()
+                ->where('project_task_id', (int) $task->getKey())
+                ->update(['project_id' => (int) $target->getKey()]);
         }
 
         $target->syncTotalTasksCounter();

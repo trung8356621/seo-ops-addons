@@ -17,7 +17,9 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Suppo
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectPreviewToken;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Support\ContentProjectTenantGuard;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\PlanningDraftResolver;
+use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterMonthlyCapacityService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectTaskSyncService;
+use App\Services\Users\SeoOpsSystemUser;
 use Illuminate\Support\Facades\DB;
 use InvalidArgumentException;
 
@@ -108,6 +110,39 @@ final class CreateContentProjectHandler extends AbstractPublishingHandler
                             'tasks_synced' => false,
                         ],
                     );
+                }
+            }
+
+            // Execution projects require a real writer and respect monthly capacity.
+            if ($status !== SeoProject::STATUS_DRAFT) {
+                if ($userId <= 0 || SeoOpsSystemUser::isSystemUserId($userId)) {
+                    return ContentProjectActionResult::fail(
+                        ContentProjectActionCodes::SYSTEM_USER_REJECTED,
+                        'Execution Content Project requires a real writer (system user rejected).',
+                        metadata: [
+                            'reason' => ContentProjectActionCodes::SYSTEM_USER_REJECTED,
+                            'user_id' => $userId,
+                        ],
+                    );
+                }
+
+                $incoming = max(count($command->tasksData), $totalTasks);
+                if ($incoming > 0) {
+                    $capacity = app(ContentProjectWriterMonthlyCapacityService::class);
+                    $remaining = (int) ($capacity->remainingByUserId([$userId], $month)[$userId] ?? 0);
+                    if ($incoming > $remaining) {
+                        return ContentProjectActionResult::fail(
+                            ContentProjectActionCodes::WRITER_CAPACITY_EXCEEDED,
+                            'Writer monthly capacity exceeded.',
+                            metadata: [
+                                'reason' => ContentProjectActionCodes::WRITER_CAPACITY_EXCEEDED,
+                                'user_id' => $userId,
+                                'incoming' => $incoming,
+                                'remaining' => $remaining,
+                                'month' => $month,
+                            ],
+                        );
+                    }
                 }
             }
 

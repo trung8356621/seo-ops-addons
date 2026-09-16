@@ -235,5 +235,9 @@ final class IdeaConsumptionAndSitePlanningLifecycleContractTest extends TestCase
         self::assertStringContainsString('cleanupVocabularySuggestSource', $src);
         self::assertStringContainsString(IdeaCandidateConsumptionService::ERROR_SCHEMA_NOT_READY, $src);
         self::assertStringContainsString('throw new RuntimeException', $src);
+        self::assertStringContainsString(IdeaCandidateConsumptionService::STATUS_ALREADY_CONSUMED, $src);
+        self::assertStringContainsString(IdeaCandidateConsumptionService::STATUS_CLAIMED, $src);
+        self::assertStringContainsString("'status' =>", $src);
+        self::assertStringContainsString("'reason' =>", $src);
     }
 }

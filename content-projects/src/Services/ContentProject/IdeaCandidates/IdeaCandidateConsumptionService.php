@@ -16,10 +16,20 @@ use Throwable;
 /**
  * Claim + tombstone Available Ideas (content-projects owned).
  * Tombstone is SSOT for "already used once"; physical source cleanup is best-effort.
+ *
+ * Claim result is machine-readable: never collapse infrastructure failure into "duplicate".
  */
 final class IdeaCandidateConsumptionService
 {
     public const ERROR_SCHEMA_NOT_READY = 'idea_consumption_schema_not_ready';
+
+    public const STATUS_CLAIMED = 'claimed';
+
+    public const STATUS_ALREADY_CONSUMED = 'already_consumed';
+
+    public const STATUS_INVALID_INPUT = 'invalid_input';
+
+    public const STATUS_SCHEMA_NOT_READY = 'schema_not_ready';
 
     public function __construct(
         private readonly ConsumeVocabularySuggestCandidateService $sourceCleanup,
@@ -75,10 +85,14 @@ final class IdeaCandidateConsumptionService
     }
 
     /**
-     * Atomically claim a candidate. Returns false when already consumed (idempotent reject).
-     * Throws when the tombstone schema is missing — write path must not look like a duplicate.
+     * Atomically claim a candidate.
      *
-     * @return array{claimed: bool, consumed_idea_id: int|null}
+     * @return array{
+     *   claimed: bool,
+     *   consumed_idea_id: int|null,
+     *   status: string,
+     *   reason: string|null
+     * }
      */
     public function claim(
         int $siteId,
@@ -89,7 +103,12 @@ final class IdeaCandidateConsumptionService
         ?string $vocabularyGroup = null,
     ): array {
         if ($siteId <= 0 || $sourceKeywordId <= 0) {
-            return ['claimed' => false, 'consumed_idea_id' => null];
+            return [
+                'claimed' => false,
+                'consumed_idea_id' => null,
+                'status' => self::STATUS_INVALID_INPUT,
+                'reason' => 'invalid_site_or_keyword',
+            ];
         }
 
         if (! $this->tableReady()) {
@@ -123,10 +142,17 @@ final class IdeaCandidateConsumptionService
             return [
                 'claimed' => true,
                 'consumed_idea_id' => (int) $row->getKey(),
+                'status' => self::STATUS_CLAIMED,
+                'reason' => null,
             ];
         } catch (QueryException $e) {
             if ($this->isUniqueViolation($e)) {
-                return ['claimed' => false, 'consumed_idea_id' => null];
+                return [
+                    'claimed' => false,
+                    'consumed_idea_id' => null,
+                    'status' => self::STATUS_ALREADY_CONSUMED,
+                    'reason' => 'duplicate',
+                ];
             }
 
             throw $e;

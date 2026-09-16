@@ -358,6 +358,101 @@ final class IdeaConsumptionAndSitePlanningLifecycleIntegrationTest extends TestC
         self::assertSame(0, $second['updated']);
     }
 
+    public function test_claim_returns_machine_readable_status(): void
+    {
+        $siteId = $this->uniqueSiteId();
+        $keywordId = 720000 + $this->seq;
+        $consumption = app(IdeaCandidateConsumptionService::class);
+
+        $first = $consumption->claim(
+            $siteId,
+            SeoContentProjectItemOrigin::SOURCE_VOCABULARY_SUGGEST,
+            $keywordId,
+            'status phrase',
+        );
+        self::assertTrue($first['claimed']);
+        self::assertSame(IdeaCandidateConsumptionService::STATUS_CLAIMED, $first['status']);
+        self::assertNull($first['reason']);
+
+        $dup = $consumption->claim(
+            $siteId,
+            SeoContentProjectItemOrigin::SOURCE_VOCABULARY_SUGGEST,
+            $keywordId,
+            'status phrase again',
+        );
+        self::assertFalse($dup['claimed']);
+        self::assertSame(IdeaCandidateConsumptionService::STATUS_ALREADY_CONSUMED, $dup['status']);
+        self::assertSame('duplicate', $dup['reason']);
+
+        $invalid = $consumption->claim(0, 'vocabulary_suggest', 0, 'x');
+        self::assertFalse($invalid['claimed']);
+        self::assertSame(IdeaCandidateConsumptionService::STATUS_INVALID_INPUT, $invalid['status']);
+    }
+
+    public function test_attribution_and_dna_survive_split_move_same_task_id(): void
+    {
+        $siteId = $this->uniqueSiteId();
+        $month = '2026-09';
+        $draft = $this->createDraft($siteId, $month);
+        $task = $this->createTask($draft, $siteId, 'split-attr', $month);
+        $taskId = (int) $task->id;
+        $origin = SeoContentProjectItemOrigin::query()->create([
+            'project_task_id' => $taskId,
+            'project_id' => (int) $draft->id,
+            'planner_run_id' => 9,
+            'source_type' => SeoContentProjectItemOrigin::SOURCE_AI_NEW_CONTENT,
+            'source_fingerprint' => 'fp-split-attr',
+        ]);
+        app(PlanningAttributionWriter::class)->writeForTask($task, $origin, [
+            'planning_month' => $month,
+            'planner_run_id' => 9,
+            'cluster_ref' => 'clu_keep',
+            'cluster_name_snapshot' => 'Keep',
+            'dna_phrases' => ['dna-keep'],
+            'allowed_cluster_refs' => ['clu_keep'],
+        ]);
+
+        $execution = SeoProject::query()->create([
+            'site_id' => $siteId,
+            'user_id' => 1,
+            'name' => 'exec-attr-'.$this->seq,
+            'month' => ContentProjectMonthContext::toDateString('2026-10'),
+            'status' => SeoProject::STATUS_PENDING,
+            'kind' => SeoProject::KIND_MONTHLY,
+            'total_tasks' => 1,
+            'source_draft_project_id' => (int) $draft->id,
+        ]);
+
+        // Simulate Split move: same task id, remap project_id + origin.
+        $task->forceFill([
+            'project_id' => (int) $execution->id,
+            'target_date' => '2026-10-01',
+            'status' => SeoProjectTask::STATUS_PENDING,
+        ])->save();
+        SeoContentProjectItemOrigin::query()
+            ->where('project_task_id', $taskId)
+            ->update(['project_id' => (int) $execution->id]);
+
+        $attr = SeoContentProjectTaskPlanningAttribution::query()
+            ->where('project_task_id', $taskId)
+            ->first();
+        self::assertNotNull($attr);
+        self::assertSame('clu_keep', (string) $attr->cluster_ref);
+        self::assertSame(['dna-keep'], $attr->dna_phrases);
+        self::assertSame($month, (string) $attr->planning_month);
+        self::assertSame(9, (int) $attr->planner_run_id);
+
+        // Planning month SSOT on task — unit still counts in Sep Site Planning after Oct execution move.
+        $inSep = app(SitePlanningActiveUnitAggregator::class)->forSiteMonth($siteId, $month);
+        self::assertSame(1, $inSep['planned']);
+        $byRef = [];
+        foreach ($inSep['clusters'] as $cluster) {
+            $byRef[$cluster['cluster_ref']] = $cluster;
+        }
+        self::assertArrayHasKey('clu_keep', $byRef);
+        self::assertSame(1, (int) $byRef['clu_keep']['dna_planned']);
+    }
+
     public function test_overflow_origin_matches_target_project_id(): void
     {
         $siteId = $this->uniqueSiteId();

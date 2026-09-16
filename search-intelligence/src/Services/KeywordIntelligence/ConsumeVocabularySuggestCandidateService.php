@@ -10,6 +10,7 @@ use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordPersistenceService;
 use Omnichannel\Addons\SearchFoundation\Support\KeywordOrphanCleanup;
 use Omnichannel\Addons\SearchIntelligence\Services\SiteMcp\SiteMcpTopicalProfileStaleState;
+use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordMultiSiteOwnership;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\KeywordSourceNormalizer;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordIntelligence\VocabularySuggestStagingQuery;
 use RuntimeException;
@@ -165,44 +166,9 @@ final class ConsumeVocabularySuggestCandidateService
         return true;
     }
 
-    /**
-     * True when keyword still has site meta or article link ownership on any other site.
-     */
     public function isSharedWithOtherSites(int $keywordId, int $excludeSiteId): bool
     {
-        if ($keywordId <= 0) {
-            return false;
-        }
-
-        if (Schema::connection('omi_seo_ai')->hasTable('keyword_meta')) {
-            $metas = DB::connection('omi_seo_ai')->table('keyword_meta')
-                ->where('keyword_id', $keywordId)
-                ->where('meta_key', 'like', 'site.%')
-                ->pluck('meta_key');
-
-            foreach ($metas as $key) {
-                if (preg_match('/^site\.(\d+)\./', (string) $key, $m) !== 1) {
-                    continue;
-                }
-                if ((int) $m[1] !== $excludeSiteId && (int) $m[1] > 0) {
-                    return true;
-                }
-            }
-        }
-
-        if (Schema::connection('omi_seo_ai')->hasTable('seo_link_maps')
-            && Schema::connection('omi_seo_ai')->hasTable('seo_articles')) {
-            $hasOtherLinks = DB::connection('omi_seo_ai')->table('seo_link_maps as lm')
-                ->join('seo_articles as a', 'a.id', '=', 'lm.source_article_id')
-                ->where('lm.keyword_id', $keywordId)
-                ->where('a.site_id', '!=', $excludeSiteId)
-                ->exists();
-            if ($hasOtherLinks) {
-                return true;
-            }
-        }
-
-        return false;
+        return KeywordMultiSiteOwnership::isSharedWithOtherSites($keywordId, $excludeSiteId);
     }
 
     private function deleteIfOrphan(int $keywordId): bool

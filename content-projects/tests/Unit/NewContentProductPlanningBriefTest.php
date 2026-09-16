@@ -74,7 +74,11 @@ final class NewContentProductPlanningBriefTest extends TestCase
         );
 
         self::assertStringContainsString(
-            'contentType: NewContentSuggestionOptions::normalizeContentType((string) ($options[\'post_type\'] ?? $options[\'content_type\'] ?? \'post\'))',
+            'NewContentSuggestionOptions::normalizeContentType(',
+            $src,
+        );
+        self::assertStringContainsString(
+            "(string) (\$options['post_type'] ?? \$options['content_type'] ?? 'post')",
             $src,
         );
         self::assertStringContainsString("'post_type' => \$contentType", $src);
