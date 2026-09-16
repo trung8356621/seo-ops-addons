@@ -15,7 +15,7 @@ use Omnichannel\Addons\Content\Support\ArticleEditorContentLifecycle;
 use Omnichannel\Addons\Content\Support\ArticleEditorSaveContext;
 use Omnichannel\Addons\Content\Support\ArticleEditorSessionErrorCode;
 use Omnichannel\Addons\Content\Support\ArticleContentClassification;
-use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
+use Omnichannel\Addons\Content\Support\ArticleWordPressPostType;
 use App\Support\LocalArticleSaveTimer;
 use Omnichannel\Addons\Media\Services\ArticlePostImagesService;
 use Omnichannel\Addons\SearchFoundation\Services\ArticleKeywordLinkReconcileService;
@@ -182,7 +182,6 @@ final class ArticleEditorPersistService
 
         $slug = $context->normalizedSlug();
         $publishAt = $context->resolvePublishAtForSave();
-        $postType = SeoProjectTask::normalizePostType($context->postType);
 
         $wpCache = app(\Omnichannel\Addons\WordPress\Services\ArticleWpContentCacheService::class);
 
@@ -209,16 +208,11 @@ final class ArticleEditorPersistService
         $article->update($payload);
         $wpCache->forget($article);
 
-        // Prefer explicit page content_type from editor context when present.
-        $classification = ArticleContentClassification::fromTaskPostType($postType);
-        if (strtolower(trim((string) $context->postType)) === 'page') {
-            $classification = ArticleContentClassification::fromTaskPostType('page');
-        } elseif (ArticlePostTypeResolver::isPage($article) && $postType === SeoProjectTask::POST_TYPE_ARTICLE) {
-            // Keep page when editor still sends legacy article label.
-            $classification['content_type'] = \Omnichannel\Addons\Content\Enums\ContentType::Page;
-            $classification['wp_post_type'] = 'page';
-        }
-        ArticleContentClassification::persist($article, $classification);
+        // Canonical classification + raw wp_post_type from editor selection (not task normalize).
+        ArticleContentClassification::persist(
+            $article,
+            ArticleWordPressPostType::classificationForEditor($article, $context->postType),
+        );
 
         if (class_exists(\Omnichannel\Addons\Publishing\Services\PublishingArticleStateWriter::class)) {
             app(\Omnichannel\Addons\Publishing\Services\PublishingArticleStateWriter::class)->upsert($article, [

@@ -868,7 +868,7 @@
                                 x-cloak
                                 class="wp-article-edit-sidebar-scroll seo-assistant-host seo-assistant-sidebar space-y-3"
                                 x-data="seoAssistantNavigator(@js([
-                                    'postType' => \Omnichannel\Addons\ContentProjects\Models\SeoProjectTask::normalizePostType($this->articlePostType),
+                                    'postType' => \Omnichannel\Addons\Content\Support\ArticleWordPressPostType::normalizeEditorInput($this->articlePostType),
                                     'supportsProductGallery' => $this->supportsProductGallery(),
                                 ]))"
                                 x-init="initWorkspace()"

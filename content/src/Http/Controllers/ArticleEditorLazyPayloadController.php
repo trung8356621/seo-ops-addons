@@ -22,7 +22,6 @@ use Omnichannel\Addons\WordPress\Services\WordPressMediaCapabilityResolver;
 use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\Seo\Support\SeoScoringRulesRegistry;
-use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use App\Http\Controllers\Controller;
 use App\Services\SeoEngineService;
 use App\Support\RuntimeLogger;
@@ -331,9 +330,8 @@ final class ArticleEditorLazyPayloadController extends Controller
 
     private function supportsProductGallery(SeoArticle $article): bool
     {
-        $postType = strtolower(trim(SeoProjectTask::normalizePostType(ArticlePostTypeResolver::resolve($article))));
-        $isProduct = in_array($postType, ['product', 'e-commerce'], true);
-
-        return $isProduct && ! app(WordPressArticleContentService::class)->isTaxonomyRecord($article);
+        return ArticlePostTypeResolver::isProduct($article)
+            && ! ArticlePostTypeResolver::isTerm($article)
+            && ! app(WordPressArticleContentService::class)->isTaxonomyRecord($article);
     }
 }

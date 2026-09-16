@@ -4,12 +4,12 @@ declare(strict_types=1);
 
 namespace Omnichannel\Addons\Content\Services;
 
-use Omnichannel\Addons\Content\Enums\ContentType;
 use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\Content\Support\ArticleEditorSaveContext;
 use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
+use Omnichannel\Addons\Content\Support\ArticleWordPressPostType;
 use Omnichannel\Addons\SearchIntelligence\Support\KeywordFocusAttach;
 use Omnichannel\Addons\Media\Services\ArticleMediaLocalService;
 
@@ -202,17 +202,7 @@ final class ArticleEditorBundleApplyService
 
     private function persistArticlePostTypeMeta(SeoArticle $article, string $postType): void
     {
-        $normalized = SeoProjectTask::normalizePostType($postType);
-
-        $classification = ArticleContentClassification::fromTaskPostType($normalized);
-
-        // Task vocabulary has no `page` label — keep content_type=page when the editor
-        // still sends the legacy `article` label for an existing page.
-        if ($normalized === SeoProjectTask::POST_TYPE_ARTICLE
-            && ArticlePostTypeResolver::isPage($article)) {
-            $classification['content_type'] = ContentType::Page;
-            $classification['wp_post_type'] = 'page';
-        }
+        $classification = ArticleWordPressPostType::classificationForEditor($article, $postType);
 
         ArticleContentClassification::persist($article, $classification);
 
@@ -339,9 +329,7 @@ final class ArticleEditorBundleApplyService
 
     private function supportsProductGallery(SeoArticle $article, string $postType): bool
     {
-        $type = strtolower(SeoProjectTask::normalizePostType($postType));
-
-        if (! in_array($type, ['product', 'e-commerce'], true)) {
+        if (! ArticleWordPressPostType::isProductLike($postType)) {
             return false;
         }
 
@@ -354,8 +342,13 @@ final class ArticleEditorBundleApplyService
             return true;
         }
 
-        $type = SeoProjectTask::normalizePostType($postType);
+        $type = ArticleWordPressPostType::normalizeEditorInput($postType);
 
-        return in_array($type, [SeoProjectTask::POST_TYPE_CATEGORY, SeoProjectTask::POST_TYPE_PRODUCT_CATEGORY], true);
+        return in_array($type, [
+            'category',
+            'product_cat',
+            SeoProjectTask::POST_TYPE_CATEGORY,
+            SeoProjectTask::POST_TYPE_PRODUCT_CATEGORY,
+        ], true);
     }
 }

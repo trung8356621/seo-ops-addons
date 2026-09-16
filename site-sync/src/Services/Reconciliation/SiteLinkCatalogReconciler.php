@@ -43,7 +43,11 @@ final class SiteLinkCatalogReconciler
                     'slug' => isset($link['slug']) ? (string) $link['slug'] : null,
                     'title' => isset($link['title']) ? (string) $link['title'] : null,
                     'status' => (string) ($link['status'] ?? 'publish'),
-                    'type' => (string) ($link['type'] ?? 'article'),
+                    'type' => (string) (
+                        $link['wp_post_type']
+                        ?? $link['type']
+                        ?? 'post'
+                    ),
                     'content_hash' => isset($link['content_hash']) ? (string) $link['content_hash'] : null,
                     'updated_at_wp' => isset($link['updated_at']) ? $link['updated_at'] : null,
                     'meta' => is_array($link['meta'] ?? null) ? $link['meta'] : null,

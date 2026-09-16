@@ -114,6 +114,16 @@ final class SiteSyncV3BulkImporter
 
                 $url = trim((string) ($item['url'] ?? $item['permalink'] ?? ''));
                 if ($url !== '') {
+                    $articleClassification = ArticleContentClassification::for($article);
+                    $rawType = trim((string) (
+                        $item['wp_post_type']
+                        ?? $articleClassification->wpPostType()
+                        ?? $item['type']
+                        ?? ''
+                    ));
+                    if ($rawType === '') {
+                        $rawType = $isTermResource ? 'term' : 'post';
+                    }
                     $linkRows[] = [
                         'wordpress_id' => $wpId,
                         'url' => $url,
@@ -121,7 +131,8 @@ final class SiteSyncV3BulkImporter
                         'slug' => isset($item['slug']) ? (string) $item['slug'] : null,
                         'title' => (string) ($item['title'] ?? $item['post_title'] ?? $article->title ?? ''),
                         'status' => $this->normalizeStatus((string) ($item['status'] ?? 'publish')),
-                        'type' => $isTermResource ? 'term' : (string) ($item['type'] ?? 'article'),
+                        'type' => $rawType,
+                        'wp_post_type' => $rawType,
                         'content_hash' => isset($item['content_hash']) ? (string) $item['content_hash'] : null,
                         'updated_at' => $item['updated_at'] ?? $item['modified_at'] ?? null,
                         'meta' => is_array($item['meta'] ?? null) ? $item['meta'] : null,

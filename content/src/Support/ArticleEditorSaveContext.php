@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Content\Support;
 
 use Omnichannel\Addons\Content\Models\SeoArticle;
-use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\Seo\Support\SeoDisplayTimezone;
 use Carbon\Carbon;
 use Illuminate\Support\Str;
@@ -64,8 +63,9 @@ final readonly class ArticleEditorSaveContext
                 ?? ''));
         }
 
-        $postType = SeoProjectTask::normalizePostType(
-            (string) ($publishBox['post_type'] ?? ArticlePostTypeResolver::resolve($article)),
+        // Raw WP / editor post_type — never SeoProjectTask::normalizePostType (collapses page→post).
+        $postType = ArticleWordPressPostType::normalizeEditorInput(
+            (string) ($publishBox['post_type'] ?? ArticleWordPressPostType::resolve($article)),
         );
 
         $status = (string) ($publishBox['status'] ?? $article->status ?? 'draft');

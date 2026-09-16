@@ -1436,38 +1436,56 @@ class SyncDomainContentService
             );
         }
 
-        if ($forceOverwrite) {
+        // Phase A — body fingerprint (expensive path only when body actually changed or forced).
+        $incomingBody = trim((string) ($item['post_content'] ?? ''));
+        $bodyChanged = $forceOverwrite && $this->syncBodyChanged($article, $item, $incomingBody);
+
+        if ($bodyChanged) {
             $scoring = is_array($item['scoring'] ?? null) ? $item['scoring'] : [];
             $preparedHtml = app(ArticlePostImagesService::class)->prepareEditorHtmlFromWordPressSources(
                 $article,
-                trim((string) ($item['post_content'] ?? '')),
+                $incomingBody,
                 trim((string) ($scoring['body'] ?? '')),
                 is_array($item['post_images'] ?? null) ? $item['post_images'] : [],
             );
             if ($preparedHtml !== '') {
                 $item['post_content'] = $preparedHtml;
+                $incomingBody = $preparedHtml;
             }
         }
 
+        // Phase B — lightweight metadata always (title/status/classification already applied;
+        // slug / permalink / featured / SEO / taxonomies independent of body).
         $this->syncWordPressPostMeta($article, $item, $isTerm, $forceOverwrite);
         $this->syncSchemaAndWooCommerceMeta($article, $item);
-        if ($forceOverwrite) {
+
+        if ($bodyChanged) {
+            $tocHtml = $this->resolveSyncItemContent($item);
+            if ($tocHtml !== '') {
+                try {
+                    $this->tocExtraction->extractAndStore((int) $article->id, $tocHtml);
+                } catch (Throwable $e) {
+                    Log::warning('TOC extraction failed after WordPress content sync', [
+                        'article_id' => $article->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
+
             app(ArticlePostImagesService::class)->importFromSyncItem($article, $item);
-        }
 
-        $postImages = $item['post_images'] ?? null;
-        if ($forceOverwrite && (! is_array($postImages) || $postImages === [])) {
-            app(ArticlePostImagesService::class)->persistForArticle($article, []);
-        }
+            $postImages = $item['post_images'] ?? null;
+            if (! is_array($postImages) || $postImages === []) {
+                app(ArticlePostImagesService::class)->persistForArticle($article, []);
+            }
 
-        if (! $hasLocalBody && $forceOverwrite) {
-            app(ArticleFaqWordPressImportService::class)->importFromWordPressSyncItem($article, $item);
-        }
+            if (! $hasLocalBody) {
+                app(ArticleFaqWordPressImportService::class)->importFromWordPressSyncItem($article, $item);
+            }
 
-        if ($forceOverwrite) {
             // Persist prepared WP HTML into articles.body (editor SoT). Empty → null;
             // editor reopen auto-hydrates when WP still has content.
-            $htmlForBody = trim((string) ($item['post_content'] ?? ''));
+            $htmlForBody = trim((string) ($item['post_content'] ?? $incomingBody));
             $documentWriter = app(\Omnichannel\Addons\Content\Services\ArticleEditor\Document\ArticleEditorDocumentWriter::class);
             if ($htmlForBody !== '') {
                 $documentWriter->invalidateForLegacyBodyWrite($article, 'wp_force_overwrite_pull');
@@ -1479,18 +1497,23 @@ class SyncDomainContentService
                 'body' => $htmlForBody !== '' ? $htmlForBody : null,
                 'blocks' => null,
                 'excerpt' => null,
-                'slug' => null,
             ];
             if ($article->isDirty('editor_document_status')) {
                 $payload['editor_document_status'] = $article->editor_document_status;
             }
             $article->update($payload);
             app(ArticleWpContentCacheService::class)->forget($article);
+
+            // Re-apply WP slug after body write (metadata remains authoritative).
+            $normalizedSlug = RankMathSeoValueNormalizer::normalizeSlug(trim((string) ($item['slug'] ?? '')));
+            if ($normalizedSlug !== null && $normalizedSlug !== '') {
+                $article->update(['slug' => $normalizedSlug]);
+            }
         }
 
         $this->syncSeoMetaFromWordPress($article, $item);
         $this->syncFocusKeyword($site, $userId, $article, $item);
-        if ($forceOverwrite) {
+        if ($bodyChanged) {
             $this->scoreSyncedItemWithPhp($article, $item);
         }
         app(\Omnichannel\Addons\Seo\Services\ArticleSeoSnapshotService::class)->persistFromSyncItem($article, $item);
@@ -1517,6 +1540,33 @@ class SyncDomainContentService
         }
 
         $this->timestampService->sync($article, $item);
+    }
+
+    /**
+     * @param  array<string, mixed>  $item
+     */
+    private function syncBodyChanged(SeoArticle $article, array $item, string $incomingBody): bool
+    {
+        $remoteHash = strtolower(trim((string) ($item['content_hash'] ?? $item['post_content_hash'] ?? '')));
+        if ($remoteHash !== '') {
+            $localHash = strtolower(trim((string) (
+                $article->articleMetas()->where('meta_key', 'wp_post_content_hash')->value('meta_value')
+                ?? ''
+            )));
+            if ($localHash !== '' && hash_equals($localHash, $remoteHash)) {
+                return false;
+            }
+            if ($localHash !== '' && ! hash_equals($localHash, $remoteHash)) {
+                return true;
+            }
+        }
+
+        $localBody = trim((string) ($article->body ?? ''));
+        if ($incomingBody === '' && $localBody === '') {
+            return false;
+        }
+
+        return hash('sha256', $incomingBody) !== hash('sha256', $localBody);
     }
 
     /**
@@ -1552,7 +1602,9 @@ class SyncDomainContentService
         bool $forceOverwrite = false,
     ): void {
         $content = $this->resolveSyncItemContent($item);
-        $shouldExtractToc = ($forceOverwrite || $isTaxonomy) && $content !== '';
+        // TOC extraction is body-dependent — taxonomy descriptions only here;
+        // post/product body TOC runs from the body-changed path (forceOverwrite + changed).
+        $shouldExtractToc = $isTaxonomy && $content !== '';
 
         if ($shouldExtractToc) {
             // Pass sync HTML directly — body may stay null; do not cache in article_meta.
@@ -1569,7 +1621,8 @@ class SyncDomainContentService
         $slug = trim((string) ($item['slug'] ?? ''));
         $normalizedSlug = RankMathSeoValueNormalizer::normalizeSlug($slug);
         if ($normalizedSlug !== null && $normalizedSlug !== '') {
-            if (trim((string) ($article->slug ?? '')) === '' || $forceOverwrite) {
+            // Metadata path: WP slug is authoritative on pull (independent of body overwrite).
+            if (trim((string) ($article->slug ?? '')) !== $normalizedSlug) {
                 $article->update(['slug' => $normalizedSlug]);
             }
             $article->articleMetas()->where('meta_key', 'wp_slug')->delete();
@@ -2061,6 +2114,7 @@ class SyncDomainContentService
             $contentType = ContentType::tryFromString((string) ($row->meta_content_type ?? ''));
             $isTermRaw = $row->meta_wp_is_term;
             $hasTermFlag = $isTermRaw !== null && trim((string) $isTermRaw) !== '';
+            $legacy = null;
 
             if ($contentType === null || ! $hasTermFlag) {
                 $legacy = ArticleContentClassification::fromLegacyRow(
@@ -2080,6 +2134,11 @@ class SyncDomainContentService
             $row->setAttribute('wp_is_term', $isTerm);
             // Comparator vocabulary stays legacy, but is now derived from content_type.
             $row->setAttribute('type', $this->legacyTypeLabel($contentType, $isTerm));
+            $native = strtolower(trim((string) ($row->meta_wp_post_type ?? '')));
+            if ($native === '' && is_array($legacy)) {
+                $native = strtolower(trim((string) ($legacy['wp_post_type'] ?? '')));
+            }
+            $row->setAttribute('wp_post_type', $native !== '' ? $native : null);
 
             return $row;
         });

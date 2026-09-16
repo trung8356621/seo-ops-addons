@@ -5,9 +5,8 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Content\Services;
 
 use Omnichannel\Addons\Content\Models\SeoArticle;
-use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\Content\Support\ArticleEditorSaveContext;
-use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
+use Omnichannel\Addons\Content\Support\ArticleWordPressPostType;
 use Omnichannel\Addons\Publishing\Services\ArticleScheduleReconcileService;
 use Omnichannel\Addons\Seo\Support\SeoDisplayTimezone;
 use Omnichannel\Addons\WordPress\Services\ArticleWordPressSyncFlagService;
@@ -44,9 +43,7 @@ final class ArticleEditorSavePatchService
             ? $article->publishingState->published_at->copy()->timezone(SeoDisplayTimezone::name())
             : null;
 
-        $postType = SeoProjectTask::normalizePostType(
-            (string) ($article->type ?? ArticlePostTypeResolver::resolve($article)),
-        );
+        $postType = ArticleWordPressPostType::resolve($article);
 
         $publishWhenLabel = '';
         if ($status === 'scheduled' && $publishedAtDisplay instanceof Carbon) {

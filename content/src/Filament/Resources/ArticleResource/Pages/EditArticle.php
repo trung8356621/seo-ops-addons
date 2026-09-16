@@ -86,6 +86,7 @@ use Omnichannel\Addons\WordPress\Services\WordPressMediaLibraryService;
 use Omnichannel\Addons\AiPrompt\Services\WorkflowParserService;
 use Omnichannel\Addons\Content\Support\ArticleContentClassification;
 use Omnichannel\Addons\Content\Support\ArticlePostTypeResolver;
+use Omnichannel\Addons\Content\Support\ArticleWordPressPostType;
 use Omnichannel\Addons\Content\Support\PublishCategoryOptionsAssembler;
 use Omnichannel\Addons\Publishing\Support\PublishingTaxonomySelectionFilter;
 use Omnichannel\Addons\Content\Support\ArticleWritingExecutionContext;
@@ -141,7 +142,7 @@ class EditArticle extends SeoEditRecord
 
     public string $visibility = 'public';
 
-    public string $articlePostType = 'article';
+    public string $articlePostType = 'post';
 
     public string $publishDay = '';
 
@@ -684,10 +685,10 @@ class EditArticle extends SeoEditRecord
             return [];
         }
 
-        $postType = SeoProjectTask::normalizePostType(
+        $postType = ArticleWordPressPostType::normalizeEditorInput(
             trim($this->articlePostType) !== ''
                 ? $this->articlePostType
-                : ArticlePostTypeResolver::resolve($this->record),
+                : ArticleWordPressPostType::resolve($this->record),
         );
         $taxonomy = $this->resolvePublishCategoryTaxonomy($postType);
 
@@ -912,7 +913,7 @@ class EditArticle extends SeoEditRecord
 
         $this->articleTitle = $flags->decodeWordPressText((string) ($this->record->title ?? ''));
         $this->articleSlug = trim((string) ($this->record->slug ?? ''));
-        $this->articlePostType = SeoProjectTask::normalizePostType(ArticlePostTypeResolver::resolve($this->record));
+        $this->articlePostType = ArticleWordPressPostType::resolve($this->record);
         $this->articleStatus = (string) ($this->record->status ?? 'draft');
         $this->visibility = $this->articleStatus === 'private' ? 'private' : 'public';
 
@@ -1208,9 +1209,10 @@ class EditArticle extends SeoEditRecord
 
     public function isProduct(): bool
     {
-        $type = strtolower(trim(SeoProjectTask::normalizePostType($this->articlePostType)));
+        $type = strtolower(trim(ArticleWordPressPostType::normalizeEditorInput($this->articlePostType)));
 
-        return in_array($type, ['product', 'e-commerce'], true);
+        return in_array($type, ['product', 'e-commerce'], true)
+            || ArticleWordPressPostType::isProductLike($type);
     }
 
     public function isTaxonomyArticle(): bool
@@ -2352,7 +2354,7 @@ class EditArticle extends SeoEditRecord
         string $publishHour,
         string $publishMinute,
     ): void {
-        $this->articlePostType = SeoProjectTask::normalizePostType($postType);
+        $this->articlePostType = ArticleWordPressPostType::normalizeEditorInput($postType);
         $this->articleStatus = in_array($status, ['draft', 'published', 'scheduled', 'private'], true)
             ? $status
             : 'draft';
@@ -3424,7 +3426,7 @@ class EditArticle extends SeoEditRecord
         }
 
         $slug = Str::slug($this->articleSlug);
-        $postType = SeoProjectTask::normalizePostType($this->articlePostType);
+        $postType = ArticleWordPressPostType::normalizeEditorInput($this->articlePostType);
         $bundle = [
             'article_meta' => [
                 'title' => trim($this->articleTitle),
@@ -4056,7 +4058,7 @@ class EditArticle extends SeoEditRecord
             'content' => $this->bootstrapEditorHtml,
             'contentLifecycle' => $contentLifecycle,
             'status' => (string) $this->articleStatus,
-            'postType' => SeoProjectTask::normalizePostType($this->articlePostType),
+            'postType' => ArticleWordPressPostType::normalizeEditorInput($this->articlePostType),
             'contentRevision' => hash('sha256', $contentRevisionSource),
             'updatedAt' => $this->record->updated_at?->copy()->utc()->toIso8601String(),
             'expectedUpdatedAt' => $this->record->updated_at?->copy()->utc()->toIso8601String(),
@@ -4428,7 +4430,7 @@ class EditArticle extends SeoEditRecord
             'document_version' => max(1, (int) ($this->record->document_version ?? 1)),
             'media_picker_url' => route('seo.articles.media-picker', ['article' => $this->record->id]),
             'title' => (string) $this->articleTitle,
-            'post_type' => SeoProjectTask::normalizePostType($this->articlePostType),
+            'post_type' => ArticleWordPressPostType::normalizeEditorInput($this->articlePostType),
             'virtual_reviews' => [],
             'supports_product_gallery' => $this->supportsProductGallery(),
             'is_canary_product' => in_array(strtolower(trim((string) $metaMap->get('is_canary', ''))), ['1', 'true', 'yes'], true)
@@ -6123,32 +6125,7 @@ class EditArticle extends SeoEditRecord
 
     private function persistArticlePostTypeMeta(string $postType): void
     {
-        $normalized = SeoProjectTask::normalizePostType($postType);
-
-        $classification = ArticleContentClassification::fromTaskPostType($normalized);
-
-        // Task vocabulary has no `page` label — keep content_type=page when the editor
-        // still sends the legacy `article` label for an existing page.
-        if ($normalized === SeoProjectTask::POST_TYPE_ARTICLE
-            && ArticlePostTypeResolver::isPage($this->record)) {
-            $classification['content_type'] = ContentType::Page;
-            $classification['wp_post_type'] = 'page';
-        }
-
-        // Unchanged classification keeps its native slug (CPT machine stays machine);
-        // switching type (article → product) lets the task vocabulary win.
-        $current = ArticleContentClassification::for($this->record);
-        if ($current->wpPostType() !== null
-            && $current->contentType() === $classification['content_type']
-            && $current->isTerm() === $classification['wp_is_term']
-        ) {
-            $classification['wp_post_type'] = $current->wpPostType();
-        }
-
-        // Editor never re-parents a term; keep the resolved hierarchy from sync.
-        if ($classification['wp_is_term'] && $this->record->parent_id !== null) {
-            unset($classification['parent_id']);
-        }
+        $classification = ArticleWordPressPostType::classificationForEditor($this->record, $postType);
 
         ArticleContentClassification::persist($this->record, $classification);
 

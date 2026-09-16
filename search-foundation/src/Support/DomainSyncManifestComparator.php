@@ -12,7 +12,7 @@ final class DomainSyncManifestComparator
 {
     /**
      * @param  array<int, array<string, mixed>>  $manifestEntries
-     * @param  Collection<int, object{wp_post_id: int, type: string, updated_at: mixed}>  $localArticles
+     * @param  Collection<int, object{wp_post_id: int, type: string, updated_at: mixed, wp_post_type?: string|null}>  $localArticles
      * @return array{
      *     refs: array<int, array<string, mixed>>,
      *     skipped: int,
@@ -25,15 +25,20 @@ final class DomainSyncManifestComparator
         $timestampService = new WordPressArticleTimestampService;
 
         $localIndex = [];
+        $localByWpId = [];
         $localArticleWpIds = [];
         foreach ($localArticles as $article) {
-            $wpId = (int) ($article->wordpressLink?->wp_post_id ?? 0);
+            $wpId = (int) ($article->wordpressLink?->wp_post_id ?? $article->wp_post_id ?? 0);
             $type = (string) ($article->type ?? '');
             if ($wpId <= 0 || $type === '') {
                 continue;
             }
 
             $localIndex[$this->localKey($type, $wpId)] = $article;
+            // Prefer wp_id lookup for post-like entities so page/post/article aliases match.
+            if (! $this->isTaxonomyType($type)) {
+                $localByWpId[$wpId] = $article;
+            }
 
             if ($this->isArticleLikeType($type)) {
                 $localArticleWpIds[$wpId] = true;
@@ -59,6 +64,9 @@ final class DomainSyncManifestComparator
 
             $key = $this->localKey($type, $wpId);
             $local = $localIndex[$key] ?? null;
+            if ($local === null && ! $this->isTaxonomyType($type)) {
+                $local = $localByWpId[$wpId] ?? null;
+            }
 
             if ($this->isTaxonomyType($type)) {
                 if ($local === null) {
@@ -66,7 +74,14 @@ final class DomainSyncManifestComparator
                     $refs[] = $this->normalizeRef($entry);
                     $refKeys[$key] = true;
                 } else {
-                    $skipped++;
+                    // Taxonomy: still refresh when native slug drifted.
+                    if ($this->wpPostTypeDrifted($local, $entry)) {
+                        $updateCount++;
+                        $refs[] = $this->normalizeRef($entry);
+                        $refKeys[$key] = true;
+                    } else {
+                        $skipped++;
+                    }
                 }
 
                 continue;
@@ -74,6 +89,15 @@ final class DomainSyncManifestComparator
 
             if ($local === null) {
                 $newCount++;
+                $refs[] = $this->normalizeRef($entry);
+                $refKeys[$key] = true;
+
+                continue;
+            }
+
+            // Metadata identity drift (esp. post_type) must fetch even when body/timestamp looks stale locally.
+            if ($this->wpPostTypeDrifted($local, $entry)) {
+                $updateCount++;
                 $refs[] = $this->normalizeRef($entry);
                 $refKeys[$key] = true;
 
@@ -127,14 +151,18 @@ final class DomainSyncManifestComparator
     public function resolveMetadataRefreshRefs(array $manifestEntries, Collection $localArticles): array
     {
         $localIndex = [];
+        $localByWpId = [];
         foreach ($localArticles as $article) {
-            $wpId = (int) ($article->wordpressLink?->wp_post_id ?? 0);
+            $wpId = (int) ($article->wordpressLink?->wp_post_id ?? $article->wp_post_id ?? 0);
             $type = (string) ($article->type ?? '');
             if ($wpId <= 0 || $type === '') {
                 continue;
             }
 
             $localIndex[$this->localKey($type, $wpId)] = true;
+            if (! $this->isTaxonomyType($type)) {
+                $localByWpId[$wpId] = true;
+            }
         }
 
         $refs = [];
@@ -152,11 +180,14 @@ final class DomainSyncManifestComparator
             }
 
             $key = $this->localKey($type, $wpId);
-            if (! isset($localIndex[$key]) || isset($seen[$key])) {
+            $exists = isset($localIndex[$key])
+                || (! $this->isTaxonomyType($type) && isset($localByWpId[$wpId]));
+            if (! $exists || isset($seen[$key]) || isset($seen['wp:'.$wpId])) {
                 continue;
             }
 
             $seen[$key] = true;
+            $seen['wp:'.$wpId] = true;
             $refs[] = $this->normalizeRef($entry);
         }
 
@@ -185,7 +216,7 @@ final class DomainSyncManifestComparator
             }
 
             $type = strtolower(trim((string) ($entry['type'] ?? '')));
-            if (! $this->isArticleLikeType($type)) {
+            if (! $this->isArticleLikeType($type) && ! $this->isPostLikeNative((string) ($entry['wp_post_type'] ?? ''))) {
                 continue;
             }
 
@@ -202,12 +233,39 @@ final class DomainSyncManifestComparator
 
     private function isArticleLikeType(string $type): bool
     {
-        return in_array($type, ['article', ''], true);
+        return in_array($type, ['article', 'post', 'page', ''], true);
+    }
+
+    private function isPostLikeNative(string $wpPostType): bool
+    {
+        $native = strtolower(trim($wpPostType));
+
+        return in_array($native, ['post', 'page', ''], true);
     }
 
     private function isTaxonomyType(string $type): bool
     {
-        return in_array($type, ['category', 'product_category'], true);
+        return in_array($type, ['category', 'product_category', 'product_cat'], true);
+    }
+
+    /**
+     * @param  object{wp_post_type?: string|null}  $local
+     * @param  array<string, mixed>  $entry
+     */
+    private function wpPostTypeDrifted(object $local, array $entry): bool
+    {
+        $remote = strtolower(trim((string) ($entry['wp_post_type'] ?? '')));
+        if ($remote === '') {
+            return false;
+        }
+
+        $localNative = strtolower(trim((string) ($local->wp_post_type ?? '')));
+        if ($localNative === '') {
+            // Missing local identity meta → treat as drift so sync can backfill.
+            return true;
+        }
+
+        return $localNative !== $remote;
     }
 
     /**

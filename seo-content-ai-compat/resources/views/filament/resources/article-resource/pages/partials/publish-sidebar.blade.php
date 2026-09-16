@@ -1,10 +1,13 @@
 @php
     $publishBoxLabels = [
         'postType' => [
+            'post' => __('seo-content-ai::filament.article_list.post_type_post'),
+            'page' => __('seo-content-ai::filament.article_list.post_type_page'),
             'article' => __('seo-content-ai::filament.article_list.post_type_article'),
             'product' => __('seo-content-ai::filament.article_list.post_type_product'),
             'category' => __('seo-content-ai::filament.article_list.post_type_category'),
             'product_category' => __('seo-content-ai::filament.article_list.post_type_product_category'),
+            'product_cat' => __('seo-content-ai::filament.article_list.post_type_product_category'),
         ],
         'status' => [
             'draft' => 'Draft',
@@ -18,9 +21,7 @@
         ],
     ];
     $publishBoxInitial = [
-        'postType' => \Omnichannel\Addons\ContentProjects\Models\SeoProjectTask::normalizePostType(
-            \Omnichannel\Addons\Content\Support\ArticlePostTypeResolver::resolve($this->record),
-        ),
+        'postType' => \Omnichannel\Addons\Content\Support\ArticleWordPressPostType::resolve($this->record),
         'status' => $articleStatus,
         'visibility' => $visibility,
         'publishDay' => $publishDay,
@@ -52,7 +53,7 @@
             const minutePool = [0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55];
 
             return {
-                postType: initial.postType ?? 'article',
+                postType: initial.postType ?? 'post',
                 status: initial.status ?? 'draft',
                 visibility: initial.visibility ?? 'public',
                 publishDay: initial.publishDay ?? '',
@@ -503,7 +504,8 @@
                         x-model="postType"
                         class="rounded border-gray-300 dark:border-gray-600 dark:bg-gray-900 text-sm py-1"
                     >
-                        <option value="article">{{ __('seo-content-ai::filament.article_list.post_type_article') }}</option>
+                        <option value="post">{{ __('seo-content-ai::filament.article_list.post_type_post') }}</option>
+                        <option value="page">{{ __('seo-content-ai::filament.article_list.post_type_page') }}</option>
                         <option value="product">{{ __('seo-content-ai::filament.article_list.post_type_product') }}</option>
                         @if ($this->isTaxonomyArticle())
                             <option value="category">{{ __('seo-content-ai::filament.article_list.post_type_category') }}</option>
