@@ -9,11 +9,12 @@
     $yearGroups = is_array($payload['year_groups'] ?? null) ? $payload['year_groups'] : [];
     $rows = is_array($payload['rows'] ?? null) ? $payload['rows'] : [];
     $activeMonth = (string) ($payload['active_month'] ?? '');
+    $workingSiteId = (int) ($this->filterSiteId ?? 0);
 @endphp
 
 <div
     class="cp-site-planning"
-    wire:key="cp-site-planning-panel-{{ $activeMonth }}"
+    wire:key="cp-site-planning-panel-{{ $activeMonth }}-{{ $workingSiteId }}"
     data-site-planning="1"
     x-data="{
         open: false,
@@ -34,8 +35,35 @@
         close() {
             this.open = false;
             this.detail = null;
-        }
+        },
+        summaryArticles() {
+            return Number(this.detail?.totals?.planned ?? 0);
+        },
+        summaryDnaDelta() {
+            const clusters = Array.isArray(this.detail?.clusters) ? this.detail.clusters : [];
+            let delta = 0;
+            for (const c of clusters) {
+                delta += Number(c.dna_planned ?? 0) - Number(c.dna_current ?? 0);
+            }
+            return delta;
+        },
+        summaryMcpDelta() {
+            const clusters = Array.isArray(this.detail?.clusters) ? this.detail.clusters : [];
+            if (clusters.length === 0) {
+                return 0;
+            }
+            let sum = 0;
+            for (const c of clusters) {
+                sum += Number(c.planning_mcp_share ?? 0) - Number(c.actual_mcp_share ?? 0);
+            }
+            return Math.round(sum / clusters.length);
+        },
     }"
+    x-init="
+        @if ($workingSiteId > 0 && $activeMonth !== '')
+            openCell({{ $workingSiteId }}, '{{ \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::normalize($activeMonth) }}')
+        @endif
+    "
 >
     @if ($rows === [])
         <p class="cp-site-planning__empty">
@@ -51,7 +79,7 @@
                             rowspan="2"
                             class="cp-site-planning__sticky cp-site-planning__domain-head"
                         >
-                            Domain
+                            {{ __('seo-content-ai::filament.projects.site_planning_domain_col') }}
                         </th>
                         @foreach ($yearGroups as $group)
                             <th
@@ -127,78 +155,95 @@
         </div>
     @endif
 
+    {{-- Inline monthly detail (mockup: below matrix, not a full-screen drawer) --}}
     <div
-        class="cp-site-planning__drawer"
+        class="cp-site-planning__detail"
+        data-site-planning-detail="1"
         x-show="open"
         x-cloak
         x-transition.opacity
-        @keydown.escape.window="close()"
     >
-        <div class="cp-site-planning__drawer-backdrop" @click="close()"></div>
-        <aside class="cp-site-planning__drawer-panel" role="dialog" aria-modal="true">
-            <div class="cp-site-planning__drawer-head">
-                <h3 class="cp-site-planning__drawer-title">
-                    {{ __('seo-content-ai::filament.projects.site_planning_detail_heading') }}
-                </h3>
-                <button type="button" class="cp-site-planning__drawer-close" @click="close()">×</button>
+        <div class="cp-site-planning__detail-head">
+            <div>
+                <h4 class="cp-site-planning__detail-title">
+                    <span x-text="detail ? ('{{ __('seo-content-ai::filament.projects.site_planning_detail_heading') }} ' + (detail.month_label || '') + ' — ' + (detail.domain || '')) : '{{ __('seo-content-ai::filament.projects.site_planning_detail_heading') }}'"></span>
+                </h4>
             </div>
-            <div class="cp-site-planning__drawer-body" x-show="loading">
-                <div class="animate-pulse space-y-2 p-2">
-                    <div class="h-3 rounded bg-gray-200 dark:bg-gray-700"></div>
-                    <div class="h-3 w-2/3 rounded bg-gray-200 dark:bg-gray-700"></div>
-                    <div class="h-16 rounded bg-gray-200 dark:bg-gray-700"></div>
-                </div>
+            <button type="button" class="cp-site-planning__detail-close" @click="close()" aria-label="{{ __('seo-content-ai::filament.projects.site_planning_detail_close') }}">×</button>
+        </div>
+
+        <div class="cp-site-planning__detail-body" x-show="loading">
+            <div class="animate-pulse space-y-2 p-1">
+                <div class="h-3 rounded bg-gray-200 dark:bg-gray-700"></div>
+                <div class="h-3 w-2/3 rounded bg-gray-200 dark:bg-gray-700"></div>
+                <div class="h-16 rounded bg-gray-200 dark:bg-gray-700"></div>
             </div>
-            <div class="cp-site-planning__drawer-body" x-show="!loading && detail">
-                <template x-if="detail">
-                    <div class="space-y-3 text-xs">
-                        <div>
-                            <div class="font-semibold" x-text="detail.domain"></div>
-                            <div class="text-gray-500" x-text="detail.month_label"></div>
-                        </div>
-                        <div class="grid grid-cols-2 gap-2">
-                            <div>Draft: <span x-text="detail.totals?.draft ?? 0"></span></div>
-                            <div>Execution: <span x-text="detail.totals?.execution ?? 0"></span></div>
-                            <div>Generated: <span x-text="detail.totals?.by_status?.generated ?? 0"></span></div>
-                            <div>Editing: <span x-text="detail.totals?.by_status?.editing ?? 0"></span></div>
-                            <div>Scheduled: <span x-text="detail.totals?.by_status?.scheduled ?? 0"></span></div>
-                            <div>Published: <span x-text="detail.totals?.by_status?.published ?? 0"></span></div>
-                        </div>
-                        <template x-for="cluster in (detail.clusters || [])" :key="cluster.cluster_ref">
-                            <div class="rounded border border-gray-200 p-2 dark:border-gray-700">
-                                <div class="font-medium" x-text="cluster.cluster_name || cluster.cluster_ref"></div>
-                                <div class="mt-1 text-[11px] text-gray-600 dark:text-gray-300">
-                                    {{ __('seo-content-ai::filament.projects.site_planning_actual_mcp') }}
-                                    <span x-text="(cluster.actual_mcp_share ?? 0).toFixed(1) + '%'"></span>
-                                    ·
-                                    {{ __('seo-content-ai::filament.projects.site_planning_planned_mcp') }}
-                                    <span x-text="(cluster.planning_mcp_share ?? 0).toFixed(1) + '%'"></span>
-                                </div>
-                                <div class="text-[11px] text-gray-600 dark:text-gray-300">
-                                    {{ __('seo-content-ai::filament.projects.site_planning_dna_current') }}
-                                    <span x-text="cluster.dna_current ?? 0"></span>
-                                    ·
-                                    {{ __('seo-content-ai::filament.projects.site_planning_dna_planned') }}
-                                    <span x-text="cluster.dna_planned ?? 0"></span>
-                                    ·
-                                    <span x-text="(cluster.article_count ?? 0) + ' bài'"></span>
+        </div>
+
+        <div class="cp-site-planning__detail-body" x-show="!loading && detail">
+            <template x-if="detail">
+                <div class="space-y-3 text-xs">
+                    <div class="cp-site-planning__totals grid grid-cols-2 gap-2 sm:grid-cols-3">
+                        <div>{{ __('seo-content-ai::filament.projects.site_planning_total_draft') }}: <span class="font-semibold" x-text="detail.totals?.draft ?? 0"></span></div>
+                        <div>{{ __('seo-content-ai::filament.projects.site_planning_total_execution') }}: <span class="font-semibold" x-text="detail.totals?.execution ?? 0"></span></div>
+                        <div>{{ __('seo-content-ai::filament.projects.site_planning_total_planned') }}: <span class="font-semibold" x-text="detail.totals?.planned ?? 0"></span></div>
+                    </div>
+
+                    <div class="cp-site-planning__clusters space-y-2">
+                        <template x-for="(cluster, idx) in (detail.clusters || [])" :key="cluster.cluster_ref || idx">
+                            <div class="cp-site-planning__cluster-row">
+                                <div class="cp-site-planning__cluster-idx" x-text="idx + 1"></div>
+                                <div class="cp-site-planning__cluster-main">
+                                    <div class="font-medium text-gray-900 dark:text-gray-100" x-text="cluster.cluster_name || cluster.cluster_ref"></div>
+                                    <div class="mt-1 flex flex-wrap gap-1.5">
+                                        <span class="cp-site-planning__tag cp-site-planning__tag--mcp">
+                                            MCP
+                                            <span x-text="(cluster.actual_mcp_share ?? 0).toFixed(0) + '%'"></span>
+                                            →
+                                            <span x-text="(cluster.planning_mcp_share ?? 0).toFixed(0) + '%'"></span>
+                                        </span>
+                                        <span class="cp-site-planning__tag cp-site-planning__tag--dna">
+                                            DNA
+                                            <span x-text="cluster.dna_current ?? 0"></span>
+                                            →
+                                            <span x-text="cluster.dna_planned ?? 0"></span>
+                                        </span>
+                                        <span class="cp-site-planning__tag cp-site-planning__tag--count" x-text="(cluster.article_count ?? 0) + ' {{ __('seo-content-ai::filament.projects.site_planning_articles_unit') }}'"></span>
+                                    </div>
                                 </div>
                             </div>
                         </template>
-                        <div x-show="(detail.unattributed?.count ?? 0) > 0" class="text-[11px] text-amber-700 dark:text-amber-300">
-                            {{ __('seo-content-ai::filament.projects.site_planning_unattributed') }}:
-                            <span x-text="detail.unattributed?.count ?? 0"></span>
-                        </div>
                     </div>
-                </template>
-            </div>
-        </aside>
+
+                    <div x-show="(detail.unattributed?.count ?? 0) > 0" class="text-[11px] text-amber-700 dark:text-amber-300">
+                        {{ __('seo-content-ai::filament.projects.site_planning_unattributed') }}:
+                        <span x-text="detail.unattributed?.count ?? 0"></span>
+                    </div>
+                </div>
+            </template>
+        </div>
+
+        <div
+            class="cp-site-planning__summary"
+            data-site-planning-summary="1"
+            x-show="!loading && detail"
+            x-cloak
+        >
+            <span x-text="summaryArticles() + ' {{ __('seo-content-ai::filament.projects.site_planning_articles_unit') }}'"></span>
+            <span aria-hidden="true">·</span>
+            <span x-text="(summaryDnaDelta() >= 0 ? '+' : '') + summaryDnaDelta() + ' DNA'"></span>
+            <span aria-hidden="true">·</span>
+            <span x-text="'MCP {{ __('seo-content-ai::filament.projects.site_planning_mcp_forecast') }} ' + (summaryMcpDelta() >= 0 ? '+' : '') + summaryMcpDelta() + '%'"></span>
+        </div>
     </div>
 </div>
 
 <style>
     .cp-site-planning {
         min-width: 0;
+        display: flex;
+        flex-direction: column;
+        gap: 0.75rem;
     }
     .cp-site-planning__empty {
         margin: 0;
@@ -280,6 +325,7 @@
     .cp-site-planning__month-cell.is-current,
     .cp-site-planning__value.is-current {
         background: rgb(254 243 199 / 0.55);
+        box-shadow: inset 0 0 0 1px rgb(245 158 11 / 0.45);
     }
     .dark .cp-site-planning__month-cell.is-current,
     .dark .cp-site-planning__value.is-current {
@@ -304,55 +350,113 @@
     .cp-site-planning__cell-btn:hover {
         background: rgb(148 163 184 / 0.15);
     }
-    .cp-site-planning__drawer {
-        position: fixed;
-        inset: 0;
-        z-index: 80;
-    }
-    .cp-site-planning__drawer-backdrop {
-        position: absolute;
-        inset: 0;
-        background: rgb(15 23 42 / 0.35);
-    }
-    .cp-site-planning__drawer-panel {
-        position: absolute;
-        top: 0;
-        right: 0;
-        height: 100%;
-        width: min(24rem, 92vw);
+    .cp-site-planning__detail {
+        border: 1px solid var(--cp-plan-border, #e5e7eb);
+        border-radius: 0.625rem;
         background: #fff;
-        box-shadow: -8px 0 24px rgb(15 23 42 / 0.18);
-        display: flex;
-        flex-direction: column;
-        transform: translateX(0);
+        overflow: hidden;
     }
-    .dark .cp-site-planning__drawer-panel {
+    .dark .cp-site-planning__detail {
+        border-color: rgb(255 255 255 / 0.1);
         background: rgb(17 24 39);
     }
-    .cp-site-planning__drawer-head {
+    .cp-site-planning__detail-head {
         display: flex;
-        align-items: center;
+        align-items: flex-start;
         justify-content: space-between;
         gap: 0.5rem;
-        padding: 0.75rem 1rem;
+        padding: 0.65rem 0.75rem;
         border-bottom: 1px solid rgb(229 231 235);
     }
-    .dark .cp-site-planning__drawer-head {
+    .dark .cp-site-planning__detail-head {
         border-bottom-color: rgb(255 255 255 / 0.08);
     }
-    .cp-site-planning__drawer-title {
+    .cp-site-planning__detail-title {
         margin: 0;
-        font-size: 0.875rem;
+        font-size: 0.8125rem;
         font-weight: 700;
+        line-height: 1.3;
+        color: #111827;
     }
-    .cp-site-planning__drawer-close {
-        font-size: 1.25rem;
+    .dark .cp-site-planning__detail-title {
+        color: #f3f4f6;
+    }
+    .cp-site-planning__detail-close {
+        font-size: 1.15rem;
         line-height: 1;
-        padding: 0.15rem 0.4rem;
+        padding: 0.1rem 0.35rem;
+        color: #6b7280;
     }
-    .cp-site-planning__drawer-body {
-        flex: 1 1 auto;
+    .cp-site-planning__detail-body {
+        padding: 0.65rem 0.75rem;
+        max-height: 14rem;
         overflow: auto;
-        padding: 0.75rem 1rem 1.25rem;
+    }
+    .cp-site-planning__cluster-row {
+        display: grid;
+        grid-template-columns: 1.5rem minmax(0, 1fr);
+        gap: 0.5rem;
+        padding: 0.5rem;
+        border-radius: 0.5rem;
+        border: 1px solid rgb(229 231 235 / 0.9);
+    }
+    .dark .cp-site-planning__cluster-row {
+        border-color: rgb(255 255 255 / 0.08);
+    }
+    .cp-site-planning__cluster-idx {
+        font-weight: 700;
+        color: #6b7280;
+        padding-top: 0.1rem;
+    }
+    .cp-site-planning__tag {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.2rem;
+        border-radius: 999px;
+        padding: 0.15rem 0.45rem;
+        font-size: 0.65rem;
+        font-weight: 600;
+        line-height: 1.2;
+    }
+    .cp-site-planning__tag--mcp {
+        background: rgb(220 252 231);
+        color: rgb(21 128 61);
+    }
+    .cp-site-planning__tag--dna {
+        background: rgb(219 234 254);
+        color: rgb(29 78 216);
+    }
+    .cp-site-planning__tag--count {
+        background: rgb(243 244 246);
+        color: rgb(55 65 81);
+    }
+    .dark .cp-site-planning__tag--mcp {
+        background: rgb(22 101 52 / 0.35);
+        color: rgb(134 239 172);
+    }
+    .dark .cp-site-planning__tag--dna {
+        background: rgb(30 64 175 / 0.35);
+        color: rgb(147 197 253);
+    }
+    .dark .cp-site-planning__tag--count {
+        background: rgb(255 255 255 / 0.08);
+        color: rgb(209 213 219);
+    }
+    .cp-site-planning__summary {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.35rem 0.55rem;
+        padding: 0.55rem 0.75rem;
+        background: rgb(220 252 231 / 0.55);
+        border-top: 1px solid rgb(187 247 208);
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: rgb(21 128 61);
+    }
+    .dark .cp-site-planning__summary {
+        background: rgb(22 101 52 / 0.25);
+        border-top-color: rgb(34 197 94 / 0.25);
+        color: rgb(134 239 172);
     }
 </style>

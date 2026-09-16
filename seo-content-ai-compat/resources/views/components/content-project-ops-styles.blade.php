@@ -1507,6 +1507,26 @@
             flex: 1 1 auto;
             min-height: 0;
         }
+        .cp-plan-create-head {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.65rem 0.85rem;
+            margin-bottom: 0.65rem;
+        }
+        .cp-plan-create-head__title {
+            display: flex;
+            align-items: center;
+            gap: 0.65rem;
+            min-width: 0;
+        }
+        .cp-plan-create-head__title .cp-plan-card__title {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            margin: 0;
+        }
         .cp-plan-create-tabs {
             display: flex;
             flex-wrap: wrap;

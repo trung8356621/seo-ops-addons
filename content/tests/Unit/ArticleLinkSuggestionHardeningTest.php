@@ -6,6 +6,7 @@ namespace Omnichannel\Addons\Content\Tests\Unit;
 
 use Tests\Support\ProjectRoot;
 
+use Omnichannel\Addons\Content\Services\ArticleInternalLinkPipeline;
 use Omnichannel\Addons\Content\Services\ArticleInternalLinkSuggestionService;
 use Omnichannel\Addons\Content\Services\ArticleLinkSuggestionCandidateRetriever;
 use Omnichannel\Addons\Content\Services\ArticleLinkSuggestionSearchTermsBuilder;
@@ -178,16 +179,18 @@ final class ArticleLinkSuggestionHardeningTest extends TestCase
         self::assertStringNotContainsString('chờ gán bài đích', $body);
     }
 
-    public function test_collect_candidates_requires_resolved_url_and_validates(): void
+    public function test_collect_candidates_delegates_to_pipeline_with_destination_aware_generic_stage(): void
     {
         $body = $this->methodBody(ArticleInternalLinkSuggestionService::class, 'collectCandidates');
+        self::assertStringContainsString('pipeline->collect', $body);
 
-        self::assertStringContainsString('resolveBestForAnchors', $body);
-        self::assertStringContainsString('isValidLinkSuggestion', $body);
-        self::assertStringContainsString('Anchor candidate only', $body);
-        self::assertStringContainsString('seenTargetArticleIds', $body);
-        self::assertStringContainsString('usort(', $body);
-        self::assertStringContainsString('$internalSuggestions', $body);
+        $pipeline = (string) file_get_contents(
+            (string) (new ReflectionClass(ArticleInternalLinkPipeline::class))->getFileName(),
+        );
+        self::assertStringContainsString('resolveBestForAnchors', $pipeline);
+        self::assertStringContainsString('isValidLinkSuggestion', $pipeline);
+        self::assertStringContainsString('isUsableAnchorCandidate', $pipeline);
+        self::assertStringContainsString('destination_resolved', $pipeline);
     }
 
     public function test_collect_candidates_uses_config_limits_not_hardcoded_class_const(): void
@@ -200,14 +203,18 @@ final class ArticleLinkSuggestionHardeningTest extends TestCase
         self::assertStringContainsString("config('seo-content-ai.link_suggestions.", $source);
     }
 
-    public function test_candidate_retriever_excludes_archived_self_and_unsynced(): void
+    public function test_candidate_retriever_keeps_unsynced_in_anchor_pool_excludes_archived_self(): void
     {
         $body = $this->methodBody(ArticleLinkSuggestionCandidateRetriever::class, 'siteArticleIndex');
 
         self::assertStringContainsString('notContentArchived()', $body);
-        self::assertStringContainsString('hasWpPostId()', $body);
+        self::assertStringNotContainsString('hasWpPostId()', $body);
+        self::assertStringContainsString('destination_resolved', $body);
         self::assertStringContainsString("with([", $body);
         self::assertStringContainsString('!== $excludeArticleId', $body);
+
+        $ranked = $this->methodBody(ArticleLinkSuggestionCandidateRetriever::class, 'searchRanked');
+        self::assertStringContainsString('destination_resolved', $ranked);
     }
 
     public function test_candidate_scoring_prefers_title_and_focus_keyword(): void

@@ -280,7 +280,17 @@
 
         {{-- Create / ideas (blue outer panel; tab panels stacked for stable height) --}}
         <div class="cp-plan-card cp-plan-card--create" data-planner-card="create">
-            <div class="cp-plan-create-tabs" role="tablist" aria-label="{{ __('seo-content-ai::filament.projects.planner_create_heading') }}">
+            <div class="cp-plan-create-head">
+                <div class="cp-plan-create-head__title">
+                    <span class="cp-plan-card__icon cp-plan-card__icon--create" aria-hidden="true">
+                        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18h6"/><path d="M10 22h4"/><path d="M12 2a7 7 0 017 7c0 2.38-1.19 4.47-3 5.74V17H8v-2.26C6.19 13.47 5 11.38 5 9a7 7 0 017-7z"/></svg>
+                    </span>
+                    <h3 class="cp-plan-card__title">
+                        {{ __('seo-content-ai::filament.projects.idea_candidate_tab_available') }}
+                        <span class="cp-plan-create-tab__badge" data-idea-total-badge="1">{{ $ideaTotal }}</span>
+                    </h3>
+                </div>
+                <div class="cp-plan-create-tabs" role="tablist" aria-label="{{ __('seo-content-ai::filament.projects.planner_create_heading') }}">
                 <button
                     type="button"
                     role="tab"
@@ -302,7 +312,7 @@
                     @click="createTab = 'ai'; plannerLayout = 'ai-focused'"
                     data-create-tab="ai"
                 >
-                    {{ __('seo-content-ai::filament.projects.idea_candidate_tab_ai') }}
+                    {{ __('seo-content-ai::filament.projects.idea_candidate_tab_ai_short') }}
                 </button>
                 @php
                     $aiHistoryTabUrl = method_exists($this, 'draftAiHistoryUrl')
@@ -324,6 +334,7 @@
                         <svg class="h-3.5 w-3.5 shrink-0 opacity-70" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M18 13v6a2 2 0 01-2 2H5a2 2 0 01-2-2V8a2 2 0 012-2h6"/><path d="M15 3h6v6"/><path d="M10 14L21 3"/></svg>
                     </a>
                 @endif
+                </div>
             </div>
 
             <div class="cp-plan-tab-panels">

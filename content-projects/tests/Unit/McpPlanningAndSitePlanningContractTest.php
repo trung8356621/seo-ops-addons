@@ -183,8 +183,11 @@ final class McpPlanningAndSitePlanningContractTest extends TestCase
         self::assertStringContainsString('cp-site-planning__table', $sitePlanning);
         self::assertStringContainsString('cp-site-planning__sticky', $sitePlanning);
         self::assertStringContainsString('year_groups', $sitePlanning);
+        self::assertStringContainsString('data-site-planning-detail="1"', $sitePlanning);
+        self::assertStringContainsString('data-site-planning-summary="1"', $sitePlanning);
         self::assertStringNotContainsString('lg:grid-cols-', $sitePlanning);
         self::assertStringNotContainsString('selectSitePlanningSite', $sitePlanning);
+        self::assertStringNotContainsString('cp-site-planning__drawer', $sitePlanning);
     }
 
     public function test_site_planning_year_groups_span_consecutive_months(): void

@@ -94,12 +94,17 @@
             {{ __('seo-content-ai::filament.projects.idea_candidate_empty') }}
         </p>
     @else
-        <ul class="mt-3 divide-y divide-gray-100 dark:divide-white/5" data-idea-candidate-list="1">
+        <ul class="mt-3 space-y-2" data-idea-candidate-list="1">
             @foreach ($rows as $row)
                 @php
                     $kid = (int) ($row['keyword_id'] ?? 0);
+                    $sourceKey = (string) ($row['source'] ?? '');
                 @endphp
-                <li class="cp-idea-row group flex items-start gap-2 py-2" wire:key="idea-kw-{{ $kid }}">
+                <li
+                    class="cp-idea-card group flex items-start gap-2.5 rounded-lg border border-gray-200 bg-white px-3 py-2.5 dark:border-white/10 dark:bg-gray-950/40"
+                    wire:key="idea-kw-{{ $kid }}"
+                    data-idea-source="{{ $sourceKey }}"
+                >
                     <input
                         type="checkbox"
                         value="{{ $kid }}"
@@ -109,18 +114,24 @@
                         aria-label="{{ $row['phrase'] ?? '' }}"
                     />
                     <div class="min-w-0 flex-1">
-                        <p class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ $row['phrase'] ?? '' }}</p>
-                        <p class="text-[11px] text-gray-500 dark:text-gray-400">{{ $row['source_label'] ?? '' }}</p>
+                        <p class="text-sm font-semibold text-gray-900 dark:text-gray-100">{{ $row['phrase'] ?? '' }}</p>
+                        @if (! empty($row['source_label']))
+                            <p class="mt-0.5 text-[11px] font-medium text-sky-700 dark:text-sky-300" data-idea-provenance="1">
+                                {{ $row['source_label'] }}
+                            </p>
+                        @endif
                         @if (! empty($row['source_article_title']))
-                            <p class="text-[11px] text-gray-500 dark:text-gray-400">
+                            <p class="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
                                 {{ __('seo-content-ai::filament.projects.idea_candidate_from_article', ['title' => $row['source_article_title']]) }}
                             </p>
                         @endif
                         @if (! empty($row['vocabulary_group_label']))
-                            <p class="text-[11px] text-gray-400 dark:text-gray-500">{{ $row['vocabulary_group_label'] }}</p>
+                            <span class="mt-1 inline-flex rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-white/10 dark:text-gray-300">
+                                {{ $row['vocabulary_group_label'] }}
+                            </span>
                         @endif
                     </div>
-                    @if ($canWrite && ($row['source'] ?? '') === 'vocabulary_suggest')
+                    @if ($canWrite && $sourceKey === 'vocabulary_suggest')
                         <button
                             type="button"
                             class="cp-idea-row__delete"
@@ -161,7 +172,7 @@
                 data-idea-action="create"
             >
                 <span wire:loading.remove wire:target="addIdeaCandidatesAsCreate">
-                    {{ __('seo-content-ai::filament.projects.idea_candidate_action_create') }}
+                    {{ __('seo-content-ai::filament.projects.idea_candidate_action_create_short') }}
                 </span>
                 <span wire:loading wire:target="addIdeaCandidatesAsCreate" class="inline-flex items-center gap-1">
                     <svg class="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z"></path></svg>

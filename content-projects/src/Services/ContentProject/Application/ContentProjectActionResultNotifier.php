@@ -77,11 +77,26 @@ final class ContentProjectActionResultNotifier
             return 'Xuất bản ngay';
         }
 
+        if ($result->code === ContentProjectActionCodes::WRITER_CAPACITY_EXCEEDED) {
+            return (string) __('seo-content-ai::filament.projects.writer_capacity_exceeded_title');
+        }
+
+        if ($result->code === ContentProjectActionCodes::SYSTEM_USER_REJECTED) {
+            return (string) __('seo-content-ai::filament.projects.writer_system_user_rejected_title');
+        }
+
         return $result->code;
     }
 
     private function mapBusinessMessage(ContentProjectActionResult $result): string
     {
+        if ($result->code === ContentProjectActionCodes::WRITER_CAPACITY_EXCEEDED) {
+            return (string) __('seo-content-ai::filament.projects.writer_capacity_exceeded');
+        }
+        if ($result->code === ContentProjectActionCodes::SYSTEM_USER_REJECTED) {
+            return (string) __('seo-content-ai::filament.projects.writer_system_user_rejected');
+        }
+
         $message = $result->message;
 
         if (isset($result->metadata['scheduled'], $result->metadata['skipped_active'])

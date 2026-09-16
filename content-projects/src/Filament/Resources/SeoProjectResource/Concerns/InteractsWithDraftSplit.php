@@ -9,6 +9,7 @@ use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ActorContext;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Commands\SplitDraftContentProjectCommand;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectActionCodes;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\ContentProjectCommandBus;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\SplitDraftContentProjectService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterMonthlyCapacityService;
@@ -119,10 +120,11 @@ trait InteractsWithDraftSplit
     /**
      * Keep modal open and surface the error inside it — Filament toasts sit under z-200 overlay.
      */
-    protected function failDraftSplit(string $body, ?string $title = null): void
+    protected function failDraftSplit(string $body, ?string $title = null, ?string $code = null): void
     {
-        $this->draftSplitError = $body !== ''
-            ? $body
+        $mapped = $this->mapWriterCapacityMessage($code, $body);
+        $this->draftSplitError = $mapped !== ''
+            ? $mapped
             : (string) __('seo-content-ai::filament.projects.draft_split_failed');
 
         Notification::make()
@@ -130,6 +132,27 @@ trait InteractsWithDraftSplit
             ->body($this->draftSplitError)
             ->danger()
             ->send();
+    }
+
+    protected function mapWriterCapacityMessage(?string $code, string $fallback): string
+    {
+        $needle = trim((string) ($code !== null && $code !== '' ? $code : $fallback));
+
+        if (
+            $needle === ContentProjectActionCodes::WRITER_CAPACITY_EXCEEDED
+            || str_contains(mb_strtolower($fallback), 'capacity exceeded')
+        ) {
+            return (string) __('seo-content-ai::filament.projects.writer_capacity_exceeded');
+        }
+
+        if (
+            $needle === ContentProjectActionCodes::SYSTEM_USER_REJECTED
+            || str_contains(mb_strtolower($fallback), 'system user rejected')
+        ) {
+            return (string) __('seo-content-ai::filament.projects.writer_system_user_rejected');
+        }
+
+        return $fallback;
     }
 
     public function updatedDraftSplitQuantity(): void
@@ -281,7 +304,7 @@ trait InteractsWithDraftSplit
         );
 
         if (! $result->success) {
-            $this->failDraftSplit((string) $result->message);
+            $this->failDraftSplit((string) $result->message, code: (string) $result->code);
 
             return;
         }

@@ -27,17 +27,15 @@
         >
             <x-seo-content-ai::content-project-draft-planner :show-project-actions="false" />
 
-            @if ($hasDraft)
-                <button
-                    type="button"
-                    class="cp-plan-section-jump"
-                    data-section-jump="draft"
-                    @click="jumpToDraft()"
-                >
-                    <span aria-hidden="true">↓</span>
-                    {{ __('seo-content-ai::filament.projects.content_planning_jump_to_draft', ['count' => $draftAllCount]) }}
-                </button>
-            @endif
+            <button
+                type="button"
+                class="cp-plan-section-jump"
+                data-section-jump="draft"
+                @click="jumpToDraft()"
+            >
+                <span aria-hidden="true">↓</span>
+                {{ __('seo-content-ai::filament.projects.content_planning_jump_to_draft', ['count' => $draftAllCount]) }}
+            </button>
         </section>
 
         {{-- Section 2: Planning Draft (Review / Publish) --}}

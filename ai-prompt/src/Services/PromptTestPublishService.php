@@ -15,7 +15,6 @@ use Omnichannel\Addons\Agent\Automation\Migration\ProjectArticleSeoMetaCallerBri
 use Omnichannel\Addons\Agent\Automation\Runtime\ActionRunner;
 use Omnichannel\Addons\Agent\Automation\Support\ArticleContentConflictGuard;
 use Omnichannel\Addons\Content\Models\SeoArticle;
-use Omnichannel\Addons\Content\Services\AiGeneratedArticleLinkNormalizer;
 use Omnichannel\Addons\Content\Services\AiGeneratedContentNormalizer;
 use Omnichannel\Addons\Content\Services\ArticleContentFaqService;
 use Omnichannel\Addons\Content\Services\ArticleCtaPlaceholderService;
@@ -85,8 +84,6 @@ final class PromptTestPublishService
         );
         // Shared safety net for Generate / Rewrite / Improve / Rerun (all use publishArticle).
         $html = app(AiGeneratedContentNormalizer::class)->normalizeHtml($cta['html']);
-        // Anchor suggestion vs verified destination: keep <a>, placeholder unverified hrefs.
-        $html = app(AiGeneratedArticleLinkNormalizer::class)->rewriteUnverifiedDestinations($html, $article);
         $faqs = $cta['faqs'];
 
         if ($faqs !== []) {

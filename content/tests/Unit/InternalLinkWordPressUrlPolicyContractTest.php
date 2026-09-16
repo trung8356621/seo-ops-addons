@@ -20,15 +20,21 @@ use ReflectionMethod;
  */
 final class InternalLinkWordPressUrlPolicyContractTest extends TestCase
 {
-    public function test_candidate_index_requires_wp_post_id_and_uses_v2_cache(): void
+    public function test_candidate_index_allows_unsynced_semantic_pool_and_uses_v3_cache(): void
     {
         $body = $this->methodBody(ArticleLinkSuggestionCandidateRetriever::class, 'siteArticleIndex');
 
-        self::assertStringContainsString('hasWpPostId()', $body);
+        self::assertStringNotContainsString('hasWpPostId()', $body);
+        self::assertStringContainsString('destination_resolved', $body);
         self::assertStringContainsString('WordPressInternalLinkTargetPolicy::siteIndexCacheKey', $body);
         self::assertStringContainsString("'wordpressLink'", $body);
         self::assertStringNotContainsString('site_index.v1.', $body);
         self::assertStringNotContainsString('getPermalinkBase', $body);
+
+        $policySrc = (string) file_get_contents(
+            (string) (new ReflectionClass(WordPressInternalLinkTargetPolicy::class))->getFileName(),
+        );
+        self::assertStringContainsString('site_index.v3.', $policySrc);
     }
 
     public function test_popup_search_ranked_and_fallback_require_wp_sync(): void

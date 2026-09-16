@@ -84,7 +84,7 @@ final class WordPressInternalLinkTargetPolicyTest extends TestCase
     public function test_site_index_cache_key_is_versioned(): void
     {
         self::assertSame(
-            'article_link_suggest.site_index.v2.7',
+            'article_link_suggest.site_index.v3.7',
             WordPressInternalLinkTargetPolicy::siteIndexCacheKey(7),
         );
         self::assertStringNotContainsString(

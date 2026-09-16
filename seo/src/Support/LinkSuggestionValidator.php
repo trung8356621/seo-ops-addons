@@ -12,6 +12,19 @@ use Omnichannel\Addons\SearchFoundation\Support\InternalAnchorKeywordFilter;
 final class LinkSuggestionValidator
 {
     /**
+     * Anchor-stage check only — does not require a resolved destination URL.
+     * Use before presenting Link Assistant ideas with href="#" placeholders.
+     *
+     * @param  array{text?: mixed}  $suggestion
+     */
+    public static function isUsableAnchorCandidate(array $suggestion): bool
+    {
+        $anchor = trim((string) ($suggestion['text'] ?? ''));
+
+        return $anchor !== '' && InternalAnchorKeywordFilter::isUsableAnchorPhrase($anchor);
+    }
+
+    /**
      * @param  array{
      *     text?: mixed,
      *     href?: mixed,
@@ -29,8 +42,7 @@ final class LinkSuggestionValidator
      */
     public static function isValidLinkSuggestion(array $suggestion, array $context = []): bool
     {
-        $anchor = trim((string) ($suggestion['text'] ?? ''));
-        if ($anchor === '' || ! InternalAnchorKeywordFilter::isUsableAnchorPhrase($anchor)) {
+        if (! self::isUsableAnchorCandidate($suggestion)) {
             return false;
         }
 

@@ -8,14 +8,18 @@ use Omnichannel\Addons\Content\Models\SeoArticle;
 use Illuminate\Support\Facades\Cache;
 
 /**
- * Shared eligibility + permalink SoT for internal-link suggestion/search.
+ * Shared eligibility + permalink SoT for placeable internal-link destinations.
  *
- * An article is linkable only when it has a real WordPress post id and a
- * WordPress-provided permalink. Local slug / domain+slug guesses are never used.
+ * An article is a placeable link target only when it has a real WordPress post id
+ * and a WordPress-provided permalink. Local slug / domain+slug guesses are never used.
+ *
+ * Semantic anchor candidates (Link Assistant idea pool) may include unsynced articles
+ * with a null destination — that pool lives in ArticleLinkSuggestionCandidateRetriever
+ * and must not require this eligibility gate.
  */
 final class WordPressInternalLinkTargetPolicy
 {
-    public const SITE_INDEX_CACHE_PREFIX = 'article_link_suggest.site_index.v2.';
+    public const SITE_INDEX_CACHE_PREFIX = 'article_link_suggest.site_index.v3.';
 
     public function wpPostId(SeoArticle $article): int
     {

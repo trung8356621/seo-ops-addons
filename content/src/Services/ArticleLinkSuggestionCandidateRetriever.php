@@ -60,6 +60,8 @@ final class ArticleLinkSuggestionCandidateRetriever
      *     phrase: string,
      *     target_article_id: int,
      *     href: string,
+     *     url: ?string,
+     *     destination_resolved: bool,
      *     score: int,
      *     match_reason: string,
      *     candidates_count: int
@@ -100,6 +102,10 @@ final class ArticleLinkSuggestionCandidateRetriever
                 continue;
             }
 
+            if (! LinkSuggestionValidator::isUsableAnchorCandidate(['text' => $phrase])) {
+                continue;
+            }
+
             $terms = $this->termsBuilder->build($phrase, $anchor['context'] ?? []);
             if ($terms === []) {
                 continue;
@@ -112,33 +118,40 @@ final class ArticleLinkSuggestionCandidateRetriever
                     continue;
                 }
 
-                $href = (string) ($candidate['url'] ?? '');
-                if ($href === '') {
-                    continue;
+                $url = trim((string) ($candidate['url'] ?? ''));
+                $destinationResolved = (bool) ($candidate['destination_resolved'] ?? false)
+                    && $url !== ''
+                    && SeoSuggestionUrlNormalizer::isParsableTarget($url);
+
+                if ($destinationResolved) {
+                    $normalizedHref = SeoSuggestionUrlNormalizer::normalize($url);
+                    if ($normalizedHref !== '' && in_array($normalizedHref, $alreadyLinkedNormalizedUrls, true)) {
+                        continue;
+                    }
+
+                    $suggestion = [
+                        'text' => $phrase,
+                        'href' => $url,
+                        'target_url' => $url,
+                        'target_article_id' => (int) $candidate['id'],
+                        'bucket' => 'internal',
+                    ];
+
+                    if (! LinkSuggestionValidator::isValidLinkSuggestion($suggestion, $validationContext)) {
+                        continue;
+                    }
                 }
 
-                $normalizedHref = SeoSuggestionUrlNormalizer::normalize($href);
-                if ($normalizedHref !== '' && in_array($normalizedHref, $alreadyLinkedNormalizedUrls, true)) {
-                    continue;
-                }
-
-                $suggestion = [
-                    'text' => $phrase,
-                    'href' => $href,
-                    'target_url' => $href,
-                    'target_article_id' => (int) $candidate['id'],
-                    'bucket' => 'internal',
-                ];
-
-                if (! LinkSuggestionValidator::isValidLinkSuggestion($suggestion, $validationContext)) {
-                    continue;
-                }
+                // Editor presentation only — never cache "#" as authoritative URL.
+                $editorHref = $destinationResolved ? $url : '#';
 
                 $scored[] = [
                     'keyword_id' => $keywordId,
                     'phrase' => $phrase,
                     'target_article_id' => (int) $candidate['id'],
-                    'href' => $href,
+                    'href' => $editorHref,
+                    'url' => $destinationResolved ? $url : null,
+                    'destination_resolved' => $destinationResolved,
                     'score' => $scorePayload['score'],
                     'match_reason' => $scorePayload['reason'],
                 ];
@@ -159,6 +172,8 @@ final class ArticleLinkSuggestionCandidateRetriever
     }
 
     /**
+     * Placeable / insert-now search — only resolved authoritative destinations.
+     *
      * @return list<array{id: int, title: string, url: string, score: int, match_reason: string}>
      */
     public function searchRanked(
@@ -187,13 +202,17 @@ final class ArticleLinkSuggestionCandidateRetriever
 
         $scored = [];
         foreach ($index as $candidate) {
+            if (! (bool) ($candidate['destination_resolved'] ?? false)) {
+                continue;
+            }
+
             $scorePayload = $this->scoreCandidate($candidate, $query, $terms, []);
             if ($scorePayload['score'] < $minScore) {
                 continue;
             }
 
-            $url = (string) ($candidate['url'] ?? '');
-            if ($url === '') {
+            $url = trim((string) ($candidate['url'] ?? ''));
+            if ($url === '' || ! SeoSuggestionUrlNormalizer::isParsableTarget($url)) {
                 continue;
             }
 
@@ -212,6 +231,10 @@ final class ArticleLinkSuggestionCandidateRetriever
     }
 
     /**
+     * Semantic article index for Link Assistant scoring.
+     * Unsynced articles stay in the pool with url=null / destination_resolved=false.
+     * Placeable searchRanked() filters to destination_resolved=true.
+     *
      * @return list<array{
      *     id: int,
      *     title: string,
@@ -225,7 +248,8 @@ final class ArticleLinkSuggestionCandidateRetriever
      *     meta_title_norm: string,
      *     meta_desc_norm: string,
      *     tag_norms: list<string>,
-     *     url: string
+     *     url: ?string,
+     *     destination_resolved: bool
      * }>
      */
     private function siteArticleIndex(int $siteId, int $excludeArticleId): array
@@ -241,7 +265,6 @@ final class ArticleLinkSuggestionCandidateRetriever
             $articles = SeoArticle::query()
                 ->where('site_id', $siteId)
                 ->notContentArchived()
-                ->hasWpPostId()
                 ->orderByDesc('id')
                 ->limit(600)
                 ->with([
@@ -273,10 +296,15 @@ final class ArticleLinkSuggestionCandidateRetriever
                     continue;
                 }
 
-                $url = trim((string) ($this->linkTargetResolver->resolveArticlePublicUrl($article) ?? ''));
-                if ($url === '' || ! SeoSuggestionUrlNormalizer::isParsableTarget($url)) {
+                $title = trim((string) ($article->title ?? ''));
+                if ($title === '') {
                     continue;
                 }
+
+                $url = trim((string) ($this->linkTargetResolver->resolveArticlePublicUrl($article) ?? ''));
+                $destinationResolved = $url !== '' && SeoSuggestionUrlNormalizer::isParsableTarget($url);
+                // Never store "#" / synthetic URLs in the index — null when unresolved.
+                $canonicalUrl = $destinationResolved ? $url : null;
 
                 $metas = $article->articleMetas ?? collect();
                 $focus = trim((string) (
@@ -309,7 +337,6 @@ final class ArticleLinkSuggestionCandidateRetriever
                 }
 
                 $secondary = $keywordPhrasesByArticle[(int) $article->id] ?? [];
-                $title = trim((string) ($article->title ?? ''));
                 $slug = trim((string) ($article->slug ?? ''), '/');
 
                 $index[] = [
@@ -328,7 +355,8 @@ final class ArticleLinkSuggestionCandidateRetriever
                     'meta_desc_norm' => KeywordPhraseMatcher::normalize($metaDesc),
                     'heading_norms' => $headingNorms,
                     'tag_norms' => [],
-                    'url' => $url,
+                    'url' => $canonicalUrl,
+                    'destination_resolved' => $destinationResolved,
                 ];
             }
 
