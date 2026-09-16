@@ -600,11 +600,27 @@ final class NewContentSuggestionPlannerService
 
                     $parsed = $this->parser->parse($discovery['value'], $batchRequested);
                     $generatedTotal += (int) $parsed['generated'];
-                    $validTotal += count($parsed['candidates']);
                     $invalidTotal += (int) $parsed['invalid'];
 
-                    $filtered = $this->dedup->filter(
+                    $attributionGate = (new NewContentClusterAttributionValidator)->filter(
                         $parsed['candidates'],
+                        $batchNoteItems,
+                    );
+                    // Multi-cluster: any missing/invalid cluster_ref must repair — never drop+persist silently.
+                    if ($attributionGate['requires_attribution']
+                        && $attributionGate['multi_cluster']
+                        && $attributionGate['rejected'] !== []
+                    ) {
+                        throw new InvalidArgumentException(
+                            'Planner structured attribution invalid ('.NewContentClusterAttributionValidator::CODE_ATTRIBUTION_INVALID.'): '
+                            .'multi-cluster batch has candidate(s) with missing or unknown cluster_ref; refusing silent unattributed persist.',
+                        );
+                    }
+                    $invalidTotal += count($attributionGate['rejected']);
+                    $validTotal += count($attributionGate['accepted']);
+
+                    $filtered = $this->dedup->filter(
+                        $attributionGate['accepted'],
                         $plannedFingerprints,
                         $rejectedFingerprints,
                         is_array($coveredNorms) ? $coveredNorms : [],
@@ -1101,6 +1117,7 @@ final class NewContentSuggestionPlannerService
         $automationMeta = $policy->appliesTo($noteItems)
             ? $policy->metadata(max(1, $count), $noteItems)
             : [];
+        $allowedClusterRefs = (new NewContentClusterAttributionValidator)->allowedClusterRefs($noteItems);
 
         // Hook schema: seed_topic/count/brief/…
         // Content Planning Assistant (Prompt Management): requested_quantity/planning_context/notes/…
@@ -1162,6 +1179,7 @@ final class NewContentSuggestionPlannerService
             $invalidRaw,
             $contentType,
             max(1, $count),
+            $allowedClusterRefs,
         );
         // Preserve cross-batch exclusions — repair previously wiped continuation (run20 PR1117).
         $continuationBlock = NewContentCrossBatchContinuationPolicy::extractBlockFromBrief($brief);
@@ -1328,11 +1346,24 @@ final class NewContentSuggestionPlannerService
             return [];
         }
 
-        $taskIds = [];
-        $workingSiteId = (int) $site->getKey();
         $month = ContentProjectMonthContext::normalize($planningMonth);
         $monthDate = ContentProjectMonthContext::toDateString($month);
-        $allowedClusterRefs = [];
+        $attributionGate = (new NewContentClusterAttributionValidator)->filter($candidates, $noteItems);
+        if ($attributionGate['requires_attribution']
+            && $attributionGate['multi_cluster']
+            && $attributionGate['rejected'] !== []
+        ) {
+            throw new InvalidArgumentException(
+                'Planner structured attribution invalid ('.NewContentClusterAttributionValidator::CODE_ATTRIBUTION_INVALID.'): '
+                .'refusing to persist candidates with missing/invalid cluster_ref for a multi-cluster note batch.',
+            );
+        }
+        $candidates = $attributionGate['accepted'];
+        if ($candidates === []) {
+            return [];
+        }
+
+        $allowedClusterRefs = $attributionGate['allowed_refs'];
         $clusterNameByRef = [];
         foreach ($noteItems as $item) {
             if (! is_array($item)) {
@@ -1342,13 +1373,15 @@ final class NewContentSuggestionPlannerService
             if ($ref === '') {
                 continue;
             }
-            $allowedClusterRefs[] = $ref;
             $name = trim((string) ($item['cluster_name_snapshot'] ?? ''));
             if ($name !== '') {
                 $clusterNameByRef[$ref] = $name;
             }
         }
         $attributionWriter = app(PlanningAttributionWriter::class);
+
+        $taskIds = [];
+        $workingSiteId = (int) $site->getKey();
 
         DB::connection('omi_seo_ai')->transaction(function () use (
             $project,
@@ -1448,7 +1481,7 @@ final class NewContentSuggestionPlannerService
                 $origin = SeoContentProjectItemOrigin::query()->updateOrCreate(
                     ['project_task_id' => $taskId],
                     [
-                        'project_id' => (int) $project->getKey(),
+                        'project_id' => (int) $target->getKey(),
                         'planner_run_id' => $plannerRunId > 0 ? $plannerRunId : null,
                         'source_type' => SeoContentProjectItemOrigin::SOURCE_AI_NEW_CONTENT,
                         'source_article_id' => null,
@@ -1548,7 +1581,8 @@ final class NewContentSuggestionPlannerService
         return str_contains($msg, 'truncated')
             || str_contains($msg, 'incomplete')
             || str_contains($msg, 'invalid after repair')
-            || str_contains($msg, 'structured output');
+            || str_contains($msg, 'structured output')
+            || str_contains($msg, 'structured attribution');
     }
 
     private function isDeterministicApplicationError(Throwable $e): bool

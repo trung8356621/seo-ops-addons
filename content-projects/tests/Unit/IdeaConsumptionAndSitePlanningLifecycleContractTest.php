@@ -89,7 +89,8 @@ final class IdeaConsumptionAndSitePlanningLifecycleContractTest extends TestCase
         self::assertStringContainsString('cluster_ref', $src);
         self::assertStringContainsString('dna_phrases', $src);
         self::assertStringContainsString('planning_month', $src);
-        self::assertStringContainsString("unique(['project_task_id']", $src);
+        self::assertStringContainsString('scp_tpa_task_unique', $src);
+        self::assertStringContainsString("['project_task_id']", $src);
 
         $writer = (string) file_get_contents(
             (string) (new ReflectionClass(PlanningAttributionWriter::class))->getFileName(),
@@ -232,5 +233,7 @@ final class IdeaConsumptionAndSitePlanningLifecycleContractTest extends TestCase
         self::assertStringContainsString('isUniqueViolation', $src);
         self::assertStringContainsString("'claimed' => false", $src);
         self::assertStringContainsString('cleanupVocabularySuggestSource', $src);
+        self::assertStringContainsString(IdeaCandidateConsumptionService::ERROR_SCHEMA_NOT_READY, $src);
+        self::assertStringContainsString('throw new RuntimeException', $src);
     }
 }

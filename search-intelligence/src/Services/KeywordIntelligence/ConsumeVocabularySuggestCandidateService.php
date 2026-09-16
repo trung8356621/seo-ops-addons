@@ -16,7 +16,8 @@ use RuntimeException;
 
 /**
  * Physically remove a Vocabulary Suggest staging candidate from a site after Draft consume.
- * Idempotent. Does not soft-hide (that is manual dismiss). Hard-deletes global keyword only when orphaned.
+ * Idempotent. Never mutates global classification while the keyword is still shared.
+ * Hard-deletes global keyword only when orphaned after site detach.
  *
  * @phpstan-type ConsumeResult array{
  *   keyword_id: int,
@@ -24,7 +25,8 @@ use RuntimeException;
  *   detached: bool,
  *   deleted: bool,
  *   already_absent: bool,
- *   shared_with_other_sites: bool
+ *   shared_with_other_sites: bool,
+ *   classification_cleared: bool
  * }
  */
 final class ConsumeVocabularySuggestCandidateService
@@ -55,6 +57,7 @@ final class ConsumeVocabularySuggestCandidateService
                 'deleted' => false,
                 'already_absent' => true,
                 'shared_with_other_sites' => false,
+                'classification_cleared' => false,
             ];
         }
 
@@ -74,8 +77,11 @@ final class ConsumeVocabularySuggestCandidateService
             ->exists();
 
         if (! $inStaging) {
-            // Already detached from this site — still try orphan cleanup (idempotent).
-            $deleted = $this->deleteIfOrphan($keywordId);
+            $shared = $this->isSharedWithOtherSites($keywordId, $siteId);
+            $deleted = false;
+            if (! $shared) {
+                $deleted = $this->deleteIfOrphan($keywordId);
+            }
 
             return [
                 'keyword_id' => $keywordId,
@@ -83,12 +89,14 @@ final class ConsumeVocabularySuggestCandidateService
                 'detached' => false,
                 'deleted' => $deleted,
                 'already_absent' => true,
-                'shared_with_other_sites' => $this->hasOtherSiteMeta($keywordId, $siteId),
+                'shared_with_other_sites' => $shared,
+                'classification_cleared' => false,
             ];
         }
 
         $shared = false;
         $deleted = false;
+        $classificationCleared = false;
 
         DB::connection('omi_seo_ai')->transaction(function () use (
             $keyword,
@@ -96,15 +104,21 @@ final class ConsumeVocabularySuggestCandidateService
             $siteId,
             &$shared,
             &$deleted,
+            &$classificationCleared,
         ): void {
+            // Ownership check BEFORE any global mutation. Detach site-local data first.
             $this->persistence->detachKeywordFromSite($keyword, $siteId);
-            $this->detachClassificationIfPresent($keywordId, $siteId);
 
-            $shared = $this->hasOtherSiteMeta($keywordId, $siteId);
-            if (! $shared) {
-                KeywordOrphanCleanup::deleteUnusedByIds([$keywordId]);
-                $deleted = ! Keyword::query()->whereKey($keywordId)->exists();
+            $shared = $this->isSharedWithOtherSites($keywordId, $siteId);
+            if ($shared) {
+                // Keep global seo_keyword_classifications.cluster_key for other sites.
+                // Site-local MCP/cluster dirty flags still refresh for the consuming site.
+                return;
             }
+
+            $classificationCleared = $this->clearClassificationIfOrphan($keywordId, $siteId);
+            KeywordOrphanCleanup::deleteUnusedByIds([$keywordId]);
+            $deleted = ! Keyword::query()->whereKey($keywordId)->exists();
         });
 
         TopicClusterDirtyState::mark($siteId, 'vocabulary_suggest_consumed');
@@ -117,13 +131,17 @@ final class ConsumeVocabularySuggestCandidateService
             'deleted' => $deleted,
             'already_absent' => false,
             'shared_with_other_sites' => $shared,
+            'classification_cleared' => $classificationCleared,
         ];
     }
 
-    private function detachClassificationIfPresent(int $keywordId, int $siteId): void
+    /**
+     * Clear global classification only when keyword is not shared with another site.
+     */
+    private function clearClassificationIfOrphan(int $keywordId, int $siteId): bool
     {
         if (! Schema::connection('omi_seo_ai')->hasTable('seo_keyword_classifications')) {
-            return;
+            return false;
         }
 
         $row = DB::connection('omi_seo_ai')->table('seo_keyword_classifications')
@@ -131,7 +149,7 @@ final class ConsumeVocabularySuggestCandidateService
             ->first(['keyword_id', 'cluster_key']);
 
         if ($row === null) {
-            return;
+            return false;
         }
 
         $previousCluster = trim((string) ($row->cluster_key ?? ''));
@@ -140,38 +158,48 @@ final class ConsumeVocabularySuggestCandidateService
             ->update(['cluster_key' => null]);
 
         if ($previousCluster !== '' && $siteId > 0) {
-            $this->singletonPruner->prune($siteId, [$previousCluster => true]);
+            $touched = [$previousCluster => true];
+            $this->singletonPruner->prune($siteId, $touched);
         }
+
+        return true;
     }
 
-    private function hasOtherSiteMeta(int $keywordId, int $excludeSiteId): bool
+    /**
+     * True when keyword still has site meta or article link ownership on any other site.
+     */
+    public function isSharedWithOtherSites(int $keywordId, int $excludeSiteId): bool
     {
-        if (! Schema::connection('omi_seo_ai')->hasTable('keyword_meta')) {
+        if ($keywordId <= 0) {
             return false;
         }
 
-        $metas = DB::connection('omi_seo_ai')->table('keyword_meta')
-            ->where('keyword_id', $keywordId)
-            ->where('meta_key', 'like', 'site.%')
-            ->pluck('meta_key');
+        if (Schema::connection('omi_seo_ai')->hasTable('keyword_meta')) {
+            $metas = DB::connection('omi_seo_ai')->table('keyword_meta')
+                ->where('keyword_id', $keywordId)
+                ->where('meta_key', 'like', 'site.%')
+                ->pluck('meta_key');
 
-        foreach ($metas as $key) {
-            if (preg_match('/^site\.(\d+)\./', (string) $key, $m) !== 1) {
-                continue;
-            }
-            if ((int) $m[1] !== $excludeSiteId && (int) $m[1] > 0) {
-                return true;
+            foreach ($metas as $key) {
+                if (preg_match('/^site\.(\d+)\./', (string) $key, $m) !== 1) {
+                    continue;
+                }
+                if ((int) $m[1] !== $excludeSiteId && (int) $m[1] > 0) {
+                    return true;
+                }
             }
         }
 
-        // Link maps to articles on other sites also count as shared use.
         if (Schema::connection('omi_seo_ai')->hasTable('seo_link_maps')
             && Schema::connection('omi_seo_ai')->hasTable('seo_articles')) {
-            return DB::connection('omi_seo_ai')->table('seo_link_maps as lm')
+            $hasOtherLinks = DB::connection('omi_seo_ai')->table('seo_link_maps as lm')
                 ->join('seo_articles as a', 'a.id', '=', 'lm.source_article_id')
                 ->where('lm.keyword_id', $keywordId)
                 ->where('a.site_id', '!=', $excludeSiteId)
                 ->exists();
+            if ($hasOtherLinks) {
+                return true;
+            }
         }
 
         return false;

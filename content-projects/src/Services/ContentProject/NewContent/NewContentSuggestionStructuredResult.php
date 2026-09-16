@@ -114,15 +114,25 @@ final class NewContentSuggestionStructuredResult
 
     /**
      * OUTPUT CONTRACT footer appended to planning brief (consumed via {{brief}}).
+     *
+     * @param  list<string>  $allowedClusterRefs  When non-empty, every item MUST include cluster_ref from this set + dna_phrases.
      */
-    public static function outputContractFooter(string $contentType, int $quantity): string
-    {
+    public static function outputContractFooter(
+        string $contentType,
+        int $quantity,
+        array $allowedClusterRefs = [],
+    ): string {
         $isProduct = $contentType === NewContentSuggestionOptions::CONTENT_TYPE_PRODUCT;
         $qty = max(1, $quantity);
+        $requiresAttribution = $allowedClusterRefs !== [];
+
+        $attrFields = $requiresAttribution
+            ? ',"cluster_ref":"exact-ref-from-selected-note-item","dna_phrases":["DNA/angle this candidate implements"]'
+            : '';
 
         $itemShape = $isProduct
-            ? '{"keyword":"...","suggested_title":"...","description":"...","product_type":"...","gallery_description":"...","suggestion_reason":"...","source_signal":"keyword_gap"}'
-            : '{"keyword":"...","suggested_title":"...","description":"...","suggestion_reason":"...","source_signal":"keyword_gap"}';
+            ? '{"keyword":"...","suggested_title":"...","description":"...","product_type":"...","gallery_description":"...","suggestion_reason":"...","source_signal":"keyword_gap"'.$attrFields.'}'
+            : '{"keyword":"...","suggested_title":"...","description":"...","suggestion_reason":"...","source_signal":"keyword_gap"'.$attrFields.'}';
 
         $modeLines = $isProduct
             ? [
@@ -154,26 +164,46 @@ final class NewContentSuggestionStructuredResult
             'keyword and suggested_title must be short concrete phrases — never paste planned-item lists or prompt context into keyword.',
         ];
 
+        if ($requiresAttribution) {
+            $lines[] = 'ATTRIBUTION REQUIRED (Selected SEO Audit Notes):';
+            $lines[] = 'Every item MUST include cluster_ref exactly equal to one of: '.implode(' | ', $allowedClusterRefs);
+            $lines[] = 'Do not invent cluster_ref values. Do not reuse cluster_ref from earlier batches.';
+            $lines[] = 'dna_phrases = list of DNA/angle phrases this specific candidate implements for that cluster (may include user-specified DNA or AI-filled missing slots for the same cluster).';
+            $lines[] = 'Do not copy DNA phrases across clusters. Do not invent cluster names.';
+            $lines[] = 'Prefer source_signal=cluster_gap when the candidate fills a selected note/topic gap.';
+        }
+
         return implode("\n", $lines);
     }
 
     /**
      * Compact repair brief — schema fix only, no new SEO research.
+     *
+     * @param  list<string>  $allowedClusterRefs
      */
-    public static function repairBrief(string $invalidRaw, string $contentType, int $quantity): string
-    {
+    public static function repairBrief(
+        string $invalidRaw,
+        string $contentType,
+        int $quantity,
+        array $allowedClusterRefs = [],
+    ): string {
         $snippet = trim($invalidRaw);
         if (mb_strlen($snippet) > 6000) {
             $snippet = mb_substr($snippet, 0, 6000).'…';
         }
+
+        $attributionHint = $allowedClusterRefs !== []
+            ? 'Also fix missing/invalid cluster_ref and dna_phrases. Allowed cluster_ref values: '.implode(' | ', $allowedClusterRefs)
+            : 'Do not invent attribution fields unless present in the invalid payload.';
 
         return implode("\n", [
             'REPAIR TASK — FORMAT ONLY',
             'The previous response is invalid for the required JSON contract.',
             'Convert the supplied candidate result into the exact required schema.',
             'Do not add new suggestions. Do not invent new keywords. Do not explain.',
+            $attributionHint,
             'Return only valid JSON.',
-            NewContentSuggestionStructuredResult::outputContractFooter($contentType, $quantity),
+            NewContentSuggestionStructuredResult::outputContractFooter($contentType, $quantity, $allowedClusterRefs),
             '',
             'INVALID PREVIOUS RESPONSE:',
             $snippet,

@@ -11,7 +11,6 @@ use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordMetaRepository;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordPersistenceService;
 use Omnichannel\Addons\SearchFoundation\Support\KeywordOrphanCleanup;
-use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 use Illuminate\Support\Facades\Log;
 
 final class KeywordFocusAttach
@@ -65,14 +64,14 @@ final class KeywordFocusAttach
 
         $metaRepository = app(KeywordMetaRepository::class);
         $persistence = app(KeywordPersistenceService::class);
-        $permalink = trim(app(WordPressArticleContentService::class)->resolvePermalink($article));
-        $targetUrl = $permalink !== '' ? $permalink : null;
 
+        // Article relation is the destination SoT — do not write fabricated domain+slug
+        // (or any duplicate) into site.*.target_url. Pending resolve only runs when WP-synced.
         $keyword = $persistence->upsert(
             $phrase,
             Keyword::TYPE_NORMAL,
             $siteId,
-            $targetUrl,
+            null,
             targetArticleId: $articleId,
         );
 
@@ -95,14 +94,19 @@ final class KeywordFocusAttach
                 'wp_post_id' => $wpPostId > 0 ? $wpPostId : null,
                 'source' => 'KeywordFocusAttach::attachMainKeyword',
                 'resolver' => 'setMainArticleIdForSite',
-                'url' => $targetUrl,
+                'url' => null,
                 'reason' => 'set_main_article_rejected',
             ]);
 
             return null;
         }
 
-        app(\Omnichannel\Addons\Content\Services\ArticlePendingInternalLinkService::class)->resolveForKeyword($keywordId);
+        // Drop stale duplicate target_url so it cannot shadow WordPress permalinks.
+        $metaRepository->setSiteTargetUrl($keywordId, $siteId, null);
+
+        if ($wpPostId > 0) {
+            app(\Omnichannel\Addons\Content\Services\ArticlePendingInternalLinkService::class)->resolveForKeyword($keywordId);
+        }
 
         return $keywordId;
     }

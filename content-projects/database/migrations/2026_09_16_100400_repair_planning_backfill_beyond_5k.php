@@ -6,8 +6,9 @@ use Illuminate\Database\Migrations\Migration;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\PlanningDataBackfillService;
 
 /**
- * Deterministic full-table backfill (keyset chunks — no 5k cap).
- * SSOT: PlanningMonthBackfill::resolve via PlanningDataBackfillService.
+ * Repair path for environments that already ran the original 100300 (5k-capped) backfill.
+ * Idempotent: only fills missing planning_month / tombstones / unattributed attributions.
+ * Does not overwrite attributed snapshots or already-stamped planning_month values.
  */
 return new class extends Migration
 {
@@ -18,6 +19,6 @@ return new class extends Migration
 
     public function down(): void
     {
-        // Non-destructive: leave backfilled rows (tombstones/attributions are product history).
+        // Non-destructive repair; no rollback of historical stamps.
     }
 };

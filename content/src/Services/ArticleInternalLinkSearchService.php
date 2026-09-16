@@ -6,16 +6,13 @@ namespace Omnichannel\Addons\Content\Services;
 
 use Omnichannel\Addons\Content\Filament\Resources\ArticleResource;
 use Omnichannel\Addons\Content\Models\SeoArticle;
-use Omnichannel\Addons\WordPress\Support\WordPressPermalinkBuilder;
-use App\Models\Site;
+use Omnichannel\Addons\WordPress\Services\WordPressInternalLinkTargetPolicy;
 use Illuminate\Database\Eloquent\Builder;
-use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 
 final class ArticleInternalLinkSearchService
 {
     public function __construct(
-        private readonly WordPressArticleContentService $wordPressContent,
-        private readonly WordPressPermalinkBuilder $permalinkBuilder,
+        private readonly WordPressInternalLinkTargetPolicy $linkTargetPolicy,
         private readonly ArticleLinkSuggestionCandidateRetriever $candidateRetriever,
     ) {}
 
@@ -60,12 +57,14 @@ final class ArticleInternalLinkSearchService
         }
 
         // Fallback hẹp: title LIKE + exclude current (khi index rank không có kết quả).
+        // Same eligibility as ranked index: must be synced to WordPress with a real permalink.
         $escaped = str_replace(['%', '_'], ['\\%', '\\_'], $query);
         $builder = ArticleResource::getEloquentQuery()
-            ->with(['site', 'articleMetas'])
+            ->with(['site', 'articleMetas', 'wordpressLink'])
             ->where('site_id', $siteId)
             ->where('id', '!=', $excludeArticleId)
             ->notContentArchived()
+            ->hasWpPostId()
             ->where(function (Builder $inner) use ($query, $escaped): void {
                 $inner->where('title', 'like', '%'.$escaped.'%')
                     ->orWhere('slug', 'like', '%'.$escaped.'%');
@@ -110,32 +109,6 @@ final class ArticleInternalLinkSearchService
 
     private function resolveArticleUrl(SeoArticle $article): string
     {
-        $article->loadMissing('site', 'articleMetas');
-
-        $cached = trim((string) ($article->articleMetas
-            ->firstWhere('meta_key', 'wp_permalink')
-            ?->meta_value ?? ''));
-        $slug = trim((string) ($article->slug ?? ''));
-
-        $resolved = trim($this->permalinkBuilder->resolve(
-            $article,
-            $cached,
-            $slug !== '' ? $slug : null,
-        ));
-        if ($resolved !== '') {
-            return $resolved;
-        }
-
-        $site = $article->site;
-        if (! $site instanceof Site) {
-            return '';
-        }
-
-        $base = rtrim($this->wordPressContent->getPermalinkBase($site), '/');
-        if ($base === '' || $slug === '') {
-            return '';
-        }
-
-        return $base.'/'.ltrim($slug, '/');
+        return trim((string) ($this->linkTargetPolicy->resolveAuthoritativePermalink($article) ?? ''));
     }
 }

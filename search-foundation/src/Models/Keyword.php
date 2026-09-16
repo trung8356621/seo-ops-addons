@@ -12,7 +12,6 @@ use Omnichannel\Addons\SearchIntelligence\Models\KeywordReviewReason;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordClassification;
 use Omnichannel\Addons\Seo\Enums\SeoLinkMapStatus;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordMetaRepository;
-use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
@@ -569,7 +568,11 @@ class Keyword extends Model
     private function targetUrlFromLinkMaps(int $siteId): ?string
     {
         $map = $this->linkMapsForSite($siteId)
-            ->with('targetArticle:id,site_id,title,slug')
+            ->with([
+                'targetArticle' => static fn ($query) => $query
+                    ->select(['id', 'site_id', 'title', 'slug'])
+                    ->with(['wordpressLink', 'articleMetas' => static fn ($meta) => $meta->where('meta_key', 'wp_permalink')]),
+            ])
             ->orderBy('seo_link_maps.id')
             ->first();
 
@@ -594,7 +597,8 @@ class Keyword extends Model
             return null;
         }
 
-        $url = trim(app(WordPressArticleContentService::class)->resolvePermalink($target));
+        $url = trim((string) (app(\Omnichannel\Addons\WordPress\Services\WordPressInternalLinkTargetPolicy::class)
+            ->resolveAuthoritativePermalink($target) ?? ''));
 
         return $url !== '' ? $url : null;
     }

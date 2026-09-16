@@ -37,10 +37,12 @@ final class AuditNotePromptSectionBuilder
 
             if ($isManualSeed) {
                 $seed = trim((string) ($item['seed_text'] ?? $item['cluster_name_snapshot'] ?? ''));
-                $head = '- Planning Seed "'.$seed.'" · source_type=manual_seed · no existing Topic/MCP required';
+                $ref = trim((string) ($item['cluster_ref'] ?? ''));
+                $head = '- Planning Seed "'.$seed.'" · cluster_ref='.$ref.' · source_type=manual_seed · no existing Topic/MCP required';
             } else {
                 $share = number_format((float) ($item['mcp_share_snapshot'] ?? 0), 1, '.', '');
-                $head = '- '.$item['cluster_name_snapshot'].' · MCP '.$share.'% · source_type=cluster';
+                $ref = trim((string) ($item['cluster_ref'] ?? ''));
+                $head = '- '.$item['cluster_name_snapshot'].' · cluster_ref='.$ref.' · MCP '.$share.'% · source_type=cluster';
             }
             $lines[] = $head;
             $lines[] = '  · Target DNA: '.$target;

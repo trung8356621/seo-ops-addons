@@ -13,12 +13,12 @@ use Omnichannel\Addons\Seo\Support\SeoSuggestionUrlNormalizer;
 use App\Models\Site;
 use Illuminate\Support\Collection;
 use Omnichannel\Addons\WordPress\Services\SitePolylangService;
-use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
+use Omnichannel\Addons\WordPress\Services\WordPressInternalLinkTargetPolicy;
 
 final class KeywordLinkTargetResolver
 {
     public function __construct(
-        private readonly WordPressArticleContentService $wpContent,
+        private readonly WordPressInternalLinkTargetPolicy $linkTargetPolicy,
         private readonly SitePolylangService $polylang,
     ) {}
 
@@ -80,6 +80,18 @@ final class KeywordLinkTargetResolver
             (string) ($currentArticle->site?->domain ?? $currentArticle->loadMissing('site')->site?->domain ?? ''),
         );
 
+        // Article-backed focus is the destination SoT — never let stale site.*.target_url win.
+        $focusOutcome = $this->resolveFocusArticleDestination(
+            $keyword,
+            $currentArticle,
+            $sameLanguageOnly,
+            $internalOnly,
+        );
+        if ($focusOutcome['handled']) {
+            return $focusOutcome['href'];
+        }
+
+        // Manual / external / unmanaged URL (no focus article on this site).
         $explicit = trim((string) ($keyword->targetUrlForSite($siteId) ?? ''));
         if ($explicit !== '') {
             $explicitAllowed = ! $sameLanguageOnly || $this->urlMatchesArticleLanguage($siteId, $explicit, $currentLang);
@@ -96,17 +108,55 @@ final class KeywordLinkTargetResolver
             }
         }
 
-        $mainArticle = $keyword->mainArticles()
-            ->where('articles.id', '!=', (int) $currentArticle->id)
-            ->when($sameLanguageOnly, static fn ($query) => $query->where('articles.language', $currentLang))
-            ->when($internalOnly, static fn ($query) => $query->where('articles.site_id', $siteId))
-            ->first();
+        return null;
+    }
 
-        if ($mainArticle instanceof SeoArticle) {
-            return $this->resolveArticlePublicUrl($mainArticle);
+    /**
+     * @return array{handled: bool, href: ?string}
+     */
+    private function resolveFocusArticleDestination(
+        Keyword $keyword,
+        SeoArticle $currentArticle,
+        bool $sameLanguageOnly,
+        bool $internalOnly,
+    ): array {
+        $siteId = (int) ($currentArticle->site_id ?? 0);
+        if ($siteId <= 0) {
+            return ['handled' => false, 'href' => null];
         }
 
-        return null;
+        $focusId = $keyword->mainArticleIdForSite($siteId);
+        if ($focusId === null || $focusId <= 0) {
+            return ['handled' => false, 'href' => null];
+        }
+
+        // Focus is the current article — no outbound article-backed destination from focus.
+        if ($focusId === (int) $currentArticle->id) {
+            return ['handled' => false, 'href' => null];
+        }
+
+        $focus = SeoArticle::query()
+            ->whereKey($focusId)
+            ->when($internalOnly, static fn ($query) => $query->where('site_id', $siteId))
+            ->with(['wordpressLink', 'articleMetas' => static fn ($meta) => $meta->where('meta_key', 'wp_permalink')])
+            ->first();
+
+        if (! $focus instanceof SeoArticle) {
+            return ['handled' => false, 'href' => null];
+        }
+
+        if ((int) ($focus->site_id ?? 0) !== $siteId) {
+            return ['handled' => true, 'href' => null];
+        }
+
+        if ($sameLanguageOnly && $this->articleLanguage($focus) !== $this->articleLanguage($currentArticle)) {
+            return ['handled' => true, 'href' => null];
+        }
+
+        return [
+            'handled' => true,
+            'href' => $this->resolveArticlePublicUrl($focus),
+        ];
     }
 
     private function isHrefInternalForSite(string $href, string $siteDomain, int $siteId): bool
@@ -132,24 +182,7 @@ final class KeywordLinkTargetResolver
 
     public function resolveArticlePublicUrl(SeoArticle $article): ?string
     {
-        $permalink = trim($this->wpContent->resolvePermalink($article));
-        if ($permalink !== '') {
-            return $permalink;
-        }
-
-        $article->loadMissing('site');
-        $site = $article->site;
-        if (! $site instanceof Site) {
-            return null;
-        }
-
-        $base = $this->wpContent->getPermalinkBase($site);
-        $slug = trim((string) ($article->slug ?? ''));
-        if ($base === '' || $slug === '') {
-            return null;
-        }
-
-        return rtrim($base, '/').'/'.ltrim($slug, '/');
+        return $this->linkTargetPolicy->resolveAuthoritativePermalink($article);
     }
 
     public function resolveArticleFromUrl(int $siteId, string $url, ?SeoArticle $exclude = null): ?SeoArticle
@@ -278,7 +311,12 @@ final class KeywordLinkTargetResolver
         } else {
             $maps = $keyword->linkMaps()
                 ->whereHas('sourceArticle', static fn ($query) => $query->where('site_id', $siteId))
-                ->with(['targetArticle:id,site_id,title,slug', 'sourceArticle:id,site_id'])
+                ->with([
+                    'targetArticle' => static fn ($query) => $query
+                        ->select(['id', 'site_id', 'title', 'slug'])
+                        ->with(['wordpressLink', 'articleMetas' => static fn ($meta) => $meta->where('meta_key', 'wp_permalink')]),
+                    'sourceArticle:id,site_id',
+                ])
                 ->orderBy('seo_link_maps.id')
                 ->get();
         }
@@ -318,6 +356,7 @@ final class KeywordLinkTargetResolver
                     ->where('keyword_id', $keyword->id)
                     ->whereNotNull('source_article_id');
             })
+            ->with(['wordpressLink', 'articleMetas' => static fn ($meta) => $meta->where('meta_key', 'wp_permalink')])
             ->orderBy('id')
             ->first();
 
@@ -461,7 +500,9 @@ final class KeywordLinkTargetResolver
         if ((int) ($map->target_article_id ?? 0) > 0) {
             $target = $map->relationLoaded('targetArticle')
                 ? $map->targetArticle
-                : $map->targetArticle()->first(['id', 'site_id', 'title', 'slug']);
+                : $map->targetArticle()
+                    ->with(['wordpressLink', 'articleMetas' => static fn ($meta) => $meta->where('meta_key', 'wp_permalink')])
+                    ->first(['id', 'site_id', 'title', 'slug']);
 
             if ($target instanceof SeoArticle) {
                 $url = $this->resolveArticlePublicUrl($target);

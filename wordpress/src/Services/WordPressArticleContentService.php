@@ -335,6 +335,7 @@ class WordPressArticleContentService
                 ['meta_key' => 'wp_permalink'],
                 ['meta_value' => $permalink],
             );
+            WordPressInternalLinkTargetPolicy::forgetSiteIndexCacheForArticle($article);
         }
 
         return [
@@ -700,6 +701,7 @@ class WordPressArticleContentService
                 ['meta_key' => 'wp_permalink'],
                 ['meta_value' => $permalink],
             );
+            WordPressInternalLinkTargetPolicy::forgetSiteIndexCacheForArticle($article);
         }
 
         if (filled($post['featured_image_url'] ?? null)) {

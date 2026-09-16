@@ -200,6 +200,7 @@ final class WordPressArticleSyncService
                     ['meta_key' => 'wp_permalink'],
                     ['meta_value' => $permalink],
                 );
+                \Omnichannel\Addons\WordPress\Services\WordPressInternalLinkTargetPolicy::forgetSiteIndexCacheForArticle($article);
                 app(ArticlePendingInternalLinkService::class)->resolveForMainArticle($article->fresh());
             }
 
@@ -1017,6 +1018,7 @@ final class WordPressArticleSyncService
                 ['meta_key' => 'wp_permalink'],
                 ['meta_value' => $remotePermalink],
             );
+            \Omnichannel\Addons\WordPress\Services\WordPressInternalLinkTargetPolicy::forgetSiteIndexCacheForArticle($article);
             app(ArticlePendingInternalLinkService::class)->resolveForMainArticle($article->fresh());
         }
 

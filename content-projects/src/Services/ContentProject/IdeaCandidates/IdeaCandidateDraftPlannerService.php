@@ -207,7 +207,7 @@ final class IdeaCandidateDraftPlannerService
                 }
 
                 $origin = $this->recordOrigin(
-                    $project,
+                    $target,
                     $taskId,
                     $candidate,
                     provenanceArticleId: $candidate->sourceArticleId,

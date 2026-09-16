@@ -13,18 +13,15 @@ use Omnichannel\Addons\Content\Models\SeoArticle;
 use Omnichannel\Addons\ContentProjects\Services\KeywordProjectAssignmentService;
 use Omnichannel\Addons\SearchFoundation\Models\SeoPendingInternalLink;
 use Omnichannel\Addons\Seo\Services\SeoIssueProjectTaskAssignmentService;
-use Omnichannel\Addons\WordPress\Support\WordPressPermalinkBuilder;
 use Omnichannel\Addons\WordPress\Services\ArticleWordPressSyncFlagService;
-use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
-use App\Models\Site;
+use Omnichannel\Addons\WordPress\Services\WordPressInternalLinkTargetPolicy;
 
 final class ArticlePendingInternalLinkService
 {
     public function __construct(
         private readonly KeywordPersistenceService $keywordPersistence,
         private readonly KeywordMetaRepository $keywordMetaRepository,
-        private readonly WordPressArticleContentService $wordPressContent,
-        private readonly WordPressPermalinkBuilder $permalinkBuilder,
+        private readonly WordPressInternalLinkTargetPolicy $linkTargetPolicy,
         private readonly ArticleKeywordLinkReconcileService $articleReconcile,
         private readonly KeywordProjectAssignmentService $keywordProjectAssignment,
         private readonly SeoIssueProjectTaskAssignmentService $seoIssueAssignment,
@@ -363,32 +360,8 @@ final class ArticlePendingInternalLinkService
             return '';
         }
 
-        $article->loadMissing('site', 'articleMetas');
+        $article->loadMissing('wordpressLink', 'articleMetas');
 
-        $cached = trim((string) ($article->articleMetas
-            ->firstWhere('meta_key', 'wp_permalink')
-            ?->meta_value ?? ''));
-        $slug = trim((string) ($article->slug ?? ''));
-
-        $resolved = trim($this->permalinkBuilder->resolve(
-            $article,
-            $cached,
-            $slug !== '' ? $slug : null,
-        ));
-        if ($resolved !== '') {
-            return $resolved;
-        }
-
-        $site = $article->site;
-        if (! $site instanceof Site) {
-            return '';
-        }
-
-        $base = rtrim($this->wordPressContent->getPermalinkBase($site), '/');
-        if ($base === '' || $slug === '') {
-            return '';
-        }
-
-        return $base.'/'.ltrim($slug, '/');
+        return trim((string) ($this->linkTargetPolicy->resolveAuthoritativePermalink($article) ?? ''));
     }
 }

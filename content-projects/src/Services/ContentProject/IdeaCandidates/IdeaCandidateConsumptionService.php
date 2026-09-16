@@ -10,6 +10,7 @@ use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectConsumedIdea;
 use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectItemOrigin;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\ConsumeVocabularySuggestCandidateService;
+use RuntimeException;
 use Throwable;
 
 /**
@@ -18,6 +19,8 @@ use Throwable;
  */
 final class IdeaCandidateConsumptionService
 {
+    public const ERROR_SCHEMA_NOT_READY = 'idea_consumption_schema_not_ready';
+
     public function __construct(
         private readonly ConsumeVocabularySuggestCandidateService $sourceCleanup,
     ) {}
@@ -73,6 +76,7 @@ final class IdeaCandidateConsumptionService
 
     /**
      * Atomically claim a candidate. Returns false when already consumed (idempotent reject).
+     * Throws when the tombstone schema is missing — write path must not look like a duplicate.
      *
      * @return array{claimed: bool, consumed_idea_id: int|null}
      */
@@ -84,8 +88,18 @@ final class IdeaCandidateConsumptionService
         ?int $sourceArticleId = null,
         ?string $vocabularyGroup = null,
     ): array {
-        if ($siteId <= 0 || $sourceKeywordId <= 0 || ! $this->tableReady()) {
+        if ($siteId <= 0 || $sourceKeywordId <= 0) {
             return ['claimed' => false, 'consumed_idea_id' => null];
+        }
+
+        if (! $this->tableReady()) {
+            Log::error(self::ERROR_SCHEMA_NOT_READY, [
+                'site_id' => $siteId,
+                'source_type' => trim($sourceType),
+                'source_ref' => SeoContentProjectConsumedIdea::sourceRefForKeyword($sourceKeywordId),
+            ]);
+
+            throw new RuntimeException(self::ERROR_SCHEMA_NOT_READY);
         }
 
         $sourceType = trim($sourceType) !== '' ? trim($sourceType) : SeoContentProjectItemOrigin::SOURCE_VOCABULARY_SUGGEST;
@@ -155,7 +169,7 @@ final class IdeaCandidateConsumptionService
         }
     }
 
-    private function tableReady(): bool
+    protected function tableReady(): bool
     {
         return Schema::connection('omi_seo_ai')->hasTable('seo_content_project_consumed_ideas');
     }
@@ -166,7 +180,6 @@ final class IdeaCandidateConsumptionService
         $driverCode = (int) ($e->errorInfo[1] ?? 0);
         $message = strtolower($e->getMessage());
 
-        // SQLSTATE 23000 / MySQL 1062 duplicate key
         return $code === '23000'
             || $driverCode === 1062
             || str_contains($message, 'duplicate')

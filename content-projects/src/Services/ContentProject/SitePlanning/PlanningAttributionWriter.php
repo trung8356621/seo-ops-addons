@@ -75,13 +75,15 @@ final class PlanningAttributionWriter
         }
 
         if ($clusterRef !== '' && $allowed !== [] && ! isset($allowed[$clusterRef])) {
-            // Reject AI-invented cluster_ref outside note_items.
+            // Reject AI-invented cluster_ref outside note_items — never guess from title/keyword.
             $clusterRef = '';
             $clusterName = '';
             $dnaPhrases = [];
         }
 
-        if ($clusterRef === '' && $sourceKeywordId !== null && $sourceKeywordId > 0) {
+        // Keyword→cluster resolve is only for Vocabulary Suggest (no note_items allow-list).
+        // Never use it to invent attribution for multi-topic AI note batches.
+        if ($clusterRef === '' && $allowed === [] && $sourceKeywordId !== null && $sourceKeywordId > 0) {
             $resolved = $this->resolver->resolve($task, $origin);
             $clusterRef = trim((string) ($resolved['cluster_key'] ?? ''));
         }

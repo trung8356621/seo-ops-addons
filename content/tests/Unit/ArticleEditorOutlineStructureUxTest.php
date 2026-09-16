@@ -37,6 +37,7 @@ final class ArticleEditorOutlineStructureUxTest extends TestCase
         ));
 
         self::assertGreaterThanOrEqual(2, substr_count($body, "site_id"));
+        self::assertStringContainsString('hasWpPostId()', $body);
         self::assertStringNotContainsString('SeoArticle::query()->where(\'id\'', $body);
     }
 

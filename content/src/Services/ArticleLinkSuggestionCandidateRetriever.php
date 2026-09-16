@@ -16,6 +16,7 @@ use Omnichannel\Addons\Seo\Support\SeoSuggestionUrlNormalizer;
 use Illuminate\Support\Str;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordLinkTargetResolver;
 use Illuminate\Support\Facades\Cache;
+use Omnichannel\Addons\WordPress\Services\WordPressInternalLinkTargetPolicy;
 
 /**
  * Thu thập + chấm điểm article candidates cho internal link suggestions.
@@ -234,16 +235,18 @@ final class ArticleLinkSuggestionCandidateRetriever
             return $this->siteIndexCache[$cacheKey];
         }
 
-        $persistentKey = 'article_link_suggest.site_index.v1.'.$siteId;
+        $persistentKey = WordPressInternalLinkTargetPolicy::siteIndexCacheKey($siteId);
         /** @var list<array<string, mixed>> $fullIndex */
         $fullIndex = Cache::remember($persistentKey, 90, function () use ($siteId): array {
             $articles = SeoArticle::query()
                 ->where('site_id', $siteId)
                 ->notContentArchived()
+                ->hasWpPostId()
                 ->orderByDesc('id')
                 ->limit(600)
                 ->with([
                     'site:id,domain',
+                    'wordpressLink',
                     'articleMetas' => static function ($query): void {
                         $query->whereIn('meta_key', [
                             'wp_permalink',

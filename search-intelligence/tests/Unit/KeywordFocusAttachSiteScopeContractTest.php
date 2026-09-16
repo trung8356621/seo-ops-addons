@@ -31,6 +31,7 @@ final class KeywordFocusAttachSiteScopeContractTest extends TestCase
         );
 
         self::assertStringContainsString('setMainArticleIdForSite', $attachSrc);
+        self::assertStringContainsString('setSiteTargetUrl($keywordId, $siteId, null)', $attachSrc);
         self::assertStringContainsString('seo.cross_site_relation_rejected', $attachSrc);
         self::assertStringContainsString('keyword_site_article_site_mismatch', $attachSrc);
         self::assertStringContainsString('function getMainArticleIdForSite', $repoSrc);

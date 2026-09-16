@@ -676,6 +676,7 @@ class SeoContentAiServiceProvider extends ServiceProvider implements DeclaresDat
                 AuditSeoDatabaseConnectionsCommand::class,
                 \Omnichannel\Addons\SearchFoundation\Console\AuditCrossSiteRelationsCommand::class,
                 \Omnichannel\Addons\SearchFoundation\Console\RepairCrossSiteRelationsCommand::class,
+                \Omnichannel\Addons\SearchFoundation\Console\RepairArticleBackedKeywordTargetUrlsCommand::class,
                 \Omnichannel\Addons\ContentProjects\Console\AuditPlanningDraftsCommand::class,
                 \Omnichannel\Addons\ContentProjects\Console\MergeLegacyPlanningDraftsCommand::class,
                 \Omnichannel\Addons\SiteSync\Console\RunSiteSyncCommand::class,

@@ -16,6 +16,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\Application\Conte
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectProjectActionDecision;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectProjectGenerationGate;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Draft\SplitDraftContentProjectService;
+use Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterCapacitySettingsService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectTaskMoveService;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectExecutionLimits;
 use Carbon\Carbon;
@@ -58,6 +59,9 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
         if (! Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'planning_reviewed_at')) {
             $this->fail('planning_reviewed_at column missing — required for reviewed-only split.');
         }
+
+        // Default monthly capacity for this suite (in-memory; avoids WpOption/cache drift).
+        $this->bindWriterMonthlyCapacity(30);
 
         $this->app->forgetInstance(ContentProjectCommandBus::class);
         $this->app->singleton(ContentProjectCommandBus::class, function ($app): ContentProjectCommandBus {
@@ -191,6 +195,7 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
     public function test_fair_allocation_and_project_chunking_sizes(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-08-01'));
+        $this->bindWriterMonthlyCapacity(100);
 
         $cases = [
             // [total, writers, expected per-project moved counts, expected project user ids]
@@ -239,6 +244,7 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
     public function test_packing_reuses_existing_free_slots(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-08-15 12:00:00'));
+        $this->bindWriterMonthlyCapacity(100);
 
         $existing = SeoProject::query()->create([
             'name' => SeoProject::defaultNameFromMonth('2026-08-01'),
@@ -788,6 +794,8 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
     public function test_existing_workload_does_not_block_and_full_user_still_receives_items(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-08-15 12:00:00'));
+        // High enough for fair 14/13/13 after existing load and the later 30+31 overflow case.
+        $this->bindWriterMonthlyCapacity(100);
 
         $existingA = SeoProject::query()->create([
             'name' => 'existing-a',
@@ -888,6 +896,7 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
     public function test_delete_one_unstarted_chunk_restores_only_that_project(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-08-01'));
+        $this->bindWriterMonthlyCapacity(100);
 
         $draft = $this->createDraft(93160, 94160);
         for ($i = 0; $i < 61; $i++) {
@@ -929,6 +938,7 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
     public function test_execution_naming_is_scoped_per_writer_not_global_month(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-08-15 12:00:00'));
+        $this->bindWriterMonthlyCapacity(100);
 
         $base = SeoProject::defaultNameFromMonth('2026-08-01');
         $splitter = app(SplitDraftContentProjectService::class);
@@ -1199,7 +1209,7 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
 
         $draft = $this->createDraft(93801, 94801);
         for ($i = 0; $i < 3; $i++) {
-            $this->createTask($draft, 'to-july-'.$i, reviewed: true);
+            $this->createTask($draft, 'to-july-'.$i, reviewed: true, planningMonth: '2026-07');
         }
 
         $result = app(SplitDraftContentProjectService::class)->split(
@@ -1260,6 +1270,7 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
     public function test_archived_execution_counts_toward_selected_month_capacity(): void
     {
         Carbon::setTestNow(Carbon::parse('2026-08-15 12:00:00'));
+        $this->bindWriterMonthlyCapacity(30);
 
         $archived = SeoProject::query()->create([
             'name' => SeoProject::defaultNameFromMonth('2026-07-01').'-arch',
@@ -1271,8 +1282,25 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
             'total_tasks' => 0,
             'archived_at' => now()->subDay(),
         ]);
+        // Archived capacity SSOT = seo_project_archive_items (article-backed), not live tasks.
+        $archive = \Omnichannel\Addons\ContentProjects\Models\SeoProjectArchive::query()->create([
+            'project_id' => (int) $archived->id,
+            'owner_id' => 88803,
+            'project_name' => 'Archived july capacity',
+            'articles_count' => 8,
+            'total_articles' => 8,
+            'archived_by' => 1,
+            'archived_at' => now()->subDay(),
+        ]);
         for ($i = 0; $i < 8; $i++) {
             $this->createTask($archived, 'arch-july-'.$i, reviewed: true);
+            \Omnichannel\Addons\ContentProjects\Models\SeoProjectArchiveItem::query()->create([
+                'seo_project_archive_id' => (int) $archive->id,
+                'article_id' => 880000 + $i,
+                'task_id' => null,
+                'position' => $i + 1,
+                'article_snapshot' => ['article_id' => 880000 + $i],
+            ]);
         }
         $archived->syncTotalTasksCounter();
 
@@ -1302,6 +1330,23 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
         Carbon::setTestNow();
     }
 
+    private function bindWriterMonthlyCapacity(int $capacity): void
+    {
+        $capacitySettings = ContentProjectWriterCapacitySettingsService::withDefaults();
+        $mem = new \ReflectionProperty($capacitySettings, 'inMemorySettings');
+        $mem->setAccessible(true);
+        $mem->setValue($capacitySettings, [
+            ContentProjectWriterCapacitySettingsService::KEY_DEFAULT_CAPACITY => $capacity,
+        ]);
+        $this->app->instance(ContentProjectWriterCapacitySettingsService::class, $capacitySettings);
+        $this->app->forgetInstance(\Omnichannel\Addons\ContentProjects\Services\ContentProjectWriterMonthlyCapacityService::class);
+        try {
+            cache()->forget('content_writer_monthly_capacity_settings.v1');
+        } catch (\Throwable) {
+            // ignore
+        }
+    }
+
     private function createDraft(int $userId, int $siteId): SeoProject
     {
         return SeoProject::query()->create([
@@ -1315,7 +1360,7 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
         ]);
     }
 
-    private function createTask(SeoProject $project, string $token, bool $reviewed = true): int
+    private function createTask(SeoProject $project, string $token, bool $reviewed = true, ?string $planningMonth = null): int
     {
         $token = $token.'-'.uniqid();
         $attrs = [
@@ -1332,14 +1377,21 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
             'planning_reviewed_at' => $reviewed ? now() : null,
         ];
 
+        if (Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'planning_month')) {
+            $month = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::normalize(
+                $planningMonth ?? now()->format('Y-m-d'),
+            );
+            $attrs['planning_month'] = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::toDateString($month);
+        }
+
         $task = SeoProjectTask::query()->create($attrs);
 
         return (int) $task->id;
     }
 
-    private function createRewriteTask(SeoProject $project, int $articleId, string $token, bool $reviewed = true): int
+    private function createRewriteTask(SeoProject $project, int $articleId, string $token, bool $reviewed = true, ?string $planningMonth = null): int
     {
-        $task = SeoProjectTask::query()->create([
+        $attrs = [
             'project_id' => (int) $project->id,
             'site_id' => (int) $project->site_id,
             'article_id' => $articleId,
@@ -1352,7 +1404,14 @@ final class SplitDraftContentProjectIntegrationTest extends TestCase
             'status' => SeoProjectTask::STATUS_PENDING,
             'rewrite_mode' => SeoProjectTask::REWRITE_MODE_KEYWORD,
             'planning_reviewed_at' => $reviewed ? now() : null,
-        ]);
+        ];
+        if (Schema::connection('omi_seo_ai')->hasColumn('seo_project_tasks', 'planning_month')) {
+            $month = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::normalize(
+                $planningMonth ?? now()->format('Y-m-d'),
+            );
+            $attrs['planning_month'] = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::toDateString($month);
+        }
+        $task = SeoProjectTask::query()->create($attrs);
 
         return (int) $task->id;
     }

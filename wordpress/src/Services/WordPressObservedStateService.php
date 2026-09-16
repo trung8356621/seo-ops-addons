@@ -60,6 +60,10 @@ final class WordPressObservedStateService
         }
 
         app(WordpressArticleLinkWriter::class)->upsert($article, $payload);
+
+        if ($permalink !== '' || $wpPostId > 0) {
+            WordPressInternalLinkTargetPolicy::forgetSiteIndexCacheForArticle($article);
+        }
     }
 
     /**

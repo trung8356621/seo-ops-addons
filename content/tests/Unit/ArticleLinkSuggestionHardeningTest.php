@@ -200,13 +200,14 @@ final class ArticleLinkSuggestionHardeningTest extends TestCase
         self::assertStringContainsString("config('seo-content-ai.link_suggestions.", $source);
     }
 
-    public function test_candidate_retriever_excludes_archived_and_self_in_index_query(): void
+    public function test_candidate_retriever_excludes_archived_self_and_unsynced(): void
     {
         $body = $this->methodBody(ArticleLinkSuggestionCandidateRetriever::class, 'siteArticleIndex');
 
-        self::assertStringContainsString("where('id', '!=', \$excludeArticleId)", $body);
-        self::assertStringContainsString('whereNull(\'content_archived_at\')', $body);
+        self::assertStringContainsString('notContentArchived()', $body);
+        self::assertStringContainsString('hasWpPostId()', $body);
         self::assertStringContainsString("with([", $body);
+        self::assertStringContainsString('!== $excludeArticleId', $body);
     }
 
     public function test_candidate_scoring_prefers_title_and_focus_keyword(): void

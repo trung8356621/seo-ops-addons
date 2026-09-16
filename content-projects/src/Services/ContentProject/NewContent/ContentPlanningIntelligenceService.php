@@ -338,6 +338,7 @@ final class ContentPlanningIntelligenceService
         return implode("\n", $lines)."\n".NewContentSuggestionStructuredResult::outputContractFooter(
             (string) $options['content_type'],
             (int) $options['quantity'],
+            (new NewContentClusterAttributionValidator)->allowedClusterRefs($noteItems),
         );
     }
 
