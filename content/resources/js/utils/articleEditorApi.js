@@ -636,6 +636,7 @@ export function patchLivewireSeoMeta(patch) {
 
 /**
  * Ghép URL hiển thị từ base + slug + suffix (vd. `.html`).
+ * Prefer {@see buildPermalinkFromTemplate} when a site routing template is available.
  *
  * @param {string} base
  * @param {string} slug
@@ -664,6 +665,23 @@ export function buildPermalinkDisplayUrl(base, slug, suffix = '') {
 }
 
 /**
+ * Apply a site routing template that contains `%slug%`.
+ *
+ * @param {string} template
+ * @param {string} slug
+ * @returns {string}
+ */
+export function buildPermalinkFromTemplate(template, slug) {
+    const tpl = String(template ?? '').trim();
+    const normalizedSlug = String(slug ?? '').trim().replace(/^\/+|\/+$/g, '');
+    if (tpl === '' || normalizedSlug === '' || !tpl.includes('%slug%')) {
+        return '';
+    }
+
+    return tpl.split('%slug%').join(encodeURIComponent(normalizedSlug));
+}
+
+/**
  * Normalize permalink for equality checks (trim, lower, drop trailing slash).
  * Mirrors PHP EditArticle::normalizePermalinkForCompare / MainDomainSuggestionService::normalizeUrl.
  *
@@ -687,8 +705,8 @@ export function permalinksAreEquivalent(left, right) {
 }
 
 /**
- * Cập nhật dòng «Đường dẫn» dưới tiêu đề (`.wp-permalink`) + slug input nếu có.
- * Không ghi đè «Đường dẫn WP» (observed) — chỉ hiện/ẩn khi editor URL khác WP.
+ * Cập nhật dòng «Đường dẫn dự kiến» dưới tiêu đề (`.wp-permalink`) + slug input nếu có.
+ * Không ghi đè «Đường dẫn WP» (observed) — chỉ hiện/ẩn badge chưa đồng bộ.
  *
  * @param {{
  *   permalink?: string,
@@ -696,6 +714,7 @@ export function permalinksAreEquivalent(left, right) {
  *   slug?: string,
  *   permalink_base?: string,
  *   permalink_suffix?: string,
+ *   permalink_template?: string,
  *   wordpress_permalink?: string,
  * }} patch
  */
@@ -708,13 +727,16 @@ export function patchPermalinkDisplay(patch) {
     const root = document.querySelector('[data-seo-permalink-root], .wp-permalink');
     const baseFromDom = String(root?.getAttribute('data-permalink-base') ?? '').trim();
     const suffixFromDom = String(root?.getAttribute('data-permalink-suffix') ?? '').trim();
+    const templateFromDom = String(root?.getAttribute('data-permalink-template') ?? '').trim();
 
     const base = String(patch.permalink_base ?? baseFromDom).trim().replace(/\/+$/, '');
     const suffix = String(patch.permalink_suffix ?? suffixFromDom).trim();
+    const template = String(patch.permalink_template ?? templateFromDom).trim();
 
     let permalink = String(patch.permalink ?? '').trim();
     if (permalink === '' && slug !== '') {
-        permalink = buildPermalinkDisplayUrl(base, slug, suffix);
+        // Prefer site routing template; never invent /tin-tuc/ from host+suffix alone.
+        permalink = buildPermalinkFromTemplate(template, slug);
     }
 
     if (slug !== '') {
@@ -738,6 +760,10 @@ export function patchPermalinkDisplay(patch) {
         root.setAttribute('data-permalink-suffix', suffix);
     }
 
+    if (root && patch.permalink_template != null) {
+        root.setAttribute('data-permalink-template', template);
+    }
+
     // Observed WP permalink is read-only; only refresh attribute when explicitly provided.
     if (root && Object.prototype.hasOwnProperty.call(patch, 'wordpress_permalink')) {
         const nextWp = String(patch.wordpress_permalink ?? '').trim();
@@ -749,12 +775,20 @@ export function patchPermalinkDisplay(patch) {
         }
     }
 
+    const target = root?.querySelector('[data-seo-permalink-url]');
     if (permalink === '') {
+        if (target) {
+            const wpPermalink = String(root?.getAttribute('data-wordpress-permalink') ?? '').trim();
+            target.textContent = wpPermalink !== ''
+                ? 'Chưa có cấu hình permalink từ WordPress'
+                : '#';
+            if (target instanceof HTMLAnchorElement) {
+                target.removeAttribute('href');
+            }
+        }
         syncWordPressPermalinkRowVisibility(root, '');
         return;
     }
-
-    const target = root?.querySelector('[data-seo-permalink-url]');
 
     if (!target) {
         syncWordPressPermalinkRowVisibility(root, permalink);
@@ -784,12 +818,27 @@ function syncWordPressPermalinkRowVisibility(root, editorPermalink) {
         return;
     }
 
-    const show = !permalinksAreEquivalent(editorPermalink, wpPermalink);
-    row.classList.toggle('hidden', !show);
-    if (show) {
-        row.removeAttribute('hidden');
-    } else {
-        row.setAttribute('hidden', '');
+    // Always show observed WP row when present; badge indicates drift.
+    row.classList.remove('hidden');
+    row.removeAttribute('hidden');
+
+    let pending = root.querySelector('[data-seo-permalink-pending]');
+    const drifted = editorPermalink !== ''
+        && wpPermalink !== ''
+        && !permalinksAreEquivalent(editorPermalink, wpPermalink);
+
+    if (drifted) {
+        if (!(pending instanceof HTMLElement)) {
+            pending = document.createElement('span');
+            pending.setAttribute('data-seo-permalink-pending', '');
+            pending.className = 'text-xs text-amber-700 dark:text-amber-300';
+            pending.textContent = 'Chưa đồng bộ';
+            const editorRow = root.querySelector('.wp-permalink__row--editor');
+            editorRow?.appendChild(pending);
+        }
+        pending.classList.remove('hidden');
+    } else if (pending instanceof HTMLElement) {
+        pending.classList.add('hidden');
     }
 }
 
@@ -819,15 +868,11 @@ export function applyArticleSeoMetaSaveResult(result) {
     }
 
     const slug = String(result.article_slug ?? '').trim();
-    const base = String(result.permalink_base ?? '').trim();
-    const suffix = String(result.permalink_suffix ?? '').trim();
-    // Editor «Đường dẫn» follows current slug — never replace with observed WP permalink.
-    let permalink = '';
-    if (slug !== '') {
-        permalink = buildPermalinkDisplayUrl(base, slug, suffix);
-    }
-    if (permalink === '') {
-        permalink = String(result.permalink ?? preview?.url ?? '').trim();
+    const template = String(result.permalink_template ?? '').trim();
+    // Prefer server candidate permalink / routing template — never invent host+suffix alone.
+    let permalink = String(result.permalink ?? '').trim();
+    if (permalink === '' && slug !== '' && template !== '') {
+        permalink = buildPermalinkFromTemplate(template, slug);
     }
 
     patchPermalinkDisplay({
@@ -835,6 +880,7 @@ export function applyArticleSeoMetaSaveResult(result) {
         article_slug: slug,
         permalink_base: result.permalink_base,
         permalink_suffix: result.permalink_suffix,
+        permalink_template: result.permalink_template,
         wordpress_permalink: result.wordpress_permalink ?? result.wp_permalink,
     });
 
@@ -848,6 +894,7 @@ export function applyArticleSeoMetaSaveResult(result) {
                     wordpress_permalink: result.wordpress_permalink ?? result.wp_permalink,
                     permalink_base: result.permalink_base,
                     permalink_suffix: result.permalink_suffix,
+                    permalink_template: result.permalink_template,
                 },
             }),
         );

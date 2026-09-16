@@ -135,13 +135,11 @@ final class ArticleEditorSeoPayloadService
                 static fn ($meta): bool => (string) $meta->meta_key === 'wp_permalink',
             )?->meta_value ?? ''
         ));
-        $localPermalink = $cachedPermalink !== ''
-            ? $cachedPermalink
-            : app(WordPressPermalinkBuilder::class)->resolve(
-                $article,
-                $cachedPermalink,
-                trim((string) ($article->slug ?? '')),
-            );
+        $candidatePermalink = app(WordPressPermalinkBuilder::class)->candidatePermalink(
+            $article,
+            trim((string) ($article->slug ?? '')),
+        );
+        $localPermalink = $candidatePermalink !== '' ? $candidatePermalink : $cachedPermalink;
 
         $googleSerpPreview = app(ArticleGoogleSerpPreviewService::class)->buildForArticle(
             $article,
@@ -220,13 +218,11 @@ final class ArticleEditorSeoPayloadService
 
         $wpContent = app(WordPressArticleContentService::class);
         $cachedPermalink = trim((string) $metaMap->get('wp_permalink', ''));
-        $localPermalink = $cachedPermalink !== ''
-            ? $cachedPermalink
-            : app(WordPressPermalinkBuilder::class)->resolve(
-                $article,
-                $cachedPermalink,
-                trim((string) ($article->slug ?? '')),
-            );
+        $candidatePermalink = app(WordPressPermalinkBuilder::class)->candidatePermalink(
+            $article,
+            trim((string) ($article->slug ?? '')),
+        );
+        $localPermalink = $candidatePermalink !== '' ? $candidatePermalink : $cachedPermalink;
 
         return [
             'score' => $skipSeoScore ? null : $score,
@@ -247,6 +243,8 @@ final class ArticleEditorSeoPayloadService
                 ? rtrim($wpContent->getPermalinkBase($article->site), '/')
                 : '',
             'permalink' => $localPermalink,
+            'wordpress_permalink' => $cachedPermalink,
+            'permalink_template' => app(WordPressPermalinkBuilder::class)->candidateTemplate($article),
             'violations' => $violations,
         ];
     }

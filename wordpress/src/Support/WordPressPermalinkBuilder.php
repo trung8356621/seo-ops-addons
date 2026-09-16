@@ -5,12 +5,14 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\WordPress\Support;
 
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Support\ArticleWordPressPostType;
 use Omnichannel\Addons\WordPress\Services\WordPressSiteInfoService;
 use App\Models\Site;
 use Carbon\CarbonInterface;
 
 /**
- * Khi wp_permalink là dạng plain (?p=ID), ghép URL theo cấu trúc permalink WordPress (site-info).
+ * Candidate permalinks from cached WordPress site-info routing (read-only).
+ * Observed remote URLs live in article_meta.wp_permalink — never invent those here.
  */
 final class WordPressPermalinkBuilder
 {
@@ -18,52 +20,121 @@ final class WordPressPermalinkBuilder
         private readonly WordPressSiteInfoService $siteInfo,
     ) {}
 
+    /**
+     * Prefer observed remote permalink when the article is linked to WordPress.
+     * Otherwise (or when reconstructing a plain ?p= URL) build a candidate from site routing.
+     */
     public function resolve(SeoArticle $article, string $cachedPermalink = '', ?string $slug = null): string
     {
         $cached = trim($cachedPermalink);
         $slug = trim($slug ?? (string) ($article->slug ?? ''));
+        $wpPostId = (int) ($article->wordpressLink?->wp_post_id ?? $article->getAttribute('wp_post_id') ?? 0);
 
-        if ((int) ($article->wordpressLink?->wp_post_id ?? 0) > 0 && $cached !== '') {
+        // Linked + observed remote URL: WordPress wins. Do not rewrite from local slug/type.
+        if ($wpPostId > 0 && $cached !== '' && ! $this->isPlainPermalinkUrl($cached)) {
             return $cached;
         }
 
-        $article->loadMissing('site');
-        $site = $article->site;
-        if (! $site instanceof Site) {
-            return $cached;
-        }
-
-        $settings = $this->permalinkSettings($site);
-        if ($slug !== '' && $this->hasRuntimeTemplate($article, $settings)) {
-            $built = $this->buildPrettyPermalink($site, $article, $slug, $settings);
-            if ($built !== '') {
-                return $built;
+        if ($wpPostId > 0 && $cached !== '' && $this->isPlainPermalinkUrl($cached)) {
+            $candidate = $this->candidatePermalink($article, $slug !== '' ? $slug : null);
+            if ($candidate !== '') {
+                return $candidate;
             }
-        }
 
-        if ($cached !== '' && ! $this->isPlainPermalinkUrl($cached)) {
             return $cached;
         }
 
-        if ($this->isPlainStructure($settings)) {
-            return $cached !== '' ? $cached : $this->buildPlainPermalink($site, $article);
-        }
-
-        if ($slug === '') {
-            return $cached;
-        }
-
-        $built = $this->buildPrettyPermalink($site, $article, $slug, $settings);
-        if ($built !== '') {
-            return $built;
+        $candidate = $this->candidatePermalink($article, $slug !== '' ? $slug : null);
+        if ($candidate !== '') {
+            return $candidate;
         }
 
         return $cached;
     }
 
+    /**
+     * Local expected URL for editor display — never writes wp_permalink.
+     */
     public function preview(SeoArticle $article, string $slug): string
     {
-        return $this->resolve($article, '', $slug);
+        return $this->candidatePermalink($article, $slug);
+    }
+
+    /**
+     * Candidate permalink from the article's own site routing profile + raw WP post type.
+     * Returns empty string when the site profile cannot confidently resolve this type
+     * (never falls back to an unrelated post template such as /tin-tuc/...).
+     */
+    public function candidatePermalink(SeoArticle $article, ?string $slug = null): string
+    {
+        $slug = trim($slug ?? (string) ($article->slug ?? ''));
+        if ($slug === '') {
+            return '';
+        }
+
+        $article->loadMissing('site');
+        $site = $article->site;
+        if (! $site instanceof Site) {
+            return '';
+        }
+
+        $settings = $this->permalinkSettings($site);
+        if (! $this->hasUsableRoutingProfile($settings)) {
+            return '';
+        }
+
+        $wpPostType = ArticleWordPressPostType::resolve($article);
+
+        return $this->buildPrettyPermalinkForType(
+            $site,
+            $slug,
+            $wpPostType,
+            $settings,
+            $article->publishingState?->published_at,
+            (int) ($article->wordpressLink?->wp_post_id ?? $article->getAttribute('wp_post_id') ?? 0),
+            $article,
+        );
+    }
+
+    /**
+     * Template with %slug% for live editor updates (article site only).
+     */
+    public function candidateTemplate(SeoArticle $article): string
+    {
+        $article->loadMissing('site');
+        $site = $article->site;
+        if (! $site instanceof Site) {
+            return '';
+        }
+
+        $settings = $this->permalinkSettings($site);
+        if (! $this->hasUsableRoutingProfile($settings)) {
+            return '';
+        }
+
+        $wpPostType = ArticleWordPressPostType::resolve($article);
+        $templateKey = $this->templateKeyForWpPostType($wpPostType);
+        $template = trim((string) (($settings['templates'] ?? [])[$templateKey] ?? ''));
+        if ($template !== '' && str_contains($template, '%slug%')) {
+            return $template;
+        }
+
+        // Derive a template from a successful candidate build using a sentinel slug.
+        $sentinel = '__omi_slug__';
+        $built = $this->buildPrettyPermalinkForType(
+            $site,
+            $sentinel,
+            $wpPostType,
+            $settings,
+            $article->publishingState?->published_at,
+            0,
+            $article,
+        );
+        if ($built === '' || ! str_contains($built, $sentinel)) {
+            return '';
+        }
+
+        return str_replace($sentinel, '%slug%', $built);
     }
 
     /**
@@ -82,19 +153,19 @@ final class WordPressPermalinkBuilder
         }
 
         $settings = $this->permalinkSettings($site);
-        if ($this->isPlainStructure($settings)) {
+        if (! $this->hasUsableRoutingProfile($settings) || $this->isPlainStructure($settings)) {
             return $permalink;
         }
 
-        $type = strtolower(trim((string) ($item['type'] ?? 'article')));
-        $wpPostType = trim((string) ($item['wp_post_type'] ?? ''));
+        $wpPostType = ArticleWordPressPostType::normalizeEditorInput(
+            (string) ($item['wp_post_type'] ?? $item['type'] ?? 'post'),
+        );
         $publishedAt = $this->parsePublishedAt($item['published_at'] ?? null);
         $wpId = (int) ($item['wp_id'] ?? 0);
 
         $built = $this->buildPrettyPermalinkForType(
             $site,
             $slug,
-            $type,
             $wpPostType,
             $settings,
             $publishedAt,
@@ -124,9 +195,23 @@ final class WordPressPermalinkBuilder
      */
     private function isPlainStructure(array $settings): bool
     {
-        $structure = trim((string) ($settings['structure'] ?? ''));
+        return trim((string) ($settings['structure'] ?? '')) === '';
+    }
 
-        return $structure === '';
+    /**
+     * @param  array<string, mixed>  $settings
+     */
+    private function hasUsableRoutingProfile(array $settings): bool
+    {
+        if (array_key_exists('structure', $settings)) {
+            return true;
+        }
+
+        if (is_array($settings['templates'] ?? null) && $settings['templates'] !== []) {
+            return true;
+        }
+
+        return is_array($settings['woocommerce'] ?? null);
     }
 
     /**
@@ -160,12 +245,8 @@ final class WordPressPermalinkBuilder
             return $permalink;
         }
 
-        return [
-            'structure' => '',
-            'category_base' => 'category',
-            'tag_base' => 'tag',
-            'woocommerce' => [],
-        ];
+        // Missing profile: empty structure marker so callers can detect unavailability.
+        return [];
     }
 
     /**
@@ -173,48 +254,22 @@ final class WordPressPermalinkBuilder
      */
     private function readPermalinkFromStoredSiteInfo(Site $site): array
     {
-        $info = $this->siteInfo->getStoredSiteInfo($site);
+        $info = $this->siteInfo->getStoredSiteInfo($site) ?? [];
         $permalink = is_array($info['permalink'] ?? null) ? $info['permalink'] : [];
 
         return $permalink;
     }
 
-    /**
-     * @param  array<string, mixed>  $settings
-     */
-    private function hasRuntimeTemplate(SeoArticle $article, array $settings): bool
+    private function templateKeyForWpPostType(string $wpPostType): string
     {
-        $templates = is_array($settings['templates'] ?? null) ? $settings['templates'] : [];
-        $type = strtolower(trim((string) ($article->type ?? 'article')));
-        $wpPostType = $this->resolveWpPostType($article);
-        $key = match (true) {
-            $type === 'product' || $wpPostType === 'product' => 'product',
-            $type === 'product_category' || $wpPostType === 'product_cat' => 'product_category',
-            $type === 'category' || $wpPostType === 'category' => 'category',
-            default => 'post',
+        return match ($wpPostType) {
+            'product' => 'product',
+            'product_cat', 'product_category' => 'product_category',
+            'category' => 'category',
+            'page' => 'page',
+            'post' => 'post',
+            default => $wpPostType,
         };
-
-        return str_contains(trim((string) ($templates[$key] ?? '')), '%slug%');
-    }
-
-    /**
-     * @param  array<string, mixed>  $settings
-     */
-    private function buildPrettyPermalink(Site $site, SeoArticle $article, string $slug, array $settings): string
-    {
-        $type = strtolower(trim((string) ($article->type ?? 'article')));
-        $wpPostType = $this->resolveWpPostType($article);
-
-        return $this->buildPrettyPermalinkForType(
-            $site,
-            $slug,
-            $type,
-            $wpPostType,
-            $settings,
-            $article->publishingState?->published_at,
-            (int) ($article->wordpressLink?->wp_post_id ?? 0),
-            $article,
-        );
     }
 
     /**
@@ -223,7 +278,6 @@ final class WordPressPermalinkBuilder
     private function buildPrettyPermalinkForType(
         Site $site,
         string $slug,
-        string $type,
         string $wpPostType,
         array $settings,
         mixed $publishedAt,
@@ -235,23 +289,28 @@ final class WordPressPermalinkBuilder
             return '';
         }
 
-        $templateKey = match (true) {
-            $type === 'product' || $wpPostType === 'product' => 'product',
-            $type === 'product_category' || $wpPostType === 'product_cat' => 'product_category',
-            $type === 'category' || $wpPostType === 'category' => 'category',
-            default => 'post',
-        };
+        $wpPostType = ArticleWordPressPostType::normalizeEditorInput($wpPostType);
+        $templateKey = $this->templateKeyForWpPostType($wpPostType);
         $template = trim((string) (($settings['templates'] ?? [])[$templateKey] ?? ''));
         if ($template !== '' && str_contains($template, '%slug%')) {
             return str_replace('%slug%', rawurlencode($slug), $template);
         }
 
         $path = match (true) {
-            $type === 'product' || $wpPostType === 'product' => $this->buildProductPath($slug, $settings, $article),
-            in_array($type, ['category', 'product_category'], true)
-                || in_array($wpPostType, ['category', 'product_cat'], true) => $this->buildTermPath($slug, $type, $wpPostType, $settings),
-            default => $this->buildPostPath($slug, $settings, $publishedAt, $wpId, $article),
+            $wpPostType === 'product' => $this->buildProductPath($slug, $settings, $article),
+            in_array($wpPostType, ['category', 'product_cat', 'product_category'], true) => $this->buildTermPath(
+                $slug,
+                $wpPostType,
+                $settings,
+            ),
+            $wpPostType === 'page' => $this->buildPagePath($slug, $settings, $article),
+            $wpPostType === 'post' => $this->buildPostPath($slug, $settings, $publishedAt, $wpId, $article),
+            default => $this->buildNativeCptPath($slug, $wpPostType, $settings),
         };
+
+        if ($path === null) {
+            return '';
+        }
 
         if ($path === '') {
             return '';
@@ -269,10 +328,10 @@ final class WordPressPermalinkBuilder
         mixed $publishedAt,
         int $wpId,
         ?SeoArticle $article,
-    ): string {
+    ): ?string {
         $structure = trim((string) ($settings['structure'] ?? ''));
         if ($structure === '') {
-            return $slug;
+            return null;
         }
 
         return $this->expandPermalinkStructure($structure, $slug, $publishedAt, $wpId, $article);
@@ -281,12 +340,25 @@ final class WordPressPermalinkBuilder
     /**
      * @param  array<string, mixed>  $settings
      */
-    private function buildProductPath(string $slug, array $settings, ?SeoArticle $article): string
+    private function buildProductPath(string $slug, array $settings, ?SeoArticle $article): ?string
     {
-        $wc = is_array($settings['woocommerce'] ?? null) ? $settings['woocommerce'] : [];
-        $base = trim((string) ($wc['product_base'] ?? 'product'), '/');
+        // Prefer explicit WooCommerce permalink config (empty product_base = root URLs).
+        if (! array_key_exists('woocommerce', $settings) || ! is_array($settings['woocommerce'])) {
+            // No Woo config and no product template → unknown (do not use post structure).
+            return null;
+        }
 
+        $wc = $settings['woocommerce'];
+        if (! array_key_exists('product_base', $wc)) {
+            return null;
+        }
+
+        $base = trim((string) $wc['product_base'], '/');
         $categorySlug = $article instanceof SeoArticle ? $this->resolvePrimaryCategorySlug($article) : '';
+
+        if ($base === '') {
+            return $slug;
+        }
 
         $path = str_replace(
             ['%product_cat%', '%product%'],
@@ -294,12 +366,7 @@ final class WordPressPermalinkBuilder
             $base,
         );
 
-        $path = trim($path, '/');
-        $path = preg_replace('#/+#', '/', $path) ?? $path;
-
-        if ($base === '') {
-            return $slug;
-        }
+        $path = trim((string) (preg_replace('#/+#', '/', $path) ?? $path), '/');
 
         if (! str_contains($base, '%product%')) {
             $path = $path !== '' ? $path . '/' . $slug : $slug;
@@ -311,14 +378,20 @@ final class WordPressPermalinkBuilder
     /**
      * @param  array<string, mixed>  $settings
      */
-    private function buildTermPath(string $slug, string $type, string $wpPostType, array $settings): string
+    private function buildTermPath(string $slug, string $wpPostType, array $settings): ?string
     {
         $wc = is_array($settings['woocommerce'] ?? null) ? $settings['woocommerce'] : [];
 
-        if ($type === 'product_category' || $wpPostType === 'product_cat') {
-            $base = trim((string) ($wc['category_base'] ?? 'product-category'), '/');
+        if (in_array($wpPostType, ['product_cat', 'product_category'], true)) {
+            if (! array_key_exists('category_base', $wc)) {
+                return null;
+            }
+            $base = trim((string) $wc['category_base'], '/');
         } else {
-            $base = trim((string) ($settings['category_base'] ?? 'category'), '/');
+            if (! array_key_exists('category_base', $settings)) {
+                return null;
+            }
+            $base = trim((string) ($settings['category_base'] ?? ''), '/');
         }
 
         if ($base === '') {
@@ -326,6 +399,68 @@ final class WordPressPermalinkBuilder
         }
 
         return trim($base . '/' . $slug, '/');
+    }
+
+    /**
+     * @param  array<string, mixed>  $settings
+     */
+    private function buildPagePath(string $slug, array $settings, ?SeoArticle $article): ?string
+    {
+        // Page URLs are hierarchical and not driven by permalink_structure.
+        // Without a site-info page template, only build when we can use parent path meta.
+        $parentPath = '';
+        if ($article instanceof SeoArticle) {
+            $article->loadMissing('articleMetas');
+            $parentPath = trim((string) ($article->articleMetas
+                ->firstWhere('meta_key', 'wp_page_path')?->meta_value
+                ?? $article->articleMetas->firstWhere('meta_key', 'wp_parent_path')?->meta_value
+                ?? ''), '/');
+        }
+
+        if ($parentPath !== '') {
+            return trim($parentPath . '/' . $slug, '/');
+        }
+
+        // Flat page: allow /{slug}/ only when templates already covered — otherwise unknown.
+        // Many WP sites use root pages; expose via templates['page'] from the bridge.
+        // If post_types.page.rewrite is present with empty slug, treat as root page.
+        $postTypes = is_array($settings['post_types'] ?? null) ? $settings['post_types'] : [];
+        $pageMeta = is_array($postTypes['page'] ?? null) ? $postTypes['page'] : null;
+        if ($pageMeta !== null) {
+            $rewrite = trim((string) ($pageMeta['rewrite_slug'] ?? ''), '/');
+
+            return $rewrite !== '' ? trim($rewrite . '/' . $slug, '/') : $slug;
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $settings
+     */
+    private function buildNativeCptPath(string $slug, string $wpPostType, array $settings): ?string
+    {
+        $postTypes = is_array($settings['post_types'] ?? null) ? $settings['post_types'] : [];
+        $meta = is_array($postTypes[$wpPostType] ?? null) ? $postTypes[$wpPostType] : null;
+        if ($meta === null) {
+            return null;
+        }
+
+        $rewrite = trim((string) ($meta['rewrite_slug'] ?? $wpPostType), '/');
+        $withFront = (bool) ($meta['with_front'] ?? true);
+        $front = '';
+        if ($withFront) {
+            $structure = trim((string) ($settings['structure'] ?? ''), '/');
+            // WordPress with_front prefixes the front base from permalink_structure before %postname%.
+            // When structure is /tin-tuc/%postname%.html, front base is tin-tuc — only apply when rewrite is set.
+            if (preg_match('#^([^%]+)/#', $structure, $m) === 1) {
+                $front = trim($m[1], '/');
+            }
+        }
+
+        $parts = array_values(array_filter([$front, $rewrite, $slug], static fn (string $p): bool => $p !== ''));
+
+        return implode('/', $parts);
     }
 
     private function expandPermalinkStructure(
@@ -363,34 +498,9 @@ final class WordPressPermalinkBuilder
     private function resolvePrimaryCategorySlug(SeoArticle $article): string
     {
         $article->loadMissing('articleMetas');
-        $slug = trim((string) ($article->articleMetas->firstWhere('meta_key', 'wp_primary_category_slug')?->meta_value ?? ''));
 
-        return $slug;
-    }
-
-    private function resolveWpPostType(SeoArticle $article): string
-    {
-        $type = strtolower(trim((string) ($article->type ?? '')));
-
-        return match ($type) {
-            'product' => 'product',
-            'product_category', 'product_cat' => 'product_cat',
-            'category' => 'category',
-            'article', 'post' => 'post',
-            default => $type,
-        };
-    }
-
-    private function buildPlainPermalink(Site $site, SeoArticle $article): string
-    {
-        $wpId = (int) ($article->wordpressLink?->wp_post_id ?? 0);
-        if ($wpId <= 0) {
-            return '';
-        }
-
-        $base = $this->siteBaseUrl($site);
-
-        return rtrim($base, '/') . '/?p=' . $wpId;
+        return trim((string) ($article->articleMetas
+            ->firstWhere('meta_key', 'wp_primary_category_slug')?->meta_value ?? ''));
     }
 
     private function siteBaseUrl(Site $site): string

@@ -34,7 +34,6 @@ use Omnichannel\Addons\Seo\Services\SeoIssueProjectTaskAssignmentService;
 use Omnichannel\Addons\Seo\Services\SeoNotificationService;
 use Omnichannel\Addons\ContentProjects\Services\SeoProjectArticleOwnerSyncService;
 use Omnichannel\Addons\WordPress\Services\SitePolylangService;
-use Omnichannel\Addons\WordPress\Services\WordPressArticleContentService;
 use Omnichannel\Addons\Seo\Support\SeoAccessControl;
 use Omnichannel\Addons\Seo\Support\SeoPanelRoutes;
 use Omnichannel\Addons\Seo\Support\SeoDisplayTimezone;
@@ -1586,27 +1585,18 @@ class ArticleResource extends SeoPanelResource
 
     private static function resolveWordPressPermalink(SeoArticle $record): ?string
     {
-        $record->loadMissing('site', 'articleMetas');
+        $record->loadMissing('site', 'articleMetas', 'wordpressLink');
 
         $cached = trim((string) ($record->articleMetas->firstWhere('meta_key', 'wp_permalink')?->meta_value ?? ''));
+        $wpPostId = (int) ($record->wordpressLink?->wp_post_id ?? $record->getAttribute('wp_post_id') ?? 0);
+        if ($wpPostId > 0 && $cached !== '') {
+            return $cached;
+        }
+
         $slug = trim((string) ($record->slug ?? ''));
-
         $resolved = app(WordPressPermalinkBuilder::class)->resolve($record, $cached, $slug !== '' ? $slug : null);
-        if ($resolved !== '') {
-            return $resolved;
-        }
 
-        $site = $record->site;
-        if (! $site instanceof Site) {
-            return null;
-        }
-
-        $base = app(WordPressArticleContentService::class)->getPermalinkBase($site);
-        if ($base === '' || $slug === '') {
-            return null;
-        }
-
-        return rtrim($base, '/').'/'.ltrim($slug, '/');
+        return $resolved !== '' ? $resolved : null;
     }
 
     /**

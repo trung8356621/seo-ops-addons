@@ -136,6 +136,7 @@ final class ArticleEditorSeoMetaService
         $score = $article->seoProfile?->seo_score !== null ? (int) round((float) $article->seoProfile->seo_score) : null;
 
         $permalinkBase = $this->resolvePermalinkBase($article);
+        $permalinkTemplate = $this->permalinkBuilder->candidateTemplate($article);
 
         return [
             'google_serp_preview' => $preview,
@@ -145,6 +146,10 @@ final class ArticleEditorSeoMetaService
             'permalink' => $permalink,
             'permalink_base' => $permalinkBase,
             'permalink_suffix' => $this->resolvePermalinkSuffix($permalink, $articleSlug),
+            'permalink_template' => $permalinkTemplate,
+            'wordpress_permalink' => trim((string) (
+                $article->articleMetas->firstWhere('meta_key', 'wp_permalink')?->meta_value ?? ''
+            )),
             'meta_description' => $metaDescription,
             'seo_analysis_pending' => true,
         ];
@@ -162,6 +167,7 @@ final class ArticleEditorSeoMetaService
 
     /**
      * URL hiển thị theo slug local mới — không giữ permalink WP cũ (chưa Sync).
+     * Empty when site routing profile cannot resolve the current raw WP type.
      */
     private function resolveDisplayPermalink(SeoArticle $article, string $displaySlug): string
     {
@@ -170,16 +176,7 @@ final class ArticleEditorSeoMetaService
             return '';
         }
 
-        $preview = $this->permalinkBuilder->preview($article, $displaySlug);
-        if ($preview !== '') {
-            return $preview;
-        }
-
-        $base = $this->resolvePermalinkBase($article);
-
-        return $base !== ''
-            ? rtrim($base, '/').'/'.$displaySlug
-            : '';
+        return $this->permalinkBuilder->candidatePermalink($article, $displaySlug);
     }
 
     private function resolvePermalinkSuffix(string $permalink, string $slug): string

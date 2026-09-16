@@ -450,10 +450,11 @@ class EditArticle extends SeoEditRecord
         $detail = [
             'slug' => $slug,
             'article_slug' => $slug,
-            'permalink' => trim($this->getDisplayPermalink()),
+            'permalink' => trim($this->getCandidatePermalink()),
             'wordpress_permalink' => trim($this->getObservedWordPressPermalink()),
             'permalink_base' => rtrim($this->getPermalinkBase(), '/'),
             'permalink_suffix' => $this->getPermalinkSuffix(),
+            'permalink_template' => trim($this->getCandidatePermalinkTemplate()),
         ];
 
         $this->js(sprintf(
@@ -2009,20 +2010,30 @@ class EditArticle extends SeoEditRecord
         return '';
     }
 
+    /**
+     * Local candidate permalink from the article site's WordPress routing profile.
+     * Empty when site-info routing cannot confidently resolve the current raw WP type.
+     */
     public function getDisplayPermalink(): string
     {
+        return $this->getCandidatePermalink();
+    }
+
+    public function getCandidatePermalink(): string
+    {
         $displaySlug = $this->getDisplaySlug();
-        $preview = app(\Omnichannel\Addons\WordPress\Support\WordPressPermalinkBuilder::class)
-            ->preview($this->record, $displaySlug);
-        if ($preview !== '') {
-            return $preview;
+        if ($displaySlug === '') {
+            return '';
         }
 
-        $base = $this->getPermalinkBase();
+        return app(\Omnichannel\Addons\WordPress\Support\WordPressPermalinkBuilder::class)
+            ->candidatePermalink($this->record, $displaySlug);
+    }
 
-        return $base !== ''
-            ? rtrim($base, '/').'/'.$displaySlug
-            : '';
+    public function getCandidatePermalinkTemplate(): string
+    {
+        return app(\Omnichannel\Addons\WordPress\Support\WordPressPermalinkBuilder::class)
+            ->candidateTemplate($this->record);
     }
 
     /**
@@ -2062,9 +2073,10 @@ class EditArticle extends SeoEditRecord
      */
     public function getGoogleSerpPreview(): array
     {
-        $permalink = trim($this->getObservedWordPressPermalink());
+        // Prefer local candidate for unsynced intent; never invent over stored remote URL.
+        $permalink = trim($this->getCandidatePermalink());
         if ($permalink === '') {
-            $permalink = $this->getDisplayPermalink();
+            $permalink = trim($this->getObservedWordPressPermalink());
         }
 
         return app(ArticleGoogleSerpPreviewService::class)->buildForArticle(
@@ -3272,10 +3284,11 @@ class EditArticle extends SeoEditRecord
             json_encode([
                 'slug' => $this->articleSlug,
                 'article_slug' => $this->articleSlug,
-                'permalink' => trim($this->getDisplayPermalink()),
+                'permalink' => trim($this->getCandidatePermalink()),
                 'wordpress_permalink' => trim($this->getObservedWordPressPermalink()),
                 'permalink_base' => rtrim($this->getPermalinkBase(), '/'),
                 'permalink_suffix' => $this->getPermalinkSuffix(),
+                'permalink_template' => trim($this->getCandidatePermalinkTemplate()),
             ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
         ));
     }
@@ -4053,6 +4066,8 @@ class EditArticle extends SeoEditRecord
             'focusKeyword' => trim($this->focusKeyword),
             'permalinkBase' => rtrim($this->getPermalinkBase(), '/'),
             'permalinkSuffix' => $this->getPermalinkSuffix(),
+            'permalinkTemplate' => trim($this->getCandidatePermalinkTemplate()),
+            'permalink' => trim($this->getCandidatePermalink()),
             'wordpressPermalink' => trim($this->getObservedWordPressPermalink()),
             'siteDomain' => trim((string) ($this->record->site?->domain ?? '')),
             'content' => $this->bootstrapEditorHtml,
@@ -4225,6 +4240,8 @@ class EditArticle extends SeoEditRecord
             [
                 'article_slug' => trim($this->articleSlug),
                 'permalink_suffix' => $this->getPermalinkSuffix(),
+                'permalink_template' => trim($this->getCandidatePermalinkTemplate()),
+                'permalink' => trim($this->getCandidatePermalink()),
             ],
         );
 

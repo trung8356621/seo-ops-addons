@@ -717,14 +717,12 @@
                     </div>
 
                     @php
-                        $editorPermalink = trim($this->getDisplayPermalink());
-                        if ($editorPermalink === '') {
-                            $editorPermalink = trim($this->getPermalinkBase()) !== ''
-                                ? rtrim($this->getPermalinkBase(), '/').'/'.$this->getDisplaySlug()
-                                : '';
-                        }
+                        $editorPermalink = trim($this->getCandidatePermalink());
                         $wpPermalink = trim($this->getObservedWordPressPermalink());
-                        $showWpPermalinkRow = $wpPermalink !== ''
+                        $showWpPermalinkRow = $wpPermalink !== '';
+                        $candidateTemplate = trim($this->getCandidatePermalinkTemplate());
+                        $permalinkPendingSync = $wpPermalink !== ''
+                            && $editorPermalink !== ''
                             && ! $this->permalinksAreEquivalent($editorPermalink, $wpPermalink);
                     @endphp
                     <div
@@ -732,11 +730,12 @@
                         data-seo-permalink-root
                         data-permalink-base="{{ rtrim($this->getPermalinkBase(), '/') }}"
                         data-permalink-suffix="{{ $this->getPermalinkSuffix() }}"
+                        data-permalink-template="{{ $candidateTemplate }}"
                         data-article-slug="{{ trim($this->articleSlug) }}"
                         data-wordpress-permalink="{{ $wpPermalink }}"
                     >
                         <div class="wp-permalink__row wp-permalink__row--editor flex flex-wrap items-baseline gap-x-1 gap-y-1">
-                            <span class="font-medium text-gray-700 dark:text-gray-300 shrink-0">Đường dẫn:</span>
+                            <span class="font-medium text-gray-700 dark:text-gray-300 shrink-0">Đường dẫn dự kiến:</span>
                             @if($editorPermalink !== '')
                                 <a
                                     href="{{ $editorPermalink }}"
@@ -744,21 +743,29 @@
                                     rel="noopener"
                                     data-seo-permalink-url
                                     class="wp-permalink__url text-sky-600 dark:text-sky-400 hover:underline"
-                                    title="URL theo slug hiện tại trong editor"
+                                    title="URL dự kiến theo cấu hình permalink WordPress của site bài viết"
                                 >{{ $editorPermalink }}</a>
+                                @if($permalinkPendingSync)
+                                    <span class="text-xs text-amber-700 dark:text-amber-300" data-seo-permalink-pending>Chưa đồng bộ</span>
+                                @endif
+                            @elseif($wpPermalink !== '')
+                                <span
+                                    data-seo-permalink-url
+                                    class="wp-permalink__url text-gray-500 dark:text-gray-400"
+                                    title="Chưa có cấu hình permalink từ WordPress"
+                                >Chưa có cấu hình permalink từ WordPress</span>
                             @else
                                 <span
                                     data-seo-permalink-url
                                     class="wp-permalink__url text-gray-500 dark:text-gray-400"
-                                    title="URL dự kiến, chưa có slug"
+                                    title="URL dự kiến, chưa có slug hoặc cấu hình permalink"
                                 >#</span>
                             @endif
                         </div>
                         @if($wpPermalink !== '')
                             <div
-                                class="wp-permalink__row wp-permalink__row--wp flex flex-wrap items-baseline gap-x-1 gap-y-1{{ $showWpPermalinkRow ? '' : ' hidden' }}"
+                                class="wp-permalink__row wp-permalink__row--wp flex flex-wrap items-baseline gap-x-1 gap-y-1"
                                 data-seo-wp-permalink-row
-                                @if(! $showWpPermalinkRow) hidden @endif
                             >
                                 <span class="font-medium text-gray-700 dark:text-gray-300 shrink-0">Đường dẫn WP:</span>
                                 <a
