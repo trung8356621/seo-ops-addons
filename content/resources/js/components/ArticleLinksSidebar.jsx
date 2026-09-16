@@ -597,6 +597,9 @@ function KeywordList({
                     const keywordId = Number(item?.keyword_id ?? 0);
                     const isErrorOn = keywordId > 0 && errorKeywordIds?.has(keywordId) === true;
                     const isContentRow = variant === 'suggestion' && isContentSuggestionRow(item);
+                    const isUnresolvedHref =
+                        variant === 'suggestion'
+                        && String(item?.href ?? '').trim() === '#';
                     const showReviewActions =
                         variant === 'suggestion'
                         && !isContentRow
@@ -606,7 +609,7 @@ function KeywordList({
                         <li
                             key={itemKey}
                             data-keyword-row-key={itemKey}
-                            className={`wp-article-links-keyword-row${isRowHiding ? ' is-row-hiding' : ''}${isReviewLoading ? ' is-review-loading' : ''}${isErrorOn ? ' is-error-on' : ''}${isContentRow ? ' is-content-suggestion' : ''}`}
+                            className={`wp-article-links-keyword-row${isRowHiding ? ' is-row-hiding' : ''}${isReviewLoading ? ' is-review-loading' : ''}${isErrorOn ? ' is-error-on' : ''}${isContentRow ? ' is-content-suggestion' : ''}${isUnresolvedHref ? ' is-unresolved-href' : ''}`}
                             aria-hidden={isRowHiding}
                         >
                             {interactive && isEditing ? (

@@ -13,6 +13,7 @@ use Omnichannel\Addons\SearchFoundation\Support\KeywordPhraseMatcher;
 use Omnichannel\Addons\Seo\Support\LinkSuggestionScoreScale;
 use Omnichannel\Addons\Seo\Support\LinkSuggestionValidator;
 use Omnichannel\Addons\Seo\Support\SeoSuggestionUrlNormalizer;
+use Omnichannel\Addons\Content\Support\InternalLinkDestinationGate;
 use Illuminate\Support\Str;
 use Omnichannel\Addons\SearchFoundation\Services\KeywordLinkTargetResolver;
 use Illuminate\Support\Facades\Cache;
@@ -119,42 +120,32 @@ final class ArticleLinkSuggestionCandidateRetriever
                 }
 
                 $url = trim((string) ($candidate['url'] ?? ''));
-                $destinationResolved = (bool) ($candidate['destination_resolved'] ?? false)
-                    && $url !== ''
-                    && SeoSuggestionUrlNormalizer::isParsableTarget($url);
-
-                if ($destinationResolved) {
-                    $normalizedHref = SeoSuggestionUrlNormalizer::normalize($url);
-                    if ($normalizedHref !== '' && in_array($normalizedHref, $alreadyLinkedNormalizedUrls, true)) {
-                        continue;
-                    }
-
-                    $suggestion = [
+                $gate = InternalLinkDestinationGate::evaluate(
+                    $url,
+                    (bool) ($candidate['destination_resolved'] ?? false),
+                    [
                         'text' => $phrase,
-                        'href' => $url,
-                        'target_url' => $url,
                         'target_article_id' => (int) $candidate['id'],
                         'bucket' => 'internal',
-                    ];
+                    ],
+                    $validationContext,
+                    $alreadyLinkedNormalizedUrls,
+                );
 
-                    if (! LinkSuggestionValidator::isValidLinkSuggestion($suggestion, $validationContext)) {
-                        continue;
-                    }
-                }
-
-                // Editor presentation only — never cache "#" as authoritative URL.
-                $editorHref = $destinationResolved ? $url : '#';
-
-                $scored[] = [
+                $row = [
                     'keyword_id' => $keywordId,
                     'phrase' => $phrase,
                     'target_article_id' => (int) $candidate['id'],
-                    'href' => $editorHref,
-                    'url' => $destinationResolved ? $url : null,
-                    'destination_resolved' => $destinationResolved,
+                    'href' => $gate['href'],
+                    'url' => $gate['url'],
+                    'destination_resolved' => $gate['destination_resolved'],
                     'score' => $scorePayload['score'],
                     'match_reason' => $scorePayload['reason'],
                 ];
+                if ($gate['destination_reject_reason'] !== null) {
+                    $row['destination_reject_reason'] = $gate['destination_reject_reason'];
+                }
+                $scored[] = $row;
             }
 
             usort($scored, static fn (array $a, array $b): int => $b['score'] <=> $a['score']);

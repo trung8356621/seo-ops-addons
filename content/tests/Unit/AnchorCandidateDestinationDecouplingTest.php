@@ -39,9 +39,9 @@ final class AnchorCandidateDestinationDecouplingTest extends TestCase
         $body = $this->methodBody(ArticleLinkSuggestionCandidateRetriever::class, 'resolveBestForAnchors');
 
         self::assertStringContainsString('isUsableAnchorCandidate', $body);
-        self::assertStringContainsString("destinationResolved ? \$url : '#'", $body);
-        self::assertStringContainsString("'destination_resolved' => \$destinationResolved", $body);
-        self::assertStringContainsString("'url' => \$destinationResolved ? \$url : null", $body);
+        self::assertStringContainsString('InternalLinkDestinationGate::evaluate', $body);
+        self::assertStringContainsString("'destination_resolved' => \$gate['destination_resolved']", $body);
+        self::assertStringContainsString("'url' => \$gate['url']", $body);
     }
 
     public function test_pipeline_generic_stage_accepts_unresolved_placeholder_href(): void
@@ -51,7 +51,7 @@ final class AnchorCandidateDestinationDecouplingTest extends TestCase
         );
 
         self::assertStringContainsString('destination_resolved', $src);
-        self::assertStringContainsString("href = \$destinationResolved ? \$canonicalUrl : '#'", $src);
+        self::assertStringContainsString('UnresolvedInternalLinkSuggestion::make', $src);
         self::assertStringContainsString('isUsableAnchorCandidate', $src);
     }
 

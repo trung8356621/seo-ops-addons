@@ -15,7 +15,6 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\NewContent\NewCon
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\PlanningAttributionWriter;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\PlanningMonthBackfill;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\SitePlanningActiveUnitAggregator;
-use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\SitePlanningActiveUnitPredicate;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\SitePlanningReadModel;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\ConsumeVocabularySuggestCandidateService;
@@ -162,21 +161,15 @@ final class IdeaConsumptionAndSitePlanningLifecycleContractTest extends TestCase
         self::assertStringContainsString('data-planner-active-month', $barBlade);
     }
 
-    public function test_site_planning_mcp_formula_documented(): void
+    public function test_site_planning_matrix_is_distribution_count(): void
     {
         $agg = (string) file_get_contents(
             (string) (new ReflectionClass(SitePlanningActiveUnitAggregator::class))->getFileName(),
         );
-        self::assertStringContainsString('planning_mcp_share', $agg);
-        self::assertStringContainsString('attributed_cluster_tasks', $agg);
-        self::assertStringContainsString('attributed_site_month_tasks', $agg);
-        self::assertStringContainsString('round(($taskCount / $attributedTotal) * 100, 1)', $agg);
-
-        // Pure formula mirror.
-        $clusterTasks = 5;
-        $siteAttributed = 10;
-        $share = round(($clusterTasks / $siteAttributed) * 100, 1);
-        self::assertSame(50.0, $share);
+        self::assertStringContainsString('STATUS_CANCELLED', $agg);
+        self::assertStringContainsString('whereNull(\'t.deleted_at\')', $agg);
+        self::assertStringNotContainsString('SitePlanningActiveUnitPredicate', $agg);
+        self::assertStringNotContainsString('publish_published_at', $agg);
 
         $read = (string) file_get_contents(
             (string) (new ReflectionClass(SitePlanningReadModel::class))->getFileName(),
@@ -184,6 +177,7 @@ final class IdeaConsumptionAndSitePlanningLifecycleContractTest extends TestCase
         self::assertStringContainsString('SitePlanningActiveUnitAggregator', $read);
         self::assertStringContainsString('activeMonth', $read);
         self::assertStringContainsString('cellDetail', $read);
+        self::assertStringContainsString('TopicHistoryReadModel', $read);
         self::assertStringNotContainsString('ContentProjectMonthlyWorkloadService', $read);
     }
 
@@ -192,15 +186,10 @@ final class IdeaConsumptionAndSitePlanningLifecycleContractTest extends TestCase
         $src = (string) file_get_contents(
             (string) (new ReflectionClass(SitePlanningActiveUnitAggregator::class))->getFileName(),
         );
-        self::assertStringContainsString('$units[$taskId]', $src);
-        self::assertStringContainsString("'in_draft' => false", $src);
-        self::assertStringContainsString('SitePlanningActiveUnitPredicate', $src);
-        self::assertStringContainsString('constrainQuery', (string) file_get_contents(
-            (string) (new ReflectionClass(SitePlanningActiveUnitPredicate::class))->getFileName(),
-        ));
-        self::assertStringContainsString('whereNull(\'p.archived_at\')', (string) file_get_contents(
-            (string) (new ReflectionClass(SitePlanningActiveUnitPredicate::class))->getFileName(),
-        ));
+        self::assertStringContainsString('$taskId', $src);
+        self::assertStringContainsString('project_task_id', $src);
+        self::assertStringContainsString('STATUS_CANCELLED', $src);
+        self::assertStringNotContainsString('SitePlanningActiveUnitPredicate', $src);
     }
 
     public function test_parser_accepts_backward_compatible_cluster_fields(): void

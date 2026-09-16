@@ -220,17 +220,6 @@ final class IdeaConsumptionAndSitePlanningLifecycleIntegrationTest extends TestC
         $agg = app(SitePlanningActiveUnitAggregator::class)->forSiteMonth($siteId, $month);
         self::assertGreaterThanOrEqual(2, $agg['planned']);
 
-        $byRef = [];
-        foreach ($agg['clusters'] as $cluster) {
-            $byRef[$cluster['cluster_ref']] = $cluster;
-        }
-        self::assertArrayHasKey('clu_a', $byRef);
-        self::assertArrayHasKey('clu_b', $byRef);
-        self::assertSame(1, (int) $byRef['clu_a']['article_count']);
-        self::assertSame(1, (int) $byRef['clu_b']['article_count']);
-        self::assertSame(1, (int) $byRef['clu_a']['dna_planned']);
-        self::assertSame(1, (int) $byRef['clu_b']['dna_planned']);
-
         $attrA = SeoContentProjectTaskPlanningAttribution::query()
             ->where('project_task_id', $taskIds[0])
             ->first();
@@ -241,10 +230,10 @@ final class IdeaConsumptionAndSitePlanningLifecycleIntegrationTest extends TestC
         self::assertSame(['dna-b-only'], $attrB?->dna_phrases);
         self::assertNotContains('dna-a-only', $attrB?->dna_phrases ?? []);
 
-        // Archive project → leave active planning.
+        // Archive project → still counts in monthly article distribution.
         $project->forceFill(['archived_at' => now()])->save();
         $afterArchive = app(SitePlanningActiveUnitAggregator::class)->forSiteMonth($siteId, $month);
-        self::assertSame(0, $afterArchive['planned']);
+        self::assertGreaterThanOrEqual(2, $afterArchive['planned']);
     }
 
     public function test_draft_to_execution_counts_as_one_planning_unit(): void
@@ -290,13 +279,13 @@ final class IdeaConsumptionAndSitePlanningLifecycleIntegrationTest extends TestC
         $afterMove = app(SitePlanningActiveUnitAggregator::class)->forSiteMonth($siteId, $month);
         self::assertSame(1, $afterMove['planned']);
 
-        // Generation completed → leaves ACTIVE planning aggregate (history/attribution kept).
+        // Generation completed → still counts in monthly distribution.
         $task->forceFill([
             'status' => SeoProjectTask::STATUS_COMPLETED,
             'completed_at' => now(),
         ])->save();
         $afterCompleted = app(SitePlanningActiveUnitAggregator::class)->forSiteMonth($siteId, $month);
-        self::assertSame(0, $afterCompleted['planned']);
+        self::assertSame(1, $afterCompleted['planned']);
         self::assertNotNull(SeoContentProjectTaskPlanningAttribution::query()
             ->where('project_task_id', (int) $task->id)
             ->first());
@@ -306,7 +295,7 @@ final class IdeaConsumptionAndSitePlanningLifecycleIntegrationTest extends TestC
 
         $execution->forceFill(['archived_at' => now()])->save();
         $afterArchive = app(SitePlanningActiveUnitAggregator::class)->forSiteMonth($siteId, $month);
-        self::assertSame(0, $afterArchive['planned']);
+        self::assertSame(1, $afterArchive['planned']);
     }
 
     public function test_backfill_processes_beyond_5000_idempotently(): void
@@ -460,12 +449,7 @@ final class IdeaConsumptionAndSitePlanningLifecycleIntegrationTest extends TestC
         // Planning month SSOT on task — unit still counts in Sep Site Planning after Oct execution move.
         $inSep = app(SitePlanningActiveUnitAggregator::class)->forSiteMonth($siteId, $month);
         self::assertSame(1, $inSep['planned']);
-        $byRef = [];
-        foreach ($inSep['clusters'] as $cluster) {
-            $byRef[$cluster['cluster_ref']] = $cluster;
-        }
-        self::assertArrayHasKey('clu_keep', $byRef);
-        self::assertSame(1, (int) $byRef['clu_keep']['dna_planned']);
+        self::assertContains($taskId, $inSep['task_ids']);
     }
 
     public function test_overflow_origin_matches_target_project_id(): void
@@ -523,8 +507,6 @@ final class IdeaConsumptionAndSitePlanningLifecycleIntegrationTest extends TestC
 
         $draftAgg = app(SitePlanningActiveUnitAggregator::class)->forSiteMonth($siteId, $month);
         self::assertSame(1, $draftAgg['planned']);
-        self::assertSame(1, (int) ($draftAgg['source_counts'][SeoContentProjectItemOrigin::SOURCE_VOCABULARY_SUGGEST] ?? 0));
-        self::assertSame(1, (int) ($draftAgg['attributed']['count'] ?? 0));
 
         $execution = SeoProject::query()->create([
             'site_id' => $siteId,
@@ -544,7 +526,6 @@ final class IdeaConsumptionAndSitePlanningLifecycleIntegrationTest extends TestC
 
         $execAgg = app(SitePlanningActiveUnitAggregator::class)->forSiteMonth($siteId, $month);
         self::assertSame(1, $execAgg['planned']);
-        self::assertSame(1, (int) ($execAgg['source_counts'][SeoContentProjectItemOrigin::SOURCE_VOCABULARY_SUGGEST] ?? 0));
 
         $task->forceFill([
             'status' => SeoProjectTask::STATUS_COMPLETED,
@@ -553,8 +534,7 @@ final class IdeaConsumptionAndSitePlanningLifecycleIntegrationTest extends TestC
         ])->save();
 
         $done = app(SitePlanningActiveUnitAggregator::class)->forSiteMonth($siteId, $month);
-        self::assertSame(0, $done['planned']);
-        self::assertSame(0, (int) ($done['source_counts'][SeoContentProjectItemOrigin::SOURCE_VOCABULARY_SUGGEST] ?? 0));
+        self::assertSame(1, $done['planned']);
         self::assertTrue($consumption->isConsumed(
             $siteId,
             SeoContentProjectItemOrigin::SOURCE_VOCABULARY_SUGGEST,
@@ -606,14 +586,6 @@ final class IdeaConsumptionAndSitePlanningLifecycleIntegrationTest extends TestC
 
         $active = app(SitePlanningActiveUnitAggregator::class)->forSiteMonth($siteId, $month);
         self::assertSame(1, $active['planned']);
-        self::assertSame(1, (int) ($active['source_counts'][SeoContentProjectItemOrigin::SOURCE_AI_NEW_CONTENT] ?? 0));
-        // Source provenance and MCP forecast are separate dimensions.
-        self::assertArrayHasKey('planning_mcp_share', $active['clusters'][0]);
-        self::assertArrayHasKey('actual_mcp_share', $active['clusters'][0]);
-        self::assertSame(
-            SeoContentProjectItemOrigin::SOURCE_AI_NEW_CONTENT,
-            $active['tasks'][0]['source_type'] ?? null,
-        );
 
         $task->forceFill([
             'publish_published_at' => now(),
@@ -622,7 +594,66 @@ final class IdeaConsumptionAndSitePlanningLifecycleIntegrationTest extends TestC
         ])->save();
 
         $published = app(SitePlanningActiveUnitAggregator::class)->forSiteMonth($siteId, $month);
-        self::assertSame(0, $published['planned']);
+        self::assertSame(1, $published['planned']);
+        self::assertNotNull(SeoContentProjectItemOrigin::query()->where('project_task_id', (int) $task->id)->first());
+        self::assertNotNull(SeoContentProjectTaskPlanningAttribution::query()->where('project_task_id', (int) $task->id)->first());
+    }
+
+    public function test_published_still_counts_in_matrix_month_detail_empty_without_topic_history(): void
+    {
+        $siteId = $this->uniqueSiteId();
+        $month = '2026-12';
+        $clusterRef = 'clu_balo_day_rut_'.$this->seq;
+
+        $draft = $this->createDraft($siteId, $month);
+        $task = $this->createTask($draft, $siteId, 'balo dây rút', $month, 'Cách chọn balo dây rút');
+        $origin = SeoContentProjectItemOrigin::query()->create([
+            'project_task_id' => (int) $task->id,
+            'project_id' => (int) $draft->id,
+            'source_type' => SeoContentProjectItemOrigin::SOURCE_AI_NEW_CONTENT,
+            'source_fingerprint' => 'fp-coverage-'.$this->seq,
+        ]);
+        app(PlanningAttributionWriter::class)->writeForTask($task, $origin, [
+            'planning_month' => $month,
+            'cluster_ref' => $clusterRef,
+            'cluster_name_snapshot' => 'balo dây rút',
+            'dna_phrases' => [],
+            'allowed_cluster_refs' => [$clusterRef],
+        ]);
+
+        $execution = SeoProject::query()->create([
+            'site_id' => $siteId,
+            'user_id' => 1,
+            'name' => 'exec-cov-'.$this->seq,
+            'month' => ContentProjectMonthContext::toDateString($month),
+            'status' => SeoProject::STATUS_PENDING,
+            'kind' => SeoProject::KIND_MONTHLY,
+            'total_tasks' => 1,
+            'source_draft_project_id' => (int) $draft->id,
+        ]);
+        $task->forceFill([
+            'project_id' => (int) $execution->id,
+            'status' => SeoProjectTask::STATUS_PENDING,
+            'planning_reviewed_at' => now(),
+        ])->save();
+
+        $before = app(SitePlanningActiveUnitAggregator::class)->forSiteMonth($siteId, $month);
+        self::assertSame(1, $before['planned']);
+
+        $task->forceFill([
+            'status' => SeoProjectTask::STATUS_COMPLETED,
+            'completed_at' => now(),
+            'publish_published_at' => now(),
+            'article_id' => 910000 + $this->seq,
+        ])->save();
+
+        $after = app(SitePlanningActiveUnitAggregator::class)->forSiteMonth($siteId, $month);
+        self::assertSame(1, $after['planned'], 'Published still counts in monthly distribution');
+
+        $detail = app(\Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\SitePlanningReadModel::class)
+            ->cellDetail($siteId, $month);
+        self::assertSame([], $detail['topics'], 'No Topic History row → Month Detail empty (no reconstruct)');
+
         self::assertNotNull(SeoContentProjectItemOrigin::query()->where('project_task_id', (int) $task->id)->first());
         self::assertNotNull(SeoContentProjectTaskPlanningAttribution::query()->where('project_task_id', (int) $task->id)->first());
     }

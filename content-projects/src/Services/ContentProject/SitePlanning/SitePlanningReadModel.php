@@ -14,8 +14,9 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Schema;
 
 /**
- * Site Planning overview: window anchored to activeMonth (−2…+1), not always wall-clock now.
- * Counts Draft + active execution units deduped by task id.
+ * Site Planning overview: window anchored to activeMonth (−2…+1).
+ * Matrix = article distribution count / site / planning_month (includes completed/published/archived).
+ * Month Detail = Topic History only (no project reconstruction).
  */
 final class SitePlanningReadModel
 {
@@ -23,6 +24,7 @@ final class SitePlanningReadModel
         private readonly SiteMonthlyContentTargetService $targets,
         private readonly McpPlanningSignalService $mcpPlanning,
         private readonly SitePlanningActiveUnitAggregator $units = new SitePlanningActiveUnitAggregator,
+        private readonly TopicHistoryReadModel $topicHistory = new TopicHistoryReadModel,
     ) {}
 
     /**
@@ -95,43 +97,20 @@ final class SitePlanningReadModel
     }
 
     /**
-     * Detail panel payload for one domain × month cell.
+     * Month Detail = Topic History for site + planning_month.
+     * Empty when no history rows (legacy projects are NOT reconstructed).
      *
-     * @return array<string, mixed>
+     * @return array{
+     *   site_id: int,
+     *   domain: string,
+     *   planning_month: string,
+     *   month_label: string,
+     *   topics: list<array{topic_ref: string|null, topic_name: string, planned_article_count: int}>
+     * }
      */
     public function cellDetail(int $siteId, string $planningMonth): array
     {
-        $month = ContentProjectMonthContext::normalize($planningMonth);
-        $agg = $this->units->forSiteMonth($siteId, $month);
-        $domain = '';
-        if ($siteId > 0) {
-            $site = \App\Models\Site::query()->find($siteId, ['id', 'domain']);
-            $domain = trim((string) ($site?->domain ?? ''));
-        }
-
-        return [
-            'site_id' => $siteId,
-            'domain' => $domain !== '' ? $domain : '#'.$siteId,
-            'planning_month' => $month,
-            'month_label' => ContentProjectMonthContext::display($month),
-            'totals' => [
-                'planned' => $agg['planned'],
-                'draft' => $agg['draft'],
-                'execution' => $agg['execution'],
-                'by_status' => $agg['by_status'],
-            ],
-            'source_counts' => $agg['source_counts'] ?? [],
-            'clusters' => $agg['clusters'],
-            'attributed' => $agg['attributed'] ?? ['count' => 0, 'task_ids' => []],
-            'unattributed' => $agg['unattributed'],
-            'tasks' => $agg['tasks'],
-            /**
-             * planning_mcp_share = (# distinct active attributed tasks in cluster)
-             *   / (# distinct active attributed tasks for site+month) × 100
-             * actual_mcp_share = Site MCP topical profile weight (published articles), unchanged.
-             */
-            'mcp_formula' => 'planning_mcp_share = attributed_cluster_tasks / attributed_site_month_tasks × 100',
-        ];
+        return $this->topicHistory->forSiteMonth($siteId, $planningMonth);
     }
 
     /**
@@ -190,7 +169,6 @@ final class SitePlanningReadModel
         }
 
         $query = VocabularySuggestStagingQuery::forSite($siteId);
-        // Available Ideas SSOT: exclude tombstoned vocabulary candidates.
         if (Schema::connection('omi_seo_ai')->hasTable('seo_content_project_consumed_ideas')) {
             $query->whereNotIn('id', function ($sub) use ($siteId): void {
                 $sub->select('source_keyword_id')

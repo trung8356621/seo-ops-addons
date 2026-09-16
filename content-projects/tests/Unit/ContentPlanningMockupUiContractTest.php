@@ -89,18 +89,17 @@ final class ContentPlanningMockupUiContractTest extends TestCase
         self::assertStringContainsString('sitePlanningPayload', $blade);
         self::assertStringContainsString('sitePlanningCellDetail', $blade);
         self::assertStringContainsString('data-site-planning-detail="1"', $blade);
-        self::assertStringContainsString('data-site-planning-summary="1"', $blade);
-        self::assertStringContainsString('detail.totals?.draft', $blade);
-        self::assertStringContainsString('detail.totals?.execution', $blade);
-        self::assertStringContainsString('cluster.dna_current', $blade);
-        self::assertStringContainsString('cluster.dna_planned', $blade);
-        self::assertStringContainsString('cluster.actual_mcp_share', $blade);
-        self::assertStringContainsString('cluster.planning_mcp_share', $blade);
+        self::assertStringContainsString('data-site-planning-topic-history="1"', $blade);
+        self::assertStringContainsString('detail.topics', $blade);
+        self::assertStringContainsString('topic.topic_name', $blade);
+        self::assertStringContainsString('planned_article_count', $blade);
         self::assertStringNotContainsString('cp-site-planning__drawer', $blade);
         self::assertStringNotContainsString('recomputeCluster', $blade);
         self::assertStringNotContainsString('keyword_id ===', $blade);
         self::assertStringContainsString('function cellDetail', $readModel);
         self::assertStringContainsString('SitePlanningActiveUnitAggregator', $readModel);
+        self::assertStringContainsString('TopicHistoryReadModel', $readModel);
+        self::assertStringNotContainsString('SitePlanningMonthCoverageReadModel', $readModel);
     }
 
     public function test_capacity_rejection_maps_to_human_messages(): void

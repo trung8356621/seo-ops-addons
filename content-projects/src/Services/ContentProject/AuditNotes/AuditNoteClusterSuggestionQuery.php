@@ -8,6 +8,7 @@ use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Pagination\LengthAwarePaginator as Paginator;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\TopicHistoryReadModel;
 use Omnichannel\Addons\SearchIntelligence\Models\SeoKeywordDna;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordClusterQuery;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\KeywordDnaService;
@@ -16,6 +17,7 @@ use Omnichannel\Addons\SearchIntelligence\Services\SiteMcp\SiteMcpClusterTopical
 /**
  * SEO Audit Notes cluster suggestions — Cluster SSOT, MCP share ASC (low → high).
  * List path is lightweight (no per-row DNA hydrate). Full DNA loads only on select.
+ * Topic History planned_history_count is additive — does not mutate Site MCP/DNA.
  */
 final class AuditNoteClusterSuggestionQuery
 {
@@ -27,6 +29,7 @@ final class AuditNoteClusterSuggestionQuery
         private readonly KeywordClusterQuery $clusters,
         private readonly SiteMcpClusterTopicalProfileBuilder $topicalProfile,
         private readonly KeywordDnaService $dna,
+        private readonly TopicHistoryReadModel $topicHistory = new TopicHistoryReadModel,
     ) {}
 
     /**
@@ -44,7 +47,9 @@ final class AuditNoteClusterSuggestionQuery
      *     mcp_share: float,
      *     dna_count: int,
      *     article_count: int,
-     *     has_focus_article: bool
+     *     has_focus_article: bool,
+     *     planned_history_count: int,
+     *     already_planned: bool
      *   }>
      * }
      */
@@ -162,7 +167,9 @@ final class AuditNoteClusterSuggestionQuery
      *   mcp_share: float,
      *   dna_count: int,
      *   article_count: int,
-     *   has_focus_article: bool
+     *   has_focus_article: bool,
+     *   planned_history_count: int,
+     *   already_planned: bool
      * }>
      */
     private function buildSuggestionItems(int $siteId): array
@@ -170,6 +177,7 @@ final class AuditNoteClusterSuggestionQuery
         $profile = $this->topicalProfile->build($siteId);
         $topics = is_array($profile['topics'] ?? null) ? $profile['topics'] : [];
         $dnaCounts = $this->dnaCountsByCluster($siteId);
+        $plannedByRef = $this->topicHistory->plannedCountsByTopicRef($siteId);
         $out = [];
 
         foreach ($topics as $topic) {
@@ -191,6 +199,8 @@ final class AuditNoteClusterSuggestionQuery
                 $dnaCount = count($topic['dna']);
             }
 
+            $plannedHistory = (int) ($plannedByRef[$ref] ?? 0);
+
             $out[] = [
                 'cluster_ref' => $ref,
                 'cluster_name' => $name,
@@ -198,6 +208,8 @@ final class AuditNoteClusterSuggestionQuery
                 'dna_count' => $dnaCount,
                 'article_count' => $articleCount,
                 'has_focus_article' => $articleCount > 0,
+                'planned_history_count' => $plannedHistory,
+                'already_planned' => $plannedHistory > 0,
             ];
         }
 

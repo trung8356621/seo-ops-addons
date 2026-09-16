@@ -23,6 +23,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\ContentProjectIte
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\AuditNotes\AuditNoteDnaNormalizer;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\Planner\ContentProjectPlannerRunService;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\PlanningAttributionWriter;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\TopicHistoryWriter;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectItemIdentity;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\Seo\Services\SeoCreateArticleSettingsService;
@@ -203,10 +204,20 @@ final class NewContentSuggestionPlannerService
             $actorId,
         );
 
+        $runId = (int) $run->getKey();
+        if ($runId > 0) {
+            app(TopicHistoryWriter::class)->recordForPlannerRun(
+                (int) $site->getKey(),
+                (string) ($normalized['planning_month'] ?? ContentProjectMonthContext::current()),
+                $runId,
+                is_array($normalized['note_items'] ?? null) ? $normalized['note_items'] : [],
+            );
+        }
+
         return [
             'queued' => true,
             'already_active' => false,
-            'planner_run_id' => (int) $run->getKey(),
+            'planner_run_id' => $runId,
             'requested' => $normalized['quantity'],
             'status' => SeoContentProjectPlannerRun::STATUS_QUEUED,
             'primary_language' => $language,

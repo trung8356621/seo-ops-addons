@@ -89,6 +89,7 @@ final class IdeaIdentitySemanticsContractTest extends TestCase
         );
 
         self::assertStringContainsString('project_task_id', $src);
+        self::assertStringContainsString('$taskId', $src);
         self::assertStringNotContainsString('LOWER(TRIM(phrase))', $src);
         self::assertStringNotContainsString('mb_strtolower($phrase', $src);
     }

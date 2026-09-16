@@ -7215,6 +7215,29 @@ p.article-cta a.article-cta__value {
     background: rgb(7 89 133 / 0.55);
 }
 
+/* Unresolved destination — href="#" presentation only (visual cue, no behavior change). */
+.wp-article-links-keyword-row.is-unresolved-href .wp-article-links-keyword.is-suggestion {
+    color: #a16207;
+    background: #fef9c3;
+    border-color: #facc15;
+}
+
+.wp-article-links-keyword-row.is-unresolved-href .wp-article-links-keyword.is-suggestion:hover {
+    background: #fef08a;
+    border-color: #eab308;
+}
+
+.dark .wp-article-links-keyword-row.is-unresolved-href .wp-article-links-keyword.is-suggestion {
+    color: #fde047;
+    background: rgb(113 63 18 / 0.5);
+    border-color: rgb(250 204 21 / 0.55);
+}
+
+.dark .wp-article-links-keyword-row.is-unresolved-href .wp-article-links-keyword.is-suggestion:hover {
+    background: rgb(161 98 7 / 0.55);
+    border-color: #facc15;
+}
+
 .seo-assistant-widget--vocabulary {
     display: flex;
     flex-direction: column;

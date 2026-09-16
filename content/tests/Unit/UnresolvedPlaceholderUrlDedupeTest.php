@@ -261,7 +261,7 @@ final class UnresolvedPlaceholderUrlDedupeTest extends TestCase
             (string) (new ReflectionClass(ArticleInternalLinkPipeline::class))->getFileName(),
         );
         self::assertStringContainsString('priorityMerger->merge', $pipelineSrc);
-        self::assertStringContainsString("'destination_resolved' => \$destinationResolved", $pipelineSrc);
+        self::assertStringContainsString('UnresolvedInternalLinkSuggestion::make', $pipelineSrc);
 
         // Exact payload shape emitted for unresolved generic stage rows.
         $genericBatch = [

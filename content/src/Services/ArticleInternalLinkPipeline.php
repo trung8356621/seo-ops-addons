@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace Omnichannel\Addons\Content\Services;
 
 use Omnichannel\Addons\Content\Models\SeoArticle;
+use Omnichannel\Addons\Content\Support\UnresolvedInternalLinkSuggestion;
 use Omnichannel\Addons\SearchFoundation\Enums\KeywordMetaKey;
 use Omnichannel\Addons\SearchFoundation\Models\Keyword;
 use Omnichannel\Addons\SearchFoundation\Models\KeywordMeta;
@@ -210,6 +211,15 @@ final class ArticleInternalLinkPipeline
 
             $bucket = $this->suggestionBucketForHref($href, $siteDomain, $siteId);
             if ($bucket === null) {
+                // Unparsable / unknown destination type — keep anchor via generic stage.
+                $needGenericSearch[] = [
+                    'keyword_id' => $keywordId,
+                    'phrase' => $phrase,
+                    'context' => array_merge($articleContextBase, [
+                        'paragraph_context' => $this->termsBuilder->extractParagraphContext($plainText, $phrase),
+                    ]),
+                    'destination_reject_reason' => 'destination_bucket_unknown',
+                ];
                 continue;
             }
 
@@ -224,6 +234,7 @@ final class ArticleInternalLinkPipeline
                 'href' => $href,
                 'target_url' => $href,
                 'target_article_id' => $targetArticleId > 0 ? $targetArticleId : null,
+                'destination_resolved' => true,
                 'can_insert' => true,
                 'is_suggestion' => true,
                 'score' => $isTopic ? 92 : 88,
@@ -239,10 +250,20 @@ final class ArticleInternalLinkPipeline
                     'matched_phrase' => $phrase,
                     'match_reason' => $isTopic ? 'topic_focus_destination' : 'keyword_link_map',
                     'url' => $href,
+                    'destination_resolved' => true,
                 ],
             ];
 
             if (! LinkSuggestionValidator::isValidLinkSuggestion($item, $validationContext)) {
+                // Destination invalid (self-link, etc.) — do not drop the valid anchor.
+                $needGenericSearch[] = [
+                    'keyword_id' => $keywordId,
+                    'phrase' => $phrase,
+                    'context' => array_merge($articleContextBase, [
+                        'paragraph_context' => $this->termsBuilder->extractParagraphContext($plainText, $phrase),
+                    ]),
+                    'destination_reject_reason' => 'destination_validator_reject',
+                ];
                 continue;
             }
             unset($item['bucket']);
@@ -275,13 +296,27 @@ final class ArticleInternalLinkPipeline
         );
         foreach ($needGenericSearch as $anchor) {
             $keywordId = (int) ($anchor['keyword_id'] ?? 0);
-            $resolved = $articleTargets[$keywordId] ?? null;
-            if (! is_array($resolved)) {
+            $phrase = trim((string) ($anchor['phrase'] ?? ''));
+            if (! LinkSuggestionValidator::isUsableAnchorCandidate(['text' => $phrase])) {
                 continue;
             }
 
-            $phrase = trim((string) ($anchor['phrase'] ?? ''));
-            if (! LinkSuggestionValidator::isUsableAnchorCandidate(['text' => $phrase])) {
+            $resolved = $articleTargets[$keywordId] ?? null;
+            $priorReject = isset($anchor['destination_reject_reason'])
+                ? (string) $anchor['destination_reject_reason']
+                : null;
+
+            if (! is_array($resolved)) {
+                // CASE 1: valid anchor, no article candidate — keep as unresolved.
+                $item = UnresolvedInternalLinkSuggestion::make($phrase, [
+                    'keyword_id' => $keywordId,
+                    'score' => 0,
+                    'match_reason' => 'no_article_candidate',
+                    'source' => ArticleInternalLinkPriorityMerger::STAGE_GENERIC,
+                    'destination_reject_reason' => $priorReject ?: 'no_article_candidate',
+                ]);
+                $genericSuggestions[] = $item;
+                $occupiedLabels[] = mb_strtolower($phrase);
                 continue;
             }
 
@@ -292,8 +327,16 @@ final class ArticleInternalLinkPipeline
             }
 
             $href = $destinationResolved ? $canonicalUrl : '#';
-            if ($this->isSpecialSchemeOrContactHref($href)) {
-                continue;
+            $rejectReason = isset($resolved['destination_reject_reason'])
+                ? (string) $resolved['destination_reject_reason']
+                : ($priorReject ?: null);
+
+            // '#' is presentation-only; never treat as special-scheme drop.
+            if ($destinationResolved && $this->isSpecialSchemeOrContactHref($href)) {
+                $destinationResolved = false;
+                $href = '#';
+                $canonicalUrl = '';
+                $rejectReason = 'destination_special_scheme';
             }
 
             $targetArticleId = (int) ($resolved['target_article_id'] ?? 0);
@@ -303,47 +346,66 @@ final class ArticleInternalLinkPipeline
                 }
                 $bucket = $this->suggestionBucketForHref($href, $siteDomain, $siteId);
                 if ($bucket !== 'internal') {
-                    continue;
+                    $destinationResolved = false;
+                    $href = '#';
+                    $canonicalUrl = '';
+                    $rejectReason = $bucket === 'external'
+                        ? 'destination_wrong_bucket_external'
+                        : 'destination_wrong_bucket';
+                }
+            }
+
+            if ($destinationResolved) {
+                $item = [
+                    'text' => $phrase,
+                    'keyword_id' => $keywordId,
+                    'href' => $href,
+                    'target_url' => $href,
+                    'target_article_id' => $targetArticleId > 0 ? $targetArticleId : null,
+                    'destination_resolved' => true,
+                    'can_insert' => true,
+                    'is_suggestion' => true,
+                    'score' => (int) ($resolved['score'] ?? 0),
+                    'match_reason' => (string) ($resolved['match_reason'] ?? 'article_index'),
+                    'source' => ArticleInternalLinkPriorityMerger::STAGE_GENERIC,
+                    'candidate_source' => ArticleInternalLinkPriorityMerger::STAGE_GENERIC,
+                    'bucket' => 'internal',
+                    'provenance' => [
+                        'candidate_source' => ArticleInternalLinkPriorityMerger::STAGE_GENERIC,
+                        'matched_phrase' => $phrase,
+                        'match_reason' => (string) ($resolved['match_reason'] ?? 'article_index'),
+                        'url' => $canonicalUrl,
+                        'destination_resolved' => true,
+                    ],
+                ];
+
+                if (! LinkSuggestionValidator::isValidLinkSuggestion($item, $validationContext)) {
+                    $item = UnresolvedInternalLinkSuggestion::make($phrase, [
+                        'keyword_id' => $keywordId,
+                        'target_article_id' => $targetArticleId,
+                        'score' => (int) ($resolved['score'] ?? 0),
+                        'match_reason' => (string) ($resolved['match_reason'] ?? 'article_index'),
+                        'source' => ArticleInternalLinkPriorityMerger::STAGE_GENERIC,
+                        'destination_reject_reason' => 'destination_validator_reject',
+                    ]);
+                } else {
+                    unset($item['bucket']);
                 }
             } else {
-                $bucket = 'internal';
-            }
-
-            $item = [
-                'text' => $phrase,
-                'keyword_id' => $keywordId,
-                'href' => $href,
-                // Unresolved: href='#' is editor presentation only — no real destination.
-                'target_url' => $destinationResolved ? $href : null,
-                'target_article_id' => $targetArticleId > 0 ? $targetArticleId : null,
-                'destination_resolved' => $destinationResolved,
-                'can_insert' => true,
-                'is_suggestion' => true,
-                'score' => (int) ($resolved['score'] ?? 0),
-                'match_reason' => (string) ($resolved['match_reason'] ?? 'article_index'),
-                'source' => ArticleInternalLinkPriorityMerger::STAGE_GENERIC,
-                'candidate_source' => ArticleInternalLinkPriorityMerger::STAGE_GENERIC,
-                'bucket' => 'internal',
-                'provenance' => [
-                    'candidate_source' => ArticleInternalLinkPriorityMerger::STAGE_GENERIC,
-                    'matched_phrase' => $phrase,
+                $item = UnresolvedInternalLinkSuggestion::make($phrase, [
+                    'keyword_id' => $keywordId,
+                    'target_article_id' => $targetArticleId,
+                    'score' => (int) ($resolved['score'] ?? 0),
                     'match_reason' => (string) ($resolved['match_reason'] ?? 'article_index'),
-                    'url' => $destinationResolved ? $canonicalUrl : null,
-                    'destination_resolved' => $destinationResolved,
-                ],
-            ];
-
-            if ($destinationResolved) {
-                if (! LinkSuggestionValidator::isValidLinkSuggestion($item, $validationContext)) {
-                    continue;
-                }
+                    'source' => ArticleInternalLinkPriorityMerger::STAGE_GENERIC,
+                    'destination_reject_reason' => $rejectReason ?: 'destination_unresolved',
+                ]);
             }
 
-            unset($item['bucket']);
             $genericSuggestions[] = $item;
             $occupiedLabels[] = mb_strtolower($phrase);
-            if ($destinationResolved) {
-                $normHref = SeoSuggestionUrlNormalizer::normalize($href);
+            if ((bool) ($item['destination_resolved'] ?? false)) {
+                $normHref = SeoSuggestionUrlNormalizer::normalize((string) ($item['href'] ?? ''));
                 if ($normHref !== '') {
                     $occupiedHrefs[] = $normHref;
                 }

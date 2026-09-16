@@ -37,26 +37,8 @@
             this.detail = null;
         },
         summaryArticles() {
-            return Number(this.detail?.totals?.planned ?? 0);
-        },
-        summaryDnaDelta() {
-            const clusters = Array.isArray(this.detail?.clusters) ? this.detail.clusters : [];
-            let delta = 0;
-            for (const c of clusters) {
-                delta += Number(c.dna_planned ?? 0) - Number(c.dna_current ?? 0);
-            }
-            return delta;
-        },
-        summaryMcpDelta() {
-            const clusters = Array.isArray(this.detail?.clusters) ? this.detail.clusters : [];
-            if (clusters.length === 0) {
-                return 0;
-            }
-            let sum = 0;
-            for (const c of clusters) {
-                sum += Number(c.planning_mcp_share ?? 0) - Number(c.actual_mcp_share ?? 0);
-            }
-            return Math.round(sum / clusters.length);
+            const topics = Array.isArray(this.detail?.topics) ? this.detail.topics : [];
+            return topics.reduce((sum, t) => sum + Number(t.planned_article_count || 0), 0);
         },
     }"
     x-init="
@@ -155,7 +137,7 @@
         </div>
     @endif
 
-    {{-- Inline monthly detail (mockup: below matrix, not a full-screen drawer) --}}
+    {{-- Inline monthly detail: Topic History only --}}
     <div
         class="cp-site-planning__detail"
         data-site-planning-detail="1"
@@ -182,58 +164,22 @@
 
         <div class="cp-site-planning__detail-body" x-show="!loading && detail">
             <template x-if="detail">
-                <div class="space-y-3 text-xs">
-                    <div class="cp-site-planning__totals grid grid-cols-2 gap-2 sm:grid-cols-3">
-                        <div>{{ __('seo-content-ai::filament.projects.site_planning_total_draft') }}: <span class="font-semibold" x-text="detail.totals?.draft ?? 0"></span></div>
-                        <div>{{ __('seo-content-ai::filament.projects.site_planning_total_execution') }}: <span class="font-semibold" x-text="detail.totals?.execution ?? 0"></span></div>
-                        <div>{{ __('seo-content-ai::filament.projects.site_planning_total_planned') }}: <span class="font-semibold" x-text="detail.totals?.planned ?? 0"></span></div>
-                    </div>
-
-                    <div class="cp-site-planning__source-counts text-[11px] text-gray-600 dark:text-gray-300" data-site-planning-source-counts="1" x-show="detail.source_counts && Object.keys(detail.source_counts).length">
-                        <span class="font-medium">{{ __('seo-content-ai::filament.projects.site_planning_source_heading') }}:</span>
-                        <template x-for="(count, key) in (detail.source_counts || {})" :key="key">
-                            <span class="ml-1 inline-flex gap-0.5">
-                                <span x-text="key"></span>
-                                <span x-text="count"></span>
-                            </span>
-                        </template>
-                    </div>
-
-                    <div class="cp-site-planning__attr-counts text-[11px] text-gray-600 dark:text-gray-300" data-site-planning-attr-counts="1">
-                        <span>{{ __('seo-content-ai::filament.projects.site_planning_attributed') }}: <span class="font-semibold" x-text="detail.attributed?.count ?? 0"></span></span>
-                        <span class="mx-1" aria-hidden="true">·</span>
-                        <span>{{ __('seo-content-ai::filament.projects.site_planning_unattributed') }}: <span class="font-semibold" x-text="detail.unattributed?.count ?? 0"></span></span>
-                    </div>
-
-                    <div class="cp-site-planning__clusters space-y-2">
-                        <template x-for="(cluster, idx) in (detail.clusters || [])" :key="cluster.cluster_ref || idx">
+                <div class="space-y-3 text-xs" data-site-planning-topic-history="1">
+                    <template x-if="(detail.topics || []).length === 0">
+                        <p class="text-[11px] text-gray-500 dark:text-gray-400">{{ __('seo-content-ai::filament.projects.site_planning_topic_history_empty') }}</p>
+                    </template>
+                    <div class="space-y-2.5">
+                        <template x-for="(topic, tIdx) in (detail.topics || [])" :key="topic.topic_ref || ('t-' + tIdx)">
                             <div class="cp-site-planning__cluster-row">
-                                <div class="cp-site-planning__cluster-idx" x-text="idx + 1"></div>
+                                <div class="cp-site-planning__cluster-idx" x-text="tIdx + 1"></div>
                                 <div class="cp-site-planning__cluster-main">
-                                    <div class="font-medium text-gray-900 dark:text-gray-100" x-text="cluster.cluster_name || cluster.cluster_ref"></div>
-                                    <div class="mt-1 flex flex-wrap gap-1.5">
-                                        <span class="cp-site-planning__tag cp-site-planning__tag--mcp">
-                                            MCP
-                                            <span x-text="(cluster.actual_mcp_share ?? 0).toFixed(0) + '%'"></span>
-                                            →
-                                            <span x-text="(cluster.planning_mcp_share ?? 0).toFixed(0) + '%'"></span>
-                                        </span>
-                                        <span class="cp-site-planning__tag cp-site-planning__tag--dna">
-                                            DNA
-                                            <span x-text="cluster.dna_current ?? 0"></span>
-                                            →
-                                            <span x-text="cluster.dna_planned ?? 0"></span>
-                                        </span>
-                                        <span class="cp-site-planning__tag cp-site-planning__tag--count" x-text="(cluster.article_count ?? 0) + ' {{ __('seo-content-ai::filament.projects.site_planning_articles_unit') }}'"></span>
+                                    <div class="font-medium text-gray-900 dark:text-gray-100" x-text="topic.topic_name"></div>
+                                    <div class="mt-1">
+                                        <span class="cp-site-planning__tag cp-site-planning__tag--count" x-text="(topic.planned_article_count || 0) + ' {{ __('seo-content-ai::filament.projects.site_planning_articles_unit') }}'"></span>
                                     </div>
                                 </div>
                             </div>
                         </template>
-                    </div>
-
-                    <div x-show="(detail.unattributed?.count ?? 0) > 0 && (detail.clusters || []).length === 0" class="text-[11px] text-amber-700 dark:text-amber-300">
-                        {{ __('seo-content-ai::filament.projects.site_planning_unattributed') }}:
-                        <span x-text="detail.unattributed?.count ?? 0"></span>
                     </div>
                 </div>
             </template>
@@ -246,10 +192,6 @@
             x-cloak
         >
             <span x-text="summaryArticles() + ' {{ __('seo-content-ai::filament.projects.site_planning_articles_unit') }}'"></span>
-            <span aria-hidden="true">·</span>
-            <span x-text="(summaryDnaDelta() >= 0 ? '+' : '') + summaryDnaDelta() + ' DNA'"></span>
-            <span aria-hidden="true">·</span>
-            <span x-text="'MCP {{ __('seo-content-ai::filament.projects.site_planning_mcp_forecast') }} ' + (summaryMcpDelta() >= 0 ? '+' : '') + summaryMcpDelta() + '%'"></span>
         </div>
     </div>
 </div>
@@ -320,36 +262,37 @@
         min-width: 7.5rem;
         max-width: 10rem;
         padding: 0.4rem 0.5rem;
+        text-align: left;
+        font-weight: 600;
+        box-shadow: 1px 0 0 rgb(229 231 235 / 0.8);
     }
     .dark .cp-site-planning__domain-head,
     .dark .cp-site-planning__domain-cell {
-        background: rgb(17 24 39);
+        background: #111827;
+        box-shadow: 1px 0 0 rgb(255 255 255 / 0.08);
     }
     .cp-site-planning__domain {
         overflow: hidden;
         text-overflow: ellipsis;
         white-space: nowrap;
-        font-weight: 600;
     }
     .cp-site-planning__year-cell,
     .cp-site-planning__month-cell,
     .cp-site-planning__value {
-        text-align: center;
         padding: 0.35rem 0.45rem;
+        text-align: center;
         white-space: nowrap;
     }
     .cp-site-planning__month-cell.is-current,
     .cp-site-planning__value.is-current {
-        background: rgb(254 243 199 / 0.55);
-        box-shadow: inset 0 0 0 1px rgb(245 158 11 / 0.45);
+        background: rgb(59 130 246 / 0.08);
     }
     .dark .cp-site-planning__month-cell.is-current,
     .dark .cp-site-planning__value.is-current {
-        background: rgb(245 158 11 / 0.12);
+        background: rgb(59 130 246 / 0.16);
     }
     .cp-site-planning__value.is-over {
         color: #b45309;
-        font-weight: 600;
     }
     .cp-site-planning__warn {
         margin-left: 0.15rem;
@@ -358,13 +301,16 @@
         display: inline-flex;
         align-items: center;
         justify-content: center;
-        width: 100%;
-        min-height: 1.5rem;
+        min-width: 3.25rem;
+        padding: 0.15rem 0.25rem;
         border-radius: 0.25rem;
+        font: inherit;
+        color: inherit;
+        background: transparent;
         cursor: pointer;
     }
     .cp-site-planning__cell-btn:hover {
-        background: rgb(148 163 184 / 0.15);
+        background: rgb(15 23 42 / 0.06);
     }
     .cp-site-planning__detail {
         border: 1px solid var(--cp-plan-border, #e5e7eb);
@@ -374,15 +320,15 @@
     }
     .dark .cp-site-planning__detail {
         border-color: rgb(255 255 255 / 0.1);
-        background: rgb(17 24 39);
+        background: rgb(17 24 39 / 0.6);
     }
     .cp-site-planning__detail-head {
         display: flex;
         align-items: flex-start;
         justify-content: space-between;
         gap: 0.5rem;
-        padding: 0.65rem 0.75rem;
-        border-bottom: 1px solid rgb(229 231 235);
+        padding: 0.55rem 0.65rem;
+        border-bottom: 1px solid rgb(229 231 235 / 0.8);
     }
     .dark .cp-site-planning__detail-head {
         border-bottom-color: rgb(255 255 255 / 0.08);
@@ -390,89 +336,65 @@
     .cp-site-planning__detail-title {
         margin: 0;
         font-size: 0.8125rem;
-        font-weight: 700;
-        line-height: 1.3;
+        font-weight: 600;
         color: #111827;
     }
     .dark .cp-site-planning__detail-title {
         color: #f3f4f6;
     }
     .cp-site-planning__detail-close {
-        font-size: 1.15rem;
+        border: 0;
+        background: transparent;
+        cursor: pointer;
+        font-size: 1.1rem;
         line-height: 1;
-        padding: 0.1rem 0.35rem;
         color: #6b7280;
     }
     .cp-site-planning__detail-body {
-        padding: 0.65rem 0.75rem;
-        max-height: 14rem;
-        overflow: auto;
+        padding: 0.65rem;
     }
     .cp-site-planning__cluster-row {
-        display: grid;
-        grid-template-columns: 1.5rem minmax(0, 1fr);
-        gap: 0.5rem;
-        padding: 0.5rem;
-        border-radius: 0.5rem;
-        border: 1px solid rgb(229 231 235 / 0.9);
+        display: flex;
+        gap: 0.55rem;
+        padding-bottom: 0.55rem;
+        border-bottom: 1px solid rgb(229 231 235 / 0.55);
     }
     .dark .cp-site-planning__cluster-row {
-        border-color: rgb(255 255 255 / 0.08);
+        border-bottom-color: rgb(255 255 255 / 0.06);
     }
     .cp-site-planning__cluster-idx {
-        font-weight: 700;
-        color: #6b7280;
-        padding-top: 0.1rem;
+        flex: 0 0 auto;
+        width: 1.25rem;
+        color: #9ca3af;
+        font-variant-numeric: tabular-nums;
     }
     .cp-site-planning__tag {
         display: inline-flex;
         align-items: center;
-        gap: 0.2rem;
+        padding: 0.1rem 0.4rem;
         border-radius: 999px;
-        padding: 0.15rem 0.45rem;
         font-size: 0.65rem;
         font-weight: 600;
-        line-height: 1.2;
-    }
-    .cp-site-planning__tag--mcp {
-        background: rgb(220 252 231);
-        color: rgb(21 128 61);
-    }
-    .cp-site-planning__tag--dna {
-        background: rgb(219 234 254);
-        color: rgb(29 78 216);
     }
     .cp-site-planning__tag--count {
-        background: rgb(243 244 246);
-        color: rgb(55 65 81);
-    }
-    .dark .cp-site-planning__tag--mcp {
-        background: rgb(22 101 52 / 0.35);
-        color: rgb(134 239 172);
-    }
-    .dark .cp-site-planning__tag--dna {
-        background: rgb(30 64 175 / 0.35);
-        color: rgb(147 197 253);
+        background: rgb(16 185 129 / 0.12);
+        color: #047857;
     }
     .dark .cp-site-planning__tag--count {
-        background: rgb(255 255 255 / 0.08);
-        color: rgb(209 213 219);
+        background: rgb(16 185 129 / 0.2);
+        color: #6ee7b7;
     }
     .cp-site-planning__summary {
         display: flex;
         flex-wrap: wrap;
-        align-items: center;
         gap: 0.35rem 0.55rem;
-        padding: 0.55rem 0.75rem;
-        background: rgb(220 252 231 / 0.55);
-        border-top: 1px solid rgb(187 247 208);
-        font-size: 0.75rem;
-        font-weight: 600;
-        color: rgb(21 128 61);
+        padding: 0.45rem 0.65rem 0.6rem;
+        border-top: 1px solid rgb(229 231 235 / 0.8);
+        font-size: 0.7rem;
+        color: #6b7280;
     }
     .dark .cp-site-planning__summary {
-        background: rgb(22 101 52 / 0.25);
-        border-top-color: rgb(34 197 94 / 0.25);
-        color: rgb(134 239 172);
+        border-top-color: rgb(255 255 255 / 0.08);
+        color: #9ca3af;
     }
 </style>

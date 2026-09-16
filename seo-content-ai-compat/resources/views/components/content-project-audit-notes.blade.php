@@ -124,6 +124,16 @@
                                             @if ($articles > 0)
                                                 <span class="cp-audit-notes__pill">{{ __('seo-content-ai::filament.projects.audit_notes_focus_articles', ['count' => $articles]) }}</span>
                                             @endif
+                                            @php
+                                                $plannedHistory = (int) ($row['planned_history_count'] ?? 0);
+                                            @endphp
+                                            @if ($plannedHistory > 0)
+                                                <span class="cp-audit-notes__pill cp-audit-notes__pill--project" data-planned-history="1">
+                                                    {{ __('seo-content-ai::filament.projects.audit_notes_planned_history', [
+                                                        'count' => $plannedHistory,
+                                                    ]) }}
+                                                </span>
+                                            @endif
                                         </span>
                                     </span>
                                 </label>
