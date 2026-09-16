@@ -15,9 +15,49 @@ export function normalizePhraseForMatch(text) {
         .trim();
 }
 
+/**
+ * Non-destination presentation hrefs (# / #fragment / empty / javascript…).
+ * Not a real URL identity for dedupe or site partition.
+ */
+export function isUnresolvedSuggestionHref(href) {
+    const value = String(href ?? '').trim();
+    if (value === '') {
+        return true;
+    }
+
+    if (value === '#' || value.startsWith('#')) {
+        return true;
+    }
+
+    const lower = value.toLowerCase();
+
+    return (
+        lower.startsWith('javascript:')
+        || lower.startsWith('data:')
+        || lower.startsWith('vbscript:')
+    );
+}
+
+/**
+ * Unresolved internal anchor idea: destination_resolved=false wins over href.
+ */
+export function isUnresolvedSuggestionItem(item) {
+    if (!item || typeof item !== 'object') {
+        return false;
+    }
+
+    if (item.destination_resolved === false) {
+        return true;
+    }
+
+    const href = String(item.href ?? '').trim();
+
+    return isUnresolvedSuggestionHref(href);
+}
+
 export function normalizeHrefForCompare(href) {
     const value = String(href ?? '').trim();
-    if (!value) {
+    if (!value || isUnresolvedSuggestionHref(value)) {
         return '';
     }
 
@@ -79,7 +119,7 @@ export function normalizeDomainHost(host) {
 /** Relative path hoặc host trùng domain site → internal. */
 export function isInternalHrefForSite(href, siteDomain) {
     const value = String(href ?? '').trim();
-    if (value === '') {
+    if (value === '' || isUnresolvedSuggestionHref(value)) {
         return false;
     }
 
@@ -109,8 +149,9 @@ export function isInternalHrefForSite(href, siteDomain) {
 
 /**
  * Chia catalog gợi ý: internal (cùng site) / external (http ngoài) / bỏ tel-mail.
+ * Unresolved (# / destination_resolved=false) = internal anchor idea, not external.
  *
- * @param {Array<{ text?: string, href?: string, target_url?: string }>} catalog
+ * @param {Array<{ text?: string, href?: string, target_url?: string, destination_resolved?: boolean }>} catalog
  * @param {string} siteDomain
  * @returns {{ internal: Array, external: Array }}
  */
@@ -119,6 +160,15 @@ export function partitionSuggestionCatalogBySite(catalog, siteDomain) {
     const external = [];
 
     (Array.isArray(catalog) ? catalog : []).forEach((item) => {
+        if (isUnresolvedSuggestionItem(item)) {
+            const href = String(item?.href ?? '').trim();
+            if (href !== '' && isSpecialOrContactHref(href)) {
+                return;
+            }
+            internal.push(item);
+            return;
+        }
+
         const href = String(item?.href ?? item?.target_url ?? '').trim();
         if (href === '') {
             internal.push(item);
@@ -276,7 +326,7 @@ export function isSuggestionExcluded(phrase, excludedLabels) {
 }
 
 /**
- * @param {Array<{ text?: string, href?: string, target_url?: string, keyword_id?: number, can_insert?: boolean }>} sources
+ * @param {Array<{ text?: string, href?: string, target_url?: string|null, keyword_id?: number, can_insert?: boolean, destination_resolved?: boolean }>} sources
  */
 export function mergeSuggestionCatalog(...sources) {
     const seen = new Set();
@@ -290,15 +340,35 @@ export function mergeSuggestionCatalog(...sources) {
         }
 
         seen.add(label);
-        const href = String(item?.href ?? item?.target_url ?? '').trim();
+        const unresolved = isUnresolvedSuggestionItem(item);
+        const href = unresolved
+            ? (String(item?.href ?? '').trim() || '#')
+            : String(item?.href ?? item?.target_url ?? '').trim();
+
+        let targetUrl = null;
+        if (!unresolved) {
+            if (item != null && Object.prototype.hasOwnProperty.call(item, 'target_url')) {
+                const rawTarget = item.target_url;
+                targetUrl = rawTarget == null ? null : (String(rawTarget).trim() || null);
+            } else {
+                targetUrl = href || null;
+            }
+        }
+
+        const destinationResolved = unresolved
+            ? false
+            : (item?.destination_resolved === true
+                ? true
+                : (href !== '' && !isUnresolvedSuggestionHref(href)));
 
         merged.push({
             text,
             href: href || null,
-            target_url: String(item?.target_url ?? item?.href ?? '').trim() || null,
+            target_url: targetUrl,
             keyword_id: item?.keyword_id ?? null,
             can_insert: item?.can_insert !== false && href !== '',
             is_suggestion: true,
+            destination_resolved: destinationResolved,
             source: item?.source ?? item?.suggestion_source ?? null,
             suggestion_source: item?.suggestion_source ?? item?.source ?? null,
         });

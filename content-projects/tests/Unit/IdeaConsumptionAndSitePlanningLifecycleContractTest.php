@@ -15,6 +15,7 @@ use Omnichannel\Addons\ContentProjects\Services\ContentProject\NewContent\NewCon
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\PlanningAttributionWriter;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\PlanningMonthBackfill;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\SitePlanningActiveUnitAggregator;
+use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\SitePlanningActiveUnitPredicate;
 use Omnichannel\Addons\ContentProjects\Services\ContentProject\SitePlanning\SitePlanningReadModel;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\SearchIntelligence\Services\KeywordIntelligence\ConsumeVocabularySuggestCandidateService;
@@ -193,7 +194,13 @@ final class IdeaConsumptionAndSitePlanningLifecycleContractTest extends TestCase
         );
         self::assertStringContainsString('$units[$taskId]', $src);
         self::assertStringContainsString("'in_draft' => false", $src);
-        self::assertStringContainsString('whereNull(\'p.archived_at\')', $src);
+        self::assertStringContainsString('SitePlanningActiveUnitPredicate', $src);
+        self::assertStringContainsString('constrainQuery', (string) file_get_contents(
+            (string) (new ReflectionClass(SitePlanningActiveUnitPredicate::class))->getFileName(),
+        ));
+        self::assertStringContainsString('whereNull(\'p.archived_at\')', (string) file_get_contents(
+            (string) (new ReflectionClass(SitePlanningActiveUnitPredicate::class))->getFileName(),
+        ));
     }
 
     public function test_parser_accepts_backward_compatible_cluster_fields(): void

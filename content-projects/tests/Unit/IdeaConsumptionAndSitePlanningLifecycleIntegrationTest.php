@@ -280,14 +280,29 @@ final class IdeaConsumptionAndSitePlanningLifecycleIntegrationTest extends TestC
             'total_tasks' => 1,
             'source_draft_project_id' => (int) $draft->id,
         ]);
+        // Move into execution while still non-terminal → still one ACTIVE unit.
         $task->forceFill([
             'project_id' => (int) $execution->id,
-            'status' => SeoProjectTask::STATUS_COMPLETED,
+            'status' => SeoProjectTask::STATUS_PENDING,
             'article_id' => 1,
         ])->save();
 
         $afterMove = app(SitePlanningActiveUnitAggregator::class)->forSiteMonth($siteId, $month);
         self::assertSame(1, $afterMove['planned']);
+
+        // Generation completed → leaves ACTIVE planning aggregate (history/attribution kept).
+        $task->forceFill([
+            'status' => SeoProjectTask::STATUS_COMPLETED,
+            'completed_at' => now(),
+        ])->save();
+        $afterCompleted = app(SitePlanningActiveUnitAggregator::class)->forSiteMonth($siteId, $month);
+        self::assertSame(0, $afterCompleted['planned']);
+        self::assertNotNull(SeoContentProjectTaskPlanningAttribution::query()
+            ->where('project_task_id', (int) $task->id)
+            ->first());
+        self::assertNotNull(SeoContentProjectItemOrigin::query()
+            ->where('project_task_id', (int) $task->id)
+            ->first());
 
         $execution->forceFill(['archived_at' => now()])->save();
         $afterArchive = app(SitePlanningActiveUnitAggregator::class)->forSiteMonth($siteId, $month);
@@ -472,6 +487,144 @@ final class IdeaConsumptionAndSitePlanningLifecycleIntegrationTest extends TestC
         self::assertSame((int) $draft2->id, (int) $origin->project_id);
         self::assertNotSame((int) $draft1->id, (int) $origin->project_id);
         self::assertSame(42, (int) $origin->planner_run_id);
+    }
+
+    public function test_vocabulary_create_flow_source_and_active_then_completed_leaves_active(): void
+    {
+        $siteId = $this->uniqueSiteId();
+        $month = '2026-11';
+        $keywordId = 820000 + $this->seq;
+        $consumption = app(IdeaCandidateConsumptionService::class);
+
+        $claim = $consumption->claim(
+            $siteId,
+            SeoContentProjectItemOrigin::SOURCE_VOCABULARY_SUGGEST,
+            $keywordId,
+            'vocab phrase '.$this->seq,
+        );
+        self::assertTrue($claim['claimed']);
+
+        $draft = $this->createDraft($siteId, $month);
+        $task = $this->createTask($draft, $siteId, 'vocab phrase '.$this->seq, $month);
+        $consumption->attachTask((int) $claim['consumed_idea_id'], (int) $task->id);
+        $origin = SeoContentProjectItemOrigin::query()->create([
+            'project_task_id' => (int) $task->id,
+            'project_id' => (int) $draft->id,
+            'source_type' => SeoContentProjectItemOrigin::SOURCE_VOCABULARY_SUGGEST,
+            'source_fingerprint' => 'fp-vocab-'.$this->seq,
+        ]);
+        app(PlanningAttributionWriter::class)->writeForTask($task, $origin, [
+            'planning_month' => $month,
+            'cluster_ref' => 'clu_vocab',
+            'cluster_name_snapshot' => 'Vocab',
+            'dna_phrases' => ['vocab-dna'],
+            'allowed_cluster_refs' => ['clu_vocab'],
+        ]);
+
+        $draftAgg = app(SitePlanningActiveUnitAggregator::class)->forSiteMonth($siteId, $month);
+        self::assertSame(1, $draftAgg['planned']);
+        self::assertSame(1, (int) ($draftAgg['source_counts'][SeoContentProjectItemOrigin::SOURCE_VOCABULARY_SUGGEST] ?? 0));
+        self::assertSame(1, (int) ($draftAgg['attributed']['count'] ?? 0));
+
+        $execution = SeoProject::query()->create([
+            'site_id' => $siteId,
+            'user_id' => 1,
+            'name' => 'exec-vocab-'.$this->seq,
+            'month' => ContentProjectMonthContext::toDateString($month),
+            'status' => SeoProject::STATUS_PENDING,
+            'kind' => SeoProject::KIND_MONTHLY,
+            'total_tasks' => 1,
+            'source_draft_project_id' => (int) $draft->id,
+        ]);
+        $task->forceFill([
+            'project_id' => (int) $execution->id,
+            'status' => SeoProjectTask::STATUS_PENDING,
+            'planning_reviewed_at' => now(),
+        ])->save();
+
+        $execAgg = app(SitePlanningActiveUnitAggregator::class)->forSiteMonth($siteId, $month);
+        self::assertSame(1, $execAgg['planned']);
+        self::assertSame(1, (int) ($execAgg['source_counts'][SeoContentProjectItemOrigin::SOURCE_VOCABULARY_SUGGEST] ?? 0));
+
+        $task->forceFill([
+            'status' => SeoProjectTask::STATUS_COMPLETED,
+            'completed_at' => now(),
+            'article_id' => 900001 + $this->seq,
+        ])->save();
+
+        $done = app(SitePlanningActiveUnitAggregator::class)->forSiteMonth($siteId, $month);
+        self::assertSame(0, $done['planned']);
+        self::assertSame(0, (int) ($done['source_counts'][SeoContentProjectItemOrigin::SOURCE_VOCABULARY_SUGGEST] ?? 0));
+        self::assertTrue($consumption->isConsumed(
+            $siteId,
+            SeoContentProjectItemOrigin::SOURCE_VOCABULARY_SUGGEST,
+            $keywordId,
+        ));
+        self::assertNotNull(SeoContentProjectItemOrigin::query()->where('project_task_id', (int) $task->id)->first());
+        self::assertNotNull(SeoContentProjectTaskPlanningAttribution::query()->where('project_task_id', (int) $task->id)->first());
+    }
+
+    public function test_ai_new_content_flow_source_and_publish_leaves_active(): void
+    {
+        $siteId = $this->uniqueSiteId();
+        $month = '2026-11';
+        $draft = $this->createDraft($siteId, $month);
+        $task = $this->createTask($draft, $siteId, 'ai phrase '.$this->seq, $month, 'AI Title '.$this->seq);
+        $origin = SeoContentProjectItemOrigin::query()->create([
+            'project_task_id' => (int) $task->id,
+            'project_id' => (int) $draft->id,
+            'source_type' => SeoContentProjectItemOrigin::SOURCE_AI_NEW_CONTENT,
+            'source_fingerprint' => SeoContentProjectItemOrigin::planningFingerprint(
+                SeoContentProjectItemOrigin::SOURCE_AI_NEW_CONTENT,
+                'ai phrase '.$this->seq,
+                'AI Title '.$this->seq,
+            ),
+        ]);
+        app(PlanningAttributionWriter::class)->writeForTask($task, $origin, [
+            'planning_month' => $month,
+            'cluster_ref' => 'clu_ai',
+            'cluster_name_snapshot' => 'AI',
+            'dna_phrases' => ['ai-dna'],
+            'allowed_cluster_refs' => ['clu_ai'],
+        ]);
+
+        $execution = SeoProject::query()->create([
+            'site_id' => $siteId,
+            'user_id' => 1,
+            'name' => 'exec-ai-'.$this->seq,
+            'month' => ContentProjectMonthContext::toDateString($month),
+            'status' => SeoProject::STATUS_PENDING,
+            'kind' => SeoProject::KIND_MONTHLY,
+            'total_tasks' => 1,
+            'source_draft_project_id' => (int) $draft->id,
+        ]);
+        $task->forceFill([
+            'project_id' => (int) $execution->id,
+            'status' => SeoProjectTask::STATUS_PENDING,
+            'planning_reviewed_at' => now(),
+        ])->save();
+
+        $active = app(SitePlanningActiveUnitAggregator::class)->forSiteMonth($siteId, $month);
+        self::assertSame(1, $active['planned']);
+        self::assertSame(1, (int) ($active['source_counts'][SeoContentProjectItemOrigin::SOURCE_AI_NEW_CONTENT] ?? 0));
+        // Source provenance and MCP forecast are separate dimensions.
+        self::assertArrayHasKey('planning_mcp_share', $active['clusters'][0]);
+        self::assertArrayHasKey('actual_mcp_share', $active['clusters'][0]);
+        self::assertSame(
+            SeoContentProjectItemOrigin::SOURCE_AI_NEW_CONTENT,
+            $active['tasks'][0]['source_type'] ?? null,
+        );
+
+        $task->forceFill([
+            'publish_published_at' => now(),
+            'status' => SeoProjectTask::STATUS_COMPLETED,
+            'completed_at' => now(),
+        ])->save();
+
+        $published = app(SitePlanningActiveUnitAggregator::class)->forSiteMonth($siteId, $month);
+        self::assertSame(0, $published['planned']);
+        self::assertNotNull(SeoContentProjectItemOrigin::query()->where('project_task_id', (int) $task->id)->first());
+        self::assertNotNull(SeoContentProjectTaskPlanningAttribution::query()->where('project_task_id', (int) $task->id)->first());
     }
 
     private function createTask(

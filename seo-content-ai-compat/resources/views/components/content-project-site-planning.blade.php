@@ -189,6 +189,22 @@
                         <div>{{ __('seo-content-ai::filament.projects.site_planning_total_planned') }}: <span class="font-semibold" x-text="detail.totals?.planned ?? 0"></span></div>
                     </div>
 
+                    <div class="cp-site-planning__source-counts text-[11px] text-gray-600 dark:text-gray-300" data-site-planning-source-counts="1" x-show="detail.source_counts && Object.keys(detail.source_counts).length">
+                        <span class="font-medium">{{ __('seo-content-ai::filament.projects.site_planning_source_heading') }}:</span>
+                        <template x-for="(count, key) in (detail.source_counts || {})" :key="key">
+                            <span class="ml-1 inline-flex gap-0.5">
+                                <span x-text="key"></span>
+                                <span x-text="count"></span>
+                            </span>
+                        </template>
+                    </div>
+
+                    <div class="cp-site-planning__attr-counts text-[11px] text-gray-600 dark:text-gray-300" data-site-planning-attr-counts="1">
+                        <span>{{ __('seo-content-ai::filament.projects.site_planning_attributed') }}: <span class="font-semibold" x-text="detail.attributed?.count ?? 0"></span></span>
+                        <span class="mx-1" aria-hidden="true">·</span>
+                        <span>{{ __('seo-content-ai::filament.projects.site_planning_unattributed') }}: <span class="font-semibold" x-text="detail.unattributed?.count ?? 0"></span></span>
+                    </div>
+
                     <div class="cp-site-planning__clusters space-y-2">
                         <template x-for="(cluster, idx) in (detail.clusters || [])" :key="cluster.cluster_ref || idx">
                             <div class="cp-site-planning__cluster-row">
@@ -215,7 +231,7 @@
                         </template>
                     </div>
 
-                    <div x-show="(detail.unattributed?.count ?? 0) > 0" class="text-[11px] text-amber-700 dark:text-amber-300">
+                    <div x-show="(detail.unattributed?.count ?? 0) > 0 && (detail.clusters || []).length === 0" class="text-[11px] text-amber-700 dark:text-amber-300">
                         {{ __('seo-content-ai::filament.projects.site_planning_unattributed') }}:
                         <span x-text="detail.unattributed?.count ?? 0"></span>
                     </div>

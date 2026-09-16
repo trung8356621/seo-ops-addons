@@ -64,7 +64,8 @@ final class GlobalSeoBarDomainContextTest extends TestCase
 
         $this->assertStringContainsString('isProjectPlannerSeoAuditPage', $access);
         $this->assertStringContainsString('shouldRequireConcreteGlobalDomain', $access);
-        $this->assertStringContainsString('isProjectPlannerSeoAudit', $bar);
+        $this->assertStringContainsString('showPlannerActiveMonth', $bar);
+        $this->assertStringContainsString('isProjectPlannerSeoAuditPage()', $bar);
         $this->assertStringContainsString('hideAllDomainsOption', $bar);
 
         $this->assertNotContains(RefreshesOnDomainContextChanged::class, class_uses(ListSeoProjects::class) ?: []);

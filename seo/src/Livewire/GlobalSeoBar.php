@@ -31,18 +31,27 @@ class GlobalSeoBar extends Component
     /** Planner-only active month (YYYY-MM), synced via Livewire event + URL on ContentProjectSeoAuditPlanner. */
     public string $plannerActiveMonth = '';
 
+    /**
+     * Stable Project Planner page flag — set once on initial full-page mount.
+     * Must NOT re-resolve from current request route: Livewire POSTs hit /livewire/update.
+     */
+    public bool $showPlannerActiveMonth = false;
+
     public function mount(): void
     {
         SeoAccessControl::forgetLegacyGlobalSitePersistence();
 
+        // Capture planner context from the full-page GET only (route + path). Persists across Livewire updates.
+        $this->showPlannerActiveMonth = SeoAccessControl::isProjectPlannerSeoAuditPage();
+
         $resolver = app(DomainContextResolver::class);
-        if ($this->shouldPreferFirstAccessibleDomain() || SeoPanelRoutes::isProjectPlannerSeoAudit()) {
+        if ($this->shouldPreferFirstAccessibleDomain() || $this->showPlannerActiveMonth) {
             $this->applyContext($this->resolvePreferredKeywordIntelligenceContext($resolver));
         } else {
             $this->applyContext($resolver->current());
         }
 
-        if (SeoPanelRoutes::isProjectPlannerSeoAudit()) {
+        if ($this->showPlannerActiveMonth) {
             $this->plannerActiveMonth = \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::normalize(
                 \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::parseOrNull(
                     request()->query('month'),
@@ -90,7 +99,7 @@ class GlobalSeoBar extends Component
             $context = DomainContext::all();
         }
 
-        if ($context->isAllDomains && SeoPanelRoutes::isProjectPlannerSeoAudit()) {
+        if ($context->isAllDomains && $this->showPlannerActiveMonth) {
             $context = $this->resolvePreferredKeywordIntelligenceContext(app(DomainContextResolver::class));
         }
 
@@ -180,8 +189,8 @@ class GlobalSeoBar extends Component
             'showContentProjectPicker' => $showContentProjectPicker && SeoAccessControl::shouldShowGlobalSitePicker(),
             'contentProjectOptions' => $contentProjectOptions,
             'writingSplitEnabled' => $this->writingSplitEnabled,
-            'showPlannerActiveMonth' => SeoPanelRoutes::isProjectPlannerSeoAudit(),
-            'plannerMonthOptions' => SeoPanelRoutes::isProjectPlannerSeoAudit()
+            'showPlannerActiveMonth' => $this->showPlannerActiveMonth,
+            'plannerMonthOptions' => $this->showPlannerActiveMonth
                 ? \Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext::selectOptions()
                 : [],
         ]);

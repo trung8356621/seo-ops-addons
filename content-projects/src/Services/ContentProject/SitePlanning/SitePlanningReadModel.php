@@ -120,7 +120,9 @@ final class SitePlanningReadModel
                 'execution' => $agg['execution'],
                 'by_status' => $agg['by_status'],
             ],
+            'source_counts' => $agg['source_counts'] ?? [],
             'clusters' => $agg['clusters'],
+            'attributed' => $agg['attributed'] ?? ['count' => 0, 'task_ids' => []],
             'unattributed' => $agg['unattributed'],
             'tasks' => $agg['tasks'],
             /**

@@ -3855,6 +3855,8 @@ return [
         'site_planning_total_draft' => 'Draft',
         'site_planning_total_execution' => 'Execution',
         'site_planning_total_planned' => 'Planned units',
+        'site_planning_source_heading' => 'Source',
+        'site_planning_attributed' => 'Cluster attributed',
         'site_planning_articles_unit' => 'articles',
         'site_planning_mcp_forecast' => 'forecast',
         'site_planning_mcp_planning' => 'Planning +N',

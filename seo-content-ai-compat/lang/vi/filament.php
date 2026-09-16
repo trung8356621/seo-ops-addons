@@ -3834,6 +3834,8 @@ return [
         'site_planning_total_draft' => 'Draft',
         'site_planning_total_execution' => 'Execution',
         'site_planning_total_planned' => 'Tổng unit',
+        'site_planning_source_heading' => 'Nguồn',
+        'site_planning_attributed' => 'Đã gán cluster',
         'site_planning_articles_unit' => 'bài',
         'site_planning_mcp_forecast' => 'dự kiến',
         'site_planning_mcp_planning' => 'Planning +N',

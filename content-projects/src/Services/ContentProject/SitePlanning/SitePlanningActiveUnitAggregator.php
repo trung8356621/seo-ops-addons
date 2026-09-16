@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Schema;
 use Omnichannel\Addons\ContentProjects\Models\SeoProject;
 use Omnichannel\Addons\ContentProjects\Models\SeoProjectTask;
+use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectItemOrigin;
 use Omnichannel\Addons\ContentProjects\Models\SeoContentProjectTaskPlanningAttribution;
 use Omnichannel\Addons\ContentProjects\Support\ContentProject\ContentProjectMonthContext;
 use Omnichannel\Addons\SearchIntelligence\Services\SiteMcp\SiteMcpTopicalProfileService;
@@ -16,14 +17,22 @@ use Omnichannel\Addons\SearchIntelligence\Services\SiteMcp\SiteMcpTopicalProfile
  * Active Site Planning units: Shared Draft (by planning_month) + active execution (by project month).
  * Deduped by canonical project_task_id — Draft→execution move must not double-count.
  *
+ * Terminal lifecycle (published / completed / archived) is excluded via
+ * {@see SitePlanningActiveUnitPredicate} — same predicate for matrix + Month Detail.
+ *
  * planning_mcp_share (per cluster, per site/month) =
  *   distinct active attributed tasks in cluster
  *   / distinct active attributed tasks for site+month
  *   × 100
  * (rounded to 1 decimal). NOT actual Site MCP %.
+ *
+ * source_counts is provenance (item origin), separate from cluster attribution.
  */
 final class SitePlanningActiveUnitAggregator
 {
+    /** Read-model only: no origin row — never invent DB provenance. */
+    public const SOURCE_UNKNOWN = 'unknown';
+
     public function __construct(
         private readonly ?SiteMcpTopicalProfileService $mcpProfile = null,
     ) {}
@@ -36,6 +45,8 @@ final class SitePlanningActiveUnitAggregator
      *   by_status: array<string, int>,
      *   clusters: list<array<string, mixed>>,
      *   unattributed: array{count: int, task_ids: list<int>},
+     *   attributed: array{count: int, task_ids: list<int>},
+     *   source_counts: array<string, int>,
      *   tasks: list<array<string, mixed>>
      * }
      */
@@ -48,6 +59,7 @@ final class SitePlanningActiveUnitAggregator
 
         $units = $this->loadUnits($siteId, $month);
         $attributions = $this->loadAttributions(array_keys($units));
+        $origins = $this->loadOrigins(array_keys($units));
 
         $draft = 0;
         $execution = 0;
@@ -62,6 +74,8 @@ final class SitePlanningActiveUnitAggregator
         $clusterBuckets = [];
         $unattributedIds = [];
         $attributedTaskIds = [];
+        $attributedIdsList = [];
+        $sourceCounts = [];
         $taskRows = [];
 
         foreach ($units as $taskId => $unit) {
@@ -75,6 +89,12 @@ final class SitePlanningActiveUnitAggregator
             $status = $this->normalizeStatusBucket($unit);
             $byStatus[$status] = (int) ($byStatus[$status] ?? 0) + 1;
 
+            $origin = $origins[$taskId] ?? null;
+            $sourceType = is_array($origin)
+                ? $this->normalizeSourceType((string) ($origin['source_type'] ?? ''))
+                : self::SOURCE_UNKNOWN;
+            $sourceCounts[$sourceType] = (int) ($sourceCounts[$sourceType] ?? 0) + 1;
+
             $attr = $attributions[$taskId] ?? null;
             $clusterRef = is_array($attr) ? trim((string) ($attr['cluster_ref'] ?? '')) : '';
             $dna = is_array($attr) && is_array($attr['dna_phrases'] ?? null)
@@ -85,6 +105,7 @@ final class SitePlanningActiveUnitAggregator
                 $unattributedIds[] = $taskId;
             } else {
                 $attributedTaskIds[$taskId] = true;
+                $attributedIdsList[] = $taskId;
                 if (! isset($clusterBuckets[$clusterRef])) {
                     $clusterBuckets[$clusterRef] = [
                         'cluster_ref' => $clusterRef,
@@ -112,12 +133,17 @@ final class SitePlanningActiveUnitAggregator
                 'keyword' => $unit['keyword'],
                 'title' => $unit['title'],
                 'article_id' => $unit['article_id'],
+                'source_type' => $sourceType,
+                'source_fingerprint' => is_array($origin) ? ($origin['source_fingerprint'] ?? null) : null,
+                'source_article_id' => is_array($origin) ? ($origin['source_article_id'] ?? null) : null,
                 'cluster_ref' => $clusterRef !== '' ? $clusterRef : null,
                 'attribution_status' => $clusterRef !== ''
                     ? SeoContentProjectTaskPlanningAttribution::STATUS_ATTRIBUTED
                     : SeoContentProjectTaskPlanningAttribution::STATUS_UNATTRIBUTED,
             ];
         }
+
+        ksort($sourceCounts);
 
         $attributedTotal = count($attributedTaskIds);
         $actualMcp = $this->actualMcpByCluster($siteId);
@@ -156,6 +182,11 @@ final class SitePlanningActiveUnitAggregator
                 'count' => count($unattributedIds),
                 'task_ids' => $unattributedIds,
             ],
+            'attributed' => [
+                'count' => count($attributedIdsList),
+                'task_ids' => $attributedIdsList,
+            ],
+            'source_counts' => $sourceCounts,
             'tasks' => $taskRows,
         ];
     }
@@ -267,12 +298,10 @@ final class SitePlanningActiveUnitAggregator
         }
 
         $query = DB::connection('omi_seo_ai')->table('seo_project_tasks as t')
-            ->join('seo_projects as p', 'p.id', '=', 't.project_id')
-            ->whereNull('t.archived_at')
-            ->whereNull('t.deleted_at')
-            ->where('t.status', '!=', SeoProjectTask::STATUS_CANCELLED)
+            ->join('seo_projects as p', 'p.id', '=', 't.project_id');
+        SitePlanningActiveUnitPredicate::constrainQuery($query);
+        $query
             ->where('p.status', SeoProject::STATUS_DRAFT)
-            ->whereNull('p.archived_at')
             ->select([
                 't.id',
                 't.site_id',
@@ -280,12 +309,16 @@ final class SitePlanningActiveUnitAggregator
                 't.title',
                 't.article_id',
                 't.status',
+                't.archived_at',
+                't.deleted_at',
                 't.scheduled_publish_at',
                 't.publish_published_at',
                 't.planning_month',
                 't.created_at',
                 't.target_date',
                 'p.month as project_month',
+                'p.status as project_status',
+                'p.archived_at as project_archived_at',
             ]);
 
         if ($siteId !== null && $siteId > 0) {
@@ -308,6 +341,9 @@ final class SitePlanningActiveUnitAggregator
 
         // Filter legacy null planning_month with deterministic backfill matching $month.
         return $rows->filter(function (object $row) use ($month): bool {
+            if (! SitePlanningActiveUnitPredicate::acceptsRow($row)) {
+                return false;
+            }
             $resolved = PlanningMonthBackfill::resolve([
                 'planning_month' => $row->planning_month ?? null,
                 'created_at' => $row->created_at ?? null,
@@ -335,12 +371,10 @@ final class SitePlanningActiveUnitAggregator
         );
 
         $query = DB::connection('omi_seo_ai')->table('seo_project_tasks as t')
-            ->join('seo_projects as p', 'p.id', '=', 't.project_id')
-            ->whereNull('t.archived_at')
-            ->whereNull('t.deleted_at')
-            ->where('t.status', '!=', SeoProjectTask::STATUS_CANCELLED)
+            ->join('seo_projects as p', 'p.id', '=', 't.project_id');
+        SitePlanningActiveUnitPredicate::constrainQuery($query);
+        $query
             ->where('p.status', '!=', SeoProject::STATUS_DRAFT)
-            ->whereNull('p.archived_at')
             ->select([
                 't.id',
                 't.site_id',
@@ -348,12 +382,16 @@ final class SitePlanningActiveUnitAggregator
                 't.title',
                 't.article_id',
                 't.status',
+                't.archived_at',
+                't.deleted_at',
                 't.scheduled_publish_at',
                 't.publish_published_at',
                 't.planning_month',
                 't.created_at',
                 't.target_date',
                 'p.month as project_month',
+                'p.status as project_status',
+                'p.archived_at as project_archived_at',
             ]);
 
         if ($siteId !== null && $siteId > 0) {
@@ -376,6 +414,9 @@ final class SitePlanningActiveUnitAggregator
         $rows = $query->get();
 
         return $rows->filter(function (object $row) use ($month): bool {
+            if (! SitePlanningActiveUnitPredicate::acceptsRow($row)) {
+                return false;
+            }
             $resolved = PlanningMonthBackfill::resolve([
                 'planning_month' => $row->planning_month ?? null,
                 'created_at' => $row->created_at ?? null,
@@ -386,6 +427,46 @@ final class SitePlanningActiveUnitAggregator
 
             return $resolved === $month;
         })->values();
+    }
+
+    /**
+     * @param  list<int>  $taskIds
+     * @return array<int, array<string, mixed>>
+     */
+    private function loadOrigins(array $taskIds): array
+    {
+        $taskIds = array_values(array_filter(array_map('intval', $taskIds)));
+        if ($taskIds === [] || ! Schema::connection('omi_seo_ai')->hasTable('seo_content_project_item_origins')) {
+            return [];
+        }
+
+        $rows = SeoContentProjectItemOrigin::query()
+            ->whereIn('project_task_id', $taskIds)
+            ->get(['project_task_id', 'source_type', 'source_fingerprint', 'source_article_id']);
+
+        $out = [];
+        foreach ($rows as $row) {
+            $out[(int) $row->project_task_id] = [
+                'source_type' => (string) ($row->source_type ?? ''),
+                'source_fingerprint' => $row->source_fingerprint,
+                'source_article_id' => ((int) ($row->source_article_id ?? 0)) ?: null,
+            ];
+        }
+
+        return $out;
+    }
+
+    private function normalizeSourceType(string $raw): string
+    {
+        $type = strtolower(trim($raw));
+        $known = [
+            SeoContentProjectItemOrigin::SOURCE_VOCABULARY_SUGGEST,
+            SeoContentProjectItemOrigin::SOURCE_AI_NEW_CONTENT,
+            SeoContentProjectItemOrigin::SOURCE_SEO_AUDIT,
+            SeoContentProjectItemOrigin::SOURCE_MANUAL,
+        ];
+
+        return in_array($type, $known, true) ? $type : self::SOURCE_UNKNOWN;
     }
 
     /**
@@ -522,6 +603,8 @@ final class SitePlanningActiveUnitAggregator
      *   by_status: array<string, int>,
      *   clusters: list<array<string, mixed>>,
      *   unattributed: array{count: int, task_ids: list<int>},
+     *   attributed: array{count: int, task_ids: list<int>},
+     *   source_counts: array<string, int>,
      *   tasks: list<array<string, mixed>>
      * }
      */
@@ -541,6 +624,8 @@ final class SitePlanningActiveUnitAggregator
             ],
             'clusters' => [],
             'unattributed' => ['count' => 0, 'task_ids' => []],
+            'attributed' => ['count' => 0, 'task_ids' => []],
+            'source_counts' => [],
             'tasks' => [],
         ];
     }
