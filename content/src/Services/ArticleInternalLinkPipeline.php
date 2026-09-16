@@ -313,7 +313,8 @@ final class ArticleInternalLinkPipeline
                 'text' => $phrase,
                 'keyword_id' => $keywordId,
                 'href' => $href,
-                'target_url' => $href,
+                // Unresolved: href='#' is editor presentation only — no real destination.
+                'target_url' => $destinationResolved ? $href : null,
                 'target_article_id' => $targetArticleId > 0 ? $targetArticleId : null,
                 'destination_resolved' => $destinationResolved,
                 'can_insert' => true,

@@ -118,13 +118,34 @@ final class ArticleInternalLinkPriorityMerger
     }
 
     /**
-     * Accept full URLs or already-normalized host/path keys from the pipeline.
+     * Destination-only dedupe key. Presentation placeholders (#, #fragment, javascript:)
+     * must not collide — unresolved anchors still dedupe via seenLabels.
+     *
+     * Accepts full URLs or already-normalized host/path keys from the pipeline.
      * Re-running normalize() on host/path keys yields '' (no scheme → no host).
      */
     private function urlDedupeKey(string $url): string
     {
         $raw = trim($url);
         if ($raw === '') {
+            return '';
+        }
+
+        if (SeoSuggestionUrlNormalizer::isPlaceholder($raw)) {
+            return '';
+        }
+
+        // Hash-only / in-page fragments are editor presentation, not destinations.
+        if (str_starts_with($raw, '#')) {
+            return '';
+        }
+
+        $lower = strtolower($raw);
+        if (
+            str_starts_with($lower, 'javascript:')
+            || str_starts_with($lower, 'data:')
+            || str_starts_with($lower, 'vbscript:')
+        ) {
             return '';
         }
 
